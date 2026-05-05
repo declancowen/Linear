@@ -3,8 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 
 import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
-import { createEmptyState } from "@/lib/domain/empty-state"
+import { getChatWelcomeIntroDisplay } from "@/components/app/collaboration-screens/chat-welcome-display"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  createTestUser,
+  createTestWorkspaceShellData,
+} from "@/tests/lib/fixtures/app-data"
 
 const useChatPresenceMock = vi.hoisted(() => vi.fn())
 
@@ -40,117 +44,84 @@ vi.mock("next/navigation", () => ({
   }),
 }))
 
-const currentUser = {
+const currentUser = createTestUser({
   id: "user_current",
   name: "Current User",
   handle: "current-user",
   email: "current@example.com",
-  avatarUrl: "",
-  avatarImageUrl: null,
-  workosUserId: null,
   title: "Founder",
-  status: "active" as const,
-  statusMessage: "",
   hasExplicitStatus: false,
-  accountDeletionPendingAt: null,
-  accountDeletedAt: null,
-  preferences: {
-    emailMentions: true,
-    emailAssignments: true,
-    emailDigest: true,
-    theme: "system" as const,
-  },
-}
+})
 
-const formerUser = {
+const formerUser = createTestUser({
   id: "user_former",
   name: "Declan Cowen",
   handle: "declan-cowen",
   email: "declan@example.com",
-  avatarUrl: "",
-  avatarImageUrl: null,
-  workosUserId: null,
   title: "Product Owner",
-  status: "out-of-office" as const,
+  status: "out-of-office",
   statusMessage: "Away",
   hasExplicitStatus: true,
-  accountDeletionPendingAt: null,
-  accountDeletedAt: null,
-  preferences: {
-    emailMentions: true,
-    emailAssignments: true,
-    emailDigest: true,
-    theme: "system" as const,
-  },
-}
+})
 
-const markUser = {
+const markUser = createTestUser({
   id: "user_mark",
   name: "Mark Chen",
   handle: "mark-chen",
   email: "mark@example.com",
-  avatarUrl: "",
-  avatarImageUrl: null,
-  workosUserId: null,
   title: "Designer",
-  status: "active" as const,
-  statusMessage: "",
   hasExplicitStatus: false,
-  accountDeletionPendingAt: null,
-  accountDeletedAt: null,
-  preferences: {
-    emailMentions: true,
-    emailAssignments: true,
-    emailDigest: true,
-    theme: "system" as const,
-  },
-}
+})
 
-const aliceUser = {
+const aliceUser = createTestUser({
   id: "user_alice",
   name: "Alice Park",
   handle: "alice-park",
   email: "alice@example.com",
-  avatarUrl: "",
-  avatarImageUrl: null,
-  workosUserId: null,
   title: "Engineer",
-  status: "active" as const,
-  statusMessage: "",
   hasExplicitStatus: false,
-  accountDeletionPendingAt: null,
-  accountDeletedAt: null,
-  preferences: {
-    emailMentions: true,
-    emailAssignments: true,
-    emailDigest: true,
-    theme: "system" as const,
-  },
-}
+})
 
-const zoeUser = {
+const zoeUser = createTestUser({
   id: "user_zoe",
   name: "Zoe Kim",
   handle: "zoe-kim",
   email: "zoe@example.com",
-  avatarUrl: "",
-  avatarImageUrl: null,
-  workosUserId: null,
   title: "PM",
-  status: "active" as const,
-  statusMessage: "",
   hasExplicitStatus: false,
-  accountDeletionPendingAt: null,
-  accountDeletedAt: null,
-  preferences: {
-    emailMentions: true,
-    emailAssignments: true,
-    emailDigest: true,
-    theme: "system" as const,
-  },
-}
+})
 
 const toggleChatMessageReactionMock = vi.fn()
+
+function createReactionMessage() {
+  return {
+    id: "message_1",
+    conversationId: "conversation_1",
+    kind: "text" as const,
+    content: "<p>Hello</p>",
+    callId: null,
+    mentionUserIds: [],
+    reactions: [
+      {
+        emoji: "👍",
+        userIds: [formerUser.id],
+      },
+    ],
+    createdBy: formerUser.id,
+    createdAt: "2026-04-15T12:00:00.000Z",
+  }
+}
+
+function renderDirectChatThread() {
+  render(
+    <ChatThread
+      conversationId="conversation_1"
+      title="Declan Cowen"
+      description=""
+      members={[currentUser, formerUser]}
+    />
+  )
+}
 
 beforeEach(() => {
   toggleChatMessageReactionMock.mockReset()
@@ -160,28 +131,10 @@ beforeEach(() => {
     setTyping: vi.fn(),
   })
   useAppStore.setState({
-    ...createEmptyState(),
-    currentUserId: currentUser.id,
-    currentWorkspaceId: "workspace_1",
-    workspaces: [
-      {
-        id: "workspace_1",
-        slug: "workspace-1",
-        name: "Workspace 1",
-        logoUrl: "",
-        logoImageUrl: null,
-        createdBy: currentUser.id,
-        workosOrganizationId: null,
-        settings: {
-          accent: "#000000",
-          description: "",
-        },
-      },
-    ],
-    workspaceMemberships: [],
-    teams: [],
-    teamMemberships: [],
-    users: [currentUser, formerUser],
+    ...createTestWorkspaceShellData({
+      currentUserId: currentUser.id,
+      users: [currentUser, formerUser],
+    }),
     conversations: [
       {
         id: "conversation_1",
@@ -206,6 +159,42 @@ beforeEach(() => {
 })
 
 describe("ChatThread", () => {
+  it("resolves welcome intro display from fallback and workspace presence view", () => {
+    expect(
+      getChatWelcomeIntroDisplay({
+        title: "Direct chat",
+        welcomeParticipant: formerUser,
+        welcomeParticipantView: null,
+      })
+    ).toMatchObject({
+      avatarName: "Declan Cowen",
+      name: "Declan Cowen",
+      showStatus: true,
+    })
+
+    expect(
+      getChatWelcomeIntroDisplay({
+        title: "Direct chat",
+        welcomeParticipant: formerUser,
+        welcomeParticipantView: {
+          avatarImageUrl: "https://example.com/declan-image.png",
+          avatarUrl: "https://example.com/declan-avatar.png",
+          id: formerUser.id,
+          isFormerMember: true,
+          name: "Former teammate",
+          status: "offline",
+        } as never,
+      })
+    ).toMatchObject({
+      avatarImageUrl: "https://example.com/declan-image.png",
+      avatarName: "Former teammate",
+      avatarUrl: "https://example.com/declan-avatar.png",
+      name: "Former teammate",
+      showStatus: false,
+      status: "offline",
+    })
+  })
+
   it("shows a loading state before the first thread refresh completes", () => {
     render(
       <ChatThread
@@ -243,34 +232,10 @@ describe("ChatThread", () => {
 
   it("routes chat-message reaction clicks through the store action", () => {
     useAppStore.setState({
-      chatMessages: [
-        {
-          id: "message_1",
-          conversationId: "conversation_1",
-          kind: "text",
-          content: "<p>Hello</p>",
-          callId: null,
-          mentionUserIds: [],
-          reactions: [
-            {
-              emoji: "👍",
-              userIds: [formerUser.id],
-            },
-          ],
-          createdBy: formerUser.id,
-          createdAt: "2026-04-15T12:00:00.000Z",
-        },
-      ],
+      chatMessages: [createReactionMessage()],
     })
 
-    render(
-      <ChatThread
-        conversationId="conversation_1"
-        title="Declan Cowen"
-        description=""
-        members={[currentUser, formerUser]}
-      />
-    )
+    renderDirectChatThread()
 
     fireEvent.click(screen.getByText("👍").closest("button") as HTMLButtonElement)
 
@@ -279,34 +244,10 @@ describe("ChatThread", () => {
 
   it("renders the react trigger after active reaction pills", () => {
     useAppStore.setState({
-      chatMessages: [
-        {
-          id: "message_1",
-          conversationId: "conversation_1",
-          kind: "text",
-          content: "<p>Hello</p>",
-          callId: null,
-          mentionUserIds: [],
-          reactions: [
-            {
-              emoji: "👍",
-              userIds: [formerUser.id],
-            },
-          ],
-          createdBy: formerUser.id,
-          createdAt: "2026-04-15T12:00:00.000Z",
-        },
-      ],
+      chatMessages: [createReactionMessage()],
     })
 
-    render(
-      <ChatThread
-        conversationId="conversation_1"
-        title="Declan Cowen"
-        description=""
-        members={[currentUser, formerUser]}
-      />
-    )
+    renderDirectChatThread()
 
     const reactionButton = screen.getByText("👍").closest(
       "button"

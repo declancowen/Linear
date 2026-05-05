@@ -1,22 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { createProjectSlice as createProjectSliceType } from "@/lib/store/app-store-internal/slices/projects"
 
-import { createEmptyState } from "@/lib/domain/empty-state"
 import {
-  createDefaultTeamFeatureSettings,
-  createDefaultTeamWorkflowSettings,
-} from "@/lib/domain/types"
+  createTestAppData,
+  createTestProject,
+  createTestTeamMembership,
+} from "@/tests/lib/fixtures/app-data"
+import {
+  createMutableSetState,
+  createToastMockModule,
+  withLosAngelesFakeSystemTime,
+} from "@/tests/lib/fixtures/store"
 
 const syncCreateProjectMock = vi.fn()
 const syncRenameProjectMock = vi.fn()
 const toastSuccessMock = vi.fn()
 const toastErrorMock = vi.fn()
 
-vi.mock("sonner", () => ({
-  toast: {
-    success: toastSuccessMock,
-    error: toastErrorMock,
-  },
-}))
+vi.mock("sonner", () =>
+  createToastMockModule({ error: toastErrorMock, success: toastSuccessMock })
+)
 
 vi.mock("@/lib/convex/client", () => ({
   syncCreateProject: syncCreateProjectMock,
@@ -26,36 +29,33 @@ vi.mock("@/lib/convex/client", () => ({
 }))
 
 function createProjectTestState(role: "admin" | "member" | "viewer") {
+  return createTestAppData({
+    teamMemberships: [createTestTeamMembership({ role })],
+  })
+}
+
+type CreateProjectSlice = typeof createProjectSliceType
+
+function createProjectSliceHarness(
+  createProjectSlice: CreateProjectSlice,
+  role: "admin" | "member" | "viewer"
+) {
+  const state = createProjectTestState(role)
+  const syncInBackgroundMock = vi.fn()
+  const setState = createMutableSetState(state)
+  const slice = createProjectSlice(
+    setState as never,
+    () => state as never,
+    {
+      syncInBackground: syncInBackgroundMock,
+    } as never
+  )
+
   return {
-    ...createEmptyState(),
-    currentUserId: "user_1",
-    currentWorkspaceId: "workspace_1",
-    teams: [
-      {
-        id: "team_1",
-        workspaceId: "workspace_1",
-        slug: "platform",
-        name: "Platform",
-        icon: "robot",
-        settings: {
-          joinCode: "JOIN1234",
-          summary: "Platform team",
-          guestProjectIds: [],
-          guestDocumentIds: [],
-          guestWorkItemIds: [],
-          experience: "software-development" as const,
-          features: createDefaultTeamFeatureSettings("software-development"),
-          workflow: createDefaultTeamWorkflowSettings("software-development"),
-        },
-      },
-    ],
-    teamMemberships: [
-      {
-        teamId: "team_1",
-        userId: "user_1",
-        role,
-      },
-    ],
+    setState,
+    slice,
+    state,
+    syncInBackgroundMock,
   }
 }
 
@@ -72,22 +72,9 @@ describe("project slice", () => {
       "@/lib/store/app-store-internal/slices/projects"
     )
 
-    const state = createProjectTestState("member")
-    const syncInBackgroundMock = vi.fn()
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      Object.assign(state, patch)
-    })
-    const slice = createProjectSlice(
-      setState as never,
-      () => state as never,
-      {
-        syncInBackground: syncInBackgroundMock,
-      } as never
+    const { slice, state, syncInBackgroundMock } = createProjectSliceHarness(
+      createProjectSlice,
+      "member"
     )
 
     slice.createProject({
@@ -112,22 +99,9 @@ describe("project slice", () => {
       "@/lib/store/app-store-internal/slices/projects"
     )
 
-    const state = createProjectTestState("viewer")
-    const syncInBackgroundMock = vi.fn()
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      Object.assign(state, patch)
-    })
-    const slice = createProjectSlice(
-      setState as never,
-      () => state as never,
-      {
-        syncInBackground: syncInBackgroundMock,
-      } as never
+    const { slice, state, syncInBackgroundMock } = createProjectSliceHarness(
+      createProjectSlice,
+      "viewer"
     )
 
     slice.createProject({
@@ -151,22 +125,9 @@ describe("project slice", () => {
       "@/lib/store/app-store-internal/slices/projects"
     )
 
-    const state = createProjectTestState("member")
-    const syncInBackgroundMock = vi.fn()
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      Object.assign(state, patch)
-    })
-    const slice = createProjectSlice(
-      setState as never,
-      () => state as never,
-      {
-        syncInBackground: syncInBackgroundMock,
-      } as never
+    const { slice, state, syncInBackgroundMock } = createProjectSliceHarness(
+      createProjectSlice,
+      "member"
     )
 
     slice.createProject({
@@ -191,13 +152,7 @@ describe("project slice", () => {
   })
 
   it("defaults project schedule dates from the local calendar day", async () => {
-    const previousTimeZone = process.env.TZ
-    process.env.TZ = "America/Los_Angeles"
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date(2026, 3, 20, 23, 30))
-    vi.resetModules()
-
-    try {
+    await withLosAngelesFakeSystemTime(async () => {
       const { formatLocalCalendarDate, addLocalCalendarDays } = await import(
         "@/lib/calendar-date"
       )
@@ -205,22 +160,9 @@ describe("project slice", () => {
         "@/lib/store/app-store-internal/slices/projects"
       )
 
-      const state = createProjectTestState("member")
-      const syncInBackgroundMock = vi.fn()
-      const setState = vi.fn((update: unknown) => {
-        const patch =
-          typeof update === "function"
-            ? update(state as never)
-            : update
-
-        Object.assign(state, patch)
-      })
-      const slice = createProjectSlice(
-        setState as never,
-        () => state as never,
-        {
-          syncInBackground: syncInBackgroundMock,
-        } as never
+      const { slice, state } = createProjectSliceHarness(
+        createProjectSlice,
+        "member"
       )
 
       slice.createProject({
@@ -246,11 +188,7 @@ describe("project slice", () => {
         startDate: formatLocalCalendarDate(),
         targetDate: addLocalCalendarDays(28),
       })
-    } finally {
-      process.env.TZ = previousTimeZone
-      vi.useRealTimers()
-      vi.resetModules()
-    }
+    })
   })
 
   it("rejects overly long project rename input before syncing", async () => {
@@ -258,47 +196,26 @@ describe("project slice", () => {
       "@/lib/store/app-store-internal/slices/projects"
     )
 
-    const state = {
-      ...createProjectTestState("member"),
-      projects: [
-        {
-          id: "project_1",
-          scopeType: "team" as const,
-          scopeId: "team_1",
-          templateType: "software-delivery" as const,
-          name: "Launch",
-          summary: "Launch summary",
-          description: "Launch summary",
-          leadId: "user_1",
-          memberIds: ["user_1"],
-          health: "no-update" as const,
-          priority: "medium" as const,
-          status: "backlog" as const,
-          blockingProjectIds: [],
-          blockedByProjectIds: [],
-          startDate: null,
-          targetDate: null,
-          labelIds: [],
-          createdAt: "2026-04-20T10:00:00.000Z",
-          updatedAt: "2026-04-20T10:00:00.000Z",
-        },
-      ],
-    }
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      Object.assign(state, patch)
-    })
-    const slice = createProjectSlice(
-      setState as never,
-      () => state as never,
-      {
-        syncInBackground: vi.fn(),
-      } as never
+    const { slice, state } = createProjectSliceHarness(
+      createProjectSlice,
+      "member"
     )
+    state.projects = [
+      createTestProject({
+        id: "project_1",
+        templateType: "software-delivery",
+        name: "Launch",
+        summary: "Launch summary",
+        description: "Launch summary",
+        memberIds: ["user_1"],
+        health: "no-update",
+        blockingProjectIds: [],
+        blockedByProjectIds: [],
+        labelIds: [],
+        createdAt: "2026-04-20T10:00:00.000Z",
+        updatedAt: "2026-04-20T10:00:00.000Z",
+      }),
+    ]
 
     const result = await slice.renameProject("project_1", "x".repeat(65))
 
@@ -314,22 +231,9 @@ describe("project slice", () => {
       "@/lib/store/app-store-internal/slices/projects"
     )
 
-    const state = createProjectTestState("member")
-    const syncInBackgroundMock = vi.fn()
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      Object.assign(state, patch)
-    })
-    const slice = createProjectSlice(
-      setState as never,
-      () => state as never,
-      {
-        syncInBackground: syncInBackgroundMock,
-      } as never
+    const { slice, state, syncInBackgroundMock } = createProjectSliceHarness(
+      createProjectSlice,
+      "member"
     )
 
     slice.createProject({

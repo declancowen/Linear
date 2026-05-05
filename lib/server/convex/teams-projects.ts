@@ -1,12 +1,11 @@
 import { api } from "@/convex/_generated/api"
+import type { AuthenticatedCreateProjectInput } from "@/lib/domain/project-inputs"
 import type {
   Priority,
-  ProjectPresentationConfig,
   ProjectStatus,
   Role,
   TeamExperienceType,
   TeamWorkflowSettings,
-  TemplateType,
 } from "@/lib/domain/types"
 import { coerceApplicationError } from "@/lib/server/application-errors"
 
@@ -14,6 +13,24 @@ import { getConvexServerClient, withServerToken } from "./core"
 import { resolveServerOrigin } from "../request-origin"
 
 const TEAM_JOIN_CODE_CONFLICT_MATCH = /join code (already exists|is already in use)/i
+
+type TeamFeatureSettingsInput = {
+  issues: boolean
+  projects: boolean
+  views: boolean
+  docs: boolean
+  chat: boolean
+  channels: boolean
+}
+
+type TeamDetailsMutationInput = {
+  currentUserId: string
+  name: string
+  icon: string
+  summary: string
+  experience: TeamExperienceType
+  features: TeamFeatureSettingsInput
+}
 
 const REGENERATE_TEAM_JOIN_CODE_ERROR_MAPPINGS = [
   {
@@ -303,23 +320,9 @@ export async function joinTeamByCodeServer(input: {
   }
 }
 
-export async function createProjectServer(input: {
-  currentUserId: string
-  scopeType: "team" | "workspace"
-  scopeId: string
-  templateType: TemplateType
-  name: string
-  summary: string
-  status?: ProjectStatus
-  priority: Priority
-  leadId?: string | null
-  memberIds?: string[]
-  startDate?: string | null
-  targetDate?: string | null
-  labelIds?: string[]
-  settingsTeamId?: string | null
-  presentation?: ProjectPresentationConfig
-}) {
+export async function createProjectServer(
+  input: AuthenticatedCreateProjectInput
+) {
   try {
     return await getConvexServerClient().mutation(
       api.app.createProject,
@@ -422,23 +425,12 @@ export async function updateTeamMemberRoleServer(input: {
   }
 }
 
-export async function updateTeamDetailsServer(input: {
-  currentUserId: string
-  teamId: string
-  name: string
-  icon: string
-  summary: string
-  joinCode?: string
-  experience: TeamExperienceType
-  features: {
-    issues: boolean
-    projects: boolean
-    views: boolean
-    docs: boolean
-    chat: boolean
-    channels: boolean
+export async function updateTeamDetailsServer(
+  input: TeamDetailsMutationInput & {
+    teamId: string
+    joinCode?: string
   }
-}) {
+) {
   try {
     return await getConvexServerClient().mutation(
       api.app.updateTeamDetails,
@@ -452,23 +444,12 @@ export async function updateTeamDetailsServer(input: {
   }
 }
 
-export async function createTeamServer(input: {
-  currentUserId: string
-  workspaceId: string
-  name: string
-  icon: string
-  summary: string
-  joinCode: string
-  experience: TeamExperienceType
-  features: {
-    issues: boolean
-    projects: boolean
-    views: boolean
-    docs: boolean
-    chat: boolean
-    channels: boolean
+export async function createTeamServer(
+  input: TeamDetailsMutationInput & {
+    workspaceId: string
+    joinCode: string
   }
-}) {
+) {
   try {
     return await getConvexServerClient().mutation(
       api.app.createTeam,

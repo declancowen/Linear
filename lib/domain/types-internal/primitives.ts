@@ -314,6 +314,48 @@ export function createDefaultViewFilters(): ViewFilters {
   }
 }
 
+export function clearViewFilterSelections(filters: ViewFilters): ViewFilters {
+  return {
+    ...filters,
+    status: [],
+    priority: [],
+    assigneeIds: [],
+    creatorIds: [],
+    leadIds: [],
+    health: [],
+    milestoneIds: [],
+    relationTypes: [],
+    projectIds: [],
+    parentIds: [],
+    itemTypes: [],
+    labelIds: [],
+    teamIds: [],
+  }
+}
+
+export function cloneViewFilters(filters: ViewFilters | undefined): ViewFilters {
+  if (!filters) {
+    return createDefaultViewFilters()
+  }
+
+  return {
+    ...filters,
+    status: [...filters.status],
+    priority: [...filters.priority],
+    assigneeIds: [...filters.assigneeIds],
+    creatorIds: [...filters.creatorIds],
+    leadIds: [...filters.leadIds],
+    health: [...filters.health],
+    milestoneIds: [...filters.milestoneIds],
+    relationTypes: [...filters.relationTypes],
+    projectIds: [...filters.projectIds],
+    parentIds: [...(filters.parentIds ?? [])],
+    itemTypes: [...filters.itemTypes],
+    labelIds: [...filters.labelIds],
+    teamIds: [...filters.teamIds],
+  }
+}
+
 export function createDefaultProjectPresentationConfig(
   templateType: TemplateType,
   options?: {

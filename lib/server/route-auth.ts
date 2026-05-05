@@ -21,6 +21,17 @@ export type RequiredConvexAuthContext = NonNullable<ConvexAuthContext> & {
   currentUser: NonNullable<NonNullable<ConvexAuthContext>["currentUser"]>
 }
 
+export type RequiredConvexRouteContext = {
+  authContext: RequiredConvexAuthContext
+  authenticatedUser: ReturnType<typeof toAuthenticatedAppUser>
+  session: AuthenticatedSession
+}
+
+export type RequiredAppRouteContext = {
+  appContext: RequiredAppContext
+  session: AuthenticatedSession
+}
+
 export async function requireSession(): Promise<
   AuthenticatedSession | Response
 > {
@@ -52,6 +63,24 @@ export async function requireAppContext(
   return appContext as RequiredAppContext
 }
 
+export async function requireAppRouteContext(): Promise<
+  RequiredAppRouteContext | Response
+> {
+  const session = await requireSession()
+
+  if (session instanceof Response) {
+    return session
+  }
+
+  const appContext = await requireAppContext(session)
+
+  if (appContext instanceof Response) {
+    return appContext
+  }
+
+  return { appContext, session }
+}
+
 export async function requireConvexUser(
   session: AuthenticatedSession
 ): Promise<RequiredConvexAuthContext | Response> {
@@ -66,4 +95,29 @@ export async function requireConvexUser(
   }
 
   return authContext as RequiredConvexAuthContext
+}
+
+export async function requireConvexRouteContext(): Promise<
+  RequiredConvexRouteContext | Response
+> {
+  const session = await requireSession()
+
+  if (session instanceof Response) {
+    return session
+  }
+
+  const authContext = await requireConvexUser(session)
+
+  if (authContext instanceof Response) {
+    return authContext
+  }
+
+  return {
+    authContext,
+    authenticatedUser: toAuthenticatedAppUser(
+      session.user,
+      session.organizationId
+    ),
+    session,
+  }
 }

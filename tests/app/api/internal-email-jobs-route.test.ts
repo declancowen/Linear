@@ -24,6 +24,65 @@ vi.mock("resend", () => ({
   ),
 }))
 
+function createEmailJob(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "email_job_1",
+    toEmail: "alex@example.com",
+    subject: "Mention",
+    text: "Hello",
+    html: "<p>Hello</p>",
+    ...overrides,
+  }
+}
+
+function mockResendSuccess(providerId = "provider_1") {
+  sendMock.mockResolvedValueOnce({
+    data: {
+      id: providerId,
+    },
+    error: null,
+    headers: null,
+  })
+}
+
+function createEmailJobsRequest(authenticated = true) {
+  return new NextRequest("http://localhost/api/internal/email-jobs", {
+    headers: authenticated
+      ? {
+          authorization: "Bearer cron_secret",
+        }
+      : undefined,
+  })
+}
+
+async function runEmailJobsRoute(authenticated = true) {
+  const { GET } = await import("@/app/api/internal/email-jobs/route")
+  return GET(createEmailJobsRequest(authenticated))
+}
+
+async function expectEmailJobsRouteSummary(
+  response: Response,
+  summary: {
+    processedCount: number
+    sentCount: number
+    failedCount: number
+  }
+) {
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toMatchObject({
+    ok: true,
+    ...summary,
+  })
+}
+
+function expectReleasedEmailJobClaim(callIndex: number, errorMessage: string) {
+  expect(mutationMock.mock.calls[callIndex]?.[1]).toMatchObject({
+    claimId: expect.any(String),
+    jobIds: ["email_job_1"],
+    errorMessage,
+  })
+}
+
 describe("GET /api/internal/email-jobs", () => {
   beforeEach(() => {
     mutationMock.mockReset()
@@ -42,37 +101,14 @@ describe("GET /api/internal/email-jobs", () => {
   })
 
   it("claims queued jobs, sends them, and marks them as sent", async () => {
-    sendMock.mockResolvedValueOnce({
-      data: {
-        id: "provider_1",
-      },
-      error: null,
-      headers: null,
-    })
+    mockResendSuccess()
     mutationMock
-      .mockResolvedValueOnce([
-        {
-          id: "email_job_1",
-          toEmail: "alex@example.com",
-          subject: "Mention",
-          text: "Hello",
-          html: "<p>Hello</p>",
-        },
-      ])
+      .mockResolvedValueOnce([createEmailJob()])
       .mockResolvedValueOnce({ ok: true })
 
-    const { GET } = await import("@/app/api/internal/email-jobs/route")
-    const response = await GET(
-      new NextRequest("http://localhost/api/internal/email-jobs", {
-        headers: {
-          authorization: "Bearer cron_secret",
-        },
-      })
-    )
+    const response = await runEmailJobsRoute()
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
-      ok: true,
+    await expectEmailJobsRouteSummary(response, {
       processedCount: 1,
       sentCount: 1,
       failedCount: 0,
@@ -91,10 +127,7 @@ describe("GET /api/internal/email-jobs", () => {
   })
 
   it("rejects requests without the cron bearer token", async () => {
-    const { GET } = await import("@/app/api/internal/email-jobs/route")
-    const response = await GET(
-      new NextRequest("http://localhost/api/internal/email-jobs")
-    )
+    const response = await runEmailJobsRoute(false)
 
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toEqual({
@@ -113,128 +146,58 @@ describe("GET /api/internal/email-jobs", () => {
       headers: null,
     })
     mutationMock
-      .mockResolvedValueOnce([
-        {
-          id: "email_job_1",
-          toEmail: "alex@example.com",
-          subject: "Mention",
-          text: "Hello",
-          html: "<p>Hello</p>",
-        },
-      ])
+      .mockResolvedValueOnce([createEmailJob()])
       .mockResolvedValueOnce({ ok: true })
 
-    const { GET } = await import("@/app/api/internal/email-jobs/route")
-    const response = await GET(
-      new NextRequest("http://localhost/api/internal/email-jobs", {
-        headers: {
-          authorization: "Bearer cron_secret",
-        },
-      })
-    )
+    const response = await runEmailJobsRoute()
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
-      ok: true,
+    await expectEmailJobsRouteSummary(response, {
       processedCount: 1,
       sentCount: 0,
       failedCount: 1,
     })
     expect(mutationMock).toHaveBeenCalledTimes(2)
-    expect(mutationMock.mock.calls[1]?.[1]).toMatchObject({
-      claimId: expect.any(String),
-      jobIds: ["email_job_1"],
-      errorMessage: "domain not verified",
-    })
+    expectReleasedEmailJobClaim(1, "domain not verified")
   })
 
   it("releases the claim when marking a delivered job as sent fails", async () => {
-    sendMock.mockResolvedValueOnce({
-      data: {
-        id: "provider_1",
-      },
-      error: null,
-      headers: null,
-    })
+    mockResendSuccess()
     mutationMock
-      .mockResolvedValueOnce([
-        {
-          id: "email_job_1",
-          toEmail: "alex@example.com",
-          subject: "Mention",
-          text: "Hello",
-          html: "<p>Hello</p>",
-        },
-      ])
+      .mockResolvedValueOnce([createEmailJob()])
       .mockRejectedValueOnce(new Error("mark failed"))
       .mockResolvedValueOnce({ ok: true })
 
-    const { GET } = await import("@/app/api/internal/email-jobs/route")
-    const response = await GET(
-      new NextRequest("http://localhost/api/internal/email-jobs", {
-        headers: {
-          authorization: "Bearer cron_secret",
-        },
-      })
-    )
+    const response = await runEmailJobsRoute()
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
-      ok: true,
+    await expectEmailJobsRouteSummary(response, {
       processedCount: 1,
       sentCount: 0,
       failedCount: 1,
     })
     expect(mutationMock).toHaveBeenCalledTimes(3)
-    expect(mutationMock.mock.calls[2]?.[1]).toMatchObject({
-      claimId: expect.any(String),
-      jobIds: ["email_job_1"],
-      errorMessage: "mark failed",
-    })
+    expectReleasedEmailJobClaim(2, "mark failed")
   })
 
   it("continues the batch when claim release fails after a send error", async () => {
-    sendMock
-      .mockRejectedValueOnce(new Error("send failed"))
-      .mockResolvedValueOnce({
-        data: {
-          id: "provider_2",
-        },
-        error: null,
-        headers: null,
-      })
+    sendMock.mockRejectedValueOnce(new Error("send failed"))
+    mockResendSuccess("provider_2")
     mutationMock
       .mockResolvedValueOnce([
-        {
-          id: "email_job_1",
-          toEmail: "alex@example.com",
-          subject: "Mention",
-          text: "Hello",
-          html: "<p>Hello</p>",
-        },
-        {
+        createEmailJob(),
+        createEmailJob({
           id: "email_job_2",
           toEmail: "sam@example.com",
           subject: "Invite",
           text: "Hi",
           html: "<p>Hi</p>",
-        },
+        }),
       ])
       .mockRejectedValueOnce(new Error("release failed"))
       .mockResolvedValueOnce({ ok: true })
 
-    const { GET } = await import("@/app/api/internal/email-jobs/route")
-    const response = await GET(
-      new NextRequest("http://localhost/api/internal/email-jobs", {
-        headers: {
-          authorization: "Bearer cron_secret",
-        },
-      })
-    )
+    const response = await runEmailJobsRoute()
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
-      ok: true,
+    await expectEmailJobsRouteSummary(response, {
       processedCount: 2,
       sentCount: 1,
       failedCount: 1,
@@ -250,10 +213,7 @@ describe("GET /api/internal/email-jobs", () => {
   it("redacts missing configuration details from responses", async () => {
     delete process.env.CRON_SECRET
 
-    const { GET } = await import("@/app/api/internal/email-jobs/route")
-    const response = await GET(
-      new NextRequest("http://localhost/api/internal/email-jobs")
-    )
+    const response = await runEmailJobsRoute(false)
 
     expect(response.status).toBe(503)
     await expect(response.json()).resolves.toEqual({

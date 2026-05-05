@@ -49,21 +49,36 @@ export async function assertImageUpload(
 
   const metadata = await ctx.storage.getMetadata(storageId as never)
 
+  assertImageUploadMetadata(metadata)
+
+  return storageId as never
+}
+
+type ImageUploadMetadata = Awaited<
+  ReturnType<MutationCtx["storage"]["getMetadata"]>
+>
+
+function assertImageUploadMetadata(metadata: ImageUploadMetadata) {
   if (!metadata) {
     throw new Error("Uploaded image not found")
   }
 
-  if (!metadata.contentType?.startsWith("image/")) {
+  assertImageUploadContentType(metadata.contentType)
+  assertImageUploadSize(metadata.size ?? 0)
+}
+
+function assertImageUploadContentType(contentType: string | null | undefined) {
+  if (!contentType?.startsWith("image/")) {
     throw new Error("Uploads must be image files")
   }
+}
 
-  if ((metadata.size ?? 0) <= 0) {
+function assertImageUploadSize(size: number) {
+  if (size <= 0) {
     throw new Error("Uploaded image is empty")
   }
 
-  if ((metadata.size ?? 0) > IMAGE_UPLOAD_MAX_SIZE) {
+  if (size > IMAGE_UPLOAD_MAX_SIZE) {
     throw new Error("Images must be 10 MB or smaller")
   }
-
-  return storageId as never
 }

@@ -345,6 +345,25 @@ export async function claimPendingEmailJobsHandler(
   return claimPendingEmailJobs(ctx, args)
 }
 
+async function getClaimedPendingEmailJob(
+  ctx: MutationCtx,
+  input: {
+    claimId: string
+    jobId: string
+  }
+) {
+  const job = await ctx.db
+    .query("emailJobs")
+    .withIndex("by_domain_id", (q) => q.eq("id", input.jobId))
+    .unique()
+
+  if (!job || job.claimId !== input.claimId || job.sentAt) {
+    return null
+  }
+
+  return job
+}
+
 export async function markEmailJobsSent(
   ctx: MutationCtx,
   args: MarkEmailJobsSentInput
@@ -352,12 +371,12 @@ export async function markEmailJobsSent(
   const now = getNow()
 
   for (const jobId of args.jobIds) {
-    const job = await ctx.db
-      .query("emailJobs")
-      .withIndex("by_domain_id", (q) => q.eq("id", jobId))
-      .unique()
+    const job = await getClaimedPendingEmailJob(ctx, {
+      claimId: args.claimId,
+      jobId,
+    })
 
-    if (!job || job.claimId !== args.claimId || job.sentAt) {
+    if (!job) {
       continue
     }
 
@@ -403,12 +422,12 @@ export async function releaseEmailJobClaim(
   const releasedClaims: ReleasedEmailJobClaim[] = []
 
   for (const jobId of args.jobIds) {
-    const job = await ctx.db
-      .query("emailJobs")
-      .withIndex("by_domain_id", (q) => q.eq("id", jobId))
-      .unique()
+    const job = await getClaimedPendingEmailJob(ctx, {
+      claimId: args.claimId,
+      jobId,
+    })
 
-    if (!job || job.claimId !== args.claimId || job.sentAt) {
+    if (!job) {
       continue
     }
 

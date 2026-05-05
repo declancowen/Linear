@@ -88,9 +88,7 @@ describe("app store read model merge", () => {
               channels: true,
               views: true,
             },
-            workflow: createDefaultTeamWorkflowSettings(
-              "software-development"
-            ),
+            workflow: createDefaultTeamWorkflowSettings("software-development"),
           },
         },
       ],
@@ -220,6 +218,90 @@ describe("app store read model merge", () => {
       "workspace_1",
     ])
     expect(state.workspaceMemberships).toHaveLength(1)
+  })
+
+  it("ignores incidental current workspace ids from non-membership read models", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      currentWorkspaceId: "workspace_2",
+      workspaces: [
+        ...state.workspaces,
+        {
+          id: "workspace_2",
+          slug: "beta",
+          name: "Beta",
+          logoUrl: "BE",
+          logoImageUrl: null,
+          createdBy: currentUser.id,
+          workosOrganizationId: null,
+          settings: {
+            accent: "#000000",
+            description: "",
+          },
+        },
+      ],
+    }))
+
+    useAppStore.getState().mergeReadModelData(
+      {
+        currentUserId: currentUser.id,
+        currentWorkspaceId: "workspace_1",
+        notifications: [],
+      },
+      {
+        replace: [
+          {
+            kind: "notification-inbox",
+            userId: currentUser.id,
+          },
+        ],
+      }
+    )
+
+    expect(useAppStore.getState().currentWorkspaceId).toBe("workspace_2")
+  })
+
+  it("applies current workspace ids from workspace membership read models", () => {
+    useAppStore.getState().mergeReadModelData(
+      {
+        currentUserId: currentUser.id,
+        currentWorkspaceId: "workspace_2",
+        workspaces: [
+          {
+            id: "workspace_2",
+            slug: "beta",
+            name: "Beta",
+            logoUrl: "BE",
+            logoImageUrl: null,
+            createdBy: currentUser.id,
+            workosOrganizationId: null,
+            settings: {
+              accent: "#000000",
+              description: "",
+            },
+          },
+        ],
+        workspaceMemberships: [
+          {
+            workspaceId: "workspace_2",
+            userId: currentUser.id,
+            role: "admin",
+          },
+        ],
+        teams: [],
+        teamMemberships: [],
+      },
+      {
+        replace: [
+          {
+            kind: "workspace-membership",
+            workspaceId: "workspace_2",
+          },
+        ],
+      }
+    )
+
+    expect(useAppStore.getState().currentWorkspaceId).toBe("workspace_2")
   })
 
   it("updates existing entities by identity instead of duplicating them", () => {
@@ -388,7 +470,9 @@ describe("app store read model merge", () => {
     )
 
     expect(
-      useAppStore.getState().documents.find((document) => document.id === "doc_team")
+      useAppStore
+        .getState()
+        .documents.find((document) => document.id === "doc_team")
     ).toMatchObject({
       title: "Team Doc Updated",
       content: "<p>Team</p>",
@@ -506,10 +590,7 @@ describe("app store read model merge", () => {
   it("evicts only the missing work item when a detail refresh returns not found", () => {
     useAppStore.setState((state) => ({
       ...state,
-      users: [
-        ...state.users,
-        projectLead,
-      ],
+      users: [...state.users, projectLead],
       teamMemberships: [
         ...state.teamMemberships,
         {
@@ -582,19 +663,18 @@ describe("app store read model merge", () => {
       },
     ])
 
-    useAppStore
-      .getState()
-      .mergeReadModelData(missingResult.data, { replace: missingResult.replace })
+    useAppStore.getState().mergeReadModelData(missingResult.data, {
+      replace: missingResult.replace,
+    })
 
     const state = useAppStore.getState()
 
     expect(state.workItems.map((item) => item.id)).toEqual(["item_2"])
     expect(state.projects.map((project) => project.id)).toEqual(["project_1"])
     expect(state.labels.map((label) => label.id)).toEqual(["label_1"])
-    expect(state.teamMemberships.map((membership) => membership.userId).sort()).toEqual([
-      currentUser.id,
-      projectLead.id,
-    ])
+    expect(
+      state.teamMemberships.map((membership) => membership.userId).sort()
+    ).toEqual([currentUser.id, projectLead.id])
     expect(state.users.map((user) => user.id).sort()).toEqual([
       currentUser.id,
       projectLead.id,

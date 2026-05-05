@@ -8,49 +8,52 @@ import {
 } from "@/lib/collaboration/protocol"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { verifySignedCollaborationToken } from "@/lib/server/collaboration-token"
+import {
+  createProviderErrorsMockModule,
+  createRouteHandlerInput,
+  createRouteAuthMockModule,
+  expectTypedJsonError,
+  mockCollaborationRouteAuthContext,
+} from "@/tests/lib/fixtures/api-routes"
 
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
 const getCollaborationDocumentServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 
-vi.mock("@/lib/server/route-auth", () => ({
-  requireSession: requireSessionMock,
-  requireAppContext: requireAppContextMock,
-  requireConvexUser: vi.fn(),
-}))
+vi.mock("@/lib/server/route-auth", () =>
+  createRouteAuthMockModule(requireSessionMock, requireAppContextMock)
+)
 
 vi.mock("@/lib/server/convex", () => ({
   getCollaborationDocumentServer: getCollaborationDocumentServerMock,
 }))
 
-vi.mock("@/lib/server/provider-errors", () => ({
-  getConvexErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  logProviderError: logProviderErrorMock,
-}))
+vi.mock("@/lib/server/provider-errors", () =>
+  createProviderErrorsMockModule(logProviderErrorMock)
+)
+
+function documentSessionRouteInput(
+  documentId = "doc_1",
+  url = "http://localhost",
+  init?: RequestInit
+) {
+  return createRouteHandlerInput(
+    url,
+    {
+      documentId,
+    },
+    init
+  )
+}
 
 describe("document collaboration session route contracts", () => {
   beforeEach(() => {
-    requireSessionMock.mockReset()
-    requireAppContextMock.mockReset()
-    getCollaborationDocumentServerMock.mockReset()
-    logProviderErrorMock.mockReset()
-
-    process.env.COLLABORATION_TOKEN_SECRET = "test-collaboration-token-secret"
-    process.env.NEXT_PUBLIC_PARTYKIT_URL = "https://partykit.example.com"
-
-    requireSessionMock.mockResolvedValue({
-      user: {
-        id: "workos_1",
-        email: "alex@example.com",
-      },
-      organizationId: "org_1",
-    })
-    requireAppContextMock.mockResolvedValue({
-      ensuredUser: {
-        userId: "user_1",
-      },
+    mockCollaborationRouteAuthContext({
+      extraMocks: [getCollaborationDocumentServerMock],
+      requireAppContextMock,
+      requireSessionMock,
+      logProviderErrorMock,
     })
   })
 
@@ -73,11 +76,7 @@ describe("document collaboration session route contracts", () => {
       itemUpdatedAt: null,
     })
 
-    const response = await POST(new Request("http://localhost") as never, {
-      params: Promise.resolve({
-        documentId: "doc_1",
-      }),
-    })
+    const response = await POST(...documentSessionRouteInput())
 
     expect(response.status).toBe(200)
     const payload = await response.json()
@@ -127,11 +126,7 @@ describe("document collaboration session route contracts", () => {
       itemUpdatedAt: null,
     })
 
-    const response = await POST(new Request("http://localhost") as never, {
-      params: Promise.resolve({
-        documentId: "doc_1",
-      }),
-    })
+    const response = await POST(...documentSessionRouteInput())
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -150,11 +145,7 @@ describe("document collaboration session route contracts", () => {
       })
     )
 
-    const response = await POST(new Request("http://localhost") as never, {
-      params: Promise.resolve({
-        documentId: "doc_missing",
-      }),
-    })
+    const response = await POST(...documentSessionRouteInput("doc_missing"))
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toEqual({
@@ -183,11 +174,7 @@ describe("document collaboration session route contracts", () => {
       itemUpdatedAt: null,
     })
 
-    const response = await POST(new Request("http://localhost") as never, {
-      params: Promise.resolve({
-        documentId: "doc_private_1",
-      }),
-    })
+    const response = await POST(...documentSessionRouteInput("doc_private_1"))
 
     expect(response.status).toBe(503)
     await expect(response.json()).resolves.toEqual({
@@ -219,23 +206,20 @@ describe("document collaboration session route contracts", () => {
     })
 
     const response = await POST(
-      new Request("https://localhost/api/collaboration/documents/doc_1/session", {
-        method: "POST",
-      }) as never,
-      {
-        params: Promise.resolve({
-          documentId: "doc_1",
-        }),
-      }
+      ...documentSessionRouteInput(
+        "doc_1",
+        "https://localhost/api/collaboration/documents/doc_1/session",
+        {
+          method: "POST",
+        }
+      )
     )
 
-    expect(response.status).toBe(503)
-    await expect(response.json()).resolves.toEqual({
-      error:
-        "Collaboration service must use HTTPS/WSS when the app is served over HTTPS",
-      message:
-        "Collaboration service must use HTTPS/WSS when the app is served over HTTPS",
-      code: "COLLABORATION_UNAVAILABLE",
-    })
+    await expectTypedJsonError(
+      response,
+      503,
+      "Collaboration service must use HTTPS/WSS when the app is served over HTTPS",
+      "COLLABORATION_UNAVAILABLE"
+    )
   })
 })

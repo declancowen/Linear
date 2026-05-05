@@ -20,6 +20,34 @@ function getConfiguredAppOrigin() {
   )
 }
 
+function createAuthRouteUrl(path: string) {
+  return new URL(path, "https://teams.placeholder")
+}
+
+function appendOptionalSearchParams(
+  url: URL,
+  params: Record<string, string | null | undefined>
+) {
+  for (const [key, value] of Object.entries(params)) {
+    if (value) {
+      url.searchParams.set(key, value)
+    }
+  }
+}
+
+function serializeAuthRouteUrl(url: URL) {
+  return `${url.pathname}${url.search}`
+}
+
+function buildAuthRoutePath(
+  path: string,
+  params: Record<string, string | null | undefined>
+) {
+  const url = createAuthRouteUrl(path)
+  appendOptionalSearchParams(url, params)
+  return serializeAuthRouteUrl(url)
+}
+
 export function getAppOrigin() {
   return getConfiguredAppOrigin() ?? DEFAULT_APP_ORIGIN
 }
@@ -41,9 +69,9 @@ export function normalizeAuthNextPath(value: string | null | undefined) {
 }
 
 export function buildAuthHref(mode: AuthMode, nextPath?: string | null) {
-  const url = new URL(`/${mode}`, "https://teams.placeholder")
-  url.searchParams.set("next", normalizeAuthNextPath(nextPath))
-  return `${url.pathname}${url.search}`
+  return buildAuthRoutePath(`/${mode}`, {
+    next: normalizeAuthNextPath(nextPath),
+  })
 }
 
 export function buildAuthPageHref(
@@ -55,46 +83,26 @@ export function buildAuthPageHref(
     email?: string | null
   }
 ) {
-  const url = new URL(`/${mode}`, "https://teams.placeholder")
-  url.searchParams.set("next", normalizeAuthNextPath(options?.nextPath))
-
-  if (options?.error) {
-    url.searchParams.set("error", options.error)
-  }
-
-  if (options?.notice) {
-    url.searchParams.set("notice", options.notice)
-  }
-
-  if (options?.email) {
-    url.searchParams.set("email", options.email)
-  }
-
-  return `${url.pathname}${url.search}`
+  return buildAuthRoutePath(`/${mode}`, {
+    next: normalizeAuthNextPath(options?.nextPath),
+    error: options?.error,
+    notice: options?.notice,
+    email: options?.email,
+  })
 }
 
 export function buildLogoutPath(returnTo?: string | null) {
-  const url = new URL("/auth/logout", "https://teams.placeholder")
-
-  if (returnTo) {
-    url.searchParams.set("returnTo", returnTo)
-  }
-
-  return `${url.pathname}${url.search}`
+  return buildAuthRoutePath("/auth/logout", { returnTo })
 }
 
 export function buildSessionResolvePath(options?: {
   mode?: AuthMode | null
   nextPath?: string | null
 }) {
-  const url = new URL("/auth/session", "https://teams.placeholder")
-  url.searchParams.set("next", normalizeAuthNextPath(options?.nextPath))
-
-  if (options?.mode) {
-    url.searchParams.set("mode", options.mode)
-  }
-
-  return `${url.pathname}${url.search}`
+  return buildAuthRoutePath("/auth/session", {
+    next: normalizeAuthNextPath(options?.nextPath),
+    mode: options?.mode,
+  })
 }
 
 export function buildEmailVerificationPageHref(options: {
@@ -104,23 +112,31 @@ export function buildEmailVerificationPageHref(options: {
   notice?: string | null
   email?: string | null
 }) {
-  const url = new URL("/verify-email", "https://teams.placeholder")
-  url.searchParams.set("mode", options.mode)
-  url.searchParams.set("next", normalizeAuthNextPath(options.nextPath))
+  return buildAuthRoutePath("/verify-email", {
+    mode: options.mode,
+    next: normalizeAuthNextPath(options.nextPath),
+    error: options.error,
+    notice: options.notice,
+    email: options.email,
+  })
+}
 
-  if (options.error) {
-    url.searchParams.set("error", options.error)
-  }
+export function buildForgotPasswordPageHref(input: {
+  nextPath: string
+  email: string
+  error?: string | null
+  notice?: string | null
+}) {
+  return buildAuthRoutePath("/forgot-password", input)
+}
 
-  if (options.notice) {
-    url.searchParams.set("notice", options.notice)
-  }
-
-  if (options.email) {
-    url.searchParams.set("email", options.email)
-  }
-
-  return `${url.pathname}${url.search}`
+export function buildResetPasswordPageHref(input: {
+  token: string
+  nextPath?: string | null
+  error?: string | null
+  notice?: string | null
+}) {
+  return buildAuthRoutePath("/reset-password", input)
 }
 
 export function buildPostAuthPath(nextPath?: string | null) {

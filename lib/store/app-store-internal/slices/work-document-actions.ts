@@ -28,7 +28,108 @@ import {
   getDocumentCreationValidationMessage,
   getWorkItemValidationMessage,
 } from "../validation"
+import type { AppStore } from "../types"
 import type { WorkSlice, WorkSliceFactoryArgs } from "./work-shared"
+
+const MAX_ATTACHMENT_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024
+const DEFAULT_ATTACHMENT_CONTENT_TYPE = "application/octet-stream"
+
+type AttachmentUploadTargetType = Parameters<WorkSlice["uploadAttachment"]>[0]
+
+type AttachmentUploadValidationResult =
+  | {
+      ok: true
+      teamId: string
+    }
+  | {
+      ok: false
+      message: string
+    }
+
+function getAttachmentContentType(file: File) {
+  return file.type || DEFAULT_ATTACHMENT_CONTENT_TYPE
+}
+
+function validateAttachmentUpload(
+  state: AppStore,
+  targetType: AttachmentUploadTargetType,
+  targetId: string,
+  file: File | null | undefined
+): AttachmentUploadValidationResult {
+  const teamId = getAttachmentTeamId(state, targetType, targetId)
+  const role = effectiveRole(state, teamId)
+
+  if (role === "viewer" || role === "guest" || !role) {
+    return {
+      ok: false,
+      message: "Your current role is read-only",
+    }
+  }
+
+  if (!file || file.size <= 0) {
+    return {
+      ok: false,
+      message: "Choose a file to upload",
+    }
+  }
+
+  if (file.size > MAX_ATTACHMENT_UPLOAD_SIZE_BYTES) {
+    return {
+      ok: false,
+      message: "Files must be 25 MB or smaller",
+    }
+  }
+
+  return {
+    ok: true,
+    teamId,
+  }
+}
+
+async function uploadAttachmentFileToStorage(uploadUrl: string, file: File) {
+  const uploadResponse = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": getAttachmentContentType(file),
+    },
+    body: file,
+  })
+  const uploadPayload = (await uploadResponse.json()) as {
+    storageId?: string
+  }
+
+  if (!uploadResponse.ok || !uploadPayload.storageId) {
+    throw new Error("File upload failed")
+  }
+
+  return uploadPayload.storageId
+}
+
+function createOptimisticAttachmentRecord(input: {
+  attachmentId: string
+  createdAt: string
+  currentUserId: string
+  file: File
+  fileUrl: string | null
+  storageId: string
+  targetId: string
+  targetType: AttachmentUploadTargetType
+  teamId: string
+}): AppStore["attachments"][number] {
+  return {
+    id: input.attachmentId,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    teamId: input.teamId,
+    storageId: input.storageId,
+    fileName: input.file.name,
+    contentType: getAttachmentContentType(input.file),
+    size: input.file.size,
+    uploadedBy: input.currentUserId,
+    createdAt: input.createdAt,
+    fileUrl: input.fileUrl,
+  }
+}
 
 export function createWorkDocumentActions({
   get,
@@ -51,20 +152,34 @@ export function createWorkDocumentActions({
   | "deleteAttachment"
   | "createDocument"
 > {
+  function updatePersistedDocumentMetadata(
+    documents: AppStore["documents"],
+    documentId: string,
+    updatedAt: string,
+    currentUserId: string
+  ) {
+    return documents.map((document) =>
+      document.id === documentId
+        ? {
+            ...document,
+            updatedAt,
+            updatedBy: currentUserId,
+          }
+        : document
+    )
+  }
+
   function markDocumentPersisted(
     documentId: string,
     updatedAt: string,
     currentUserId: string
   ) {
     set((state) => ({
-      documents: state.documents.map((document) =>
-        document.id === documentId
-          ? {
-              ...document,
-              updatedAt,
-              updatedBy: currentUserId,
-            }
-          : document
+      documents: updatePersistedDocumentMetadata(
+        state.documents,
+        documentId,
+        updatedAt,
+        currentUserId
       ),
     }))
   }
@@ -76,14 +191,11 @@ export function createWorkDocumentActions({
     currentUserId: string
   ) {
     set((state) => ({
-      documents: state.documents.map((document) =>
-        document.id === documentId
-          ? {
-              ...document,
-              updatedAt,
-              updatedBy: currentUserId,
-            }
-          : document
+      documents: updatePersistedDocumentMetadata(
+        state.documents,
+        documentId,
+        updatedAt,
+        currentUserId
       ),
       workItems: state.workItems.map((entry) =>
         entry.id === itemId
@@ -94,6 +206,74 @@ export function createWorkDocumentActions({
           : entry
       ),
     }))
+  }
+
+  function patchItemDescriptionContent(itemId: string, content: string) {
+    set((state) => {
+      const item = state.workItems.find((entry) => entry.id === itemId)
+
+      if (!item) {
+        return state
+      }
+
+      return {
+        ...state,
+        documents: state.documents.map((document) =>
+          document.id === item.descriptionDocId
+            ? {
+                ...document,
+                content,
+              }
+            : document
+        ),
+      }
+    })
+  }
+
+  function queueDocumentMetadataSync(
+    documentId: string,
+    syncDocument: (
+      state: ReturnType<typeof get>,
+      document: ReturnType<typeof get>["documents"][number]
+    ) => Promise<{ updatedAt: string }>
+  ) {
+    if (get().protectedDocumentIds.includes(documentId)) {
+      return
+    }
+
+    runtime.queueRichTextSync(
+      `document:${documentId}`,
+      (syncContext) => {
+        const state = get()
+        if (state.protectedDocumentIds.includes(documentId)) {
+          return null
+        }
+
+        const document = state.documents.find(
+          (entry) => entry.id === documentId
+        )
+
+        if (!document || document.kind === "item-description") {
+          return null
+        }
+
+        return syncDocument(state, document).then((result) => {
+          if (!syncContext.isCurrent()) {
+            return
+          }
+
+          markDocumentPersisted(
+            documentId,
+            result.updatedAt,
+            state.currentUserId
+          )
+        })
+      },
+      "Failed to update document",
+      {
+        refreshStrategy: "none",
+      }
+    )
   }
 
   return {
@@ -109,43 +289,13 @@ export function createWorkDocumentActions({
         ),
       }))
 
-      if (get().protectedDocumentIds.includes(documentId)) {
-        return
-      }
-
-      runtime.queueRichTextSync(
-        `document:${documentId}`,
-        (syncContext) => {
-          const state = get()
-          if (state.protectedDocumentIds.includes(documentId)) {
-            return null
-          }
-
-          const document = state.documents.find(
-            (entry) => entry.id === documentId
-          )
-
-          if (!document || document.kind === "item-description") {
-            return null
-          }
-
-          return syncUpdateDocumentContent(
-            state.currentUserId,
-            documentId,
-            document.content,
-            document.updatedAt
-          ).then((result) => {
-            if (!syncContext.isCurrent()) {
-              return
-            }
-
-            markDocumentPersisted(documentId, result.updatedAt, state.currentUserId)
-          })
-        },
-        "Failed to update document",
-        {
-          refreshStrategy: "none",
-        }
+      queueDocumentMetadataSync(documentId, (state, document) =>
+        syncUpdateDocumentContent(
+          state.currentUserId,
+          documentId,
+          document.content,
+          document.updatedAt
+        )
       )
     },
     cancelDocumentSync(documentId) {
@@ -197,42 +347,8 @@ export function createWorkDocumentActions({
         ),
       }))
 
-      if (get().protectedDocumentIds.includes(documentId)) {
-        return
-      }
-
-      runtime.queueRichTextSync(
-        `document:${documentId}`,
-        (syncContext) => {
-          const state = get()
-          if (state.protectedDocumentIds.includes(documentId)) {
-            return null
-          }
-
-          const document = state.documents.find(
-            (entry) => entry.id === documentId
-          )
-
-          if (!document || document.kind === "item-description") {
-            return null
-          }
-
-          return syncRenameDocument(
-            state.currentUserId,
-            documentId,
-            document.title
-          ).then((result) => {
-            if (!syncContext.isCurrent()) {
-              return
-            }
-
-            markDocumentPersisted(documentId, result.updatedAt, state.currentUserId)
-          })
-        },
-        "Failed to update document",
-        {
-          refreshStrategy: "none",
-        }
+      queueDocumentMetadataSync(documentId, (state, document) =>
+        syncRenameDocument(state.currentUserId, documentId, document.title)
       )
     },
     async deleteDocument(documentId) {
@@ -296,24 +412,7 @@ export function createWorkDocumentActions({
       }
     },
     updateItemDescription(itemId, content) {
-      set((state) => {
-        const item = state.workItems.find((entry) => entry.id === itemId)
-        if (!item) {
-          return state
-        }
-
-        return {
-          ...state,
-          documents: state.documents.map((document) =>
-            document.id === item.descriptionDocId
-              ? {
-                  ...document,
-                  content,
-                }
-              : document
-          ),
-        }
-      })
+      patchItemDescriptionContent(itemId, content)
 
       const currentItem = get().workItems.find((entry) => entry.id === itemId)
       const descriptionDocumentId = currentItem?.descriptionDocId ?? null
@@ -389,26 +488,7 @@ export function createWorkDocumentActions({
     },
     applyItemDescriptionCollaborationContent(itemId, content) {
       runtime.cancelRichTextSync(`item-description:${itemId}`)
-
-      set((state) => {
-        const item = state.workItems.find((entry) => entry.id === itemId)
-
-        if (!item) {
-          return state
-        }
-
-        return {
-          ...state,
-          documents: state.documents.map((document) =>
-            document.id === item.descriptionDocId
-              ? {
-                  ...document,
-                  content,
-                }
-              : document
-          ),
-        }
-      })
+      patchItemDescriptionContent(itemId, content)
     },
     async saveWorkItemMainSection(input) {
       const state = get()
@@ -527,22 +607,15 @@ export function createWorkDocumentActions({
     },
     async uploadAttachment(targetType, targetId, file) {
       const state = get()
-      const maxSize = 25 * 1024 * 1024
-      const teamId = getAttachmentTeamId(state, targetType, targetId)
-      const role = effectiveRole(state, teamId)
+      const validation = validateAttachmentUpload(
+        state,
+        targetType,
+        targetId,
+        file
+      )
 
-      if (role === "viewer" || role === "guest" || !role) {
-        toast.error("Your current role is read-only")
-        return null
-      }
-
-      if (!file || file.size <= 0) {
-        toast.error("Choose a file to upload")
-        return null
-      }
-
-      if (file.size > maxSize) {
-        toast.error("Files must be 25 MB or smaller")
+      if (!validation.ok) {
+        toast.error(validation.message)
         return null
       }
 
@@ -556,47 +629,33 @@ export function createWorkDocumentActions({
           throw new Error("Upload URL was not returned")
         }
 
-        const uploadResponse = await fetch(upload.uploadUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": file.type || "application/octet-stream",
-          },
-          body: file,
-        })
-        const uploadPayload = (await uploadResponse.json()) as {
-          storageId?: string
-        }
-
-        if (!uploadResponse.ok || !uploadPayload.storageId) {
-          throw new Error("File upload failed")
-        }
-
-        const storageId = uploadPayload.storageId
+        const storageId = await uploadAttachmentFileToStorage(
+          upload.uploadUrl,
+          file
+        )
         const createdAttachment = await syncCreateAttachment({
           targetType,
           targetId,
           storageId,
           fileName: file.name,
-          contentType: file.type || "application/octet-stream",
+          contentType: getAttachmentContentType(file),
           size: file.size,
         })
 
         if (createdAttachment?.attachmentId) {
           set((current) => ({
             attachments: [
-              {
-                id: createdAttachment.attachmentId,
+              createOptimisticAttachmentRecord({
+                attachmentId: createdAttachment.attachmentId,
+                createdAt: getNow(),
+                currentUserId: current.currentUserId,
+                file,
+                fileUrl: createdAttachment.fileUrl ?? null,
+                storageId,
                 targetType,
                 targetId,
-                teamId,
-                storageId,
-                fileName: file.name,
-                contentType: file.type || "application/octet-stream",
-                size: file.size,
-                uploadedBy: current.currentUserId,
-                createdAt: getNow(),
-                fileUrl: createdAttachment.fileUrl ?? null,
-              },
+                teamId: validation.teamId,
+              }),
               ...current.attachments,
             ],
           }))

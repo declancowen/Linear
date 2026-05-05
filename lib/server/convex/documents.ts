@@ -9,6 +9,10 @@ import {
   runConvexRequestWithRetry,
   withServerToken,
 } from "./core"
+import type {
+  ServerPresenceClearInput,
+  ServerPresenceHeartbeatInput,
+} from "./presence-inputs"
 import { resolveServerOrigin } from "../request-origin"
 
 const DOCUMENT_MUTATION_ERROR_MAPPINGS = [
@@ -429,17 +433,9 @@ export async function deleteDocumentServer(input: {
   }
 }
 
-export async function heartbeatDocumentPresenceServer(input: {
-  currentUserId: string
-  documentId: string
-  workosUserId: string
-  email: string
-  name: string
-  avatarUrl: string
-  avatarImageUrl?: string | null
-  activeBlockId?: string | null
-  sessionId: string
-}): Promise<DocumentPresenceViewer[]> {
+export async function heartbeatDocumentPresenceServer(
+  input: ServerPresenceHeartbeatInput<"documentId">
+): Promise<DocumentPresenceViewer[]> {
   try {
     return await getConvexServerClient().mutation(
       api.app.heartbeatDocumentPresence,
@@ -453,12 +449,9 @@ export async function heartbeatDocumentPresenceServer(input: {
   }
 }
 
-export async function clearDocumentPresenceServer(input: {
-  currentUserId: string
-  documentId: string
-  workosUserId: string
-  sessionId: string
-}) {
+export async function clearDocumentPresenceServer(
+  input: ServerPresenceClearInput<"documentId">
+) {
   try {
     return await getConvexServerClient().mutation(
       api.app.clearDocumentPresence,

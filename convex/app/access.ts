@@ -100,36 +100,102 @@ export async function requireWorkspaceOwnerAccess(
   throw new Error(errorMessage)
 }
 
-export async function requireReadableDocumentAccess(
+async function requireDocumentAccess(
   ctx: AppCtx,
   document: Awaited<ReturnType<typeof getDocumentDoc>>,
-  userId: string
+  userId: string,
+  options: {
+    privateDocumentError: string
+    requireTeamAccess: (
+      ctx: AppCtx,
+      teamId: string,
+      userId: string
+    ) => Promise<unknown>
+    requireWorkspaceAccess: (
+      ctx: AppCtx,
+      workspaceId: string,
+      userId: string
+    ) => Promise<unknown>
+  }
 ) {
   if (!document) {
     throw new Error("Document not found")
   }
 
-  if (
-    document.kind === "team-document" ||
-    document.kind === "item-description"
-  ) {
-    if (!document.teamId) {
-      throw new Error("Document is missing a team")
-    }
-
-    await requireReadableTeamAccess(ctx, document.teamId, userId)
+  if (isTeamScopedDocument(document)) {
+    await requireTeamScopedDocumentAccess(ctx, document, userId, options)
     return
   }
 
+  if (document.kind === "private-document") {
+    await requirePrivateDocumentAccess(ctx, document, userId, options)
+    return
+  }
+
+  const workspaceId = requireDocumentWorkspaceId(document)
+
+  await options.requireWorkspaceAccess(ctx, workspaceId, userId)
+}
+
+type DocumentAccessOptions = Parameters<typeof requireDocumentAccess>[3]
+type DocumentDoc = NonNullable<Awaited<ReturnType<typeof getDocumentDoc>>>
+
+function isTeamScopedDocument(document: DocumentDoc) {
+  return (
+    document.kind === "team-document" || document.kind === "item-description"
+  )
+}
+
+function requireDocumentWorkspaceId(document: DocumentDoc) {
   if (!document.workspaceId) {
     throw new Error("Document is missing a workspace")
   }
 
-  if (document.kind === "private-document" && document.createdBy !== userId) {
-    throw new Error("You do not have access to this document")
+  return document.workspaceId
+}
+
+function requireDocumentTeamId(document: DocumentDoc) {
+  if (!document.teamId) {
+    throw new Error("Document is missing a team")
   }
 
-  await requireReadableWorkspaceAccess(ctx, document.workspaceId, userId)
+  return document.teamId
+}
+
+async function requireTeamScopedDocumentAccess(
+  ctx: AppCtx,
+  document: DocumentDoc,
+  userId: string,
+  options: DocumentAccessOptions
+) {
+  await options.requireTeamAccess(ctx, requireDocumentTeamId(document), userId)
+}
+
+async function requirePrivateDocumentAccess(
+  ctx: AppCtx,
+  document: DocumentDoc,
+  userId: string,
+  options: DocumentAccessOptions
+) {
+  const workspaceId = requireDocumentWorkspaceId(document)
+
+  if (document.createdBy !== userId) {
+    throw new Error(options.privateDocumentError)
+  }
+
+  await requireReadableWorkspaceAccess(ctx, workspaceId, userId)
+}
+
+export async function requireReadableDocumentAccess(
+  ctx: AppCtx,
+  document: Awaited<ReturnType<typeof getDocumentDoc>>,
+  userId: string
+) {
+  await requireDocumentAccess(ctx, document, userId, {
+    privateDocumentError: "You do not have access to this document",
+    requireTeamAccess: requireReadableTeamAccess,
+    requireWorkspaceAccess: requireReadableWorkspaceAccess,
+  })
 }
 
 export async function requireEditableDocumentAccess(
@@ -137,36 +203,11 @@ export async function requireEditableDocumentAccess(
   document: Awaited<ReturnType<typeof getDocumentDoc>>,
   userId: string
 ) {
-  if (!document) {
-    throw new Error("Document not found")
-  }
-
-  if (
-    document.kind === "team-document" ||
-    document.kind === "item-description"
-  ) {
-    if (!document.teamId) {
-      throw new Error("Document is missing a team")
-    }
-
-    await requireEditableTeamAccess(ctx, document.teamId, userId)
-    return
-  }
-
-  if (!document.workspaceId) {
-    throw new Error("Document is missing a workspace")
-  }
-
-  if (document.kind === "private-document" && document.createdBy !== userId) {
-    throw new Error("You can only edit your own private documents")
-  }
-
-  if (document.kind === "private-document") {
-    await requireReadableWorkspaceAccess(ctx, document.workspaceId, userId)
-    return
-  }
-
-  await requireEditableWorkspaceAccess(ctx, document.workspaceId, userId)
+  await requireDocumentAccess(ctx, document, userId, {
+    privateDocumentError: "You can only edit your own private documents",
+    requireTeamAccess: requireEditableTeamAccess,
+    requireWorkspaceAccess: requireEditableWorkspaceAccess,
+  })
 }
 
 export async function requireWorkspaceAdminAccess(

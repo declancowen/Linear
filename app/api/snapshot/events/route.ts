@@ -1,13 +1,12 @@
 import { getSnapshotVersionServer } from "@/lib/server/convex"
 import {
   createEventStreamResponse,
-  sleep,
+  runPollingEventStream,
 } from "@/lib/server/event-stream"
 import { logProviderError } from "@/lib/server/provider-errors"
-import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
+import { requireConvexRouteContext } from "@/lib/server/route-auth"
 import { isRouteResponse } from "@/lib/server/route-response"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
-import { toAuthenticatedAppUser } from "@/lib/workos/auth"
 
 const STREAM_POLL_INTERVAL_MS = 1000
 const STREAM_HEARTBEAT_INTERVAL_MS = 15000
@@ -41,19 +40,13 @@ async function getSnapshotVersionForUser(
 }
 
 export async function GET(request: Request) {
-  const session = await requireSession()
+  const routeContext = await requireConvexRouteContext()
 
-  if (isRouteResponse(session)) {
-    return session
+  if (isRouteResponse(routeContext)) {
+    return routeContext
   }
 
-  const authContext = await requireConvexUser(session)
-
-  if (isRouteResponse(authContext)) {
-    return authContext
-  }
-
-  const authenticatedUser = toAuthenticatedAppUser(session.user, session.organizationId)
+  const { authContext, authenticatedUser } = routeContext
   const authenticatedSnapshotVersion = await getSnapshotVersionForUser(
     authenticatedUser,
     authContext.currentUser.id
@@ -62,46 +55,31 @@ export async function GET(request: Request) {
   return createEventStreamResponse(
     request,
     "Snapshot event stream failed",
-    async ({ isClosed, sendEvent }) => {
+    async (context) => {
       let currentSnapshotVersion = authenticatedSnapshotVersion.snapshotVersion
-      let lastHeartbeatAt = Date.now()
-      const startedAt = Date.now()
 
-      sendEvent("ready", currentSnapshotVersion)
+      context.sendEvent("ready", currentSnapshotVersion)
 
-      while (!isClosed()) {
-        if (Date.now() - startedAt >= STREAM_MAX_DURATION_MS) {
-          break
-        }
+      await runPollingEventStream(context, {
+        heartbeatIntervalMs: STREAM_HEARTBEAT_INTERVAL_MS,
+        maxDurationMs: STREAM_MAX_DURATION_MS,
+        pollIntervalMs: STREAM_POLL_INTERVAL_MS,
+        poll: async () => {
+          const nextSnapshotVersion = await getSnapshotVersionForUser(
+            authenticatedUser,
+            authContext.currentUser.id
+          )
 
-        await sleep(STREAM_POLL_INTERVAL_MS)
-
-        if (isClosed()) {
-          break
-        }
-
-        const nextSnapshotVersion = await getSnapshotVersionForUser(
-          authenticatedUser,
-          authContext.currentUser.id
-        )
-
-        if (
-          nextSnapshotVersion.snapshotVersion.version !==
-          currentSnapshotVersion?.version
-        ) {
-          currentSnapshotVersion = nextSnapshotVersion.snapshotVersion
-          sendEvent("snapshot", currentSnapshotVersion)
-          lastHeartbeatAt = Date.now()
-          continue
-        }
-
-        if (Date.now() - lastHeartbeatAt >= STREAM_HEARTBEAT_INTERVAL_MS) {
-          sendEvent("ping", {
-            timestamp: new Date().toISOString(),
-          })
-          lastHeartbeatAt = Date.now()
-        }
-      }
+          if (
+            nextSnapshotVersion.snapshotVersion.version !==
+            currentSnapshotVersion?.version
+          ) {
+            currentSnapshotVersion = nextSnapshotVersion.snapshotVersion
+            context.sendEvent("snapshot", currentSnapshotVersion)
+            return "changed"
+          }
+        },
+      })
     }
   )
 }

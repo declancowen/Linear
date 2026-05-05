@@ -1,4 +1,5 @@
 import {
+  cloneViewFilters,
   createDefaultViewFilters,
   getDefaultShowChildItemsForItemLevel,
   getDefaultViewItemLevelForTeamExperience,
@@ -40,6 +41,21 @@ type CreateViewDefinitionInput = {
   isShared?: boolean
   overrides?: ViewConfigOverrides
 }
+
+type DefaultViewBuildMetadata = {
+  createdAt: string
+  updatedAt?: string
+  experience?: TeamExperienceType | null
+}
+
+const ACTIVE_WORK_ITEM_DISPLAY_PROPS: ViewDefinition["displayProps"] = [
+  "id",
+  "status",
+  "assignee",
+  "priority",
+  "project",
+  "created",
+]
 
 function getCanonicalPrimaryViewName(
   experience: TeamExperienceType | null | undefined
@@ -264,29 +280,6 @@ function getDefaultItemLevelForView(input: {
     : null
 }
 
-function cloneViewFilters(filters: ViewConfigOverrides["filters"] | undefined) {
-  if (!filters) {
-    return createDefaultViewFilters()
-  }
-
-  return {
-    ...filters,
-    status: [...filters.status],
-    priority: [...filters.priority],
-    assigneeIds: [...filters.assigneeIds],
-    creatorIds: [...filters.creatorIds],
-    leadIds: [...filters.leadIds],
-    health: [...filters.health],
-    milestoneIds: [...filters.milestoneIds],
-    relationTypes: [...filters.relationTypes],
-    projectIds: [...filters.projectIds],
-    parentIds: [...(filters.parentIds ?? [])],
-    itemTypes: [...filters.itemTypes],
-    labelIds: [...filters.labelIds],
-    teamIds: [...filters.teamIds],
-  }
-}
-
 function cloneDisplayProps(
   entityKind: EntityKind,
   displayProps: ViewConfigOverrides["displayProps"] | undefined
@@ -317,12 +310,9 @@ function cloneHiddenState(
   }
 }
 
-export function buildTeamWorkViews(input: {
+export function buildTeamWorkViews(input: DefaultViewBuildMetadata & {
   teamId: string
   teamSlug: string
-  createdAt: string
-  updatedAt?: string
-  experience?: TeamExperienceType | null
 }): ViewDefinition[] {
   const surfaceLabel = getWorkSurfaceCopy(input.experience).surfaceLabel
   const primaryViewName = getCanonicalPrimaryViewName(input.experience)
@@ -358,14 +348,7 @@ export function buildTeamWorkViews(input: {
           ...createDefaultViewFilters(),
           status: ["todo", "in-progress"],
         },
-        displayProps: [
-          "id",
-          "status",
-          "assignee",
-          "priority",
-          "project",
-          "created",
-        ],
+        displayProps: ACTIVE_WORK_ITEM_DISPLAY_PROPS,
       },
     }),
     createViewDefinition({
@@ -393,11 +376,8 @@ export function buildTeamWorkViews(input: {
   ].filter(Boolean) as ViewDefinition[]
 }
 
-export function buildAssignedWorkViews(input: {
+export function buildAssignedWorkViews(input: DefaultViewBuildMetadata & {
   userId: string
-  createdAt: string
-  updatedAt?: string
-  experience?: TeamExperienceType | null
 }): ViewDefinition[] {
   const surfaceLabel = getWorkSurfaceCopy(input.experience).surfaceLabel
   const primaryViewName = getCanonicalPrimaryViewName(input.experience)
@@ -439,14 +419,7 @@ export function buildAssignedWorkViews(input: {
           ...createDefaultViewFilters(),
           status: ["todo", "in-progress"],
         },
-        displayProps: [
-          "id",
-          "status",
-          "assignee",
-          "priority",
-          "project",
-          "created",
-        ],
+        displayProps: ACTIVE_WORK_ITEM_DISPLAY_PROPS,
       },
     }),
     createViewDefinition({

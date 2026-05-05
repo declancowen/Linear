@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import {
+  createDefaultTeamFeatureSettings,
+  createDefaultTeamWorkflowSettings,
+} from "@/lib/domain/types"
+import { createTestNotificationRecord } from "@/tests/lib/fixtures/convex"
+
 const buildAccessChangeEmailJobsMock = vi.fn()
+const requireEditableWorkspaceAccessMock = vi.fn()
 const requireTeamAdminAccessMock = vi.fn()
 const requireWorkspaceOwnerAccessMock = vi.fn()
 const cascadeDeleteTeamDataMock = vi.fn()
@@ -8,10 +15,17 @@ const cleanupRemainingLinksAfterDeleteMock = vi.fn()
 const cleanupUnusedLabelsMock = vi.fn()
 const cleanupUserAppStatesForDeletedWorkspaceMock = vi.fn()
 const cleanupViewFiltersForDeletedEntitiesMock = vi.fn()
+const createDeletedEntityNotificationTargetsMock = vi.fn()
+const deleteDocGroupsMock = vi.fn()
 const deleteDocsMock = vi.fn()
 const deleteStorageObjectsMock = vi.fn()
+const listConversationCascadeDeleteTargetsMock = vi.fn()
+const listScopedConversationCascadeDeleteTargetsMock = vi.fn()
+const listProjectCascadeDeleteTargetsMock = vi.fn()
 const assertServerTokenMock = vi.fn()
+const getTeamByJoinCodeMock = vi.fn()
 const getTeamDocMock = vi.fn()
+const getTeamMembershipDocMock = vi.fn()
 const getUserDocMock = vi.fn()
 const getWorkspaceDocMock = vi.fn()
 const getWorkspaceMembershipDocMock = vi.fn()
@@ -25,6 +39,7 @@ const listChatMessagesByConversationsMock = vi.fn()
 const listCommentsByTargetsMock = vi.fn()
 const listConversationsByScopeMock = vi.fn()
 const listDocumentPresenceByDocumentsMock = vi.fn()
+const listLabelsByWorkspaceMock = vi.fn()
 const listMilestonesByProjectsMock = vi.fn()
 const listNotificationsByEntitiesMock = vi.fn()
 const listProjectsByScopeMock = vi.fn()
@@ -39,19 +54,27 @@ const listWorkspaceMembershipsByWorkspaceMock = vi.fn()
 const listWorkspacesByIdsMock = vi.fn()
 const listWorkspacesOwnedByUserMock = vi.fn()
 const listWorkspaceTeamsMock = vi.fn()
+const syncWorkspaceMembershipRoleFromTeamsMock = vi.fn()
 const createNotificationMock = vi.fn()
 const insertAuditEventMock = vi.fn()
 const queueEmailJobsMock = vi.fn()
 const applyWorkspaceAccessRemovalPolicyMock = vi.fn()
 const finalizeCurrentAccountDeletionPolicyMock = vi.fn()
+const ensureTeamChannelConversationMock = vi.fn()
+const ensureTeamChatConversationMock = vi.fn()
 const syncTeamConversationMembershipsMock = vi.fn()
 const syncWorkspaceChannelMembershipsMock = vi.fn()
+const getTeamSurfaceDisableMessageMock = vi.fn()
+const ensureTeamProjectViewsMock = vi.fn()
+const ensureTeamWorkViewsMock = vi.fn()
+const ensureWorkspaceProjectViewsMock = vi.fn()
 
 vi.mock("@/lib/email/builders", () => ({
   buildAccessChangeEmailJobs: buildAccessChangeEmailJobsMock,
 }))
 
 vi.mock("@/convex/app/access", () => ({
+  requireEditableWorkspaceAccess: requireEditableWorkspaceAccessMock,
   requireTeamAdminAccess: requireTeamAdminAccessMock,
   requireWorkspaceOwnerAccess: requireWorkspaceOwnerAccessMock,
 }))
@@ -63,16 +86,28 @@ vi.mock("@/convex/app/cleanup", () => ({
   cleanupUserAppStatesForDeletedWorkspace:
     cleanupUserAppStatesForDeletedWorkspaceMock,
   cleanupViewFiltersForDeletedEntities: cleanupViewFiltersForDeletedEntitiesMock,
+  createDeletedEntityNotificationTargets: createDeletedEntityNotificationTargetsMock,
+  deleteDocGroups: deleteDocGroupsMock,
   deleteDocs: deleteDocsMock,
   deleteStorageObjects: deleteStorageObjectsMock,
+  listConversationCascadeDeleteTargets: listConversationCascadeDeleteTargetsMock,
+  listScopedConversationCascadeDeleteTargets:
+    listScopedConversationCascadeDeleteTargetsMock,
+  listProjectCascadeDeleteTargets: listProjectCascadeDeleteTargetsMock,
 }))
 
 vi.mock("@/convex/app/core", () => ({
   assertServerToken: assertServerTokenMock,
+  createId: (prefix: string) => `${prefix}_generated`,
+  getDefaultLabelColor: () => "slate",
+  normalizeJoinCode: (value: string) => value.trim().toUpperCase(),
+  normalizeTeamIcon: (value: string) => value.trim() || "robot",
 }))
 
 vi.mock("@/convex/app/data", () => ({
+  getTeamByJoinCode: getTeamByJoinCodeMock,
   getTeamDoc: getTeamDocMock,
+  getTeamMembershipDoc: getTeamMembershipDocMock,
   getUserDoc: getUserDocMock,
   getWorkspaceDoc: getWorkspaceDocMock,
   getWorkspaceMembershipDoc: getWorkspaceMembershipDocMock,
@@ -86,6 +121,7 @@ vi.mock("@/convex/app/data", () => ({
   listCommentsByTargets: listCommentsByTargetsMock,
   listConversationsByScope: listConversationsByScopeMock,
   listDocumentPresenceByDocuments: listDocumentPresenceByDocumentsMock,
+  listLabelsByWorkspace: listLabelsByWorkspaceMock,
   listMilestonesByProjects: listMilestonesByProjectsMock,
   listNotificationsByEntities: listNotificationsByEntitiesMock,
   listProjectsByScope: listProjectsByScopeMock,
@@ -100,6 +136,7 @@ vi.mock("@/convex/app/data", () => ({
   listWorkspacesByIds: listWorkspacesByIdsMock,
   listWorkspacesOwnedByUser: listWorkspacesOwnedByUserMock,
   listWorkspaceTeams: listWorkspaceTeamsMock,
+  syncWorkspaceMembershipRoleFromTeams: syncWorkspaceMembershipRoleFromTeamsMock,
 }))
 
 vi.mock("@/convex/app/collaboration_utils", () => ({
@@ -120,8 +157,20 @@ vi.mock("@/convex/app/lifecycle", () => ({
 }))
 
 vi.mock("@/convex/app/conversations", () => ({
+  ensureTeamChannelConversation: ensureTeamChannelConversationMock,
+  ensureTeamChatConversation: ensureTeamChatConversationMock,
   syncWorkspaceChannelMemberships: syncWorkspaceChannelMembershipsMock,
   syncTeamConversationMemberships: syncTeamConversationMembershipsMock,
+}))
+
+vi.mock("@/convex/app/team_feature_guards", () => ({
+  getTeamSurfaceDisableMessage: getTeamSurfaceDisableMessageMock,
+}))
+
+vi.mock("@/convex/app/work_helpers", () => ({
+  ensureTeamProjectViews: ensureTeamProjectViewsMock,
+  ensureTeamWorkViews: ensureTeamWorkViewsMock,
+  ensureWorkspaceProjectViews: ensureWorkspaceProjectViewsMock,
 }))
 
 function createCtx() {
@@ -129,14 +178,47 @@ function createCtx() {
     db: {
       insert: vi.fn(),
       delete: vi.fn(),
+      patch: vi.fn(),
       query: vi.fn(),
     },
   }
 }
 
+function mockNoTeamMemberships(ctx: ReturnType<typeof createCtx>) {
+  ctx.db.query.mockReturnValue({
+    withIndex: () => ({
+      collect: vi.fn().mockResolvedValue([]),
+    }),
+  })
+}
+
+function mockDirectWorkspaceMemberRemoval() {
+  getWorkspaceMembershipDocMock.mockResolvedValue({
+    _id: "workspace_membership_1",
+    workspaceId: "workspace_1",
+    userId: "user_member",
+    role: "viewer",
+  })
+  applyWorkspaceAccessRemovalPolicyMock.mockResolvedValue({
+    providerMembershipCleanup: null,
+  })
+}
+
+function expectWorkspaceMemberDeletedAndResynced(
+  ctx: ReturnType<typeof createCtx>
+) {
+  expect(ctx.db.delete).toHaveBeenCalledWith("workspace_membership_1")
+  expect(syncTeamConversationMembershipsMock).not.toHaveBeenCalled()
+  expect(syncWorkspaceChannelMembershipsMock).toHaveBeenCalledWith(
+    ctx,
+    "workspace_1"
+  )
+}
+
 describe("workspace and team deletion handlers", () => {
   beforeEach(() => {
     buildAccessChangeEmailJobsMock.mockReset()
+    requireEditableWorkspaceAccessMock.mockReset()
     requireTeamAdminAccessMock.mockReset()
     requireWorkspaceOwnerAccessMock.mockReset()
     cascadeDeleteTeamDataMock.mockReset()
@@ -144,10 +226,17 @@ describe("workspace and team deletion handlers", () => {
     cleanupUnusedLabelsMock.mockReset()
     cleanupUserAppStatesForDeletedWorkspaceMock.mockReset()
     cleanupViewFiltersForDeletedEntitiesMock.mockReset()
+    createDeletedEntityNotificationTargetsMock.mockReset()
+    deleteDocGroupsMock.mockReset()
     deleteDocsMock.mockReset()
     deleteStorageObjectsMock.mockReset()
+    listConversationCascadeDeleteTargetsMock.mockReset()
+    listScopedConversationCascadeDeleteTargetsMock.mockReset()
+    listProjectCascadeDeleteTargetsMock.mockReset()
     assertServerTokenMock.mockReset()
+    getTeamByJoinCodeMock.mockReset()
     getTeamDocMock.mockReset()
+    getTeamMembershipDocMock.mockReset()
     getUserDocMock.mockReset()
     getWorkspaceDocMock.mockReset()
     getWorkspaceMembershipDocMock.mockReset()
@@ -161,6 +250,7 @@ describe("workspace and team deletion handlers", () => {
     listCommentsByTargetsMock.mockReset()
     listConversationsByScopeMock.mockReset()
     listDocumentPresenceByDocumentsMock.mockReset()
+    listLabelsByWorkspaceMock.mockReset()
     listMilestonesByProjectsMock.mockReset()
     listNotificationsByEntitiesMock.mockReset()
     listProjectsByScopeMock.mockReset()
@@ -175,33 +265,23 @@ describe("workspace and team deletion handlers", () => {
     listWorkspacesByIdsMock.mockReset()
     listWorkspacesOwnedByUserMock.mockReset()
     listWorkspaceTeamsMock.mockReset()
+    syncWorkspaceMembershipRoleFromTeamsMock.mockReset()
     createNotificationMock.mockReset()
     insertAuditEventMock.mockReset()
     queueEmailJobsMock.mockReset()
     applyWorkspaceAccessRemovalPolicyMock.mockReset()
     finalizeCurrentAccountDeletionPolicyMock.mockReset()
+    ensureTeamChannelConversationMock.mockReset()
+    ensureTeamChatConversationMock.mockReset()
     syncTeamConversationMembershipsMock.mockReset()
     syncWorkspaceChannelMembershipsMock.mockReset()
+    getTeamSurfaceDisableMessageMock.mockReset()
+    ensureTeamProjectViewsMock.mockReset()
+    ensureTeamWorkViewsMock.mockReset()
+    ensureWorkspaceProjectViewsMock.mockReset()
 
     buildAccessChangeEmailJobsMock.mockImplementation(({ emails }) => emails)
-    createNotificationMock.mockImplementation(
-      (
-        userId: string,
-        actorId: string,
-        message: string,
-        entityType: string,
-        entityId: string,
-        type: string
-      ) => ({
-        id: `notification_${userId}`,
-        userId,
-        actorId,
-        message,
-        entityType,
-        entityId,
-        type,
-      })
-    )
+    createNotificationMock.mockImplementation(createTestNotificationRecord)
     cleanupUnusedLabelsMock.mockResolvedValue(["label_1"])
     listAttachmentsByTargetsMock.mockResolvedValue([])
     listCallsByConversationsMock.mockResolvedValue([])
@@ -211,6 +291,7 @@ describe("workspace and team deletion handlers", () => {
     listCommentsByTargetsMock.mockResolvedValue([])
     listConversationsByScopeMock.mockResolvedValue([])
     listDocumentPresenceByDocumentsMock.mockResolvedValue([])
+    listLabelsByWorkspaceMock.mockResolvedValue([])
     listMilestonesByProjectsMock.mockResolvedValue([])
     listNotificationsByEntitiesMock.mockResolvedValue([])
     listProjectsByScopeMock.mockResolvedValue([])
@@ -224,11 +305,99 @@ describe("workspace and team deletion handlers", () => {
     listUsersByIdsMock.mockResolvedValue([])
     listWorkspacesByIdsMock.mockResolvedValue([])
     listWorkspacesOwnedByUserMock.mockResolvedValue([])
+    deleteDocGroupsMock.mockImplementation(async (_ctx, ...docGroups) => {
+      for (const docs of docGroups) {
+        await deleteDocsMock(_ctx, docs)
+      }
+    })
     deleteDocsMock.mockResolvedValue(undefined)
     deleteStorageObjectsMock.mockResolvedValue(undefined)
     cleanupRemainingLinksAfterDeleteMock.mockResolvedValue(undefined)
     cleanupViewFiltersForDeletedEntitiesMock.mockResolvedValue(undefined)
     cleanupUserAppStatesForDeletedWorkspaceMock.mockResolvedValue(undefined)
+    createDeletedEntityNotificationTargetsMock.mockImplementation((input) =>
+      [
+        ["document", input.deletedDocumentIds],
+        ["project", input.deletedProjectIds],
+        ["chat", input.deletedChatMessageIds],
+        ["channelPost", input.deletedChannelPostIds],
+      ].flatMap(([entityType, ids]) =>
+        [...(ids ?? [])].map((entityId) => ({ entityId, entityType }))
+      )
+    )
+    listConversationCascadeDeleteTargetsMock.mockImplementation(
+      async (ctx, ids) => {
+        const [calls, chatMessages, channelPosts] = await Promise.all([
+          listCallsByConversationsMock(ctx, ids),
+          listChatMessagesByConversationsMock(ctx, ids),
+          listChannelPostsByConversationsMock(ctx, ids),
+        ])
+        const deletedChannelPostIds = new Set(
+          channelPosts.map((post: { id: string }) => post.id)
+        )
+
+        return {
+          calls,
+          channelPostComments: await listChannelPostCommentsByPostsMock(
+            ctx,
+            deletedChannelPostIds
+          ),
+          channelPosts,
+          chatMessages,
+          deletedChannelPostIds,
+          deletedChatMessageIds: new Set(
+            chatMessages.map((message: { id: string }) => message.id)
+          ),
+        }
+      }
+    )
+    listScopedConversationCascadeDeleteTargetsMock.mockImplementation(
+      async (ctx, scopeType, scopeId) => {
+        const conversations = await listConversationsByScopeMock(
+          ctx,
+          scopeType,
+          scopeId
+        )
+        const deletedConversationIds = new Set(
+          conversations.map((conversation: { id: string }) => conversation.id)
+        )
+        const targets = await listConversationCascadeDeleteTargetsMock(
+          ctx,
+          deletedConversationIds
+        )
+
+        return {
+          conversations,
+          deletedConversationIds,
+          ...targets,
+        }
+      }
+    )
+    listProjectCascadeDeleteTargetsMock.mockImplementation(
+      async (ctx, { scopeId, scopeType }) => {
+        const projects = await listProjectsByScopeMock(ctx, scopeType, scopeId)
+        const deletedProjectIds = new Set(
+          projects.map((project: { id: string }) => project.id)
+        )
+        const milestones = await listMilestonesByProjectsMock(
+          ctx,
+          deletedProjectIds
+        )
+
+        return {
+          deletedMilestoneIds: new Set(
+            milestones.map((milestone: { id: string }) => milestone.id)
+          ),
+          deletedProjectIds,
+          milestones,
+          projectUpdates: await listProjectUpdatesByProjectsMock(
+            ctx,
+            deletedProjectIds
+          ),
+          projects,
+        }
+      }
+    )
     queueEmailJobsMock.mockResolvedValue(undefined)
     insertAuditEventMock.mockResolvedValue(undefined)
     applyWorkspaceAccessRemovalPolicyMock.mockResolvedValue({
@@ -239,7 +408,237 @@ describe("workspace and team deletion handlers", () => {
       providerMemberships: [],
       removedWorkspaceIds: [],
     })
+    ensureTeamChannelConversationMock.mockResolvedValue(undefined)
+    ensureTeamChatConversationMock.mockResolvedValue(undefined)
     syncTeamConversationMembershipsMock.mockResolvedValue(undefined)
+    syncWorkspaceMembershipRoleFromTeamsMock.mockResolvedValue(undefined)
+    getTeamSurfaceDisableMessageMock.mockResolvedValue(null)
+    getTeamByJoinCodeMock.mockResolvedValue(null)
+    ensureTeamProjectViewsMock.mockResolvedValue(undefined)
+    ensureTeamWorkViewsMock.mockResolvedValue(undefined)
+    ensureWorkspaceProjectViewsMock.mockResolvedValue(undefined)
+  })
+
+  it("creates labels idempotently within editable workspace ownership", async () => {
+    const { createLabelHandler } = await import(
+      "@/convex/app/workspace_team_handlers"
+    )
+    const ctx = createCtx()
+    const existingLabel = {
+      id: "label_existing",
+      workspaceId: "workspace_1",
+      name: "Bug",
+      color: "red",
+    }
+
+    getUserDocMock.mockResolvedValue({ id: "user_1" })
+    getWorkspaceDocMock.mockResolvedValue({ id: "workspace_1" })
+    listLabelsByWorkspaceMock.mockResolvedValueOnce([existingLabel])
+
+    await expect(
+      createLabelHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        workspaceId: "workspace_1",
+        name: " bug ",
+      })
+    ).resolves.toBe(existingLabel)
+
+    listLabelsByWorkspaceMock.mockResolvedValueOnce([])
+
+    await expect(
+      createLabelHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        workspaceId: "workspace_1",
+        name: "Feature",
+        color: "  blue  ",
+      })
+    ).resolves.toEqual({
+      id: "label_generated",
+      workspaceId: "workspace_1",
+      name: "Feature",
+      color: "blue",
+    })
+    expect(requireEditableWorkspaceAccessMock).toHaveBeenCalledWith(
+      ctx,
+      "workspace_1",
+      "user_1"
+    )
+    expect(ctx.db.insert).toHaveBeenCalledWith("labels", {
+      id: "label_generated",
+      workspaceId: "workspace_1",
+      name: "Feature",
+      color: "blue",
+    })
+  })
+
+  it("updates team details and ensures enabled collaboration/work views", async () => {
+    const { updateTeamDetailsHandler } = await import(
+      "@/convex/app/workspace_team_handlers"
+    )
+    const ctx = createCtx()
+    const features = {
+      ...createDefaultTeamFeatureSettings("software-development"),
+      chat: true,
+      channels: true,
+    }
+    const team = {
+      _id: "team_doc_1",
+      id: "team_1",
+      workspaceId: "workspace_1",
+      name: "Platform",
+      settings: {
+        joinCode: "JOIN1234",
+        summary: "Platform",
+        experience: "software-development",
+        features: createDefaultTeamFeatureSettings("software-development"),
+        workflow: createDefaultTeamWorkflowSettings("software-development"),
+      },
+    }
+
+    getTeamDocMock.mockResolvedValue(team)
+
+    await expect(
+      updateTeamDetailsHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        teamId: "team_1",
+        name: "Platform Core",
+        icon: " robot ",
+        summary: "Core team",
+        joinCode: " join9999 ",
+        experience: "software-development",
+        features,
+      })
+    ).resolves.toMatchObject({
+      teamId: "team_1",
+      workspaceId: "workspace_1",
+      joinCode: "JOIN9999",
+      features,
+    })
+
+    expect(ctx.db.patch).toHaveBeenCalledWith(
+      "team_doc_1",
+      expect.objectContaining({
+        name: "Platform Core",
+        icon: "robot",
+        joinCodeNormalized: "JOIN9999",
+      })
+    )
+    expect(ensureTeamChatConversationMock).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({ teamId: "team_1" })
+    )
+    expect(ensureTeamChannelConversationMock).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({ teamId: "team_1" })
+    )
+    expect(ensureTeamWorkViewsMock).toHaveBeenCalledWith(ctx, team)
+    expect(ensureTeamProjectViewsMock).toHaveBeenCalledWith(ctx, team)
+  })
+
+  it("updates and removes team members through the team membership owner", async () => {
+    const { removeTeamMemberHandler, updateTeamMemberRoleHandler } =
+      await import("@/convex/app/workspace_team_handlers")
+    const ctx = createCtx()
+    const team = {
+      id: "team_1",
+      workspaceId: "workspace_1",
+      name: "Platform",
+    }
+    const membership = {
+      _id: "membership_doc_1",
+      teamId: "team_1",
+      userId: "user_2",
+      role: "member",
+    }
+
+    getTeamDocMock.mockResolvedValue(team)
+    getTeamMembershipDocMock.mockResolvedValue(membership)
+    getWorkspaceDocMock.mockResolvedValue({
+      id: "workspace_1",
+      name: "Acme",
+    })
+    getUserDocMock.mockImplementation(async (_ctx, userId) => {
+      if (userId === "user_2") {
+        return {
+          id: "user_2",
+          name: "Sam",
+          email: "sam@example.com",
+          workosUserId: "workos_user_2",
+        }
+      }
+
+      return {
+        id: userId,
+        name: "Alex",
+        email: "alex@example.com",
+      }
+    })
+    ctx.db.query.mockReturnValue({
+      withIndex: () => ({
+        collect: vi.fn().mockResolvedValue([
+          {
+            teamId: "team_1",
+            userId: "admin_1",
+            role: "admin",
+          },
+        ]),
+      }),
+    })
+
+    await expect(
+      updateTeamMemberRoleHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        teamId: "team_1",
+        userId: "user_2",
+        role: "admin",
+      })
+    ).resolves.toMatchObject({
+      teamId: "team_1",
+      workspaceId: "workspace_1",
+      userId: "user_2",
+      role: "admin",
+    })
+    expect(ctx.db.patch).toHaveBeenCalledWith("membership_doc_1", {
+      role: "admin",
+    })
+    expect(syncWorkspaceMembershipRoleFromTeamsMock).toHaveBeenCalledWith(ctx, {
+      workspaceId: "workspace_1",
+      userId: "user_2",
+      fallbackRole: "viewer",
+    })
+
+    await expect(
+      removeTeamMemberHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        teamId: "team_1",
+        userId: "user_2",
+        origin: "https://app.example.com",
+      })
+    ).resolves.toMatchObject({
+      teamId: "team_1",
+      workspaceId: "workspace_1",
+      userId: "user_2",
+      removedUserEmail: "sam@example.com",
+      removedUserName: "Sam",
+      providerMemberships: [],
+    })
+    expect(ctx.db.delete).toHaveBeenCalledWith("membership_doc_1")
+    expect(syncTeamConversationMembershipsMock).toHaveBeenCalledWith(
+      ctx,
+      "team_1"
+    )
+    expect(insertAuditEventMock).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({
+        type: "membership.removed_from_team",
+        subjectUserId: "user_2",
+      })
+    )
   })
 
   it("notifies all active team members via inbox and email before deleting the team", async () => {
@@ -611,19 +1010,9 @@ describe("workspace member protection", () => {
       "@/convex/app/workspace_team_handlers"
     )
     const ctx = createCtx()
-    const collectMock = vi.fn().mockResolvedValue([])
 
-    ctx.db.query.mockReturnValue({
-      withIndex: () => ({
-        collect: collectMock,
-      }),
-    })
-    getWorkspaceMembershipDocMock.mockResolvedValue({
-      _id: "workspace_membership_1",
-      workspaceId: "workspace_1",
-      userId: "user_member",
-      role: "viewer",
-    })
+    mockNoTeamMemberships(ctx)
+    mockDirectWorkspaceMemberRemoval()
     getUserDocMock.mockImplementation(async (_ctx, userId: string) => {
       if (userId === "user_member") {
         return {
@@ -641,9 +1030,6 @@ describe("workspace member protection", () => {
         workosUserId: "workos_owner",
       }
     })
-    applyWorkspaceAccessRemovalPolicyMock.mockResolvedValue({
-      providerMembershipCleanup: null,
-    })
 
     await removeWorkspaceUserHandler(ctx as never, {
       serverToken: "server_token",
@@ -653,12 +1039,7 @@ describe("workspace member protection", () => {
       userId: "user_member",
     })
 
-    expect(ctx.db.delete).toHaveBeenCalledWith("workspace_membership_1")
-    expect(syncTeamConversationMembershipsMock).not.toHaveBeenCalled()
-    expect(syncWorkspaceChannelMembershipsMock).toHaveBeenCalledWith(
-      ctx,
-      "workspace_1"
-    )
+    expectWorkspaceMemberDeletedAndResynced(ctx)
   })
 
   it("resyncs the workspace channel when a direct workspace member leaves with no team memberships", async () => {
@@ -666,27 +1047,14 @@ describe("workspace member protection", () => {
       "@/convex/app/workspace_team_handlers"
     )
     const ctx = createCtx()
-    const collectMock = vi.fn().mockResolvedValue([])
 
-    ctx.db.query.mockReturnValue({
-      withIndex: () => ({
-        collect: collectMock,
-      }),
-    })
-    getWorkspaceMembershipDocMock.mockResolvedValue({
-      _id: "workspace_membership_1",
-      workspaceId: "workspace_1",
-      userId: "user_member",
-      role: "viewer",
-    })
+    mockNoTeamMemberships(ctx)
+    mockDirectWorkspaceMemberRemoval()
     getUserDocMock.mockResolvedValue({
       id: "user_member",
       name: "Sam",
       email: "sam@example.com",
       workosUserId: "workos_member",
-    })
-    applyWorkspaceAccessRemovalPolicyMock.mockResolvedValue({
-      providerMembershipCleanup: null,
     })
 
     await leaveWorkspaceHandler(ctx as never, {
@@ -696,12 +1064,7 @@ describe("workspace member protection", () => {
       workspaceId: "workspace_1",
     })
 
-    expect(ctx.db.delete).toHaveBeenCalledWith("workspace_membership_1")
-    expect(syncTeamConversationMembershipsMock).not.toHaveBeenCalled()
-    expect(syncWorkspaceChannelMembershipsMock).toHaveBeenCalledWith(
-      ctx,
-      "workspace_1"
-    )
+    expectWorkspaceMemberDeletedAndResynced(ctx)
   })
 })
 
@@ -729,16 +1092,12 @@ describe("account deletion lifecycle", () => {
     syncWorkspaceChannelMembershipsMock.mockResolvedValue(undefined)
   })
 
-  it("blocks deleting an account while the user is a direct workspace admin", async () => {
-    const { deleteCurrentAccountHandler } = await import(
-      "@/convex/app/workspace_team_handlers"
-    )
+  function createAccountDeletionCtx(teamMemberships: unknown[] = []) {
     const ctx = createCtx()
-    const collectMock = vi.fn().mockResolvedValue([])
 
     ctx.db.query.mockReturnValue({
       withIndex: () => ({
-        collect: collectMock,
+        collect: vi.fn().mockResolvedValue(teamMemberships),
       }),
     })
     getUserDocMock.mockResolvedValue({
@@ -748,22 +1107,38 @@ describe("account deletion lifecycle", () => {
       workosUserId: "workos_1",
       accountDeletedAt: null,
     })
+
+    return ctx
+  }
+
+  function mockAccountWorkspaceMemberships(role: "admin" | "viewer") {
     listWorkspaceMembershipsByUserMock.mockResolvedValue([
       {
         _id: "workspace_membership_1",
         workspaceId: "workspace_1",
         userId: "user_1",
-        role: "admin",
+        role,
       },
     ])
+  }
 
-    await expect(
-      deleteCurrentAccountHandler(ctx as never, {
-        serverToken: "server_token",
-        currentUserId: "user_1",
-        origin: "https://app.example.com",
-      })
-    ).rejects.toThrow(
+  async function deleteCurrentAccount(ctx: ReturnType<typeof createCtx>) {
+    const { deleteCurrentAccountHandler } = await import(
+      "@/convex/app/workspace_team_handlers"
+    )
+
+    return deleteCurrentAccountHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+    })
+  }
+
+  it("blocks deleting an account while the user is a direct workspace admin", async () => {
+    const ctx = createAccountDeletionCtx()
+    mockAccountWorkspaceMemberships("admin")
+
+    await expect(deleteCurrentAccount(ctx)).rejects.toThrow(
       "Leave or transfer your workspace admin access before deleting your account"
     )
   })
@@ -864,32 +1239,9 @@ describe("account deletion lifecycle", () => {
   })
 
   it("resyncs workspace channels for direct-membership-only workspaces during account deletion", async () => {
-    const { deleteCurrentAccountHandler } = await import(
-      "@/convex/app/workspace_team_handlers"
-    )
-    const ctx = createCtx()
-    const collectMock = vi.fn().mockResolvedValue([])
+    const ctx = createAccountDeletionCtx()
 
-    ctx.db.query.mockReturnValue({
-      withIndex: () => ({
-        collect: collectMock,
-      }),
-    })
-    getUserDocMock.mockResolvedValue({
-      _id: "user_1_doc",
-      id: "user_1",
-      name: "Alex",
-      workosUserId: "workos_1",
-      accountDeletedAt: null,
-    })
-    listWorkspaceMembershipsByUserMock.mockResolvedValue([
-      {
-        _id: "workspace_membership_1",
-        workspaceId: "workspace_1",
-        userId: "user_1",
-        role: "viewer",
-      },
-    ])
+    mockAccountWorkspaceMemberships("viewer")
     listTeamsByIdsMock.mockResolvedValue([])
     listWorkspacesByIdsMock.mockResolvedValue([
       {
@@ -903,11 +1255,7 @@ describe("account deletion lifecycle", () => {
       removedWorkspaceIds: ["workspace_1"],
     })
 
-    await deleteCurrentAccountHandler(ctx as never, {
-      serverToken: "server_token",
-      currentUserId: "user_1",
-      origin: "https://app.example.com",
-    })
+    await deleteCurrentAccount(ctx)
 
     expect(syncTeamConversationMembershipsMock).not.toHaveBeenCalled()
     expect(syncWorkspaceChannelMembershipsMock).toHaveBeenCalledWith(

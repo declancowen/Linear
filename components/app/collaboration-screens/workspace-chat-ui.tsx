@@ -8,6 +8,7 @@ import {
   type RefObject,
 } from "react"
 import { X } from "@phosphor-icons/react"
+import { useShallow } from "zustand/react/shallow"
 import {
   conversationTitleConstraints,
   getTextInputLimitState,
@@ -17,13 +18,15 @@ import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import {
-  ShortcutKeys,
   useCommandEnterSubmit,
   useShortcutModifierLabel,
 } from "@/components/app/shortcut-keys"
+import {
+  shouldRemoveLastWorkspaceChatRecipient,
+  WorkspaceChatCreateFooter,
+} from "@/components/app/collaboration-screens/workspace-chat-create-footer"
 import { UserAvatar } from "@/components/app/user-presence"
 import { formatShortDate } from "@/components/app/collaboration-screens/utils"
-import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -219,6 +222,7 @@ function WorkspaceChatRecipientInput({
             <span className="font-medium">{user.name}</span>
             <button
               type="button"
+              aria-label={`Remove ${user.name}`}
               onClick={() => onRemoveUser(user.id)}
               className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground"
             >
@@ -232,9 +236,11 @@ function WorkspaceChatRecipientInput({
           onChange={(event) => onSearchChange(event.target.value)}
           onKeyDown={(event) => {
             if (
-              event.key === "Backspace" &&
-              !search &&
-              participantIds.length > 0
+              shouldRemoveLastWorkspaceChatRecipient(
+                event.key,
+                search,
+                participantIds
+              )
             ) {
               onRemoveUser(participantIds[participantIds.length - 1])
             }
@@ -338,47 +344,6 @@ function WorkspaceChatUserList({
   )
 }
 
-function WorkspaceChatCreateFooter({
-  groupNameLimitState,
-  isGroup,
-  participantCount,
-  shortcutModifierLabel,
-  onCreate,
-}: {
-  groupNameLimitState: ReturnType<typeof getTextInputLimitState>
-  isGroup: boolean
-  participantCount: number
-  shortcutModifierLabel: string
-  onCreate: () => void
-}) {
-  if (participantCount === 0) {
-    return null
-  }
-
-  return (
-    <div className="flex items-center justify-between border-t px-4 py-3">
-      <span className="text-xs text-muted-foreground">
-        {participantCount === 1
-          ? "Direct message"
-          : `Group · ${participantCount} people`}
-      </span>
-      <Button
-        size="sm"
-        className="h-7 gap-1 text-xs"
-        onClick={onCreate}
-        disabled={!groupNameLimitState.canSubmit || participantCount === 0}
-      >
-        {isGroup ? "Create group" : "Start chat"}
-        <ShortcutKeys
-          keys={[shortcutModifierLabel, "Enter"]}
-          variant="inline"
-          className="ml-0.5 gap-0.5 text-background/65"
-        />
-      </Button>
-    </div>
-  )
-}
-
 export function CreateWorkspaceChatDialog({
   open,
   onOpenChange,
@@ -388,12 +353,23 @@ export function CreateWorkspaceChatDialog({
   onOpenChange: (open: boolean) => void
   onCreated: (conversationId: string) => void
 }) {
-  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
-  const currentUserId = useAppStore((state) => state.currentUserId)
-  const workspaces = useAppStore((state) => state.workspaces)
-  const teams = useAppStore((state) => state.teams)
-  const teamMemberships = useAppStore((state) => state.teamMemberships)
-  const users = useAppStore((state) => state.users)
+  const {
+    currentUserId,
+    currentWorkspaceId,
+    teamMemberships,
+    teams,
+    users,
+    workspaces,
+  } = useAppStore(
+    useShallow((state) => ({
+      currentUserId: state.currentUserId,
+      currentWorkspaceId: state.currentWorkspaceId,
+      teamMemberships: state.teamMemberships,
+      teams: state.teams,
+      users: state.users,
+      workspaces: state.workspaces,
+    }))
+  )
   const workspace = useMemo(
     () => workspaces.find((entry) => entry.id === currentWorkspaceId) ?? null,
     [currentWorkspaceId, workspaces]

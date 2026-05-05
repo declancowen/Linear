@@ -788,6 +788,20 @@ async function loadCanonicalDocument(room: Room) {
   return prosemirrorJSONToYDoc(richTextSchema, json, COLLABORATION_XML_FRAGMENT)
 }
 
+export async function loadYPartyKitCanonicalDocument(room: Room) {
+  try {
+    return await loadCanonicalDocument(room)
+  } catch (error) {
+    console.error("[collaboration] failed to load canonical document", {
+      roomId: room.id,
+      documentId: parseRuntimeCollaborationRoomId(room)?.entityId ?? null,
+      userId: getRoomSessionState(room.id).latestClaims?.sub ?? null,
+      error,
+    })
+    throw error
+  }
+}
+
 async function persistCanonicalDocument(
   room: Room,
   doc: Doc,
@@ -1263,19 +1277,7 @@ function createYPartyKitOptions(room: Room): YPartyKitOptions {
     persist: {
       mode: "history",
     },
-    load: async () => {
-      try {
-        return await loadCanonicalDocument(room)
-      } catch (error) {
-        console.error("[collaboration] failed to load canonical document", {
-          roomId: room.id,
-          documentId: parseRuntimeCollaborationRoomId(room)?.entityId ?? null,
-          userId: getRoomSessionState(room.id).latestClaims?.sub ?? null,
-          error,
-        })
-        throw error
-      }
-    },
+    load: () => loadYPartyKitCanonicalDocument(room),
     callback: {
       debounceWait: COLLABORATION_PERSIST_DEBOUNCE_WAIT_MS,
       debounceMaxWait: COLLABORATION_PERSIST_DEBOUNCE_MAX_WAIT_MS,

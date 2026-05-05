@@ -2,20 +2,9 @@ import type { ReactNode } from "react"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("next/link", () => ({
-  default: ({
-    children,
-    href,
-    ...props
-  }: {
-    children: ReactNode
-    href: string
-  }) => (
-    <a href={href} {...props}>
-      {children}
-    </a>
-  ),
-}))
+vi.mock("next/link", async () =>
+  (await import("@/tests/lib/fixtures/component-stubs")).createNextLinkStubModule()
+)
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -51,6 +40,7 @@ vi.mock("@/components/app/screens/work-item-menus", () => ({
 
 vi.mock("@/components/app/screens/work-item-ui", () => ({
   WorkItemAssigneeAvatar: () => <span>Assignee</span>,
+  WorkItemTypeBadge: () => <span>Type</span>,
 }))
 
 vi.mock("@/components/ui/template-primitives", async (importOriginal) => {
@@ -68,7 +58,17 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
   openManagedCreateDialog: vi.fn(),
 }))
 
-import { BoardView, ListView } from "@/components/app/screens/work-surface-view"
+import {
+  BoardView,
+  ListView,
+} from "@/components/app/screens/work-surface-view"
+import { BoardChildItemRow } from "@/components/app/screens/work-surface-view/board-child-item-row"
+import { requestWorkSurfaceDragUpdate } from "@/components/app/screens/work-surface-view/drag-state"
+import {
+  TimelineBar,
+  TimelineLabelRow,
+} from "@/components/app/screens/work-surface-view/timeline-bars"
+import { getTimelineMovePatchForDrag } from "@/components/app/screens/work-surface-view/timeline-state"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
@@ -140,7 +140,72 @@ function createView(
   }
 }
 
-function createWorkItem(): WorkItem {
+function clickAddItem() {
+  fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+}
+
+function expectEmptyOptionalPillsHidden() {
+  expect(
+    screen.queryByRole("button", { name: "Assignee" })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole("button", { name: "Project" })
+  ).not.toBeInTheDocument()
+}
+
+function expectCreateDialogDefaults({
+  defaultTeamId = "team_1",
+  initialType,
+  parentId,
+}: {
+  defaultTeamId?: string
+  initialType?: WorkItem["type"]
+  parentId: string
+}) {
+  expect(openManagedCreateDialog).toHaveBeenCalledWith(
+    expect.objectContaining({
+      defaultTeamId,
+      ...(initialType ? { initialType } : {}),
+      defaultValues: expect.objectContaining({
+        parentId,
+      }),
+    })
+  )
+}
+
+function expectBoardAndListCreateDefaults({
+  data,
+  expected,
+  items,
+  view,
+}: {
+  data: AppData
+  expected: Parameters<typeof expectCreateDialogDefaults>[0]
+  items: WorkItem[]
+  view: ViewDefinition
+}) {
+  const { rerender } = render(
+    <BoardView data={data} items={items} view={view} editable />
+  )
+
+  clickAddItem()
+  expectCreateDialogDefaults(expected)
+  vi.mocked(openManagedCreateDialog).mockClear()
+
+  rerender(
+    <ListView
+      data={data}
+      items={items}
+      view={{ ...view, layout: "list" }}
+      editable
+    />
+  )
+
+  clickAddItem()
+  expectCreateDialogDefaults(expected)
+}
+
+function createWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
     id: "item_1",
     key: "TES-1",
@@ -164,7 +229,15 @@ function createWorkItem(): WorkItem {
     subscriberIds: [],
     createdAt: "2026-04-20T12:00:00.000Z",
     updatedAt: "2026-04-20T12:00:00.000Z",
+    ...overrides,
   }
+}
+
+function createDragEndEvent(activeId: string, overId: string) {
+  return {
+    active: { id: activeId },
+    over: { id: overId },
+  } as Parameters<typeof requestWorkSurfaceDragUpdate>[0]["event"]
 }
 
 function createData(): AppData {
@@ -462,6 +535,83 @@ function createCrossTeamEpicGroupedCreateData(): AppData {
   }
 }
 
+describe("TimelineView primitives", () => {
+  it("computes drag patches and rejects invalid timeline drops", () => {
+    const data = {
+      ...createData(),
+      workItems: [
+        createWorkItem({
+          id: "item_1",
+          startDate: "2026-04-20T00:00:00.000Z",
+          dueDate: "2026-04-22T00:00:00.000Z",
+        }),
+      ],
+    }
+    const timelineStart = new Date("2026-04-20T00:00:00.000Z")
+
+    expect(
+      getTimelineMovePatchForDrag({
+        activeId: "item_1",
+        data,
+        dragOffset: { itemId: "item_1", offsetDays: 1 },
+        editable: true,
+        overId: "timeline::lane::2026-04-25",
+        timelineStart,
+      })
+    ).toEqual({
+      itemId: "item_1",
+      patch: {
+        dueDate: "2026-04-26T00:00:00.000Z",
+        startDate: "2026-04-24T00:00:00.000Z",
+        targetDate: undefined,
+      },
+    })
+    expect(
+      getTimelineMovePatchForDrag({
+        activeId: "item_1",
+        data,
+        dragOffset: null,
+        editable: false,
+        overId: "timeline::lane::2026-04-25",
+        timelineStart,
+      })
+    ).toBeNull()
+  })
+
+  it("renders timeline labels and bars with fallback compact titles", () => {
+    const data = {
+      ...createData(),
+      users: [
+        {
+          id: "user_1",
+          name: "Alex",
+        } as never,
+      ],
+    }
+    const item = createWorkItem({
+      assigneeId: "user_1",
+      title: "Long timeline item",
+      status: "in-progress",
+    })
+
+    render(
+      <>
+        <TimelineLabelRow data={data} item={item} />
+        <TimelineBar
+          data={data}
+          item={item}
+          span={1}
+          onCaptureDragOffset={vi.fn()}
+          onResizeStart={vi.fn()}
+        />
+      </>
+    )
+
+    expect(screen.getByText("TES-1")).toBeInTheDocument()
+    expect(screen.getByText("Alex")).toBeInTheDocument()
+  })
+})
+
 describe("ListView", () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -682,12 +832,7 @@ describe("ListView", () => {
       />
     )
 
-    expect(
-      screen.queryByRole("button", { name: "Assignee" })
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "Project" })
-    ).not.toBeInTheDocument()
+    expectEmptyOptionalPillsHidden()
 
     rerender(
       <BoardView
@@ -698,12 +843,7 @@ describe("ListView", () => {
       />
     )
 
-    expect(
-      screen.queryByRole("button", { name: "Assignee" })
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "Project" })
-    ).not.toBeInTheDocument()
+    expectEmptyOptionalPillsHidden()
   })
 
   it("removes dedicated list drag handles and makes board cards draggable from the full card surface", () => {
@@ -773,49 +913,16 @@ describe("ListView", () => {
         subgroups: [],
       },
     })
-    const { rerender } = render(
-      <BoardView
-        data={data}
-        items={groupedItems}
-        view={view}
-        editable
-      />
-    )
 
-    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
-
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
+    expectBoardAndListCreateDefaults({
+      data,
+      items: groupedItems,
+      view,
+      expected: {
         initialType: "feature",
-        defaultValues: expect.objectContaining({
-          parentId: "epic-parent",
-        }),
-      })
-    )
-
-    vi.mocked(openManagedCreateDialog).mockClear()
-
-    rerender(
-      <ListView
-        data={data}
-        items={groupedItems}
-        view={{ ...view, layout: "list" }}
-        editable
-      />
-    )
-
-    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
-
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
-        initialType: "feature",
-        defaultValues: expect.objectContaining({
-          parentId: "epic-parent",
-        }),
-      })
-    )
+        parentId: "epic-parent",
+      },
+    })
   })
 
   it("derives parent defaults from the epic lane even when only the parent row is visible", () => {
@@ -828,49 +935,15 @@ describe("ListView", () => {
         subgroups: [],
       },
     })
-    const { rerender } = render(
-      <BoardView
-        data={data}
-        items={laneItems}
-        view={view}
-        editable
-      />
-    )
-
-    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
-
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
+    expectBoardAndListCreateDefaults({
+      data,
+      items: laneItems,
+      view,
+      expected: {
         initialType: "feature",
-        defaultValues: expect.objectContaining({
-          parentId: "epic-parent",
-        }),
-      })
-    )
-
-    vi.mocked(openManagedCreateDialog).mockClear()
-
-    rerender(
-      <ListView
-        data={data}
-        items={laneItems}
-        view={{ ...view, layout: "list" }}
-        editable
-      />
-    )
-
-    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
-
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
-        initialType: "feature",
-        defaultValues: expect.objectContaining({
-          parentId: "epic-parent",
-        }),
-      })
-    )
+        parentId: "epic-parent",
+      },
+    })
   })
 
   it("prefers the more specific parent subgroup when opening create from nested parent lanes", () => {
@@ -883,49 +956,15 @@ describe("ListView", () => {
         subgroups: ["No feature"],
       },
     })
-    const { rerender } = render(
-      <BoardView
-        data={data}
-        items={data.workItems}
-        view={view}
-        editable
-      />
-    )
-
-    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
-
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
+    expectBoardAndListCreateDefaults({
+      data,
+      items: data.workItems,
+      view,
+      expected: {
         initialType: "requirement",
-        defaultValues: expect.objectContaining({
-          parentId: "feature-child",
-        }),
-      })
-    )
-
-    vi.mocked(openManagedCreateDialog).mockClear()
-
-    rerender(
-      <ListView
-        data={data}
-        items={data.workItems}
-        view={{ ...view, layout: "list" }}
-        editable
-      />
-    )
-
-    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
-
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
-        initialType: "requirement",
-        defaultValues: expect.objectContaining({
-          parentId: "feature-child",
-        }),
-      })
-    )
+        parentId: "feature-child",
+      },
+    })
   })
 
   it("scopes parent lane defaults to the active team when duplicate parent labels exist", () => {
@@ -940,47 +979,14 @@ describe("ListView", () => {
         subgroups: [],
       },
     })
-    const { rerender } = render(
-      <BoardView
-        data={data}
-        items={groupedItems}
-        view={view}
-        editable
-      />
-    )
-
-    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
-
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
-        defaultValues: expect.objectContaining({
-          parentId: "epic-parent-team-1",
-        }),
-      })
-    )
-
-    vi.mocked(openManagedCreateDialog).mockClear()
-
-    rerender(
-      <ListView
-        data={data}
-        items={groupedItems}
-        view={{ ...view, layout: "list" }}
-        editable
-      />
-    )
-
-    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
-
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
-        defaultValues: expect.objectContaining({
-          parentId: "epic-parent-team-1",
-        }),
-      })
-    )
+    expectBoardAndListCreateDefaults({
+      data,
+      items: groupedItems,
+      view,
+      expected: {
+        parentId: "epic-parent-team-1",
+      },
+    })
   })
 
   it("renders the lowest assigned descendant under the selected parent level in list mode", () => {
@@ -1068,5 +1074,161 @@ describe("ListView", () => {
 
     expect(screen.queryByLabelText("1 story")).not.toBeInTheDocument()
     expect(screen.getAllByText("1")).toHaveLength(1)
+  })
+
+  it("requests owner-local drag patches for item and group targets", () => {
+    const activeItem = createWorkItem({
+      id: "active",
+      status: "todo",
+    })
+    const targetItem = createWorkItem({
+      id: "target",
+      status: "done",
+    })
+    const data = {
+      ...createData(),
+      workItems: [activeItem, targetItem],
+    }
+    const requestUpdate = vi.fn()
+    const view = createView("board", [], { grouping: "status" })
+
+    requestWorkSurfaceDragUpdate({
+      data,
+      editable: false,
+      event: createDragEndEvent(activeItem.id, "board::done"),
+      itemPool: data.workItems,
+      requestUpdate,
+      scope: "board",
+      view,
+    })
+    expect(requestUpdate).not.toHaveBeenCalled()
+
+    requestWorkSurfaceDragUpdate({
+      data,
+      editable: true,
+      event: createDragEndEvent(activeItem.id, targetItem.id),
+      itemPool: data.workItems,
+      requestUpdate,
+      scope: "board",
+      view,
+    })
+    expect(requestUpdate).not.toHaveBeenCalled()
+
+    requestWorkSurfaceDragUpdate({
+      data,
+      editable: true,
+      event: createDragEndEvent(activeItem.id, "list::done"),
+      itemPool: data.workItems,
+      requestUpdate,
+      scope: "board",
+      view,
+    })
+    expect(requestUpdate).not.toHaveBeenCalled()
+
+    requestWorkSurfaceDragUpdate({
+      data,
+      editable: true,
+      event: createDragEndEvent(activeItem.id, `board-item::${activeItem.id}`),
+      itemPool: data.workItems,
+      requestUpdate,
+      scope: "board",
+      view,
+    })
+    expect(requestUpdate).not.toHaveBeenCalled()
+
+    requestWorkSurfaceDragUpdate({
+      data: {
+        ...data,
+        workItems: [
+          ...data.workItems,
+          createWorkItem({ id: "other-team", teamId: "team_2" }),
+        ],
+      },
+      editable: true,
+      event: createDragEndEvent(activeItem.id, "board-item::other-team"),
+      itemPool: [
+        ...data.workItems,
+        createWorkItem({ id: "other-team", teamId: "team_2" }),
+      ],
+      requestUpdate,
+      scope: "board",
+      view,
+    })
+    expect(requestUpdate).not.toHaveBeenCalled()
+
+    requestWorkSurfaceDragUpdate({
+      data,
+      editable: true,
+      event: createDragEndEvent(activeItem.id, `board-item::${targetItem.id}`),
+      itemPool: data.workItems,
+      requestUpdate,
+      scope: "board",
+      view,
+    })
+    expect(requestUpdate).toHaveBeenLastCalledWith(
+      activeItem.id,
+      expect.objectContaining({
+        status: "done",
+        parentId: null,
+      })
+    )
+
+    requestWorkSurfaceDragUpdate({
+      data,
+      editable: true,
+      event: createDragEndEvent(activeItem.id, "board::todo"),
+      itemPool: data.workItems,
+      requestUpdate,
+      scope: "board",
+      view,
+    })
+    expect(requestUpdate).toHaveBeenLastCalledWith(
+      activeItem.id,
+      expect.objectContaining({
+        status: "todo",
+        parentId: null,
+      })
+    )
+  })
+
+  it("renders board child rows as static rows or interactive links", () => {
+    const item = createWorkItem({ title: "Child item", status: "in-progress" })
+
+    const { rerender } = render(
+      <BoardChildItemRow item={item} assignee={null} interactive={false} />
+    )
+
+    expect(screen.getByText("Child item")).toBeInTheDocument()
+    expect(screen.queryByRole("link")).not.toBeInTheDocument()
+
+    rerender(
+      <BoardChildItemRow
+        item={item}
+        assignee={{
+          id: "user_1",
+          name: "Alex",
+          handle: "alex",
+          email: "alex@example.com",
+          avatarUrl: "",
+          avatarImageUrl: null,
+          workosUserId: null,
+          title: "",
+          status: "active",
+          statusMessage: "",
+          preferences: {
+            emailAssignments: true,
+            emailDigest: true,
+            emailMentions: true,
+            theme: "system",
+          },
+        }}
+        interactive
+        href="/items/item_1"
+        isDropTarget
+      />
+    )
+
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/items/item_1")
+    expect(screen.getByText("Assignee")).toBeInTheDocument()
   })
 })

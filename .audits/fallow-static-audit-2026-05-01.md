@@ -6,6 +6,640 @@ Fallow was adopted as a report-first static codebase intelligence tool for this 
 
 This is a Fallow baseline, not a full manual repo-audit-skill report. The architecture interpretation below uses the repository architecture standards: findings are grouped by ownership, boundary enforcement, public API intent, generated/runtime entry points, and operational risk.
 
+## Diff Review Finalization Checkpoint - 2026-05-05
+
+This checkpoint records the final local diff-review loop before commit and PR creation. The live review finding was a production public-surface regression: coverage-first remediation had left test-only exports in production modules, causing production Fallow dead-code noise. The fix removed those test-only exports by moving directly testable branches into owner-local modules imported by production and tests, or by keeping helpers file-local where no production caller needed them.
+
+One fresh final-health rerun also surfaced a single moderate workspace chat helper finding. That was fixed inside the collaboration-screen owner by extracting `getLatestMessagesByConversationId` to `components/app/collaboration-screens/workspace-conversation-preview.ts` and covering the visible-conversation/latest-message branches. No Fallow suppressions, ignore expansion, threshold changes, CI workflow changes, package gate loosening, PartyKit server/adapter rewrite, product schema change, or public route-contract change was added.
+
+### Run context
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-05-05 |
+| Repo | `/Users/declancowen/Documents/GitHub/Linear` |
+| Branch | `codex/fallow-static-remediation` |
+| Base HEAD | `7c031a58` plus working tree |
+| `origin/main` | `1d5b2001` |
+| Fallow version | `2.58.0` |
+| Final Fallow JSON | `/tmp/linear-final-*-after-workspace-chat.json` |
+| Diff-review preflight | Captured `2026-05-05 18:22 BST` |
+
+### Final local static state
+
+| Signal | Value |
+| --- | ---: |
+| Full dead-code issues | 0 |
+| Full unused files / exports | 0 / 0 |
+| Full clone groups / instances | 0 / 0 |
+| Full duplicated lines | 0 |
+| Full duplication percentage | 0% |
+| Full health findings / functions above threshold | 0 / 0 |
+| Full health critical / high / moderate | 0 / 0 / 0 |
+| Full health score | 97.7 |
+| Full health grade | A |
+| Production health findings / functions above threshold | 0 / 0 |
+| Production health score | 96.5 |
+| Production health grade | A |
+| Configured local `pnpm fallow:gate` | Passed |
+
+`pnpm exec fallow health --format json --quiet --explain` still exits `1` because the aggregate score remains below `100`; this is not a remaining findings inventory. The final JSON reports `functions_above_threshold: 0` and severity `0 / 0 / 0`.
+
+### Architecture interpretation
+
+The review fix follows the architecture standards:
+
+- production modules no longer export helpers solely for tests
+- testable primitives live in the owning capability directory, not in a generic testability bucket
+- the workspace chat message-selection helper lives in the collaboration-screen owner
+- PartyKit behavior remains protected by tests and was not broadened during the review fix
+- CI remains report-only for Fallow; local package gates enforce full dead-code and full zero-duplication
+
+### Validation
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `pnpm exec fallow dead-code --format json --quiet --explain` | 0 | `total_issues: 0`; all dead-code summary buckets are `0`. |
+| `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` | 0 | `clone_groups: 0`, `clone_instances: 0`, `duplicated_lines: 0`, `duplication_percentage: 0`. |
+| `pnpm exec fallow health --format json --quiet --explain` | 1 | `findings: 0`, `functions_above_threshold: 0`, `critical/high/moderate: 0/0/0`, `score=97.7`, `grade=A`; exit remains `1` due aggregate score below `100`. |
+| `pnpm fallow:gate` | 0 | Full dead-code zero, production health zero-findings gate, and full zero-duplication budget passed. |
+| `pnpm lint` | 0 | ESLint passed with `--max-warnings 0`. |
+| `pnpm typecheck` | 0 | `tsc --noEmit` passed. |
+| `pnpm exec vitest run tests/components/workspace-chats-screen.test.tsx` | 0 | `1` test file and `5` tests passed. |
+| `pnpm test` | 0 | `174` test files and `953` tests passed. |
+| `pnpm test:coverage` | 0 | `174` test files and `953` tests passed with Istanbul JSON coverage. |
+| `pnpm build` | 0 | Next.js production build completed successfully. |
+| `~/.codex/skills/diff-review/scripts/review-preflight.sh` | 0 | Changed-file audit passed; production/full dead-code, production/full duplication, production health, and full health all reported `0` findings. |
+
+## Full Health Zero-Findings Checkpoint - 2026-05-05
+
+This checkpoint records the full-health zero-findings pass. The pass was coverage-first and owner-local: remaining findings were cleared through focused tests and small helper extraction inside the existing owners for Convex handlers, route polling, store state transitions, rich-text/collaboration UI, settings screens, work-surface/timeline UI, inbox presentation, scripts, and PartyKit loader behavior. No Fallow suppressions, ignored paths, threshold changes, Fallow config changes, budget loosening, CI workflow changes, product schema changes, or public route-contract changes were added.
+
+PartyKit remained inside the PartyKit owner. The only PartyKit production edit was a named wrapper around the existing YPartyKit canonical document load/log/rethrow path, used by the existing callback and covered by tests; observable server and adapter behavior were preserved.
+
+### Run context
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-05-05 |
+| Repo | `/Users/declancowen/Documents/GitHub/Linear` |
+| Branch | `codex/fallow-static-remediation` |
+| HEAD | `7c031a58` |
+| `origin/main` | `1d5b2001` |
+| Fallow version | `2.58.0` |
+| Coverage artifact | `coverage/coverage-final.json` |
+| Raw JSON location | `/tmp/linear-fallow-health-zero/20260505-140907/` |
+
+### Final Fallow state
+
+| Signal | Value |
+| --- | ---: |
+| Full health findings / functions above threshold | 0 |
+| Full health critical / high / moderate | 0 / 0 / 0 |
+| Full health score | 97.7 |
+| Full health grade | A |
+| Full average maintainability | 91.9 |
+| Full average / p90 cyclomatic | 1.9 / 4 |
+| Full health score penalties | complexity `2.0`, unit size `0.3`; all other penalties `0` |
+| Full dead-code issues | 0 |
+| Full unused files / exports | 0 / 0 |
+| Full clone groups / instances | 0 / 0 |
+| Full duplicated lines | 0 |
+| Full duplication percentage | 0% |
+| Configured local `pnpm fallow:gate` | Passed |
+
+`pnpm exec fallow health --format json --quiet --explain` still exits `1` even with `findings: []` and `functions_above_threshold: 0`. The remaining score gap is not a residual finding inventory; it is the aggregate health score penalty from normal branch-bearing units and unit-size distribution. Fallow reports `complexity: 2.0` and `unit_size: 0.3`, plus `55` static coverage-gap files and `353` untested exports in the coverage-gap inventory. Chasing a literal `100` score would require a broad branch and unit-size campaign across thousands of functions, not a targeted remediation of applicable findings.
+
+### Architecture interpretation
+
+The zero-findings state is scope-safe:
+
+- full dead-code and full duplication are both at `0`
+- full health findings are at `0`
+- local `fallow:gate` remains clean with full dead-code, production health, and full zero-duplication gates
+- CI workflow promotion remains a separate policy rollout
+- no Fallow policy was loosened to reach the result
+
+The remaining score penalty is aggregate architecture pressure, not a Fallow finding list. Future work should target owner-owned large surfaces when they are already being changed, especially rich-text/editor screens, work-surface screens, app shell, store slices, and Convex orchestration modules. Architecture-standards guidance is to avoid generic extraction or branch flattening solely to game the aggregate score.
+
+### Validation
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `pnpm exec fallow dead-code --format json --quiet --explain` | 0 | `total_issues: 0`; all dead-code summary buckets are `0`. |
+| `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` | 0 | `clone_groups: 0`, `clone_instances: 0`, `duplicated_lines: 0`, `duplication_percentage: 0`. |
+| `pnpm exec fallow health --format json --quiet --explain` | 1 | `findings: 0`, `functions_above_threshold: 0`, `critical/high/moderate: 0/0/0`, `score=97.7`, `grade=A`; exit remains `1` due aggregate score below `100`. |
+| `pnpm fallow:gate` | 0 | Full dead-code zero, production health zero-findings gate, and full zero-duplication budget passed. |
+| `pnpm lint` | 0 | ESLint passed with `--max-warnings 0`. |
+| `pnpm typecheck` | 0 | `tsc --noEmit` passed. |
+| `pnpm test` | 0 | `174` test files and `954` tests passed. |
+| `pnpm test:coverage` | 0 | `174` test files and `954` tests passed with Istanbul JSON coverage. |
+| `pnpm build` | 0 | Next.js production build completed successfully. |
+
+## Targeted Full-Health Remediation Checkpoint - 2026-05-05
+
+This checkpoint records the targeted health pass after full dead-code and full duplication had already reached zero. The pass was coverage-first and owner-local: tests were added around the existing store/domain update, Convex auth/work/conversation, server auth-context, rich-text UI, settings, timeline, and shared field owners. Small exports were limited to existing owner-local helper surfaces used by tests. No Fallow suppressions, ignored paths, threshold changes, CI workflow changes, PartyKit server/adapter changes, product schema changes, or public route-contract changes were added.
+
+### Run context
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-05-05 |
+| Repo | `/Users/declancowen/Documents/GitHub/Linear` |
+| Branch | `codex/fallow-static-remediation` |
+| HEAD | `7c031a58` |
+| Fallow version | `2.58.0` |
+| Coverage artifact | `coverage/coverage-final.json` |
+| Raw JSON location | `/tmp/linear-fallow-health-targeted/` |
+
+### Health movement
+
+| Signal | Before targeted pass | Final |
+| --- | ---: | ---: |
+| Full health score | 97.4 | 97.4 |
+| Full health grade | A | A |
+| Full health findings / functions above threshold | 221 | 170 |
+| Critical / High / Moderate | 0 / 0 / 221 | 0 / 0 / 170 |
+| Average maintainability | 91.8 | 91.8 |
+| Coverage model | Istanbul | Istanbul |
+
+The implementation met the targeted criteria: high findings are `0`, and full health findings are at the agreed cap of `170`. The planned workspace-switch route high finding was not present in this repo state; the final high count is still explicitly verified as `0`.
+
+### Static gate state
+
+| Signal | Final value |
+| --- | ---: |
+| Full dead-code issues | 0 |
+| Full unused exports | 0 |
+| Full clone groups | 0 |
+| Full clone instances | 0 |
+| Full duplicated lines | 0 |
+| Full duplication percentage | 0% |
+| Configured local `pnpm fallow:gate` | Passed |
+
+Full health remains advisory unless it reaches `0`. The configured local Fallow gate is clean, while residual full-health findings remain moderate CRAP/coverage-style inventory. Any further movement should continue as owner-local test/refactor work, not a broad "fix all" sweep or generic helper extraction.
+
+### Architecture interpretation
+
+The pass followed architecture-standards ownership rules:
+
+- store cleanup behavior was covered in `lib/store/app-store-internal/domain-updates.ts`
+- Convex access/bootstrap/work conversations were covered through Convex-owned helpers and handlers
+- rich-text and collaboration UI coverage stayed inside `components/app/rich-text-editor.tsx`
+- timeline behavior stayed in the work-surface timeline owner
+- settings helper coverage stayed in the settings screen owners
+- shared form error rendering was covered at the `components/ui/field.tsx` primitive boundary
+
+PartyKit runtime behavior remained out of scope. No PartyKit server or collaboration adapter behavior was changed.
+
+### Validation
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `pnpm exec fallow dead-code --format json --quiet --explain` | 0 | `total_issues: 0`; all dead-code summary buckets are `0`. |
+| `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` | 0 | `clone_groups: 0`, `clone_instances: 0`, `duplicated_lines: 0`, `duplication_percentage: 0`. |
+| `pnpm exec fallow health --format json --quiet --explain` | 1 | Advisory findings remain; full health `score=97.4 grade=A`, `functions_above_threshold: 170`, `critical/high/moderate: 0/0/170`, average maintainability `91.8`. |
+| `pnpm fallow:gate` | 0 | Full dead-code zero, full duplication zero budget, and configured production health gate passed. |
+| `pnpm lint` | 0 | ESLint passed with `--max-warnings 0`. |
+| `pnpm typecheck` | 0 | `tsc --noEmit` passed. |
+| `pnpm test` | 0 | `151` test files and `810` tests passed. |
+| `pnpm test:coverage` | 0 | `151` test files and `810` tests passed with Istanbul JSON coverage. |
+| `pnpm build` | 0 | Next.js production build completed successfully. |
+
+## Final Zero-Duplication And Health Checkpoint - 2026-05-05
+
+This checkpoint records the latest continuation pass after the full duplication, coverage, and architecture refactor work. The pass stayed inside the existing ownership boundaries: production rules moved to domain/server/Convex/store owners, UI decomposition stayed feature-local, script repetition moved to script-owned helpers, and test repetition moved to test-only fixtures. No Fallow suppressions, ignored paths, threshold loosening, CI workflow promotion, product schema changes, or public route-contract changes were added.
+
+PartyKit and collaboration runtime behavior were treated as high-risk ownership areas. The pass did not change the PartyKit adapter or server behavior; related edits were limited to test fixtures, focused collaboration tests, and rich-text/collaboration UI decomposition inside the existing rich-text owner.
+
+### Run context
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-05-05 |
+| Repo | `/Users/declancowen/Documents/GitHub/Linear` |
+| Branch | `codex/fallow-static-remediation` |
+| HEAD | `7c031a58` |
+| `origin/main` | `1d5b2001` |
+| Fallow version | `2.58.0` |
+| Coverage artifact | `coverage/coverage-final.json` |
+
+### Final Fallow state
+
+| Signal | Value |
+| --- | ---: |
+| Full dead-code issues | 0 |
+| Full unused files | 0 |
+| Full unused exports | 0 |
+| Full clone groups | 0 |
+| Full clone instances | 0 |
+| Full duplicated lines | 0 |
+| Full duplication percentage | 0.0% |
+| Configured production health gate findings | 0 |
+| Configured production functions above gate threshold | 0 |
+| Configured production health score | 96.5 |
+| Configured production health grade | A |
+
+Full coverage-aware advisory health after the final `pnpm test:coverage` run:
+
+| Scope | Score | Grade | Findings / functions above CRAP threshold | Critical / High / Moderate | Average maintainability |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Full repo static plus Istanbul coverage | 97.4 | A | 221 | 0 / 0 / 221 | 91.8 |
+
+The configured production gate is clean. The repo did not reach full health `100` or full health `0` findings in this pass: the remaining gap is `221` moderate CRAP/health advisory functions under static plus Istanbul coverage. No critical or high full-health findings remain. Further movement should be a separate owner-local test/refactor campaign rather than a broad extraction pass.
+
+### Reports and chart cleanup
+
+The suspected reports surface is not present as a reachable app route. `pnpm build` produced no `/reports` route, and repository search found no reports page, reports route, or report-owned component files. The remaining `report` matches are audit prose, script variable names, test descriptions, and the rich-text active-block reporter helper.
+
+The reports-adjacent chart module was removed as unused UI surface:
+
+- `components/ui/chart.tsx`
+
+No `.github/workflows/ci.yml` changes were made. A stray untracked duplicate workflow artifact, `.github/workflows/ci 2.yml`, was removed so it cannot be accidentally committed.
+
+### Architecture interpretation
+
+The zero-duplication state is now a real local policy, not just a point-in-time inventory: `fallow:dupes` runs full-scope duplication with a zero budget, and `fallow:dead-code` runs full-scope dead-code with fail-on-issues. `fallow:health` remains production-scoped and configured as a zero-findings complexity gate with the intentionally high CRAP threshold.
+
+The remaining health movement should be done with owner-local refactors and targeted tests, not generic extraction. The highest-risk remaining areas are coverage and branch coverage around auth routes, rich-text/collaboration UI helpers, settings and inbox presentation, Convex access/cleanup paths, and the test-only workspace-search fixture.
+
+### Validation
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `pnpm exec fallow dead-code --format json --quiet --explain` | 0 | `total_issues: 0`; all dead-code summary buckets are `0`. |
+| `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` | 0 | `clone_groups: 0`, `clone_instances: 0`, `duplicated_lines: 0`, `duplication_percentage: 0.0`. |
+| `pnpm exec fallow health --format json --quiet --explain` | 1 | Advisory findings remain; full health `score=97.4 grade=A`, `functions_above_threshold: 221`, `critical/high/moderate: 0/0/221`, average maintainability `91.8`. |
+| `pnpm fallow:gate` | 0 | Dead-code zero, production health `score=96.5 grade=A findings=0 functions_above_threshold=0`, and duplication zero budget all passed. |
+| `pnpm lint` | 0 | ESLint passed with `--max-warnings 0`. |
+| `pnpm typecheck` | 0 | `tsc --noEmit` passed. |
+| `pnpm test` | 0 | `143` test files and `762` tests passed. |
+| `pnpm test:coverage` | 0 | `143` test files and `762` tests passed with Istanbul JSON coverage. |
+| `pnpm build` | 0 | Next.js production build completed successfully; no `/reports` route is present. |
+
+## Additional Architecture Refactor Checkpoint - 2026-05-03
+
+This checkpoint records the follow-up refactor pass after the health-and-coverage checkpoint. The pass stayed code-focused and owner-local: no Fallow suppressions, ignored paths, threshold loosening, Fallow config changes, or CI workflow changes were added.
+
+The refactor pass targeted functions that were still high in Fallow's production health inventory but could be safely decomposed inside their existing ownership boundaries. PartyKit runtime behavior was not changed.
+
+### Run context
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-05-03 |
+| Repo | `/Users/declancowen/Documents/GitHub/Linear` |
+| Branch | `codex/fallow-static-remediation` |
+| HEAD | `7c031a58` |
+| Fallow version | `2.58.0` |
+| Coverage artifact | `coverage/coverage-final.json` |
+
+### Refactor scope
+
+Owner-local changes in this pass included:
+
+- API/auth route decomposition for workspace deletion, login/email-verification failure handling, and verify-email POST flow.
+- Work-surface drag update helpers inside the work-surface view owner.
+- Main activity comment card presentation split inside the work-item detail screen owner.
+- Rich-text collaboration awareness parsing and local awareness merge helpers inside `components/app/rich-text-editor.tsx`.
+- Convex work hierarchy validation and team work-view provisioning helpers inside `convex/app/work_helpers.ts`.
+- Store view creation feature-gate helpers inside `lib/store/app-store-internal/slices/views.ts`.
+- A shared auth-owned password form parser in `lib/auth-form.ts`, used by login and signup routes.
+- Workspace branding snapshot normalization inside the workspace settings screen owner.
+
+One attempted inbox primary-action table refactor was intentionally unwound because it did not improve the score and increased the coverage-aware health finding count. The final diff keeps the changes that improved or clarified existing ownership boundaries without increasing duplication.
+
+### Final Fallow state
+
+| Signal | Value |
+| --- | ---: |
+| Full dead-code issues | 0 |
+| Full clone groups | 0 |
+| Full duplicated lines | 0 |
+| Full duplication percentage | 0% |
+| Configured production health gate findings | 0 |
+| Configured production functions above gate threshold | 0 |
+| Configured production health score | 95.4 |
+| Configured production health grade | A |
+
+Coverage-aware advisory health after fresh `pnpm test:coverage`:
+
+| Scope | Score | Findings / functions above CRAP threshold | Critical / High / Moderate | Structural penalties |
+| --- | ---: | ---: | ---: | --- |
+| Production with coverage | 95.4 | 364 | 35 / 113 / 216 | complexity `4.5`, unit size `0.1` |
+| Full repo with coverage | 96.6 | 309 | 31 / 97 / 181 | complexity `3.0`, unit size `0.4` |
+
+The remaining gap to `100` is not dead code or duplication. It is still structural complexity and coverage-sensitive CRAP in large UI and orchestration surfaces, led by `AppShell`, `ForumPostCard`, `InboxScreen`, `ImageUploadControl`, `WorkspaceConversationAvatar`, `InlineChildIssueComposer`, and several large settings/work-surface components. Further movement should be planned screen-by-screen or capability-by-capability with focused tests.
+
+### Validation
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `pnpm fallow:gate` | 0 | Full dead-code zero, production health gate `score=95.4 grade=A findings=0`, and full duplication zero budget passed. |
+| `pnpm lint` | 0 | ESLint passed with `--max-warnings 0`. |
+| `pnpm typecheck` | 0 | `tsc --noEmit` passed. |
+| `pnpm test` | 0 | `140` test files and `739` tests passed. |
+| `pnpm test:coverage` | 0 | `140` test files and `739` tests passed with Istanbul JSON coverage. |
+| `pnpm exec fallow health --production --coverage coverage --format json --quiet --explain` | 1 | Advisory findings remain; production coverage-aware score `95.4`, grade `A`. |
+| `pnpm exec fallow health --coverage coverage --format json --quiet --explain` | 1 | Advisory findings remain; full coverage-aware score `96.6`, grade `A`. |
+| `pnpm build` | 0 | Next.js production build completed successfully. |
+
+## Health And Coverage Checkpoint - 2026-05-02
+
+This checkpoint records the follow-up health pass after full duplication reached zero. This was a code-and-test cleanup pass, not a Fallow policy-loosening pass: no suppressions, ignored paths, Fallow config changes, broader budgets, or CI workflow changes were added.
+
+The pass added a local `test:coverage` package script using Vitest Istanbul coverage and made owner-local complexity refactors in the shell/UI, auth route, Convex/auth, store, read-model, collaboration, cleanup, and domain-policy owners. PartyKit runtime behavior was not changed.
+
+### Run context
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-05-02 |
+| Repo | `/Users/declancowen/Documents/GitHub/Linear` |
+| Branch | `codex/fallow-static-remediation` |
+| HEAD | `7c031a58` |
+| Fallow version | `2.58.0` |
+| Coverage artifact | `coverage/coverage-final.json` |
+
+### Final health and coverage results
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| `pnpm fallow:gate` | 0 | Full dead-code zero, production health gate, and full duplication zero budget passed. |
+| `pnpm test:coverage` | 0 | `140` test files and `739` tests passed with Istanbul JSON coverage. |
+| `pnpm exec fallow health --production --coverage coverage --format json --quiet --explain` | 1 | Coverage-aware production advisory inventory still has findings; score `95.3`, grade `A`. |
+| `pnpm exec fallow health --coverage coverage --format json --quiet --explain` | 1 | Coverage-aware full advisory inventory still has findings; score `96.6`, grade `A`. |
+
+Configured local Fallow gate state:
+
+| Signal | Value |
+| --- | ---: |
+| Full dead-code issues | 0 |
+| Full clone groups | 0 |
+| Full duplicated lines | 0 |
+| Full duplication percentage | 0% |
+| Production health gate findings | 0 |
+| Production functions above configured gate threshold | 0 |
+| Production health score | 95.3 |
+| Production health grade | A |
+
+Coverage-aware advisory health state:
+
+| Scope | Score | Findings / functions above CRAP threshold | Critical / High / Moderate | Structural penalties |
+| --- | ---: | ---: | ---: | --- |
+| Production with coverage | 95.3 | 366 | 44 / 113 / 209 | complexity `4.5`, unit size `0.2` |
+| Full repo with coverage | 96.6 | 311 | 40 / 97 / 174 | complexity `3.0`, unit size `0.4` |
+
+The important interpretation is that `test:coverage` works and now provides coverage evidence, but it does not make the production score `100`. The remaining score loss is structural: broad average complexity plus unit size. Coverage reduces CRAP risk for covered functions; it does not erase branchy UI/domain orchestration or large component shape.
+
+### Architecture notes
+
+The refactors followed the architecture standards ownership rule:
+
+- shell notification/search/leave/create orchestration stayed in `components/app/shell.tsx` as shell-owned hooks and helpers
+- auth callback and WorkOS error mapping stayed at the auth route edge
+- auth context selection stayed in `convex/app/auth_bootstrap.ts`
+- profile and invite membership rules stayed in Convex application/data handlers
+- read-model dispatch stayed in the read-model owner
+- attachment upload validation and optimistic insertion stayed in the store slice
+- domain feature/work-item normalization stayed in the domain type owner
+
+No generic helper bucket was introduced. No product public API, route contract, schema, package API, or runtime behavior change was intended.
+
+### Movement toward 100
+
+This pass reduced several top hotspots without changing policy:
+
+- `AppShell` dropped from cyclomatic `19`, `624` lines to cyclomatic `16`, `317` lines.
+- `getAuthContextHandler`, `selectReadModelForInstruction`, `getEmptyScopedArrayDomains`, `uploadAttachment`, `joinTeamByCodeHandler`, and `updateCurrentUserProfileHandler` dropped out of the highest-ranked health list.
+- Full duplication and full dead-code stayed at zero throughout the pass.
+
+The repo is not at `100`. Getting there safely requires a broader planned health project, mainly screen/component decomposition and route/domain handler simplification across many owners. The remaining work should be done screen-by-screen or capability-by-capability with focused tests, not by mechanical extraction or generic shared utilities.
+
+### Validation
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `pnpm fallow:gate` | 0 | Dead-code `0`; production health gate `score=95.3 grade=A findings=0`; duplication `0/0`. |
+| `pnpm lint` | 0 | ESLint passed with `--max-warnings 0`. |
+| `pnpm typecheck` | 0 | `tsc --noEmit` passed. |
+| `pnpm test` | 0 | `140` test files and `739` tests passed. |
+| `pnpm test:coverage` | 0 | `140` test files and `739` tests passed with Istanbul JSON coverage. |
+| `pnpm build` | 0 | Next.js production build completed successfully. |
+
+## Full Duplication Zero Checkpoint - 2026-05-02
+
+This checkpoint records the follow-up cleanup pass requested after the second static audit. Unlike the audit-only checkpoint below, this pass changed code, tests, package scripts, and the local duplication budget gate. `.github/workflows/ci.yml`, `.fallowrc.json`, Fallow ignores, suppressions, and CI promotion policy were not changed.
+
+### Run context
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-05-02 |
+| Repo | `/Users/declancowen/Documents/GitHub/Linear` |
+| Branch | `codex/fallow-static-remediation` |
+| HEAD | `7c031a58` |
+| `origin/main` | `1d5b2001` |
+| Fallow version | `2.58.0` |
+| Raw output directory | `/tmp/linear-fallow-zero-pass` |
+
+### Final Fallow results
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| `pnpm exec fallow dead-code --format json --quiet --explain` | 0 | `total_issues: 0`; unused exports, duplicate exports, unresolved imports, boundary violations, and stale suppressions all `0`. |
+| `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` | 0 | `clone_groups: 0`, `clone_instances: 0`, `duplicated_lines: 0`, `duplication_percentage: 0`. |
+| `pnpm fallow:gate` | 0 | Full dead-code zero, production health clean, and full duplication zero budget all passed. |
+
+`pnpm fallow:gate` now reports production health score `95.2`, grade `A`, `0` findings, and `0` functions above threshold. Full health/CRAP advisory cleanup remains out of scope for this pass.
+
+### Gate changes
+
+| Gate | New policy |
+| --- | --- |
+| `fallow:dead-code` | Full-scope `fallow dead-code --fail-on-issues`. |
+| `fallow:dupes` | Full-scope `fallow dupes --ignore-imports --format json \| node scripts/fallow-dupes-budget-gate.mjs`. |
+| Duplication budget defaults | `0` clone groups, `0` duplicated lines, `0%` duplication. |
+| `fallow:health` | Still production-scoped with the existing zero-findings wrapper. |
+| CI workflow | Unchanged; blocking CI promotion remains a separate policy rollout. |
+
+### Architecture notes
+
+The cleanup followed ownership boundaries rather than global utility extraction. Production/domain rules moved into domain, Convex/data, server, store, script, or feature-local owners. Test-only repetition moved into test fixtures and local test helpers. PartyKit changes were limited to test helper extraction around connection, admission, request, and assertion setup; the PartyKit server behavior path was not changed for duplication cleanup.
+
+No Fallow suppressions, broader ignored paths, or threshold loosening were added. No product public route contract, schema, package API, or runtime interface change was intended.
+
+### Ledger update
+
+| Item | Status |
+| --- | --- |
+| Full duplication inventory | Fixed: `0` clone groups and `0` duplicated lines. |
+| Full dead-code test fixture exports | Fixed: full dead-code inventory is `0`. |
+| Production duplication transition debt | Replaced by full zero-duplication gate. |
+| Full health/CRAP findings | Still out of scope; handle separately. |
+| Boundary rules | Still not configured; revisit only after stable zones and import directions are concrete. |
+| CI blocking gate promotion | Deferred; local `pnpm fallow:gate` is ready for a later CI policy pass. |
+
+### Final validation
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `pnpm exec fallow dead-code --format json --quiet --explain` | 0 | `total_issues: 0`; final JSON stored at `/tmp/linear-fallow-zero-pass/final-dead-code.json`. |
+| `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` | 0 | `clone_groups: 0`, `duplicated_lines: 0`, `duplication_percentage: 0.0`; final JSON stored at `/tmp/linear-fallow-zero-pass/final-dupes.json`. |
+| `pnpm fallow:gate` | 0 | Full dead-code zero, production health score `95.2` grade `A`, and full duplication zero budget passed. |
+| `pnpm lint` | 0 | ESLint passed with `--max-warnings 0`. |
+| `pnpm typecheck` | 0 | `tsc --noEmit` passed. |
+| `pnpm test` | 0 | `140` test files and `739` tests passed. |
+| `pnpm build` | 0 | Next.js production build completed successfully. |
+| `git diff --check` | 0 | No whitespace errors in the final diff. |
+
+## Second Pass Checkpoint - 2026-05-02
+
+This checkpoint reran the post-merge Fallow signal set as a static-only, audit-only pass. It updates the audit record only; no source code, tests, Fallow config, package scripts, generated files, budgets, or CI workflow were changed.
+
+Runtime coverage remains out of scope. Static Fallow and CI usage are the free/open-source layer documented by Fallow; runtime intelligence and coverage setup are the optional paid/team layer. No license activation, trial setup, coverage setup, or runtime evidence collection was run.
+
+### Run context
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-05-02 |
+| Repo | `/Users/declancowen/Documents/GitHub/Linear` |
+| Branch | `codex/fallow-static-remediation` |
+| HEAD | `7c031a58` |
+| `origin/main` | `1d5b2001` |
+| Merge state | PR #30 is merged; current tree has no diff against `origin/main` |
+| Working tree | Clean before this audit-file update |
+| Fallow version | `2.58.0` |
+| Raw output directory | `/tmp/linear-fallow-second-pass/20260502-152717` |
+
+### Command matrix
+
+Exit code `1` is treated as "findings reported" for Fallow inventory commands, not as a tool failure. Exit code `2` would indicate a tool, config, or runtime failure; none occurred. JSON stdout and stderr were captured separately in the raw output directory.
+
+| Command | Exit | Interpretation |
+| --- | ---: | --- |
+| `pnpm exec fallow --version` | 0 | Fallow `2.58.0`. |
+| `pnpm exec fallow schema --format json --quiet` | 0 | Capability discovery succeeded. |
+| `pnpm exec fallow config --format json --quiet` | 0 | Config discovery succeeded; output included a leading `loaded config:` line before JSON. |
+| `pnpm exec fallow list --plugins --entry-points --boundaries --format json --quiet` | 0 | Plugins, entry points, and boundary state discovered. |
+| `pnpm fallow:gate` | 0 | Repo production gate passed. |
+| `pnpm exec fallow --ci --production --format json --quiet --explain` | 0 | CI-style production check reported `0` dead-code issues. |
+| `pnpm exec fallow dead-code --production --format json --quiet --explain` | 0 | Production dead-code inventory is clean. |
+| `pnpm exec fallow health --production --max-crap 1000000 --format json --quiet --explain` | 1 | Raw health command still exits nonzero, but JSON contains `0` findings and `0` functions above threshold; the repo wrapper is the authoritative gate. |
+| `pnpm exec fallow dupes --production --ignore-imports --format json --quiet --explain` | 0 | Production duplication inventory collected and within the current budget. |
+| `pnpm exec fallow dead-code --format json --quiet --explain` | 1 | Full inventory reports two test-only unused exports. |
+| `pnpm exec fallow health --max-crap 1000000 --format json --quiet --explain` | 1 | Full complexity-only inventory reports one test fixture hotspot. |
+| `pnpm exec fallow health --format json --quiet --explain` | 1 | Full default health inventory reports CRAP/static-estimated coverage advisory findings. |
+| `pnpm exec fallow dupes --format json --quiet --explain` | 0 | Full duplication inventory collected. |
+| `pnpm exec fallow fix --dry-run --yes --format json --quiet` | 0 | Dry run only; no fixes applied. |
+
+### Production configured gate
+
+`pnpm fallow:gate` passed at `7c031a58`.
+
+| Signal | Value |
+| --- | ---: |
+| Production dead-code issues | 0 |
+| Production health findings | 0 |
+| Production functions above threshold | 0 |
+| Production health score | 94.1 |
+| Production health grade | A |
+| Production clone groups | 181 |
+| Production clone instances | 381 |
+| Production duplicated lines | 6,641 |
+| Production duplication percentage | 5.5239% |
+| Duplication budget cap | 181 clone groups / 6,641 duplicated lines / 5.54% |
+
+The production gate is clean in the configured scope. This does not mean the whole repo has no advisory debt; it means the configured shipping-policy gate currently passes.
+
+### Full advisory inventory
+
+| Signal | Value | Status |
+| --- | ---: | --- |
+| Full dead-code issues | 2 | Should fix if cheap/safe. |
+| Full unused files | 0 | Clean. |
+| Full unused exports | 2 | Test fixture exports only. |
+| Full unused types | 0 | Clean. |
+| Full complexity-only health findings | 1 | Test fixture hotspot. |
+| Full default health findings | 178 | CRAP/static-estimated coverage advisory inventory. |
+| Full default critical/high/moderate | 19 / 56 / 103 | Advisory, not current gate. |
+| Full clone groups | 465 | Inventory-only. |
+| Full clone instances | 1,037 | Inventory-only. |
+| Full duplicated lines | 17,913 | Inventory-only. |
+| Full duplication percentage | 10.9498% | Inventory-only. |
+| Fix dry-run candidates | 2 | `remove_export`; no fix applied. |
+
+The two full dead-code findings are test fixture exports in `tests/lib/convex/route-contract-fixtures.ts`:
+
+- `currentCallInviteMessageFixture` at line 102
+- `structuredCallFixture` at line 114
+
+The full complexity-only finding is `createLargeWorkspaceSearchFixture` in `tests/lib/domain/workspace-search-fixtures.ts:18` at cyclomatic `29` and cognitive `52`.
+
+The full duplication inventory is dominated by tests and fixture setup. It is useful planning evidence, not a blind refactor queue.
+
+### Config and policy surface
+
+| Policy area | Current state |
+| --- | --- |
+| Manual runtime entries | `electron/preload.cjs`, `services/partykit/server.ts` |
+| Ignored generated/local paths | `convex/_generated/**`, `.next/**`, `.vercel/**`, `.partykit/**`, `coverage/**`, `linear/**`, `dist/**`, `next-env.d.ts`, `templates/**` |
+| Ignored dependency | `shadcn` |
+| Ignored exports | 27 entries |
+| CSS unresolved-import override | `app/globals.css` only |
+| Fallow plugins discovered | Next.js, Electron, Convex, Vitest, ESLint, Prettier, TypeScript, Tailwind, PostCSS, MSW |
+| Entry points discovered by `fallow list` | 317 |
+| Boundary rules | Not configured |
+| Committed baselines | None found |
+
+`templates/**` remains modeled as non-runtime prototype/design-preview scope. `shadcn` remains modeled as an intentional dependency exception for the CSS/style export path.
+
+No Fallow boundary zones or import-direction rules are configured. That is an enforcement gap to name honestly, not evidence of boundary cleanliness.
+
+### CI parity
+
+`.github/workflows/ci.yml` still runs:
+
+```yaml
+- name: Fallow static audit
+  run: pnpm exec fallow --ci --production
+  continue-on-error: true
+```
+
+CI is therefore report-only for Fallow. The stricter local production gate is `pnpm fallow:gate`, and that gate currently passes locally. Blocking CI promotion is deferred to a separate policy rollout; the future low-risk shape is to add a blocking `pnpm fallow:gate` step while optionally keeping `pnpm exec fallow --ci --production` report-only for advisory/SARIF-style output.
+
+### Architecture interpretation
+
+Production dead-code and production health are clean at this checkpoint. That is a material improvement from the first pass, which started with production/static cleanup and health backlog pressure.
+
+Residual production duplication is accepted transition debt, not eliminated debt. The current budget ratchet prevents regression while avoiding risky cross-boundary abstractions. Any reduction should be owner-aware: route/API duplication belongs at the route/server boundary, UI duplication should become shared primitives only when it represents a stable product interaction, and domain/data duplication should move to the owning invariant rather than to a generic helper.
+
+Full-mode test duplication and the large workspace-search fixture complexity are advisory. They should be changed only when they obscure test contracts, make test maintenance materially harder, or are cheap and safe near related work.
+
+The absence of configured Fallow boundary rules is not a must-fix in this audit-only pass. Add boundary rules later only when stable architecture zones and dependency directions are specific enough to enforce without producing policy theater.
+
+### Transition ledger
+
+| Classification | Item | Owner / revisit trigger |
+| --- | --- | --- |
+| Fixed | Production configured Fallow gate is clean at `7c031a58`. | Recheck on every Fallow pass and before CI promotion. |
+| Accepted | Production duplication remains at the current budget cap. | Ratchet downward when owner-aware duplication reductions land; do not raise silently. |
+| Should fix if cheap/safe | De-export or remove the two unused test fixture exports in `tests/lib/convex/route-contract-fixtures.ts`. | Handle in a small cleanup pass or when touching call route-contract fixtures. |
+| Deferred | Refactor `createLargeWorkspaceSearchFixture`. | Do only when touching workspace-search performance tests or when fixture complexity blocks test maintenance. |
+| Inventory-only | Full duplication inventory, mostly tests and setup repetition. | Use as planning evidence, not as a zero-debt gate. |
+| Accepted enforcement gap | No Fallow boundary rules are configured. | Revisit after stable import zones and ownership boundaries are ready to encode. |
+| Deferred policy rollout | CI blocking gate promotion. | Separate small pass; do not mix into this audit-only update. |
+
+### Recommendations
+
+1. Keep this pass audit-only; do not change CI, config, budgets, or source.
+2. If doing a small cleanup next, remove/de-export the two unused test fixture exports and rerun full dead-code plus affected tests.
+3. If promoting CI later, add a blocking `pnpm fallow:gate` step and keep the current report-only CI command only if its advisory output remains useful.
+4. Treat future duplication reductions as architecture work: name the owner and invariant before extracting helpers.
+5. Do not claim boundary enforcement until Fallow boundary zones or another static/import rule actually encodes it.
+
 ## Remediation Checkpoint - 2026-05-01
 
 Configured Fallow gates are now clean for the current working tree.

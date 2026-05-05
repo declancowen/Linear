@@ -1,4 +1,5 @@
 import type { AppData, Notification } from "@/lib/domain/types"
+import { getChannelPostHref, getConversationHref } from "@/lib/domain/selectors"
 
 export type NotificationRouteData = Pick<
   AppData,
@@ -74,43 +75,14 @@ function getChannelPostNotificationHref(
   data: NotificationRouteData,
   notification: Notification
 ) {
-  const post = data.channelPosts.find(
-    (entry) => entry.id === notification.entityId
-  )
-  const conversation = post
-    ? data.conversations.find((entry) => entry.id === post.conversationId)
-    : null
-
-  if (!post || !conversation || conversation.kind !== "channel") {
-    return null
-  }
-
-  if (conversation.scopeType === "workspace") {
-    return `/workspace/channel#${post.id}`
-  }
-
-  const team = data.teams.find((entry) => entry.id === conversation.scopeId)
-  return team ? `/team/${team.slug}/channel#${post.id}` : null
+  return getChannelPostHref(data, notification.entityId)
 }
 
 function getChatNotificationHref(
   data: NotificationRouteData,
   notification: Notification
 ) {
-  const conversation = data.conversations.find(
-    (entry) => entry.id === notification.entityId
-  )
-
-  if (!conversation || conversation.kind !== "chat") {
-    return null
-  }
-
-  if (conversation.scopeType === "workspace") {
-    return `/chats?chatId=${conversation.id}`
-  }
-
-  const team = data.teams.find((entry) => entry.id === conversation.scopeId)
-  return team ? `/team/${team.slug}/chat` : null
+  return getConversationHref(data, notification.entityId)
 }
 
 const notificationHrefResolvers: Partial<

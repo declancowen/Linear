@@ -9,7 +9,11 @@ import {
   updateWorkspaceBrandingServer,
 } from "@/lib/server/convex"
 import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
-import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import {
+  requireAppContext,
+  requireAppRouteContext,
+  requireSession,
+} from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
 import {
   getConvexErrorMessage,
@@ -110,48 +114,79 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-export async function DELETE() {
-  const session = await requireSession()
+async function resolveWorkspaceDeleteRequest() {
+  const context = await requireAppRouteContext()
 
-  if (isRouteResponse(session)) {
-    return session
+  if (isRouteResponse(context)) {
+    return context
   }
 
+  const { authContext } = context.appContext
+
+  if (!authContext?.currentWorkspace || !authContext.currentUser) {
+    return jsonError("Workspace not found", 404)
+  }
+
+  if (!authContext.isWorkspaceOwner) {
+    return jsonError("Only the workspace owner can delete the workspace", 403)
+  }
+
+  return {
+    currentUserId: authContext.currentUser.id,
+    workspaceId: authContext.currentWorkspace.id,
+  }
+}
+
+function toWorkspaceDeleteResponse(input: {
+  result: Awaited<ReturnType<typeof deleteWorkspaceServer>>
+  workspaceId: string
+}) {
+  return jsonOk(createWorkspaceDeleteResponsePayload(input))
+}
+
+function createWorkspaceDeleteResponsePayload(input: {
+  result: Awaited<ReturnType<typeof deleteWorkspaceServer>>
+  workspaceId: string
+}) {
+  if (!input.result) {
+    return {
+      ok: true,
+      workspaceId: input.workspaceId,
+      deletedTeamIds: [],
+      deletedUserIds: [],
+    }
+  }
+
+  return {
+    ok: true,
+    workspaceId: input.result.workspaceId,
+    deletedTeamIds: input.result.deletedTeamIds,
+    deletedUserIds: input.result.deletedUserIds,
+  }
+}
+
+export async function DELETE() {
   try {
-    const appContext = await requireAppContext(session)
+    const deleteRequest = await resolveWorkspaceDeleteRequest()
 
-    if (isRouteResponse(appContext)) {
-      return appContext
-    }
-
-    const { authContext } = appContext
-
-    if (!authContext?.currentWorkspace || !authContext.currentUser) {
-      return jsonError("Workspace not found", 404)
-    }
-
-    if (!authContext.isWorkspaceOwner) {
-      return jsonError("Only the workspace owner can delete the workspace", 403)
+    if (isRouteResponse(deleteRequest)) {
+      return deleteRequest
     }
 
     const result = await deleteWorkspaceServer({
-      currentUserId: authContext.currentUser.id,
-      workspaceId: authContext.currentWorkspace.id,
+      currentUserId: deleteRequest.currentUserId,
+      workspaceId: deleteRequest.workspaceId,
     })
 
     await reconcileProviderMembershipCleanup({
       label: "Failed to deactivate WorkOS membership after workspace deletion",
       memberships: result?.providerMemberships ?? [],
     })
-    await bumpWorkspaceMembershipReadModelScopesServer(
-      authContext.currentWorkspace.id
-    )
+    await bumpWorkspaceMembershipReadModelScopesServer(deleteRequest.workspaceId)
 
-    return jsonOk({
-      ok: true,
-      workspaceId: result?.workspaceId ?? authContext.currentWorkspace.id,
-      deletedTeamIds: result?.deletedTeamIds ?? [],
-      deletedUserIds: result?.deletedUserIds ?? [],
+    return toWorkspaceDeleteResponse({
+      result,
+      workspaceId: deleteRequest.workspaceId,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {

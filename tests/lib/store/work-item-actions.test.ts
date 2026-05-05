@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createEmptyState } from "@/lib/domain/empty-state"
 import {
-  createDefaultTeamFeatureSettings,
-  createDefaultTeamWorkflowSettings,
-  type WorkItem,
-} from "@/lib/domain/types"
+  createTestAppData,
+  createTestProject,
+  createTestWorkItem,
+  createTestWorkspace,
+} from "@/tests/lib/fixtures/app-data"
+import { withLosAngelesFakeSystemTime } from "@/tests/lib/fixtures/store"
 
 const syncCreateLabelMock = vi.fn()
 const syncCreateWorkItemMock = vi.fn()
@@ -29,101 +30,49 @@ vi.mock("@/lib/convex/client", () => ({
   syncUpdateWorkItem: syncUpdateWorkItemMock,
 }))
 
-function createItem(id: string, overrides?: Partial<WorkItem>) {
-  return {
-    ...buildBaseItem(id),
-    ...overrides,
-  }
-}
-
-function buildBaseItem(id: string): WorkItem {
-  return {
-    id,
-    key: `PLA-${id}`,
-    teamId: "team_1",
-    type: "task" as const,
-    title: `Item ${id}`,
-    descriptionDocId: `doc_${id}`,
-    status: "todo" as const,
-    priority: "medium" as const,
-    assigneeId: null,
-    creatorId: "user_1",
-    parentId: null,
-    primaryProjectId: null,
-    linkedProjectIds: [],
-    linkedDocumentIds: [],
-    labelIds: [],
-    milestoneId: null,
-    startDate: null,
-    dueDate: null,
-    targetDate: null,
-    subscriberIds: ["user_1"],
-    createdAt: "2026-04-18T10:00:00.000Z",
-    updatedAt: "2026-04-18T10:00:00.000Z",
-  }
-}
-
 function createState() {
-  return {
-    ...createEmptyState(),
-    currentUserId: "user_1",
-    currentWorkspaceId: "workspace_1",
-    users: [
-      {
-        id: "user_1",
-        name: "Alex",
-        handle: "alex",
-        email: "alex@example.com",
-        avatarUrl: "",
-        avatarImageUrl: null,
-        workosUserId: null,
-        title: "Engineer",
-        status: "active" as const,
-        statusMessage: "",
-        preferences: {
-          emailMentions: true,
-          emailAssignments: true,
-          emailDigest: true,
-          theme: "system" as const,
-        },
-      },
-    ],
-    teams: [
-      {
-        id: "team_1",
-        workspaceId: "workspace_1",
-        slug: "platform",
-        name: "Platform",
-        icon: "robot",
-        settings: {
-          joinCode: "JOIN1234",
-          summary: "Platform team",
-          guestProjectIds: [],
-          guestDocumentIds: [],
-          guestWorkItemIds: [],
-          experience: "software-development" as const,
-          features: createDefaultTeamFeatureSettings("software-development"),
-          workflow: createDefaultTeamWorkflowSettings("software-development"),
-        },
-      },
-    ],
-    teamMemberships: [
-      {
-        teamId: "team_1",
-        userId: "user_1",
-        role: "admin" as const,
-      },
-    ],
+  return createTestAppData({
     workItems: [
-      createItem("parent", {
+      createTestWorkItem("parent", {
         status: "todo",
       }),
-      createItem("child", {
+      createTestWorkItem("child", {
         parentId: "parent",
         type: "sub-task",
         status: "in-progress",
       }),
     ],
+  })
+}
+
+async function createWorkItemActionsHarness(state = createState()) {
+  const { createWorkItemActions } =
+    await import("@/lib/store/app-store-internal/slices/work-item-actions")
+  const harness = {
+    actions: null as ReturnType<typeof createWorkItemActions> | null,
+    state,
+    syncInBackgroundMock: vi.fn(),
+  }
+  const setState = (update: unknown) => {
+    const patch =
+      typeof update === "function" ? update(harness.state as never) : update
+
+    harness.state = {
+      ...harness.state,
+      ...(patch as object),
+    }
+  }
+
+  harness.actions = createWorkItemActions({
+    get: () => harness.state as never,
+    runtime: {
+      syncInBackground: harness.syncInBackgroundMock,
+    } as never,
+    set: setState as never,
+  })
+
+  return harness as typeof harness & {
+    actions: ReturnType<typeof createWorkItemActions>
   }
 }
 
@@ -146,96 +95,30 @@ describe("work item actions", () => {
   })
 
   it("does not cascade parent status changes into child work items", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
+    const harness = await createWorkItemActionsHarness()
 
-    let state = createState()
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
-    })
-
-    actions.updateWorkItem("parent", {
+    harness.actions.updateWorkItem("parent", {
       status: "done",
     })
 
-    expect(state.workItems.find((item) => item.id === "parent")?.status).toBe(
-      "done"
-    )
-    expect(state.workItems.find((item) => item.id === "child")?.status).toBe(
-      "in-progress"
-    )
+    expect(
+      harness.state.workItems.find((item) => item.id === "parent")?.status
+    ).toBe("done")
+    expect(
+      harness.state.workItems.find((item) => item.id === "child")?.status
+    ).toBe("in-progress")
     expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "parent", {
       status: "done",
     })
-    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+    expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
   it("requires confirmation before cascading an explicit project change across a hierarchy", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
+    const state = createState()
+    state.projects = [createTestProject()]
+    const harness = await createWorkItemActionsHarness(state)
 
-    let state = createState()
-    state.projects = [
-      {
-        id: "project_1",
-        scopeType: "team",
-        scopeId: "team_1",
-        templateType: "project-management",
-        name: "Platform roadmap",
-        summary: "",
-        description: "",
-        leadId: "user_1",
-        memberIds: [],
-        health: "on-track",
-        priority: "medium",
-        status: "backlog",
-        startDate: null,
-        targetDate: null,
-        createdAt: "2026-04-18T10:00:00.000Z",
-        updatedAt: "2026-04-18T10:00:00.000Z",
-      },
-    ]
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
-    })
-
-    const result = actions.updateWorkItem("parent", {
+    const result = harness.actions.updateWorkItem("parent", {
       primaryProjectId: "project_1",
     })
 
@@ -248,57 +131,15 @@ describe("work item actions", () => {
       null,
     ])
     expect(syncUpdateWorkItemMock).not.toHaveBeenCalled()
-    expect(syncInBackgroundMock).not.toHaveBeenCalled()
+    expect(harness.syncInBackgroundMock).not.toHaveBeenCalled()
   })
 
   it("applies the project cascade after confirmation", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
+    const state = createState()
+    state.projects = [createTestProject()]
+    const harness = await createWorkItemActionsHarness(state)
 
-    let state = createState()
-    state.projects = [
-      {
-        id: "project_1",
-        scopeType: "team",
-        scopeId: "team_1",
-        templateType: "project-management",
-        name: "Platform roadmap",
-        summary: "",
-        description: "",
-        leadId: "user_1",
-        memberIds: [],
-        health: "on-track",
-        priority: "medium",
-        status: "backlog",
-        startDate: null,
-        targetDate: null,
-        createdAt: "2026-04-18T10:00:00.000Z",
-        updatedAt: "2026-04-18T10:00:00.000Z",
-      },
-    ]
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
-    })
-
-    const result = actions.updateWorkItem(
+    const result = harness.actions.updateWorkItem(
       "parent",
       {
         primaryProjectId: "project_1",
@@ -311,85 +152,42 @@ describe("work item actions", () => {
     expect(result).toEqual({
       status: "updated",
     })
-    expect(state.workItems.map((item) => item.primaryProjectId)).toEqual([
-      "project_1",
-      "project_1",
-    ])
+    expect(
+      harness.state.workItems.map((item) => item.primaryProjectId)
+    ).toEqual(["project_1", "project_1"])
     expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "parent", {
       primaryProjectId: "project_1",
     })
-    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+    expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
   it("requires confirmation before reparenting a hierarchy into a different project", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
-
-    let state = createState()
-    state.projects = [
-      {
-        id: "project_1",
-        scopeType: "team",
-        scopeId: "team_1",
-        templateType: "software-delivery",
-        name: "Platform roadmap",
-        summary: "",
-        description: "",
-        leadId: "user_1",
-        memberIds: [],
-        health: "on-track",
-        priority: "medium",
-        status: "backlog",
-        startDate: null,
-        targetDate: null,
-        createdAt: "2026-04-18T10:00:00.000Z",
-        updatedAt: "2026-04-18T10:00:00.000Z",
-      },
-    ]
+    const state = createState()
+    state.projects = [createTestProject({ templateType: "software-delivery" })]
     state.workItems = [
-      createItem("feature-parent", {
+      createTestWorkItem("feature-parent", {
         type: "feature",
         title: "Feature",
       }),
-      createItem("requirement-middle", {
+      createTestWorkItem("requirement-middle", {
         type: "requirement",
         title: "Requirement",
         parentId: "feature-parent",
       }),
-      createItem("story-child", {
+      createTestWorkItem("story-child", {
         type: "story",
         title: "Story",
         parentId: "requirement-middle",
       }),
-      createItem("new-feature", {
+      createTestWorkItem("new-feature", {
         type: "feature",
         title: "New feature",
         primaryProjectId: "project_1",
       }),
     ]
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
+    const harness = await createWorkItemActionsHarness(state)
 
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
-    })
-
-    const result = actions.updateWorkItem("requirement-middle", {
+    const result = harness.actions.updateWorkItem("requirement-middle", {
       parentId: "new-feature",
     })
 
@@ -397,9 +195,9 @@ describe("work item actions", () => {
       status: "project-confirmation-required",
       cascadeItemCount: 3,
     })
-    expect(state.workItems.find((item) => item.id === "requirement-middle")?.parentId).toBe(
-      "feature-parent"
-    )
+    expect(
+      state.workItems.find((item) => item.id === "requirement-middle")?.parentId
+    ).toBe("feature-parent")
     expect(state.workItems.map((item) => item.primaryProjectId)).toEqual([
       null,
       null,
@@ -407,111 +205,62 @@ describe("work item actions", () => {
       "project_1",
     ])
     expect(syncUpdateWorkItemMock).not.toHaveBeenCalled()
-    expect(syncInBackgroundMock).not.toHaveBeenCalled()
+    expect(harness.syncInBackgroundMock).not.toHaveBeenCalled()
   })
 
   it("passes expectedUpdatedAt through sync without storing it on the item", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
+    const harness = await createWorkItemActionsHarness()
 
-    let state = createState()
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
-    })
-
-    actions.updateWorkItem("parent", {
+    harness.actions.updateWorkItem("parent", {
       title: "Renamed",
       expectedUpdatedAt: "2026-04-18T10:00:00.000Z",
     })
 
-    expect(state.workItems.find((item) => item.id === "parent")).toMatchObject({
+    expect(
+      harness.state.workItems.find((item) => item.id === "parent")
+    ).toMatchObject({
       id: "parent",
       title: "Renamed",
     })
     expect(
-      state.workItems.find((item) => item.id === "parent")
+      harness.state.workItems.find((item) => item.id === "parent")
     ).not.toHaveProperty("expectedUpdatedAt")
     expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "parent", {
       title: "Renamed",
       expectedUpdatedAt: "2026-04-18T10:00:00.000Z",
     })
-    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+    expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
   it("shifts scheduled dates in calendar-day space for timeline moves", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
-
-    let state = createState()
+    const state = createState()
     state.workItems = [
-      createItem("scheduled", {
+      createTestWorkItem("scheduled", {
         startDate: "2026-03-08",
         dueDate: "2026-03-08",
         targetDate: "2026-03-10",
       }),
     ]
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
+    const harness = await createWorkItemActionsHarness(state)
 
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
+    harness.actions.shiftTimelineItem("scheduled", "2026-03-09")
 
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
+    expect(
+      harness.state.workItems.find((item) => item.id === "scheduled")
+    ).toMatchObject({
+      startDate: "2026-03-09",
+      dueDate: "2026-03-09",
+      targetDate: "2026-03-11",
     })
-
-    actions.shiftTimelineItem("scheduled", "2026-03-09")
-
-    expect(state.workItems.find((item) => item.id === "scheduled")).toMatchObject(
-      {
-        startDate: "2026-03-09",
-        dueDate: "2026-03-09",
-        targetDate: "2026-03-11",
-      }
-    )
     expect(syncShiftTimelineItemMock).toHaveBeenCalledWith(
       "scheduled",
       "2026-03-09"
     )
-    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+    expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
   it("creates labels in the selected workspace instead of the active workspace", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
-
-    let state = createState()
+    const state = createState()
     state.labels = [
       {
         id: "label_1",
@@ -521,45 +270,26 @@ describe("work item actions", () => {
       },
     ]
     state.workspaces = [
-      {
-        id: "workspace_1",
+      createTestWorkspace({
         name: "Primary",
         slug: "primary",
-        logoUrl: "",
-        logoImageUrl: null,
-        createdBy: "user_1",
         workosOrganizationId: null,
         settings: {
           accent: "emerald",
           description: "",
         },
-      },
-      {
+      }),
+      createTestWorkspace({
         id: "workspace_2",
         name: "Secondary",
         slug: "secondary",
-        logoUrl: "",
-        logoImageUrl: null,
-        createdBy: "user_1",
         workosOrganizationId: null,
         settings: {
           accent: "blue",
           description: "",
         },
-      },
+      }),
     ]
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
 
     syncCreateLabelMock.mockResolvedValue({
       label: {
@@ -569,16 +299,9 @@ describe("work item actions", () => {
         color: "blue",
       },
     })
+    const harness = await createWorkItemActionsHarness(state)
 
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
-    })
-
-    const created = await actions.createLabel("Bug", "workspace_2")
+    const created = await harness.actions.createLabel("Bug", "workspace_2")
 
     expect(created).toMatchObject({
       id: "label_2",
@@ -589,88 +312,52 @@ describe("work item actions", () => {
       workspaceId: "workspace_2",
       name: "Bug",
     })
-    expect(state.labels.map((label) => label.id)).toEqual(["label_1", "label_2"])
+    expect(harness.state.labels.map((label) => label.id)).toEqual([
+      "label_1",
+      "label_2",
+    ])
   })
 
   it("creates self notifications for assignment and assigned status changes", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
+    const harness = await createWorkItemActionsHarness()
 
-    let state = createState()
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
+    harness.actions.updateWorkItem("parent", {
+      assigneeId: "user_1",
+    })
 
-      state = {
-        ...state,
-        ...(patch as object),
+    harness.actions.updateWorkItem("parent", {
+      status: "done",
+    })
+
+    expect(harness.state.notifications).toHaveLength(2)
+    expect(
+      harness.state.notifications.map((notification) => notification.type)
+    ).toEqual(["status-change", "assignment"])
+    expect(harness.state.notifications[0]?.userId).toBe("user_1")
+    expect(harness.state.notifications[1]?.userId).toBe("user_1")
+    expect(syncUpdateWorkItemMock).toHaveBeenNthCalledWith(
+      1,
+      "user_1",
+      "parent",
+      {
+        assigneeId: "user_1",
       }
-    }
-
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
-    })
-
-    actions.updateWorkItem("parent", {
-      assigneeId: "user_1",
-    })
-
-    actions.updateWorkItem("parent", {
-      status: "done",
-    })
-
-    expect(state.notifications).toHaveLength(2)
-    expect(state.notifications.map((notification) => notification.type)).toEqual([
-      "status-change",
-      "assignment",
-    ])
-    expect(state.notifications[0]?.userId).toBe("user_1")
-    expect(state.notifications[1]?.userId).toBe("user_1")
-    expect(syncUpdateWorkItemMock).toHaveBeenNthCalledWith(1, "user_1", "parent", {
-      assigneeId: "user_1",
-    })
-    expect(syncUpdateWorkItemMock).toHaveBeenNthCalledWith(2, "user_1", "parent", {
-      status: "done",
-    })
-    expect(syncInBackgroundMock).toHaveBeenCalledTimes(2)
+    )
+    expect(syncUpdateWorkItemMock).toHaveBeenNthCalledWith(
+      2,
+      "user_1",
+      "parent",
+      {
+        status: "done",
+      }
+    )
+    expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(2)
   })
 
   it("creates work items with selected schedule dates", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
+    const harness = await createWorkItemActionsHarness()
 
-    let state = createState()
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
-    })
-
-    const createdItemId = actions.createWorkItem({
+    const createdItemId = harness.actions.createWorkItem({
       teamId: "team_1",
       type: "task",
       title: "Schedule work",
@@ -682,20 +369,20 @@ describe("work item actions", () => {
     })
 
     expect(createdItemId).toBeTruthy()
-    expect(state.workItems[0]).toMatchObject({
+    expect(harness.state.workItems[0]).toMatchObject({
       id: createdItemId,
       title: "Schedule work",
       startDate: "2026-05-01",
       targetDate: "2026-05-10",
     })
-    expect(state.documents[0]).toMatchObject({
+    expect(harness.state.documents[0]).toMatchObject({
       kind: "item-description",
       title: "Schedule work description",
       content: "<p></p>",
     })
     expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
       id: createdItemId,
-      descriptionDocId: state.workItems[0]?.descriptionDocId,
+      descriptionDocId: harness.state.workItems[0]?.descriptionDocId,
       teamId: "team_1",
       type: "task",
       title: "Schedule work",
@@ -706,47 +393,16 @@ describe("work item actions", () => {
       dueDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       targetDate: "2026-05-10",
     })
-    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+    expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
   it("defaults work-item schedule dates from the local calendar day", async () => {
-    const previousTimeZone = process.env.TZ
-    process.env.TZ = "America/Los_Angeles"
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date(2026, 3, 20, 23, 30))
-    vi.resetModules()
+    await withLosAngelesFakeSystemTime(async () => {
+      const { formatLocalCalendarDate, addLocalCalendarDays } =
+        await import("@/lib/calendar-date")
+      const harness = await createWorkItemActionsHarness()
 
-    try {
-      const { formatLocalCalendarDate, addLocalCalendarDays } = await import(
-        "@/lib/calendar-date"
-      )
-      const { createWorkItemActions } = await import(
-        "@/lib/store/app-store-internal/slices/work-item-actions"
-      )
-
-      let state = createState()
-      const syncInBackgroundMock = vi.fn()
-      const setState = (update: unknown) => {
-        const patch =
-          typeof update === "function"
-            ? update(state as never)
-            : update
-
-        state = {
-          ...state,
-          ...(patch as object),
-        }
-      }
-
-      const actions = createWorkItemActions({
-        get: () => state as never,
-        runtime: {
-          syncInBackground: syncInBackgroundMock,
-        } as never,
-        set: setState as never,
-      })
-
-      const createdItemId = actions.createWorkItem({
+      const createdItemId = harness.actions.createWorkItem({
         teamId: "team_1",
         type: "task",
         title: "Schedule work",
@@ -756,7 +412,7 @@ describe("work item actions", () => {
       })
 
       expect(createdItemId).toBeTruthy()
-      expect(state.workItems[0]).toMatchObject({
+      expect(harness.state.workItems[0]).toMatchObject({
         id: createdItemId,
         startDate: formatLocalCalendarDate(),
         dueDate: addLocalCalendarDays(7),
@@ -764,7 +420,7 @@ describe("work item actions", () => {
       })
       expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
         id: createdItemId,
-        descriptionDocId: state.workItems[0]?.descriptionDocId,
+        descriptionDocId: harness.state.workItems[0]?.descriptionDocId,
         teamId: "team_1",
         type: "task",
         title: "Schedule work",
@@ -775,33 +431,11 @@ describe("work item actions", () => {
         dueDate: addLocalCalendarDays(7),
         targetDate: addLocalCalendarDays(10),
       })
-      expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
-    } finally {
-      process.env.TZ = previousTimeZone
-      vi.useRealTimers()
-      vi.resetModules()
-    }
+      expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
+    })
   })
 
   it("reconciles optimistic work-item timestamps from the create response", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
-
-    let state = createState()
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
     syncCreateWorkItemMock.mockImplementation(
       async (_userId, input: { id?: string; descriptionDocId?: string }) => ({
         ok: true,
@@ -811,16 +445,9 @@ describe("work item actions", () => {
         descriptionUpdatedAt: "2026-04-18T10:05:00.000Z",
       })
     )
+    const harness = await createWorkItemActionsHarness()
 
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
-    })
-
-    const createdItemId = actions.createWorkItem({
+    const createdItemId = harness.actions.createWorkItem({
       teamId: "team_1",
       type: "task",
       title: "Reconcile work",
@@ -829,18 +456,18 @@ describe("work item actions", () => {
       priority: "medium",
     })
 
-    await syncInBackgroundMock.mock.calls[0]?.[0]
+    await harness.syncInBackgroundMock.mock.calls[0]?.[0]
 
-    expect(state.workItems.find((item) => item.id === createdItemId)).toMatchObject(
-      {
-        updatedAt: "2026-04-18T10:05:00.000Z",
-      }
-    )
     expect(
-      state.documents.find(
+      harness.state.workItems.find((item) => item.id === createdItemId)
+    ).toMatchObject({
+      updatedAt: "2026-04-18T10:05:00.000Z",
+    })
+    expect(
+      harness.state.documents.find(
         (document) =>
           document.id ===
-          state.workItems.find((item) => item.id === createdItemId)
+          harness.state.workItems.find((item) => item.id === createdItemId)
             ?.descriptionDocId
       )
     ).toMatchObject({
@@ -849,33 +476,9 @@ describe("work item actions", () => {
   })
 
   it("keeps optimistic item and description ids when callers smuggle ids into the input", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
+    const harness = await createWorkItemActionsHarness()
 
-    let state = createState()
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
-    })
-
-    const createdItemId = actions.createWorkItem({
+    const createdItemId = harness.actions.createWorkItem({
       teamId: "team_1",
       type: "task",
       title: "Smuggled ids",
@@ -891,7 +494,7 @@ describe("work item actions", () => {
       "user_1",
       expect.objectContaining({
         id: createdItemId,
-        descriptionDocId: state.workItems[0]?.descriptionDocId,
+        descriptionDocId: harness.state.workItems[0]?.descriptionDocId,
       })
     )
     expect(syncCreateWorkItemMock).not.toHaveBeenCalledWith(
@@ -904,33 +507,9 @@ describe("work item actions", () => {
   })
 
   it("rejects work item schedule ranges where the target date is before the start date", async () => {
-    const { createWorkItemActions } = await import(
-      "@/lib/store/app-store-internal/slices/work-item-actions"
-    )
+    const harness = await createWorkItemActionsHarness()
 
-    let state = createState()
-    const syncInBackgroundMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
-    const actions = createWorkItemActions({
-      get: () => state as never,
-      runtime: {
-        syncInBackground: syncInBackgroundMock,
-      } as never,
-      set: setState as never,
-    })
-
-    const createdItemId = actions.createWorkItem({
+    const createdItemId = harness.actions.createWorkItem({
       teamId: "team_1",
       type: "task",
       title: "Broken schedule",
@@ -946,7 +525,7 @@ describe("work item actions", () => {
       "Target date must be on or after the start date"
     )
     expect(syncCreateWorkItemMock).not.toHaveBeenCalled()
-    expect(syncInBackgroundMock).not.toHaveBeenCalled()
-    expect(state.workItems).toHaveLength(2)
+    expect(harness.syncInBackgroundMock).not.toHaveBeenCalled()
+    expect(harness.state.workItems).toHaveLength(2)
   })
 })

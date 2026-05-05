@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ApplicationError } from "@/lib/server/application-errors"
+import { createProviderErrorsMockModule } from "@/tests/lib/fixtures/api-routes"
 
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
@@ -26,11 +27,9 @@ vi.mock("@/lib/server/email", () => ({
   buildMentionEmailJobs: vi.fn(() => []),
 }))
 
-vi.mock("@/lib/server/provider-errors", () => ({
-  getConvexErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  logProviderError: logProviderErrorMock,
-}))
+vi.mock("@/lib/server/provider-errors", () =>
+  createProviderErrorsMockModule(logProviderErrorMock)
+)
 
 describe("rich-text route contracts", () => {
   beforeEach(() => {

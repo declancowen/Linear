@@ -3,6 +3,7 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import path from "node:path"
+import { parseGeneratedApiMap } from "./shared/convex-generated-api.mjs"
 
 const ZERO_SHA = "0000000000000000000000000000000000000000"
 const CONVEX_DIR = "convex"
@@ -29,28 +30,29 @@ function canResolveCommit(ref) {
   }
 }
 
-function resolveDiffBase() {
-  const head = process.env.DIFF_HEAD || "HEAD"
-  const configuredBase = process.env.DIFF_BASE
-
-  if (canResolveCommit(configuredBase) && canResolveCommit(head)) {
+function resolveMergeBaseRange(baseRef, head) {
+  if (canResolveCommit(baseRef) && canResolveCommit(head)) {
     return {
-      base: runGit(["merge-base", configuredBase, head]),
-      head,
-    }
-  }
-
-  const defaultBranch = process.env.DEFAULT_BRANCH || "main"
-  const defaultBranchRef = `origin/${defaultBranch}`
-
-  if (canResolveCommit(defaultBranchRef) && canResolveCommit(head)) {
-    return {
-      base: runGit(["merge-base", defaultBranchRef, head]),
+      base: runGit(["merge-base", baseRef, head]),
       head,
     }
   }
 
   return null
+}
+
+function resolveDefaultBranchDiffBase(head) {
+  const defaultBranch = process.env.DEFAULT_BRANCH || "main"
+  return resolveMergeBaseRange(`origin/${defaultBranch}`, head)
+}
+
+function resolveDiffBase() {
+  const head = process.env.DIFF_HEAD || "HEAD"
+
+  return (
+    resolveMergeBaseRange(process.env.DIFF_BASE, head) ??
+    resolveDefaultBranchDiffBase(head)
+  )
 }
 
 function listChangedFiles(diffRange) {
@@ -71,33 +73,30 @@ function listChangedFiles(diffRange) {
     .filter(Boolean)
 }
 
-function listConvexModules(directory) {
-  const modules = []
+function isConvexSourceModule(entry, entryPath) {
+  return entry.isFile() && /\.[jt]s$/.test(entry.name) && entryPath !== SCHEMA_PATH
+}
 
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const entryPath = path.join(directory, entry.name)
+function listConvexModuleEntries(directory, entry) {
+  const entryPath = path.join(directory, entry.name)
 
-    if (entry.name === "_generated") {
-      continue
-    }
-
-    if (entry.isDirectory()) {
-      modules.push(...listConvexModules(entryPath))
-      continue
-    }
-
-    if (!entry.isFile() || !/\.[jt]s$/.test(entry.name)) {
-      continue
-    }
-
-    if (entryPath === SCHEMA_PATH) {
-      continue
-    }
-
-    modules.push(entryPath.replace(/\.[jt]s$/, ""))
+  if (entry.name === "_generated") {
+    return []
   }
 
-  return modules.sort()
+  if (entry.isDirectory()) {
+    return listConvexModules(entryPath)
+  }
+
+  return isConvexSourceModule(entry, entryPath)
+    ? [entryPath.replace(/\.[jt]s$/, "")]
+    : []
+}
+
+function listConvexModules(directory) {
+  return readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => listConvexModuleEntries(directory, entry))
+    .sort()
 }
 
 function parseGeneratedImports(apiText) {
@@ -106,27 +105,6 @@ function parseGeneratedImports(apiText) {
 
   for (const match of apiText.matchAll(importPattern)) {
     modules.add(`convex/${match[1]}`)
-  }
-
-  return modules
-}
-
-function parseGeneratedApiMap(apiText) {
-  const modules = new Set()
-  const fullApiBody = apiText.match(
-    /declare const fullApi: ApiFromModules<\{\n([\s\S]*?)\n\}>;/
-  )?.[1]
-
-  if (!fullApiBody) {
-    throw new Error(
-      "Could not parse fullApi module map from generated API file."
-    )
-  }
-
-  const modulePattern = /^\s+(?:"([^"]+)"|([A-Za-z_$][\w$]*)): typeof /gm
-
-  for (const match of fullApiBody.matchAll(modulePattern)) {
-    modules.add(`convex/${match[1] ?? match[2]}`)
   }
 
   return modules
@@ -150,54 +128,85 @@ function assertNoSchemaDriftWithoutDeployment(changedFiles, diffRange) {
   process.exit(1)
 }
 
+function readGeneratedApiRoster() {
+  const expectedModules = listConvexModules(CONVEX_DIR)
+  const apiText = readFileSync(GENERATED_API_PATH, "utf8")
+  const importedModules = parseGeneratedImports(apiText)
+  const mappedModules = parseGeneratedApiMap(apiText)
+
+  return {
+    expectedModules,
+    importedModules,
+    mappedModules,
+  }
+}
+
+function getMissingRosterEntries(expectedModules, actualModules) {
+  return expectedModules.filter((moduleName) => !actualModules.has(moduleName))
+}
+
+function getStaleRosterEntries(actualModules, expectedModules) {
+  return [...actualModules].filter(
+    (moduleName) => !expectedModules.includes(moduleName)
+  )
+}
+
+function getGeneratedApiRosterDrift(roster) {
+  return [
+    [
+      "missing imports",
+      getMissingRosterEntries(roster.expectedModules, roster.importedModules),
+    ],
+    [
+      "missing API map entries",
+      getMissingRosterEntries(roster.expectedModules, roster.mappedModules),
+    ],
+    [
+      "stale imports",
+      getStaleRosterEntries(roster.importedModules, roster.expectedModules),
+    ],
+    [
+      "stale API map entries",
+      getStaleRosterEntries(roster.mappedModules, roster.expectedModules),
+    ],
+  ]
+}
+
+function hasGeneratedApiRosterDrift(driftEntries) {
+  return driftEntries.some(([, values]) => values.length > 0)
+}
+
+function logGeneratedApiRosterDrift(driftEntries) {
+  console.error("Convex generated API module roster is stale.")
+
+  for (const [label, values] of driftEntries) {
+    if (values.length === 0) {
+      continue
+    }
+
+    console.error(`${label}:`)
+    for (const value of values) {
+      console.error(`- ${value}`)
+    }
+  }
+}
+
 function assertGeneratedApiRoster() {
   if (!existsSync(GENERATED_API_PATH)) {
     console.error(`Missing generated API file: ${GENERATED_API_PATH}`)
     process.exit(1)
   }
 
-  const expectedModules = listConvexModules(CONVEX_DIR)
-  const apiText = readFileSync(GENERATED_API_PATH, "utf8")
-  const importedModules = parseGeneratedImports(apiText)
-  const mappedModules = parseGeneratedApiMap(apiText)
-  const missingImports = expectedModules.filter(
-    (moduleName) => !importedModules.has(moduleName)
-  )
-  const missingMapEntries = expectedModules.filter(
-    (moduleName) => !mappedModules.has(moduleName)
-  )
-  const staleImports = [...importedModules].filter(
-    (moduleName) => !expectedModules.includes(moduleName)
-  )
-  const staleMapEntries = [...mappedModules].filter(
-    (moduleName) => !expectedModules.includes(moduleName)
-  )
+  const roster = readGeneratedApiRoster()
+  const driftEntries = getGeneratedApiRosterDrift(roster)
 
-  if (
-    missingImports.length > 0 ||
-    missingMapEntries.length > 0 ||
-    staleImports.length > 0 ||
-    staleMapEntries.length > 0
-  ) {
-    console.error("Convex generated API module roster is stale.")
-    for (const [label, values] of [
-      ["missing imports", missingImports],
-      ["missing API map entries", missingMapEntries],
-      ["stale imports", staleImports],
-      ["stale API map entries", staleMapEntries],
-    ]) {
-      if (values.length > 0) {
-        console.error(`${label}:`)
-        for (const value of values) {
-          console.error(`- ${value}`)
-        }
-      }
-    }
+  if (hasGeneratedApiRosterDrift(driftEntries)) {
+    logGeneratedApiRosterDrift(driftEntries)
     process.exit(1)
   }
 
   console.log(
-    `Convex generated API roster verified without deployment: modules=${expectedModules.length}`
+    `Convex generated API roster verified without deployment: modules=${roster.expectedModules.length}`
   )
 }
 

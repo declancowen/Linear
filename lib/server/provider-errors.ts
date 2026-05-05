@@ -1,20 +1,9 @@
 import { getErrorDiagnostics } from "@/lib/server/convex"
+import { getUnknownErrorMessage } from "@/lib/server/application-errors"
 import {
   getWorkOSAuthErrorCode,
   getWorkOSAuthErrorMessage,
 } from "@/lib/server/workos"
-
-function getUnknownErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  if (typeof error === "string" && error.trim().length > 0) {
-    return error
-  }
-
-  return null
-}
 
 export function getConvexErrorMessage(error: unknown, fallback: string) {
   return getUnknownErrorMessage(error) ?? fallback

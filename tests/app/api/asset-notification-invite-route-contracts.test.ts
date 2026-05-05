@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ApplicationError } from "@/lib/server/application-errors"
+import {
+  createJsonRouteRequest,
+  createProviderErrorsMockModule,
+  createRouteParams,
+} from "@/tests/lib/fixtures/api-routes"
 
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
@@ -56,11 +61,9 @@ vi.mock("@/lib/server/email", () => ({
   buildTeamInviteEmailJobs: vi.fn(() => []),
 }))
 
-vi.mock("@/lib/server/provider-errors", () => ({
-  getConvexErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  logProviderError: logProviderErrorMock,
-}))
+vi.mock("@/lib/server/provider-errors", () =>
+  createProviderErrorsMockModule(logProviderErrorMock)
+)
 
 vi.mock("@/lib/server/authenticated-app", () => ({
   reconcileAuthenticatedAppContext: reconcileAuthenticatedAppContextMock,
@@ -78,6 +81,35 @@ vi.mock("@/lib/server/scoped-read-models", () => ({
   bumpWorkspaceMembershipReadModelScopesServer:
     bumpWorkspaceMembershipReadModelScopesServerMock,
 }))
+
+function createInviteTokenRequest(action: "accept" | "decline") {
+  return createJsonRouteRequest(`http://localhost/api/invites/${action}`, "POST", {
+    token: "token_1",
+  })
+}
+
+function createCancelInviteRouteInput() {
+  return {
+    request: new Request("http://localhost/api/invites/invite_1", {
+      method: "DELETE",
+    }) as never,
+    context: createRouteParams({
+      inviteId: "invite_1",
+    }),
+  }
+}
+
+function createDocumentRouteRequest(body: Record<string, unknown>) {
+  return createJsonRouteRequest("http://localhost/api/documents", "POST", body)
+}
+
+async function expectDocumentCreationResponse(response: Response) {
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toEqual({
+    ok: true,
+    documentId: "document_new",
+  })
+}
 
 describe("asset, notification, invite, and document route contracts", () => {
   beforeEach(() => {
@@ -291,28 +323,15 @@ describe("asset, notification, invite, and document route contracts", () => {
     )
     expect(inviteResponse.status).toBe(404)
 
+    const cancelInput = createCancelInviteRouteInput()
     const cancelResponse = await cancelRoute.DELETE(
-      new Request("http://localhost/api/invites/invite_1", {
-        method: "DELETE",
-      }) as never,
-      {
-        params: Promise.resolve({
-          inviteId: "invite_1",
-        }),
-      }
+      cancelInput.request,
+      cancelInput.context
     )
     expect(cancelResponse.status).toBe(403)
 
     const acceptResponse = await acceptRoute.POST(
-      new Request("http://localhost/api/invites/accept", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          token: "token_1",
-        }),
-      }) as never
+      createInviteTokenRequest("accept")
     )
     expect(acceptResponse.status).toBe(409)
     await expect(cancelResponse.json()).resolves.toEqual({
@@ -322,15 +341,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     })
 
     const declineResponse = await declineRoute.POST(
-      new Request("http://localhost/api/invites/decline", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          token: "token_1",
-        }),
-      }) as never
+      createInviteTokenRequest("decline")
     )
     expect(declineResponse.status).toBe(409)
     await expect(declineResponse.json()).resolves.toEqual({
@@ -444,15 +455,10 @@ describe("asset, notification, invite, and document route contracts", () => {
       "workspace_1"
     )
 
+    const cancelInput = createCancelInviteRouteInput()
     const cancelResponse = await cancelRoute.DELETE(
-      new Request("http://localhost/api/invites/invite_1", {
-        method: "DELETE",
-      }) as never,
-      {
-        params: Promise.resolve({
-          inviteId: "invite_1",
-        }),
-      }
+      cancelInput.request,
+      cancelInput.context
     )
 
     expect(cancelResponse.status).toBe(200)
@@ -472,15 +478,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     )
 
     const acceptResponse = await acceptRoute.POST(
-      new Request("http://localhost/api/invites/accept", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          token: "token_1",
-        }),
-      }) as never
+      createInviteTokenRequest("accept")
     )
 
     expect(acceptResponse.status).toBe(200)
@@ -501,15 +499,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     )
 
     const declineResponse = await declineRoute.POST(
-      new Request("http://localhost/api/invites/decline", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          token: "token_1",
-        }),
-      }) as never
+      createInviteTokenRequest("decline")
     )
 
     expect(declineResponse.status).toBe(200)
@@ -699,25 +689,16 @@ describe("asset, notification, invite, and document route contracts", () => {
     })
 
     const response = await POST(
-      new Request("http://localhost/api/documents", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      createDocumentRouteRequest({
           id: "document_new",
           kind: "workspace-document",
           workspaceId: "workspace_1",
           title: "Launch doc",
-        }),
-      }) as never
+        }
+      )
     )
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({
-      ok: true,
-      documentId: "document_new",
-    })
+    await expectDocumentCreationResponse(response)
     expect(createDocumentServerMock).toHaveBeenCalledWith({
       currentUserId: "user_1",
       id: "document_new",
@@ -749,25 +730,16 @@ describe("asset, notification, invite, and document route contracts", () => {
     })
 
     const response = await POST(
-      new Request("http://localhost/api/documents", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      createDocumentRouteRequest({
           id: "document_new",
           kind: "team-document",
           teamId: "team_2",
           title: "Launch doc",
-        }),
-      }) as never
+        }
+      )
     )
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({
-      ok: true,
-      documentId: "document_new",
-    })
+    await expectDocumentCreationResponse(response)
     expect(createDocumentServerMock).toHaveBeenCalledWith({
       currentUserId: "user_1",
       id: "document_new",

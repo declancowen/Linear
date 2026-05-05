@@ -99,7 +99,7 @@ export const snapshotFixture: AppSnapshot = {
   channelPostComments: [],
 }
 
-export const currentCallInviteMessageFixture: ChatMessage = {
+const currentCallInviteMessageFixture: ChatMessage = {
   id: "message_1",
   conversationId: "conversation_1",
   kind: "text",
@@ -111,7 +111,7 @@ export const currentCallInviteMessageFixture: ChatMessage = {
   createdAt: "2026-04-16T20:45:00.000Z",
 }
 
-export const structuredCallFixture: Call = {
+const structuredCallFixture: Call = {
   id: "call_1",
   conversationId: "conversation_1",
   scopeType: "workspace",

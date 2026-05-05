@@ -1,6 +1,4 @@
 import Link from "next/link"
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { redirect } from "next/navigation"
 
 import { AuthLogo } from "@/components/app/auth-logo"
 import { Button } from "@/components/ui/button"
@@ -19,10 +17,8 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import {
-  buildSessionResolvePath,
-  normalizeAuthNextPath,
-} from "@/lib/auth-routing"
+import { buildAuthPageHref } from "@/lib/auth-routing"
+import { getSignedOutAuthPageContext } from "@/lib/server/auth-pages"
 
 type ForgotPasswordPageProps = {
   searchParams: Promise<{
@@ -38,18 +34,10 @@ export default async function ForgotPasswordPage({
   searchParams,
 }: ForgotPasswordPageProps) {
   const params = await searchParams
-  const nextPath = normalizeAuthNextPath(params.next)
-
-  const auth = await withAuth()
-
-  if (auth.user) {
-    redirect(
-      buildSessionResolvePath({
-        mode: "login",
-        nextPath,
-      })
-    )
-  }
+  const { nextPath } = await getSignedOutAuthPageContext({
+    mode: "login",
+    next: params.next,
+  })
 
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
@@ -90,10 +78,10 @@ export default async function ForgotPasswordPage({
                 <Button type="submit">Send reset link</Button>
                 <FieldDescription className="text-center">
                   <Link
-                    href={`/login?${new URLSearchParams({
-                      next: nextPath,
-                      ...(params.email ? { email: params.email } : {}),
-                    }).toString()}`}
+                    href={buildAuthPageHref("login", {
+                      nextPath,
+                      email: params.email,
+                    })}
                   >
                     Back to sign in
                   </Link>

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 
-import { buildMentionEmailJobs } from "@/lib/email/builders"
+import {
+  buildMentionEmailJobs,
+  buildTeamInviteEmailJobs,
+} from "@/lib/email/builders"
 
 describe("email builders", () => {
   it("renders batched mention email copy for document notifications", () => {
@@ -33,5 +36,36 @@ describe("email builders", () => {
     expect(job.html).toContain("Summary")
     expect(job.html).toContain("color: #52525b; background-color: #f4f4f5;")
     expect(job.html).toContain("border-left: 3px solid #111113;")
+  })
+
+  it("renders invite email HTML for single-team and multi-team invites", () => {
+    const [singleTeamJob, multiTeamJob] = buildTeamInviteEmailJobs({
+      origin: "https://linear.test",
+      invites: [
+        {
+          email: "alex@example.com",
+          inviteToken: "invite_1",
+          workspaceName: "Recipe Room",
+          teamNames: ["Platform"],
+          role: "admin",
+        },
+        {
+          email: "sam@example.com",
+          inviteToken: "invite_2",
+          workspaceName: "Recipe Room",
+          teamNames: ["Platform", "Support"],
+          role: "member",
+        },
+      ],
+    })
+
+    expect(singleTeamJob.subject).toBe("Join Platform in Recipe Room")
+    expect(singleTeamJob.text).toContain("Team: Platform")
+    expect(singleTeamJob.html).toContain("Workspace invite")
+    expect(singleTeamJob.html).toContain("the following team")
+    expect(singleTeamJob.html).toContain("Accept invite")
+    expect(multiTeamJob.subject).toBe("Join Recipe Room")
+    expect(multiTeamJob.text).toContain("Teams: Platform, Support")
+    expect(multiTeamJob.html).toContain("the following teams")
   })
 })

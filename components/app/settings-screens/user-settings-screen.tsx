@@ -25,7 +25,7 @@ import {
 import { getCurrentUser } from "@/lib/domain/selectors"
 import { type ThemePreference, type UserProfile } from "@/lib/domain/types"
 import { useAppStore, type AppStore } from "@/lib/store/app-store"
-import { cn, resolveImageAssetSource } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import {
@@ -47,6 +47,7 @@ import {
   SettingsSection,
   SettingsToggleRow,
 } from "./shared"
+import { getUserProfileDraftSource } from "./user-profile-draft"
 import { getUserInitials, uploadSettingsImage } from "./utils"
 
 const themePreferenceOptions: Array<{
@@ -84,19 +85,6 @@ type PersistedProfileSnapshot = {
     emailDigest: boolean
     theme: ThemePreference
   }
-}
-
-type UserProfileDraftSource = {
-  id: string | null
-  name: string
-  title: string
-  avatarUrl: string
-  avatarImageSrc: string | null
-  avatarPreviewUrl: string | null
-  email: string
-  emailMentions: boolean
-  emailAssignments: boolean
-  emailDigest: boolean
 }
 
 const themePreviewToneStyles: Record<
@@ -679,44 +667,6 @@ function createPersistedProfileSnapshot(
   }
 }
 
-function getUserProfileDraftSource(
-  currentUser: UserProfile | null
-): UserProfileDraftSource {
-  if (!currentUser) {
-    return {
-      id: null,
-      name: "",
-      title: "",
-      avatarUrl: "",
-      avatarImageSrc: null,
-      avatarPreviewUrl: null,
-      email: "",
-      emailMentions: false,
-      emailAssignments: false,
-      emailDigest: false,
-    }
-  }
-
-  const avatarImageSrc =
-    resolveImageAssetSource(
-      currentUser.avatarImageUrl,
-      currentUser.avatarUrl
-    ) ?? null
-
-  return {
-    id: currentUser.id,
-    name: currentUser.name,
-    title: currentUser.title ?? "",
-    avatarUrl: currentUser.avatarUrl ?? "",
-    avatarImageSrc,
-    avatarPreviewUrl: avatarImageSrc,
-    email: currentUser.email,
-    emailMentions: currentUser.preferences.emailMentions,
-    emailAssignments: currentUser.preferences.emailAssignments,
-    emailDigest: currentUser.preferences.emailDigest,
-  }
-}
-
 function selectDeleteAccountBlockReason(state: AppStore) {
   if (
     state.workspaces.some(
@@ -813,29 +763,43 @@ function useUserAccountActions({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
 
+  function getEmailChangeValidationMessage() {
+    if (!currentUser) {
+      return "Current user unavailable"
+    }
+
+    return email.trim().toLowerCase() === currentUser.email.toLowerCase()
+      ? "Enter a different email address"
+      : null
+  }
+
+  function handleEmailChangeSuccess(payload: Awaited<ReturnType<typeof syncRequestAccountEmailChange>>) {
+    const notice =
+      payload?.notice ??
+      "Email updated. Verify the new address and then sign back in."
+
+    toast.success(notice)
+
+    if (payload?.logoutRequired) {
+      submitLogoutForm(`/login?notice=${encodeURIComponent(notice)}`)
+    }
+  }
+
   async function handleEmailChange() {
     if (!currentUser) {
       return
     }
 
-    if (email.trim().toLowerCase() === currentUser.email.toLowerCase()) {
-      toast.error("Enter a different email address")
+    const validationMessage = getEmailChangeValidationMessage()
+    if (validationMessage) {
+      toast.error(validationMessage)
       return
     }
 
     try {
       setChangingEmail(true)
       const payload = await syncRequestAccountEmailChange(email)
-
-      const notice =
-        payload?.notice ??
-        "Email updated. Verify the new address and then sign back in."
-
-      toast.success(notice)
-
-      if (payload?.logoutRequired) {
-        submitLogoutForm(`/login?notice=${encodeURIComponent(notice)}`)
-      }
+      handleEmailChangeSuccess(payload)
     } catch (error) {
       console.error(error)
       toast.error(

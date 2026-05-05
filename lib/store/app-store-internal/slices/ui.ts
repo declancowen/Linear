@@ -1,8 +1,11 @@
 "use client"
 
 import { createEmptyState } from "@/lib/domain/empty-state"
-import type { AppData } from "@/lib/domain/types"
-import { getViewerScopedDirectoryKey, getViewerScopedViewKey } from "@/lib/domain/viewer-view-config"
+import type { AppData, ViewerViewConfigOverride } from "@/lib/domain/types"
+import {
+  getViewerScopedDirectoryKey,
+  getViewerScopedViewKey,
+} from "@/lib/domain/viewer-view-config"
 import {
   selectReadModelForInstruction,
   type ScopedReadModelPatch,
@@ -14,6 +17,7 @@ import {
   normalizeChannelPosts,
   normalizeChatMessages,
   normalizeComments,
+  getNextActiveTeamId,
   normalizeNotifications,
   normalizeUsers,
 } from "../helpers"
@@ -66,29 +70,44 @@ type RuntimeViewConfigPatch = PendingViewConfig["patch"] & {
   filters?: Partial<AppData["views"][number]["filters"]>
 }
 
-function getSelectedViewStorageKey(userId: string, route: string) {
-  return getViewerScopedDirectoryKey(userId, route)
+function patchViewerViewConfigByRoute(
+  state: AppStore,
+  storageKey: string,
+  patch: (current: ViewerViewConfigOverride) => ViewerViewConfigOverride
+) {
+  const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
+
+  return {
+    ui: {
+      ...state.ui,
+      viewerViewConfigByRoute: {
+        ...state.ui.viewerViewConfigByRoute,
+        [storageKey]: patch(current),
+      },
+    },
+  }
 }
 
-function getNextActiveTeamId(
-  teams: AppData["teams"],
-  currentWorkspaceId: string,
-  currentActiveTeamId: string
+function getViewerViewConfigContext(
+  state: AppStore,
+  surfaceKey: string,
+  viewId: string
 ) {
-  const activeTeamStillVisible = teams.some(
-    (team) =>
-      team.id === currentActiveTeamId && team.workspaceId === currentWorkspaceId
+  const storageKey = getViewerScopedViewKey(
+    state.currentUserId,
+    surfaceKey,
+    viewId
   )
 
-  if (activeTeamStillVisible) {
-    return currentActiveTeamId
+  return {
+    baseView: state.views.find((view) => view.id === viewId),
+    current: state.ui.viewerViewConfigByRoute[storageKey] ?? {},
+    storageKey,
   }
+}
 
-  return (
-    teams.find((team) => team.workspaceId === currentWorkspaceId)?.id ??
-    teams[0]?.id ??
-    ""
-  )
+function getSelectedViewStorageKey(userId: string, route: string) {
+  return getViewerScopedDirectoryKey(userId, route)
 }
 
 function mergeByKey<T>(
@@ -176,44 +195,18 @@ function matchesPendingViewConfig(
   view: AppData["views"][number],
   patch: PendingViewConfig["patch"]
 ) {
-  if (patch.layout !== undefined && view.layout !== patch.layout) {
-    return false
-  }
-
-  if (patch.grouping !== undefined && view.grouping !== patch.grouping) {
-    return false
-  }
-
-  if (
-    patch.subGrouping !== undefined &&
-    (view.subGrouping ?? null) !== patch.subGrouping
-  ) {
-    return false
-  }
-
-  if (patch.ordering !== undefined && view.ordering !== patch.ordering) {
-    return false
-  }
-
-  if (patch.itemLevel !== undefined && view.itemLevel !== patch.itemLevel) {
-    return false
-  }
-
-  if (
-    patch.showChildItems !== undefined &&
-    view.showChildItems !== patch.showChildItems
-  ) {
-    return false
-  }
-
-  if (
-    patch.showCompleted !== undefined &&
-    view.filters.showCompleted !== patch.showCompleted
-  ) {
-    return false
-  }
-
-  return true
+  return [
+    patch.layout === undefined || view.layout === patch.layout,
+    patch.grouping === undefined || view.grouping === patch.grouping,
+    patch.subGrouping === undefined ||
+      (view.subGrouping ?? null) === patch.subGrouping,
+    patch.ordering === undefined || view.ordering === patch.ordering,
+    patch.itemLevel === undefined || view.itemLevel === patch.itemLevel,
+    patch.showChildItems === undefined ||
+      view.showChildItems === patch.showChildItems,
+    patch.showCompleted === undefined ||
+      view.filters.showCompleted === patch.showCompleted,
+  ].every(Boolean)
 }
 
 function reconcilePendingViews(
@@ -264,7 +257,9 @@ function reconcilePendingViews(
   }
 }
 
-function getWorkspaceMembershipKey(value: AppData["workspaceMemberships"][number]) {
+function getWorkspaceMembershipKey(
+  value: AppData["workspaceMemberships"][number]
+) {
   return `${value.workspaceId}:${value.userId}`
 }
 
@@ -307,6 +302,17 @@ function shouldPreserveExistingDocumentBodies(
       instruction.kind === "document-index" ||
       instruction.kind === "project-detail" ||
       instruction.kind === "search-seed"
+  )
+}
+
+function shouldApplyIncomingCurrentWorkspaceId(
+  replaceInstructions?: ScopedReadModelReplaceInstruction[]
+) {
+  return (
+    !replaceInstructions ||
+    replaceInstructions.some(
+      (instruction) => instruction.kind === "workspace-membership"
+    )
   )
 }
 
@@ -379,7 +385,9 @@ function pruneScopedDomain(
     return currentDomain
   }
 
-  const incomingKeys = new Set(incomingDomain.map((value) => keyResolver(value)))
+  const incomingKeys = new Set(
+    incomingDomain.map((value) => keyResolver(value))
+  )
 
   return currentDomain.filter((value) => {
     const key = keyResolver(value)
@@ -409,7 +417,9 @@ function applyScopedReadModelPruning(
       continue
     }
 
-    for (const domainKey of Object.keys(domainKeyResolvers) as ArrayDomainKey[]) {
+    for (const domainKey of Object.keys(
+      domainKeyResolvers
+    ) as ArrayDomainKey[]) {
       const keyResolver = domainKeyResolvers[domainKey]
       const incomingDomain = data[domainKey]
       const scopedDomain = scopedSelection[domainKey]
@@ -489,7 +499,11 @@ function applyMergedReadModelData(
     data,
     replaceInstructions
   )
-  const currentWorkspaceId = data.currentWorkspaceId ?? state.currentWorkspaceId
+  const currentWorkspaceId = shouldApplyIncomingCurrentWorkspaceId(
+    replaceInstructions
+  )
+    ? (data.currentWorkspaceId ?? state.currentWorkspaceId)
+    : state.currentWorkspaceId
   const teams = mergeByKey(prunedState.teams, data.teams, (value) => value.id)
   const preserveExistingDocumentBodies =
     shouldPreserveExistingDocumentBodies(replaceInstructions)
@@ -504,7 +518,11 @@ function applyMergedReadModelData(
     ...data,
     currentUserId: data.currentUserId ?? prunedState.currentUserId,
     currentWorkspaceId,
-    workspaces: mergeByKey(prunedState.workspaces, data.workspaces, (value) => value.id),
+    workspaces: mergeByKey(
+      prunedState.workspaces,
+      data.workspaces,
+      (value) => value.id
+    ),
     workspaceMemberships: mergeByKey(
       prunedState.workspaceMemberships,
       data.workspaceMemberships,
@@ -516,15 +534,25 @@ function applyMergedReadModelData(
       data.teamMemberships,
       getTeamMembershipKey
     ),
-    users: normalizeUsers(mergeByKey(prunedState.users, data.users, (value) => value.id)),
+    users: normalizeUsers(
+      mergeByKey(prunedState.users, data.users, (value) => value.id)
+    ),
     labels: mergeByKey(prunedState.labels, data.labels, (value) => value.id),
-    projects: mergeByKey(prunedState.projects, data.projects, (value) => value.id),
+    projects: mergeByKey(
+      prunedState.projects,
+      data.projects,
+      (value) => value.id
+    ),
     milestones: mergeByKey(
       prunedState.milestones,
       data.milestones,
       (value) => value.id
     ),
-    workItems: mergeByKey(prunedState.workItems, data.workItems, (value) => value.id),
+    workItems: mergeByKey(
+      prunedState.workItems,
+      data.workItems,
+      (value) => value.id
+    ),
     documents: mergeProtectedDocuments(
       prunedState.documents,
       data.documents,
@@ -544,7 +572,11 @@ function applyMergedReadModelData(
       (value) => value.id
     ),
     notifications: normalizeNotifications(
-      mergeByKey(prunedState.notifications, data.notifications, (value) => value.id)
+      mergeByKey(
+        prunedState.notifications,
+        data.notifications,
+        (value) => value.id
+      )
     ),
     invites: mergeByKey(prunedState.invites, data.invites, (value) => value.id),
     projectUpdates: mergeByKey(
@@ -559,10 +591,18 @@ function applyMergedReadModelData(
     ),
     calls: mergeByKey(prunedState.calls, data.calls, (value) => value.id),
     chatMessages: normalizeChatMessages(
-      mergeByKey(prunedState.chatMessages, data.chatMessages, (value) => value.id)
+      mergeByKey(
+        prunedState.chatMessages,
+        data.chatMessages,
+        (value) => value.id
+      )
     ),
     channelPosts: normalizeChannelPosts(
-      mergeByKey(prunedState.channelPosts, data.channelPosts, (value) => value.id)
+      mergeByKey(
+        prunedState.channelPosts,
+        data.channelPosts,
+        (value) => value.id
+      )
     ),
     channelPostComments: normalizeChannelPostComments(
       mergeByKey(
@@ -593,9 +633,7 @@ export function createUiSlice(
       set((state) => applyReplacedDomainData(state, data))
     },
     mergeReadModelData(data, options) {
-      set((state) =>
-        applyMergedReadModelData(state, data, options?.replace)
-      )
+      set((state) => applyMergedReadModelData(state, data, options?.replace))
     },
     setDocumentBodyProtection(documentId, protectedState) {
       set((state) => {
@@ -667,40 +705,28 @@ export function createUiSlice(
         const hasFilterPatch =
           filters !== undefined || showCompleted !== undefined
 
-        return {
-          ui: {
-            ...state.ui,
-            viewerViewConfigByRoute: {
-              ...state.ui.viewerViewConfigByRoute,
-              [key]: {
-                ...current,
-                ...viewPatch,
-                ...(!hasFilterPatch
-                  ? {}
-                  : {
-                      filters: {
-                        ...current.filters,
-                        ...filters,
-                        ...(showCompleted === undefined
-                          ? {}
-                          : { showCompleted }),
-                      },
-                    }),
-              },
-            },
-          },
-        }
+        return patchViewerViewConfigByRoute(state, key, () => ({
+          ...current,
+          ...viewPatch,
+          ...(!hasFilterPatch
+            ? {}
+            : {
+                filters: {
+                  ...current.filters,
+                  ...filters,
+                  ...(showCompleted === undefined ? {} : { showCompleted }),
+                },
+              }),
+        }))
       })
     },
     toggleViewerViewFilterValue(surfaceKey, viewId, key, value) {
       set((state) => {
-        const storageKey = getViewerScopedViewKey(
-          state.currentUserId,
+        const { baseView, current, storageKey } = getViewerViewConfigContext(
+          state,
           surfaceKey,
           viewId
         )
-        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
-        const baseView = state.views.find((view) => view.id === viewId)
         const currentFilters = current.filters ?? {}
         const currentValues = (currentFilters[key] ??
           baseView?.filters[key] ??
@@ -709,134 +735,88 @@ export function createUiSlice(
           ? currentValues.filter((entry) => entry !== value)
           : [...currentValues, value]
 
-        return {
-          ui: {
-            ...state.ui,
-            viewerViewConfigByRoute: {
-              ...state.ui.viewerViewConfigByRoute,
-              [storageKey]: {
-                ...current,
-                filters: {
-                  ...currentFilters,
-                  [key]: nextValues,
-                },
-              },
-            },
+        return patchViewerViewConfigByRoute(state, storageKey, () => ({
+          ...current,
+          filters: {
+            ...currentFilters,
+            [key]: nextValues,
           },
-        }
+        }))
       })
     },
     clearViewerViewFilters(surfaceKey, viewId) {
       set((state) => {
-        const storageKey = getViewerScopedViewKey(
-          state.currentUserId,
+        const { current, storageKey } = getViewerViewConfigContext(
+          state,
           surfaceKey,
           viewId
         )
-        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
         const filters = { ...(current.filters ?? {}) }
 
         for (const key of FILTER_KEYS) {
           filters[key] = [] as never
         }
 
-        return {
-          ui: {
-            ...state.ui,
-            viewerViewConfigByRoute: {
-              ...state.ui.viewerViewConfigByRoute,
-              [storageKey]: {
-                ...current,
-                filters,
-              },
-            },
-          },
-        }
+        return patchViewerViewConfigByRoute(state, storageKey, () => ({
+          ...current,
+          filters,
+        }))
       })
     },
     toggleViewerViewDisplayProperty(surfaceKey, viewId, property) {
       set((state) => {
-        const storageKey = getViewerScopedViewKey(
-          state.currentUserId,
+        const { baseView, current, storageKey } = getViewerViewConfigContext(
+          state,
           surfaceKey,
           viewId
         )
-        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
-        const baseView = state.views.find((view) => view.id === viewId)
-        const displayProps = current.displayProps ?? baseView?.displayProps ?? []
+        const displayProps =
+          current.displayProps ?? baseView?.displayProps ?? []
         const nextDisplayProps = displayProps.includes(property)
           ? displayProps.filter((entry) => entry !== property)
           : [...displayProps, property]
 
-        return {
-          ui: {
-            ...state.ui,
-            viewerViewConfigByRoute: {
-              ...state.ui.viewerViewConfigByRoute,
-              [storageKey]: {
-                ...current,
-                displayProps: nextDisplayProps,
-              },
-            },
-          },
-        }
+        return patchViewerViewConfigByRoute(state, storageKey, () => ({
+          ...current,
+          displayProps: nextDisplayProps,
+        }))
       })
     },
     reorderViewerViewDisplayProperties(surfaceKey, viewId, displayProps) {
       set((state) => {
-        const storageKey = getViewerScopedViewKey(
-          state.currentUserId,
+        const { current, storageKey } = getViewerViewConfigContext(
+          state,
           surfaceKey,
           viewId
         )
-        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
 
-        return {
-          ui: {
-            ...state.ui,
-            viewerViewConfigByRoute: {
-              ...state.ui.viewerViewConfigByRoute,
-              [storageKey]: {
-                ...current,
-                displayProps: [...new Set(displayProps)],
-              },
-            },
-          },
-        }
+        return patchViewerViewConfigByRoute(state, storageKey, () => ({
+          ...current,
+          displayProps: [...new Set(displayProps)],
+        }))
       })
     },
     clearViewerViewDisplayProperties(surfaceKey, viewId) {
       set((state) => {
-        const storageKey = getViewerScopedViewKey(
-          state.currentUserId,
+        const { current, storageKey } = getViewerViewConfigContext(
+          state,
           surfaceKey,
           viewId
         )
-        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
 
-        return {
-          ui: {
-            ...state.ui,
-            viewerViewConfigByRoute: {
-              ...state.ui.viewerViewConfigByRoute,
-              [storageKey]: {
-                ...current,
-                displayProps: [],
-              },
-            },
-          },
-        }
+        return patchViewerViewConfigByRoute(state, storageKey, () => ({
+          ...current,
+          displayProps: [],
+        }))
       })
     },
     toggleViewerViewHiddenValue(surfaceKey, viewId, key, value) {
       set((state) => {
-        const storageKey = getViewerScopedViewKey(
-          state.currentUserId,
+        const { baseView, current, storageKey } = getViewerViewConfigContext(
+          state,
           surfaceKey,
           viewId
         )
-        const current = state.ui.viewerViewConfigByRoute[storageKey] ?? {}
-        const baseView = state.views.find((view) => view.id === viewId)
         const currentHiddenState = current.hiddenState ??
           baseView?.hiddenState ?? { groups: [], subgroups: [] }
         const currentValues = currentHiddenState[key] ?? []
@@ -844,22 +824,14 @@ export function createUiSlice(
           ? currentValues.filter((entry) => entry !== value)
           : [...currentValues, value]
 
-        return {
-          ui: {
-            ...state.ui,
-            viewerViewConfigByRoute: {
-              ...state.ui.viewerViewConfigByRoute,
-              [storageKey]: {
-                ...current,
-                hiddenState: {
-                  groups: [...currentHiddenState.groups],
-                  subgroups: [...currentHiddenState.subgroups],
-                  [key]: nextValues,
-                },
-              },
-            },
+        return patchViewerViewConfigByRoute(state, storageKey, () => ({
+          ...current,
+          hiddenState: {
+            groups: [...currentHiddenState.groups],
+            subgroups: [...currentHiddenState.subgroups],
+            [key]: nextValues,
           },
-        }
+        }))
       })
     },
     patchViewerDirectoryConfig(surfaceKey, patch) {

@@ -6,7 +6,7 @@
 | -------------- | ---------------------------------------------------------------- |
 | **Repository** | `/Users/declancowen/Documents/GitHub/Linear`                     |
 | **Remote**     | `origin https://github.com/declancowen/Linear.git`               |
-| **Branch**     | `main` at review time; PR branch pending                         |
+| **Branch**     | `codex/fallow-static-remediation`                                |
 | **Stack**      | Next.js 16, React 19, Convex, PartyKit, Electron, Vitest, Fallow |
 
 ## Scope
@@ -29,17 +29,160 @@
 - Route auth imports crossing into pure read-model authorization tests - added Turn 2
 - Convex generated binding verification when deployment secrets are absent - added Turn 3
 - No-secret CI fallback must fail closed when it cannot resolve a schema diff base - added Turn 4
+- Test-only production exports weakening the production Fallow report lens - added Turn 5
 
 ## Review status
 
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-01 22:08 BST |
-| **Last reviewed**     | 2026-05-01 22:32 BST |
-| **Total turns**       | 4                    |
+| **Last reviewed**     | 2026-05-05 18:22 BST |
+| **Total turns**       | 6                    |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 6                    |
+| **Resolved findings** | 7                    |
 | **Accepted findings** | 1                    |
+
+## Turn 6 - 2026-05-05 18:22 BST
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `7c031a58` plus working tree |
+| **IDE / Agent** | Codex                        |
+
+**Summary:** Resolved the Turn 5 production dead-code regression by removing test-only exports from production modules and moving directly testable branches into owner-local modules imported by production and tests. A final full-health rerun briefly surfaced one moderate workspace chat helper finding; that was fixed by extracting `getLatestMessagesByConversationId` into the collaboration-screen owner and covering the visible-conversation/latest-message branches.
+**Outcome:** all clear with residual broad-refactor risk
+**Risk score:** high - the branch remains a large analyzer-driven refactor across route, Convex, store, collaboration, screen, script, Electron, and test surfaces.
+**Change archetypes:** static analyzer remediation, owner-local decomposition, testability extraction, architecture boundary cleanup.
+**Intended change:** Preserve the full zero dead-code, zero duplication, and zero health-findings state while restoring the clean production Fallow lens.
+**Intent vs actual:** Matches intent. Full and production Fallow inventories are clean; production exports no longer exist only for tests.
+**Confidence:** medium-high. Static gates, lint, typecheck, full tests, coverage, and build pass locally; GitHub PR review is still needed because the diff is broad.
+**Coverage note:** `pnpm test` and `pnpm test:coverage` both passed with `174` test files and `953` tests.
+**Finding triage:** FSR-08 is resolved. No new local diff-review findings are open.
+**Static/analyzer evidence:** Diff-review preflight at `2026-05-05 18:22 BST` reports changed-file audit pass, production/full dead-code `0`, production/full duplication `0`, production health findings `0`, and full health findings `0`.
+**Architecture impact:** Testability moved back behind owner-local modules instead of public production module APIs. The workspace chat helper stayed inside `components/app/collaboration-screens/`, matching the collaboration-screen owner.
+**Bug classes / invariants checked:** Production public surface, analyzer policy integrity, owner-local extraction, PartyKit behavior preservation, and zero-suppression policy.
+**Branch totality:** Current review target is the full local working tree after the Fallow remediation and export cleanup.
+**Sibling closure:** Production/full dead-code, full duplication, and full health were rerun after the final helper extraction.
+**Remediation impact surface:** Rich-text/collaboration helpers, work-surface and inbox helpers, store/domain helpers, route/server helpers, Convex helpers, scripts, Electron utilities, and test fixtures.
+**Residual risk / unknowns:** The branch size creates integration risk that local static and test gates cannot fully eliminate; the next control is the GitHub PR/Codex review loop.
+
+### Validation
+
+- `pnpm exec fallow dead-code --format json --quiet --explain` - passed, `total_issues: 0`
+- `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` - passed, `clone_groups: 0`, `duplicated_lines: 0`, `duplication_percentage: 0`
+- `pnpm exec fallow health --format json --quiet --explain` - findings `0`, functions above threshold `0`; command exits `1` only because aggregate score remains below `100`
+- `pnpm fallow:gate` - passed
+- `pnpm lint` - passed
+- `pnpm typecheck` - passed
+- `pnpm exec vitest run tests/components/workspace-chats-screen.test.tsx` - passed, `5` tests
+- `pnpm test` - passed, `174` test files and `953` tests
+- `pnpm test:coverage` - passed, `174` test files and `953` tests
+- `pnpm build` - passed
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` - passed analyzer preflight
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** Fallow package scripts, `.fallowrc.json`, existing audit/review records, CI Fallow posture, and final raw Fallow JSON outputs.
+- **Prior open findings rechecked:** FSR-08 was rechecked with production dead-code and full dead-code after the export cleanup; both are zero.
+- **Prior resolved/adjacent areas revalidated:** Full duplication, full health findings, production health, lint, typecheck, tests, coverage, and build were rerun.
+- **Hotspots or sibling paths revisited:** Collaboration/rich-text owner-local helper modules, workspace chat helper extraction, PartyKit tests, and production export surfaces.
+- **Dependency/adjacent surfaces revalidated:** Package Fallow gates now enforce full dead-code and full zero duplication locally while CI remains report-only.
+- **Why this is enough:** The local review finding was concrete and analyzer-measurable. The relevant analyzers and full validation suite now agree it is resolved.
+
+### Challenger pass
+
+- `pass with residual risk` - The likely failure mode was leaving test-only production exports behind. Production dead-code and full dead-code now return zero. A secondary stale-coverage health finding was caught and fixed before commit.
+
+### Resolved / Carried / New findings
+
+#### FSR-08 - Resolved - Test-only exports pollute production module APIs and production Fallow dead-code reporting
+
+- **Type / Severity:** Bug, High
+- **Resolution:** Removed the test-only production export surface by moving testable primitives into owner-local modules imported by production and tests, or by keeping helpers file-local when only the runtime owner needs them.
+- **Evidence:** Production dead-code and full dead-code now report `total_issues: 0`; diff-review preflight reports production dead-code `0`.
+- **Prevention artifact:** `pnpm fallow:gate` now includes full-scope dead-code and full zero-duplication gates, with production health still checked by the configured gate.
+
+### Recommendations
+
+1. **Fix first:** No local review bugs remain before commit.
+2. **Then address:** Open the GitHub PR and run the Codex/PR feedback loop because the branch is broad.
+3. **Patterns noticed:** Coverage-first refactors need a final production export sweep, not just full dead-code.
+4. **Suggested approach:** Keep future helper extraction inside the owning capability and import it from production plus tests.
+5. **Architecture transition:** The repo is now in a zero dead-code, zero duplication, zero health-findings static state; CI blocking promotion remains a separate policy pass.
+6. **Defer on purpose:** Aggregate health score chasing remains out of scope because it is no longer backed by Fallow findings.
+
+## Turn 5 - 2026-05-05 17:04 BST
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `7c031a58` plus working tree |
+| **IDE / Agent** | Codex                        |
+
+**Summary:** Preflight for the final local diff-review loop found that the full remediation branch is clean for full dead-code, full duplication, full health findings, lint, typecheck, tests, coverage, and build, but production dead-code now reports 81 unused exports. These are test-only exports added in production modules during coverage-first health remediation.
+**Outcome:** blocked by open findings
+**Risk score:** high - the branch is broad and analyzer-policy driven, and this regression weakens the configured/report-only production Fallow signal that CI still runs.
+**Change archetypes:** static analyzer remediation, broad behavior-preserving refactor, testability extraction, architecture boundary cleanup.
+**Intended change:** Drive Fallow duplication/dead-code/health inventories to zero while preserving production behavior and keeping CI policy unchanged.
+**Intent vs actual:** Full inventories are clean, but production dead-code is not scope-safe because 81 production exports exist only for tests.
+**Confidence:** high for the finding - `pnpm exec fallow dead-code --production --format json --quiet --explain` reports exactly 81 unused exports and identifies each export.
+**Coverage note:** The bug is in analyzer policy and production public-surface shape, not failed runtime behavior.
+**Finding triage:** One new live finding is open. No suppressions, ignores, threshold changes, or CI changes are acceptable fixes.
+**Static/analyzer evidence:** Full dead-code `0`, full duplication `0`, full health findings `0`; production dead-code `81` unused exports at `/tmp/linear-production-dead-code-review.json`.
+**Architecture impact:** The coverage-first tests exposed internals through production module APIs. The fix needs to move testable primitives to owner-local modules imported by production and tests, or test public behavior, without adding generic helper buckets.
+**Bug classes / invariants checked:** Authority and API surface. Production exports should model product/runtime interfaces, not test-only reachability.
+**Branch totality:** Current review target is the full local working tree after the Fallow remediation work.
+**Sibling closure:** All production dead-code exports will be swept by Fallow after remediation, not fixed one file at a time without a final production rerun.
+**Remediation impact surface:** UI feature modules, rich-text/collaboration helpers, domain selectors, email worker helper, scoped read-model helper, and store channel action helper.
+**Residual risk / unknowns:** Broad refactors remain high risk until the production export cleanup and full validation loop rerun.
+
+### Validation
+
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` - failed changed-file audit because production dead-code reports 81 unused exports
+- `pnpm exec fallow dead-code --production --format json --quiet --explain` - failed with `total_issues: 81`
+- `pnpm exec fallow dead-code --format json --quiet --explain` - passed before this review turn, full `total_issues: 0`
+- `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` - passed before this review turn, full duplication `0`
+- `pnpm exec fallow health --format json --quiet --explain` - no health findings before this review turn; exit remained advisory because score was below `100`
+- `pnpm fallow:gate` - passed before this review turn
+- `pnpm lint` - passed before this review turn
+- `pnpm typecheck` - passed before this review turn
+- `pnpm test` - passed before this review turn
+- `pnpm test:coverage` - passed before this review turn
+- `pnpm build` - passed before this review turn
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** Existing Fallow audit/review history, package analyzer scripts, Fallow production/full outputs, and CI Fallow posture.
+- **Prior open findings rechecked:** Prior turns had no open local findings; the new production-dead-code regression supersedes the previous all-clear state.
+- **Prior resolved/adjacent areas revalidated:** Full dead-code, full duplication, full health findings, and local gate results were revalidated before this turn.
+- **Hotspots or sibling paths revisited:** All 32 production files with test-only exports are in remediation scope.
+- **Dependency/adjacent surfaces revalidated:** Production Fallow mode remains relevant because CI still runs report-only `fallow --ci --production`.
+- **Why this is enough:** The open finding is analyzer-policy concrete and blocks a scope-safe conclusion until the production dead-code command returns zero.
+
+### Challenger pass
+
+- `blocked` - The most likely remaining issue is that a coverage helper was made public for tests but is not a real production API. The production dead-code report confirmed that exact class.
+
+### Resolved / Carried / New findings
+
+#### FSR-08 - Open - Test-only exports pollute production module APIs and production Fallow dead-code reporting
+
+- **Type / Severity:** Bug, High
+- **Files:** 32 production modules including `components/app/rich-text-editor.tsx`, `components/app/screens.tsx`, `components/app/screens/work-surface-view.tsx`, `components/app/collaboration-screens/*`, `hooks/use-document-collaboration.ts`, `lib/collaboration/canonical-content.ts`, `lib/rich-text/extensions.ts`, and `lib/store/app-store-internal/slices/collaboration-channel-actions.ts`
+- **Root cause:** Health remediation preferred direct helper coverage and exported branch-bearing internals from production modules so tests could import them.
+- **Impact:** Production configured Fallow dead-code now reports 81 unused exports, making the CI report-only Fallow output noisy and contradicting the audit claim that the production lens is clean.
+- **Concrete evidence:** `/tmp/linear-production-dead-code-review.json` reports `summary.total_issues: 81`, all `unused_exports`.
+- **Solution options:** Proper fix: move stable primitives/components into owner-local modules imported by production and tests, or test behavior through existing public components. Quick fix rejected: suppressions, ignores, dummy imports, or widening Fallow policy would hide the issue.
+- **Remediation radius:** Must fix now before commit/PR because it invalidates the analyzer-policy conclusion.
+- **Prevention artifact:** Production Fallow dead-code rerun plus full dead-code/duplication/health and local gates after remediation.
+
+### Recommendations
+
+1. **Fix first:** Remove all 81 production-unused test exports without suppressions or Fallow config changes.
+2. **Then address:** Rerun production and full Fallow gates, lint, typecheck, tests, coverage, build, and `git diff --check`.
+3. **Patterns noticed:** Coverage-first helper exports can accidentally become public production surface.
+4. **Suggested approach:** Keep direct unit-testable code in owner-local modules that production imports, not as test-only exports from feature files.
+5. **Architecture transition:** Public component/module APIs should shrink back to runtime-owned boundaries after the health-zero campaign.
+6. **Defer on purpose:** CI workflow promotion remains out of scope.
 
 ## Turn 4 - 2026-05-01 22:32 BST
 

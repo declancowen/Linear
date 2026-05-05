@@ -58,6 +58,62 @@ type CreateWorkItemScope = {
   team: AppStore["teams"][number] | null
   workspaceId: string
 }
+type WorkItemDeletePlan = NonNullable<
+  ReturnType<typeof getWorkItemCascadeDeletePlan>
+>
+type WorkItemDeletePreviousState = Pick<
+  AppStore,
+  "attachments" | "comments" | "documents" | "notifications" | "workItems"
+>
+
+function canDeleteWorkItem(state: AppStore, deletionPlan: WorkItemDeletePlan) {
+  const role = effectiveRole(state, deletionPlan.item.teamId)
+
+  if (role === "viewer" || role === "guest" || !role) {
+    toast.error("Your current role is read-only")
+    return false
+  }
+
+  return true
+}
+
+function getWorkItemDeletePreviousState(
+  state: AppStore
+): WorkItemDeletePreviousState {
+  return {
+    workItems: state.workItems,
+    documents: state.documents,
+    comments: state.comments,
+    attachments: state.attachments,
+    notifications: state.notifications,
+  }
+}
+
+function applyWorkItemCascadeDeletePlan(
+  current: AppStore,
+  deletionPlan: WorkItemDeletePlan
+) {
+  return {
+    ...current,
+    workItems: deletionPlan.nextWorkItems,
+    documents: deletionPlan.nextDocuments,
+    comments: current.comments.filter(
+      (entry) => !deletionPlan.deletedCommentIds.has(entry.id)
+    ),
+    attachments: current.attachments.filter(
+      (entry) => !deletionPlan.deletedAttachmentIds.has(entry.id)
+    ),
+    notifications: current.notifications.filter(
+      (entry) => !deletionPlan.deletedNotificationIds.has(entry.id)
+    ),
+  }
+}
+
+function getWorkItemDeleteSuccessMessage(deletionPlan: WorkItemDeletePlan) {
+  return deletionPlan.deletedItemIds.size > 1
+    ? `Deleted ${deletionPlan.deletedItemIds.size} items`
+    : "Item deleted"
+}
 
 function resolveCreateWorkItemDates(
   input: CreateWorkItemInput
@@ -588,20 +644,11 @@ export function createWorkItemActions({
         return false
       }
 
-      const role = effectiveRole(state, deletionPlan.item.teamId)
-
-      if (role === "viewer" || role === "guest" || !role) {
-        toast.error("Your current role is read-only")
+      if (!canDeleteWorkItem(state, deletionPlan)) {
         return false
       }
 
-      const previousState = {
-        workItems: state.workItems,
-        documents: state.documents,
-        comments: state.comments,
-        attachments: state.attachments,
-        notifications: state.notifications,
-      }
+      const previousState = getWorkItemDeletePreviousState(state)
 
       set((current) => {
         const nextPlan = getWorkItemCascadeDeletePlan(current, itemId)
@@ -610,29 +657,12 @@ export function createWorkItemActions({
           return current
         }
 
-        return {
-          ...current,
-          workItems: nextPlan.nextWorkItems,
-          documents: nextPlan.nextDocuments,
-          comments: current.comments.filter(
-            (entry) => !nextPlan.deletedCommentIds.has(entry.id)
-          ),
-          attachments: current.attachments.filter(
-            (entry) => !nextPlan.deletedAttachmentIds.has(entry.id)
-          ),
-          notifications: current.notifications.filter(
-            (entry) => !nextPlan.deletedNotificationIds.has(entry.id)
-          ),
-        }
+        return applyWorkItemCascadeDeletePlan(current, nextPlan)
       })
 
       try {
         await syncDeleteWorkItem(itemId)
-        toast.success(
-          deletionPlan.deletedItemIds.size > 1
-            ? `Deleted ${deletionPlan.deletedItemIds.size} items`
-            : "Item deleted"
-        )
+        toast.success(getWorkItemDeleteSuccessMessage(deletionPlan))
         return true
       } catch (error) {
         console.error(error)

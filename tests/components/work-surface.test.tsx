@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react"
+import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 
@@ -28,26 +28,15 @@ vi.mock("@/lib/domain/selectors", () => ({
   ) => data.views.find((view) => view.route === routeKey) ?? null,
 }))
 
-vi.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-}))
+vi.mock("@/components/ui/button", async () =>
+  (await import("@/tests/lib/fixtures/component-stubs")).createButtonStubModule()
+)
 
-vi.mock("@/components/ui/template-primitives", () => ({
-  IconButton: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-  Topbar: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  Viewbar: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}))
+vi.mock("@/components/ui/template-primitives", async () =>
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createTemplatePrimitivesStubModule()
+)
 
 vi.mock("@/components/app/screens/shared", () => ({
   HeaderTitle: ({ title }: { title: string }) => <div>{title}</div>,
@@ -156,6 +145,45 @@ function createTeam(): Team {
   }
 }
 
+function createAssignedFallbackViews() {
+  return [
+    createView({
+      id: "view_assigned_all_items",
+      name: "All work",
+      scopeType: "personal",
+      scopeId: "user_1",
+      route: "/assigned",
+      grouping: "status",
+      subGrouping: null,
+    }),
+    createView({
+      id: "view_assigned_active_items",
+      name: "Active",
+      scopeType: "personal",
+      scopeId: "user_1",
+      route: "/assigned",
+      layout: "board",
+      grouping: "status",
+      subGrouping: null,
+    }),
+  ]
+}
+
+function renderAssignedFallbackSurface() {
+  render(
+    <WorkSurface
+      title="My items"
+      routeKey="/assigned"
+      views={[]}
+      fallbackViews={createAssignedFallbackViews()}
+      items={[]}
+      team={createTeam()}
+      emptyLabel="Nothing assigned"
+      allowCreateViews={false}
+    />
+  )
+}
+
 describe("WorkSurface", () => {
   beforeEach(() => {
     useAppStore.setState({
@@ -251,38 +279,7 @@ describe("WorkSurface", () => {
       views: [],
     })
 
-    render(
-      <WorkSurface
-        title="My items"
-        routeKey="/assigned"
-        views={[]}
-        fallbackViews={[
-          createView({
-            id: "view_assigned_all_items",
-            name: "All work",
-            scopeType: "personal",
-            scopeId: "user_1",
-            route: "/assigned",
-            grouping: "status",
-            subGrouping: null,
-          }),
-          createView({
-            id: "view_assigned_active_items",
-            name: "Active",
-            scopeType: "personal",
-            scopeId: "user_1",
-            route: "/assigned",
-            layout: "board",
-            grouping: "status",
-            subGrouping: null,
-          }),
-        ]}
-        items={[]}
-        team={createTeam()}
-        emptyLabel="Nothing assigned"
-        allowCreateViews={false}
-      />
-    )
+    renderAssignedFallbackSurface()
 
     expect(screen.getByRole("button", { name: "All work" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Active" })).toBeInTheDocument()
@@ -350,38 +347,7 @@ describe("WorkSurface", () => {
   it("does not snap fallback tab selection back to the URL view after local edits", () => {
     searchParamsState.value = "view=view_assigned_active_items"
 
-    render(
-      <WorkSurface
-        title="My items"
-        routeKey="/assigned"
-        views={[]}
-        fallbackViews={[
-          createView({
-            id: "view_assigned_all_items",
-            name: "All work",
-            scopeType: "personal",
-            scopeId: "user_1",
-            route: "/assigned",
-            grouping: "status",
-            subGrouping: null,
-          }),
-          createView({
-            id: "view_assigned_active_items",
-            name: "Active",
-            scopeType: "personal",
-            scopeId: "user_1",
-            route: "/assigned",
-            layout: "board",
-            grouping: "status",
-            subGrouping: null,
-          }),
-        ]}
-        items={[]}
-        team={createTeam()}
-        emptyLabel="Nothing assigned"
-        allowCreateViews={false}
-      />
-    )
+    renderAssignedFallbackSurface()
 
     expect(screen.getByText("board-content")).toBeInTheDocument()
 

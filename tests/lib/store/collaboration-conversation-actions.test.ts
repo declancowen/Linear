@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createEmptyState } from "@/lib/domain/empty-state"
 import {
-  type AppData,
   createDefaultTeamFeatureSettings,
-  createDefaultTeamWorkflowSettings,
+  type AppData,
 } from "@/lib/domain/types"
+import {
+  createTestAppData,
+  createTestTeam,
+  createTestTeamMembership,
+  createTestUser,
+  createTestWorkspace,
+  createTestWorkspaceMembership,
+} from "@/tests/lib/fixtures/app-data"
 
 const syncCreateChannelMock = vi.fn()
 const syncCreateWorkspaceChatMock = vi.fn()
@@ -33,93 +39,57 @@ vi.mock("@/lib/convex/client", () => ({
 }))
 
 function createConversationTestState(): AppData {
-  return {
-    ...createEmptyState(),
-    currentUserId: "user_1",
-    currentWorkspaceId: "workspace_1",
+  return createTestAppData({
     workspaces: [
-      {
-        id: "workspace_1",
+      createTestWorkspace({
         slug: "workspace-1",
         name: "Workspace 1",
-        logoUrl: "",
-        logoImageUrl: null,
-        createdBy: "user_1",
         workosOrganizationId: null,
         settings: {
           accent: "#000000",
           description: "",
         },
-      },
+      }),
     ],
     users: [
-      {
-        id: "user_1",
+      createTestUser({
         name: "Alex Example",
-        handle: "alex",
-        email: "alex@example.com",
-        avatarUrl: "",
-        avatarImageUrl: null,
-        workosUserId: null,
         title: "",
-        status: "active",
-        statusMessage: "",
-        preferences: {
-          emailMentions: true,
-          emailAssignments: true,
-          emailDigest: true,
-          theme: "system",
-        },
-      },
-      {
+      }),
+      createTestUser({
         id: "user_2",
         name: "Sam Example",
         handle: "sam",
         email: "sam@example.com",
-        avatarUrl: "",
-        avatarImageUrl: null,
-        workosUserId: null,
         title: "",
-        status: "active",
-        statusMessage: "",
-        preferences: {
-          emailMentions: true,
-          emailAssignments: true,
-          emailDigest: true,
-          theme: "system",
-        },
-      },
+      }),
     ],
     teams: [
-      {
-        id: "team_1",
-        workspaceId: "workspace_1",
-        slug: "platform",
-        name: "Platform",
-        icon: "robot",
+      createTestTeam({
         settings: {
-          joinCode: "JOIN1234",
-          summary: "Platform team",
-          guestProjectIds: [],
-          guestDocumentIds: [],
-          guestWorkItemIds: [],
-          experience: "software-development",
-          features: createDefaultTeamFeatureSettings("software-development"),
-          workflow: createDefaultTeamWorkflowSettings("software-development"),
+          features: {
+            ...createDefaultTeamFeatureSettings("software-development"),
+            channels: true,
+            chat: true,
+          },
         },
-      },
+      }),
     ],
-    teamMemberships: [
-      {
-        teamId: "team_1",
-        userId: "user_1",
-        role: "member",
-      },
-      {
-        teamId: "team_1",
+    workspaceMemberships: [
+      createTestWorkspaceMembership(),
+      createTestWorkspaceMembership({
         userId: "user_2",
         role: "member",
-      },
+      }),
+    ],
+    teamMemberships: [
+      createTestTeamMembership({
+        role: "member",
+      }),
+      createTestTeamMembership({
+        userId: "user_2",
+        role: "member",
+      }),
     ],
     conversations: [
       {
@@ -139,7 +109,36 @@ function createConversationTestState(): AppData {
         lastActivityAt: "2026-04-21T10:00:00.000Z",
       },
     ],
-  }
+  })
+}
+
+async function createConversationActionsHarness() {
+  const { createCollaborationConversationActions } = await import(
+    "@/lib/store/app-store-internal/slices/collaboration-conversation-actions"
+  )
+  const state = createConversationTestState()
+  const backgroundTasks: Array<Promise<unknown> | null> = []
+  const setState = vi.fn((update: unknown) => {
+    const patch =
+      typeof update === "function"
+        ? update(state as never)
+        : update
+
+    Object.assign(state, patch)
+  })
+
+  const slice = createCollaborationConversationActions({
+    set: setState as never,
+    get: () => state as never,
+    runtime: {
+      refreshFromServer: vi.fn().mockResolvedValue(undefined),
+      syncInBackground(task: Promise<unknown> | null) {
+        backgroundTasks.push(task)
+      },
+    } as never,
+  })
+
+  return { backgroundTasks, setState, slice, state }
 }
 
 describe("collaboration conversation actions", () => {
@@ -156,33 +155,10 @@ describe("collaboration conversation actions", () => {
   })
 
   it("reverts the optimistic reaction if the pending message send fails", async () => {
-    const { createCollaborationConversationActions } = await import(
-      "@/lib/store/app-store-internal/slices/collaboration-conversation-actions"
-    )
-
-    const state = createConversationTestState()
-    const backgroundTasks: Array<Promise<unknown> | null> = []
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      Object.assign(state, patch)
-    })
-
     syncSendChatMessageMock.mockRejectedValueOnce(new Error("send failed"))
 
-    const slice = createCollaborationConversationActions({
-      set: setState as never,
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: vi.fn().mockResolvedValue(undefined),
-        syncInBackground(task: Promise<unknown> | null) {
-          backgroundTasks.push(task)
-        },
-      } as never,
-    })
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
 
     slice.sendChatMessage({
       conversationId: "conversation_1",
@@ -210,33 +186,10 @@ describe("collaboration conversation actions", () => {
   })
 
   it("trims trailing hard breaks from optimistic chat messages before syncing", async () => {
-    const { createCollaborationConversationActions } = await import(
-      "@/lib/store/app-store-internal/slices/collaboration-conversation-actions"
-    )
-
-    const state = createConversationTestState()
-    const backgroundTasks: Array<Promise<unknown> | null> = []
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      Object.assign(state, patch)
-    })
-
     syncSendChatMessageMock.mockResolvedValueOnce(null)
 
-    const slice = createCollaborationConversationActions({
-      set: setState as never,
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: vi.fn().mockResolvedValue(undefined),
-        syncInBackground(task: Promise<unknown> | null) {
-          backgroundTasks.push(task)
-        },
-      } as never,
-    })
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
 
     slice.sendChatMessage({
       conversationId: "conversation_1",
@@ -253,33 +206,10 @@ describe("collaboration conversation actions", () => {
   })
 
   it("adds optimistic generic message notifications for other participants", async () => {
-    const { createCollaborationConversationActions } = await import(
-      "@/lib/store/app-store-internal/slices/collaboration-conversation-actions"
-    )
-
-    const state = createConversationTestState()
-    const backgroundTasks: Array<Promise<unknown> | null> = []
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      Object.assign(state, patch)
-    })
-
     syncSendChatMessageMock.mockResolvedValueOnce(null)
 
-    const slice = createCollaborationConversationActions({
-      set: setState as never,
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: vi.fn().mockResolvedValue(undefined),
-        syncInBackground(task: Promise<unknown> | null) {
-          backgroundTasks.push(task)
-        },
-      } as never,
-    })
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
 
     slice.sendChatMessage({
       conversationId: "conversation_1",
@@ -302,33 +232,10 @@ describe("collaboration conversation actions", () => {
   })
 
   it("does not add duplicate optimistic message notifications for mentions", async () => {
-    const { createCollaborationConversationActions } = await import(
-      "@/lib/store/app-store-internal/slices/collaboration-conversation-actions"
-    )
-
-    const state = createConversationTestState()
-    const backgroundTasks: Array<Promise<unknown> | null> = []
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      Object.assign(state, patch)
-    })
-
     syncSendChatMessageMock.mockResolvedValueOnce(null)
 
-    const slice = createCollaborationConversationActions({
-      set: setState as never,
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: vi.fn().mockResolvedValue(undefined),
-        syncInBackground(task: Promise<unknown> | null) {
-          backgroundTasks.push(task)
-        },
-      } as never,
-    })
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
 
     slice.sendChatMessage({
       conversationId: "conversation_1",
@@ -349,5 +256,101 @@ describe("collaboration conversation actions", () => {
       )
     ).toEqual([])
     await expect(backgroundTasks[0]).resolves.toBeNull()
+  })
+
+  it("creates workspace chats and team channels through editable collaboration scopes", async () => {
+    syncCreateWorkspaceChatMock.mockResolvedValueOnce(null)
+    syncCreateChannelMock.mockResolvedValueOnce(null)
+
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
+
+    const workspaceChatId = slice.createWorkspaceChat({
+      workspaceId: "workspace_1",
+      participantIds: ["user_2"],
+      title: "",
+      description: "",
+    })
+
+    expect(workspaceChatId).toBeTruthy()
+    expect(state.conversations.find((entry) => entry.id === workspaceChatId))
+      .toMatchObject({
+        kind: "chat",
+        participantIds: ["user_1", "user_2"],
+        scopeType: "workspace",
+      })
+
+    const channelId = slice.createChannel({
+      teamId: "team_1",
+      title: "",
+      description: "",
+      silent: true,
+    })
+
+    expect(channelId).toBeTruthy()
+    expect(state.conversations.find((entry) => entry.id === channelId))
+      .toMatchObject({
+        kind: "channel",
+        participantIds: ["user_1", "user_2"],
+        scopeType: "team",
+        title: "Platform",
+      })
+    expect(toastSuccessMock).not.toHaveBeenCalledWith("Channel ready")
+    await expect(backgroundTasks[0]).resolves.toBeNull()
+    await expect(backgroundTasks[1]).resolves.toBeNull()
+  })
+
+  it("stores structured call activity when a conversation call starts", async () => {
+    syncStartConversationCallMock.mockResolvedValueOnce({
+      joinHref: "https://calls.example.com/join",
+      call: {
+        id: "call_1",
+        conversationId: "conversation_1",
+        scopeType: "team",
+        scopeId: "team_1",
+        roomId: null,
+        roomName: null,
+        roomKey: "room_1",
+        roomDescription: "Platform call",
+        startedBy: "user_1",
+        startedAt: "2026-04-21T10:05:00.000Z",
+        updatedAt: "2026-04-21T10:05:00.000Z",
+        endedAt: null,
+        participantUserIds: ["user_1"],
+      },
+      message: {
+        id: "message_1",
+        conversationId: "conversation_1",
+        kind: "call",
+        content: "<p>Call started</p>",
+        callId: "call_1",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_1",
+        createdAt: "2026-04-21T10:05:00.000Z",
+      },
+    })
+
+    const { slice, state } = await createConversationActionsHarness()
+
+    await expect(slice.startConversationCall("conversation_1")).resolves.toBe(
+      "https://calls.example.com/join"
+    )
+
+    expect(state.calls).toEqual([
+      expect.objectContaining({
+        id: "call_1",
+      }),
+    ])
+    expect(state.chatMessages).toEqual([
+      expect.objectContaining({
+        id: "message_1",
+        callId: "call_1",
+      }),
+    ])
+    expect(state.conversations[0]).toMatchObject({
+      lastActivityAt: "2026-04-21T10:05:00.000Z",
+      updatedAt: "2026-04-21T10:05:00.000Z",
+    })
   })
 })

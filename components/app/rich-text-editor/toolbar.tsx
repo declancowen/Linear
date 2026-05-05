@@ -59,6 +59,26 @@ function insertDefaultTable(editor: Editor) {
   editor.chain().focus().insertTable(DEFAULT_TABLE_OPTIONS).run()
 }
 
+type RichTextToolbarProps = {
+  editable: boolean
+  editor: Editor
+  fullPage: boolean
+  fullPageCanvasWidth: FullPageCanvasWidth
+  handleFiles: (files: File[], position?: number | null) => Promise<void>
+  hiddenAttachmentInputRef: RefObject<HTMLInputElement | null>
+  hiddenImageInputRef: RefObject<HTMLInputElement | null>
+  pickerInsertPosition: number | null
+  requestAttachmentPicker: (editor: Editor) => void
+  requestImagePicker: (editor: Editor) => void
+  setFullPageCanvasWidth: (value: FullPageCanvasWidth) => void
+  showStats: boolean
+  statsCharacters: number
+  statsWords: number
+  toolbarWidthClassName: string
+  uploadsEnabled: boolean
+  uploadingAttachment: boolean
+}
+
 export function RichTextToolbar({
   editable,
   editor,
@@ -77,56 +97,7 @@ export function RichTextToolbar({
   toolbarWidthClassName,
   uploadsEnabled,
   uploadingAttachment,
-}: {
-  editable: boolean
-  editor: Editor
-  fullPage: boolean
-  fullPageCanvasWidth: FullPageCanvasWidth
-  handleFiles: (files: File[], position?: number | null) => Promise<void>
-  hiddenAttachmentInputRef: RefObject<HTMLInputElement | null>
-  hiddenImageInputRef: RefObject<HTMLInputElement | null>
-  pickerInsertPosition: number | null
-  requestAttachmentPicker: (editor: Editor) => void
-  requestImagePicker: (editor: Editor) => void
-  setFullPageCanvasWidth: (value: FullPageCanvasWidth) => void
-  showStats: boolean
-  statsCharacters: number
-  statsWords: number
-  toolbarWidthClassName: string
-  uploadsEnabled: boolean
-  uploadingAttachment: boolean
-}) {
-  const tableActive = editor.isActive("table")
-  const highlightActive = editor.isActive("highlight")
-  const paragraphActive = editor.isActive("paragraph")
-  const h1Active = editor.isActive("heading", { level: 1 })
-  const h2Active = editor.isActive("heading", { level: 2 })
-  const h3Active = editor.isActive("heading", { level: 3 })
-  const alignCenterActive = editor.isActive({ textAlign: "center" })
-  const alignRightActive = editor.isActive({ textAlign: "right" })
-  const alignLeftActive = !alignCenterActive && !alignRightActive
-  const canInsertTable = editor
-    .can()
-    .chain()
-    .focus()
-    .insertTable(DEFAULT_TABLE_OPTIONS)
-    .run()
-  const canAddTableRow = editor.can().chain().focus().addRowAfter().run()
-  const canAddTableColumn = editor
-    .can()
-    .chain()
-    .focus()
-    .addColumnAfter()
-    .run()
-  const canDeleteTableRow = editor.can().chain().focus().deleteRow().run()
-  const canDeleteTableColumn = editor
-    .can()
-    .chain()
-    .focus()
-    .deleteColumn()
-    .run()
-  const canDeleteTable = editor.can().chain().focus().deleteTable().run()
-
+}: RichTextToolbarProps) {
   function setLink() {
     const existing = editor.getAttributes("link").href as string | undefined
     const nextHref = window.prompt("Link URL", existing ?? "https://")
@@ -147,6 +118,47 @@ export function RichTextToolbar({
         fullPage && toolbarWidthClassName
       )}
     >
+      <TextMarkToolbarGroup editor={editor} />
+      <ToolbarSeparator />
+      <BlockToolbarGroup editor={editor} setLink={setLink} />
+      <ToolbarSeparator />
+      <AlignmentToolbarGroup editor={editor} />
+      <TableInsertToolbarButton editor={editor} />
+      <EmojiToolbarButton editor={editor} fullPage={fullPage} />
+      <ImageToolbarButton
+        editor={editor}
+        requestImagePicker={requestImagePicker}
+        uploadsEnabled={uploadsEnabled}
+      />
+      <TableEditToolbarGroup editor={editor} />
+      <UploadToolbarGroup
+        editor={editor}
+        handleFiles={handleFiles}
+        hiddenAttachmentInputRef={hiddenAttachmentInputRef}
+        hiddenImageInputRef={hiddenImageInputRef}
+        pickerInsertPosition={pickerInsertPosition}
+        requestAttachmentPicker={requestAttachmentPicker}
+        uploadsEnabled={uploadsEnabled}
+      />
+      <UploadStatus uploadingAttachment={uploadingAttachment} />
+      <FullPageToolbarControls
+        editable={editable}
+        fullPage={fullPage}
+        fullPageCanvasWidth={fullPageCanvasWidth}
+        setFullPageCanvasWidth={setFullPageCanvasWidth}
+      />
+      <ToolbarStats
+        showStats={showStats}
+        statsCharacters={statsCharacters}
+        statsWords={statsWords}
+      />
+    </div>
+  )
+}
+
+function TextMarkToolbarGroup({ editor }: { editor: Editor }) {
+  return (
+    <>
       <ToolbarButton
         active={editor.isActive("bold")}
         onClick={() => editor.chain().focus().toggleBold().run()}
@@ -169,36 +181,48 @@ export function RichTextToolbar({
         <TextUnderline className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
-        active={highlightActive}
+        active={editor.isActive("highlight")}
         onClick={() => editor.chain().focus().toggleHighlight().run()}
         label="Highlight"
       >
         <Highlighter className="size-3.5" />
       </ToolbarButton>
-      <div className="mx-1 h-4 w-px bg-border" />
+    </>
+  )
+}
+
+function BlockToolbarGroup({
+  editor,
+  setLink,
+}: {
+  editor: Editor
+  setLink: () => void
+}) {
+  return (
+    <>
       <ToolbarButton
-        active={paragraphActive}
+        active={editor.isActive("paragraph")}
         onClick={() => editor.chain().focus().setParagraph().run()}
         label="Paragraph"
       >
         <Paragraph className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
-        active={h1Active}
+        active={editor.isActive("heading", { level: 1 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
         label="Heading 1"
       >
         <TextHOne className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
-        active={h2Active}
+        active={editor.isActive("heading", { level: 2 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
         label="Heading 2"
       >
         <TextHTwo className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
-        active={h3Active}
+        active={editor.isActive("heading", { level: 3 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
         label="Heading 3"
       >
@@ -225,10 +249,24 @@ export function RichTextToolbar({
       >
         <Quotes className="size-3.5" />
       </ToolbarButton>
-      <ToolbarButton active={editor.isActive("link")} onClick={setLink} label="Link">
+      <ToolbarButton
+        active={editor.isActive("link")}
+        onClick={setLink}
+        label="Link"
+      >
         <LinkSimple className="size-3.5" />
       </ToolbarButton>
-      <div className="mx-1 h-4 w-px bg-border" />
+    </>
+  )
+}
+
+function AlignmentToolbarGroup({ editor }: { editor: Editor }) {
+  const alignCenterActive = editor.isActive({ textAlign: "center" })
+  const alignRightActive = editor.isActive({ textAlign: "right" })
+  const alignLeftActive = !alignCenterActive && !alignRightActive
+
+  return (
+    <>
       <ToolbarButton
         active={alignLeftActive}
         onClick={() => editor.chain().focus().setTextAlign("left").run()}
@@ -250,176 +288,279 @@ export function RichTextToolbar({
       >
         <TextAlignRight className="size-3.5" />
       </ToolbarButton>
-      <ToolbarButton
-        active={tableActive}
-        disabled={!canInsertTable}
-        onClick={() => insertDefaultTable(editor)}
-        label="Insert table"
-      >
-        <TableIcon className="size-3.5" />
-      </ToolbarButton>
-      <EmojiPickerPopover
-        align="start"
-        side={fullPage ? "bottom" : "top"}
-        onEmojiSelect={(emoji) => {
-          editor.chain().focus().insertContent(emoji).run()
-        }}
-        trigger={
-          <ToolbarButton
-            active={false}
-            onClick={() => {
-              editor.chain().focus().run()
-            }}
-            label="Insert emoji"
-          >
-            <Smiley className="size-3.5" />
-          </ToolbarButton>
-        }
-      />
-      {uploadsEnabled ? (
+    </>
+  )
+}
+
+function TableInsertToolbarButton({ editor }: { editor: Editor }) {
+  const canInsertTable = editor
+    .can()
+    .chain()
+    .focus()
+    .insertTable(DEFAULT_TABLE_OPTIONS)
+    .run()
+
+  return (
+    <ToolbarButton
+      active={editor.isActive("table")}
+      disabled={!canInsertTable}
+      onClick={() => insertDefaultTable(editor)}
+      label="Insert table"
+    >
+      <TableIcon className="size-3.5" />
+    </ToolbarButton>
+  )
+}
+
+function EmojiToolbarButton({
+  editor,
+  fullPage,
+}: {
+  editor: Editor
+  fullPage: boolean
+}) {
+  return (
+    <EmojiPickerPopover
+      align="start"
+      side={fullPage ? "bottom" : "top"}
+      onEmojiSelect={(emoji) => {
+        editor.chain().focus().insertContent(emoji).run()
+      }}
+      trigger={
         <ToolbarButton
           active={false}
-          onClick={() => requestImagePicker(editor)}
-          label="Insert image"
+          onClick={() => {
+            editor.chain().focus().run()
+          }}
+          label="Insert emoji"
         >
-          <ImageSquare className="size-3.5" />
+          <Smiley className="size-3.5" />
         </ToolbarButton>
-      ) : null}
-      {tableActive ? (
-        <>
-          <div className="mx-1 h-4 w-px bg-border" />
-          <ToolbarButton
-            active={false}
-            disabled={!canAddTableRow}
-            onClick={() => editor.chain().focus().addRowAfter().run()}
-            label="Add row"
+      }
+    />
+  )
+}
+
+function ImageToolbarButton({
+  editor,
+  requestImagePicker,
+  uploadsEnabled,
+}: {
+  editor: Editor
+  requestImagePicker: (editor: Editor) => void
+  uploadsEnabled: boolean
+}) {
+  if (!uploadsEnabled) {
+    return null
+  }
+
+  return (
+    <ToolbarButton
+      active={false}
+      onClick={() => requestImagePicker(editor)}
+      label="Insert image"
+    >
+      <ImageSquare className="size-3.5" />
+    </ToolbarButton>
+  )
+}
+
+function TableEditToolbarGroup({ editor }: { editor: Editor }) {
+  if (!editor.isActive("table")) {
+    return null
+  }
+
+  return (
+    <>
+      <ToolbarSeparator />
+      <ToolbarButton
+        active={false}
+        disabled={!editor.can().chain().focus().addRowAfter().run()}
+        onClick={() => editor.chain().focus().addRowAfter().run()}
+        label="Add row"
+      >
+        <RowsPlusBottom className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={false}
+        disabled={!editor.can().chain().focus().addColumnAfter().run()}
+        onClick={() => editor.chain().focus().addColumnAfter().run()}
+        label="Add column"
+      >
+        <ColumnsPlusRight className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={false}
+        disabled={!editor.can().chain().focus().deleteRow().run()}
+        onClick={() => editor.chain().focus().deleteRow().run()}
+        label="Delete row"
+      >
+        <Trash className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={false}
+        disabled={!editor.can().chain().focus().deleteColumn().run()}
+        onClick={() => editor.chain().focus().deleteColumn().run()}
+        label="Delete column"
+      >
+        <Trash className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton
+        active={false}
+        disabled={!editor.can().chain().focus().deleteTable().run()}
+        onClick={() => editor.chain().focus().deleteTable().run()}
+        label="Delete table"
+      >
+        <Trash className="size-3.5" />
+      </ToolbarButton>
+    </>
+  )
+}
+
+function UploadToolbarGroup({
+  editor,
+  handleFiles,
+  hiddenAttachmentInputRef,
+  hiddenImageInputRef,
+  pickerInsertPosition,
+  requestAttachmentPicker,
+  uploadsEnabled,
+}: Pick<
+  RichTextToolbarProps,
+  | "editor"
+  | "handleFiles"
+  | "hiddenAttachmentInputRef"
+  | "hiddenImageInputRef"
+  | "pickerInsertPosition"
+  | "requestAttachmentPicker"
+  | "uploadsEnabled"
+>) {
+  if (!uploadsEnabled) {
+    return null
+  }
+
+  return (
+    <>
+      <input
+        ref={hiddenAttachmentInputRef}
+        className="hidden"
+        type="file"
+        multiple
+        onChange={(event) =>
+          void handleFiles(
+            Array.from(event.target.files ?? []),
+            pickerInsertPosition
+          )
+        }
+      />
+      <input
+        ref={hiddenImageInputRef}
+        className="hidden"
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={(event) =>
+          void handleFiles(
+            Array.from(event.target.files ?? []),
+            pickerInsertPosition
+          )
+        }
+      />
+      <ToolbarButton
+        active={false}
+        onClick={() => {
+          requestAttachmentPicker(editor)
+          hiddenAttachmentInputRef.current?.click()
+        }}
+        label="Attach file"
+      >
+        <Paperclip className="size-3.5" />
+      </ToolbarButton>
+    </>
+  )
+}
+
+function UploadStatus({
+  uploadingAttachment,
+}: {
+  uploadingAttachment: boolean
+}) {
+  if (!uploadingAttachment) {
+    return null
+  }
+
+  return <span className="text-xs text-muted-foreground">Uploading…</span>
+}
+
+function FullPageToolbarControls({
+  editable,
+  fullPage,
+  fullPageCanvasWidth,
+  setFullPageCanvasWidth,
+}: Pick<
+  RichTextToolbarProps,
+  | "editable"
+  | "fullPage"
+  | "fullPageCanvasWidth"
+  | "setFullPageCanvasWidth"
+>) {
+  if (!fullPage) {
+    return null
+  }
+
+  return (
+    <>
+      <ToolbarSeparator />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={!editable}
+            className={cn(
+              "flex size-7 items-center justify-center text-muted-foreground transition-colors",
+              editable ? "hover:text-foreground" : "cursor-default opacity-60"
+            )}
+            aria-label="Canvas width"
+            title="Canvas width"
           >
-            <RowsPlusBottom className="size-3.5" />
-          </ToolbarButton>
-          <ToolbarButton
-            active={false}
-            disabled={!canAddTableColumn}
-            onClick={() => editor.chain().focus().addColumnAfter().run()}
-            label="Add column"
-          >
-            <ColumnsPlusRight className="size-3.5" />
-          </ToolbarButton>
-          <ToolbarButton
-            active={false}
-            disabled={!canDeleteTableRow}
-            onClick={() => editor.chain().focus().deleteRow().run()}
-            label="Delete row"
-          >
-            <Trash className="size-3.5" />
-          </ToolbarButton>
-          <ToolbarButton
-            active={false}
-            disabled={!canDeleteTableColumn}
-            onClick={() => editor.chain().focus().deleteColumn().run()}
-            label="Delete column"
-          >
-            <Trash className="size-3.5" />
-          </ToolbarButton>
-          <ToolbarButton
-            active={false}
-            disabled={!canDeleteTable}
-            onClick={() => editor.chain().focus().deleteTable().run()}
-            label="Delete table"
-          >
-            <Trash className="size-3.5" />
-          </ToolbarButton>
-        </>
-      ) : null}
-      {uploadsEnabled ? (
-        <>
-          <input
-            ref={hiddenAttachmentInputRef}
-            className="hidden"
-            type="file"
-            multiple
-            onChange={(event) =>
-              void handleFiles(
-                Array.from(event.target.files ?? []),
-                pickerInsertPosition
-              )
+            <FrameCorners className="size-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40 min-w-40">
+          <DropdownMenuRadioGroup
+            value={fullPageCanvasWidth}
+            onValueChange={(value) =>
+              setFullPageCanvasWidth(value as FullPageCanvasWidth)
             }
-          />
-          <input
-            ref={hiddenImageInputRef}
-            className="hidden"
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(event) =>
-              void handleFiles(
-                Array.from(event.target.files ?? []),
-                pickerInsertPosition
-              )
-            }
-          />
-          <ToolbarButton
-            active={false}
-            onClick={() => {
-              requestAttachmentPicker(editor)
-              hiddenAttachmentInputRef.current?.click()
-            }}
-            label="Attach file"
           >
-            <Paperclip className="size-3.5" />
-          </ToolbarButton>
-        </>
+            <DropdownMenuRadioItem value="narrow">Narrow</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="medium">Normal</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="wide">Wide</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  )
+}
+
+function ToolbarStats({
+  showStats,
+  statsCharacters,
+  statsWords,
+}: Pick<RichTextToolbarProps, "showStats" | "statsCharacters" | "statsWords">) {
+  return (
+    <div className="ml-auto flex items-center gap-2">
+      {showStats ? (
+        <span className="text-xs whitespace-nowrap text-muted-foreground">
+          {statsWords} words · {statsCharacters} characters
+        </span>
       ) : null}
-      {uploadingAttachment ? (
-        <span className="text-xs text-muted-foreground">Uploading…</span>
-      ) : null}
-      {fullPage ? (
-        <>
-          <div className="mx-1 h-4 w-px bg-border" />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                disabled={!editable}
-                className={cn(
-                  "flex size-7 items-center justify-center text-muted-foreground transition-colors",
-                  editable
-                    ? "hover:text-foreground"
-                    : "cursor-default opacity-60"
-                )}
-                aria-label="Canvas width"
-                title="Canvas width"
-              >
-                <FrameCorners className="size-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40 min-w-40">
-              <DropdownMenuRadioGroup
-                value={fullPageCanvasWidth}
-                onValueChange={(value) =>
-                  setFullPageCanvasWidth(value as FullPageCanvasWidth)
-                }
-              >
-                <DropdownMenuRadioItem value="narrow">
-                  Narrow
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="medium">
-                  Normal
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="wide">Wide</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </>
-      ) : null}
-      <div className="ml-auto flex items-center gap-2">
-        {showStats ? (
-          <span className="text-xs whitespace-nowrap text-muted-foreground">
-            {statsWords} words · {statsCharacters} characters
-          </span>
-        ) : null}
-      </div>
     </div>
   )
+}
+
+function ToolbarSeparator() {
+  return <div className="mx-1 h-4 w-px bg-border" />
 }
 
 const ToolbarButton = forwardRef<

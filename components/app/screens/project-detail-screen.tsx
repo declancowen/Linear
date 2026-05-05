@@ -40,8 +40,10 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 import { MissingState } from "@/components/app/screens/shared"
 import { ViewContextMenu } from "@/components/app/screens/entity-context-menus"
 import {
+  clearViewFiltersPreservingCompletion,
   cloneViewFilters,
-  createEmptyViewFilters,
+  toggleDisplayPropertyValue,
+  toggleViewFilterValue,
   type ViewFilterKey,
   selectAppDataSnapshot,
 } from "@/components/app/screens/helpers"
@@ -446,30 +448,16 @@ function useProjectItemsPresentationState({
   }
 
   function toggleFilter(key: ViewFilterKey, value: string) {
-    setFilters((current) => {
-      const nextFilters = { ...current } as ViewDefinition["filters"]
-      const currentValues = nextFilters[key] as string[]
-      const nextValues = currentValues.includes(value)
-        ? currentValues.filter((entry) => entry !== value)
-        : [...currentValues, value]
-
-      nextFilters[key] = nextValues as never
-      return nextFilters
-    })
+    setFilters((current) => toggleViewFilterValue(current, key, value))
   }
 
   function clearFilters() {
-    setFilters((current) => ({
-      ...createEmptyViewFilters(),
-      showCompleted: current.showCompleted,
-    }))
+    setFilters(clearViewFiltersPreservingCompletion)
   }
 
   function toggleDisplayProperty(property: DisplayProperty) {
     setDisplayProps((current) =>
-      current.includes(property)
-        ? current.filter((value) => value !== property)
-        : [...current, property]
+      toggleDisplayPropertyValue(current, property)
     )
   }
 

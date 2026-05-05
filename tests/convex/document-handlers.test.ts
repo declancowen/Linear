@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { createTestNotificationRecord } from "@/tests/lib/fixtures/convex"
+
 const buildMentionEmailJobsMock = vi.fn()
 const assertServerTokenMock = vi.fn()
 const getDocumentDocMock = vi.fn()
@@ -105,24 +107,7 @@ describe("document mention notifications", () => {
     listDocumentPresenceViewersMock.mockReset()
 
     buildMentionEmailJobsMock.mockImplementation(({ emails }) => emails)
-    createNotificationMock.mockImplementation(
-      (
-        userId: string,
-        actorId: string,
-        message: string,
-        entityType: string,
-        entityId: string,
-        type: string
-      ) => ({
-        id: `notification_${userId}`,
-        userId,
-        actorId,
-        message,
-        entityType,
-        entityId,
-        type,
-      })
-    )
+    createNotificationMock.mockImplementation(createTestNotificationRecord)
     documentRecord = {
       _id: "document_1_db",
       id: "document_1",
@@ -133,6 +118,7 @@ describe("document mention notifications", () => {
       content:
         '<p><span class="editor-mention" data-type="mention" data-id="user_2">@sam</span><span class="editor-mention" data-type="mention" data-id="user_2">@sam</span></p>',
       createdBy: "user_1",
+      updatedAt: "2026-04-17T20:24:45.000Z",
       updatedBy: "user_1",
     }
     getDocumentDocMock.mockImplementation(async () => documentRecord)
@@ -434,6 +420,55 @@ describe("document mention notifications", () => {
     expect(documentRecord.notifiedMentionCounts).toEqual({
       user_1: 1,
     })
+  })
+
+  it("updates document title and content while preserving mention notification caps", async () => {
+    const { updateDocumentHandler } = await import(
+      "@/convex/app/document_handlers"
+    )
+    const ctx = createCtx()
+
+    getDocumentDocMock.mockResolvedValue(documentRecord)
+    requireEditableDocumentAccessMock.mockResolvedValue("admin")
+
+    await expect(
+      updateDocumentHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        documentId: "document_1",
+      })
+    ).resolves.toBeUndefined()
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+
+    await expect(
+      updateDocumentHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        documentId: "document_1",
+        expectedUpdatedAt: "2026-04-17T20:24:45.000Z",
+        title: "Updated title",
+        content:
+          '<p><span data-type="mention" data-id="user_2">@sam</span></p>',
+      })
+    ).resolves.toEqual({
+      updatedAt: "2026-04-17T20:24:45.000Z",
+    })
+
+    expect(assertServerTokenMock).toHaveBeenCalledWith("server_token")
+    expect(requireEditableDocumentAccessMock).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({ id: "document_1" }),
+      "user_1"
+    )
+    expect(ctx.db.patch).toHaveBeenCalledWith(
+      "document_1_db",
+      expect.objectContaining({
+        content:
+          '<p><span data-type="mention" data-id="user_2">@sam</span></p>',
+        title: "Updated title",
+        updatedBy: "user_1",
+      })
+    )
   })
 })
 

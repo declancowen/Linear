@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ApplicationError } from "@/lib/server/application-errors"
+import { createProviderErrorsMockModule } from "@/tests/lib/fixtures/api-routes"
 
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
@@ -22,16 +23,47 @@ vi.mock("@/lib/server/convex", () => ({
   regenerateTeamJoinCodeServer: regenerateTeamJoinCodeServerMock,
 }))
 
-vi.mock("@/lib/server/provider-errors", () => ({
-  getConvexErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  logProviderError: logProviderErrorMock,
-}))
+vi.mock("@/lib/server/provider-errors", () =>
+  createProviderErrorsMockModule(logProviderErrorMock)
+)
 
 vi.mock("@/lib/server/scoped-read-models", () => ({
   bumpWorkspaceMembershipReadModelScopesServer:
     bumpWorkspaceMembershipReadModelScopesServerMock,
 }))
+
+function mockTeamJoinCodeRouteContext() {
+  requireSessionMock.mockResolvedValue({
+    user: {
+      id: "workos_1",
+      email: "alex@example.com",
+    },
+    organizationId: "org_1",
+  })
+  requireAppContextMock.mockResolvedValue({
+    ensuredUser: {
+      userId: "user_1",
+    },
+    authContext: {
+      currentWorkspace: {
+        id: "workspace_1",
+      },
+    },
+  })
+}
+
+async function postTeamJoinCode() {
+  const { POST } = await import("@/app/api/teams/[teamId]/join-code/route")
+
+  return POST(
+    new Request("http://localhost/api/teams/team_1/join-code") as never,
+    {
+      params: Promise.resolve({
+        teamId: "team_1",
+      }),
+    }
+  )
+}
 
 describe("team join-code route", () => {
   beforeEach(() => {
@@ -50,39 +82,14 @@ describe("team join-code route", () => {
   })
 
   it("regenerates join codes through the narrow command path", async () => {
-    const { POST } = await import("@/app/api/teams/[teamId]/join-code/route")
-
-    requireSessionMock.mockResolvedValue({
-      user: {
-        id: "workos_1",
-        email: "alex@example.com",
-      },
-      organizationId: "org_1",
-    })
-    requireAppContextMock.mockResolvedValue({
-      ensuredUser: {
-        userId: "user_1",
-      },
-      authContext: {
-        currentWorkspace: {
-          id: "workspace_1",
-        },
-      },
-    })
+    mockTeamJoinCodeRouteContext()
     regenerateTeamJoinCodeServerMock.mockResolvedValue({
       teamId: "team_1",
       workspaceId: "workspace_1",
       joinCode: "ABC123DEF456",
     })
 
-    const response = await POST(
-      new Request("http://localhost/api/teams/team_1/join-code") as never,
-      {
-        params: Promise.resolve({
-          teamId: "team_1",
-        }),
-      }
-    )
+    const response = await postTeamJoinCode()
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
@@ -100,39 +107,14 @@ describe("team join-code route", () => {
   })
 
   it("maps typed join-code failures onto stable route responses", async () => {
-    const { POST } = await import("@/app/api/teams/[teamId]/join-code/route")
-
-    requireSessionMock.mockResolvedValue({
-      user: {
-        id: "workos_1",
-        email: "alex@example.com",
-      },
-      organizationId: "org_1",
-    })
-    requireAppContextMock.mockResolvedValue({
-      ensuredUser: {
-        userId: "user_1",
-      },
-      authContext: {
-        currentWorkspace: {
-          id: "workspace_1",
-        },
-      },
-    })
+    mockTeamJoinCodeRouteContext()
     regenerateTeamJoinCodeServerMock.mockRejectedValue(
       new ApplicationError("Only team admins can regenerate join codes", 403, {
         code: "TEAM_JOIN_CODE_ADMIN_REQUIRED",
       })
     )
 
-    const response = await POST(
-      new Request("http://localhost/api/teams/team_1/join-code") as never,
-      {
-        params: Promise.resolve({
-          teamId: "team_1",
-        }),
-      }
-    )
+    const response = await postTeamJoinCode()
 
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({

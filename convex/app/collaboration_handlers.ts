@@ -14,8 +14,11 @@ import {
 import {
   createMentionIds,
   createNotification,
+  getMentionAudienceContext,
+  insertMentionNotifications,
   normalizeUniqueIds,
   toggleReactionUsers,
+  type MentionAudienceUser,
 } from "./collaboration_utils"
 import {
   ensureTeamChannelConversation,
@@ -63,6 +66,9 @@ type CreateWorkspaceChatArgs = ServerAccessArgs & {
   title: string
   description: string
 }
+
+type WorkspaceChatVariant = "direct" | "group"
+type WorkspaceChatUser = Awaited<ReturnType<typeof listUsersByIds>>[number]
 
 type EnsureTeamChatArgs = ServerAccessArgs & {
   currentUserId: string
@@ -168,14 +174,14 @@ type ChannelCommentAudience = {
   actorName: string
   audienceUserIds: string[]
   mentionUserIds: string[]
-  usersById: Map<string, Awaited<ReturnType<typeof listUsersByIds>>[number]>
+  usersById: Map<string, MentionAudienceUser>
 }
 
 type ChatConversation = NonNullable<
   Awaited<ReturnType<typeof requireConversationAccess>>
 >
 
-type ChatUser = Awaited<ReturnType<typeof listUsersByIds>>[number]
+type ChatUser = MentionAudienceUser
 
 type ChatMessageDraft = {
   messageHtml: string
@@ -195,6 +201,8 @@ type ChatNotificationContext = {
   entityPath: string
   entityTitle: string
 }
+
+type CollaborationTeamFeature = "chat" | "channels"
 
 function toMeetingRole(role: "admin" | "member" | "viewer" | "guest" | null) {
   return role === "admin" || role === "member" ? "host" : "guest"
@@ -268,11 +276,66 @@ async function buildConversationJoinContext(
   }
 }
 
+async function requireReadableTeamFeature(
+  ctx: MutationCtx,
+  input: {
+    currentUserId: string
+    disabledMessage: string
+    feature: CollaborationTeamFeature
+    teamId: string
+  }
+) {
+  await requireReadableTeamAccess(ctx, input.teamId, input.currentUserId)
+  const team = await getTeamDoc(ctx, input.teamId)
+
+  if (!team) {
+    throw new Error("Team not found")
+  }
+
+  const normalizedTeam = normalizeTeam(team)
+
+  if (!normalizedTeam.settings.features[input.feature]) {
+    throw new Error(input.disabledMessage)
+  }
+
+  return team
+}
+
 export async function createWorkspaceChatHandler(
   ctx: MutationCtx,
   args: CreateWorkspaceChatArgs
 ) {
   assertServerToken(args.serverToken)
+  const chatContext = await resolveWorkspaceChatCreationContext(ctx, args)
+  const existingDirectConversation = await findExistingWorkspaceDirectChat(
+    ctx,
+    {
+      participantIds: chatContext.participantIds,
+      variant: chatContext.variant,
+      workspaceId: args.workspaceId,
+    }
+  )
+
+  if (existingDirectConversation) {
+    return {
+      conversationId: existingDirectConversation.id,
+    }
+  }
+
+  const conversationId = await insertWorkspaceChatConversation(ctx, {
+    args,
+    ...chatContext,
+  })
+
+  return {
+    conversationId,
+  }
+}
+
+async function resolveWorkspaceChatCreationContext(
+  ctx: MutationCtx,
+  args: CreateWorkspaceChatArgs
+) {
   await requireEditableWorkspaceAccess(
     ctx,
     args.workspaceId,
@@ -292,34 +355,45 @@ export async function createWorkspaceChatHandler(
 
   const users = await listUsersByIds(ctx, participantIds)
   const usersById = new Map(users.map((user) => [user.id, user]))
-  const variant = participantIds.length === 2 ? "direct" : "group"
+  const variant: WorkspaceChatVariant =
+    participantIds.length === 2 ? "direct" : "group"
 
-  if (variant === "direct") {
-    const existingConversation = await findWorkspaceDirectConversation(
-      ctx,
-      args.workspaceId,
-      participantIds
-    )
+  return {
+    participantIds,
+    usersById,
+    variant,
+  }
+}
 
-    if (existingConversation) {
-      return {
-        conversationId: existingConversation.id,
-      }
-    }
+async function findExistingWorkspaceDirectChat(
+  ctx: MutationCtx,
+  input: {
+    participantIds: string[]
+    variant: WorkspaceChatVariant
+    workspaceId: string
+  }
+) {
+  if (input.variant !== "direct") {
+    return null
   }
 
-  const otherParticipantIds = participantIds.filter(
-    (userId) => userId !== args.currentUserId
+  return findWorkspaceDirectConversation(
+    ctx,
+    input.workspaceId,
+    input.participantIds
   )
-  const resolvedTitle =
-    args.title.trim() ||
-    (variant === "direct"
-      ? (usersById.get(otherParticipantIds[0] ?? "")?.name ?? "Direct chat")
-      : otherParticipantIds
-          .map((userId) => usersById.get(userId)?.name ?? "")
-          .filter(Boolean)
-          .join(", ")
-          .slice(0, 80) || "Group chat")
+}
+
+async function insertWorkspaceChatConversation(
+  ctx: MutationCtx,
+  input: {
+    args: CreateWorkspaceChatArgs
+    participantIds: string[]
+    usersById: Map<string, WorkspaceChatUser>
+    variant: WorkspaceChatVariant
+  }
+) {
+  const resolvedTitle = resolveWorkspaceChatTitle(input)
   const now = getNow()
   const conversationId = createId("conversation")
 
@@ -327,22 +401,75 @@ export async function createWorkspaceChatHandler(
     id: conversationId,
     kind: "chat",
     scopeType: "workspace",
-    scopeId: args.workspaceId,
-    variant,
+    scopeId: input.args.workspaceId,
+    variant: input.variant,
     title: resolvedTitle,
-    description: args.description.trim(),
-    participantIds: normalizeUniqueIds(participantIds),
+    description: input.args.description.trim(),
+    participantIds: normalizeUniqueIds(input.participantIds),
     roomId: null,
     roomName: null,
-    createdBy: args.currentUserId,
+    createdBy: input.args.currentUserId,
     createdAt: now,
     updatedAt: now,
     lastActivityAt: now,
   })
 
-  return {
-    conversationId,
+  return conversationId
+}
+
+function resolveWorkspaceChatTitle(input: {
+  args: CreateWorkspaceChatArgs
+  participantIds: string[]
+  usersById: Map<string, WorkspaceChatUser>
+  variant: WorkspaceChatVariant
+}) {
+  const trimmedTitle = input.args.title.trim()
+
+  if (trimmedTitle) {
+    return trimmedTitle
   }
+
+  const otherParticipantIds = input.participantIds.filter(
+    (userId) => userId !== input.args.currentUserId
+  )
+
+  return getDefaultWorkspaceChatTitle({
+    otherParticipantIds,
+    usersById: input.usersById,
+    variant: input.variant,
+  })
+}
+
+function getDefaultWorkspaceChatTitle(input: {
+  otherParticipantIds: string[]
+  usersById: Map<string, WorkspaceChatUser>
+  variant: WorkspaceChatVariant
+}) {
+  if (input.variant === "direct") {
+    return getDefaultDirectWorkspaceChatTitle(input)
+  }
+
+  return getDefaultGroupWorkspaceChatTitle(input)
+}
+
+function getDefaultDirectWorkspaceChatTitle(input: {
+  otherParticipantIds: string[]
+  usersById: Map<string, WorkspaceChatUser>
+}) {
+  return input.usersById.get(input.otherParticipantIds[0] ?? "")?.name ?? "Direct chat"
+}
+
+function getDefaultGroupWorkspaceChatTitle(input: {
+  otherParticipantIds: string[]
+  usersById: Map<string, WorkspaceChatUser>
+}) {
+  const title = input.otherParticipantIds
+    .map((userId) => input.usersById.get(userId)?.name ?? "")
+    .filter(Boolean)
+    .join(", ")
+    .slice(0, 80)
+
+  return title || "Group chat"
 }
 
 export async function ensureTeamChatHandler(
@@ -350,18 +477,12 @@ export async function ensureTeamChatHandler(
   args: EnsureTeamChatArgs
 ) {
   assertServerToken(args.serverToken)
-  await requireReadableTeamAccess(ctx, args.teamId, args.currentUserId)
-  const team = await getTeamDoc(ctx, args.teamId)
-
-  if (!team) {
-    throw new Error("Team not found")
-  }
-
-  const normalizedTeam = normalizeTeam(team)
-
-  if (!normalizedTeam.settings.features.chat) {
-    throw new Error("Chat is disabled for this team")
-  }
+  const team = await requireReadableTeamFeature(ctx, {
+    currentUserId: args.currentUserId,
+    disabledMessage: "Chat is disabled for this team",
+    feature: "chat",
+    teamId: args.teamId,
+  })
 
   const existing = await findTeamChatConversation(ctx, args.teamId)
 
@@ -386,55 +507,58 @@ export async function ensureTeamChatHandler(
   }
 }
 
-export async function createChannelHandler(
-  ctx: MutationCtx,
-  args: CreateChannelArgs
-) {
-  assertServerToken(args.serverToken)
-  const targets =
-    Number(Boolean(args.teamId)) + Number(Boolean(args.workspaceId))
+function assertChannelTarget(args: Pick<CreateChannelArgs, "teamId" | "workspaceId">) {
+  const targets = Number(Boolean(args.teamId)) + Number(Boolean(args.workspaceId))
 
   if (targets !== 1) {
     throw new Error("Channel must target exactly one team or workspace")
   }
+}
 
-  if (args.teamId) {
-    await requireReadableTeamAccess(ctx, args.teamId, args.currentUserId)
-    const team = await getTeamDoc(ctx, args.teamId)
+async function createTeamChannel(
+  ctx: MutationCtx,
+  args: CreateChannelArgs
+) {
+  const teamId = args.teamId
 
-    if (!team) {
-      throw new Error("Team not found")
-    }
+  if (!teamId) {
+    return null
+  }
 
-    const normalizedTeam = normalizeTeam(team)
+  const team = await requireReadableTeamFeature(ctx, {
+    currentUserId: args.currentUserId,
+    disabledMessage: "Channel is disabled for this team",
+    feature: "channels",
+    teamId,
+  })
 
-    if (!normalizedTeam.settings.features.channels) {
-      throw new Error("Channel is disabled for this team")
-    }
+  const existing = await findPrimaryTeamChannelConversation(ctx, teamId)
 
-    const existing = await findPrimaryTeamChannelConversation(ctx, args.teamId)
-
-    if (existing) {
-      return {
-        conversationId: existing.id,
-      }
-    }
-
-    await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
-    const conversationId = await ensureTeamChannelConversation(ctx, {
-      teamId: args.teamId,
-      currentUserId: args.currentUserId,
-      teamName: team.name,
-      teamSummary: team.settings.summary,
-      title: args.title,
-      description: args.description,
-    })
-
+  if (existing) {
     return {
-      conversationId,
+      conversationId: existing.id,
     }
   }
 
+  await requireEditableTeamAccess(ctx, teamId, args.currentUserId)
+  const conversationId = await ensureTeamChannelConversation(ctx, {
+    teamId,
+    currentUserId: args.currentUserId,
+    teamName: team.name,
+    teamSummary: team.settings.summary,
+    title: args.title,
+    description: args.description,
+  })
+
+  return {
+    conversationId,
+  }
+}
+
+async function createWorkspaceChannel(
+  ctx: MutationCtx,
+  args: CreateChannelArgs
+) {
   const workspaceId = args.workspaceId
 
   if (!workspaceId) {
@@ -472,6 +596,16 @@ export async function createChannelHandler(
   return {
     conversationId,
   }
+}
+
+export async function createChannelHandler(
+  ctx: MutationCtx,
+  args: CreateChannelArgs
+) {
+  assertServerToken(args.serverToken)
+  assertChannelTarget(args)
+
+  return (await createTeamChannel(ctx, args)) ?? createWorkspaceChannel(ctx, args)
 }
 
 export async function startChatCallHandler(
@@ -602,44 +736,65 @@ export async function markCallJoinedHandler(
   }
 }
 
+async function getCallJoinContextByCall(
+  ctx: QueryCtx,
+  args: GetCallJoinContextArgs & {
+    callId: string
+  }
+) {
+  const call = await getCallDoc(ctx, args.callId)
+
+  if (!call) {
+    throw new Error("Call not found")
+  }
+
+  const conversationContext = await buildConversationJoinContext(
+    ctx,
+    await getConversationDoc(ctx, call.conversationId),
+    args.currentUserId
+  )
+
+  return {
+    ...conversationContext,
+    callId: call.id,
+    roomId: call.roomId ?? null,
+    roomName: call.roomName ?? null,
+    roomKey: call.roomKey,
+    roomDescription: call.roomDescription,
+  }
+}
+
+async function getCallJoinContextByConversation(
+  ctx: QueryCtx,
+  args: GetCallJoinContextArgs & {
+    conversationId: string
+  }
+) {
+  return buildConversationJoinContext(
+    ctx,
+    await getConversationDoc(ctx, args.conversationId),
+    args.currentUserId
+  )
+}
+
 export async function getCallJoinContextHandler(
   ctx: QueryCtx,
   args: GetCallJoinContextArgs
 ) {
   assertServerToken(args.serverToken)
-
-  if (!args.callId && !args.conversationId) {
-    throw new Error("callId or conversationId is required")
-  }
+  assertCallJoinTarget(args)
 
   if (args.callId) {
-    const call = await getCallDoc(ctx, args.callId)
-
-    if (!call) {
-      throw new Error("Call not found")
-    }
-
-    const conversationContext = await buildConversationJoinContext(
-      ctx,
-      await getConversationDoc(ctx, call.conversationId),
-      args.currentUserId
-    )
-
-    return {
-      ...conversationContext,
-      callId: call.id,
-      roomId: call.roomId ?? null,
-      roomName: call.roomName ?? null,
-      roomKey: call.roomKey,
-      roomDescription: call.roomDescription,
-    }
+    return getCallJoinContextByCall(ctx, {
+      ...args,
+      callId: args.callId,
+    })
   }
 
-  return buildConversationJoinContext(
-    ctx,
-    await getConversationDoc(ctx, args.conversationId ?? ""),
-    args.currentUserId
-  )
+  return getCallJoinContextByConversation(ctx, {
+    ...args,
+    conversationId: args.conversationId ?? "",
+  })
 }
 
 function assertCallJoinTarget(args: {
@@ -820,18 +975,12 @@ async function getChatMessageAudience(
     ctx,
     conversation
   )
-  const users = await listUsersByIds(ctx, [
-    args.currentUserId,
-    ...audienceUserIds,
-  ])
-  const usersById = new Map(users.map((user) => [user.id, user]))
-
-  return {
-    actorName: usersById.get(args.currentUserId)?.name ?? "Someone",
+  const audience = await getMentionAudienceContext(ctx, {
+    actorUserId: args.currentUserId,
     audienceUserIds,
-    users,
-    usersById,
-  }
+  })
+
+  return audience
 }
 
 function getChatMessageDraft(args: SendChatMessageArgs): ChatMessageDraft {
@@ -1139,39 +1288,19 @@ export async function createChannelPostHandler(
     throw new Error("Posts can only be created in channels")
   }
 
-  const audienceUserIds = await getConversationAudienceUserIds(
-    ctx,
-    conversation
-  )
-  const users = await listUsersByIds(ctx, [
-    args.currentUserId,
-    ...audienceUserIds,
-  ])
-  const usersById = new Map(users.map((user) => [user.id, user]))
+  const audience = await getMentionAudienceContext(ctx, {
+    actorUserId: args.currentUserId,
+    audienceUserIds: await getConversationAudienceUserIds(ctx, conversation),
+  })
   const now = getNow()
   const postId = createId("channel_post")
-  const actor = usersById.get(args.currentUserId)
   const mentionUserIds = createMentionIds(
     args.content,
-    users,
-    audienceUserIds
+    audience.users,
+    audience.audienceUserIds
   ).filter((userId) => userId !== args.currentUserId)
-  const mentionEmails: Array<{
-    notificationId: string
-    email: string
-    name: string
-    entityTitle: string
-    entityType: "channelPost"
-    entityId: string
-    entityPath: string
-    entityLabel: string
-    actorName: string
-    commentText: string
-  }> = []
-  const notifiedUserIds = new Set<string>()
   const entityTitle = args.title.trim() || "a channel post"
   const entityPath = await getChannelConversationPath(ctx, conversation, postId)
-  const commentText = getPlainTextContent(args.content)
 
   await ctx.db.insert("channelPosts", {
     id: postId,
@@ -1185,43 +1314,19 @@ export async function createChannelPostHandler(
     updatedAt: now,
   })
 
-  for (const mentionedUserId of mentionUserIds) {
-    if (
-      mentionedUserId === args.currentUserId ||
-      notifiedUserIds.has(mentionedUserId)
-    ) {
-      continue
-    }
-
-    const mentionedUser = usersById.get(mentionedUserId)
-    const notification = createNotification(
-      mentionedUserId,
-      args.currentUserId,
-      `${actor?.name ?? "Someone"} mentioned you in ${entityTitle}`,
-      "channelPost",
-      postId,
-      "mention"
-    )
-
-    await ctx.db.insert("notifications", notification)
-
-    if (mentionedUser?.preferences.emailMentions) {
-      mentionEmails.push({
-        notificationId: notification.id,
-        email: mentionedUser.email,
-        name: mentionedUser.name,
-        entityTitle,
-        entityType: "channelPost",
-        entityId: postId,
-        entityPath,
-        entityLabel: "channel post",
-        actorName: actor?.name ?? "Someone",
-        commentText,
-      })
-    }
-
-    notifiedUserIds.add(mentionedUserId)
-  }
+  const { mentionEmails } = await insertMentionNotifications({
+    actorId: args.currentUserId,
+    actorName: audience.actorName,
+    commentText: getPlainTextContent(args.content),
+    ctx,
+    entityId: postId,
+    entityLabel: "channel post",
+    entityPath,
+    entityTitle,
+    entityType: "channelPost",
+    mentionUserIds,
+    usersById: audience.usersById,
+  })
 
   await ctx.db.patch(conversation._id, {
     updatedAt: now,
@@ -1242,11 +1347,15 @@ export async function createChannelPostHandler(
   }
 }
 
-async function requireChannelPostCommentScope(
+async function requireChannelPostWriteScope(
   ctx: MutationCtx,
-  args: AddChannelPostCommentArgs
+  input: {
+    channelKindErrorMessage?: string
+    currentUserId: string
+    postId: string
+  }
 ) {
-  const post = await getChannelPostDoc(ctx, args.postId)
+  const post = await getChannelPostDoc(ctx, input.postId)
 
   if (!post) {
     throw new Error("Post not found")
@@ -1255,12 +1364,12 @@ async function requireChannelPostCommentScope(
   const conversation = await requireConversationAccess(
     ctx,
     await getConversationDoc(ctx, post.conversationId),
-    args.currentUserId,
+    input.currentUserId,
     "write"
   )
 
-  if (conversation.kind !== "channel") {
-    throw new Error("Comments can only be added to channels")
+  if (input.channelKindErrorMessage && conversation.kind !== "channel") {
+    throw new Error(input.channelKindErrorMessage)
   }
 
   return {
@@ -1277,26 +1386,24 @@ async function getChannelCommentAudience(
     currentUserId: string
   }
 ): Promise<ChannelCommentAudience> {
-  const audienceUserIds = await getConversationAudienceUserIds(
-    ctx,
-    input.conversation
-  )
-  const users = await listUsersByIds(ctx, [
-    input.currentUserId,
-    ...audienceUserIds,
-  ])
-  const usersById = new Map(users.map((user) => [user.id, user]))
+  const audience = await getMentionAudienceContext(ctx, {
+    actorUserId: input.currentUserId,
+    audienceUserIds: await getConversationAudienceUserIds(
+      ctx,
+      input.conversation
+    ),
+  })
   const mentionUserIds = createMentionIds(
     input.content,
-    users,
-    audienceUserIds
+    audience.users,
+    audience.audienceUserIds
   ).filter((userId) => userId !== input.currentUserId)
 
   return {
-    actorName: usersById.get(input.currentUserId)?.name ?? "Someone",
-    audienceUserIds,
+    actorName: audience.actorName,
+    audienceUserIds: audience.audienceUserIds,
     mentionUserIds,
-    usersById,
+    usersById: audience.usersById,
   }
 }
 
@@ -1444,7 +1551,11 @@ export async function addChannelPostCommentHandler(
   args: AddChannelPostCommentArgs
 ) {
   assertServerToken(args.serverToken)
-  const { conversation, post } = await requireChannelPostCommentScope(ctx, args)
+  const { conversation, post } = await requireChannelPostWriteScope(ctx, {
+    channelKindErrorMessage: "Comments can only be added to channels",
+    currentUserId: args.currentUserId,
+    postId: args.postId,
+  })
 
   const existingComments = await ctx.db
     .query("channelPostComments")
@@ -1519,18 +1630,7 @@ export async function deleteChannelPostHandler(
   args: DeleteChannelPostArgs
 ) {
   assertServerToken(args.serverToken)
-  const post = await getChannelPostDoc(ctx, args.postId)
-
-  if (!post) {
-    throw new Error("Post not found")
-  }
-
-  const conversation = await requireConversationAccess(
-    ctx,
-    await getConversationDoc(ctx, post.conversationId),
-    args.currentUserId,
-    "write"
-  )
+  const { conversation, post } = await requireChannelPostWriteScope(ctx, args)
 
   if (post.createdBy !== args.currentUserId) {
     throw new Error("You can only delete your own posts")

@@ -38,6 +38,7 @@ import {
   ChatHeaderActions,
   EmptyState,
 } from "@/components/app/collaboration-screens/shared-ui"
+import { getChatWelcomeIntroDisplay } from "@/components/app/collaboration-screens/chat-welcome-display"
 import {
   buildCallJoinHref,
   formatDayDivider,
@@ -47,6 +48,26 @@ import {
   parseCallInviteMessage,
 } from "@/components/app/collaboration-screens/utils"
 import { Button } from "@/components/ui/button"
+
+function getLiveComposerContent(
+  editorInstanceRef: RefObject<Editor | null>,
+  fallbackContent: string
+) {
+  return (
+    editorInstanceRef.current?.getHTML() ??
+    editorInstanceRef.current?.getText() ??
+    fallbackContent
+  )
+}
+
+function clearTypingTimeout(typingTimeoutRef: RefObject<number | null>) {
+  if (typingTimeoutRef.current === null) {
+    return
+  }
+
+  window.clearTimeout(typingTimeoutRef.current)
+  typingTimeoutRef.current = null
+}
 
 function ChatComposer({
   placeholder = "Write a message…",
@@ -78,20 +99,14 @@ function ChatComposer({
   )
 
   const handleSend = () => {
-    const liveContent =
-      editorInstanceRef.current?.getHTML() ??
-      editorInstanceRef.current?.getText() ??
-      content
+    const liveContent = getLiveComposerContent(editorInstanceRef, content)
     const livePlainText = getPlainTextContent(liveContent).trim()
 
     if (!editable || livePlainText.length === 0) {
       return
     }
 
-    if (typingTimeoutRef.current !== null) {
-      window.clearTimeout(typingTimeoutRef.current)
-      typingTimeoutRef.current = null
-    }
+    clearTypingTimeout(typingTimeoutRef)
     onTypingChange?.(false)
     onSend(liveContent)
     setContent(EMPTY_COMPOSER_CONTENT)
@@ -311,18 +326,21 @@ function ChatWelcomeIntro({
   welcomeParticipant: ChatThreadUser
   welcomeParticipantView: WorkspaceUserPresenceView
 }) {
-  const displayName =
-    welcomeParticipantView?.name ?? welcomeParticipant.name ?? title
+  const display = getChatWelcomeIntroDisplay({
+    title,
+    welcomeParticipant,
+    welcomeParticipantView,
+  })
 
   return (
     <div className="px-4 pt-6">
       <div className="mx-auto flex max-w-sm flex-col items-center text-center">
         <UserAvatar
-          name={welcomeParticipantView?.name ?? welcomeParticipant.name}
-          avatarImageUrl={welcomeParticipantView?.avatarImageUrl}
-          avatarUrl={welcomeParticipantView?.avatarUrl}
-          status={welcomeParticipantView?.status ?? undefined}
-          showStatus={!welcomeParticipantView?.isFormerMember}
+          name={display.avatarName}
+          avatarImageUrl={display.avatarImageUrl}
+          avatarUrl={display.avatarUrl}
+          status={display.status}
+          showStatus={display.showStatus}
           size="lg"
           className="size-12"
         />
@@ -332,10 +350,10 @@ function ChatWelcomeIntro({
           currentUserId={currentUserId}
           workspaceId={currentWorkspaceId}
         >
-          <p className="mt-3 text-sm font-medium">{displayName}</p>
+          <p className="mt-3 text-sm font-medium">{display.name}</p>
         </UserHoverCard>
         <p className="mt-1 text-xs text-muted-foreground">
-          This is the beginning of your conversation with {displayName}.
+          This is the beginning of your conversation with {display.name}.
         </p>
       </div>
     </div>
@@ -1104,40 +1122,93 @@ function useChatTypingUsers({
   members: ChatThreadMember[]
   usersById: Map<string, ChatThreadUser>
 }) {
-  return useMemo(() => {
-    const uniqueTypingUsers = new Map<
-      string,
-      {
-        id: string
-        name: string
-        avatarImageUrl?: string | null
-        avatarUrl?: string | null
-      }
-    >()
+  return useMemo(
+    () =>
+      collectChatTypingUsers({
+        chatPresenceParticipants,
+        currentUserId,
+        members,
+        usersById,
+      }),
+    [chatPresenceParticipants, currentUserId, members, usersById]
+  )
+}
 
-    for (const participant of chatPresenceParticipants) {
-      if (
-        !participant.typing ||
-        participant.userId === currentUserId ||
-        uniqueTypingUsers.has(participant.userId)
-      ) {
-        continue
-      }
+type ChatTypingUser = {
+  id: string
+  name: string
+  avatarImageUrl?: string | null
+  avatarUrl?: string | null
+}
 
-      const user =
-        usersById.get(participant.userId) ??
-        members.find((member) => member.id === participant.userId)
+function collectChatTypingUsers(input: {
+  chatPresenceParticipants: ReturnType<typeof useChatPresence>["participants"]
+  currentUserId: string
+  members: ChatThreadMember[]
+  usersById: Map<string, ChatThreadUser>
+}) {
+  const uniqueTypingUsers = new Map<string, ChatTypingUser>()
 
-      uniqueTypingUsers.set(participant.userId, {
-        id: participant.userId,
-        name: user?.name ?? "Someone",
-        avatarImageUrl: user?.avatarImageUrl ?? null,
-        avatarUrl: user?.avatarUrl ?? null,
+  for (const participant of input.chatPresenceParticipants) {
+    if (
+      shouldSkipTypingParticipant({
+        currentUserId: input.currentUserId,
+        participant,
+        uniqueTypingUsers,
       })
+    ) {
+      continue
     }
 
-    return [...uniqueTypingUsers.values()]
-  }, [chatPresenceParticipants, currentUserId, members, usersById])
+    uniqueTypingUsers.set(
+      participant.userId,
+      toChatTypingUser({
+        members: input.members,
+        participantUserId: participant.userId,
+        usersById: input.usersById,
+      })
+    )
+  }
+
+  return [...uniqueTypingUsers.values()]
+}
+
+function shouldSkipTypingParticipant(input: {
+  currentUserId: string
+  participant: ReturnType<typeof useChatPresence>["participants"][number]
+  uniqueTypingUsers: Map<string, ChatTypingUser>
+}) {
+  return (
+    !input.participant.typing ||
+    input.participant.userId === input.currentUserId ||
+    input.uniqueTypingUsers.has(input.participant.userId)
+  )
+}
+
+function toChatTypingUser(input: {
+  members: ChatThreadMember[]
+  participantUserId: string
+  usersById: Map<string, ChatThreadUser>
+}): ChatTypingUser {
+  const user =
+    input.usersById.get(input.participantUserId) ??
+    input.members.find((member) => member.id === input.participantUserId)
+
+  if (!user) {
+    return {
+      id: input.participantUserId,
+      name: "Someone",
+      avatarImageUrl: null,
+      avatarUrl: null,
+    }
+  }
+
+  return {
+    id: input.participantUserId,
+    name: user.name,
+    avatarImageUrl: user.avatarImageUrl ?? null,
+    avatarUrl: user.avatarUrl ?? null,
+  }
 }
 
 function useChatMessagesAutoScroll(latestMessageId: string | null) {

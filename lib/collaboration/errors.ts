@@ -81,6 +81,68 @@ const COLLABORATION_ERROR_CODES = new Set<CollaborationErrorCode>(
   Object.keys(DEFAULT_MESSAGES) as CollaborationErrorCode[]
 )
 
+const CLOSE_CODE_BY_COLLABORATION_ERROR_CODE: Partial<
+  Record<CollaborationErrorCode, number>
+> = {
+  collaboration_unauthenticated: COLLABORATION_CLOSE_CODES.unauthenticated,
+  collaboration_room_mismatch: COLLABORATION_CLOSE_CODES.unauthenticated,
+  collaboration_forbidden: COLLABORATION_CLOSE_CODES.forbidden,
+  collaboration_access_revoked: COLLABORATION_CLOSE_CODES.forbidden,
+  collaboration_private_document: COLLABORATION_CLOSE_CODES.forbidden,
+  collaboration_document_deleted: COLLABORATION_CLOSE_CODES.notFound,
+  collaboration_schema_version_required: COLLABORATION_CLOSE_CODES.invalidPayload,
+  collaboration_invalid_payload: COLLABORATION_CLOSE_CODES.invalidPayload,
+  collaboration_payload_too_large: COLLABORATION_CLOSE_CODES.invalidPayload,
+  collaboration_schema_version_unsupported:
+    COLLABORATION_CLOSE_CODES.reloadRequired,
+  collaboration_conflict_reload_required:
+    COLLABORATION_CLOSE_CODES.reloadRequired,
+  collaboration_too_many_connections: COLLABORATION_CLOSE_CODES.tooManyConnections,
+  collaboration_state_too_large: COLLABORATION_CLOSE_CODES.tooLarge,
+  collaboration_sync_timeout: COLLABORATION_CLOSE_CODES.timeout,
+}
+
+const STATUS_BY_COLLABORATION_ERROR_CODE: Partial<
+  Record<CollaborationErrorCode, number>
+> = {
+  collaboration_unauthenticated: 401,
+  collaboration_room_mismatch: 401,
+  collaboration_forbidden: 403,
+  collaboration_access_revoked: 403,
+  collaboration_private_document: 403,
+  collaboration_document_deleted: 404,
+  collaboration_conflict_reload_required: 409,
+  collaboration_too_many_connections: 429,
+  collaboration_schema_version_required: 422,
+  collaboration_schema_version_unsupported: 422,
+  collaboration_invalid_payload: 422,
+  collaboration_payload_too_large: 422,
+  collaboration_state_too_large: 422,
+  collaboration_sync_timeout: 503,
+  collaboration_persist_failed: 503,
+}
+
+const COLLABORATION_ERROR_CODE_BY_CLOSE_CODE = new Map<
+  number,
+  CollaborationErrorCode
+>([
+  [COLLABORATION_CLOSE_CODES.unauthenticated, "collaboration_unauthenticated"],
+  [COLLABORATION_CLOSE_CODES.forbidden, "collaboration_forbidden"],
+  [COLLABORATION_CLOSE_CODES.notFound, "collaboration_document_deleted"],
+  [COLLABORATION_CLOSE_CODES.timeout, "collaboration_sync_timeout"],
+  [COLLABORATION_CLOSE_CODES.invalidPayload, "collaboration_invalid_payload"],
+  [
+    COLLABORATION_CLOSE_CODES.reloadRequired,
+    "collaboration_conflict_reload_required",
+  ],
+  [
+    COLLABORATION_CLOSE_CODES.tooManyConnections,
+    "collaboration_too_many_connections",
+  ],
+  [COLLABORATION_CLOSE_CODES.tooLarge, "collaboration_state_too_large"],
+  [COLLABORATION_CLOSE_CODES.internalError, "collaboration_persist_failed"],
+])
+
 export function isCollaborationErrorCode(
   value: unknown
 ): value is CollaborationErrorCode {
@@ -119,86 +181,18 @@ export function isCollaborationErrorResponse(
 }
 
 export function getCollaborationCloseCode(code: CollaborationErrorCode) {
-  switch (code) {
-    case "collaboration_unauthenticated":
-    case "collaboration_room_mismatch":
-      return COLLABORATION_CLOSE_CODES.unauthenticated
-    case "collaboration_forbidden":
-    case "collaboration_access_revoked":
-    case "collaboration_private_document":
-      return COLLABORATION_CLOSE_CODES.forbidden
-    case "collaboration_document_deleted":
-      return COLLABORATION_CLOSE_CODES.notFound
-    case "collaboration_schema_version_required":
-    case "collaboration_invalid_payload":
-    case "collaboration_payload_too_large":
-      return COLLABORATION_CLOSE_CODES.invalidPayload
-    case "collaboration_schema_version_unsupported":
-    case "collaboration_conflict_reload_required":
-      return COLLABORATION_CLOSE_CODES.reloadRequired
-    case "collaboration_too_many_connections":
-      return COLLABORATION_CLOSE_CODES.tooManyConnections
-    case "collaboration_state_too_large":
-      return COLLABORATION_CLOSE_CODES.tooLarge
-    case "collaboration_sync_timeout":
-      return COLLABORATION_CLOSE_CODES.timeout
-    default:
-      return COLLABORATION_CLOSE_CODES.internalError
-  }
+  return (
+    CLOSE_CODE_BY_COLLABORATION_ERROR_CODE[code] ??
+    COLLABORATION_CLOSE_CODES.internalError
+  )
 }
 
 export function getCollaborationErrorStatus(code: CollaborationErrorCode) {
-  switch (code) {
-    case "collaboration_unauthenticated":
-    case "collaboration_room_mismatch":
-      return 401
-    case "collaboration_forbidden":
-    case "collaboration_access_revoked":
-    case "collaboration_private_document":
-      return 403
-    case "collaboration_document_deleted":
-      return 404
-    case "collaboration_conflict_reload_required":
-      return 409
-    case "collaboration_too_many_connections":
-      return 429
-    case "collaboration_schema_version_required":
-    case "collaboration_schema_version_unsupported":
-    case "collaboration_invalid_payload":
-    case "collaboration_payload_too_large":
-    case "collaboration_state_too_large":
-      return 422
-    case "collaboration_sync_timeout":
-    case "collaboration_persist_failed":
-      return 503
-    default:
-      return 500
-  }
+  return STATUS_BY_COLLABORATION_ERROR_CODE[code] ?? 500
 }
 
 export function getCollaborationErrorCodeForCloseCode(
   closeCode: number
 ): CollaborationErrorCode | null {
-  switch (closeCode) {
-    case COLLABORATION_CLOSE_CODES.unauthenticated:
-      return "collaboration_unauthenticated"
-    case COLLABORATION_CLOSE_CODES.forbidden:
-      return "collaboration_forbidden"
-    case COLLABORATION_CLOSE_CODES.notFound:
-      return "collaboration_document_deleted"
-    case COLLABORATION_CLOSE_CODES.timeout:
-      return "collaboration_sync_timeout"
-    case COLLABORATION_CLOSE_CODES.invalidPayload:
-      return "collaboration_invalid_payload"
-    case COLLABORATION_CLOSE_CODES.reloadRequired:
-      return "collaboration_conflict_reload_required"
-    case COLLABORATION_CLOSE_CODES.tooManyConnections:
-      return "collaboration_too_many_connections"
-    case COLLABORATION_CLOSE_CODES.tooLarge:
-      return "collaboration_state_too_large"
-    case COLLABORATION_CLOSE_CODES.internalError:
-      return "collaboration_persist_failed"
-    default:
-      return null
-  }
+  return COLLABORATION_ERROR_CODE_BY_CLOSE_CODE.get(closeCode) ?? null
 }

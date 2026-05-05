@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { createTestWorkflowSettingsRequestBody } from "@/tests/lib/fixtures/app-data"
+
 const mutationMock = vi.fn()
 const resolveServerOriginMock = vi.fn()
 
@@ -329,39 +331,7 @@ describe("convex team-project server wrappers", () => {
       updateTeamWorkflowSettingsServer({
         currentUserId: "user_1",
         teamId: "team_1",
-        workflow: {
-          statusOrder: [
-            "backlog",
-            "todo",
-            "in-progress",
-            "done",
-            "cancelled",
-            "duplicate",
-          ],
-          templateDefaults: {
-            "software-delivery": {
-              defaultPriority: "high",
-              targetWindowDays: 28,
-              defaultViewLayout: "board",
-              recommendedItemTypes: ["epic", "feature", "requirement", "story"],
-              summaryHint: "Delivery",
-            },
-            "bug-tracking": {
-              defaultPriority: "high",
-              targetWindowDays: 14,
-              defaultViewLayout: "board",
-              recommendedItemTypes: ["issue", "sub-issue", "task"],
-              summaryHint: "Bug tracking",
-            },
-            "project-management": {
-              defaultPriority: "medium",
-              targetWindowDays: 21,
-              defaultViewLayout: "timeline",
-              recommendedItemTypes: ["epic", "feature", "task"],
-              summaryHint: "Project management",
-            },
-          },
-        },
+        workflow: createTestWorkflowSettingsRequestBody(),
       })
     ).rejects.toMatchObject({
       status: 403,

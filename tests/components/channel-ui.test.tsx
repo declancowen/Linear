@@ -1,79 +1,103 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react"
+import type { ReactNode } from "react"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { NewPostComposer } from "@/components/app/collaboration-screens/channel-ui"
+import "@/tests/lib/fixtures/rich-text-composer-mocks"
+import {
+  NewPostComposer,
+} from "@/components/app/collaboration-screens/channel-ui"
+import {
+  ForumPostAuthorLine,
+  ForumPostAvatar,
+  ForumPostCommentItem,
+} from "@/components/app/collaboration-screens/channel-post-primitives"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
-
-vi.mock("@/components/app/rich-text-editor", () => ({
-  RichTextEditor: ({
-    content,
-    onChange,
-    placeholder,
-  }: {
-    content: string
-    onChange: (value: string) => void
-    placeholder?: string
-  }) => (
-    <textarea
-      aria-label={placeholder ?? "Rich text editor"}
-      value={content}
-      onChange={(event) => onChange(event.target.value)}
-    />
-  ),
-}))
-
-vi.mock("@/components/app/emoji-picker-popover", () => ({
-  EmojiPickerPopover: ({ trigger }: { trigger: ReactNode }) => trigger,
-}))
-
-vi.mock("@/components/app/shortcut-keys", () => ({
-  ShortcutKeys: () => null,
-  useShortcutModifierLabel: () => "Cmd",
-}))
+import { createTestUser } from "@/tests/lib/fixtures/app-data"
 
 vi.mock("@/components/app/user-presence", () => ({
   UserAvatar: () => <span>User</span>,
   UserHoverCard: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
-vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
+vi.mock("@/components/ui/dropdown-menu", async () =>
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createDropdownMenuStubModule()
+)
+
+vi.mock("@/components/ui/confirm-dialog", async () =>
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createConfirmDialogStubModule()
+)
+
+vi.mock("@/components/app/rich-text-content", () => ({
+  RichTextContent: ({ content }: { content: string }) => <div>{content}</div>,
 }))
 
-vi.mock("@/components/ui/dropdown-menu", () => ({
-  DropdownMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DropdownMenuContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuItem: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => (
-    <>{children}</>
-  ),
-}))
+describe("Forum post display primitives", () => {
+  const author = createTestUser({
+    id: "user_author",
+    name: "Maya Patel",
+    avatarUrl: "https://example.com/avatar.png",
+    status: "active",
+  })
 
-vi.mock("@/components/ui/confirm-dialog", () => ({
-  ConfirmDialog: () => null,
-}))
+  it("renders post and comment author lines with fallback author names", () => {
+    render(
+      <>
+        <ForumPostAuthorLine
+          author={author}
+          createdAt="2026-04-18T10:00:00.000Z"
+          currentUserId="user_current"
+          workspaceId="workspace_1"
+        />
+        <ForumPostAuthorLine
+          author={undefined}
+          createdAt="2026-04-18T11:00:00.000Z"
+          currentUserId="user_current"
+          workspaceId={null}
+          size="comment"
+        />
+      </>
+    )
+
+    expect(screen.getByText("Maya Patel")).toBeInTheDocument()
+    expect(screen.getByText("Unknown")).toBeInTheDocument()
+  })
+
+  it("renders comment content and avatar fallbacks through the channel owner", () => {
+    const usersById = new Map([[author.id, author]])
+
+    render(
+      <>
+        <ForumPostCommentItem
+          comment={{
+            id: "comment_1",
+            postId: "post_1",
+            content: "<p>Looks good.</p>",
+            mentionUserIds: [],
+            createdBy: author.id,
+            createdAt: "2026-04-18T10:30:00.000Z",
+          }}
+          currentUserId="user_current"
+          usersById={usersById}
+          workspaceId="workspace_1"
+        />
+        <ForumPostAvatar author={undefined} />
+      </>
+    )
+
+    expect(screen.getByText("Maya Patel")).toBeInTheDocument()
+    expect(screen.getByText("<p>Looks good.</p>")).toBeInTheDocument()
+    expect(screen.getAllByText("User")).toHaveLength(2)
+  })
+})
 
 describe("NewPostComposer", () => {
   const createChannelPostMock = vi.fn()

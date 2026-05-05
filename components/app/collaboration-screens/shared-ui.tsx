@@ -11,6 +11,7 @@ import {
 import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
+import { getSurfaceSidebarHeroDisplay } from "@/components/app/collaboration-screens/surface-sidebar-display"
 import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
@@ -162,20 +163,26 @@ function SurfaceSidebarHero({
   heroView: ReturnType<typeof buildWorkspaceUserPresenceView>
   title: string
 }) {
+  const display = getSurfaceSidebarHeroDisplay({
+    heroMember,
+    heroView,
+    title,
+  })
+
   return (
     <div className="flex flex-col items-center gap-2 border-b border-line-soft px-4 py-5 text-center">
       <UserAvatar
-        name={heroView?.name ?? heroMember.name}
-        avatarImageUrl={heroView?.avatarImageUrl}
-        avatarUrl={heroView?.avatarUrl}
-        status={heroView?.status ?? undefined}
-        showStatus={!heroView?.isFormerMember}
+        name={display.name}
+        avatarImageUrl={display.avatarImageUrl}
+        avatarUrl={display.avatarUrl}
+        status={display.status}
+        showStatus={display.showStatus}
         size="lg"
         className="size-14 text-[18px]"
       />
       <div>
         <div className="text-[15px] font-semibold text-foreground">
-          {heroView?.name ?? heroMember.name ?? title}
+          {display.title}
         </div>
         {description ? (
           <div className="mt-0.5 text-[12px] text-fg-3">{description}</div>
@@ -211,7 +218,10 @@ function SurfaceSidebarMemberRow({
   context: SurfaceSidebarPresenceContext
   member: SurfaceSidebarMember
 }) {
-  const displayMember = getSurfaceSidebarMemberView(context, member)
+  const displayMember = getSurfaceSidebarMemberDisplay(
+    member,
+    getSurfaceSidebarMemberView(context, member)
+  )
   const isSelf = member.id === context.currentUserId
 
   return (
@@ -225,19 +235,19 @@ function SurfaceSidebarMemberRow({
       <div className="flex items-center gap-2.5 rounded-md px-1.5 py-1 text-[12.5px] transition-colors hover:bg-surface-2">
         <div className="shrink-0">
           <UserAvatar
-            name={displayMember?.name ?? member.name}
-            avatarImageUrl={displayMember?.avatarImageUrl}
-            avatarUrl={displayMember?.avatarUrl}
-            status={displayMember?.status ?? undefined}
-            showStatus={!displayMember?.isFormerMember}
+            name={displayMember.name}
+            avatarImageUrl={displayMember.avatarImageUrl}
+            avatarUrl={displayMember.avatarUrl}
+            status={displayMember.status}
+            showStatus={displayMember.showStatus}
             size="sm"
           />
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12.5px] text-foreground">
-            {displayMember?.name ?? member.name}
+            {displayMember.name}
           </div>
-          {displayMember?.secondaryText ? (
+          {displayMember.secondaryText ? (
             <div className="truncate text-[11px] text-fg-3">
               {displayMember.secondaryText}
             </div>
@@ -249,6 +259,31 @@ function SurfaceSidebarMemberRow({
       </div>
     </UserHoverCard>
   )
+}
+
+function getSurfaceSidebarMemberDisplay(
+  member: SurfaceSidebarMember,
+  displayMember: ReturnType<typeof buildWorkspaceUserPresenceView>
+) {
+  if (!displayMember) {
+    return {
+      avatarImageUrl: undefined,
+      avatarUrl: undefined,
+      name: member.name,
+      secondaryText: "",
+      showStatus: true,
+      status: undefined,
+    }
+  }
+
+  return {
+    avatarImageUrl: displayMember.avatarImageUrl,
+    avatarUrl: displayMember.avatarUrl,
+    name: displayMember.name ?? member.name,
+    secondaryText: displayMember.secondaryText,
+    showStatus: !displayMember.isFormerMember,
+    status: displayMember.status ?? undefined,
+  }
 }
 
 function SurfaceSidebarMemberList({
