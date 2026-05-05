@@ -133,6 +133,75 @@ function createState() {
   }
 }
 
+function createReplacingStoreState(initialState = createState()) {
+  let current = initialState
+
+  return {
+    get current() {
+      return current
+    },
+    set(update: unknown) {
+      const patch =
+        typeof update === "function" ? update(current as never) : update
+
+      current = {
+        ...current,
+        ...(patch as object),
+      }
+    },
+  }
+}
+
+async function createWorkDocumentActionsHarness(
+  initialState = createState(),
+  runtimeOverrides: {
+    handleSyncFailure?: ReturnType<typeof vi.fn>
+    queueRichTextSync?: ReturnType<typeof vi.fn>
+    refreshFromServer?: ReturnType<typeof vi.fn>
+  } = {}
+) {
+  const { createWorkDocumentActions } = await import(
+    "@/lib/store/app-store-internal/slices/work-document-actions"
+  )
+  let state = initialState
+  const handleSyncFailureMock = runtimeOverrides.handleSyncFailure ?? vi.fn()
+  const queueRichTextSyncMock = runtimeOverrides.queueRichTextSync ?? vi.fn()
+  const refreshFromServerMock = runtimeOverrides.refreshFromServer ?? vi.fn()
+  const setState = (update: unknown) => {
+    const patch = typeof update === "function" ? update(state as never) : update
+
+    state = {
+      ...state,
+      ...(patch as object),
+    }
+  }
+
+  return {
+    actions: createWorkDocumentActions({
+      get: () => state as never,
+      runtime: {
+        refreshFromServer: refreshFromServerMock,
+        handleSyncFailure: handleSyncFailureMock,
+        queueRichTextSync: queueRichTextSyncMock,
+      } as never,
+      set: setState as never,
+    }),
+    get state() {
+      return state
+    },
+    handleSyncFailureMock,
+    queueRichTextSyncMock,
+    replaceState(nextState: typeof state) {
+      state = nextState
+    },
+    refreshFromServerMock,
+  }
+}
+
+function getQueuedRichTextSyncTask(queueRichTextSyncMock: ReturnType<typeof vi.fn>) {
+  return queueRichTextSyncMock.mock.calls[0]?.[1] as ActiveSyncTask | undefined
+}
+
 describe("work document actions", () => {
   beforeEach(() => {
     syncCreateAttachmentMock.mockReset()
@@ -151,21 +220,10 @@ describe("work document actions", () => {
   })
 
   it("uses one canonical id for optimistic and persisted documents", async () => {
-    const { createWorkDocumentActions } =
-      await import("@/lib/store/app-store-internal/slices/work-document-actions")
-
-    let state = createState()
-    const handleSyncFailureMock = vi.fn().mockResolvedValue(undefined)
-    const refreshFromServerMock = vi.fn().mockResolvedValue(undefined)
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function" ? update(state as never) : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
+    const harness = await createWorkDocumentActionsHarness(createState(), {
+      handleSyncFailure: vi.fn().mockResolvedValue(undefined),
+      refreshFromServer: vi.fn().mockResolvedValue(undefined),
+    })
 
     syncCreateDocumentMock.mockImplementation(
       async (_currentUserId, input) => ({
@@ -174,74 +232,43 @@ describe("work document actions", () => {
       })
     )
 
-    const actions = createWorkDocumentActions({
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: refreshFromServerMock,
-        handleSyncFailure: handleSyncFailureMock,
-        queueRichTextSync: vi.fn(),
-      } as never,
-      set: setState as never,
-    })
-
-    const createdDocumentId = await actions.createDocument({
+    const createdDocumentId = await harness.actions.createDocument({
       kind: "team-document",
       teamId: "team_1",
       title: "Launch doc",
     })
 
-    expect(createdDocumentId).toBe(state.documents[0]?.id)
+    expect(createdDocumentId).toBe(harness.state.documents[0]?.id)
     expect(syncCreateDocumentMock).toHaveBeenCalledWith("user_1", {
       id: createdDocumentId,
       kind: "team-document",
       teamId: "team_1",
       title: "Launch doc",
     })
-    expect(handleSyncFailureMock).not.toHaveBeenCalled()
-    expect(refreshFromServerMock).not.toHaveBeenCalled()
+    expect(harness.handleSyncFailureMock).not.toHaveBeenCalled()
+    expect(harness.refreshFromServerMock).not.toHaveBeenCalled()
     expect(toastSuccessMock).toHaveBeenCalledWith("Document created")
   })
 
   it("rolls back optimistic documents when creation fails", async () => {
-    const { createWorkDocumentActions } =
-      await import("@/lib/store/app-store-internal/slices/work-document-actions")
-
-    let state = createState()
-    const handleSyncFailureMock = vi.fn().mockResolvedValue(undefined)
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function" ? update(state as never) : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
+    const harness = await createWorkDocumentActionsHarness(createState(), {
+      handleSyncFailure: vi.fn().mockResolvedValue(undefined),
+    })
 
     syncCreateDocumentMock.mockRejectedValue(new Error("convex failed"))
 
-    const actions = createWorkDocumentActions({
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: vi.fn(),
-        handleSyncFailure: handleSyncFailureMock,
-        queueRichTextSync: vi.fn(),
-      } as never,
-      set: setState as never,
-    })
-
     await expect(
-      actions.createDocument({
+      harness.actions.createDocument({
         kind: "team-document",
         teamId: "team_1",
         title: "Launch doc",
       })
     ).resolves.toBeNull()
 
-    expect(state.documents.map((document) => document.id)).toEqual([
+    expect(harness.state.documents.map((document) => document.id)).toEqual([
       "document_1",
     ])
-    expect(handleSyncFailureMock).toHaveBeenCalledWith(
+    expect(harness.handleSyncFailureMock).toHaveBeenCalledWith(
       expect.any(Error),
       "Failed to create document"
     )
@@ -252,17 +279,8 @@ describe("work document actions", () => {
     const { createWorkDocumentActions } =
       await import("@/lib/store/app-store-internal/slices/work-document-actions")
 
-    let state = createState()
+    const storeState = createReplacingStoreState()
     const refreshFromServerMock = vi.fn().mockResolvedValue(undefined)
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function" ? update(state as never) : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
 
     syncGenerateAttachmentUploadUrlMock.mockResolvedValue({
       uploadUrl: "https://uploads.example.com",
@@ -280,13 +298,13 @@ describe("work document actions", () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
 
     const actions = createWorkDocumentActions({
-      get: () => state as never,
+      get: () => storeState.current as never,
       runtime: {
         refreshFromServer: refreshFromServerMock,
         handleSyncFailure: vi.fn(),
         queueRichTextSync: vi.fn(),
       } as never,
-      set: setState as never,
+      set: storeState.set as never,
     })
 
     const result = await actions.uploadAttachment(
@@ -297,7 +315,7 @@ describe("work document actions", () => {
 
     expect(result).toBeNull()
     expect(refreshFromServerMock).toHaveBeenCalledTimes(1)
-    expect(state.attachments).toEqual([])
+    expect(storeState.current.attachments).toEqual([])
     expect(toastErrorMock).toHaveBeenCalledWith("Failed to upload attachment")
   })
 
@@ -433,17 +451,8 @@ describe("work document actions", () => {
     const { createWorkDocumentActions } =
       await import("@/lib/store/app-store-internal/slices/work-document-actions")
 
-    let state = createState()
+    const storeState = createReplacingStoreState()
     const handleSyncFailureMock = vi.fn().mockResolvedValue(undefined)
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function" ? update(state as never) : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
 
     syncUpdateWorkItemMock.mockRejectedValue(
       new RouteMutationError("Work item changed while you were editing", 409, {
@@ -452,13 +461,13 @@ describe("work document actions", () => {
     )
 
     const actions = createWorkDocumentActions({
-      get: () => state as never,
+      get: () => storeState.current as never,
       runtime: {
         refreshFromServer: vi.fn(),
         handleSyncFailure: handleSyncFailureMock,
         queueRichTextSync: vi.fn(),
       } as never,
-      set: setState as never,
+      set: storeState.set as never,
     })
 
     const saved = await actions.saveWorkItemMainSection({
@@ -474,12 +483,16 @@ describe("work document actions", () => {
       description: "<p>Updated details</p>",
       expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
     })
-    expect(state.workItems.find((item) => item.id === "item_1")).toMatchObject({
+    expect(
+      storeState.current.workItems.find((item) => item.id === "item_1")
+    ).toMatchObject({
       title: "Plan launch",
       updatedAt: "2026-04-17T10:00:00.000Z",
     })
     expect(
-      state.documents.find((document) => document.id === "document_1")
+      storeState.current.documents.find(
+        (document) => document.id === "document_1"
+      )
     ).toMatchObject({
       content: "<h1>Spec</h1>",
       title: "Spec",
@@ -493,52 +506,27 @@ describe("work document actions", () => {
   })
 
   it("sends the last known server version for document body syncs", async () => {
-    const { createWorkDocumentActions } =
-      await import("@/lib/store/app-store-internal/slices/work-document-actions")
-
-    let state = createState()
-    const queueRichTextSyncMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function" ? update(state as never) : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
     syncUpdateDocumentContentMock.mockResolvedValue({
       ok: true,
       updatedAt: "2026-04-17T10:05:00.000Z",
     })
+    const harness = await createWorkDocumentActionsHarness()
 
-    const actions = createWorkDocumentActions({
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: vi.fn(),
-        handleSyncFailure: vi.fn(),
-        queueRichTextSync: queueRichTextSyncMock,
-      } as never,
-      set: setState as never,
-    })
-
-    actions.updateDocumentContent(
+    harness.actions.updateDocumentContent(
       "document_1",
       "<h1>Launch plan</h1><p>Updated details</p>"
     )
 
-    expect(state.documents.find((document) => document.id === "document_1"))
-      .toMatchObject({
-        title: "Spec",
-        content: "<h1>Launch plan</h1><p>Updated details</p>",
-        updatedAt: "2026-04-17T10:00:00.000Z",
-        updatedBy: "user_1",
-      })
+    expect(
+      harness.state.documents.find((document) => document.id === "document_1")
+    ).toMatchObject({
+      title: "Spec",
+      content: "<h1>Launch plan</h1><p>Updated details</p>",
+      updatedAt: "2026-04-17T10:00:00.000Z",
+      updatedBy: "user_1",
+    })
 
-    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
-      | ActiveSyncTask
-      | undefined
+    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
 
     expect(queuedTask).toBeTypeOf("function")
 
@@ -550,60 +538,36 @@ describe("work document actions", () => {
       "<h1>Launch plan</h1><p>Updated details</p>",
       "2026-04-17T10:00:00.000Z"
     )
-    expect(state.documents.find((document) => document.id === "document_1"))
-      .toMatchObject({
-        updatedAt: "2026-04-17T10:05:00.000Z",
-        updatedBy: "user_1",
-      })
+    expect(
+      harness.state.documents.find((document) => document.id === "document_1")
+    ).toMatchObject({
+      updatedAt: "2026-04-17T10:05:00.000Z",
+      updatedBy: "user_1",
+    })
   })
 
   it("sends the last known server version for item-description syncs", async () => {
-    const { createWorkDocumentActions } =
-      await import("@/lib/store/app-store-internal/slices/work-document-actions")
-
-    let state = createState()
-    const queueRichTextSyncMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function" ? update(state as never) : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
     syncUpdateItemDescriptionMock.mockResolvedValue({
       ok: true,
       updatedAt: "2026-04-17T10:06:00.000Z",
     })
     waitForPendingWorkItemCreationMock.mockReturnValue(null)
+    const harness = await createWorkDocumentActionsHarness()
 
-    const actions = createWorkDocumentActions({
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: vi.fn(),
-        handleSyncFailure: vi.fn(),
-        queueRichTextSync: queueRichTextSyncMock,
-      } as never,
-      set: setState as never,
-    })
+    harness.actions.updateItemDescription("item_1", "<p>Updated item description</p>")
 
-    actions.updateItemDescription("item_1", "<p>Updated item description</p>")
-
-    expect(state.documents.find((document) => document.id === "document_1"))
-      .toMatchObject({
-        content: "<p>Updated item description</p>",
-        updatedAt: "2026-04-17T10:00:00.000Z",
-        updatedBy: "user_1",
-      })
-    expect(state.workItems.find((item) => item.id === "item_1")).toMatchObject({
+    expect(
+      harness.state.documents.find((document) => document.id === "document_1")
+    ).toMatchObject({
+      content: "<p>Updated item description</p>",
       updatedAt: "2026-04-17T10:00:00.000Z",
+      updatedBy: "user_1",
     })
+    expect(
+      harness.state.workItems.find((item) => item.id === "item_1")
+    ).toMatchObject({ updatedAt: "2026-04-17T10:00:00.000Z" })
 
-    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
-      | ActiveSyncTask
-      | undefined
+    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
 
     expect(queuedTask).toBeTypeOf("function")
 
@@ -615,55 +579,33 @@ describe("work document actions", () => {
       "<p>Updated item description</p>",
       "2026-04-17T10:00:00.000Z"
     )
-    expect(state.documents.find((document) => document.id === "document_1"))
-      .toMatchObject({
-        updatedAt: "2026-04-17T10:06:00.000Z",
-        updatedBy: "user_1",
-      })
-    expect(state.workItems.find((item) => item.id === "item_1")).toMatchObject({
+    expect(
+      harness.state.documents.find((document) => document.id === "document_1")
+    ).toMatchObject({
       updatedAt: "2026-04-17T10:06:00.000Z",
+      updatedBy: "user_1",
     })
+    expect(
+      harness.state.workItems.find((item) => item.id === "item_1")
+    ).toMatchObject({ updatedAt: "2026-04-17T10:06:00.000Z" })
   })
 
   it("skips a queued document sync once collaboration protects the document", async () => {
-    const { createWorkDocumentActions } =
-      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+    const harness = await createWorkDocumentActionsHarness()
 
-    let state = createState()
-    const queueRichTextSyncMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function" ? update(state as never) : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
-    const actions = createWorkDocumentActions({
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: vi.fn(),
-        handleSyncFailure: vi.fn(),
-        queueRichTextSync: queueRichTextSyncMock,
-      } as never,
-      set: setState as never,
-    })
-
-    actions.updateDocumentContent(
+    harness.actions.updateDocumentContent(
       "document_1",
       "<h1>Spec</h1><p>Queued before collaboration</p>"
     )
 
-    state = {
-      ...state,
-      protectedDocumentIds: ["document_1"] as typeof state.protectedDocumentIds,
-    }
+    harness.replaceState({
+      ...harness.state,
+      protectedDocumentIds: [
+        "document_1",
+      ] as typeof harness.state.protectedDocumentIds,
+    })
 
-    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
-      | ActiveSyncTask
-      | undefined
+    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
 
     await queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
@@ -714,47 +656,22 @@ describe("work document actions", () => {
   })
 
   it("renames document metadata without rewriting the body content", async () => {
-    const { createWorkDocumentActions } =
-      await import("@/lib/store/app-store-internal/slices/work-document-actions")
-
-    let state = createState()
-    const queueRichTextSyncMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function" ? update(state as never) : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
     syncRenameDocumentMock.mockResolvedValue({
       ok: true,
       updatedAt: "2026-04-17T10:07:00.000Z",
     })
+    const harness = await createWorkDocumentActionsHarness()
 
-    const actions = createWorkDocumentActions({
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: vi.fn(),
-        handleSyncFailure: vi.fn(),
-        queueRichTextSync: queueRichTextSyncMock,
-      } as never,
-      set: setState as never,
+    harness.actions.renameDocument("document_1", "Renamed metadata only")
+
+    expect(
+      harness.state.documents.find((document) => document.id === "document_1")
+    ).toMatchObject({
+      title: "Renamed metadata only",
+      content: "<h1>Spec</h1>",
     })
 
-    actions.renameDocument("document_1", "Renamed metadata only")
-
-    expect(state.documents.find((document) => document.id === "document_1"))
-      .toMatchObject({
-        title: "Renamed metadata only",
-        content: "<h1>Spec</h1>",
-      })
-
-    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
-      | ActiveSyncTask
-      | undefined
+    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
 
     expect(queuedTask).toBeTypeOf("function")
 
@@ -768,41 +685,21 @@ describe("work document actions", () => {
   })
 
   it("skips a queued item-description sync once collaboration protects the description document", async () => {
-    const { createWorkDocumentActions } =
-      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+    const harness = await createWorkDocumentActionsHarness()
 
-    let state = createState()
-    const queueRichTextSyncMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function" ? update(state as never) : update
+    harness.actions.updateItemDescription(
+      "item_1",
+      "<p>Queued before collaboration</p>"
+    )
 
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
-    const actions = createWorkDocumentActions({
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: vi.fn(),
-        handleSyncFailure: vi.fn(),
-        queueRichTextSync: queueRichTextSyncMock,
-      } as never,
-      set: setState as never,
+    harness.replaceState({
+      ...harness.state,
+      protectedDocumentIds: [
+        "document_1",
+      ] as typeof harness.state.protectedDocumentIds,
     })
 
-    actions.updateItemDescription("item_1", "<p>Queued before collaboration</p>")
-
-    state = {
-      ...state,
-      protectedDocumentIds: ["document_1"] as typeof state.protectedDocumentIds,
-    }
-
-    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
-      | ActiveSyncTask
-      | undefined
+    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
 
     await queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
@@ -810,21 +707,6 @@ describe("work document actions", () => {
   })
 
   it("waits for pending work-item creation before syncing an item description", async () => {
-    const { createWorkDocumentActions } =
-      await import("@/lib/store/app-store-internal/slices/work-document-actions")
-
-    let state = createState()
-    const queueRichTextSyncMock = vi.fn()
-    const setState = (update: unknown) => {
-      const patch =
-        typeof update === "function" ? update(state as never) : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    }
-
     let resolvePendingCreation: ((value: boolean) => void) | undefined
     waitForPendingWorkItemCreationMock.mockReturnValue(
       new Promise<boolean>((resolve) => {
@@ -835,22 +717,11 @@ describe("work document actions", () => {
       ok: true,
       updatedAt: "2026-04-17T10:06:00.000Z",
     })
+    const harness = await createWorkDocumentActionsHarness()
 
-    const actions = createWorkDocumentActions({
-      get: () => state as never,
-      runtime: {
-        refreshFromServer: vi.fn(),
-        handleSyncFailure: vi.fn(),
-        queueRichTextSync: queueRichTextSyncMock,
-      } as never,
-      set: setState as never,
-    })
+    harness.actions.updateItemDescription("item_1", "<p>Queued after create</p>")
 
-    actions.updateItemDescription("item_1", "<p>Queued after create</p>")
-
-    const queuedTask = queueRichTextSyncMock.mock.calls[0]?.[1] as
-      | ActiveSyncTask
-      | undefined
+    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
     const taskPromise = queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
     await Promise.resolve()

@@ -1,17 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { createWorkspaceSlice as createWorkspaceSliceType } from "@/lib/store/app-store-internal/slices/workspace"
 
-import { createEmptyState } from "@/lib/domain/empty-state"
+import { createDefaultTeamFeatureSettings } from "@/lib/domain/types"
 import {
-  createDefaultTeamFeatureSettings,
-  createDefaultTeamWorkflowSettings,
-} from "@/lib/domain/types"
+  createTestAppData,
+  createTestTeam,
+  createTestTeamMembership,
+  createTestWorkspace,
+} from "@/tests/lib/fixtures/app-data"
+import { createMutableSetState } from "@/tests/lib/fixtures/store"
 
 const syncJoinTeamByCodeMock = vi.fn()
 const syncLeaveTeamMock = vi.fn()
+const syncRegenerateTeamJoinCodeMock = vi.fn()
+const syncUpdateCurrentUserProfileMock = vi.fn()
 const syncUpdateTeamDetailsMock = vi.fn()
+const syncUpdateTeamMemberRoleMock = vi.fn()
 const syncUpdateWorkspaceBrandingMock = vi.fn()
 const toastSuccessMock = vi.fn()
 const toastErrorMock = vi.fn()
+
+type CreateWorkspaceSlice = typeof createWorkspaceSliceType
 
 vi.mock("sonner", () => ({
   toast: {
@@ -27,44 +36,67 @@ vi.mock("@/lib/convex/client", () => ({
   syncJoinTeamByCode: syncJoinTeamByCodeMock,
   syncLeaveWorkspace: vi.fn(),
   syncLeaveTeam: syncLeaveTeamMock,
-  syncRegenerateTeamJoinCode: vi.fn(),
+  syncRegenerateTeamJoinCode: syncRegenerateTeamJoinCodeMock,
   syncRemoveTeamMember: vi.fn(),
   syncRemoveWorkspaceUser: vi.fn(),
-  syncUpdateCurrentUserProfile: vi.fn(),
+  syncUpdateCurrentUserProfile: syncUpdateCurrentUserProfileMock,
   syncUpdateTeamDetails: syncUpdateTeamDetailsMock,
-  syncUpdateTeamMemberRole: vi.fn(),
+  syncUpdateTeamMemberRole: syncUpdateTeamMemberRoleMock,
   syncUpdateTeamWorkflowSettings: vi.fn(),
   syncUpdateWorkspaceBranding: syncUpdateWorkspaceBrandingMock,
 }))
+
+function createWorkspaceSliceHarness(
+  createWorkspaceSlice: CreateWorkspaceSlice,
+  state = createTestAppData()
+) {
+  const refreshFromServerMock = vi.fn()
+  const syncInBackgroundMock = vi.fn()
+  const setState = createMutableSetState(state)
+  const slice = createWorkspaceSlice(
+    setState as never,
+    () => state as never,
+    {
+      refreshFromServer: refreshFromServerMock,
+      syncInBackground: syncInBackgroundMock,
+    } as never
+  )
+
+  return {
+    refreshFromServerMock,
+    setState,
+    slice,
+    state,
+    syncInBackgroundMock,
+  }
+}
 
 describe("workspace slice", () => {
   beforeEach(() => {
     syncJoinTeamByCodeMock.mockReset()
     syncLeaveTeamMock.mockReset()
+    syncRegenerateTeamJoinCodeMock.mockReset()
+    syncUpdateCurrentUserProfileMock.mockReset()
     syncUpdateTeamDetailsMock.mockReset()
+    syncUpdateTeamMemberRoleMock.mockReset()
     syncUpdateWorkspaceBrandingMock.mockReset()
     toastSuccessMock.mockReset()
     toastErrorMock.mockReset()
   })
 
   it("reconciles from the server after joining a team by code", async () => {
-    const { createWorkspaceSlice } = await import(
-      "@/lib/store/app-store-internal/slices/workspace"
-    )
+    const { createWorkspaceSlice } =
+      await import("@/lib/store/app-store-internal/slices/workspace")
 
     const state = {
       currentUserId: "user_1",
     }
     const refreshFromServerMock = vi.fn().mockResolvedValue(undefined)
 
-    const slice = createWorkspaceSlice(
-      vi.fn(),
-      () => state as never,
-      {
-        refreshFromServer: refreshFromServerMock,
-        syncInBackground: vi.fn(),
-      } as never
-    )
+    const slice = createWorkspaceSlice(vi.fn(), () => state as never, {
+      refreshFromServer: refreshFromServerMock,
+      syncInBackground: vi.fn(),
+    } as never)
 
     syncJoinTeamByCodeMock.mockResolvedValue({
       ok: true,
@@ -75,74 +107,33 @@ describe("workspace slice", () => {
 
     await expect(slice.joinTeamByCode("ABC123DEF456")).resolves.toBe(true)
 
-    expect(syncJoinTeamByCodeMock).toHaveBeenCalledWith("user_1", "ABC123DEF456")
+    expect(syncJoinTeamByCodeMock).toHaveBeenCalledWith(
+      "user_1",
+      "ABC123DEF456"
+    )
     expect(refreshFromServerMock).toHaveBeenCalledTimes(1)
     expect(toastSuccessMock).toHaveBeenCalledWith("Joined team")
   })
 
   it("refreshes from the server when enabling chat for an existing team", async () => {
-    const { createWorkspaceSlice } = await import(
-      "@/lib/store/app-store-internal/slices/workspace"
-    )
+    const { createWorkspaceSlice } =
+      await import("@/lib/store/app-store-internal/slices/workspace")
 
-    const baseState = createEmptyState()
-    const state = {
-      ...baseState,
-      currentUserId: "user_1",
-      currentWorkspaceId: "workspace_1",
-      teams: [
-        {
-          id: "team_1",
-          workspaceId: "workspace_1",
-          slug: "platform",
-          name: "Platform",
-          icon: "robot",
-          settings: {
-            joinCode: "JOIN1234",
-            summary: "Platform team",
-            guestProjectIds: [],
-            guestDocumentIds: [],
-            guestWorkItemIds: [],
-            experience: "software-development" as const,
-            features: {
-              ...createDefaultTeamFeatureSettings("software-development"),
-              chat: false,
-              channels: false,
+    const { refreshFromServerMock, slice, state } = createWorkspaceSliceHarness(
+      createWorkspaceSlice,
+      createTestAppData({
+        teams: [
+          createTestTeam({
+            settings: {
+              features: {
+                ...createDefaultTeamFeatureSettings("software-development"),
+                chat: false,
+                channels: false,
+              },
             },
-            workflow: createDefaultTeamWorkflowSettings("software-development"),
-          },
-        },
-      ],
-      teamMemberships: [
-        {
-          teamId: "team_1",
-          userId: "user_1",
-          role: "admin" as const,
-        },
-      ],
-      ui: {
-        activeTeamId: "team_1",
-        activeInboxNotificationId: null,
-        selectedViewByRoute: {},
-      },
-    }
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      Object.assign(state, patch)
-    })
-    const refreshFromServerMock = vi.fn().mockResolvedValue(undefined)
-
-    const slice = createWorkspaceSlice(
-      setState as never,
-      () => state as never,
-      {
-        refreshFromServer: refreshFromServerMock,
-        syncInBackground: vi.fn(),
-      } as never
+          }),
+        ],
+      })
     )
 
     syncUpdateTeamDetailsMock.mockResolvedValue(undefined)
@@ -175,55 +166,10 @@ describe("workspace slice", () => {
   })
 
   it("accepts an empty team summary when updating an existing team", async () => {
-    const { createWorkspaceSlice } = await import(
-      "@/lib/store/app-store-internal/slices/workspace"
-    )
+    const { createWorkspaceSlice } =
+      await import("@/lib/store/app-store-internal/slices/workspace")
 
-    const baseState = createEmptyState()
-    let state = {
-      ...baseState,
-      currentUserId: "user_1",
-      currentWorkspaceId: "workspace_1",
-      teams: [
-        {
-          id: "team_1",
-          workspaceId: "workspace_1",
-          slug: "platform",
-          name: "Platform",
-          icon: "robot",
-          settings: {
-            joinCode: "JOIN1234",
-            summary: "Platform team",
-            guestProjectIds: [],
-            guestDocumentIds: [],
-            guestWorkItemIds: [],
-            experience: "software-development" as const,
-            features: createDefaultTeamFeatureSettings("software-development"),
-            workflow: createDefaultTeamWorkflowSettings("software-development"),
-          },
-        },
-      ],
-    }
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    })
-
-    const slice = createWorkspaceSlice(
-      setState as never,
-      () => state as never,
-      {
-        refreshFromServer: vi.fn(),
-        syncInBackground: vi.fn(),
-      } as never
-    )
+    const { slice } = createWorkspaceSliceHarness(createWorkspaceSlice)
 
     syncUpdateTeamDetailsMock.mockResolvedValue(undefined)
 
@@ -247,50 +193,24 @@ describe("workspace slice", () => {
   })
 
   it("accepts an empty workspace description when updating branding", async () => {
-    const { createWorkspaceSlice } = await import(
-      "@/lib/store/app-store-internal/slices/workspace"
-    )
+    const { createWorkspaceSlice } =
+      await import("@/lib/store/app-store-internal/slices/workspace")
 
-    let state = {
-      ...createEmptyState(),
-      currentUserId: "user_1",
-      currentWorkspaceId: "workspace_1",
-      workspaces: [
-        {
-          id: "workspace_1",
-          slug: "alpha",
-          name: "Alpha",
-          logoUrl: "AA",
-          logoImageUrl: null,
-          createdBy: "user_1",
-          workosOrganizationId: "org_1",
-          settings: {
-            accent: "emerald",
-            description: "Alpha workspace",
-          },
-        },
-      ],
-    }
-    const syncInBackgroundMock = vi.fn()
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    })
-
-    const slice = createWorkspaceSlice(
-      setState as never,
-      () => state as never,
-      {
-        refreshFromServer: vi.fn(),
-        syncInBackground: syncInBackgroundMock,
-      } as never
+    const { slice, state, syncInBackgroundMock } = createWorkspaceSliceHarness(
+      createWorkspaceSlice,
+      createTestAppData({
+        workspaces: [
+          createTestWorkspace({
+            slug: "alpha",
+            name: "Alpha",
+            logoUrl: "AA",
+            settings: {
+              accent: "emerald",
+              description: "Alpha workspace",
+            },
+          }),
+        ],
+      })
     )
 
     syncUpdateWorkspaceBrandingMock.mockResolvedValue(undefined)
@@ -318,115 +238,55 @@ describe("workspace slice", () => {
   })
 
   it("drops the workspace immediately when leaving the last accessible team removes workspace access", async () => {
-    const { createWorkspaceSlice } = await import(
-      "@/lib/store/app-store-internal/slices/workspace"
-    )
+    const { createWorkspaceSlice } =
+      await import("@/lib/store/app-store-internal/slices/workspace")
 
-    let state = {
-      ...createEmptyState(),
-      currentUserId: "user_1",
-      currentWorkspaceId: "workspace_1",
-      workspaces: [
-        {
-          id: "workspace_1",
-          slug: "alpha",
-          name: "Alpha",
-          logoUrl: "",
-          logoImageUrl: null,
-          createdBy: "user_2",
-          workosOrganizationId: "org_1",
-          settings: {
-            accent: "emerald",
-            description: "Alpha workspace",
-          },
-        },
-        {
-          id: "workspace_2",
-          slug: "beta",
-          name: "Beta",
-          logoUrl: "",
-          logoImageUrl: null,
-          createdBy: "user_3",
-          workosOrganizationId: "org_2",
-          settings: {
-            accent: "blue",
-            description: "Beta workspace",
-          },
-        },
-      ],
-      teams: [
-        {
-          id: "team_1",
-          workspaceId: "workspace_1",
-          slug: "platform",
-          name: "Platform",
-          icon: "robot",
-          settings: {
-            joinCode: "JOIN1234",
-            summary: "Platform team",
-            guestProjectIds: [],
-            guestDocumentIds: [],
-            guestWorkItemIds: [],
-            experience: "software-development" as const,
-            features: createDefaultTeamFeatureSettings("software-development"),
-            workflow: createDefaultTeamWorkflowSettings("software-development"),
-          },
-        },
-        {
-          id: "team_2",
-          workspaceId: "workspace_2",
-          slug: "design",
-          name: "Design",
-          icon: "users",
-          settings: {
-            joinCode: "JOIN5678",
-            summary: "Design team",
-            guestProjectIds: [],
-            guestDocumentIds: [],
-            guestWorkItemIds: [],
-            experience: "project-management" as const,
-            features: createDefaultTeamFeatureSettings("project-management"),
-            workflow: createDefaultTeamWorkflowSettings("project-management"),
-          },
-        },
-      ],
-      teamMemberships: [
-        {
-          teamId: "team_1",
-          userId: "user_1",
-          role: "member" as const,
-        },
-        {
-          teamId: "team_2",
-          userId: "user_1",
-          role: "member" as const,
-        },
-      ],
-      ui: {
-        activeTeamId: "team_1",
-        activeInboxNotificationId: null,
-        selectedViewByRoute: {},
-      },
-    }
-    const setState = vi.fn((update: unknown) => {
-      const patch =
-        typeof update === "function"
-          ? update(state as never)
-          : update
-
-      state = {
-        ...state,
-        ...(patch as object),
-      }
-    })
-
-    const slice = createWorkspaceSlice(
-      setState as never,
-      () => state as never,
-      {
-        refreshFromServer: vi.fn(),
-        syncInBackground: vi.fn(),
-      } as never
+    const { slice, state } = createWorkspaceSliceHarness(
+      createWorkspaceSlice,
+      createTestAppData({
+        workspaces: [
+          createTestWorkspace({
+            slug: "alpha",
+            name: "Alpha",
+            createdBy: "user_2",
+            workosOrganizationId: "org_1",
+            settings: {
+              accent: "emerald",
+              description: "Alpha workspace",
+            },
+          }),
+          createTestWorkspace({
+            id: "workspace_2",
+            slug: "beta",
+            name: "Beta",
+            createdBy: "user_3",
+            workosOrganizationId: "org_2",
+            settings: {
+              accent: "blue",
+              description: "Beta workspace",
+            },
+          }),
+        ],
+        teams: [
+          createTestTeam(),
+          createTestTeam({
+            id: "team_2",
+            workspaceId: "workspace_2",
+            slug: "design",
+            name: "Design",
+            icon: "users",
+            settings: {
+              joinCode: "JOIN5678",
+              summary: "Design team",
+              experience: "project-management",
+            },
+          }),
+        ],
+        teamMemberships: [
+          createTestTeamMembership({ role: "member" }),
+          createTestTeamMembership({ teamId: "team_2", role: "member" }),
+        ],
+      })
     )
 
     syncLeaveTeamMock.mockResolvedValue({
@@ -443,5 +303,88 @@ describe("workspace slice", () => {
     ])
     expect(state.teams.map((team) => team.id)).toEqual(["team_2"])
     expect(toastSuccessMock).toHaveBeenCalledWith("Left team")
+  })
+
+  it("updates team member roles and regenerates team join codes", async () => {
+    const { createWorkspaceSlice } =
+      await import("@/lib/store/app-store-internal/slices/workspace")
+    const { slice, state } = createWorkspaceSliceHarness(
+      createWorkspaceSlice,
+      createTestAppData({
+        teamMemberships: [createTestTeamMembership({ role: "member" })],
+      })
+    )
+
+    syncUpdateTeamMemberRoleMock.mockResolvedValue(undefined)
+    syncRegenerateTeamJoinCodeMock.mockResolvedValue({
+      joinCode: "JOIN9999",
+    })
+
+    await expect(
+      slice.updateTeamMemberRole("team_1", "user_1", { role: "admin" })
+    ).resolves.toBe(true)
+    expect(state.teamMemberships[0]).toMatchObject({
+      role: "admin",
+    })
+    expect(syncUpdateTeamMemberRoleMock).toHaveBeenCalledWith(
+      "team_1",
+      "user_1",
+      "admin"
+    )
+
+    await expect(slice.regenerateTeamJoinCode("team_1")).resolves.toBe(true)
+    expect(state.teams[0].settings.joinCode).toBe("JOIN9999")
+    expect(toastSuccessMock).toHaveBeenCalledWith("Join code regenerated")
+  })
+
+  it("updates the current user profile optimistically before syncing", async () => {
+    const { createWorkspaceSlice } =
+      await import("@/lib/store/app-store-internal/slices/workspace")
+    const { slice, state, syncInBackgroundMock } =
+      createWorkspaceSliceHarness(createWorkspaceSlice)
+
+    syncUpdateCurrentUserProfileMock.mockResolvedValue(undefined)
+
+    slice.updateCurrentUserProfile({
+      name: "Alex Updated",
+      title: "Lead",
+      avatarUrl: "AU",
+      clearAvatarImage: true,
+      clearStatus: true,
+      preferences: {
+        emailAssignments: false,
+        emailDigest: true,
+        emailMentions: true,
+        theme: "dark",
+      },
+    })
+
+    expect(state.users[0]).toMatchObject({
+      avatarImageUrl: null,
+      avatarUrl: "AU",
+      hasExplicitStatus: false,
+      name: "Alex Updated",
+      title: "Lead",
+    })
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+    expect(syncUpdateCurrentUserProfileMock).toHaveBeenCalledWith(
+      "user_1",
+      "Alex Updated",
+      "Lead",
+      "AU",
+      {
+        emailAssignments: false,
+        emailDigest: true,
+        emailMentions: true,
+        theme: "dark",
+      },
+      {
+        avatarImageStorageId: undefined,
+        clearAvatarImage: true,
+        clearStatus: true,
+        status: undefined,
+        statusMessage: undefined,
+      }
+    )
   })
 })

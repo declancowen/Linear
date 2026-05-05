@@ -1,12 +1,13 @@
 import { NextRequest } from "next/server"
 
-import { declineInviteServer, getInviteByTokenServer } from "@/lib/server/convex"
+import { declineInviteServer } from "@/lib/server/convex"
+import { requireSessionInviteByToken } from "@/lib/server/invite-routes"
 import {
   handleAuthenticatedJsonRoute,
   inviteTokenPayloadSchema,
 } from "@/lib/server/route-handlers"
 import { requireAppContext } from "@/lib/server/route-auth"
-import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import { isRouteResponse, jsonOk } from "@/lib/server/route-response"
 import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
 
 export async function POST(request: NextRequest) {
@@ -17,16 +18,13 @@ export async function POST(request: NextRequest) {
     failureMessage: "Failed to decline invite",
     failureCode: "INVITE_DECLINE_FAILED",
     async handle({ session, parsed }) {
-      const invite = await getInviteByTokenServer(parsed.token)
+      const invite = await requireSessionInviteByToken({
+        session,
+        token: parsed.token,
+      })
 
-      if (!invite) {
-        return jsonError("Invite not found", 404)
-      }
-
-      if (
-        invite.invite.email.toLowerCase() !== session.user.email.toLowerCase()
-      ) {
-        return jsonError("This invite belongs to a different email address", 403)
+      if (isRouteResponse(invite)) {
+        return invite
       }
 
       const appContext = await requireAppContext(session)

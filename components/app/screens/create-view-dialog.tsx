@@ -32,7 +32,6 @@ import {
   isRouteAllowedForViewContext,
 } from "@/lib/domain/default-views"
 import {
-  createDefaultViewFilters,
   getDefaultViewItemLevelForProjectTemplate,
   getDefaultTemplateTypeForTeamExperience,
   getDefaultViewItemLevelForTeamExperience,
@@ -45,6 +44,7 @@ import {
 import { useAppStore } from "@/lib/store/app-store"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import {
+  applyViewConfigPatch,
   createEmptyViewFilters,
   type ViewFilterKey,
   selectAppDataSnapshot,
@@ -98,6 +98,7 @@ import {
   PropertyPopoverList,
   PropertyPopoverSearch,
 } from "@/components/ui/template-primitives"
+import { toggleCreateViewDisplayProperty } from "@/components/app/screens/create-view-dialog-state"
 import { cn } from "@/lib/utils"
 
 type CreateViewDialogState = Extract<CreateDialogState, { kind: "view" }>
@@ -1158,27 +1159,7 @@ export function CreateViewDialog({
   }, [data.teams, effectiveScope, scopedProjects])
 
   function updateDraftView(patch: ViewConfigPatch) {
-    setDraftConfig((current) => ({
-      ...current,
-      ...(patch.layout !== undefined ? { layout: patch.layout } : {}),
-      ...(patch.grouping !== undefined ? { grouping: patch.grouping } : {}),
-      ...(patch.subGrouping !== undefined
-        ? { subGrouping: patch.subGrouping }
-        : {}),
-      ...(patch.ordering !== undefined ? { ordering: patch.ordering } : {}),
-      ...(patch.itemLevel !== undefined ? { itemLevel: patch.itemLevel } : {}),
-      ...(patch.showChildItems !== undefined
-        ? { showChildItems: patch.showChildItems }
-        : {}),
-      ...(patch.showCompleted !== undefined
-        ? {
-            filters: {
-              ...(current.filters ?? createDefaultViewFilters()),
-              showCompleted: patch.showCompleted,
-            },
-          }
-        : {}),
-    }))
+    setDraftConfig((current) => applyViewConfigPatch(current, patch))
   }
 
   function toggleDraftFilterValue(key: ViewFilterKey, value: string) {
@@ -1209,13 +1190,10 @@ export function CreateViewDialog({
   function toggleDraftDisplayProperty(property: DisplayProperty) {
     setDraftConfig((current) => {
       const displayProps = current.displayProps ?? draftView?.displayProps ?? []
-      const nextDisplayProps = displayProps.includes(property)
-        ? displayProps.filter((value) => value !== property)
-        : [...displayProps, property]
 
       return {
         ...current,
-        displayProps: nextDisplayProps,
+        displayProps: toggleCreateViewDisplayProperty(displayProps, property),
       }
     })
   }

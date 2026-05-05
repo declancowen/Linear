@@ -1,11 +1,6 @@
 "use client"
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { COLLABORATION_PARTY_NAME } from "@/lib/collaboration/constants"
 import { syncCreateChatPresenceSession } from "@/lib/convex/client/chat-presence"
@@ -53,26 +48,44 @@ function parseChatPresenceSnapshot(
     return null
   }
 
-  const participants: ChatPresenceParticipant[] = []
+  return parseChatPresenceParticipants(payload.participants)
+}
 
-  for (const participant of payload.participants) {
-    if (
-      !isRecord(participant) ||
-      typeof participant.userId !== "string" ||
-      typeof participant.sessionId !== "string" ||
-      typeof participant.typing !== "boolean"
-    ) {
+function parseChatPresenceParticipants(
+  participants: unknown[]
+): ChatPresenceParticipant[] | null {
+  const parsedParticipants: ChatPresenceParticipant[] = []
+
+  for (const participant of participants) {
+    const parsedParticipant = parseChatPresenceParticipant(participant)
+
+    if (!parsedParticipant) {
       return null
     }
 
-    participants.push({
-      userId: participant.userId,
-      sessionId: participant.sessionId,
-      typing: participant.typing,
-    })
+    parsedParticipants.push(parsedParticipant)
   }
 
-  return participants
+  return parsedParticipants
+}
+
+function parseChatPresenceParticipant(
+  participant: unknown
+): ChatPresenceParticipant | null {
+  if (
+    !isRecord(participant) ||
+    typeof participant.userId !== "string" ||
+    typeof participant.sessionId !== "string" ||
+    typeof participant.typing !== "boolean"
+  ) {
+    return null
+  }
+
+  return {
+    userId: participant.userId,
+    sessionId: participant.sessionId,
+    typing: participant.typing,
+  }
 }
 
 function shouldRetryChatPresenceError(error: unknown) {
@@ -108,7 +121,10 @@ export function useChatPresence(input: {
   const desiredTypingRef = useRef(false)
   const lastSentTypingRef = useRef(false)
   const isEnabled = Boolean(
-    input.enabled && input.conversationId && input.currentUserId && isPageVisible
+    input.enabled &&
+    input.conversationId &&
+    input.currentUserId &&
+    isPageVisible
   )
 
   useEffect(() => {
@@ -175,13 +191,16 @@ export function useChatPresence(input: {
       }
 
       clearReconnectTimeout()
-      reconnectTimeoutId = window.setTimeout(() => {
-        reconnectTimeoutId = null
-        void openSocket()
-      }, Math.min(
-        CHAT_PRESENCE_RECONNECT_MAX_DELAY_MS,
-        CHAT_PRESENCE_RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempt
-      ))
+      reconnectTimeoutId = window.setTimeout(
+        () => {
+          reconnectTimeoutId = null
+          void openSocket()
+        },
+        Math.min(
+          CHAT_PRESENCE_RECONNECT_MAX_DELAY_MS,
+          CHAT_PRESENCE_RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempt
+        )
+      )
       reconnectAttempt += 1
     }
 

@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 import { ApplicationError } from "@/lib/server/application-errors"
+import {
+  createJsonRouteRequest,
+  createProviderErrorsMockModule,
+  createRouteParams,
+} from "@/tests/lib/fixtures/api-routes"
+import { createTestWorkflowSettingsRequestBody } from "@/tests/lib/fixtures/app-data"
 
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
@@ -61,16 +67,77 @@ vi.mock("@/lib/server/email", () => ({
   buildAccessChangeEmailJobs: vi.fn(() => []),
 }))
 
-vi.mock("@/lib/server/provider-errors", () => ({
-  getConvexErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  logProviderError: logProviderErrorMock,
-}))
+vi.mock("@/lib/server/provider-errors", () =>
+  createProviderErrorsMockModule(logProviderErrorMock)
+)
 
 vi.mock("@/lib/server/scoped-read-models", () => ({
   bumpWorkspaceMembershipReadModelScopesServer:
     bumpWorkspaceMembershipReadModelScopesServerMock,
 }))
+
+function createJsonPatchRequest(url: string, body: unknown) {
+  return createJsonRouteRequest(url, "PATCH", body)
+}
+
+function createTeamDetailsRequestBody(summary: string) {
+  return {
+    name: "Launch",
+    icon: "robot",
+    summary,
+    experience: "software-development",
+    features: {
+      issues: true,
+      projects: true,
+      views: true,
+      docs: true,
+      chat: true,
+      channels: true,
+    },
+  }
+}
+
+function createTeamSettingsPatchInput() {
+  return [
+    createJsonPatchRequest(
+      "http://localhost/api/teams/team_1/settings",
+      createTestWorkflowSettingsRequestBody()
+    ),
+    {
+      params: Promise.resolve({
+        teamId: "team_1",
+      }),
+    },
+  ] as const
+}
+
+function createTeamMemberPatchInput() {
+  return [
+    createJsonPatchRequest("http://localhost/api/teams/team_1/members/user_2", {
+      role: "member",
+    }),
+    {
+      params: Promise.resolve({
+        teamId: "team_1",
+        userId: "user_2",
+      }),
+    },
+  ] as const
+}
+
+function createTeamMemberDeleteInput() {
+  return [
+    new Request("http://localhost/api/teams/team_1/members/user_2", {
+      method: "DELETE",
+    }) as never,
+    {
+      params: Promise.resolve({
+        teamId: "team_1",
+        userId: "user_2",
+      }),
+    },
+  ] as const
+}
 
 describe("team and collaboration route contracts", () => {
   beforeEach(() => {
@@ -387,31 +454,11 @@ describe("team and collaboration route contracts", () => {
     })
 
     const patchResponse = await route.PATCH(
-      new Request("http://localhost/api/teams/team_1/details", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: "Launch",
-          icon: "robot",
-          summary: "Launch summary",
-          experience: "software-development",
-          features: {
-            issues: true,
-            projects: true,
-            views: true,
-            docs: true,
-            chat: true,
-            channels: true,
-          },
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          teamId: "team_1",
-        }),
-      }
+      createJsonPatchRequest(
+        "http://localhost/api/teams/team_1/details",
+        createTeamDetailsRequestBody("Launch summary")
+      ),
+      createRouteParams({ teamId: "team_1" })
     )
 
     expect(patchResponse.status).toBe(200)
@@ -424,11 +471,7 @@ describe("team and collaboration route contracts", () => {
       new Request("http://localhost/api/teams/team_1/details", {
         method: "DELETE",
       }) as never,
-      {
-        params: Promise.resolve({
-          teamId: "team_1",
-        }),
-      }
+      createRouteParams({ teamId: "team_1" })
     )
 
     expect(deleteResponse.status).toBe(200)
@@ -447,31 +490,11 @@ describe("team and collaboration route contracts", () => {
     })
 
     const patchResponse = await route.PATCH(
-      new Request("http://localhost/api/teams/team_1/details", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: "Launch",
-          icon: "robot",
-          summary: "",
-          experience: "software-development",
-          features: {
-            issues: true,
-            projects: true,
-            views: true,
-            docs: true,
-            chat: true,
-            channels: true,
-          },
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          teamId: "team_1",
-        }),
-      }
+      createJsonPatchRequest(
+        "http://localhost/api/teams/team_1/details",
+        createTeamDetailsRequestBody("")
+      ),
+      createRouteParams({ teamId: "team_1" })
     )
 
     expect(patchResponse.status).toBe(200)
@@ -521,50 +544,7 @@ describe("team and collaboration route contracts", () => {
     })
 
     const settingsResponse = await settingsRoute.PATCH(
-      new Request("http://localhost/api/teams/team_1/settings", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          statusOrder: [
-            "backlog",
-            "todo",
-            "in-progress",
-            "done",
-            "cancelled",
-            "duplicate",
-          ],
-          templateDefaults: {
-            "software-delivery": {
-              defaultPriority: "high",
-              targetWindowDays: 28,
-              defaultViewLayout: "board",
-              recommendedItemTypes: ["epic", "feature", "requirement", "story"],
-              summaryHint: "Delivery",
-            },
-            "bug-tracking": {
-              defaultPriority: "high",
-              targetWindowDays: 14,
-              defaultViewLayout: "board",
-              recommendedItemTypes: ["issue", "sub-issue", "task"],
-              summaryHint: "Bug tracking",
-            },
-            "project-management": {
-              defaultPriority: "medium",
-              targetWindowDays: 21,
-              defaultViewLayout: "timeline",
-              recommendedItemTypes: ["epic", "feature", "task"],
-              summaryHint: "Project management",
-            },
-          },
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          teamId: "team_1",
-        }),
-      }
+      ...createTeamSettingsPatchInput()
     )
 
     expect(settingsResponse.status).toBe(200)
@@ -574,21 +554,7 @@ describe("team and collaboration route contracts", () => {
     )
 
     const patchMemberResponse = await membersRoute.PATCH(
-      new Request("http://localhost/api/teams/team_1/members/user_2", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          role: "member",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          teamId: "team_1",
-          userId: "user_2",
-        }),
-      }
+      ...createTeamMemberPatchInput()
     )
 
     expect(patchMemberResponse.status).toBe(200)
@@ -598,15 +564,7 @@ describe("team and collaboration route contracts", () => {
     )
 
     const deleteMemberResponse = await membersRoute.DELETE(
-      new Request("http://localhost/api/teams/team_1/members/user_2", {
-        method: "DELETE",
-      }) as never,
-      {
-        params: Promise.resolve({
-          teamId: "team_1",
-          userId: "user_2",
-        }),
-      }
+      ...createTeamMemberDeleteInput()
     )
 
     expect(deleteMemberResponse.status).toBe(200)
@@ -639,50 +597,7 @@ describe("team and collaboration route contracts", () => {
     )
 
     const settingsResponse = await settingsRoute.PATCH(
-      new Request("http://localhost/api/teams/team_1/settings", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          statusOrder: [
-            "backlog",
-            "todo",
-            "in-progress",
-            "done",
-            "cancelled",
-            "duplicate",
-          ],
-          templateDefaults: {
-            "software-delivery": {
-              defaultPriority: "high",
-              targetWindowDays: 28,
-              defaultViewLayout: "board",
-              recommendedItemTypes: ["epic", "feature", "requirement", "story"],
-              summaryHint: "Delivery",
-            },
-            "bug-tracking": {
-              defaultPriority: "high",
-              targetWindowDays: 14,
-              defaultViewLayout: "board",
-              recommendedItemTypes: ["issue", "sub-issue", "task"],
-              summaryHint: "Bug tracking",
-            },
-            "project-management": {
-              defaultPriority: "medium",
-              targetWindowDays: 21,
-              defaultViewLayout: "timeline",
-              recommendedItemTypes: ["epic", "feature", "task"],
-              summaryHint: "Project management",
-            },
-          },
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          teamId: "team_1",
-        }),
-      }
+      ...createTeamSettingsPatchInput()
     )
 
     expect(settingsResponse.status).toBe(403)
@@ -693,21 +608,7 @@ describe("team and collaboration route contracts", () => {
     })
 
     const patchMemberResponse = await membersRoute.PATCH(
-      new Request("http://localhost/api/teams/team_1/members/user_2", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          role: "member",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          teamId: "team_1",
-          userId: "user_2",
-        }),
-      }
+      ...createTeamMemberPatchInput()
     )
 
     expect(patchMemberResponse.status).toBe(404)
@@ -718,15 +619,7 @@ describe("team and collaboration route contracts", () => {
     })
 
     const deleteMemberResponse = await membersRoute.DELETE(
-      new Request("http://localhost/api/teams/team_1/members/user_2", {
-        method: "DELETE",
-      }) as never,
-      {
-        params: Promise.resolve({
-          teamId: "team_1",
-          userId: "user_2",
-        }),
-      }
+      ...createTeamMemberDeleteInput()
     )
 
     expect(deleteMemberResponse.status).toBe(409)

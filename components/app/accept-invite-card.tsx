@@ -142,38 +142,94 @@ function InviteActions({
   onDecline: () => void
 }) {
   if (!authenticated) {
-    return (
-      <>
-        <Button asChild variant="ghost" size="sm">
-          <Link href={loginHref}>Sign in</Link>
-        </Button>
-        <Button asChild size="sm">
-          <Link href={signupHref}>Sign up</Link>
-        </Button>
-      </>
-    )
+    return <InviteAuthActions loginHref={loginHref} signupHref={signupHref} />
   }
 
   return (
     <>
-      {showDecline ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={loading || declining || accepted}
-          onClick={onDecline}
-        >
-          {declining ? "..." : "Decline"}
-        </Button>
-      ) : null}
-      <Button
-        size="sm"
-        disabled={loading || declining || expired}
-        onClick={onAccept}
-      >
-        {accepted ? "Open" : loading ? "..." : "Accept"}
+      <InviteDeclineButton
+        accepted={accepted}
+        declining={declining}
+        loading={loading}
+        showDecline={showDecline}
+        onDecline={onDecline}
+      />
+      <InviteAcceptButton
+        accepted={accepted}
+        declining={declining}
+        expired={expired}
+        loading={loading}
+        onAccept={onAccept}
+      />
+    </>
+  )
+}
+
+function InviteAuthActions({
+  loginHref,
+  signupHref,
+}: {
+  loginHref: string
+  signupHref: string
+}) {
+  return (
+    <>
+      <Button asChild variant="ghost" size="sm">
+        <Link href={loginHref}>Sign in</Link>
+      </Button>
+      <Button asChild size="sm">
+        <Link href={signupHref}>Sign up</Link>
       </Button>
     </>
+  )
+}
+
+function InviteDeclineButton({
+  accepted,
+  declining,
+  loading,
+  showDecline,
+  onDecline,
+}: {
+  accepted: boolean
+  declining: boolean
+  loading: boolean
+  showDecline: boolean
+  onDecline: () => void
+}) {
+  if (!showDecline) {
+    return null
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={loading || declining || accepted}
+      onClick={onDecline}
+    >
+      {declining ? "..." : "Decline"}
+    </Button>
+  )
+}
+
+function InviteAcceptButton({
+  accepted,
+  declining,
+  expired,
+  loading,
+  onAccept,
+}: {
+  accepted: boolean
+  declining: boolean
+  expired: boolean
+  loading: boolean
+  onAccept: () => void
+}) {
+  return (
+    <Button size="sm" disabled={loading || declining || expired} onClick={onAccept}>
+      {accepted ? "Open" : loading ? "..." : "Accept"}
+    </Button>
   )
 }
 

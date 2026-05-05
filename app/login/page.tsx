@@ -1,11 +1,5 @@
-import { withAuth } from "@workos-inc/authkit-nextjs"
-import { redirect } from "next/navigation"
-
 import { AuthEntryScreen } from "@/components/app/auth-entry-screen"
-import {
-  buildSessionResolvePath,
-  normalizeAuthNextPath,
-} from "@/lib/auth-routing"
+import { getSignedOutAuthPageContext } from "@/lib/server/auth-pages"
 
 type LoginPageProps = {
   searchParams: Promise<{
@@ -19,18 +13,10 @@ type LoginPageProps = {
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams
-  const nextPath = normalizeAuthNextPath(params.next)
-
-  const auth = await withAuth()
-
-  if (auth.user) {
-    redirect(
-      buildSessionResolvePath({
-        mode: "login",
-        nextPath,
-      })
-    )
-  }
+  const { nextPath } = await getSignedOutAuthPageContext({
+    mode: "login",
+    next: params.next,
+  })
 
   return (
     <AuthEntryScreen

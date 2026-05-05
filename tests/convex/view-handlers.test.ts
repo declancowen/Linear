@@ -6,6 +6,8 @@ const requireEditableWorkspaceAccessMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const normalizeTeamMock = vi.fn()
 const assertWorkspaceLabelIdsMock = vi.fn()
+const requireViewMutationAccessMock = vi.fn()
+const resolveViewWorkspaceIdMock = vi.fn()
 
 vi.mock("@/convex/app/core", () => ({
   assertServerToken: assertServerTokenMock,
@@ -28,8 +30,8 @@ vi.mock("@/convex/app/normalization", () => ({
 
 vi.mock("@/convex/app/work_helpers", () => ({
   assertWorkspaceLabelIds: assertWorkspaceLabelIdsMock,
-  requireViewMutationAccess: vi.fn(),
-  resolveViewWorkspaceId: vi.fn(),
+  requireViewMutationAccess: requireViewMutationAccessMock,
+  resolveViewWorkspaceId: resolveViewWorkspaceIdMock,
 }))
 
 function createCtx() {
@@ -51,6 +53,8 @@ describe("view handlers", () => {
     getTeamDocMock.mockReset()
     normalizeTeamMock.mockReset()
     assertWorkspaceLabelIdsMock.mockReset()
+    requireViewMutationAccessMock.mockReset()
+    resolveViewWorkspaceIdMock.mockReset()
   })
 
   it("derives the default item level from the team experience on create", async () => {
@@ -91,5 +95,51 @@ describe("view handlers", () => {
       showChildItems: true,
     })
     expect(ctx.db.insert).toHaveBeenCalledWith("views", view)
+  })
+
+  it("toggles view filter values while preserving other filters", async () => {
+    const { toggleViewFilterValueHandler } = await import(
+      "@/convex/app/view_handlers"
+    )
+    const ctx = createCtx()
+
+    requireViewMutationAccessMock.mockResolvedValue({
+      _id: "view_doc_1",
+      filters: {
+        labelIds: ["label_1", "label_2"],
+        status: ["todo"],
+      },
+    })
+    resolveViewWorkspaceIdMock.mockResolvedValue("workspace_1")
+
+    await toggleViewFilterValueHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      viewId: "view_1",
+      key: "labelIds",
+      value: "label_2",
+    } as never)
+    await toggleViewFilterValueHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      viewId: "view_1",
+      key: "labelIds",
+      value: "label_3",
+    } as never)
+
+    expect(ctx.db.patch).toHaveBeenNthCalledWith(1, "view_doc_1", {
+      filters: {
+        labelIds: ["label_1"],
+        status: ["todo"],
+      },
+      updatedAt: "2026-04-21T09:00:00.000Z",
+    })
+    expect(ctx.db.patch).toHaveBeenNthCalledWith(2, "view_doc_1", {
+      filters: {
+        labelIds: ["label_1", "label_2", "label_3"],
+        status: ["todo"],
+      },
+      updatedAt: "2026-04-21T09:00:00.000Z",
+    })
   })
 })

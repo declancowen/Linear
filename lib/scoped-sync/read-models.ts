@@ -19,6 +19,7 @@ import type {
   Workspace,
   WorkspaceMembership,
 } from "@/lib/domain/types"
+import { isWorkspaceMembershipInvite } from "@/lib/scoped-sync/invite-selection"
 
 import {
   createChannelFeedScopeKey,
@@ -110,6 +111,13 @@ export type ScopedReadModelReplaceInstruction =
       kind: "search-seed"
       workspaceId: string
     }
+
+type ScopedReadModelReplaceKind = ScopedReadModelReplaceInstruction["kind"]
+
+type ScopedReadModelSelector<TKind extends ScopedReadModelReplaceKind> = (
+  snapshot: AppSnapshot,
+  instruction: Extract<ScopedReadModelReplaceInstruction, { kind: TKind }>
+) => ScopedReadModelPatch | null
 
 function collectCommentUserIds(targetComments: Comment[]) {
   const userIds = new Set<string>()
@@ -332,6 +340,36 @@ function selectProjectsForScope(
   })
 }
 
+function isProjectScopedToTeamOrWorkspaceIds(
+  project: AppSnapshot["projects"][number],
+  teamIds: ReadonlySet<string>,
+  workspaceIds: ReadonlySet<string>
+) {
+  if (project.scopeType === "team") {
+    return teamIds.has(project.scopeId)
+  }
+
+  return workspaceIds.has(project.scopeId)
+}
+
+function selectMilestonesForProjects(
+  snapshot: AppSnapshot,
+  projects: AppSnapshot["projects"]
+) {
+  const projectIds = new Set(projects.map((project) => project.id))
+
+  return snapshot.milestones.filter((milestone) =>
+    projectIds.has(milestone.projectId)
+  )
+}
+
+function selectLabelsForWorkspaceIds(
+  snapshot: AppSnapshot,
+  workspaceIds: ReadonlySet<string>
+) {
+  return snapshot.labels.filter((label) => workspaceIds.has(label.workspaceId))
+}
+
 function selectAccessibleTeamsForScope(
   snapshot: AppSnapshot,
   scopeType: "team" | "workspace" | "personal",
@@ -490,6 +528,31 @@ function collectConversationUserIds(conversations: Conversation[]) {
   }
 
   return userIds
+}
+
+function getChannelPostConversations(
+  snapshot: AppSnapshot,
+  channelPosts: ChannelPost[]
+) {
+  return channelPosts
+    .map(
+      (post) =>
+        snapshot.conversations.find(
+          (conversation) => conversation.id === post.conversationId
+        ) ?? null
+    )
+    .filter(
+      (conversation): conversation is Conversation => conversation !== null
+    )
+}
+
+function getScopedConversationIds(
+  conversations: Conversation[],
+  scopeType: "team" | "workspace"
+) {
+  return conversations
+    .filter((conversation) => conversation.scopeType === scopeType)
+    .map((conversation) => conversation.scopeId)
 }
 
 function collectChatMessageUserIds(messages: ChatMessage[]) {
@@ -715,17 +778,13 @@ function selectWorkspaceMembershipInvites(
   const normalizedCurrentUserEmail =
     currentUserEmail?.trim().toLowerCase() ?? ""
 
-  return snapshot.invites.filter((invite) => {
-    const isPendingCurrentUserInvite =
-      normalizedCurrentUserEmail.length > 0 &&
-      invite.email.toLowerCase() === normalizedCurrentUserEmail &&
-      !invite.acceptedAt &&
-      !invite.declinedAt
-
-    return (
-      invite.workspaceId === resolvedWorkspaceId || isPendingCurrentUserInvite
+  return snapshot.invites.filter((invite) =>
+    isWorkspaceMembershipInvite(
+      invite,
+      resolvedWorkspaceId,
+      normalizedCurrentUserEmail
     )
-  })
+  )
 }
 
 function selectWorkspaceMembershipUsers(
@@ -851,24 +910,21 @@ export function selectWorkItemDetailReadModel(
         ]),
     ].filter((value): value is string => Boolean(value))
   )
+  const detailTeamIds = new Set([item.teamId])
+  const detailWorkspaceIds = new Set(workspaceId ? [workspaceId] : [])
   const projects = snapshot.projects.filter((project) => {
     if (relatedProjectIds.has(project.id)) {
       return true
     }
 
-    if (project.scopeType === "team") {
-      return project.scopeId === item.teamId
-    }
-
-    return workspaceId !== null && project.scopeId === workspaceId
+    return isProjectScopedToTeamOrWorkspaceIds(
+      project,
+      detailTeamIds,
+      detailWorkspaceIds
+    )
   })
-  const projectIds = new Set(projects.map((project) => project.id))
-  const milestones = snapshot.milestones.filter((milestone) =>
-    projectIds.has(milestone.projectId)
-  )
-  const labels = workspaceId
-    ? snapshot.labels.filter((label) => label.workspaceId === workspaceId)
-    : []
+  const milestones = selectMilestonesForProjects(snapshot, projects)
+  const labels = selectLabelsForWorkspaceIds(snapshot, detailWorkspaceIds)
   const teamMemberships = snapshot.teamMemberships.filter(
     (membership) => membership.teamId === item.teamId
   )
@@ -1092,20 +1148,11 @@ export function selectWorkIndexReadModel(
   const workspaces = snapshot.workspaces.filter((workspace) =>
     workspaceIds.has(workspace.id)
   )
-  const projects = snapshot.projects.filter((project) => {
-    if (project.scopeType === "team") {
-      return teamIds.has(project.scopeId)
-    }
-
-    return workspaceIds.has(project.scopeId)
-  })
-  const projectIds = new Set(projects.map((project) => project.id))
-  const milestones = snapshot.milestones.filter((milestone) =>
-    projectIds.has(milestone.projectId)
+  const projects = snapshot.projects.filter((project) =>
+    isProjectScopedToTeamOrWorkspaceIds(project, teamIds, workspaceIds)
   )
-  const labels = snapshot.labels.filter((label) =>
-    workspaceIds.has(label.workspaceId)
-  )
+  const milestones = selectMilestonesForProjects(snapshot, projects)
+  const labels = selectLabelsForWorkspaceIds(snapshot, workspaceIds)
   const views = selectWorkIndexViews(snapshot, scopeType, scopeId)
   const users = selectUsers(snapshot, [
     ...collectWorkItemUserIds(workItems),
@@ -1206,47 +1253,25 @@ export function selectNotificationInboxReadModel(
   const projects = snapshot.projects.filter((project) =>
     projectIds.has(project.id)
   )
+  const channelPostConversations = getChannelPostConversations(
+    snapshot,
+    channelPosts
+  )
   const workspaceIds = new Set<string>([
     ...invites.map((invite) => invite.workspaceId),
-    ...conversations
-      .filter((conversation) => conversation.scopeType === "workspace")
-      .map((conversation) => conversation.scopeId),
+    ...getScopedConversationIds(conversations, "workspace"),
     ...projects
       .filter((project) => project.scopeType === "workspace")
       .map((project) => project.scopeId),
-    ...channelPosts
-      .map(
-        (post) =>
-          snapshot.conversations.find(
-            (conversation) => conversation.id === post.conversationId
-          ) ?? null
-      )
-      .filter(
-        (conversation): conversation is Conversation =>
-          conversation !== null && conversation.scopeType === "workspace"
-      )
-      .map((conversation) => conversation.scopeId),
+    ...getScopedConversationIds(channelPostConversations, "workspace"),
   ])
   const teamIds = new Set<string>([
     ...invites.map((invite) => invite.teamId),
-    ...conversations
-      .filter((conversation) => conversation.scopeType === "team")
-      .map((conversation) => conversation.scopeId),
+    ...getScopedConversationIds(conversations, "team"),
     ...projects
       .filter((project) => project.scopeType === "team")
       .map((project) => project.scopeId),
-    ...channelPosts
-      .map(
-        (post) =>
-          snapshot.conversations.find(
-            (conversation) => conversation.id === post.conversationId
-          ) ?? null
-      )
-      .filter(
-        (conversation): conversation is Conversation =>
-          conversation !== null && conversation.scopeType === "team"
-      )
-      .map((conversation) => conversation.scopeId),
+    ...getScopedConversationIds(channelPostConversations, "team"),
   ])
   const workspaces = snapshot.workspaces.filter((workspace) =>
     workspaceIds.has(workspace.id)
@@ -1394,14 +1419,40 @@ function buildConversationScopeReadModel(input: {
   }
 }
 
+function resolveConversationScope(
+  snapshot: AppSnapshot,
+  conversationId: string,
+  kind: Conversation["kind"]
+) {
+  const conversation =
+    snapshot.conversations.find((entry) => entry.id === conversationId) ?? null
+
+  if (!conversation || conversation.kind !== kind) {
+    return null
+  }
+
+  const teams = selectConversationScopeTeams(snapshot, conversation)
+  const workspaces = selectConversationScopeWorkspaces(
+    snapshot,
+    conversation,
+    teams
+  )
+
+  return {
+    conversation,
+    teams,
+    workspaces,
+    teamMemberships: selectTeamMembershipsForTeams(snapshot, teams),
+  }
+}
+
 export function selectConversationThreadReadModel(
   snapshot: AppSnapshot,
   conversationId: string
 ): ScopedReadModelPatch | null {
-  const conversation =
-    snapshot.conversations.find((entry) => entry.id === conversationId) ?? null
+  const scope = resolveConversationScope(snapshot, conversationId, "chat")
 
-  if (!conversation || conversation.kind !== "chat") {
+  if (!scope) {
     return null
   }
 
@@ -1411,22 +1462,12 @@ export function selectConversationThreadReadModel(
   const calls = snapshot.calls.filter(
     (call) => call.conversationId === conversationId
   )
-  const teams = selectConversationScopeTeams(snapshot, conversation)
-  const workspaces = selectConversationScopeWorkspaces(
-    snapshot,
-    conversation,
-    teams
-  )
-  const teamMemberships = selectTeamMembershipsForTeams(snapshot, teams)
 
   return buildConversationScopeReadModel({
     snapshot,
-    conversation,
-    teams,
-    workspaces,
-    teamMemberships,
+    ...scope,
     userIds: [
-      ...collectConversationUserIds([conversation]),
+      ...collectConversationUserIds([scope.conversation]),
       ...collectChatMessageUserIds(messages),
       ...collectCallUserIds(calls),
     ],
@@ -1441,10 +1482,9 @@ export function selectChannelFeedReadModel(
   snapshot: AppSnapshot,
   conversationId: string
 ): ScopedReadModelPatch | null {
-  const conversation =
-    snapshot.conversations.find((entry) => entry.id === conversationId) ?? null
+  const scope = resolveConversationScope(snapshot, conversationId, "channel")
 
-  if (!conversation || conversation.kind !== "channel") {
+  if (!scope) {
     return null
   }
 
@@ -1455,22 +1495,12 @@ export function selectChannelFeedReadModel(
     snapshot,
     posts.map((post) => post.id)
   )
-  const teams = selectConversationScopeTeams(snapshot, conversation)
-  const workspaces = selectConversationScopeWorkspaces(
-    snapshot,
-    conversation,
-    teams
-  )
-  const teamMemberships = selectTeamMembershipsForTeams(snapshot, teams)
 
   return buildConversationScopeReadModel({
     snapshot,
-    conversation,
-    teams,
-    workspaces,
-    teamMemberships,
+    ...scope,
     userIds: [
-      ...collectConversationUserIds([conversation]),
+      ...collectConversationUserIds([scope.conversation]),
       ...collectChannelPostUserIds(posts),
       ...collectChannelPostCommentUserIds(comments),
     ],
@@ -1532,74 +1562,69 @@ export function selectSearchSeedReadModel(
   }
 }
 
+const readModelSelectors = {
+  "document-detail": (snapshot, instruction) =>
+    selectDocumentDetailReadModel(snapshot, instruction.documentId),
+  "missing-document-detail": (snapshot, instruction) =>
+    selectMissingDocumentDetailReadModel(snapshot, instruction.documentId),
+  "document-index": (snapshot, instruction) =>
+    selectDocumentIndexReadModel(
+      snapshot,
+      instruction.scopeType,
+      instruction.scopeId
+    ),
+  "work-item-detail": (snapshot, instruction) =>
+    selectWorkItemDetailReadModel(snapshot, instruction.itemId),
+  "missing-work-item-detail": (snapshot, instruction) =>
+    selectMissingWorkItemDetailReadModel(snapshot, instruction.itemId),
+  "work-index": (snapshot, instruction) =>
+    selectWorkIndexReadModel(
+      snapshot,
+      instruction.scopeType,
+      instruction.scopeId
+    ),
+  "project-detail": (snapshot, instruction) =>
+    selectProjectDetailReadModel(snapshot, instruction.projectId),
+  "missing-project-detail": (snapshot, instruction) =>
+    selectMissingProjectDetailReadModel(snapshot, instruction.projectId),
+  "project-index": (snapshot, instruction) =>
+    selectProjectIndexReadModel(
+      snapshot,
+      instruction.scopeType,
+      instruction.scopeId
+    ),
+  "workspace-membership": (snapshot, instruction) =>
+    selectWorkspaceMembershipReadModel(snapshot, instruction.workspaceId),
+  "view-catalog": (snapshot, instruction) =>
+    selectViewCatalogReadModel(
+      snapshot,
+      instruction.scopeType,
+      instruction.scopeId
+    ),
+  "notification-inbox": (snapshot, instruction) =>
+    selectNotificationInboxReadModel(snapshot, instruction.userId),
+  "conversation-list": (snapshot, instruction) =>
+    selectConversationListReadModel(snapshot, instruction.userId),
+  "conversation-thread": (snapshot, instruction) =>
+    selectConversationThreadReadModel(snapshot, instruction.conversationId),
+  "channel-feed": (snapshot, instruction) =>
+    selectChannelFeedReadModel(snapshot, instruction.conversationId),
+  "search-seed": (snapshot, instruction) =>
+    selectSearchSeedReadModel(snapshot, instruction.workspaceId),
+} satisfies {
+  [TKind in ScopedReadModelReplaceKind]: ScopedReadModelSelector<TKind>
+}
+
 export function selectReadModelForInstruction(
   snapshot: AppSnapshot,
   instruction: ScopedReadModelReplaceInstruction
 ): ScopedReadModelPatch | null {
-  switch (instruction.kind) {
-    case "document-detail":
-      return selectDocumentDetailReadModel(snapshot, instruction.documentId)
-    case "missing-document-detail":
-      return selectMissingDocumentDetailReadModel(
-        snapshot,
-        instruction.documentId
-      )
-    case "document-index":
-      return selectDocumentIndexReadModel(
-        snapshot,
-        instruction.scopeType,
-        instruction.scopeId
-      )
-    case "work-item-detail":
-      return selectWorkItemDetailReadModel(snapshot, instruction.itemId)
-    case "missing-work-item-detail":
-      return selectMissingWorkItemDetailReadModel(snapshot, instruction.itemId)
-    case "work-index":
-      return selectWorkIndexReadModel(
-        snapshot,
-        instruction.scopeType,
-        instruction.scopeId
-      )
-    case "project-detail":
-      return selectProjectDetailReadModel(snapshot, instruction.projectId)
-    case "missing-project-detail":
-      return selectMissingProjectDetailReadModel(
-        snapshot,
-        instruction.projectId
-      )
-    case "project-index":
-      return selectProjectIndexReadModel(
-        snapshot,
-        instruction.scopeType,
-        instruction.scopeId
-      )
-    case "workspace-membership":
-      return selectWorkspaceMembershipReadModel(
-        snapshot,
-        instruction.workspaceId
-      )
-    case "view-catalog":
-      return selectViewCatalogReadModel(
-        snapshot,
-        instruction.scopeType,
-        instruction.scopeId
-      )
-    case "notification-inbox":
-      return selectNotificationInboxReadModel(snapshot, instruction.userId)
-    case "conversation-list":
-      return selectConversationListReadModel(snapshot, instruction.userId)
-    case "conversation-thread":
-      return selectConversationThreadReadModel(
-        snapshot,
-        instruction.conversationId
-      )
-    case "channel-feed":
-      return selectChannelFeedReadModel(snapshot, instruction.conversationId)
-    case "search-seed":
-      return selectSearchSeedReadModel(snapshot, instruction.workspaceId)
-    default:
-      return null
-  }
+  const selectReadModel = readModelSelectors[instruction.kind] as (
+    snapshot: AppSnapshot,
+    instruction: ScopedReadModelReplaceInstruction
+  ) => ScopedReadModelPatch | null
+
+  return selectReadModel(snapshot, instruction)
 }
 
 export function getDocumentDetailScopeKeys(documentId: string) {
@@ -1858,12 +1883,18 @@ function getWorkspaceRouteScopeId(snapshot: AppSnapshot, route: string) {
   return route.startsWith("/workspace/") ? snapshot.currentWorkspaceId : null
 }
 
+function isSharedViewScope(
+  view: ViewDefinition
+): view is ViewDefinition & { scopeType: "team" | "workspace" } {
+  return view.scopeType === "team" || view.scopeType === "workspace"
+}
+
 function addViewCatalogScopeKeys(
   target: Set<string>,
   snapshot: AppSnapshot,
   view: ViewDefinition
 ) {
-  if (view.scopeType === "team" || view.scopeType === "workspace") {
+  if (isSharedViewScope(view)) {
     addScopeKeys(target, getViewCatalogScopeKeys(view.scopeType, view.scopeId))
     return
   }
@@ -1875,28 +1906,63 @@ function addViewCatalogScopeKeys(
   }
 }
 
+function getViewEntityIndexScope(
+  snapshot: AppSnapshot,
+  view: ViewDefinition
+): { scopeType: "team" | "workspace"; scopeId: string } | null {
+  if (isSharedViewScope(view)) {
+    return {
+      scopeType: view.scopeType,
+      scopeId: view.scopeId,
+    }
+  }
+
+  const workspaceId = getWorkspaceRouteScopeId(snapshot, view.route)
+
+  return workspaceId
+    ? {
+        scopeType: "workspace",
+        scopeId: workspaceId,
+      }
+    : null
+}
+
+function getViewEntityIndexScopeKeys(
+  snapshot: AppSnapshot,
+  view: ViewDefinition
+) {
+  const scope = getViewEntityIndexScope(snapshot, view)
+
+  if (!scope) {
+    return []
+  }
+
+  const scopeKeyFactories: Partial<
+    Record<
+      ViewDefinition["entityKind"],
+      (scopeType: "team" | "workspace", scopeId: string) => string[]
+    >
+  > = {
+    docs: getDocumentIndexScopeKeys,
+    projects: getProjectIndexScopeKeys,
+  }
+  const createScopeKeys = scopeKeyFactories[view.entityKind]
+
+  return createScopeKeys ? createScopeKeys(scope.scopeType, scope.scopeId) : []
+}
+
 function addViewEntityScopeKeys(
   target: Set<string>,
   snapshot: AppSnapshot,
   view: ViewDefinition
 ) {
-  const workspaceId = getWorkspaceRouteScopeId(snapshot, view.route)
-  const scopeType = view.scopeType === "team" ? "team" : "workspace"
-  const scopeId =
-    view.scopeType === "team" || view.scopeType === "workspace"
-      ? view.scopeId
-      : workspaceId
+  addScopeKeys(target, getViewEntityIndexScopeKeys(snapshot, view))
+}
 
-  if (!scopeId) {
-    return
-  }
-
-  if (view.entityKind === "projects") {
-    addScopeKeys(target, getProjectIndexScopeKeys(scopeType, scopeId))
-  }
-
-  if (view.entityKind === "docs") {
-    addScopeKeys(target, getDocumentIndexScopeKeys(scopeType, scopeId))
+function addViewWorkIndexScopeKeys(target: Set<string>, view: ViewDefinition) {
+  if (view.entityKind === "items") {
+    const scopeType = isSharedViewScope(view) ? view.scopeType : "personal"
+    addScopeKeys(target, getWorkIndexScopeKeys(scopeType, view.scopeId))
   }
 }
 
@@ -1909,14 +1975,7 @@ export function getViewRelatedScopeKeys(snapshot: AppSnapshot, viewId: string) {
   }
 
   addViewCatalogScopeKeys(scopeKeys, snapshot, view)
-
-  if (view.entityKind === "items") {
-    if (view.scopeType === "team" || view.scopeType === "workspace") {
-      addScopeKeys(scopeKeys, getWorkIndexScopeKeys(view.scopeType, view.scopeId))
-    } else {
-      addScopeKeys(scopeKeys, getWorkIndexScopeKeys("personal", view.scopeId))
-    }
-  }
+  addViewWorkIndexScopeKeys(scopeKeys, view)
 
   addViewEntityScopeKeys(scopeKeys, snapshot, view)
 

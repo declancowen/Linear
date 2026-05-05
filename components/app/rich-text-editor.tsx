@@ -18,19 +18,13 @@ import {
   type JSONContent,
   useEditor,
 } from "@tiptap/react"
-import {
-  absolutePositionToRelativePosition,
-  relativePositionToAbsolutePosition,
-  ySyncPluginKey,
-} from "@tiptap/y-tiptap"
+import { relativePositionToAbsolutePosition } from "@tiptap/y-tiptap"
 import Collaboration, { isChangeOrigin } from "@tiptap/extension-collaboration"
 import FileHandler from "@tiptap/extension-file-handler"
 import type { Node as ProsemirrorNode } from "@tiptap/pm/model"
 import * as Y from "yjs"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import {
-  createCollaborationAwarenessState,
-  type CollaborationCaretSide,
   type CollaborationAwarenessState,
 } from "@/lib/collaboration/awareness"
 import { COLLABORATION_XML_FRAGMENT } from "@/lib/collaboration/constants"
@@ -39,7 +33,6 @@ import type { PartyKitDocumentCollaborationBinding } from "@/lib/collaboration/a
 import type { RichTextMentionCounts } from "@/lib/content/rich-text-mentions"
 import { sanitizeRichTextContent } from "@/lib/content/rich-text-security"
 import type { DocumentPresenceViewer, UserProfile } from "@/lib/domain/types"
-import { escapeHtml } from "@/lib/html"
 import { createRichTextBaseExtensions } from "@/lib/rich-text/extensions"
 import { cn } from "@/lib/utils"
 import {
@@ -62,11 +55,45 @@ import {
   FullPageRichTextShell,
   useFullPageCanvasWidthPreference,
 } from "./rich-text-editor/full-page-shell"
-
-type UploadedAttachment = {
-  fileName: string
-  fileUrl: string | null
-}
+import { getEditorMentionCounts } from "./rich-text-editor/mention-counts"
+import {
+  areBlockPresenceMarkersEqual,
+  areCollaborationCursorMarkersEqual,
+  areCollaborationSelectionMarkersEqual,
+  sortCollaborationMarkers,
+  type BlockPresenceMarker,
+  type CollaborationCursorMarker,
+  type CollaborationSelectionMarker,
+} from "./rich-text-editor/marker-comparison"
+import { handleRichTextMenuNavigationKeyDown } from "./rich-text-editor/menu-navigation"
+import { uploadRichTextEditorFiles } from "./rich-text-editor/attachment-uploads"
+import { type UploadedAttachment } from "./rich-text-editor/attachment-insertion"
+import { resolveCollaborationCaretCoordinates } from "./rich-text-editor/caret-position"
+import { getClientRectsForDocumentRange } from "./rich-text-editor/collapsed-range"
+import {
+  createMergedCollaborationAwarenessUser,
+  forEachRemoteCollaborationAwarenessUser,
+  type CollaborationAwarenessPatch,
+} from "./rich-text-editor/collaboration-awareness-users"
+import {
+  getCollaborationAwarenessPayload,
+  type CollaborationAwarenessUser,
+} from "./rich-text-editor/collaboration-awareness-user"
+import { createSerializedRelativePosition } from "./rich-text-editor/collaboration-relative-position"
+import {
+  normalizeCollaborationRelativePosition,
+  normalizeCollaborationRelativeRange,
+  isRecord,
+  type CollaborationRelativePositionJson,
+  type CollaborationRelativeRange,
+} from "./rich-text-editor/collaboration-relative-range"
+import {
+  getUsableYSyncEditorState,
+  getYSyncEditorState,
+  hasLiveYSyncMarkerState,
+  type UsableYSyncEditorState,
+  type YSyncEditorState,
+} from "./rich-text-editor/collaboration-y-sync-state"
 
 type EmojiPickerAnchor = {
   left: number
@@ -136,131 +163,32 @@ type RichTextEditorProps = {
 type RichTextEditorCollaboration = NonNullable<
   RichTextEditorProps["collaboration"]
 >
+type CollaborationAwareness =
+  RichTextEditorCollaboration["binding"]["provider"]["awareness"]
 
-type BlockPresenceMarker = {
-  blockId: string
-  top: number
-  viewers: DocumentPresenceViewer[]
+type CollaborationAbsoluteRange = {
+  anchor: number
+  head: number
 }
 
-type CollaborationRelativePositionJson = Record<string, unknown>
-
-type CollaborationRelativeRange = {
-  anchor: CollaborationRelativePositionJson | null
-  head: CollaborationRelativePositionJson | null
+type CollaborationMarkerCollectionInput = {
+  currentEditor: Editor
+  container: HTMLDivElement | null
+  collaboration: RichTextEditorCollaboration
+  currentPresenceUserId: string | null
 }
 
-type CollaborationCursorMarker = {
-  key: string
-  name: string
-  color: string
-  left: number
-  top: number
-  height: number
-}
-
-type CollaborationSelectionMarker = {
-  key: string
-  color: string
-  left: number
-  top: number
-  width: number
-  height: number
+type CollaborationMarkerMergeInput<TMarker> = {
+  collaboration: RichTextEditorCollaboration
+  current: TMarker[]
+  currentPresenceUserId: string | null
+  nextMarkers: TMarker[]
 }
 
 const EMPTY_MENTION_CANDIDATES: MentionCandidate[] = []
 const TYPING_IDLE_TIMEOUT_MS = 1500
 const MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS = 2
 const COLLABORATION_CURSOR_LABEL_TOP_THRESHOLD_PX = 28
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
-}
-
-function getEditorMentionCounts(currentEditor: Editor): RichTextMentionCounts {
-  const mentionCounts: RichTextMentionCounts = {}
-
-  currentEditor.state.doc.descendants((node) => {
-    if (node.type.name !== "mention") {
-      return
-    }
-
-    const mentionId = node.attrs.id
-
-    if (typeof mentionId !== "string" || mentionId.length === 0) {
-      return
-    }
-
-    mentionCounts[mentionId] = (mentionCounts[mentionId] ?? 0) + 1
-  })
-
-  return mentionCounts
-}
-
-function areArraysEqual<T>(
-  left: T[],
-  right: T[],
-  isEqual: (leftItem: T, rightItem: T) => boolean
-) {
-  if (left.length !== right.length) {
-    return false
-  }
-
-  for (let index = 0; index < left.length; index += 1) {
-    const leftItem = left[index]
-    const rightItem = right[index]
-
-    if (
-      leftItem === undefined ||
-      rightItem === undefined ||
-      !isEqual(leftItem, rightItem)
-    ) {
-      return false
-    }
-  }
-
-  return true
-}
-
-function areCollaborationSelectionMarkersEqual(
-  left: CollaborationSelectionMarker[],
-  right: CollaborationSelectionMarker[]
-) {
-  return areArraysEqual(
-    left,
-    right,
-    (leftMarker, rightMarker) =>
-      leftMarker.key === rightMarker.key &&
-      leftMarker.color === rightMarker.color &&
-      leftMarker.left === rightMarker.left &&
-      leftMarker.top === rightMarker.top &&
-      leftMarker.width === rightMarker.width &&
-      leftMarker.height === rightMarker.height
-  )
-}
-
-function areBlockPresenceMarkersEqual(
-  left: BlockPresenceMarker[],
-  right: BlockPresenceMarker[]
-) {
-  return areArraysEqual(left, right, (leftMarker, rightMarker) => {
-    if (
-      leftMarker.blockId !== rightMarker.blockId ||
-      leftMarker.top !== rightMarker.top ||
-      leftMarker.viewers.length !== rightMarker.viewers.length
-    ) {
-      return false
-    }
-
-    return areArraysEqual(
-      leftMarker.viewers,
-      rightMarker.viewers,
-      (leftViewer, rightViewer) =>
-        leftViewer.userId === rightViewer.userId &&
-        leftViewer.activeBlockId === rightViewer.activeBlockId
-    )
-  })
-}
 
 function getActiveBlockId(currentEditor: Editor) {
   const { $from } = currentEditor.state.selection
@@ -273,62 +201,6 @@ function getSelectionRange(currentEditor: Editor) {
   const { anchor, head } = currentEditor.state.selection
 
   return { anchor, head }
-}
-
-function normalizeCollaborationRelativePosition(
-  value: unknown
-): CollaborationRelativePositionJson | null {
-  return isRecord(value) ? value : null
-}
-
-function normalizeCollaborationRelativeRange(
-  value: unknown
-): CollaborationRelativeRange | null {
-  if (!isRecord(value)) {
-    return null
-  }
-
-  const anchor = normalizeCollaborationRelativePosition(value.anchor)
-  const head = normalizeCollaborationRelativePosition(value.head)
-
-  if (!anchor || !head) {
-    return null
-  }
-
-  return { anchor, head }
-}
-
-function getYSyncEditorState(currentEditor: Editor) {
-  return ySyncPluginKey.getState(currentEditor.state) as
-    | YSyncEditorState
-    | undefined
-}
-
-function createSerializedRelativePosition(
-  currentEditor: Editor,
-  position: number
-): CollaborationRelativePositionJson | null {
-  const yState = getYSyncEditorState(currentEditor)
-
-  if (!yState?.type || !yState.binding) {
-    return null
-  }
-
-  try {
-    const safePosition = Math.min(
-      Math.max(position, 0),
-      currentEditor.state.doc.content.size
-    )
-    const relativePosition = absolutePositionToRelativePosition(
-      safePosition,
-      yState.type,
-      yState.binding.mapping
-    )
-
-    return normalizeCollaborationRelativePosition(relativePosition)
-  } catch {
-    return null
-  }
 }
 
 function getRelativeSelectionRange(
@@ -351,46 +223,19 @@ function getRelativeSelectionRange(
 function updateEditorCollaborationUser(
   currentEditor: Editor,
   collaboration: RichTextEditorProps["collaboration"],
-  patch?: Partial<CollaborationAwarenessState> & {
-    relativeCursor?: CollaborationRelativeRange | null
-    relativeSelection?: CollaborationRelativeRange | null
-  }
+  patch?: CollaborationAwarenessPatch
 ) {
   if (!collaboration) {
     return
   }
 
-  const localAwarenessState =
-    collaboration.binding.provider.awareness.getLocalState()
-  const localAwarenessUser = isRecord(localAwarenessState)
-    ? localAwarenessState.user
-    : null
-  const relativeCursor =
-    patch?.relativeCursor ??
-    normalizeCollaborationRelativeRange(
-      isRecord(localAwarenessUser) ? localAwarenessUser.relativeCursor : null
-    )
-  const relativeSelection =
-    patch?.relativeSelection ??
-    normalizeCollaborationRelativeRange(
-      isRecord(localAwarenessUser) ? localAwarenessUser.relativeSelection : null
-    )
-  const mergedUserBase = createCollaborationAwarenessState({
-    ...collaboration.localUser,
-    ...(isRecord(localAwarenessUser) ? localAwarenessUser : {}),
-    ...patch,
-  })
-  const mergedUser = {
-    ...mergedUserBase,
-    relativeCursor,
-    relativeSelection,
-  }
-
-  const updateUserCommand = (
-    currentEditor.commands as {
-      updateUser?: (attributes: typeof mergedUser) => boolean
-    }
-  ).updateUser
+  const localAwarenessUser = getLocalCollaborationAwarenessUser(collaboration)
+  const mergedUser = createMergedCollaborationAwarenessUser(
+    collaboration,
+    localAwarenessUser,
+    patch
+  )
+  const updateUserCommand = getUpdateCollaborationUserCommand(currentEditor)
 
   if (typeof updateUserCommand === "function") {
     updateUserCommand(mergedUser)
@@ -403,54 +248,54 @@ function updateEditorCollaborationUser(
   )
 }
 
-function insertUploadedAttachment(input: {
+function getLocalCollaborationAwarenessUser(
+  collaboration: RichTextEditorCollaboration
+) {
+  const localAwarenessState =
+    collaboration.binding.provider.awareness.getLocalState()
+
+  if (!isRecord(localAwarenessState) || !isRecord(localAwarenessState.user)) {
+    return null
+  }
+
+  return localAwarenessState.user
+}
+
+function getUpdateCollaborationUserCommand<
+  TAttributes extends CollaborationAwarenessState,
+>(currentEditor: Editor) {
+  return (
+    currentEditor.commands as {
+      updateUser?: (attributes: TAttributes) => boolean
+    }
+  ).updateUser
+}
+
+function updateCurrentEditorCollaborationPresence({
+  collaboration,
+  currentEditor,
+  typing,
+}: {
+  collaboration: RichTextEditorProps["collaboration"]
   currentEditor: Editor
-  file: File
-  uploaded: UploadedAttachment
-  position?: number | null
+  typing?: boolean
 }) {
-  if (!input.uploaded.fileUrl) {
-    return
+  const activeBlockId = getActiveBlockId(currentEditor)
+  const selection = getSelectionRange(currentEditor)
+  const relativeSelection = getRelativeSelectionRange(currentEditor)
+
+  if (collaboration) {
+    updateEditorCollaborationUser(currentEditor, collaboration, {
+      ...(typing === undefined ? {} : { typing }),
+      activeBlockId,
+      cursor: selection,
+      selection,
+      relativeCursor: relativeSelection,
+      relativeSelection,
+    })
   }
 
-  const chain = input.currentEditor.chain().focus()
-  const safePosition =
-    input.position == null
-      ? null
-      : Math.min(
-          Math.max(input.position, 1),
-          input.currentEditor.state.doc.content.size
-        )
-
-  if (safePosition != null) {
-    chain.setTextSelection(safePosition)
-  }
-
-  if (input.file.type.startsWith("image/")) {
-    chain
-      .insertContent([
-        {
-          type: "image",
-          attrs: {
-            src: input.uploaded.fileUrl,
-            alt: input.uploaded.fileName,
-            title: input.uploaded.fileName,
-          },
-        },
-        {
-          type: "paragraph",
-        },
-      ])
-      .run()
-
-    return
-  }
-
-  chain
-    .insertContent(
-      `<p><a href="${escapeHtml(input.uploaded.fileUrl)}" target="_blank" rel="noreferrer">${escapeHtml(input.uploaded.fileName)}</a></p>`
-    )
-    .run()
+  return activeBlockId
 }
 
 function collectBlockPresenceMarkers(input: {
@@ -464,12 +309,42 @@ function collectBlockPresenceMarkers(input: {
     return [] as BlockPresenceMarker[]
   }
 
+  const viewersByBlockId = getDocumentPresenceViewersByBlockId(input.viewers)
+
+  if (viewersByBlockId.size === 0) {
+    return [] as BlockPresenceMarker[]
+  }
+
+  const containerRect = container.getBoundingClientRect()
+  const markers: BlockPresenceMarker[] = []
+
+  input.currentEditor.state.doc.descendants((node, position) => {
+    const marker = getBlockPresenceMarkerAtPosition({
+      container,
+      containerRect,
+      currentEditor: input.currentEditor,
+      node,
+      position,
+      viewersByBlockId,
+    })
+
+    if (marker) {
+      markers.push(marker)
+    }
+  })
+
+  return markers
+}
+
+function getDocumentPresenceViewersByBlockId(
+  viewers: DocumentPresenceViewer[]
+) {
   const viewersByBlockId = new Map<
     string,
     Map<string, DocumentPresenceViewer>
   >()
 
-  for (const viewer of input.viewers) {
+  for (const viewer of viewers) {
     const activeBlockId = viewer.activeBlockId?.trim()
 
     if (!activeBlockId) {
@@ -483,105 +358,62 @@ function collectBlockPresenceMarkers(input: {
     viewersByBlockId.set(activeBlockId, blockViewerMap)
   }
 
-  if (viewersByBlockId.size === 0) {
-    return [] as BlockPresenceMarker[]
-  }
-
-  const containerRect = container.getBoundingClientRect()
-  const markers: BlockPresenceMarker[] = []
-
-  input.currentEditor.state.doc.descendants((node, position) => {
-    if (!node.isBlock) {
-      return
-    }
-
-    const blockId = `${node.type.name}:${position}`
-    const blockViewerMap = viewersByBlockId.get(blockId)
-    const blockViewers = blockViewerMap
-      ? Array.from(blockViewerMap.values())
-      : null
-
-    if (!blockViewers || blockViewers.length === 0) {
-      return
-    }
-
-    let blockNode: Node | null = null
-
-    try {
-      blockNode = input.currentEditor.view.nodeDOM(position)
-    } catch {
-      return
-    }
-
-    if (!(blockNode instanceof HTMLElement)) {
-      return
-    }
-
-    const blockRect = blockNode.getBoundingClientRect()
-    markers.push({
-      blockId,
-      top:
-        blockRect.top -
-        containerRect.top +
-        container.scrollTop +
-        Math.max(0, (blockRect.height - 18) / 2),
-      viewers: blockViewers,
-    })
-  })
-
-  return markers
+  return viewersByBlockId
 }
 
-function areCollaborationCursorMarkersEqual(
-  left: CollaborationCursorMarker[],
-  right: CollaborationCursorMarker[]
-) {
-  return areArraysEqual(
-    left,
-    right,
-    (leftMarker, rightMarker) =>
-      leftMarker.key === rightMarker.key &&
-      leftMarker.name === rightMarker.name &&
-      leftMarker.color === rightMarker.color &&
-      leftMarker.left === rightMarker.left &&
-      leftMarker.top === rightMarker.top &&
-      leftMarker.height === rightMarker.height
+function getBlockPresenceMarkerAtPosition(input: {
+  container: HTMLDivElement
+  containerRect: DOMRect
+  currentEditor: Editor
+  node: ProsemirrorNode
+  position: number
+  viewersByBlockId: Map<string, Map<string, DocumentPresenceViewer>>
+}): BlockPresenceMarker | null {
+  if (!input.node.isBlock) {
+    return null
+  }
+
+  const blockId = `${input.node.type.name}:${input.position}`
+  const blockViewers = getBlockPresenceViewers(
+    input.viewersByBlockId.get(blockId)
   )
-}
 
-type CollaborationAwarenessUser = {
-  userId: string
-  sessionId: string
-  name: string
-  color: string
-}
-
-function getCollaborationAwarenessUser(
-  value: unknown
-): CollaborationAwarenessUser | null {
-  if (!isRecord(value)) {
+  if (blockViewers.length === 0) {
     return null
   }
 
-  const userValue = isRecord(value.user) ? value.user : value
-  const userId =
-    typeof userValue.userId === "string" ? userValue.userId.trim() : ""
-  const sessionId =
-    typeof userValue.sessionId === "string" ? userValue.sessionId.trim() : ""
-  const name = typeof userValue.name === "string" ? userValue.name.trim() : ""
+  const blockNode = getBlockPresenceDomNode(input.currentEditor, input.position)
 
-  if (!userId || !sessionId || !name) {
+  if (!blockNode) {
     return null
   }
+
+  const blockRect = blockNode.getBoundingClientRect()
 
   return {
-    userId,
-    sessionId,
-    name,
-    color:
-      typeof userValue.color === "string" && userValue.color.trim().length > 0
-        ? userValue.color
-        : getCollaborationUserColor(userId),
+    blockId,
+    top:
+      blockRect.top -
+      input.containerRect.top +
+      input.container.scrollTop +
+      Math.max(0, (blockRect.height - 18) / 2),
+    viewers: blockViewers,
+  }
+}
+
+function getBlockPresenceViewers(
+  blockViewerMap: Map<string, DocumentPresenceViewer> | undefined
+) {
+  return blockViewerMap ? Array.from(blockViewerMap.values()) : []
+}
+
+function getBlockPresenceDomNode(currentEditor: Editor, position: number) {
+  try {
+    const blockNode = currentEditor.view.nodeDOM(position)
+
+    return blockNode instanceof HTMLElement ? blockNode : null
+  } catch {
+    return null
   }
 }
 
@@ -590,17 +422,19 @@ function resolveCollaborationRelativePosition(
   value: unknown
 ) {
   const json = normalizeCollaborationRelativePosition(value)
+  const yState = getUsableYSyncEditorState(currentEditor)
 
-  if (!json) {
+  if (!json || !yState) {
     return null
   }
 
-  const yState = getYSyncEditorState(currentEditor)
+  return resolveYRelativePositionToAbsolute(yState, json)
+}
 
-  if (!yState?.doc || !yState.type || !yState.binding) {
-    return null
-  }
-
+function resolveYRelativePositionToAbsolute(
+  yState: UsableYSyncEditorState,
+  json: unknown
+) {
   try {
     const relativePosition = Y.createRelativePositionFromJSON(json)
 
@@ -625,73 +459,97 @@ function getCollaborationAwarenessCursorHead(
   currentEditor: Editor,
   value: unknown
 ) {
+  const userValue = getCollaborationAwarenessPayload(value)
+
+  if (!userValue) {
+    return null
+  }
+
+  const relativeCursor = normalizeCollaborationRelativeRange(
+    userValue.relativeCursor
+  )
+  const relativeHead = resolveCollaborationAwarenessPosition(
+    currentEditor,
+    relativeCursor?.head,
+    isResolvedAwarenessCursorPosition
+  )
+
+  if (relativeHead !== null) {
+    return relativeHead
+  }
+
+  return getCollaborationAwarenessCursorPosition(userValue.cursor)
+}
+
+function getCollaborationAwarenessCursorPosition(value: unknown) {
   if (!isRecord(value)) {
     return null
   }
 
-  const userValue = isRecord(value.user) ? value.user : value
-  const relativeCursor = normalizeCollaborationRelativeRange(
-    userValue.relativeCursor
-  )
+  const { head } = value
 
-  if (relativeCursor?.head) {
-    const resolvedHead = resolveCollaborationRelativePosition(
-      currentEditor,
-      relativeCursor.head
-    )
-
-    if (typeof resolvedHead === "number") {
-      return resolvedHead
-    }
-  }
-
-  const cursorValue = isRecord(userValue.cursor) ? userValue.cursor : null
-  const head = cursorValue?.head
-
-  if (!isValidAwarenessPosition(head)) {
-    return null
-  }
-
-  return head
+  return isValidAwarenessPosition(head) ? head : null
 }
 
 function isValidAwarenessPosition(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0
 }
 
-function getCollaborationAwarenessSelectionRange(
+function isResolvedAwarenessCursorPosition(value: unknown): value is number {
+  return typeof value === "number"
+}
+
+function resolveCollaborationAwarenessPosition(
   currentEditor: Editor,
-  value: unknown
+  relativePosition: CollaborationRelativePositionJson | null | undefined,
+  isValidPosition: (
+    value: unknown
+  ) => value is number = isValidAwarenessPosition
 ) {
+  if (!relativePosition) {
+    return null
+  }
+
+  const resolvedPosition = resolveCollaborationRelativePosition(
+    currentEditor,
+    relativePosition
+  )
+
+  return isValidPosition(resolvedPosition) ? resolvedPosition : null
+}
+
+function resolveCollaborationAwarenessRange(
+  currentEditor: Editor,
+  relativeRange: CollaborationRelativeRange | null
+): CollaborationAbsoluteRange | null {
+  if (!relativeRange) {
+    return null
+  }
+
+  const anchor = resolveCollaborationAwarenessPosition(
+    currentEditor,
+    relativeRange.anchor
+  )
+  const head = resolveCollaborationAwarenessPosition(
+    currentEditor,
+    relativeRange.head
+  )
+
+  if (anchor === null || head === null) {
+    return null
+  }
+
+  return { anchor, head }
+}
+
+function getAbsoluteCollaborationAwarenessRange(
+  value: unknown
+): CollaborationAbsoluteRange | null {
   if (!isRecord(value)) {
     return null
   }
 
-  const userValue = isRecord(value.user) ? value.user : value
-  const relativeSelection = normalizeCollaborationRelativeRange(
-    userValue.relativeSelection
-  )
-
-  if (relativeSelection?.anchor && relativeSelection?.head) {
-    const anchor = resolveCollaborationRelativePosition(
-      currentEditor,
-      relativeSelection.anchor
-    )
-    const head = resolveCollaborationRelativePosition(
-      currentEditor,
-      relativeSelection.head
-    )
-
-    if (isValidAwarenessPosition(anchor) && isValidAwarenessPosition(head)) {
-      return { anchor, head }
-    }
-  }
-
-  const selectionValue = isRecord(userValue.selection)
-    ? userValue.selection
-    : null
-  const anchor = selectionValue?.anchor
-  const head = selectionValue?.head
+  const { anchor, head } = value
 
   if (!isValidAwarenessPosition(anchor) || !isValidAwarenessPosition(head)) {
     return null
@@ -700,379 +558,22 @@ function getCollaborationAwarenessSelectionRange(
   return { anchor, head }
 }
 
-type YSyncEditorState = {
-  doc: Y.Doc | null
-  type: Y.XmlFragment | null
-  binding: {
-    mapping: Map<Y.AbstractType<unknown>, ProsemirrorNode | ProsemirrorNode[]>
-  } | null
-  snapshot?: unknown
-  prevSnapshot?: unknown
-}
-
-function getTextNode(node: Node | null, edge: "first" | "last"): Text | null {
-  if (!node) {
-    return null
-  }
-
-  if (node.nodeType === Node.TEXT_NODE) {
-    return node as Text
-  }
-
-  const documentRoot = node.ownerDocument
-
-  if (!documentRoot) {
-    return null
-  }
-
-  const walker = documentRoot.createTreeWalker(node, NodeFilter.SHOW_TEXT)
-
-  if (edge === "first") {
-    return walker.nextNode() as Text | null
-  }
-
-  let lastTextNode: Text | null = null
-  let currentNode = walker.nextNode()
-
-  while (currentNode) {
-    lastTextNode = currentNode as Text
-    currentNode = walker.nextNode()
-  }
-
-  return lastTextNode
-}
-
-function getFirstTextNode(node: Node | null): Text | null {
-  return getTextNode(node, "first")
-}
-
-function getLastTextNode(node: Node | null): Text | null {
-  return getTextNode(node, "last")
-}
-
-function getCaretCoordinatesFromTextNode(input: {
-  textNode: Text
-  offset: number
-}) {
-  const textLength = input.textNode.data.length
-  const safeOffset = Math.min(Math.max(input.offset, 0), textLength)
-  const documentRoot = input.textNode.ownerDocument
-
-  if (!documentRoot) {
-    return null
-  }
-
-  const range = documentRoot.createRange()
-
-  if (safeOffset > 0) {
-    range.setStart(input.textNode, safeOffset - 1)
-    range.setEnd(input.textNode, safeOffset)
-
-    const rect = Array.from(range.getClientRects()).at(-1)
-
-    if (rect) {
-      return {
-        left: rect.right,
-        top: rect.top,
-        bottom: rect.bottom,
-      }
-    }
-  }
-
-  if (safeOffset < textLength) {
-    range.setStart(input.textNode, safeOffset)
-    range.setEnd(input.textNode, safeOffset + 1)
-
-    const rect = range.getClientRects()[0]
-
-    if (rect) {
-      return {
-        left: rect.left,
-        top: rect.top,
-        bottom: rect.bottom,
-      }
-    }
-  }
-
-  return null
-}
-
-function getCollapsedRangeCaretCoordinates(
+function getCollaborationAwarenessSelectionRange(
   currentEditor: Editor,
-  position: number
+  value: unknown
 ) {
-  try {
-    const domPosition = currentEditor.view.domAtPos(position)
-    const baseNode = domPosition.node
-    const ownerDocument = baseNode.ownerDocument
+  const userValue = getCollaborationAwarenessPayload(value)
 
-    if (!ownerDocument) {
-      return null
-    }
-
-    const range = ownerDocument.createRange()
-
-    if (baseNode.nodeType === Node.TEXT_NODE) {
-      const textNode = baseNode as Text
-      const safeOffset = Math.min(
-        Math.max(domPosition.offset, 0),
-        textNode.data.length
-      )
-      range.setStart(textNode, safeOffset)
-      range.setEnd(textNode, safeOffset)
-    } else {
-      const safeOffset = Math.min(
-        Math.max(domPosition.offset, 0),
-        baseNode.childNodes.length
-      )
-      range.setStart(baseNode, safeOffset)
-      range.setEnd(baseNode, safeOffset)
-    }
-
-    const rect =
-      range.getClientRects()[0] ?? range.getBoundingClientRect() ?? null
-
-    if (!rect) {
-      return null
-    }
-
-    return {
-      left: rect.left,
-      top: rect.top,
-      bottom: rect.bottom,
-    }
-  } catch {
-    return null
-  }
-}
-
-function getClientRectsForDocumentRange(
-  currentEditor: Editor,
-  startPosition: number,
-  endPosition: number
-) {
-  try {
-    const ownerDocument = currentEditor.view.dom.ownerDocument
-
-    if (!ownerDocument) {
-      return [] as DOMRect[]
-    }
-
-    const startDomPosition = currentEditor.view.domAtPos(startPosition)
-    const endDomPosition = currentEditor.view.domAtPos(endPosition)
-    const range = ownerDocument.createRange()
-
-    if (startDomPosition.node.nodeType === Node.TEXT_NODE) {
-      const textNode = startDomPosition.node as Text
-      range.setStart(
-        textNode,
-        Math.min(Math.max(startDomPosition.offset, 0), textNode.data.length)
-      )
-    } else {
-      range.setStart(
-        startDomPosition.node,
-        Math.min(
-          Math.max(startDomPosition.offset, 0),
-          startDomPosition.node.childNodes.length
-        )
-      )
-    }
-
-    if (endDomPosition.node.nodeType === Node.TEXT_NODE) {
-      const textNode = endDomPosition.node as Text
-      range.setEnd(
-        textNode,
-        Math.min(Math.max(endDomPosition.offset, 0), textNode.data.length)
-      )
-    } else {
-      range.setEnd(
-        endDomPosition.node,
-        Math.min(
-          Math.max(endDomPosition.offset, 0),
-          endDomPosition.node.childNodes.length
-        )
-      )
-    }
-
-    return Array.from(range.getClientRects()).filter(
-      (rect) => rect.width > 0 && rect.height > 0
-    )
-  } catch {
-    return [] as DOMRect[]
-  }
-}
-
-function getTextCaretCoordinatesBeforeDomPosition(domPosition: {
-  node: Node
-  offset: number
-}) {
-  const baseNode = domPosition.node
-
-  if (baseNode.nodeType === Node.TEXT_NODE && domPosition.offset > 0) {
-    return getCaretCoordinatesFromTextNode({
-      textNode: baseNode as Text,
-      offset: domPosition.offset,
-    })
-  }
-
-  if (!(baseNode instanceof HTMLElement) || domPosition.offset <= 0) {
+  if (!userValue) {
     return null
   }
 
-  const beforeTextNode = getLastTextNode(
-    baseNode.childNodes[domPosition.offset - 1] ?? null
+  return (
+    resolveCollaborationAwarenessRange(
+      currentEditor,
+      normalizeCollaborationRelativeRange(userValue.relativeSelection)
+    ) ?? getAbsoluteCollaborationAwarenessRange(userValue.selection)
   )
-
-  return beforeTextNode
-    ? getCaretCoordinatesFromTextNode({
-        textNode: beforeTextNode,
-        offset: beforeTextNode.data.length,
-      })
-    : null
-}
-
-function getFallbackCaretCoordinatesBeforePosition(
-  currentEditor: Editor,
-  position: number
-) {
-  const before = currentEditor.view.coordsAtPos(position, -1)
-
-  return {
-    left: Math.max(before.left, before.right),
-    top: before.top,
-    bottom: before.bottom,
-  }
-}
-
-function getCaretCoordinatesBeforePosition(
-  currentEditor: Editor,
-  position: number
-) {
-  try {
-    const textCoordinates = getTextCaretCoordinatesBeforeDomPosition(
-      currentEditor.view.domAtPos(position)
-    )
-
-    if (textCoordinates) {
-      return textCoordinates
-    }
-  } catch {
-    // Fall through to ProseMirror coordinates.
-  }
-
-  return getFallbackCaretCoordinatesBeforePosition(currentEditor, position)
-}
-
-function getCaretCoordinatesAfterPosition(
-  currentEditor: Editor,
-  position: number
-) {
-  try {
-    const domPosition = currentEditor.view.domAtPos(position)
-    const baseNode = domPosition.node
-
-    if (baseNode.nodeType === Node.TEXT_NODE) {
-      const textNode = baseNode as Text
-
-      if (domPosition.offset < textNode.data.length) {
-        const textCoordinates = getCaretCoordinatesFromTextNode({
-          textNode,
-          offset: domPosition.offset,
-        })
-
-        if (textCoordinates) {
-          return textCoordinates
-        }
-      }
-    }
-
-    if (baseNode instanceof HTMLElement) {
-      const afterTextNode = getFirstTextNode(
-        baseNode.childNodes[domPosition.offset] ?? null
-      )
-
-      if (afterTextNode) {
-        const textCoordinates = getCaretCoordinatesFromTextNode({
-          textNode: afterTextNode,
-          offset: 0,
-        })
-
-        if (textCoordinates) {
-          return textCoordinates
-        }
-      }
-    }
-  } catch {
-    // Fall through to ProseMirror coordinates.
-  }
-
-  const after = currentEditor.view.coordsAtPos(position, 1)
-
-  return {
-    left: after.left,
-    top: after.top,
-    bottom: after.bottom,
-  }
-}
-
-function getLocalTextblockBoundarySide(
-  currentEditor: Editor,
-  position: number
-): CollaborationCaretSide | null {
-  try {
-    const safePosition = Math.min(
-      Math.max(position, 0),
-      currentEditor.state.doc.content.size
-    )
-    const resolvedPosition = currentEditor.state.doc.resolve(safePosition)
-
-    if (!resolvedPosition.parent.isTextblock) {
-      return null
-    }
-
-    if (resolvedPosition.parentOffset === 0) {
-      return "after"
-    }
-
-    if (
-      resolvedPosition.parentOffset === resolvedPosition.parent.content.size
-    ) {
-      return "before"
-    }
-  } catch {
-    return null
-  }
-
-  return null
-}
-
-function resolveCollaborationCaretCoordinates(
-  currentEditor: Editor,
-  position: number
-) {
-  const localBoundarySide = getLocalTextblockBoundarySide(
-    currentEditor,
-    position
-  )
-
-  if (localBoundarySide === "before" && position > 0) {
-    return getCaretCoordinatesBeforePosition(currentEditor, position)
-  }
-
-  if (localBoundarySide === "after") {
-    return getCaretCoordinatesAfterPosition(currentEditor, position)
-  }
-
-  const collapsedRangeCoordinates = getCollapsedRangeCaretCoordinates(
-    currentEditor,
-    position
-  )
-
-  if (collapsedRangeCoordinates) {
-    return collapsedRangeCoordinates
-  }
-
-  return getCaretCoordinatesAfterPosition(currentEditor, position)
 }
 
 function collectActiveCollaborationMarkerKeys(input: {
@@ -1080,154 +581,143 @@ function collectActiveCollaborationMarkerKeys(input: {
   currentPresenceUserId: string | null
 }) {
   const activeKeys = new Set<string>()
-  const localSessionId =
-    getCollaborationAwarenessUser(
-      input.collaboration.binding.provider.awareness.getLocalState()
-    )?.sessionId ?? input.collaboration.localUser.sessionId
-
-  input.collaboration.binding.provider.awareness
-    .getStates()
-    .forEach((value, clientId) => {
-      const user = getCollaborationAwarenessUser(value)
-
-      if (!user) {
-        return
-      }
-
-      if (
-        user.sessionId === localSessionId ||
-        (input.currentPresenceUserId &&
-          user.userId === input.currentPresenceUserId)
-      ) {
-        return
-      }
-
-      activeKeys.add(`${clientId}:${user.sessionId}`)
-    })
+  forEachRemoteCollaborationAwarenessUser(input, (_value, clientId, user) => {
+    activeKeys.add(`${clientId}:${user.sessionId}`)
+  })
 
   return activeKeys
 }
 
-function collectCollaborationCursorMarkers(input: {
-  currentEditor: Editor
-  container: HTMLDivElement | null
-  collaboration: NonNullable<RichTextEditorProps["collaboration"]>
-  currentPresenceUserId: string | null
-}) {
+function collectCollaborationCursorMarkers(
+  input: CollaborationMarkerCollectionInput
+) {
   const container = input.container
+  const yState = getYSyncEditorState(input.currentEditor)
 
-  if (!container) {
+  if (!container || !canCollectCollaborationMarkers(yState)) {
     return [] as CollaborationCursorMarker[]
   }
 
-  const yState = ySyncPluginKey.getState(input.currentEditor.state) as
-    | YSyncEditorState
-    | undefined
-
-  if (
-    !yState?.doc ||
-    !yState.type ||
-    !yState.binding ||
-    yState.snapshot != null ||
-    yState.prevSnapshot != null ||
-    yState.binding.mapping.size === 0
-  ) {
-    return [] as CollaborationCursorMarker[]
-  }
-
-  const localSessionId =
-    getCollaborationAwarenessUser(
-      input.collaboration.binding.provider.awareness.getLocalState()
-    )?.sessionId ?? input.collaboration.localUser.sessionId
   const containerRect = container.getBoundingClientRect()
   const markers: CollaborationCursorMarker[] = []
+  const maxDocumentPosition = getMaxDocumentPosition(input.currentEditor)
 
-  input.collaboration.binding.provider.awareness
-    .getStates()
-    .forEach((value, clientId) => {
-      const user = getCollaborationAwarenessUser(value)
-
-      if (!user) {
-        return
-      }
-
-      if (
-        user.sessionId === localSessionId ||
-        (input.currentPresenceUserId &&
-          user.userId === input.currentPresenceUserId)
-      ) {
-        return
-      }
-
-      const head = getCollaborationAwarenessCursorHead(
-        input.currentEditor,
-        value
-      )
-
-      if (typeof head !== "number") {
-        return
-      }
-
-      const maxDocumentPosition = Math.max(
-        input.currentEditor.state.doc.content.size,
-        0
-      )
-
-      if (head > maxDocumentPosition) {
-        return
-      }
-
-      try {
-        const coordinates = resolveCollaborationCaretCoordinates(
-          input.currentEditor,
-          head
-        )
-        const height = Math.max(
-          18,
-          Math.round(coordinates.bottom - coordinates.top)
-        )
-
-        markers.push({
-          key: `${clientId}:${user.sessionId}`,
-          name: user.name,
-          color: user.color,
-          left: Math.round(
-            coordinates.left - containerRect.left + container.scrollLeft
-          ),
-          top: Math.round(
-            coordinates.top - containerRect.top + container.scrollTop
-          ),
-          height,
-        })
-      } catch {
-        return
-      }
+  forEachRemoteCollaborationAwarenessUser(input, (value, clientId, user) => {
+    const marker = createCollaborationCursorMarker({
+      clientId,
+      container,
+      containerRect,
+      currentEditor: input.currentEditor,
+      maxDocumentPosition,
+      user,
+      value,
     })
 
-  return markers.sort(
-    (left, right) =>
-      left.top - right.top ||
-      left.left - right.left ||
-      left.key.localeCompare(right.key)
+    if (marker) {
+      markers.push(marker)
+    }
+  })
+
+  return sortCollaborationMarkers(markers)
+}
+
+function canCollectCollaborationMarkers(yState: YSyncEditorState | undefined) {
+  return (
+    hasLiveYSyncMarkerState(yState) && hasCollaborationPositionMapping(yState)
   )
 }
 
-function collectCollaborationSelectionMarkers(input: {
+function hasCollaborationPositionMapping(yState: YSyncEditorState | undefined) {
+  return Boolean(yState?.binding && yState.binding.mapping.size > 0)
+}
+
+function getMaxDocumentPosition(currentEditor: Editor) {
+  return Math.max(currentEditor.state.doc.content.size, 0)
+}
+
+function createCollaborationCursorMarker(input: {
+  clientId: number
+  container: HTMLElement
+  containerRect: DOMRect
   currentEditor: Editor
-  container: HTMLDivElement | null
-  collaboration: NonNullable<RichTextEditorProps["collaboration"]>
-  currentPresenceUserId: string | null
+  maxDocumentPosition: number
+  user: CollaborationAwarenessUser
+  value: unknown
+}): CollaborationCursorMarker | null {
+  const head = getCollaborationAwarenessCursorHeadInBounds(input)
+
+  if (head === null) {
+    return null
+  }
+
+  const coordinates = safelyResolveCollaborationCaretCoordinates(
+    input.currentEditor,
+    head
+  )
+
+  return coordinates ? buildCollaborationCursorMarker(input, coordinates) : null
+}
+
+function getCollaborationAwarenessCursorHeadInBounds(input: {
+  currentEditor: Editor
+  maxDocumentPosition: number
+  value: unknown
 }) {
+  const head = getCollaborationAwarenessCursorHead(
+    input.currentEditor,
+    input.value
+  )
+
+  if (typeof head !== "number") {
+    return null
+  }
+
+  return head <= input.maxDocumentPosition ? head : null
+}
+
+function safelyResolveCollaborationCaretCoordinates(
+  currentEditor: Editor,
+  head: number
+) {
+  try {
+    return resolveCollaborationCaretCoordinates(currentEditor, head)
+  } catch {
+    return null
+  }
+}
+
+function buildCollaborationCursorMarker(
+  input: {
+    clientId: number
+    container: HTMLElement
+    containerRect: DOMRect
+    user: CollaborationAwarenessUser
+  },
+  coordinates: Pick<DOMRect, "bottom" | "left" | "top">
+): CollaborationCursorMarker {
+  return {
+    key: `${input.clientId}:${input.user.sessionId}`,
+    name: input.user.name,
+    color: input.user.color,
+    left: Math.round(
+      coordinates.left - input.containerRect.left + input.container.scrollLeft
+    ),
+    top: Math.round(
+      coordinates.top - input.containerRect.top + input.container.scrollTop
+    ),
+    height: Math.max(18, Math.round(coordinates.bottom - coordinates.top)),
+  }
+}
+
+function collectCollaborationSelectionMarkers(
+  input: CollaborationMarkerCollectionInput
+) {
   const container = input.container
 
   if (!container) {
     return [] as CollaborationSelectionMarker[]
   }
 
-  const localSessionId =
-    getCollaborationAwarenessUser(
-      input.collaboration.binding.provider.awareness.getLocalState()
-    )?.sessionId ?? input.collaboration.localUser.sessionId
   const containerRect = container.getBoundingClientRect()
   const markers: CollaborationSelectionMarker[] = []
   const maxDocumentPosition = Math.max(
@@ -1235,68 +725,45 @@ function collectCollaborationSelectionMarkers(input: {
     0
   )
 
-  input.collaboration.binding.provider.awareness
-    .getStates()
-    .forEach((value, clientId) => {
-      const user = getCollaborationAwarenessUser(value)
+  forEachRemoteCollaborationAwarenessUser(input, (value, clientId, user) => {
+    const selection = getCollaborationAwarenessSelectionRange(
+      input.currentEditor,
+      value
+    )
 
-      if (!user) {
-        return
-      }
+    if (!selection || selection.anchor === selection.head) {
+      return
+    }
 
-      if (
-        user.sessionId === localSessionId ||
-        (input.currentPresenceUserId &&
-          user.userId === input.currentPresenceUserId)
-      ) {
-        return
-      }
+    const start = Math.min(selection.anchor, selection.head)
+    const end = Math.min(
+      Math.max(selection.anchor, selection.head),
+      maxDocumentPosition
+    )
 
-      const selection = getCollaborationAwarenessSelectionRange(
-        input.currentEditor,
-        value
-      )
+    if (start === end) {
+      return
+    }
 
-      if (!selection || selection.anchor === selection.head) {
-        return
-      }
+    const clientRects = getClientRectsForDocumentRange(
+      input.currentEditor,
+      start,
+      end
+    )
 
-      const start = Math.min(selection.anchor, selection.head)
-      const end = Math.min(
-        Math.max(selection.anchor, selection.head),
-        maxDocumentPosition
-      )
-
-      if (start === end) {
-        return
-      }
-
-      const clientRects = getClientRectsForDocumentRange(
-        input.currentEditor,
-        start,
-        end
-      )
-
-      clientRects.forEach((rect, index) => {
-        markers.push({
-          key: `${clientId}:${user.sessionId}:${index}`,
-          color: user.color,
-          left: Math.round(
-            rect.left - containerRect.left + container.scrollLeft
-          ),
-          top: Math.round(rect.top - containerRect.top + container.scrollTop),
-          width: Math.max(1, Math.round(rect.width)),
-          height: Math.max(1, Math.round(rect.height)),
-        })
+    clientRects.forEach((rect, index) => {
+      markers.push({
+        key: `${clientId}:${user.sessionId}:${index}`,
+        color: user.color,
+        left: Math.round(rect.left - containerRect.left + container.scrollLeft),
+        top: Math.round(rect.top - containerRect.top + container.scrollTop),
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
       })
     })
+  })
 
-  return markers.sort(
-    (left, right) =>
-      left.top - right.top ||
-      left.left - right.left ||
-      left.key.localeCompare(right.key)
-  )
+  return sortCollaborationMarkers(markers)
 }
 
 type RichTextSlashCommandOptions = Parameters<typeof filterSlashCommands>[1]
@@ -1335,50 +802,28 @@ function handleSlashMenuKeyDown({
   )
   const maxSlashIndex = Math.max(nextCommands.length - 1, 0)
 
-  if (event.key === "Escape") {
-    setSlashState(null)
-    previousSlashQueryRef.current = null
-    return true
-  }
+  const navigationResult = handleRichTextMenuNavigationKeyDown({
+    event,
+    maxIndex: maxSlashIndex,
+    onEscape: () => {
+      setSlashState(null)
+      previousSlashQueryRef.current = null
+    },
+    onEnter: () =>
+      selectSlashMenuCommand({
+        currentEditor,
+        currentSlashState,
+        event,
+        nextCommands,
+        setSlashIndex,
+        setSlashState,
+        slashIndex,
+      }),
+    setIndex: setSlashIndex,
+  })
 
-  if (event.key === "ArrowDown") {
-    event.preventDefault()
-    setSlashIndex((current) =>
-      Math.min(Math.min(current, maxSlashIndex) + 1, maxSlashIndex)
-    )
-    return true
-  }
-
-  if (event.key === "ArrowUp") {
-    event.preventDefault()
-    setSlashIndex((current) =>
-      Math.max(0, Math.min(current, maxSlashIndex) - 1)
-    )
-    return true
-  }
-
-  if (event.key === "Enter") {
-    const selected =
-      nextCommands[Math.min(slashIndex, nextCommands.length - 1)] ??
-      nextCommands[0]
-
-    if (!selected) {
-      return false
-    }
-
-    event.preventDefault()
-    currentEditor
-      .chain()
-      .focus()
-      .deleteRange({
-        from: currentSlashState.from,
-        to: currentSlashState.to,
-      })
-      .run()
-    selected.run(currentEditor)
-    setSlashState(null)
-    setSlashIndex(0)
-    return true
+  if (navigationResult !== null) {
+    return navigationResult
   }
 
   const nextSlashState = buildSlashState(currentEditor, container)
@@ -1389,6 +834,40 @@ function handleSlashMenuKeyDown({
   }
 
   return false
+}
+
+function selectSlashMenuCommand(input: {
+  currentEditor: Editor
+  currentSlashState: MenuState
+  event: KeyboardEvent
+  nextCommands: ReturnType<typeof filterSlashCommands>
+  setSlashIndex: Dispatch<SetStateAction<number>>
+  setSlashState: (state: MenuState | null) => void
+  slashIndex: number
+}) {
+  const selected =
+    input.nextCommands[
+      Math.min(input.slashIndex, input.nextCommands.length - 1)
+    ] ?? input.nextCommands[0]
+
+  if (!selected) {
+    return false
+  }
+
+  input.event.preventDefault()
+  input.currentEditor
+    .chain()
+    .focus()
+    .deleteRange({
+      from: input.currentSlashState.from,
+      to: input.currentSlashState.to,
+    })
+    .run()
+  selected.run(input.currentEditor)
+  input.setSlashState(null)
+  input.setSlashIndex(0)
+
+  return true
 }
 
 function handleMentionMenuKeyDown({
@@ -1423,43 +902,29 @@ function handleMentionMenuKeyDown({
   )
   const maxMentionIndex = Math.max(nextCandidates.length - 1, 0)
 
-  if (event.key === "Escape") {
-    setMentionState(null)
-    previousMentionQueryRef.current = null
-    return true
-  }
+  const navigationResult = handleRichTextMenuNavigationKeyDown({
+    event,
+    maxIndex: maxMentionIndex,
+    onEscape: () => {
+      setMentionState(null)
+      previousMentionQueryRef.current = null
+    },
+    onEnter: () =>
+      selectMentionMenuCandidate({
+        currentEditor,
+        currentMentionState,
+        event,
+        mentionIndex,
+        nextCandidates,
+        onMentionInsertedRef,
+        setMentionIndex,
+        setMentionState,
+      }),
+    setIndex: setMentionIndex,
+  })
 
-  if (event.key === "ArrowDown") {
-    event.preventDefault()
-    setMentionIndex((current) =>
-      Math.min(Math.min(current, maxMentionIndex) + 1, maxMentionIndex)
-    )
-    return true
-  }
-
-  if (event.key === "ArrowUp") {
-    event.preventDefault()
-    setMentionIndex((current) =>
-      Math.max(0, Math.min(current, maxMentionIndex) - 1)
-    )
-    return true
-  }
-
-  if (event.key === "Enter") {
-    const selected =
-      nextCandidates[Math.min(mentionIndex, nextCandidates.length - 1)] ??
-      nextCandidates[0]
-
-    if (!selected) {
-      return false
-    }
-
-    event.preventDefault()
-    insertMention(currentEditor, currentMentionState, selected)
-    onMentionInsertedRef.current?.(selected)
-    setMentionState(null)
-    setMentionIndex(0)
-    return true
+  if (navigationResult !== null) {
+    return navigationResult
   }
 
   const nextMentionState = buildMentionState(currentEditor, container)
@@ -1472,6 +937,36 @@ function handleMentionMenuKeyDown({
   return false
 }
 
+function selectMentionMenuCandidate(input: {
+  currentEditor: Editor
+  currentMentionState: MenuState
+  event: KeyboardEvent
+  mentionIndex: number
+  nextCandidates: MentionCandidate[]
+  onMentionInsertedRef: MutableRefObject<
+    RichTextEditorProps["onMentionInserted"]
+  >
+  setMentionIndex: Dispatch<SetStateAction<number>>
+  setMentionState: (state: MenuState | null) => void
+}) {
+  const selected =
+    input.nextCandidates[
+      Math.min(input.mentionIndex, input.nextCandidates.length - 1)
+    ] ?? input.nextCandidates[0]
+
+  if (!selected) {
+    return false
+  }
+
+  input.event.preventDefault()
+  insertMention(input.currentEditor, input.currentMentionState, selected)
+  input.onMentionInsertedRef.current?.(selected)
+  input.setMentionState(null)
+  input.setMentionIndex(0)
+
+  return true
+}
+
 function handleSubmitShortcutKeyDown({
   event,
   onSubmitShortcut,
@@ -1481,28 +976,36 @@ function handleSubmitShortcutKeyDown({
   onSubmitShortcut?: () => void
   submitOnEnter: boolean
 }) {
-  if (
-    onSubmitShortcut &&
-    submitOnEnter &&
-    event.key === "Enter" &&
-    !event.shiftKey
-  ) {
+  if (!onSubmitShortcut) {
+    return false
+  }
+
+  if (isPlainEnterSubmitShortcut({ event, submitOnEnter })) {
     event.preventDefault()
     onSubmitShortcut()
     return true
   }
 
-  if (
-    onSubmitShortcut &&
-    event.key === "Enter" &&
-    (event.metaKey || event.ctrlKey)
-  ) {
+  if (isModifiedEnterSubmitShortcut(event)) {
     event.preventDefault()
     onSubmitShortcut()
     return true
   }
 
   return false
+}
+
+function isPlainEnterSubmitShortcut(input: {
+  event: KeyboardEvent
+  submitOnEnter: boolean
+}) {
+  return (
+    input.submitOnEnter && input.event.key === "Enter" && !input.event.shiftKey
+  )
+}
+
+function isModifiedEnterSubmitShortcut(event: KeyboardEvent) {
+  return event.key === "Enter" && (event.metaKey || event.ctrlKey)
 }
 
 function handleRichTextEditorKeyDown({
@@ -1944,6 +1447,196 @@ type RichTextEditorBodyProps = {
   uploadsEnabled: boolean
 }
 
+function getActiveMenuIndex(itemCount: number, requestedIndex: number) {
+  return itemCount === 0 ? 0 : Math.min(requestedIndex, itemCount - 1)
+}
+
+function shouldFocusEmptyEditorFromInlineMouseDown(
+  event: MouseEvent<HTMLDivElement>,
+  activeEditor: Editor
+) {
+  if (event.button !== 0 || !activeEditor.isEmpty) {
+    return false
+  }
+
+  const target = event.target instanceof HTMLElement ? event.target : null
+
+  return !target?.closest('button, a, input, textarea, label, [role="button"]')
+}
+
+function createInlineEditorMouseDownCapture(activeEditor: Editor) {
+  return (event: MouseEvent<HTMLDivElement>) => {
+    if (!shouldFocusEmptyEditorFromInlineMouseDown(event, activeEditor)) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      activeEditor.commands.focus("end")
+    })
+  }
+}
+
+function getRichTextToolbarNode(
+  input: Pick<
+    RichTextEditorBodyProps,
+    | "editable"
+    | "fullPage"
+    | "fullPageCanvasWidth"
+    | "handleToolbarFiles"
+    | "hiddenAttachmentInputRef"
+    | "hiddenImageInputRef"
+    | "pickerInsertPosition"
+    | "requestAttachmentPicker"
+    | "requestImagePicker"
+    | "setFullPageCanvasWidth"
+    | "showStats"
+    | "showToolbar"
+    | "statsCharacters"
+    | "statsWords"
+    | "uploadsEnabled"
+    | "uploadingAttachment"
+  > & {
+    activeEditor: Editor
+  }
+) {
+  if (!input.showToolbar) {
+    return null
+  }
+
+  return (
+    <RichTextToolbar
+      editable={input.editable}
+      editor={input.activeEditor}
+      fullPage={input.fullPage}
+      fullPageCanvasWidth={input.fullPageCanvasWidth}
+      handleFiles={input.handleToolbarFiles}
+      hiddenAttachmentInputRef={input.hiddenAttachmentInputRef}
+      hiddenImageInputRef={input.hiddenImageInputRef}
+      pickerInsertPosition={input.pickerInsertPosition}
+      requestAttachmentPicker={input.requestAttachmentPicker}
+      requestImagePicker={input.requestImagePicker}
+      setFullPageCanvasWidth={input.setFullPageCanvasWidth}
+      showStats={input.showStats}
+      statsCharacters={input.statsCharacters}
+      statsWords={input.statsWords}
+      toolbarWidthClassName={
+        FULL_PAGE_CANVAS_WIDTH_CLASSNAME[input.fullPageCanvasWidth]
+      }
+      uploadsEnabled={input.uploadsEnabled}
+      uploadingAttachment={input.uploadingAttachment}
+    />
+  )
+}
+
+function getInlineEmojiPickerNode(
+  input: Pick<
+    RichTextEditorBodyProps,
+    | "containerWidth"
+    | "editable"
+    | "emojiPickerAnchor"
+    | "emojiPickerOpen"
+    | "setEmojiPickerAnchor"
+    | "setEmojiPickerOpen"
+  > & {
+    activeEditor: Editor
+  }
+) {
+  return (
+    <InlineEmojiPickerOverlay
+      anchor={input.emojiPickerAnchor}
+      containerWidth={input.containerWidth}
+      currentEditor={input.activeEditor}
+      editable={input.editable}
+      open={input.emojiPickerOpen}
+      onOpenChange={(open) => {
+        input.setEmojiPickerOpen(open)
+        if (!open) {
+          input.setEmojiPickerAnchor(null)
+        }
+      }}
+    />
+  )
+}
+
+function getSlashCommandMenuNode(
+  input: Pick<
+    RichTextEditorBodyProps,
+    | "allowSlashCommands"
+    | "containerWidth"
+    | "filteredSlashCommands"
+    | "previousSlashQueryRef"
+    | "setSlashIndex"
+    | "setSlashState"
+    | "slashIndex"
+    | "slashState"
+  > & {
+    activeEditor: Editor
+  }
+) {
+  if (!input.allowSlashCommands || !input.slashState) {
+    return null
+  }
+
+  return (
+    <SlashCommandMenu
+      activeIndex={getActiveMenuIndex(
+        input.filteredSlashCommands.length,
+        input.slashIndex
+      )}
+      commands={input.filteredSlashCommands}
+      containerWidth={input.containerWidth}
+      editor={input.activeEditor}
+      state={input.slashState}
+      onComplete={() => {
+        input.setSlashState(null)
+        input.setSlashIndex(0)
+        input.previousSlashQueryRef.current = null
+      }}
+    />
+  )
+}
+
+function getMentionMenuNode(
+  input: Pick<
+    RichTextEditorBodyProps,
+    | "containerWidth"
+    | "filteredMentionCandidates"
+    | "mentionIndex"
+    | "mentionMenuPlacement"
+    | "mentionState"
+    | "onMentionInserted"
+    | "previousMentionQueryRef"
+    | "setMentionIndex"
+    | "setMentionState"
+  > & {
+    activeEditor: Editor
+  }
+) {
+  if (!input.mentionState) {
+    return null
+  }
+
+  return (
+    <MentionMenu
+      activeIndex={getActiveMenuIndex(
+        input.filteredMentionCandidates.length,
+        input.mentionIndex
+      )}
+      candidates={input.filteredMentionCandidates}
+      containerWidth={input.containerWidth}
+      editor={input.activeEditor}
+      placement={input.mentionMenuPlacement}
+      state={input.mentionState}
+      onSelectCandidate={input.onMentionInserted}
+      onComplete={() => {
+        input.setMentionState(null)
+        input.setMentionIndex(0)
+        input.previousMentionQueryRef.current = null
+      }}
+    />
+  )
+}
+
 function RichTextEditorBody({
   allowSlashCommands,
   blockPresenceMarkers,
@@ -1994,104 +1687,57 @@ function RichTextEditorBody({
   }
 
   const activeEditor = currentEditor
-
-  function handleInlineMouseDownCapture(event: MouseEvent<HTMLDivElement>) {
-    if (event.button !== 0 || !activeEditor.isEmpty) {
-      return
-    }
-
-    const target = event.target instanceof HTMLElement ? event.target : null
-
-    if (target?.closest('button, a, input, textarea, label, [role="button"]')) {
-      return
-    }
-
-    window.requestAnimationFrame(() => {
-      activeEditor.commands.focus("end")
-    })
-  }
-
-  const activeSlashIndex =
-    filteredSlashCommands.length === 0
-      ? 0
-      : Math.min(slashIndex, filteredSlashCommands.length - 1)
-  const activeMentionIndex =
-    filteredMentionCandidates.length === 0
-      ? 0
-      : Math.min(mentionIndex, filteredMentionCandidates.length - 1)
-
-  const toolbar = showToolbar ? (
-    <RichTextToolbar
-      editable={editable}
-      editor={activeEditor}
-      fullPage={fullPage}
-      fullPageCanvasWidth={fullPageCanvasWidth}
-      handleFiles={handleToolbarFiles}
-      hiddenAttachmentInputRef={hiddenAttachmentInputRef}
-      hiddenImageInputRef={hiddenImageInputRef}
-      pickerInsertPosition={pickerInsertPosition}
-      requestAttachmentPicker={requestAttachmentPicker}
-      requestImagePicker={requestImagePicker}
-      setFullPageCanvasWidth={setFullPageCanvasWidth}
-      showStats={showStats}
-      statsCharacters={statsCharacters}
-      statsWords={statsWords}
-      toolbarWidthClassName={
-        FULL_PAGE_CANVAS_WIDTH_CLASSNAME[fullPageCanvasWidth]
-      }
-      uploadsEnabled={uploadsEnabled}
-      uploadingAttachment={uploadingAttachment}
-    />
-  ) : null
-
-  const inlineEmojiPicker = (
-    <InlineEmojiPickerOverlay
-      anchor={emojiPickerAnchor}
-      containerWidth={containerWidth}
-      currentEditor={activeEditor}
-      editable={editable}
-      open={emojiPickerOpen}
-      onOpenChange={(open) => {
-        setEmojiPickerOpen(open)
-        if (!open) {
-          setEmojiPickerAnchor(null)
-        }
-      }}
-    />
-  )
-
-  const slashMenu =
-    allowSlashCommands && slashState ? (
-      <SlashCommandMenu
-        activeIndex={activeSlashIndex}
-        commands={filteredSlashCommands}
-        containerWidth={containerWidth}
-        editor={activeEditor}
-        state={slashState}
-        onComplete={() => {
-          setSlashState(null)
-          setSlashIndex(0)
-          previousSlashQueryRef.current = null
-        }}
-      />
-    ) : null
-
-  const mentionMenu = mentionState ? (
-    <MentionMenu
-      activeIndex={activeMentionIndex}
-      candidates={filteredMentionCandidates}
-      containerWidth={containerWidth}
-      editor={activeEditor}
-      placement={mentionMenuPlacement}
-      state={mentionState}
-      onSelectCandidate={onMentionInserted}
-      onComplete={() => {
-        setMentionState(null)
-        setMentionIndex(0)
-        previousMentionQueryRef.current = null
-      }}
-    />
-  ) : null
+  const toolbar = getRichTextToolbarNode({
+    activeEditor,
+    editable,
+    fullPage,
+    fullPageCanvasWidth,
+    handleToolbarFiles,
+    hiddenAttachmentInputRef,
+    hiddenImageInputRef,
+    pickerInsertPosition,
+    requestAttachmentPicker,
+    requestImagePicker,
+    setFullPageCanvasWidth,
+    showStats,
+    showToolbar,
+    statsCharacters,
+    statsWords,
+    uploadsEnabled,
+    uploadingAttachment,
+  })
+  const inlineEmojiPicker = getInlineEmojiPickerNode({
+    activeEditor,
+    containerWidth,
+    editable,
+    emojiPickerAnchor,
+    emojiPickerOpen,
+    setEmojiPickerAnchor,
+    setEmojiPickerOpen,
+  })
+  const slashMenu = getSlashCommandMenuNode({
+    activeEditor,
+    allowSlashCommands,
+    containerWidth,
+    filteredSlashCommands,
+    previousSlashQueryRef,
+    setSlashIndex,
+    setSlashState,
+    slashIndex,
+    slashState,
+  })
+  const mentionMenu = getMentionMenuNode({
+    activeEditor,
+    containerWidth,
+    filteredMentionCandidates,
+    mentionIndex,
+    mentionMenuPlacement,
+    mentionState,
+    onMentionInserted,
+    previousMentionQueryRef,
+    setMentionIndex,
+    setMentionState,
+  })
 
   const blockPresence = (
     <BlockPresenceOverlay
@@ -2124,7 +1770,9 @@ function RichTextEditorBody({
       fullPageCanvasWidth={fullPageCanvasWidth}
       inlineEmojiPicker={inlineEmojiPicker}
       mentionMenu={mentionMenu}
-      onInlineMouseDownCapture={handleInlineMouseDownCapture}
+      onInlineMouseDownCapture={createInlineEditorMouseDownCapture(
+        activeEditor
+      )}
       slashMenu={slashMenu}
       toolbar={toolbar}
     />
@@ -2219,28 +1867,71 @@ function useExternalRichTextContentSync({
   sanitizedStringContent: string | null
 }) {
   useEffect(() => {
-    if (!editor || collaboration) {
-      return
-    }
-
-    const currentContent = editor.getHTML()
-
-    if (
-      sanitizedStringContent === null ||
-      currentContent === sanitizedStringContent ||
-      editor.isFocused
-    ) {
-      return
-    }
-
-    editor.commands.setContent(sanitizedStringContent, {
-      emitUpdate: false,
+    syncExternalRichTextContent({
+      collaboration,
+      editor,
+      onMentionCountsChangeRef,
+      sanitizedStringContent,
     })
-    onMentionCountsChangeRef.current?.(
-      getEditorMentionCounts(editor),
-      "external"
-    )
   }, [collaboration, editor, onMentionCountsChangeRef, sanitizedStringContent])
+}
+
+function syncExternalRichTextContent({
+  collaboration,
+  editor,
+  onMentionCountsChangeRef,
+  sanitizedStringContent,
+}: {
+  collaboration: RichTextEditorCollaboration | undefined
+  editor: Editor | null
+  onMentionCountsChangeRef: MutableRefObject<
+    RichTextEditorProps["onMentionCountsChange"]
+  >
+  sanitizedStringContent: string | null
+}) {
+  if (!canSyncExternalRichTextContent(collaboration, editor)) {
+    return
+  }
+
+  const nextContent = getExternalRichTextContentUpdate(
+    editor,
+    sanitizedStringContent
+  )
+
+  if (nextContent === null) {
+    return
+  }
+
+  applyExternalRichTextContent(editor, nextContent)
+  onMentionCountsChangeRef.current?.(getEditorMentionCounts(editor), "external")
+}
+
+function canSyncExternalRichTextContent(
+  collaboration: RichTextEditorCollaboration | undefined,
+  editor: Editor | null
+): editor is Editor {
+  return Boolean(editor && !collaboration)
+}
+
+function getExternalRichTextContentUpdate(
+  editor: Editor,
+  sanitizedStringContent: string | null
+) {
+  const contentIsCurrent =
+    sanitizedStringContent === null ||
+    editor.getHTML() === sanitizedStringContent ||
+    editor.isFocused
+
+  return contentIsCurrent ? null : sanitizedStringContent
+}
+
+function applyExternalRichTextContent(
+  editor: Editor,
+  sanitizedStringContent: string
+) {
+  editor.commands.setContent(sanitizedStringContent, {
+    emitUpdate: false,
+  })
 }
 
 function useInitialCollaborationPresenceSync({
@@ -2368,6 +2059,29 @@ function useBlockPresenceMarkers({
     )
   }, [containerRef, editor, visiblePresenceViewers])
 
+  useMarkerLayoutRefresh({
+    containerWidth,
+    fullPageCanvasWidth,
+    updateMarkers,
+  })
+  useMarkerUpdateSubscriptions({
+    containerRef,
+    editor,
+    updateMarkers,
+  })
+
+  return markers
+}
+
+function useMarkerLayoutRefresh({
+  containerWidth,
+  fullPageCanvasWidth,
+  updateMarkers,
+}: {
+  containerWidth: number
+  fullPageCanvasWidth: FullPageCanvasWidth
+  updateMarkers: () => void
+}) {
   useEffect(() => {
     const frameId = window.requestAnimationFrame(updateMarkers)
 
@@ -2375,21 +2089,48 @@ function useBlockPresenceMarkers({
       window.cancelAnimationFrame(frameId)
     }
   }, [containerWidth, fullPageCanvasWidth, updateMarkers])
+}
 
+function useMarkerUpdateSubscriptions({
+  awareness,
+  containerRef,
+  editor,
+  requireAwareness = false,
+  settleBeforeUpdate = false,
+  updateMarkers,
+}: {
+  awareness?: CollaborationAwareness
+  containerRef: MutableRefObject<HTMLDivElement | null>
+  editor: Editor | null
+  requireAwareness?: boolean
+  settleBeforeUpdate?: boolean
+  updateMarkers: () => void
+}) {
   useEffect(() => {
-    if (!editor) {
+    if (!editor || (requireAwareness && !awareness)) {
       return
     }
 
     let frameId: number | null = null
+    let settleFrameId: number | null = null
     const queueUpdate = () => {
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId)
       }
+      if (settleFrameId !== null) {
+        window.cancelAnimationFrame(settleFrameId)
+      }
 
       frameId = window.requestAnimationFrame(() => {
         frameId = null
-        updateMarkers()
+        if (settleBeforeUpdate) {
+          settleFrameId = window.requestAnimationFrame(() => {
+            settleFrameId = null
+            updateMarkers()
+          })
+        } else {
+          updateMarkers()
+        }
       })
     }
 
@@ -2397,6 +2138,8 @@ function useBlockPresenceMarkers({
     queueUpdate()
     editor.on("update", queueUpdate)
     editor.on("selectionUpdate", queueUpdate)
+    awareness?.on("change", queueUpdate)
+    awareness?.on("update", queueUpdate)
     container?.addEventListener("scroll", queueUpdate, { passive: true })
     window.addEventListener("resize", queueUpdate)
 
@@ -2404,15 +2147,139 @@ function useBlockPresenceMarkers({
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId)
       }
+      if (settleFrameId !== null) {
+        window.cancelAnimationFrame(settleFrameId)
+      }
 
       editor.off("update", queueUpdate)
       editor.off("selectionUpdate", queueUpdate)
+      awareness?.off("change", queueUpdate)
+      awareness?.off("update", queueUpdate)
       container?.removeEventListener("scroll", queueUpdate)
       window.removeEventListener("resize", queueUpdate)
     }
-  }, [containerRef, editor, updateMarkers])
+  }, [
+    awareness,
+    containerRef,
+    editor,
+    requireAwareness,
+    settleBeforeUpdate,
+    updateMarkers,
+  ])
+}
+
+function useCollaborationMarkerSubscriptions({
+  collaboration,
+  containerRef,
+  editor,
+  updateMarkers,
+}: {
+  collaboration: RichTextEditorCollaboration | undefined
+  containerRef: MutableRefObject<HTMLDivElement | null>
+  editor: Editor | null
+  updateMarkers: () => void
+}) {
+  useMarkerUpdateSubscriptions({
+    awareness: collaboration?.binding.provider.awareness,
+    containerRef,
+    editor,
+    requireAwareness: true,
+    settleBeforeUpdate: true,
+    updateMarkers,
+  })
+}
+
+function useCollaborationMarkers<TMarker>({
+  areMarkersEqual,
+  collaboration,
+  collectMarkers,
+  containerRef,
+  containerWidth,
+  currentPresenceUserId,
+  editor,
+  fullPageCanvasWidth,
+  mergeMarkers,
+}: {
+  areMarkersEqual: (left: TMarker[], right: TMarker[]) => boolean
+  collaboration: RichTextEditorCollaboration | undefined
+  collectMarkers: (input: CollaborationMarkerCollectionInput) => TMarker[]
+  containerRef: MutableRefObject<HTMLDivElement | null>
+  containerWidth: number
+  currentPresenceUserId: string | null
+  editor: Editor | null
+  fullPageCanvasWidth: FullPageCanvasWidth
+  mergeMarkers?: (input: CollaborationMarkerMergeInput<TMarker>) => TMarker[]
+}) {
+  const [markers, setMarkers] = useState<TMarker[]>([])
+
+  const updateMarkers = useCallback(() => {
+    if (!editor || !collaboration) {
+      setMarkers((current) => (current.length === 0 ? current : []))
+      return
+    }
+
+    const nextMarkers = collectMarkers({
+      currentEditor: editor,
+      container: containerRef.current,
+      collaboration,
+      currentPresenceUserId,
+    })
+
+    setMarkers((current) => {
+      const committedMarkers = mergeMarkers
+        ? mergeMarkers({
+            collaboration,
+            current,
+            currentPresenceUserId,
+            nextMarkers,
+          })
+        : nextMarkers
+
+      return areMarkersEqual(current, committedMarkers)
+        ? current
+        : committedMarkers
+    })
+  }, [
+    areMarkersEqual,
+    collaboration,
+    collectMarkers,
+    containerRef,
+    currentPresenceUserId,
+    editor,
+    mergeMarkers,
+  ])
+
+  useMarkerLayoutRefresh({
+    containerWidth,
+    fullPageCanvasWidth,
+    updateMarkers,
+  })
+  useCollaborationMarkerSubscriptions({
+    collaboration,
+    containerRef,
+    editor,
+    updateMarkers,
+  })
 
   return markers
+}
+
+function mergeCollaborationCursorMarkers({
+  collaboration,
+  current,
+  currentPresenceUserId,
+  nextMarkers,
+}: CollaborationMarkerMergeInput<CollaborationCursorMarker>) {
+  const activeKeys = collectActiveCollaborationMarkerKeys({
+    collaboration,
+    currentPresenceUserId,
+  })
+  const nextMarkerKeys = new Set(nextMarkers.map((marker) => marker.key))
+  const preservedMarkers = current.filter(
+    (marker) => activeKeys.has(marker.key) && !nextMarkerKeys.has(marker.key)
+  )
+
+  return sortCollaborationMarkers([...nextMarkers, ...preservedMarkers])
 }
 
 function useCollaborationCursorMarkers({
@@ -2430,104 +2297,17 @@ function useCollaborationCursorMarkers({
   editor: Editor | null
   fullPageCanvasWidth: FullPageCanvasWidth
 }) {
-  const [markers, setMarkers] = useState<CollaborationCursorMarker[]>([])
-
-  const updateMarkers = useCallback(() => {
-    if (!editor || !collaboration) {
-      setMarkers((current) => (current.length === 0 ? current : []))
-      return
-    }
-
-    const nextMarkers = collectCollaborationCursorMarkers({
-      currentEditor: editor,
-      container: containerRef.current,
-      collaboration,
-      currentPresenceUserId,
-    })
-    const activeKeys = collectActiveCollaborationMarkerKeys({
-      collaboration,
-      currentPresenceUserId,
-    })
-
-    setMarkers((current) => {
-      const nextMarkerKeys = new Set(nextMarkers.map((marker) => marker.key))
-      const preservedMarkers = current.filter(
-        (marker) =>
-          activeKeys.has(marker.key) && !nextMarkerKeys.has(marker.key)
-      )
-      const mergedMarkers = [...nextMarkers, ...preservedMarkers].sort(
-        (left, right) =>
-          left.top - right.top ||
-          left.left - right.left ||
-          left.key.localeCompare(right.key)
-      )
-
-      return areCollaborationCursorMarkersEqual(current, mergedMarkers)
-        ? current
-        : mergedMarkers
-    })
-  }, [collaboration, containerRef, currentPresenceUserId, editor])
-
-  useEffect(() => {
-    const frameId = window.requestAnimationFrame(updateMarkers)
-
-    return () => {
-      window.cancelAnimationFrame(frameId)
-    }
-  }, [containerWidth, fullPageCanvasWidth, updateMarkers])
-
-  useEffect(() => {
-    if (!editor || !collaboration) {
-      return
-    }
-
-    let frameId: number | null = null
-    let settleFrameId: number | null = null
-    const provider = collaboration.binding.provider
-    const queueUpdate = () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-      if (settleFrameId !== null) {
-        window.cancelAnimationFrame(settleFrameId)
-      }
-
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null
-        settleFrameId = window.requestAnimationFrame(() => {
-          settleFrameId = null
-          updateMarkers()
-        })
-      })
-    }
-
-    const container = containerRef.current
-    queueUpdate()
-    editor.on("update", queueUpdate)
-    editor.on("selectionUpdate", queueUpdate)
-    provider.awareness.on("change", queueUpdate)
-    provider.awareness.on("update", queueUpdate)
-    container?.addEventListener("scroll", queueUpdate, { passive: true })
-    window.addEventListener("resize", queueUpdate)
-
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-      if (settleFrameId !== null) {
-        window.cancelAnimationFrame(settleFrameId)
-      }
-
-      editor.off("update", queueUpdate)
-      editor.off("selectionUpdate", queueUpdate)
-      provider.awareness.off("change", queueUpdate)
-      provider.awareness.off("update", queueUpdate)
-      container?.removeEventListener("scroll", queueUpdate)
-      window.removeEventListener("resize", queueUpdate)
-    }
-  }, [collaboration, containerRef, editor, updateMarkers])
-
-  return markers
+  return useCollaborationMarkers({
+    areMarkersEqual: areCollaborationCursorMarkersEqual,
+    collaboration,
+    collectMarkers: collectCollaborationCursorMarkers,
+    containerRef,
+    containerWidth,
+    currentPresenceUserId,
+    editor,
+    fullPageCanvasWidth,
+    mergeMarkers: mergeCollaborationCursorMarkers,
+  })
 }
 
 function useCollaborationSelectionMarkers({
@@ -2545,88 +2325,654 @@ function useCollaborationSelectionMarkers({
   editor: Editor | null
   fullPageCanvasWidth: FullPageCanvasWidth
 }) {
-  const [markers, setMarkers] = useState<CollaborationSelectionMarker[]>([])
+  return useCollaborationMarkers({
+    areMarkersEqual: areCollaborationSelectionMarkersEqual,
+    collaboration,
+    collectMarkers: collectCollaborationSelectionMarkers,
+    containerRef,
+    containerWidth,
+    currentPresenceUserId,
+    editor,
+    fullPageCanvasWidth,
+  })
+}
 
-  const updateMarkers = useCallback(() => {
-    if (!editor || !collaboration) {
-      setMarkers((current) => (current.length === 0 ? current : []))
-      return
+function useRichTextPickerState() {
+  const hiddenAttachmentInputRef = useRef<HTMLInputElement | null>(null)
+  const hiddenImageInputRef = useRef<HTMLInputElement | null>(null)
+  const [attachmentPickerRequest, setAttachmentPickerRequest] = useState(0)
+  const [imagePickerRequest, setImagePickerRequest] = useState(0)
+  const [pickerInsertPosition, setPickerInsertPosition] = useState<
+    number | null
+  >(null)
+  const [emojiPickerAnchor, setEmojiPickerAnchor] =
+    useState<EmojiPickerAnchor | null>(null)
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
+
+  const requestAttachmentPicker = useCallback((currentEditor: Editor) => {
+    setPickerInsertPosition(currentEditor.state.selection.from)
+    setAttachmentPickerRequest((current) => current + 1)
+  }, [])
+
+  const requestImagePicker = useCallback((currentEditor: Editor) => {
+    setPickerInsertPosition(currentEditor.state.selection.from)
+    setImagePickerRequest((current) => current + 1)
+  }, [])
+
+  const requestEmojiPicker = useCallback(
+    (currentEditor: Editor, anchor?: EmojiPickerAnchor | null) => {
+      setPickerInsertPosition(currentEditor.state.selection.from)
+      setEmojiPickerAnchor(
+        anchor ?? {
+          left: 12,
+          top: 12,
+        }
+      )
+      setEmojiPickerOpen(true)
+    },
+    []
+  )
+
+  return {
+    attachmentPickerRequest,
+    emojiPickerAnchor,
+    emojiPickerOpen,
+    hiddenAttachmentInputRef,
+    hiddenImageInputRef,
+    imagePickerRequest,
+    pickerInsertPosition,
+    requestAttachmentPicker,
+    requestEmojiPicker,
+    requestImagePicker,
+    setEmojiPickerAnchor,
+    setEmojiPickerOpen,
+  }
+}
+
+function useRichTextMenuState({
+  allowSlashCommands,
+  containerRef,
+}: {
+  allowSlashCommands: boolean
+  containerRef: MutableRefObject<HTMLDivElement | null>
+}) {
+  const previousSlashQueryRef = useRef<string | null>(null)
+  const previousMentionQueryRef = useRef<string | null>(null)
+  const [slashState, setSlashState] = useState<MenuState | null>(null)
+  const [mentionState, setMentionState] = useState<MenuState | null>(null)
+  const [slashIndex, setSlashIndex] = useState(0)
+  const [mentionIndex, setMentionIndex] = useState(0)
+
+  const syncSlashState = useCallback((nextSlashState: MenuState | null) => {
+    const nextQuery = nextSlashState?.query ?? null
+
+    setSlashState(nextSlashState)
+
+    if (previousSlashQueryRef.current !== nextQuery) {
+      previousSlashQueryRef.current = nextQuery
+      setSlashIndex(0)
     }
+  }, [])
 
-    const nextMarkers = collectCollaborationSelectionMarkers({
-      currentEditor: editor,
-      container: containerRef.current,
-      collaboration,
-      currentPresenceUserId,
-    })
+  const syncMentionState = useCallback((nextMentionState: MenuState | null) => {
+    const nextQuery = nextMentionState?.query ?? null
 
-    setMarkers((current) =>
-      areCollaborationSelectionMarkersEqual(current, nextMarkers)
-        ? current
-        : nextMarkers
-    )
-  }, [collaboration, containerRef, currentPresenceUserId, editor])
+    setMentionState(nextMentionState)
 
-  useEffect(() => {
-    const frameId = window.requestAnimationFrame(updateMarkers)
-
-    return () => {
-      window.cancelAnimationFrame(frameId)
+    if (previousMentionQueryRef.current !== nextQuery) {
+      previousMentionQueryRef.current = nextQuery
+      setMentionIndex(0)
     }
-  }, [containerWidth, fullPageCanvasWidth, updateMarkers])
+  }, [])
 
-  useEffect(() => {
-    if (!editor || !collaboration) {
-      return
-    }
+  const syncCommandMenus = useCallback(
+    (currentEditor: Editor) => {
+      syncSlashState(
+        allowSlashCommands
+          ? buildSlashState(currentEditor, containerRef.current)
+          : null
+      )
+      syncMentionState(buildMentionState(currentEditor, containerRef.current))
+    },
+    [allowSlashCommands, containerRef, syncMentionState, syncSlashState]
+  )
 
-    let frameId: number | null = null
-    let settleFrameId: number | null = null
-    const provider = collaboration.binding.provider
-    const queueUpdate = () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
+  return {
+    mentionIndex,
+    mentionState,
+    previousMentionQueryRef,
+    previousSlashQueryRef,
+    setMentionIndex,
+    setMentionState,
+    setSlashIndex,
+    setSlashState,
+    slashIndex,
+    slashState,
+    syncCommandMenus,
+  }
+}
+
+function useRichTextActiveBlockReporter({
+  onActiveBlockChange,
+}: {
+  onActiveBlockChange?: (blockId: string | null) => void
+}) {
+  const lastReportedActiveBlockIdRef = useRef<string | null>(null)
+
+  return useCallback(
+    (activeBlockId: string | null) => {
+      if (lastReportedActiveBlockIdRef.current === activeBlockId) {
+        return
       }
-      if (settleFrameId !== null) {
-        window.cancelAnimationFrame(settleFrameId)
-      }
 
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null
-        settleFrameId = window.requestAnimationFrame(() => {
-          settleFrameId = null
-          updateMarkers()
-        })
+      lastReportedActiveBlockIdRef.current = activeBlockId
+      onActiveBlockChange?.(activeBlockId)
+    },
+    [onActiveBlockChange]
+  )
+}
+
+function useRichTextUploads({
+  editorRef,
+  hiddenAttachmentInputRef,
+  hiddenImageInputRef,
+  onUploadAttachmentRef,
+}: {
+  editorRef: MutableRefObject<Editor | null>
+  hiddenAttachmentInputRef: MutableRefObject<HTMLInputElement | null>
+  hiddenImageInputRef: MutableRefObject<HTMLInputElement | null>
+  onUploadAttachmentRef: MutableRefObject<
+    RichTextEditorProps["onUploadAttachment"]
+  >
+}) {
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
+
+  const handleEditorFiles = useCallback(
+    async (currentEditor: Editor, files: File[], position?: number | null) => {
+      await uploadRichTextEditorFiles({
+        currentEditor,
+        files,
+        position,
+        setUploadingAttachment,
+        uploadAttachment: onUploadAttachmentRef.current,
       })
-    }
+    },
+    [onUploadAttachmentRef]
+  )
 
-    const container = containerRef.current
-    queueUpdate()
-    editor.on("update", queueUpdate)
-    editor.on("selectionUpdate", queueUpdate)
-    provider.awareness.on("change", queueUpdate)
-    provider.awareness.on("update", queueUpdate)
-    container?.addEventListener("scroll", queueUpdate, { passive: true })
-    window.addEventListener("resize", queueUpdate)
+  const handleToolbarFiles = useCallback(
+    async (files: File[], position?: number | null) => {
+      const currentEditor = editorRef.current
 
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-      if (settleFrameId !== null) {
-        window.cancelAnimationFrame(settleFrameId)
+      if (!currentEditor) {
+        return
       }
 
-      editor.off("update", queueUpdate)
-      editor.off("selectionUpdate", queueUpdate)
-      provider.awareness.off("change", queueUpdate)
-      provider.awareness.off("update", queueUpdate)
-      container?.removeEventListener("scroll", queueUpdate)
-      window.removeEventListener("resize", queueUpdate)
-    }
-  }, [collaboration, containerRef, editor, updateMarkers])
+      await handleEditorFiles(currentEditor, files, position)
 
-  return markers
+      if (hiddenAttachmentInputRef.current) {
+        hiddenAttachmentInputRef.current.value = ""
+      }
+
+      if (hiddenImageInputRef.current) {
+        hiddenImageInputRef.current.value = ""
+      }
+    },
+    [
+      editorRef,
+      handleEditorFiles,
+      hiddenAttachmentInputRef,
+      hiddenImageInputRef,
+    ]
+  )
+
+  return {
+    handleEditorFiles,
+    handleToolbarFiles,
+    uploadingAttachment,
+  }
+}
+
+function useRichTextResolvedContent(content: RichTextEditorProps["content"]) {
+  const sanitizedStringContent = useMemo(
+    () =>
+      typeof content === "string" ? sanitizeRichTextContent(content) : null,
+    [content]
+  )
+
+  return {
+    resolvedEditorContent: sanitizedStringContent ?? content,
+    sanitizedStringContent,
+  }
+}
+
+function getRichTextCharacterLimit(input: {
+  enforcePlainTextLimit: boolean
+  maxPlainTextCharacters: number | undefined
+}) {
+  if (!input.enforcePlainTextLimit && !input.maxPlainTextCharacters) {
+    return undefined
+  }
+
+  return input.maxPlainTextCharacters ? input.maxPlainTextCharacters : undefined
+}
+
+function createRichTextCollaborationExtensions(input: {
+  collaborationDocument: RichTextEditorCollaboration["binding"]["doc"] | null
+  collaborationProvider:
+    | RichTextEditorCollaboration["binding"]["provider"]
+    | null
+}) {
+  if (!input.collaborationDocument || !input.collaborationProvider) {
+    return []
+  }
+
+  return [
+    Collaboration.configure({
+      document: input.collaborationDocument,
+      field: COLLABORATION_XML_FRAGMENT,
+      provider: input.collaborationProvider,
+    }),
+  ]
+}
+
+function useRichTextExtensionSets({
+  collaboration,
+  enforcePlainTextLimit,
+  maxPlainTextCharacters,
+  placeholder,
+}: {
+  collaboration: RichTextEditorCollaboration | undefined
+  enforcePlainTextLimit: boolean
+  maxPlainTextCharacters: number | undefined
+  placeholder: string
+}) {
+  const hasCollaboration = Boolean(collaboration)
+  const collaborationDocument = collaboration?.binding.doc ?? null
+  const collaborationProvider = collaboration?.binding.provider ?? null
+  const characterLimit = getRichTextCharacterLimit({
+    enforcePlainTextLimit,
+    maxPlainTextCharacters,
+  })
+  const baseExtensions = useMemo(
+    () =>
+      createRichTextBaseExtensions({
+        placeholder,
+        collaboration: hasCollaboration,
+        characterLimit,
+      }),
+    [characterLimit, hasCollaboration, placeholder]
+  )
+  const collaborationExtensions = useMemo(
+    () =>
+      createRichTextCollaborationExtensions({
+        collaborationDocument,
+        collaborationProvider,
+      }),
+    [collaborationDocument, collaborationProvider]
+  )
+
+  return {
+    baseExtensions,
+    collaborationExtensions,
+  }
+}
+
+function useRichTextTypingIdle(
+  collaboration: RichTextEditorCollaboration | undefined
+) {
+  const typingTimeoutRef = useRef<number | null>(null)
+  const clearTypingTimeout = useCallback(() => {
+    if (typingTimeoutRef.current !== null) {
+      window.clearTimeout(typingTimeoutRef.current)
+      typingTimeoutRef.current = null
+    }
+  }, [])
+
+  const scheduleTypingIdleReset = useCallback(
+    (currentEditor: Editor) => {
+      if (!collaboration) {
+        return
+      }
+
+      clearTypingTimeout()
+      typingTimeoutRef.current = window.setTimeout(() => {
+        updateEditorCollaborationUser(currentEditor, collaboration, {
+          typing: false,
+        })
+      }, TYPING_IDLE_TIMEOUT_MS)
+    },
+    [clearTypingTimeout, collaboration]
+  )
+
+  return {
+    clearTypingTimeout,
+    scheduleTypingIdleReset,
+  }
+}
+
+function handleRichTextEditorCreate(input: {
+  collaboration: RichTextEditorCollaboration | undefined
+  currentEditor: Editor
+  onMentionCountsChangeRef: MutableRefObject<
+    RichTextEditorProps["onMentionCountsChange"]
+  >
+  reportActiveBlockId: (activeBlockId: string | null) => void
+  syncCommandMenus: (currentEditor: Editor) => void
+}) {
+  const activeBlockId = updateCurrentEditorCollaborationPresence({
+    collaboration: input.collaboration,
+    currentEditor: input.currentEditor,
+    typing: false,
+  })
+  input.reportActiveBlockId(activeBlockId)
+
+  input.onMentionCountsChangeRef.current?.(
+    getEditorMentionCounts(input.currentEditor),
+    "initial"
+  )
+  input.syncCommandMenus(input.currentEditor)
+}
+
+function isExternalRichTextCollaborationChange(input: {
+  collaboration: RichTextEditorCollaboration | undefined
+  transaction: Parameters<typeof isChangeOrigin>[0]
+}) {
+  return Boolean(input.collaboration && isChangeOrigin(input.transaction))
+}
+
+function reportRichTextEditorContentChange(input: {
+  currentEditor: Editor
+  isExternalCollaborationChange: boolean
+  onChangeRef: MutableRefObject<(content: string) => void>
+  onMentionCountsChangeRef: MutableRefObject<
+    RichTextEditorProps["onMentionCountsChange"]
+  >
+}) {
+  input.onChangeRef.current(
+    sanitizeRichTextContent(input.currentEditor.getHTML())
+  )
+  input.onMentionCountsChangeRef.current?.(
+    getEditorMentionCounts(input.currentEditor),
+    input.isExternalCollaborationChange ? "external" : "local"
+  )
+}
+
+function syncRichTextEditorLocalCollaborationUpdate(input: {
+  collaboration: RichTextEditorCollaboration | undefined
+  currentEditor: Editor
+  isExternalCollaborationChange: boolean
+  reportActiveBlockId: (activeBlockId: string | null) => void
+  scheduleTypingIdleReset: (currentEditor: Editor) => void
+}) {
+  if (!input.collaboration || input.isExternalCollaborationChange) {
+    return false
+  }
+
+  const activeBlockId = updateCurrentEditorCollaborationPresence({
+    collaboration: input.collaboration,
+    currentEditor: input.currentEditor,
+    typing: true,
+  })
+  input.reportActiveBlockId(activeBlockId)
+  input.scheduleTypingIdleReset(input.currentEditor)
+
+  return true
+}
+
+function reportRichTextEditorLocalActiveBlock(input: {
+  currentEditor: Editor
+  isExternalCollaborationChange: boolean
+  reportActiveBlockId: (activeBlockId: string | null) => void
+}) {
+  if (input.isExternalCollaborationChange) {
+    return
+  }
+
+  input.reportActiveBlockId(getActiveBlockId(input.currentEditor))
+}
+
+function handleRichTextEditorUpdate(input: {
+  collaboration: RichTextEditorCollaboration | undefined
+  currentEditor: Editor
+  onChangeRef: MutableRefObject<(content: string) => void>
+  onMentionCountsChangeRef: MutableRefObject<
+    RichTextEditorProps["onMentionCountsChange"]
+  >
+  reportActiveBlockId: (activeBlockId: string | null) => void
+  scheduleTypingIdleReset: (currentEditor: Editor) => void
+  syncCommandMenus: (currentEditor: Editor) => void
+  transaction: Parameters<typeof isChangeOrigin>[0]
+}) {
+  const isExternalCollaborationChange =
+    isExternalRichTextCollaborationChange(input)
+
+  reportRichTextEditorContentChange({
+    currentEditor: input.currentEditor,
+    isExternalCollaborationChange,
+    onChangeRef: input.onChangeRef,
+    onMentionCountsChangeRef: input.onMentionCountsChangeRef,
+  })
+  input.syncCommandMenus(input.currentEditor)
+
+  const handledCollaborationUpdate = syncRichTextEditorLocalCollaborationUpdate(
+    {
+      collaboration: input.collaboration,
+      currentEditor: input.currentEditor,
+      isExternalCollaborationChange,
+      reportActiveBlockId: input.reportActiveBlockId,
+      scheduleTypingIdleReset: input.scheduleTypingIdleReset,
+    }
+  )
+
+  if (handledCollaborationUpdate) {
+    return
+  }
+
+  reportRichTextEditorLocalActiveBlock({
+    currentEditor: input.currentEditor,
+    isExternalCollaborationChange,
+    reportActiveBlockId: input.reportActiveBlockId,
+  })
+}
+
+function handleRichTextEditorSelectionUpdate(input: {
+  collaboration: RichTextEditorCollaboration | undefined
+  currentEditor: Editor
+  reportActiveBlockId: (activeBlockId: string | null) => void
+  syncCommandMenus: (currentEditor: Editor) => void
+}) {
+  input.syncCommandMenus(input.currentEditor)
+  const activeBlockId = updateCurrentEditorCollaborationPresence({
+    collaboration: input.collaboration,
+    currentEditor: input.currentEditor,
+  })
+  input.reportActiveBlockId(activeBlockId)
+}
+
+function handleRichTextEditorBlur(input: {
+  clearTypingTimeout: () => void
+  collaboration: RichTextEditorCollaboration | undefined
+  currentEditor: Editor
+  reportActiveBlockId: (activeBlockId: string | null) => void
+}) {
+  input.clearTypingTimeout()
+  const activeBlockId = updateCurrentEditorCollaborationPresence({
+    collaboration: input.collaboration,
+    currentEditor: input.currentEditor,
+    typing: false,
+  })
+  input.reportActiveBlockId(activeBlockId)
+}
+
+function useFilteredRichTextSlashCommands(input: {
+  allowSlashCommands: boolean
+  editor: Editor | null
+  onUploadAttachment: RichTextEditorProps["onUploadAttachment"]
+  requestAttachmentPicker: (currentEditor: Editor) => void
+  requestEmojiPicker: (
+    currentEditor: Editor,
+    anchor?: EmojiPickerAnchor | null
+  ) => void
+  requestImagePicker: (currentEditor: Editor) => void
+  slashState: MenuState | null
+}) {
+  const {
+    allowSlashCommands,
+    editor,
+    onUploadAttachment,
+    requestAttachmentPicker,
+    requestEmojiPicker,
+    requestImagePicker,
+    slashState,
+  } = input
+
+  return useMemo(() => {
+    if (!allowSlashCommands || !slashState || !editor) {
+      return []
+    }
+
+    return filterSlashCommands(slashState.query, {
+      enableUploads: Boolean(onUploadAttachment),
+      promptEmojiPicker: (nextEditor) =>
+        requestEmojiPicker(nextEditor, slashState),
+      promptAttachmentUpload: requestAttachmentPicker,
+      promptImageUpload: requestImagePicker,
+    })
+  }, [
+    allowSlashCommands,
+    editor,
+    onUploadAttachment,
+    requestAttachmentPicker,
+    requestEmojiPicker,
+    requestImagePicker,
+    slashState,
+  ])
+}
+
+function useFilteredRichTextMentionCandidates(input: {
+  editor: Editor | null
+  mentionCandidates: MentionCandidate[]
+  mentionState: MenuState | null
+}) {
+  return useMemo(() => {
+    if (!input.mentionState || !input.editor) {
+      return []
+    }
+
+    return filterMentionCandidates(
+      input.mentionState.query,
+      input.mentionCandidates
+    )
+  }, [input.editor, input.mentionCandidates, input.mentionState])
+}
+
+function getRichTextStatsWords(editor: Editor | null) {
+  return editor?.storage.characterCount.words() ?? 0
+}
+
+function getRichTextStatsCharacters(editor: Editor | null) {
+  return editor?.storage.characterCount.characters() ?? 0
+}
+
+function isRichTextTooShort(characters: number, minimum: number) {
+  return minimum > 0 && characters < minimum
+}
+
+function isRichTextTooLong(characters: number, maximum: number | undefined) {
+  return maximum !== undefined && characters > maximum
+}
+
+function getRemainingRichTextCharacters(
+  characters: number,
+  maximum: number | undefined
+) {
+  return maximum !== undefined ? maximum - characters : null
+}
+
+function useRichTextStatsState(input: {
+  editor: Editor | null
+  maxPlainTextCharacters: number | undefined
+  minPlainTextCharacters: number
+}) {
+  const statsWords = getRichTextStatsWords(input.editor)
+  const statsCharacters = getRichTextStatsCharacters(input.editor)
+  const tooShort = isRichTextTooShort(
+    statsCharacters,
+    input.minPlainTextCharacters
+  )
+  const tooLong = isRichTextTooLong(
+    statsCharacters,
+    input.maxPlainTextCharacters
+  )
+  const canSubmit = !tooShort && !tooLong
+  const remainingCharacters = getRemainingRichTextCharacters(
+    statsCharacters,
+    input.maxPlainTextCharacters
+  )
+
+  return {
+    canSubmit,
+    remainingCharacters,
+    statsCharacters,
+    statsWords,
+    tooLong,
+    tooShort,
+  }
+}
+
+function useRichTextStatsEffects(input: {
+  canSubmit: boolean
+  maxPlainTextCharacters: number | undefined
+  minPlainTextCharacters: number
+  onStatsChange: RichTextEditorProps["onStatsChange"]
+  onValidityChange: RichTextEditorProps["onValidityChange"]
+  remainingCharacters: number | null
+  statsCharacters: number
+  statsWords: number
+  tooLong: boolean
+  tooShort: boolean
+}) {
+  const {
+    canSubmit,
+    maxPlainTextCharacters,
+    minPlainTextCharacters,
+    onStatsChange,
+    onValidityChange,
+    remainingCharacters,
+    statsCharacters,
+    statsWords,
+    tooLong,
+    tooShort,
+  } = input
+
+  useEffect(() => {
+    onStatsChange?.({
+      words: statsWords,
+      characters: statsCharacters,
+    })
+  }, [onStatsChange, statsCharacters, statsWords])
+
+  useEffect(() => {
+    onValidityChange?.({
+      characters: statsCharacters,
+      minimum: minPlainTextCharacters,
+      maximum: maxPlainTextCharacters ?? null,
+      remaining: remainingCharacters,
+      tooShort,
+      tooLong,
+      canSubmit,
+    })
+  }, [
+    canSubmit,
+    maxPlainTextCharacters,
+    minPlainTextCharacters,
+    onValidityChange,
+    remainingCharacters,
+    statsCharacters,
+    tooLong,
+    tooShort,
+  ])
 }
 
 export function RichTextEditor({
@@ -2660,233 +3006,68 @@ export function RichTextEditor({
   mentionCandidates = EMPTY_MENTION_CANDIDATES,
 }: RichTextEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const hiddenAttachmentInputRef = useRef<HTMLInputElement | null>(null)
-  const hiddenImageInputRef = useRef<HTMLInputElement | null>(null)
   const editorRef = useRef<Editor | null>(null)
-  const previousSlashQueryRef = useRef<string | null>(null)
-  const previousMentionQueryRef = useRef<string | null>(null)
   const onChangeRef = useLatestRef(onChange)
   const onUploadAttachmentRef = useLatestRef(onUploadAttachment)
   const onMentionCountsChangeRef = useLatestRef(onMentionCountsChange)
   const onMentionInsertedRef = useLatestRef(onMentionInserted)
-  const typingTimeoutRef = useRef<number | null>(null)
-  const lastReportedActiveBlockIdRef = useRef<string | null>(null)
-
-  const [slashState, setSlashState] = useState<MenuState | null>(null)
-  const [mentionState, setMentionState] = useState<MenuState | null>(null)
-  const [slashIndex, setSlashIndex] = useState(0)
-  const [mentionIndex, setMentionIndex] = useState(0)
-  const [uploadingAttachment, setUploadingAttachment] = useState(false)
-  const [attachmentPickerRequest, setAttachmentPickerRequest] = useState(0)
-  const [imagePickerRequest, setImagePickerRequest] = useState(0)
-  const [pickerInsertPosition, setPickerInsertPosition] = useState<
-    number | null
-  >(null)
-  const [emojiPickerAnchor, setEmojiPickerAnchor] =
-    useState<EmojiPickerAnchor | null>(null)
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
-  const reportActiveBlockId = useCallback(
-    (activeBlockId: string | null) => {
-      if (lastReportedActiveBlockIdRef.current === activeBlockId) {
-        return
-      }
-
-      lastReportedActiveBlockIdRef.current = activeBlockId
-      onActiveBlockChange?.(activeBlockId)
-    },
-    [onActiveBlockChange]
-  )
+  const reportActiveBlockId = useRichTextActiveBlockReporter({
+    onActiveBlockChange,
+  })
   const { fullPageCanvasWidth, setFullPageCanvasWidth } =
     useFullPageCanvasWidthPreference(fullPage)
   const containerWidth = useRichTextContainerWidth({ containerRef, fullPage })
-
-  function requestAttachmentPicker(currentEditor: Editor) {
-    setPickerInsertPosition(currentEditor.state.selection.from)
-    setAttachmentPickerRequest((current) => current + 1)
-  }
-
-  function requestImagePicker(currentEditor: Editor) {
-    setPickerInsertPosition(currentEditor.state.selection.from)
-    setImagePickerRequest((current) => current + 1)
-  }
-
-  function requestEmojiPicker(
-    currentEditor: Editor,
-    anchor?: EmojiPickerAnchor | null
-  ) {
-    setPickerInsertPosition(currentEditor.state.selection.from)
-    setEmojiPickerAnchor(
-      anchor ?? {
-        left: 12,
-        top: 12,
-      }
-    )
-    setEmojiPickerOpen(true)
-  }
-
-  function syncSlashState(nextSlashState: MenuState | null) {
-    const nextQuery = nextSlashState?.query ?? null
-
-    setSlashState(nextSlashState)
-
-    if (previousSlashQueryRef.current !== nextQuery) {
-      previousSlashQueryRef.current = nextQuery
-      setSlashIndex(0)
-    }
-  }
-
-  function syncMentionState(nextMentionState: MenuState | null) {
-    const nextQuery = nextMentionState?.query ?? null
-
-    setMentionState(nextMentionState)
-
-    if (previousMentionQueryRef.current !== nextQuery) {
-      previousMentionQueryRef.current = nextQuery
-      setMentionIndex(0)
-    }
-  }
-
-  function syncCommandMenus(currentEditor: Editor) {
-    syncSlashState(
-      allowSlashCommands
-        ? buildSlashState(currentEditor, containerRef.current)
-        : null
-    )
-    syncMentionState(buildMentionState(currentEditor, containerRef.current))
-  }
+  const {
+    attachmentPickerRequest,
+    emojiPickerAnchor,
+    emojiPickerOpen,
+    hiddenAttachmentInputRef,
+    hiddenImageInputRef,
+    imagePickerRequest,
+    pickerInsertPosition,
+    requestAttachmentPicker,
+    requestEmojiPicker,
+    requestImagePicker,
+    setEmojiPickerAnchor,
+    setEmojiPickerOpen,
+  } = useRichTextPickerState()
+  const {
+    mentionIndex,
+    mentionState,
+    previousMentionQueryRef,
+    previousSlashQueryRef,
+    setMentionIndex,
+    setMentionState,
+    setSlashIndex,
+    setSlashState,
+    slashIndex,
+    slashState,
+    syncCommandMenus,
+  } = useRichTextMenuState({ allowSlashCommands, containerRef })
 
   const editorClass = getRichTextEditorClassName({ compact, fullPage })
-
-  const sanitizedStringContent = useMemo(
-    () =>
-      typeof content === "string" ? sanitizeRichTextContent(content) : null,
-    [content]
-  )
-
-  const resolvedEditorContent = sanitizedStringContent ?? content
-  const hasCollaboration = Boolean(collaboration)
-  const collaborationDocument = collaboration?.binding.doc ?? null
-  const collaborationProvider = collaboration?.binding.provider ?? null
+  const { resolvedEditorContent, sanitizedStringContent } =
+    useRichTextResolvedContent(content)
   const visiblePresenceViewers = useMemo(
     () => getVisiblePresenceViewers({ currentPresenceUserId, presenceViewers }),
     [currentPresenceUserId, presenceViewers]
   )
-  const baseExtensions = useMemo(
-    () =>
-      createRichTextBaseExtensions({
-        placeholder,
-        collaboration: hasCollaboration,
-        characterLimit:
-          (enforcePlainTextLimit || Boolean(maxPlainTextCharacters)) &&
-          maxPlainTextCharacters
-            ? maxPlainTextCharacters
-            : undefined,
-      }),
-    [
-      hasCollaboration,
-      enforcePlainTextLimit,
-      maxPlainTextCharacters,
-      placeholder,
-    ]
-  )
-  const collaborationExtensions = useMemo(
-    () =>
-      collaborationDocument && collaborationProvider
-        ? [
-            Collaboration.configure({
-              document: collaborationDocument,
-              field: COLLABORATION_XML_FRAGMENT,
-              provider: collaborationProvider,
-            }),
-          ]
-        : [],
-    [collaborationDocument, collaborationProvider]
-  )
+  const { baseExtensions, collaborationExtensions } = useRichTextExtensionSets({
+    collaboration,
+    enforcePlainTextLimit,
+    maxPlainTextCharacters,
+    placeholder,
+  })
+  const { clearTypingTimeout, scheduleTypingIdleReset } =
+    useRichTextTypingIdle(collaboration)
 
-  const clearTypingTimeout = useCallback(() => {
-    if (typingTimeoutRef.current !== null) {
-      window.clearTimeout(typingTimeoutRef.current)
-      typingTimeoutRef.current = null
-    }
-  }, [])
-
-  function scheduleTypingIdleReset(currentEditor: Editor) {
-    if (!collaboration) {
-      return
-    }
-
-    clearTypingTimeout()
-    typingTimeoutRef.current = window.setTimeout(() => {
-      updateEditorCollaborationUser(currentEditor, collaboration, {
-        typing: false,
-      })
-    }, TYPING_IDLE_TIMEOUT_MS)
-  }
-
-  const handleEditorAttachment = useCallback(
-    async (
-      currentEditor: Editor,
-      file: File | null,
-      position?: number | null
-    ) => {
-      const uploadAttachment = onUploadAttachmentRef.current
-
-      if (!file || !uploadAttachment) {
-        return
-      }
-
-      setUploadingAttachment(true)
-      const uploaded = await uploadAttachment(file)
-      setUploadingAttachment(false)
-
-      if (uploaded?.fileUrl) {
-        insertUploadedAttachment({
-          currentEditor,
-          file,
-          uploaded,
-          position,
-        })
-      }
-    },
-    [onUploadAttachmentRef]
-  )
-
-  const handleEditorFiles = useCallback(
-    async (currentEditor: Editor, files: File[], position?: number | null) => {
-      if (!onUploadAttachmentRef.current || files.length === 0) {
-        return
-      }
-
-      let nextPosition = position ?? null
-
-      for (const file of files) {
-        await handleEditorAttachment(currentEditor, file, nextPosition)
-        nextPosition = null
-      }
-    },
-    [handleEditorAttachment, onUploadAttachmentRef]
-  )
-
-  const handleToolbarFiles = useCallback(
-    async (files: File[], position?: number | null) => {
-      const currentEditor = editorRef.current
-
-      if (!currentEditor) {
-        return
-      }
-
-      await handleEditorFiles(currentEditor, files, position)
-
-      if (hiddenAttachmentInputRef.current) {
-        hiddenAttachmentInputRef.current.value = ""
-      }
-
-      if (hiddenImageInputRef.current) {
-        hiddenImageInputRef.current.value = ""
-      }
-    },
-    [handleEditorFiles]
-  )
+  const { handleEditorFiles, handleToolbarFiles, uploadingAttachment } =
+    useRichTextUploads({
+      editorRef,
+      hiddenAttachmentInputRef,
+      hiddenImageInputRef,
+      onUploadAttachmentRef,
+    })
 
   const editor = useEditor(
     {
@@ -2894,7 +3075,6 @@ export function RichTextEditor({
       extensions: [
         ...baseExtensions,
         ...collaborationExtensions,
-        // eslint-disable-next-line react-hooks/refs -- FileHandler stores these callbacks and invokes them later for paste/drop events.
         FileHandler.configure({
           onPaste(currentEditor, files) {
             void handleEditorFiles(
@@ -2948,116 +3128,63 @@ export function RichTextEditor({
         },
       },
       onCreate({ editor: currentEditor }) {
-        const activeBlockId = getActiveBlockId(currentEditor)
-        const selection = getSelectionRange(currentEditor)
-        const relativeSelection = getRelativeSelectionRange(currentEditor)
-
-        if (collaboration) {
-          updateEditorCollaborationUser(currentEditor, collaboration, {
-            typing: false,
-            activeBlockId,
-            cursor: selection,
-            selection,
-            relativeCursor: relativeSelection,
-            relativeSelection,
-          })
-        }
-        reportActiveBlockId(activeBlockId)
-
-        onMentionCountsChangeRef.current?.(
-          getEditorMentionCounts(currentEditor),
-          "initial"
-        )
-        syncCommandMenus(currentEditor)
+        handleRichTextEditorCreate({
+          collaboration,
+          currentEditor,
+          onMentionCountsChangeRef,
+          reportActiveBlockId,
+          syncCommandMenus,
+        })
       },
       onUpdate({ editor: currentEditor, transaction }) {
-        const isExternalCollaborationChange =
-          collaboration && isChangeOrigin(transaction)
-
-        onChangeRef.current(sanitizeRichTextContent(currentEditor.getHTML()))
-
-        onMentionCountsChangeRef.current?.(
-          getEditorMentionCounts(currentEditor),
-          isExternalCollaborationChange ? "external" : "local"
-        )
-        syncCommandMenus(currentEditor)
-
-        if (collaboration && !isExternalCollaborationChange) {
-          const activeBlockId = getActiveBlockId(currentEditor)
-          const selection = getSelectionRange(currentEditor)
-          const relativeSelection = getRelativeSelectionRange(currentEditor)
-          updateEditorCollaborationUser(currentEditor, collaboration, {
-            typing: true,
-            activeBlockId,
-            cursor: selection,
-            selection,
-            relativeCursor: relativeSelection,
-            relativeSelection,
-          })
-          reportActiveBlockId(activeBlockId)
-          scheduleTypingIdleReset(currentEditor)
-        } else if (!isExternalCollaborationChange) {
-          reportActiveBlockId(getActiveBlockId(currentEditor))
-        }
+        handleRichTextEditorUpdate({
+          collaboration,
+          currentEditor,
+          onChangeRef,
+          onMentionCountsChangeRef,
+          reportActiveBlockId,
+          scheduleTypingIdleReset,
+          syncCommandMenus,
+          transaction,
+        })
       },
       onSelectionUpdate({ editor: currentEditor }) {
-        syncCommandMenus(currentEditor)
-        const activeBlockId = getActiveBlockId(currentEditor)
-        const selection = getSelectionRange(currentEditor)
-        const relativeSelection = getRelativeSelectionRange(currentEditor)
-
-        if (collaboration) {
-          updateEditorCollaborationUser(currentEditor, collaboration, {
-            activeBlockId,
-            cursor: selection,
-            selection,
-            relativeCursor: relativeSelection,
-            relativeSelection,
-          })
-        }
-        reportActiveBlockId(activeBlockId)
+        handleRichTextEditorSelectionUpdate({
+          collaboration,
+          currentEditor,
+          reportActiveBlockId,
+          syncCommandMenus,
+        })
       },
       onFocus({ editor: currentEditor }) {
-        const activeBlockId = getActiveBlockId(currentEditor)
-        const selection = getSelectionRange(currentEditor)
-        const relativeSelection = getRelativeSelectionRange(currentEditor)
-        if (collaboration) {
-          updateEditorCollaborationUser(currentEditor, collaboration, {
-            activeBlockId,
-            cursor: selection,
-            selection,
-            relativeCursor: relativeSelection,
-            relativeSelection,
-          })
-        }
-        reportActiveBlockId(activeBlockId)
+        handleRichTextEditorSelectionUpdate({
+          collaboration,
+          currentEditor,
+          reportActiveBlockId,
+          syncCommandMenus,
+        })
       },
       onBlur({ editor: currentEditor }) {
-        clearTypingTimeout()
-        const activeBlockId = getActiveBlockId(currentEditor)
-        const selection = getSelectionRange(currentEditor)
-        const relativeSelection = getRelativeSelectionRange(currentEditor)
-
-        if (collaboration) {
-          updateEditorCollaborationUser(currentEditor, collaboration, {
-            typing: false,
-            activeBlockId,
-            cursor: selection,
-            selection,
-            relativeCursor: relativeSelection,
-            relativeSelection,
-          })
-        }
-        reportActiveBlockId(activeBlockId)
+        handleRichTextEditorBlur({
+          clearTypingTimeout,
+          collaboration,
+          currentEditor,
+          reportActiveBlockId,
+        })
       },
     },
     [
       collaboration?.binding.doc,
       collaboration?.binding.provider,
       collaboration?.localUser.sessionId,
+      clearTypingTimeout,
       handleEditorFiles,
+      onChangeRef,
+      onMentionCountsChangeRef,
       reportActiveBlockId,
       placeholder,
+      scheduleTypingIdleReset,
+      syncCommandMenus,
     ]
   )
 
@@ -3084,40 +3211,32 @@ export function RichTextEditor({
     imagePickerRequest,
   })
 
-  const filteredSlashCommands = useMemo(() => {
-    if (!allowSlashCommands || !slashState || !editor) {
-      return []
-    }
-
-    return filterSlashCommands(slashState.query, {
-      enableUploads: Boolean(onUploadAttachment),
-      promptEmojiPicker: (nextEditor) =>
-        requestEmojiPicker(nextEditor, slashState),
-      promptAttachmentUpload: requestAttachmentPicker,
-      promptImageUpload: requestImagePicker,
-    })
-  }, [allowSlashCommands, editor, onUploadAttachment, slashState])
-
-  const filteredMentionCandidates = useMemo(() => {
-    if (!mentionState || !editor) {
-      return []
-    }
-
-    return filterMentionCandidates(mentionState.query, mentionCandidates)
-  }, [editor, mentionCandidates, mentionState])
-
-  const statsWords = editor?.storage.characterCount.words() ?? 0
-  const statsCharacters = editor?.storage.characterCount.characters() ?? 0
-  const tooShort =
-    minPlainTextCharacters > 0 && statsCharacters < minPlainTextCharacters
-  const tooLong =
-    maxPlainTextCharacters !== undefined &&
-    statsCharacters > maxPlainTextCharacters
-  const canSubmit = !tooShort && !tooLong
-  const remainingCharacters =
-    maxPlainTextCharacters !== undefined
-      ? maxPlainTextCharacters - statsCharacters
-      : null
+  const filteredSlashCommands = useFilteredRichTextSlashCommands({
+    allowSlashCommands,
+    editor,
+    onUploadAttachment,
+    requestAttachmentPicker,
+    requestEmojiPicker,
+    requestImagePicker,
+    slashState,
+  })
+  const filteredMentionCandidates = useFilteredRichTextMentionCandidates({
+    editor,
+    mentionCandidates,
+    mentionState,
+  })
+  const {
+    canSubmit,
+    remainingCharacters,
+    statsCharacters,
+    statsWords,
+    tooLong,
+    tooShort,
+  } = useRichTextStatsState({
+    editor,
+    maxPlainTextCharacters,
+    minPlainTextCharacters,
+  })
 
   const blockPresenceMarkers = useBlockPresenceMarkers({
     containerRef,
@@ -3143,79 +3262,64 @@ export function RichTextEditor({
     fullPageCanvasWidth,
   })
 
-  useEffect(() => {
-    onStatsChange?.({
-      words: statsWords,
-      characters: statsCharacters,
-    })
-  }, [onStatsChange, statsCharacters, statsWords])
-
-  useEffect(() => {
-    onValidityChange?.({
-      characters: statsCharacters,
-      minimum: minPlainTextCharacters,
-      maximum: maxPlainTextCharacters ?? null,
-      remaining: remainingCharacters,
-      tooShort,
-      tooLong,
-      canSubmit,
-    })
-  }, [
+  useRichTextStatsEffects({
     canSubmit,
     maxPlainTextCharacters,
     minPlainTextCharacters,
     onValidityChange,
+    onStatsChange,
     remainingCharacters,
     statsCharacters,
+    statsWords,
     tooLong,
     tooShort,
-  ])
+  })
 
-  return (
-    <RichTextEditorBody
-      allowSlashCommands={allowSlashCommands}
-      blockPresenceMarkers={blockPresenceMarkers}
-      className={className}
-      collaboration={collaboration}
-      collaborationCursorMarkers={collaborationCursorMarkers}
-      collaborationSelectionMarkers={collaborationSelectionMarkers}
-      containerRef={containerRef}
-      containerWidth={containerWidth}
-      currentEditor={editor}
-      editable={editable}
-      emojiPickerAnchor={emojiPickerAnchor}
-      emojiPickerOpen={emojiPickerOpen}
-      filteredMentionCandidates={filteredMentionCandidates}
-      filteredSlashCommands={filteredSlashCommands}
-      fullPage={fullPage}
-      fullPageCanvasWidth={fullPageCanvasWidth}
-      handleToolbarFiles={handleToolbarFiles}
-      hiddenAttachmentInputRef={hiddenAttachmentInputRef}
-      hiddenImageInputRef={hiddenImageInputRef}
-      mentionIndex={mentionIndex}
-      mentionMenuPlacement={mentionMenuPlacement}
-      mentionState={mentionState}
-      onMentionInserted={onMentionInserted}
-      pickerInsertPosition={pickerInsertPosition}
-      previousMentionQueryRef={previousMentionQueryRef}
-      previousSlashQueryRef={previousSlashQueryRef}
-      requestAttachmentPicker={requestAttachmentPicker}
-      requestImagePicker={requestImagePicker}
-      setEmojiPickerAnchor={setEmojiPickerAnchor}
-      setEmojiPickerOpen={setEmojiPickerOpen}
-      setFullPageCanvasWidth={setFullPageCanvasWidth}
-      setMentionIndex={setMentionIndex}
-      setMentionState={setMentionState}
-      setSlashIndex={setSlashIndex}
-      setSlashState={setSlashState}
-      showStats={showStats}
-      showToolbar={showToolbar}
-      slashIndex={slashIndex}
-      slashState={slashState}
-      statsCharacters={statsCharacters}
-      statsWords={statsWords}
-      uploadingAttachment={uploadingAttachment}
-      uploadsEnabled={Boolean(onUploadAttachment)}
-    />
-  )
+  const richTextEditorBodyProps = {
+    currentEditor: editor,
+    uploadsEnabled: Boolean(onUploadAttachment),
+    allowSlashCommands,
+    editable,
+    blockPresenceMarkers,
+    emojiPickerOpen,
+    className,
+    emojiPickerAnchor,
+    collaboration,
+    filteredMentionCandidates,
+    collaborationCursorMarkers,
+    filteredSlashCommands,
+    collaborationSelectionMarkers,
+    fullPage,
+    containerRef,
+    fullPageCanvasWidth,
+    containerWidth,
+    handleToolbarFiles,
+    setEmojiPickerAnchor,
+    hiddenAttachmentInputRef,
+    setEmojiPickerOpen,
+    hiddenImageInputRef,
+    setFullPageCanvasWidth,
+    mentionIndex,
+    setMentionIndex,
+    mentionMenuPlacement,
+    setMentionState,
+    mentionState,
+    setSlashIndex,
+    onMentionInserted,
+    setSlashState,
+    pickerInsertPosition,
+    showStats,
+    previousMentionQueryRef,
+    showToolbar,
+    previousSlashQueryRef,
+    slashIndex,
+    requestAttachmentPicker,
+    slashState,
+    requestImagePicker,
+    statsCharacters,
+    statsWords,
+    uploadingAttachment,
+  } satisfies RichTextEditorBodyProps
+
+  return <RichTextEditorBody {...richTextEditorBodyProps} />
 }

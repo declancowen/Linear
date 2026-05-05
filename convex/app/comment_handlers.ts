@@ -1,11 +1,18 @@
 import type { MutationCtx } from "../_generated/server"
 
+import {
+  collectDocumentCommentFollowerIds,
+  collectWorkItemCommentFollowerIds,
+} from "../../lib/domain/comment-followers"
 import { buildMentionEmailJobs } from "../../lib/email/builders"
 import { getPlainTextContent } from "../../lib/utils"
 import {
   createMentionIds,
   createNotification,
+  getMentionAudienceContext,
+  insertMentionNotifications,
   toggleReactionUsers,
+  type MentionAudienceUser,
 } from "./collaboration_utils"
 import { assertServerToken, createId, getNow } from "./core"
 import {
@@ -13,7 +20,6 @@ import {
   getDocumentDoc,
   getWorkItemDoc,
   listCommentsByTarget,
-  listUsersByIds,
 } from "./data"
 import {
   requireEditableTeamAccess,
@@ -49,18 +55,7 @@ type AddCommentTargetContext = {
   followerIds: string[]
   teamId: string
 }
-type MentionEmail = {
-  notificationId: string
-  email: string
-  name: string
-  entityTitle: string
-  entityType: CommentEntityType
-  entityId: string
-  actorName: string
-  commentText: string
-}
-
-function assertParentCommentTarget(
+export function assertParentCommentTarget(
   parentComment: Awaited<ReturnType<typeof getCommentDoc>> | null,
   args: AddCommentArgs
 ) {
@@ -97,12 +92,14 @@ async function resolveWorkItemCommentTarget(
 
   return {
     teamId: item.teamId,
-    followerIds: [
-      ...item.subscriberIds,
-      item.creatorId,
-      item.assigneeId ?? "",
-      ...existingComments.map((comment) => comment.createdBy),
-    ].filter(Boolean),
+    followerIds: collectWorkItemCommentFollowerIds({
+      subscriberIds: item.subscriberIds,
+      creatorId: item.creatorId,
+      assigneeId: item.assigneeId,
+      existingCommentAuthorIds: existingComments.map(
+        (comment) => comment.createdBy
+      ),
+    }),
     entityType: "workItem",
     entityTitle: item.title,
   }
@@ -130,11 +127,13 @@ async function resolveDocumentCommentTarget(
 
   return {
     teamId: document.teamId,
-    followerIds: [
-      document.createdBy,
-      document.updatedBy,
-      ...existingComments.map((comment) => comment.createdBy),
-    ],
+    followerIds: collectDocumentCommentFollowerIds({
+      createdBy: document.createdBy,
+      updatedBy: document.updatedBy,
+      existingCommentAuthorIds: existingComments.map(
+        (comment) => comment.createdBy
+      ),
+    }),
     entityType: "document",
     entityTitle: document.title,
   }
@@ -173,48 +172,52 @@ async function notifyMentionedCommentUsers({
   entityTitle: string
   entityType: CommentEntityType
   mentionUserIds: string[]
-  usersById: Map<string, Awaited<ReturnType<typeof listUsersByIds>>[number]>
+  usersById: Map<string, MentionAudienceUser>
 }) {
-  const notifiedUserIds = new Set<string>()
-  const mentionEmails: MentionEmail[] = []
+  return insertMentionNotifications({
+    actorId: args.currentUserId,
+    actorName,
+    commentText: getPlainTextContent(args.content),
+    ctx,
+    entityId: args.targetId,
+    entityTitle,
+    entityType,
+    mentionUserIds,
+    usersById,
+  })
+}
 
-  for (const mentionedUserId of mentionUserIds) {
-    if (
-      mentionedUserId === args.currentUserId ||
-      notifiedUserIds.has(mentionedUserId)
-    ) {
-      continue
-    }
+function getCommentFollowerMessage({
+  actorName,
+  entityTitle,
+  parentCommentId,
+}: {
+  actorName: string
+  entityTitle: string
+  parentCommentId?: string | null
+}) {
+  return parentCommentId
+    ? `${actorName} replied in ${entityTitle}`
+    : `${actorName} commented on ${entityTitle}`
+}
 
-    const mentionedUser = usersById.get(mentionedUserId)
-    const notification = createNotification(
-      mentionedUserId,
-      args.currentUserId,
-      `${actorName} mentioned you in ${entityTitle}`,
-      entityType,
-      args.targetId,
-      "mention"
-    )
-
-    await ctx.db.insert("notifications", notification)
-
-    if (mentionedUser?.preferences.emailMentions) {
-      mentionEmails.push({
-        notificationId: notification.id,
-        email: mentionedUser.email,
-        name: mentionedUser.name,
-        entityTitle,
-        entityType,
-        entityId: args.targetId,
-        actorName,
-        commentText: getPlainTextContent(args.content),
-      })
-    }
-
-    notifiedUserIds.add(mentionedUserId)
-  }
-
-  return { mentionEmails, notifiedUserIds }
+function shouldNotifyCommentFollower({
+  audienceUserIds,
+  currentUserId,
+  followerId,
+  notifiedUserIds,
+}: {
+  audienceUserIds: Set<string>
+  currentUserId: string
+  followerId: string
+  notifiedUserIds: Set<string>
+}) {
+  return ![
+    !followerId,
+    !audienceUserIds.has(followerId),
+    followerId === currentUserId,
+    notifiedUserIds.has(followerId),
+  ].some(Boolean)
 }
 
 async function notifyCommentFollowers({
@@ -236,16 +239,20 @@ async function notifyCommentFollowers({
   notifiedUserIds: Set<string>
   actorName: string
 }) {
-  const followerMessage = args.parentCommentId
-    ? `${actorName} replied in ${entityTitle}`
-    : `${actorName} commented on ${entityTitle}`
+  const followerMessage = getCommentFollowerMessage({
+    actorName,
+    entityTitle,
+    parentCommentId: args.parentCommentId,
+  })
 
   for (const followerId of followerIds) {
     if (
-      !followerId ||
-      !audienceUserIds.has(followerId) ||
-      followerId === args.currentUserId ||
-      notifiedUserIds.has(followerId)
+      !shouldNotifyCommentFollower({
+        audienceUserIds,
+        currentUserId: args.currentUserId,
+        followerId,
+        notifiedUserIds,
+      })
     ) {
       continue
     }
@@ -287,35 +294,33 @@ export async function addCommentHandler(
 
   await requireEditableTeamAccess(ctx, targetContext.teamId, args.currentUserId)
 
-  const audienceUserIds = new Set(
-    await getTeamMemberIds(ctx, targetContext.teamId)
+  const audience = await getMentionAudienceContext(ctx, {
+    actorUserId: args.currentUserId,
+    audienceUserIds: await getTeamMemberIds(ctx, targetContext.teamId),
+  })
+  const mentionUserIds = createMentionIds(
+    args.content,
+    audience.users,
+    audience.audienceUserIds
   )
-  const users = await listUsersByIds(ctx, [
-    args.currentUserId,
-    ...audienceUserIds,
-  ])
-  const usersById = new Map(users.map((user) => [user.id, user]))
-  const actor = usersById.get(args.currentUserId)
-  const mentionUserIds = createMentionIds(args.content, users, audienceUserIds)
-  const actorName = actor?.name ?? "Someone"
 
   await insertComment(ctx, args, mentionUserIds)
 
   const { mentionEmails, notifiedUserIds } = await notifyMentionedCommentUsers({
     ctx,
     args,
-    actorName,
+    actorName: audience.actorName,
     entityTitle: targetContext.entityTitle,
     entityType: targetContext.entityType,
     mentionUserIds,
-    usersById,
+    usersById: audience.usersById,
   })
 
   await notifyCommentFollowers({
     ctx,
     args,
-    audienceUserIds,
-    actorName,
+    actorName: audience.actorName,
+    audienceUserIds: new Set(audience.audienceUserIds),
     entityTitle: targetContext.entityTitle,
     entityType: targetContext.entityType,
     followerIds: targetContext.followerIds,

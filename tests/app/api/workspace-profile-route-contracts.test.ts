@@ -4,6 +4,7 @@ import { ApplicationError } from "@/lib/server/application-errors"
 
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
+const requireAppRouteContextMock = vi.fn()
 const requireConvexUserMock = vi.fn()
 const createWorkspaceServerMock = vi.fn()
 const updateWorkspaceBrandingServerMock = vi.fn()
@@ -23,6 +24,7 @@ const logProviderErrorMock = vi.fn()
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: requireSessionMock,
   requireAppContext: requireAppContextMock,
+  requireAppRouteContext: requireAppRouteContextMock,
   requireConvexUser: requireConvexUserMock,
 }))
 
@@ -59,10 +61,49 @@ vi.mock("@/lib/server/provider-errors", () => ({
   logProviderError: logProviderErrorMock,
 }))
 
+function createRouteSessionFixture() {
+  return {
+    user: {
+      id: "workos_1",
+      email: "alex@example.com",
+    },
+    organizationId: "org_1",
+  }
+}
+
+function createWorkspaceProfileAppContextFixture() {
+  return {
+    ensuredUser: {
+      userId: "user_1",
+    },
+    authenticatedUser: {
+      workosUserId: "workos_1",
+    },
+    authContext: {
+      currentUser: {
+        id: "user_1",
+      },
+      currentWorkspace: {
+        id: "workspace_1",
+        slug: "acme",
+        name: "Acme",
+        logoUrl: "https://example.com/logo.png",
+        workosOrganizationId: "org_existing",
+        settings: {
+          accent: "blue",
+          description: "Acme workspace",
+        },
+      },
+      isWorkspaceOwner: true,
+    },
+  }
+}
+
 describe("workspace and profile route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
     requireAppContextMock.mockReset()
+    requireAppRouteContextMock.mockReset()
     requireConvexUserMock.mockReset()
     createWorkspaceServerMock.mockReset()
     updateWorkspaceBrandingServerMock.mockReset()
@@ -79,38 +120,12 @@ describe("workspace and profile route contracts", () => {
     toAuthenticatedAppUserMock.mockReset()
     logProviderErrorMock.mockReset()
 
-    requireSessionMock.mockResolvedValue({
-      user: {
-        id: "workos_1",
-        email: "alex@example.com",
-      },
-      organizationId: "org_1",
-    })
-    requireAppContextMock.mockResolvedValue({
-      ensuredUser: {
-        userId: "user_1",
-      },
-      authenticatedUser: {
-        workosUserId: "workos_1",
-      },
-      authContext: {
-        currentUser: {
-          id: "user_1",
-        },
-        currentWorkspace: {
-          id: "workspace_1",
-          slug: "acme",
-          name: "Acme",
-          logoUrl: "https://example.com/logo.png",
-          workosOrganizationId: "org_existing",
-          settings: {
-            accent: "blue",
-            description: "Acme workspace",
-          },
-        },
-        isWorkspaceOwner: true,
-      },
-    })
+    const session = createRouteSessionFixture()
+    const appContext = createWorkspaceProfileAppContextFixture()
+
+    requireSessionMock.mockResolvedValue(session)
+    requireAppContextMock.mockResolvedValue(appContext)
+    requireAppRouteContextMock.mockResolvedValue({ appContext, session })
     requireConvexUserMock.mockResolvedValue({
       currentUser: {
         id: "user_1",

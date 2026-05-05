@@ -1,5 +1,8 @@
 import type { MutationCtx } from "../_generated/server"
-import type { ViewFilters } from "../../lib/domain/types"
+import {
+  clearViewFilterSelections,
+  type ViewFilters,
+} from "../../lib/domain/types"
 
 import {
   createViewDefinition,
@@ -24,49 +27,57 @@ type ServerAccessArgs = {
   serverToken: string
 }
 
+type ViewLayout = "list" | "board" | "timeline"
+type ViewItemLevel =
+  | "epic"
+  | "feature"
+  | "requirement"
+  | "story"
+  | "task"
+  | "issue"
+  | "sub-task"
+  | "sub-issue"
+  | null
+type ViewGrouping =
+  | "project"
+  | "status"
+  | "assignee"
+  | "priority"
+  | "label"
+  | "team"
+  | "type"
+  | "epic"
+  | "feature"
+type ViewOrdering =
+  | "priority"
+  | "updatedAt"
+  | "createdAt"
+  | "dueDate"
+  | "targetDate"
+  | "title"
+type ViewDisplayProperty =
+  | "id"
+  | "type"
+  | "status"
+  | "assignee"
+  | "priority"
+  | "progress"
+  | "project"
+  | "dueDate"
+  | "milestone"
+  | "labels"
+  | "created"
+  | "updated"
+
 type ViewConfigArgs = ServerAccessArgs & {
   currentUserId: string
   viewId: string
-  layout?: "list" | "board" | "timeline"
-  itemLevel?:
-    | "epic"
-    | "feature"
-    | "requirement"
-    | "story"
-    | "task"
-    | "issue"
-    | "sub-task"
-    | "sub-issue"
-    | null
+  layout?: ViewLayout
+  itemLevel?: ViewItemLevel
   showChildItems?: boolean
-  grouping?:
-    | "project"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "label"
-    | "team"
-    | "type"
-    | "epic"
-    | "feature"
-  subGrouping?:
-    | "project"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "label"
-    | "team"
-    | "type"
-    | "epic"
-    | "feature"
-    | null
-  ordering?:
-    | "priority"
-    | "updatedAt"
-    | "createdAt"
-    | "dueDate"
-    | "targetDate"
-    | "title"
+  grouping?: ViewGrouping
+  subGrouping?: ViewGrouping | null
+  ordering?: ViewOrdering
   showCompleted?: boolean
 }
 
@@ -81,61 +92,14 @@ type CreateViewArgs = ServerAccessArgs & {
   route: string
   name: string
   description: string
-  layout?: "list" | "board" | "timeline"
-  itemLevel?:
-    | "epic"
-    | "feature"
-    | "requirement"
-    | "story"
-    | "task"
-    | "issue"
-    | "sub-task"
-    | "sub-issue"
-    | null
+  layout?: ViewLayout
+  itemLevel?: ViewItemLevel
   showChildItems?: boolean
-  grouping?:
-    | "project"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "label"
-    | "team"
-    | "type"
-    | "epic"
-    | "feature"
-  subGrouping?:
-    | "project"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "label"
-    | "team"
-    | "type"
-    | "epic"
-    | "feature"
-    | null
-  ordering?:
-    | "priority"
-    | "updatedAt"
-    | "createdAt"
-    | "dueDate"
-    | "targetDate"
-    | "title"
+  grouping?: ViewGrouping
+  subGrouping?: ViewGrouping | null
+  ordering?: ViewOrdering
   filters?: ViewFilters
-  displayProps?: Array<
-    | "id"
-    | "type"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "progress"
-    | "project"
-    | "dueDate"
-    | "milestone"
-    | "labels"
-    | "created"
-    | "updated"
-  >
+  displayProps?: ViewDisplayProperty[]
   hiddenState?: {
     groups: string[]
     subgroups: string[]
@@ -145,38 +109,13 @@ type CreateViewArgs = ServerAccessArgs & {
 type ViewDisplayPropertyArgs = ServerAccessArgs & {
   currentUserId: string
   viewId: string
-  property:
-    | "id"
-    | "type"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "progress"
-    | "project"
-    | "dueDate"
-    | "milestone"
-    | "labels"
-    | "created"
-    | "updated"
+  property: ViewDisplayProperty
 }
 
 type ReorderViewDisplayPropertiesArgs = ServerAccessArgs & {
   currentUserId: string
   viewId: string
-  displayProps: Array<
-    | "id"
-    | "type"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "progress"
-    | "project"
-    | "dueDate"
-    | "milestone"
-    | "labels"
-    | "created"
-    | "updated"
-  >
+  displayProps: ViewDisplayProperty[]
 }
 
 type ViewHiddenValueArgs = ServerAccessArgs & {
@@ -348,6 +287,42 @@ export async function createViewHandler(
   return view
 }
 
+function createViewConfigPatch(
+  view: Awaited<ReturnType<typeof requireViewMutationAccess>>,
+  args: ViewConfigArgs,
+  now: string
+) {
+  return {
+    layout: args.layout ?? view.layout,
+    itemLevel: getDefinedViewConfigValue(args.itemLevel, view.itemLevel),
+    showChildItems: getDefinedViewConfigValue(
+      args.showChildItems,
+      view.showChildItems
+    ),
+    grouping: args.grouping ?? view.grouping,
+    subGrouping: getDefinedViewConfigValue(args.subGrouping, view.subGrouping),
+    ordering: args.ordering ?? view.ordering,
+    filters: getViewConfigFiltersPatch(view, args),
+    updatedAt: now,
+  }
+}
+
+function getDefinedViewConfigValue<T>(nextValue: T | undefined, currentValue: T) {
+  return nextValue === undefined ? currentValue : nextValue
+}
+
+function getViewConfigFiltersPatch(
+  view: Awaited<ReturnType<typeof requireViewMutationAccess>>,
+  args: ViewConfigArgs
+) {
+  return args.showCompleted === undefined
+    ? view.filters
+    : {
+        ...view.filters,
+        showCompleted: args.showCompleted,
+      }
+}
+
 export async function updateViewConfigHandler(
   ctx: MutationCtx,
   args: ViewConfigArgs
@@ -359,26 +334,7 @@ export async function updateViewConfigHandler(
     args.currentUserId
   )
 
-  await ctx.db.patch(view._id, {
-    layout: args.layout ?? view.layout,
-    itemLevel: args.itemLevel === undefined ? view.itemLevel : args.itemLevel,
-    showChildItems:
-      args.showChildItems === undefined
-        ? view.showChildItems
-        : args.showChildItems,
-    grouping: args.grouping ?? view.grouping,
-    subGrouping:
-      args.subGrouping === undefined ? view.subGrouping : args.subGrouping,
-    ordering: args.ordering ?? view.ordering,
-    filters:
-      args.showCompleted === undefined
-        ? view.filters
-        : {
-            ...view.filters,
-            showCompleted: args.showCompleted,
-          },
-    updatedAt: getNow(),
-  })
+  await ctx.db.patch(view._id, createViewConfigPatch(view, args, getNow()))
 }
 
 export async function toggleViewDisplayPropertyHandler(
@@ -497,22 +453,7 @@ export async function clearViewFiltersHandler(
   )
 
   await ctx.db.patch(view._id, {
-    filters: {
-      ...view.filters,
-      status: [],
-      priority: [],
-      assigneeIds: [],
-      creatorIds: [],
-      leadIds: [],
-      health: [],
-      milestoneIds: [],
-      relationTypes: [],
-      projectIds: [],
-      parentIds: [],
-      itemTypes: [],
-      labelIds: [],
-      teamIds: [],
-    },
+    filters: clearViewFilterSelections(view.filters as ViewFilters),
     updatedAt: getNow(),
   })
 }

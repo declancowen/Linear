@@ -30,7 +30,10 @@ import { getTeamMemberIds, getWorkspaceUserIds } from "./conversations"
 import { queueEmailJobs } from "./email_job_handlers"
 import { deleteDocumentCascade } from "./lifecycle"
 import { listDocumentPresenceViewers } from "./normalization"
-import { upsertDocumentPresenceForActor } from "./presence_helpers"
+import {
+  clearDocumentPresenceForActor,
+  upsertDocumentPresenceForActor,
+} from "./presence_helpers"
 import { getAttachmentDoc } from "./data"
 import { createId, getNow as now } from "./core"
 import { getTeamDoc } from "./data"
@@ -41,6 +44,12 @@ type ServerAccessArgs = {
 }
 
 type StorageId = Id<"_storage">
+type DocumentDoc = NonNullable<Awaited<ReturnType<typeof getDocumentDoc>>>
+type WorkItemDoc = NonNullable<Awaited<ReturnType<typeof getWorkItemDoc>>>
+type AttachmentTarget = Awaited<ReturnType<typeof resolveAttachmentTarget>>
+type AttachmentUploadMetadata = NonNullable<
+  Awaited<ReturnType<MutationCtx["storage"]["getMetadata"]>>
+>
 
 type UpdateDocumentContentArgs = ServerAccessArgs & {
   currentUserId: string
@@ -249,11 +258,24 @@ async function requireDocumentCreateAccess(
     : requireWorkspaceDocumentCreateAccess(ctx, args)
 }
 
-export async function updateDocumentContentHandler(
-  ctx: MutationCtx,
-  args: UpdateDocumentContentArgs
+function assertExpectedDocumentUpdatedAt(
+  document: { updatedAt: string },
+  expectedUpdatedAt: string | undefined,
+  message: string
 ) {
-  assertServerToken(args.serverToken)
+  if (expectedUpdatedAt !== undefined && document.updatedAt !== expectedUpdatedAt) {
+    throw new Error(message)
+  }
+}
+
+async function requireEditableDocumentForUpdate(
+  ctx: MutationCtx,
+  args: {
+    currentUserId: string
+    documentId: string
+    expectedUpdatedAt?: string
+  }
+) {
   const document = await getDocumentDoc(ctx, args.documentId)
 
   if (!document) {
@@ -261,13 +283,39 @@ export async function updateDocumentContentHandler(
   }
 
   await requireEditableDocumentAccess(ctx, document, args.currentUserId)
+  assertExpectedDocumentUpdatedAt(
+    document,
+    args.expectedUpdatedAt,
+    "Document changed while you were editing"
+  )
 
-  if (
-    args.expectedUpdatedAt !== undefined &&
-    document.updatedAt !== args.expectedUpdatedAt
-  ) {
-    throw new Error("Document changed while you were editing")
-  }
+  return document
+}
+
+async function touchAttachmentTarget(
+  ctx: MutationCtx,
+  target: AttachmentTarget,
+  currentUserId: string
+) {
+  await ctx.db.patch(
+    target.recordId,
+    target.entityType === "workItem"
+      ? {
+          updatedAt: getNow(),
+        }
+      : {
+          updatedAt: getNow(),
+          updatedBy: currentUserId,
+        }
+  )
+}
+
+export async function updateDocumentContentHandler(
+  ctx: MutationCtx,
+  args: UpdateDocumentContentArgs
+) {
+  assertServerToken(args.serverToken)
+  const document = await requireEditableDocumentForUpdate(ctx, args)
 
   const updatedAt = getNow()
 
@@ -296,20 +344,7 @@ export async function updateDocumentHandler(
     return
   }
 
-  const document = await getDocumentDoc(ctx, args.documentId)
-
-  if (!document) {
-    throw new Error("Document not found")
-  }
-
-  await requireEditableDocumentAccess(ctx, document, args.currentUserId)
-
-  if (
-    args.expectedUpdatedAt !== undefined &&
-    document.updatedAt !== args.expectedUpdatedAt
-  ) {
-    throw new Error("Document changed while you were editing")
-  }
+  const document = await requireEditableDocumentForUpdate(ctx, args)
 
   const updatedAt = getNow()
 
@@ -455,6 +490,36 @@ function emptyMentionResult(): MentionResult {
   return {
     recipientCount: 0,
     mentionCount: 0,
+  }
+}
+
+async function requireEditableItemDescriptionDocument(
+  ctx: MutationCtx,
+  args: {
+    currentUserId: string
+    itemId: string
+  }
+): Promise<{
+  item: WorkItemDoc
+  descriptionDocument: DocumentDoc
+}> {
+  const item = await getWorkItemDoc(ctx, args.itemId)
+
+  if (!item) {
+    throw new Error("Work item not found")
+  }
+
+  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+
+  const descriptionDocument = await getDocumentDoc(ctx, item.descriptionDocId)
+
+  if (!descriptionDocument) {
+    throw new Error("Work item description document not found")
+  }
+
+  return {
+    item,
+    descriptionDocument,
   }
 }
 
@@ -610,7 +675,7 @@ async function deliverMentionNotifications({
 
 async function getDocumentMentionAudienceUserIds(
   ctx: MutationCtx,
-  document: NonNullable<Awaited<ReturnType<typeof getDocumentDoc>>>
+  document: DocumentDoc
 ) {
   if (document.teamId) {
     return new Set(await getTeamMemberIds(ctx, document.teamId))
@@ -739,19 +804,8 @@ export async function sendItemDescriptionMentionNotificationsHandler(
     return emptyMentionResult()
   }
 
-  const item = await getWorkItemDoc(ctx, args.itemId)
-
-  if (!item) {
-    throw new Error("Work item not found")
-  }
-
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
-
-  const descriptionDocument = await getDocumentDoc(ctx, item.descriptionDocId)
-
-  if (!descriptionDocument) {
-    throw new Error("Work item description document not found")
-  }
+  const { item, descriptionDocument } =
+    await requireEditableItemDescriptionDocument(ctx, args)
 
   const audienceUserIds = new Set(await getTeamMemberIds(ctx, item.teamId))
   const mentionTracking = getMentionTrackingState(
@@ -871,34 +925,7 @@ export async function clearDocumentPresenceHandler(
 ) {
   assertServerToken(args.serverToken)
 
-  const existingPresenceEntries = await ctx.db
-    .query("documentPresence")
-    .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
-    .collect()
-
-  if (existingPresenceEntries.length === 0) {
-    return { ok: true }
-  }
-
-  const conflictingPresenceEntries = existingPresenceEntries.filter((entry) =>
-    entry.workosUserId
-      ? entry.workosUserId !== args.workosUserId
-      : entry.userId !== args.currentUserId
-  )
-
-  if (conflictingPresenceEntries.length > 0) {
-    throw new Error("Document presence session is already in use")
-  }
-
-  for (const existingPresence of existingPresenceEntries) {
-    if (existingPresence.documentId !== args.documentId) {
-      continue
-    }
-
-    await ctx.db.delete(existingPresence._id)
-  }
-
-  return { ok: true }
+  return clearDocumentPresenceForActor(ctx, args.documentId, args)
 }
 
 export async function renameDocumentHandler(
@@ -948,26 +975,14 @@ export async function updateItemDescriptionHandler(
   args: UpdateItemDescriptionArgs
 ) {
   assertServerToken(args.serverToken)
-  const item = await getWorkItemDoc(ctx, args.itemId)
+  const { item, descriptionDocument } =
+    await requireEditableItemDescriptionDocument(ctx, args)
 
-  if (!item) {
-    throw new Error("Work item not found")
-  }
-
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
-
-  const descriptionDocument = await getDocumentDoc(ctx, item.descriptionDocId)
-
-  if (!descriptionDocument) {
-    throw new Error("Work item description document not found")
-  }
-
-  if (
-    args.expectedUpdatedAt !== undefined &&
-    descriptionDocument.updatedAt !== args.expectedUpdatedAt
-  ) {
-    throw new Error("Work item description changed while you were editing")
-  }
+  assertExpectedDocumentUpdatedAt(
+    descriptionDocument,
+    args.expectedUpdatedAt,
+    "Work item description changed while you were editing"
+  )
 
   const updatedAt = getNow()
 
@@ -1033,18 +1048,10 @@ export async function generateSettingsImageUploadUrlHandler(
   }
 }
 
-export async function createAttachmentHandler(
+async function loadAttachmentUploadMetadata(
   ctx: MutationCtx,
-  args: CreateAttachmentArgs
+  args: Pick<CreateAttachmentArgs, "storageId" | "size">
 ) {
-  assertServerToken(args.serverToken)
-  const target = await resolveAttachmentTarget(
-    ctx,
-    args.targetType,
-    args.targetId
-  )
-  await requireEditableTeamAccess(ctx, target.teamId, args.currentUserId)
-
   const metadata = await ctx.storage.getMetadata(args.storageId)
 
   if (!metadata) {
@@ -1055,7 +1062,15 @@ export async function createAttachmentHandler(
     throw new Error("File is empty")
   }
 
-  const attachment = {
+  return metadata
+}
+
+function createAttachmentRecord(
+  args: CreateAttachmentArgs,
+  target: AttachmentTarget,
+  metadata: AttachmentUploadMetadata
+) {
+  return {
     id: createId("attachment"),
     targetType: args.targetType,
     targetId: args.targetId,
@@ -1068,19 +1083,26 @@ export async function createAttachmentHandler(
     uploadedBy: args.currentUserId,
     createdAt: now(),
   }
+}
+
+export async function createAttachmentHandler(
+  ctx: MutationCtx,
+  args: CreateAttachmentArgs
+) {
+  assertServerToken(args.serverToken)
+  const target = await resolveAttachmentTarget(
+    ctx,
+    args.targetType,
+    args.targetId
+  )
+  await requireEditableTeamAccess(ctx, target.teamId, args.currentUserId)
+
+  const metadata = await loadAttachmentUploadMetadata(ctx, args)
+  const attachment = createAttachmentRecord(args, target, metadata)
 
   await ctx.db.insert("attachments", attachment)
 
-  if (target.entityType === "workItem") {
-    await ctx.db.patch(target.recordId, {
-      updatedAt: getNow(),
-    })
-  } else {
-    await ctx.db.patch(target.recordId, {
-      updatedAt: getNow(),
-      updatedBy: args.currentUserId,
-    })
-  }
+  await touchAttachmentTarget(ctx, target, args.currentUserId)
 
   return {
     attachmentId: attachment.id,
@@ -1109,16 +1131,7 @@ export async function deleteAttachmentHandler(
     attachment.targetId
   )
 
-  if (target.entityType === "workItem") {
-    await ctx.db.patch(target.recordId, {
-      updatedAt: getNow(),
-    })
-  } else {
-    await ctx.db.patch(target.recordId, {
-      updatedAt: getNow(),
-      updatedBy: args.currentUserId,
-    })
-  }
+  await touchAttachmentTarget(ctx, target, args.currentUserId)
 
   return {
     attachmentId: attachment.id,

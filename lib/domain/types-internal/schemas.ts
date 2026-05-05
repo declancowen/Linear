@@ -252,6 +252,23 @@ export const profileSchema = z.object({
   }),
 })
 
+const viewFiltersSchema = z.object({
+  status: z.array(z.enum(viewFilterStatuses)),
+  priority: z.array(z.enum(priorities)),
+  assigneeIds: z.array(z.string()),
+  creatorIds: z.array(z.string()),
+  leadIds: z.array(z.string()),
+  health: z.array(z.enum(projectHealths)),
+  milestoneIds: z.array(z.string()),
+  relationTypes: z.array(z.string()),
+  projectIds: z.array(z.string()),
+  parentIds: z.array(z.string()).default([]),
+  itemTypes: z.array(z.enum(workItemTypes)),
+  labelIds: z.array(z.string()),
+  teamIds: z.array(z.string()),
+  showCompleted: z.boolean(),
+})
+
 export const projectSchema = z.object({
   scopeType: z.enum(scopeTypes),
   scopeId: z.string().min(1),
@@ -280,41 +297,9 @@ export const projectSchema = z.object({
       grouping: z.enum(groupFields),
       ordering: z.enum(orderingFields),
       displayProps: z.array(z.enum(displayProperties)),
-      filters: z.object({
-        status: z.array(z.enum(viewFilterStatuses)),
-        priority: z.array(z.enum(priorities)),
-        assigneeIds: z.array(z.string()),
-        creatorIds: z.array(z.string()),
-        leadIds: z.array(z.string()),
-        health: z.array(z.enum(projectHealths)),
-        milestoneIds: z.array(z.string()),
-        relationTypes: z.array(z.string()),
-        projectIds: z.array(z.string()),
-        parentIds: z.array(z.string()).default([]),
-        itemTypes: z.array(z.enum(workItemTypes)),
-        labelIds: z.array(z.string()),
-        teamIds: z.array(z.string()),
-        showCompleted: z.boolean(),
-      }),
+      filters: viewFiltersSchema,
     })
     .optional(),
-})
-
-const viewFiltersSchema = z.object({
-  status: z.array(z.enum(viewFilterStatuses)),
-  priority: z.array(z.enum(priorities)),
-  assigneeIds: z.array(z.string()),
-  creatorIds: z.array(z.string()),
-  leadIds: z.array(z.string()),
-  health: z.array(z.enum(projectHealths)),
-  milestoneIds: z.array(z.string()),
-  relationTypes: z.array(z.string()),
-  projectIds: z.array(z.string()),
-  parentIds: z.array(z.string()).default([]),
-  itemTypes: z.array(z.enum(workItemTypes)),
-  labelIds: z.array(z.string()),
-  teamIds: z.array(z.string()),
-  showCompleted: z.boolean(),
 })
 
 export const viewConfigPatchSchema = z.object({

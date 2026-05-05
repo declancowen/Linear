@@ -30,23 +30,43 @@ type AuthEntryScreenProps = {
   initialLastName?: string
 }
 
-function getAuthModeCopy(isLogin: boolean) {
-  return {
-    title: isLogin ? "Welcome back" : "Create your account",
-    description: isLogin
-      ? "Sign in to continue to Recipe Room."
-      : "Sign up to continue to Recipe Room.",
-    action: isLogin ? "Sign in" : "Create account",
-    passwordPlaceholder: isLogin ? "Enter your password" : "Create a password",
-    alternatePrompt: isLogin
-      ? "Don’t have an account?"
-      : "Already have an account?",
-    alternateLabel: isLogin ? "Sign up" : "Sign in",
+type AuthEntryMode = AuthEntryScreenProps["mode"]
+
+const AUTH_MODE_COPY: Record<
+  AuthEntryMode,
+  {
+    title: string
+    description: string
+    action: string
+    passwordPlaceholder: string
+    alternatePrompt: string
+    alternateLabel: string
   }
+> = {
+  login: {
+    title: "Welcome back",
+    description: "Sign in to continue to Recipe Room.",
+    action: "Sign in",
+    passwordPlaceholder: "Enter your password",
+    alternatePrompt: "Don’t have an account?",
+    alternateLabel: "Sign up",
+  },
+  signup: {
+    title: "Create your account",
+    description: "Sign up to continue to Recipe Room.",
+    action: "Create account",
+    passwordPlaceholder: "Create a password",
+    alternatePrompt: "Already have an account?",
+    alternateLabel: "Sign in",
+  },
 }
 
-function AuthEntryHeader({ isLogin }: { isLogin: boolean }) {
-  const copy = getAuthModeCopy(isLogin)
+function getAuthModeCopy(mode: AuthEntryMode) {
+  return AUTH_MODE_COPY[mode]
+}
+
+function AuthEntryHeader({ mode }: { mode: AuthEntryMode }) {
+  const copy = getAuthModeCopy(mode)
 
   return (
     <CardHeader className="text-center">
@@ -98,14 +118,15 @@ function SignupNameFields({
 
 function AuthPasswordField({
   initialEmail,
-  isLogin,
+  mode,
   nextPath,
 }: {
   initialEmail?: string
-  isLogin: boolean
+  mode: AuthEntryMode
   nextPath: string
 }) {
-  const copy = getAuthModeCopy(isLogin)
+  const copy = getAuthModeCopy(mode)
+  const isLogin = mode === "login"
 
   return (
     <Field>
@@ -165,12 +186,12 @@ function GoogleAuthButton({ googleHref }: { googleHref: string }) {
 
 function AlternateAuthLink({
   alternateHref,
-  isLogin,
+  mode,
 }: {
   alternateHref: string
-  isLogin: boolean
+  mode: AuthEntryMode
 }) {
-  const copy = getAuthModeCopy(isLogin)
+  const copy = getAuthModeCopy(mode)
 
   return (
     <FieldDescription className="text-center">
@@ -198,7 +219,7 @@ export function AuthEntryScreen({
   const alternateHref = `/${alternateMode}?${new URLSearchParams({
     next: nextPath,
   }).toString()}`
-  const copy = getAuthModeCopy(isLogin)
+  const copy = getAuthModeCopy(mode)
 
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
@@ -206,7 +227,7 @@ export function AuthEntryScreen({
         <AuthLogo />
 
         <Card>
-          <AuthEntryHeader isLogin={isLogin} />
+          <AuthEntryHeader mode={mode} />
 
           <CardContent>
             <form
@@ -236,7 +257,7 @@ export function AuthEntryScreen({
 
                 <AuthPasswordField
                   initialEmail={initialEmail}
-                  isLogin={isLogin}
+                  mode={mode}
                   nextPath={nextPath}
                 />
 
@@ -248,10 +269,7 @@ export function AuthEntryScreen({
 
                 <GoogleAuthButton googleHref={googleHref} />
 
-                <AlternateAuthLink
-                  alternateHref={alternateHref}
-                  isLogin={isLogin}
-                />
+                <AlternateAuthLink alternateHref={alternateHref} mode={mode} />
               </FieldGroup>
             </form>
           </CardContent>

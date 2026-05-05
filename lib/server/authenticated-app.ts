@@ -4,12 +4,14 @@ import {
   ensureConvexUserFromAuth,
   ensureWorkspaceScaffoldingServer,
   getAuthContextServer,
+  getWorkspaceMembershipBootstrapServer,
   setWorkspaceWorkosOrganizationServer,
 } from "@/lib/server/convex"
 import {
   ensureUserOrganizationMembership,
   ensureWorkspaceOrganization,
 } from "@/lib/server/workos"
+import { getSelectedWorkspaceIdFromCookies } from "@/lib/server/workspace-selection"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
 
 function enrichOrganizationId<
@@ -35,6 +37,116 @@ function enrichOrganizationId<
   }
 }
 
+type AuthenticatedAppContext = {
+  authenticatedUser: ReturnType<typeof toAuthenticatedAppUser>
+  ensuredUser: { userId: string; bootstrapped: boolean } | null
+  authContext: Awaited<ReturnType<typeof getAuthContextServer>>
+}
+
+type WorkspaceMembershipBootstrap = Awaited<
+  ReturnType<typeof getWorkspaceMembershipBootstrapServer>
+>
+
+function getWorkspaceFromBootstrap(
+  data: WorkspaceMembershipBootstrap,
+  workspaceId: string
+) {
+  return (
+    data.workspaces.find((workspace) => workspace.id === workspaceId) ?? null
+  )
+}
+
+function getWorkspaceAdminState(input: {
+  data: WorkspaceMembershipBootstrap
+  userId: string
+  workspaceId: string
+}) {
+  const workspace = getWorkspaceFromBootstrap(input.data, input.workspaceId)
+  const workspaceTeamIds = new Set(
+    input.data.teams
+      .filter((team) => team.workspaceId === input.workspaceId)
+      .map((team) => team.id)
+  )
+  const isWorkspaceOwner = workspace?.createdBy === input.userId
+  const hasWorkspaceAdminMembership = input.data.workspaceMemberships.some(
+    (membership) =>
+      membership.workspaceId === input.workspaceId &&
+      membership.userId === input.userId &&
+      membership.role === "admin"
+  )
+  const hasTeamAdminMembership = input.data.teamMemberships.some(
+    (membership) =>
+      membership.userId === input.userId &&
+      membership.role === "admin" &&
+      workspaceTeamIds.has(membership.teamId)
+  )
+
+  return {
+    isWorkspaceOwner,
+    isWorkspaceAdmin:
+      isWorkspaceOwner || hasWorkspaceAdminMembership || hasTeamAdminMembership,
+  }
+}
+
+async function applySelectedWorkspaceOverride<
+  T extends AuthenticatedAppContext,
+>(context: T) {
+  const selectedWorkspaceId = await getSelectedWorkspaceIdFromCookies()
+
+  if (
+    !selectedWorkspaceId ||
+    !context.authContext?.currentUser ||
+    selectedWorkspaceId === context.authContext.currentWorkspace?.id
+  ) {
+    return context
+  }
+
+  try {
+    const data = await getWorkspaceMembershipBootstrapServer({
+      workosUserId: context.authenticatedUser.workosUserId,
+      email: context.authenticatedUser.email,
+      workspaceId: selectedWorkspaceId,
+    })
+
+    if (data.currentWorkspaceId !== selectedWorkspaceId) {
+      return context
+    }
+
+    const selectedWorkspace = getWorkspaceFromBootstrap(
+      data,
+      selectedWorkspaceId
+    )
+
+    if (!selectedWorkspace) {
+      return context
+    }
+
+    const workspaceAdminState = getWorkspaceAdminState({
+      data,
+      userId: context.authContext.currentUser.id,
+      workspaceId: selectedWorkspaceId,
+    })
+
+    return {
+      ...context,
+      authContext: {
+        ...context.authContext,
+        currentWorkspace: {
+          id: selectedWorkspace.id,
+          slug: selectedWorkspace.slug,
+          name: selectedWorkspace.name,
+          logoUrl: selectedWorkspace.logoUrl,
+          workosOrganizationId: selectedWorkspace.workosOrganizationId ?? null,
+        },
+        ...workspaceAdminState,
+      },
+    }
+  } catch (error) {
+    console.warn("Failed to apply selected workspace override", error)
+    return context
+  }
+}
+
 async function loadAuthenticatedAppContext(
   sessionUser: User,
   organizationId?: string,
@@ -51,11 +163,11 @@ async function loadAuthenticatedAppContext(
       email: authenticatedUser.email,
     })
 
-    return {
+    return applySelectedWorkspaceOverride({
       authenticatedUser,
       ensuredUser,
       authContext,
-    }
+    })
   }
 
   let authContext = await getAuthContextServer({
@@ -77,11 +189,11 @@ async function loadAuthenticatedAppContext(
     })
   }
 
-  return {
+  return applySelectedWorkspaceOverride({
     authenticatedUser,
     ensuredUser,
     authContext,
-  }
+  })
 }
 
 export async function ensureAuthenticatedAppContext(
@@ -112,9 +224,13 @@ export async function reconcileAuthenticatedAppContext(
   sessionUser: User,
   organizationId?: string
 ) {
-  const context = await loadAuthenticatedAppContext(sessionUser, organizationId, {
-    syncUserFromAuth: true,
-  })
+  const context = await loadAuthenticatedAppContext(
+    sessionUser,
+    organizationId,
+    {
+      syncUserFromAuth: true,
+    }
+  )
 
   if (!context.authContext?.currentWorkspace) {
     return context
@@ -124,10 +240,14 @@ export async function reconcileAuthenticatedAppContext(
     workspaceId: context.authContext.currentWorkspace.id,
     slug: context.authContext.currentWorkspace.slug,
     name: context.authContext.currentWorkspace.name,
-    existingOrganizationId: context.authContext.currentWorkspace.workosOrganizationId,
+    existingOrganizationId:
+      context.authContext.currentWorkspace.workosOrganizationId,
   })
 
-  if (organization.id !== context.authContext.currentWorkspace.workosOrganizationId) {
+  if (
+    organization.id !==
+    context.authContext.currentWorkspace.workosOrganizationId
+  ) {
     await setWorkspaceWorkosOrganizationServer({
       workspaceId: context.authContext.currentWorkspace.id,
       workosOrganizationId: organization.id,

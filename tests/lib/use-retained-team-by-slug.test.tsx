@@ -2,56 +2,50 @@ import { act, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { useRetainedTeamBySlug } from "@/hooks/use-retained-team-by-slug"
-import { createEmptyState } from "@/lib/domain/empty-state"
-import { createDefaultTeamWorkflowSettings } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  createTestAppData,
+  createTestTeam,
+  createTestWorkspace,
+} from "@/tests/lib/fixtures/app-data"
 
 function seedTeamState() {
-  useAppStore.setState({
-    ...createEmptyState(),
-    currentWorkspaceId: "workspace_1",
+  useAppStore.setState(createTestAppData({
     workspaces: [
-      {
-        id: "workspace_1",
+      createTestWorkspace({
         slug: "workspace-1",
         name: "Workspace 1",
-        logoUrl: "",
-        logoImageUrl: null,
-        createdBy: "user_1",
         workosOrganizationId: null,
         settings: {
           accent: "#000000",
           description: "",
         },
-      },
+      }),
     ],
     teams: [
-      {
-        id: "team_1",
-        workspaceId: "workspace_1",
-        slug: "platform",
-        name: "Platform",
+      createTestTeam({
         icon: "rocket",
         settings: {
           joinCode: "JOIN123",
           summary: "",
-          guestProjectIds: [],
-          guestDocumentIds: [],
-          guestWorkItemIds: [],
-          experience: "software-development",
-          features: {
-            issues: true,
-            projects: true,
-            docs: true,
-            chat: true,
-            channels: true,
-            views: true,
-          },
-          workflow: createDefaultTeamWorkflowSettings("software-development"),
         },
-      },
+      }),
     ],
-  })
+  }))
+}
+
+function removeLiveTeams() {
+  useAppStore.setState((state) => ({
+    ...state,
+    teams: [],
+  }))
+}
+
+function expectRetainedTeam(
+  result: { current: ReturnType<typeof useRetainedTeamBySlug> }
+) {
+  expect(result.current.liveTeam).toBeNull()
+  expect(result.current.team?.id).toBe("team_1")
 }
 
 describe("useRetainedTeamBySlug", () => {
@@ -69,15 +63,9 @@ describe("useRetainedTeamBySlug", () => {
     expect(result.current.liveTeam?.id).toBe("team_1")
     expect(result.current.team?.id).toBe("team_1")
 
-    act(() => {
-      useAppStore.setState((state) => ({
-        ...state,
-        teams: [],
-      }))
-    })
+    act(removeLiveTeams)
 
-    expect(result.current.liveTeam).toBeNull()
-    expect(result.current.team?.id).toBe("team_1")
+    expectRetainedTeam(result)
   })
 
   it("does not reuse a retained team for a different slug", () => {
@@ -107,15 +95,9 @@ describe("useRetainedTeamBySlug", () => {
 
     expect(result.current.team?.id).toBe("team_1")
 
-    act(() => {
-      useAppStore.setState((state) => ({
-        ...state,
-        teams: [],
-      }))
-    })
+    act(removeLiveTeams)
 
-    expect(result.current.liveTeam).toBeNull()
-    expect(result.current.team?.id).toBe("team_1")
+    expectRetainedTeam(result)
 
     act(() => {
       vi.advanceTimersByTime(1000)

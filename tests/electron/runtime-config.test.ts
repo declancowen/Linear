@@ -17,7 +17,7 @@ describe("electron runtime config", () => {
 
   it("prefers app url env values over the legacy renderer override", async () => {
     const { resolveConfiguredRendererUrl } = await import(
-      "@/electron/runtime-config.cjs"
+      "@/electron/renderer-url-config.cjs"
     )
 
     expect(
@@ -51,7 +51,10 @@ describe("electron runtime config", () => {
   })
 
   it("falls back to the legacy renderer default when no config is available", async () => {
-    const { DEFAULT_RENDERER_URL, resolvePackagedRendererUrl } = await import(
+    const { DEFAULT_RENDERER_URL } = await import(
+      "@/electron/renderer-url-config.cjs"
+    )
+    const { resolvePackagedRendererUrl } = await import(
       "@/electron/runtime-config.cjs"
     )
     const appPath = await fs.mkdtemp(

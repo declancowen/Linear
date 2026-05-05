@@ -1,6 +1,11 @@
 "use client"
 
 import type { AppStore } from "@/lib/store/app-store"
+import {
+  createPresenceSessionId,
+  getNextFallbackPresenceSessionState,
+  type PresenceSessionFallbackState,
+} from "@/components/app/screens/presence-session"
 import { getDisplayInitials } from "@/lib/display-initials"
 import {
   canEditWorkspace,
@@ -12,25 +17,27 @@ import {
 } from "@/lib/domain/selectors"
 import {
   canParentWorkItemTypeAcceptChild,
+  cloneViewFilters as cloneDomainViewFilters,
   createDefaultViewFilters,
   type AppData,
+  type DisplayProperty,
   type Document,
   type GroupField,
+  type OrderingField,
   type Project,
   type ViewDefinition,
   type WorkItem,
   type WorkItemType,
 } from "@/lib/domain/types"
+import { escapeHtml } from "@/lib/html"
 
 const DOCUMENT_PRESENCE_SESSION_STORAGE_KEY =
   "linear.document-presence-session-id"
 const DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY =
   "linear.document-presence-session-user-id"
 
-let documentPresenceSessionFallbackState: {
-  userId: string | null
-  sessionId: string
-} | null = null
+let documentPresenceSessionFallbackState: PresenceSessionFallbackState | null =
+  null
 
 export type ViewFilterKey = Exclude<
   keyof ViewDefinition["filters"],
@@ -51,6 +58,16 @@ export type PersistedViewFilterKey =
   | "itemTypes"
   | "labelIds"
   | "teamIds"
+
+export type ViewConfigPatchInput = {
+  layout?: ViewDefinition["layout"]
+  grouping?: GroupField
+  subGrouping?: GroupField | null
+  ordering?: OrderingField
+  itemLevel?: WorkItemType | null
+  showChildItems?: boolean
+  showCompleted?: boolean
+}
 
 export function createEmptyViewFilters(): ViewDefinition["filters"] {
   return createDefaultViewFilters()
@@ -79,22 +96,72 @@ export function isPersistedViewFilterKey(
 export function cloneViewFilters(
   filters: ViewDefinition["filters"]
 ): ViewDefinition["filters"] {
+  return cloneDomainViewFilters(filters)
+}
+
+export function toggleViewFilterValue(
+  filters: ViewDefinition["filters"],
+  key: ViewFilterKey,
+  value: string
+) {
+  const nextFilters = { ...filters } as ViewDefinition["filters"]
+  const currentValues = nextFilters[key] as string[]
+  const nextValues = currentValues.includes(value)
+    ? currentValues.filter((entry) => entry !== value)
+    : [...currentValues, value]
+
+  nextFilters[key] = nextValues as never
+  return nextFilters
+}
+
+export function clearViewFiltersPreservingCompletion(
+  filters: ViewDefinition["filters"]
+) {
   return {
-    status: [...filters.status],
-    priority: [...filters.priority],
-    assigneeIds: [...filters.assigneeIds],
-    creatorIds: [...filters.creatorIds],
-    leadIds: [...filters.leadIds],
-    health: [...filters.health],
-    milestoneIds: [...filters.milestoneIds],
-    relationTypes: [...filters.relationTypes],
-    projectIds: [...filters.projectIds],
-    parentIds: [...(filters.parentIds ?? [])],
-    itemTypes: [...filters.itemTypes],
-    labelIds: [...filters.labelIds],
-    teamIds: [...filters.teamIds],
+    ...createEmptyViewFilters(),
     showCompleted: filters.showCompleted,
   }
+}
+
+export function applyViewConfigPatch<
+  TConfig extends {
+    filters?: ViewDefinition["filters"]
+  },
+>(current: TConfig, patch: ViewConfigPatchInput): TConfig {
+  const nextConfig = { ...current } as TConfig & Record<string, unknown>
+  const mutableConfig = nextConfig as Record<string, unknown>
+  const patchEntries = [
+    ["layout", patch.layout],
+    ["grouping", patch.grouping],
+    ["subGrouping", patch.subGrouping],
+    ["ordering", patch.ordering],
+    ["itemLevel", patch.itemLevel],
+    ["showChildItems", patch.showChildItems],
+  ] as const
+
+  for (const [key, value] of patchEntries) {
+    if (value !== undefined) {
+      mutableConfig[key] = value
+    }
+  }
+
+  if (patch.showCompleted !== undefined) {
+    mutableConfig.filters = {
+      ...(current.filters ?? createDefaultViewFilters()),
+      showCompleted: patch.showCompleted,
+    }
+  }
+
+  return nextConfig as TConfig
+}
+
+export function toggleDisplayPropertyValue(
+  displayProps: DisplayProperty[],
+  property: DisplayProperty
+) {
+  return displayProps.includes(property)
+    ? displayProps.filter((value) => value !== property)
+    : [...displayProps, property]
 }
 
 export function getContainerItemsForDisplay(
@@ -164,17 +231,6 @@ export function getUserInitials(name: string | null | undefined) {
   return getDisplayInitials(name ?? "", "?")
 }
 
-function createPresenceSessionId() {
-  if (
-    typeof globalThis.crypto !== "undefined" &&
-    typeof globalThis.crypto.randomUUID === "function"
-  ) {
-    return globalThis.crypto.randomUUID()
-  }
-
-  return `presence_${Math.random().toString(36).slice(2, 10)}`
-}
-
 function resolveStoredPresenceSessionId(currentUserId?: string | null) {
   const existingSessionId = window.sessionStorage.getItem(
     DOCUMENT_PRESENCE_SESSION_STORAGE_KEY
@@ -223,25 +279,10 @@ function createStoredPresenceSessionId(currentUserId?: string | null) {
 }
 
 function getFallbackPresenceSessionId(currentUserId?: string | null) {
-  if (!documentPresenceSessionFallbackState) {
-    documentPresenceSessionFallbackState = {
-      userId: currentUserId ?? null,
-      sessionId: createPresenceSessionId(),
-    }
-  } else if (currentUserId && !documentPresenceSessionFallbackState.userId) {
-    documentPresenceSessionFallbackState = {
-      ...documentPresenceSessionFallbackState,
-      userId: currentUserId,
-    }
-  } else if (
-    currentUserId &&
-    documentPresenceSessionFallbackState.userId !== currentUserId
-  ) {
-    documentPresenceSessionFallbackState = {
-      userId: currentUserId,
-      sessionId: createPresenceSessionId(),
-    }
-  }
+  documentPresenceSessionFallbackState = getNextFallbackPresenceSessionState(
+    documentPresenceSessionFallbackState,
+    currentUserId
+  )
 
   return documentPresenceSessionFallbackState.sessionId
 }
@@ -341,15 +382,6 @@ export function getProjectPresentationGroupOptions(
   }
 
   return baseOptions
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;")
 }
 
 export function formatInlineDescriptionContent(value: string) {

@@ -1,21 +1,19 @@
 "use client"
 
-import Link from "next/link"
 import {
   useRef,
   useState,
+  type RefObject,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type UIEvent as ReactUIEvent,
 } from "react"
-import { CSS } from "@dnd-kit/utilities"
 import {
   DndContext,
   DragOverlay,
   pointerWithin,
   type DragEndEvent,
   type DragStartEvent,
-  useDraggable,
   useDroppable,
 } from "@dnd-kit/core"
 import {
@@ -28,94 +26,35 @@ import {
   subDays,
 } from "date-fns"
 
-import { buildItemGroups, getItemAssignees } from "@/lib/domain/selectors"
+import { buildItemGroups } from "@/lib/domain/selectors"
 import type { AppData, ViewDefinition, WorkItem } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 
-import { WorkItemTypeBadge } from "../work-item-ui"
-import { IssueContextMenu } from "../work-item-menus"
 import { getGroupValueAdornment, getGroupValueLabel } from "./shared"
+import {
+  TimelineBar,
+  TimelineBarPreview,
+  TimelineLabelRow,
+} from "./timeline-bars"
+import {
+  TIMELINE_GROUP_ROW_HEIGHT_CLASS,
+  TIMELINE_HEADER_BOTTOM_ROW_HEIGHT,
+  TIMELINE_HEADER_BOTTOM_ROW_HEIGHT_CLASS,
+  TIMELINE_HEADER_TOP_ROW_HEIGHT,
+  TIMELINE_HEADER_TOP_ROW_HEIGHT_CLASS,
+  TIMELINE_ITEM_ROW_HEIGHT_CLASS,
+} from "./timeline-constants"
+import {
+  buildTimelineResizePatch,
+  buildTimelineWeeks,
+  getTimelineMovePatchForDrag,
+  getTimelineRange,
+  type TimelineRangeDraft,
+  type TimelineWeek,
+} from "./timeline-state"
 
-type TimelineRangeDraft = {
-  itemId: string
-  startDate: Date
-  endDate: Date
-}
-
-const TIMELINE_HEADER_TOP_ROW_HEIGHT = 32
-const TIMELINE_HEADER_BOTTOM_ROW_HEIGHT = 32
-const TIMELINE_HEADER_TOP_ROW_HEIGHT_CLASS = "h-8"
-const TIMELINE_HEADER_BOTTOM_ROW_HEIGHT_CLASS = "h-8"
-const TIMELINE_GROUP_ROW_HEIGHT_CLASS = "h-10"
-const TIMELINE_ITEM_ROW_HEIGHT_CLASS = "h-9"
-
-function parseDateOnlyValue(value: string | null | undefined, fallback: Date) {
-  if (!value) {
-    return startOfDay(fallback)
-  }
-
-  return startOfDay(new Date(`${value.slice(0, 10)}T00:00:00`))
-}
-
-function toDateOnlyIsoString(date: Date) {
-  return `${format(startOfDay(date), "yyyy-MM-dd")}T00:00:00.000Z`
-}
-
-function getTimelineRange(item: WorkItem, fallback: Date) {
-  const startDate = parseDateOnlyValue(
-    item.startDate ?? item.targetDate ?? item.dueDate,
-    fallback
-  )
-  const rawEndDate = parseDateOnlyValue(
-    item.targetDate ?? item.dueDate ?? item.startDate,
-    fallback
-  )
-
-  return {
-    startDate,
-    endDate:
-      rawEndDate.getTime() < startDate.getTime() ? startDate : rawEndDate,
-  }
-}
-
-function buildTimelineMovePatch(
-  item: WorkItem,
-  nextStartDate: Date,
-  fallback: Date
-) {
-  const { startDate } = getTimelineRange(item, fallback)
-  const delta = differenceInCalendarDays(nextStartDate, startDate)
-
-  return {
-    startDate: toDateOnlyIsoString(nextStartDate),
-    dueDate: item.dueDate
-      ? toDateOnlyIsoString(
-          addDays(parseDateOnlyValue(item.dueDate, fallback), delta)
-        )
-      : undefined,
-    targetDate: item.targetDate
-      ? toDateOnlyIsoString(
-          addDays(parseDateOnlyValue(item.targetDate, fallback), delta)
-        )
-      : undefined,
-  }
-}
-
-function buildTimelineResizePatch(
-  item: WorkItem,
-  nextStartDate: Date,
-  nextEndDate: Date
-) {
-  return {
-    startDate: toDateOnlyIsoString(nextStartDate),
-    dueDate: item.dueDate ? toDateOnlyIsoString(nextEndDate) : undefined,
-    targetDate:
-      item.targetDate || !item.dueDate
-        ? toDateOnlyIsoString(nextEndDate)
-        : undefined,
-  }
-}
+type TimelineGroupEntry = [string, Map<string, WorkItem[]>]
 
 export function TimelineView({
   data,
@@ -128,17 +67,6 @@ export function TimelineView({
   view: ViewDefinition
   editable: boolean
 }) {
-  const [activeItemId, setActiveItemId] = useState<string | null>(null)
-  const [labelColWidth, setLabelColWidth] = useState(224)
-  const [resizeDraft, setResizeDraft] = useState<TimelineRangeDraft | null>(
-    null
-  )
-  const resizingRef = useRef(false)
-  const timelineHeaderScrollRef = useRef<HTMLDivElement | null>(null)
-  const resizeStartRef = useRef({ x: 0, width: 224 })
-  const dragOffsetRef = useRef<{ itemId: string; offsetDays: number } | null>(
-    null
-  )
   const today = startOfDay(new Date())
   const timelineStart = startOfDay(subDays(new Date(), 3))
   const timelineEnd = endOfDay(addDays(new Date(), 24))
@@ -146,39 +74,151 @@ export function TimelineView({
     start: timelineStart,
     end: timelineEnd,
   })
+  const dayColumnWidth = 56
   const groups = [
     ...buildItemGroups(data, items, { ...view, subGrouping: null }).entries(),
   ]
-
-  const weeks: { label: string; span: number }[] = []
-  let currentWeekLabel = ""
-  let currentSpan = 0
-  for (const day of days) {
-    const weekOfYear = format(day, "'W'ww")
-    if (weekOfYear !== currentWeekLabel && currentWeekLabel) {
-      weeks.push({
-        label:
-          format(subDays(day, currentSpan), "MMM d") +
-          " – " +
-          format(subDays(day, 1), "MMM d"),
-        span: currentSpan,
-      })
-      currentSpan = 0
-    }
-    currentWeekLabel = weekOfYear
-    currentSpan++
-  }
-  if (currentSpan > 0) {
-    weeks.push({
-      label:
-        format(days[days.length - currentSpan], "MMM d") +
-        " – " +
-        format(days[days.length - 1], "MMM d"),
-      span: currentSpan,
-    })
-  }
-
+  const weeks = buildTimelineWeeks(days)
   const todayIndex = differenceInCalendarDays(today, timelineStart)
+  const timelineGridTemplateColumns = `repeat(${days.length}, ${dayColumnWidth}px)`
+  const timelineCanvasWidth = dayColumnWidth * days.length
+  const visibleGroups = getVisibleTimelineGroups(groups, view)
+  const { labelColWidth, handleResizeStart } = useTimelineLabelColumnResize()
+  const { timelineHeaderScrollRef, handleTimelineBodyHorizontalScroll } =
+    useTimelineBodyScrollSync()
+  const {
+    activeDragItem,
+    activeDragSpan,
+    captureDragOffset,
+    handleDragCancel,
+    handleDragEnd,
+    handleDragStart,
+  } = useTimelineDndController({
+    data,
+    dayColumnWidth,
+    editable,
+    timelineStart,
+  })
+  const { handleTimelineBarResizeStart, resizeDraft } =
+    useTimelineBarResizeController({
+      dayColumnWidth,
+      timelineStart,
+    })
+
+  return (
+    <DndContext
+      collisionDetection={pointerWithin}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
+      <TimelineFrame
+        data={data}
+        days={days}
+        gridTemplateColumns={timelineGridTemplateColumns}
+        headerScrollRef={timelineHeaderScrollRef}
+        labelColWidth={labelColWidth}
+        onBodyHorizontalScroll={handleTimelineBodyHorizontalScroll}
+        onCaptureDragOffset={captureDragOffset}
+        onLabelColumnResizeStart={handleResizeStart}
+        onTimelineBarResizeStart={handleTimelineBarResizeStart}
+        resizeDraft={resizeDraft}
+        timelineCanvasWidth={timelineCanvasWidth}
+        today={today}
+        todayIndex={todayIndex}
+        dayColumnWidth={dayColumnWidth}
+        view={view}
+        visibleGroups={visibleGroups}
+        weeks={weeks}
+      />
+      <TimelineDragOverlay
+        activeDragItem={activeDragItem}
+        activeDragSpan={activeDragSpan}
+        dayColumnWidth={dayColumnWidth}
+      />
+    </DndContext>
+  )
+}
+
+function getVisibleTimelineGroups(
+  groups: TimelineGroupEntry[],
+  view: ViewDefinition
+) {
+  return groups.filter(
+    ([groupName]) => !view.hiddenState.groups.includes(groupName)
+  )
+}
+
+function useTimelineLabelColumnResize(initialWidth = 224) {
+  const [labelColWidth, setLabelColWidth] = useState(initialWidth)
+  const resizingRef = useRef(false)
+  const resizeStartRef = useRef({ x: 0, width: initialWidth })
+
+  function handleResizeStart(event: ReactMouseEvent) {
+    event.preventDefault()
+    resizingRef.current = true
+    resizeStartRef.current = { x: event.clientX, width: labelColWidth }
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!resizingRef.current) return
+      const diff = moveEvent.clientX - resizeStartRef.current.x
+      setLabelColWidth(
+        Math.max(160, Math.min(480, resizeStartRef.current.width + diff))
+      )
+    }
+
+    const onMouseUp = () => {
+      resizingRef.current = false
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    }
+
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+  }
+
+  return { labelColWidth, handleResizeStart }
+}
+
+function useTimelineBodyScrollSync() {
+  const timelineHeaderScrollRef = useRef<HTMLDivElement | null>(null)
+
+  function handleTimelineBodyHorizontalScroll(
+    event: ReactUIEvent<HTMLDivElement>
+  ) {
+    if (timelineHeaderScrollRef.current) {
+      timelineHeaderScrollRef.current.scrollLeft =
+        event.currentTarget.scrollLeft
+    }
+  }
+
+  return { timelineHeaderScrollRef, handleTimelineBodyHorizontalScroll }
+}
+
+function useTimelineDndController({
+  data,
+  dayColumnWidth,
+  editable,
+  timelineStart,
+}: {
+  data: AppData
+  dayColumnWidth: number
+  editable: boolean
+  timelineStart: Date
+}) {
+  const [activeItemId, setActiveItemId] = useState<string | null>(null)
+  const dragOffsetRef = useRef<{ itemId: string; offsetDays: number } | null>(
+    null
+  )
+  const activeDragItem = getTimelineActiveDragItem(data, activeItemId)
+  const activeDragSpan = getTimelineActiveDragSpan(
+    activeDragItem,
+    timelineStart
+  )
 
   function handleDragStart(event: DragStartEvent) {
     setActiveItemId(String(event.active.id))
@@ -187,32 +227,22 @@ export function TimelineView({
   function handleDragEnd(event: DragEndEvent) {
     setActiveItemId(null)
 
-    if (!editable || !event.over) {
-      dragOffsetRef.current = null
-      return
-    }
-
     const activeId = String(event.active.id)
-    const activeItem = data.workItems.find((entry) => entry.id === activeId)
-    const [scope, , date] = String(event.over.id).split("::")
+    const move = getTimelineMovePatchForDrag({
+      activeId,
+      data,
+      dragOffset: dragOffsetRef.current,
+      editable,
+      overId: event.over ? String(event.over.id) : null,
+      timelineStart,
+    })
 
-    if (!activeItem || scope !== "timeline") {
+    if (!move) {
       dragOffsetRef.current = null
       return
     }
 
-    const offsetDays =
-      dragOffsetRef.current?.itemId === activeId
-        ? dragOffsetRef.current.offsetDays
-        : 0
-    const nextStartDate = subDays(startOfDay(new Date(date)), offsetDays)
-
-    useAppStore
-      .getState()
-      .updateWorkItem(
-        activeId,
-        buildTimelineMovePatch(activeItem, nextStartDate, timelineStart)
-      )
+    useAppStore.getState().updateWorkItem(move.itemId, move.patch)
 
     dragOffsetRef.current = null
   }
@@ -242,6 +272,56 @@ export function TimelineView({
     }
   }
 
+  return {
+    activeDragItem,
+    activeDragSpan,
+    captureDragOffset,
+    handleDragCancel,
+    handleDragEnd,
+    handleDragStart,
+  }
+}
+
+function getTimelineActiveDragItem(
+  data: AppData,
+  activeItemId: string | null
+) {
+  if (!activeItemId) {
+    return null
+  }
+
+  return data.workItems.find((entry) => entry.id === activeItemId) ?? null
+}
+
+function getTimelineActiveDragSpan(
+  activeDragItem: WorkItem | null,
+  timelineStart: Date
+) {
+  if (!activeDragItem) {
+    return 1
+  }
+
+  const activeDragRange = getTimelineRange(activeDragItem, timelineStart)
+
+  return (
+    differenceInCalendarDays(
+      activeDragRange.endDate,
+      activeDragRange.startDate
+    ) + 1
+  )
+}
+
+function useTimelineBarResizeController({
+  dayColumnWidth,
+  timelineStart,
+}: {
+  dayColumnWidth: number
+  timelineStart: Date
+}) {
+  const [resizeDraft, setResizeDraft] = useState<TimelineRangeDraft | null>(
+    null
+  )
+
   function handleTimelineBarResizeStart(
     item: WorkItem,
     edge: "start" | "end",
@@ -258,31 +338,7 @@ export function TimelineView({
 
     const onPointerMove = (event: PointerEvent) => {
       const diffDays = Math.round((event.clientX - clientX) / dayColumnWidth)
-
-      if (edge === "start") {
-        const candidateStart = startOfDay(
-          addDays(initialRange.startDate, diffDays)
-        )
-        nextDraft = {
-          itemId: item.id,
-          startDate:
-            candidateStart.getTime() > initialRange.endDate.getTime()
-              ? initialRange.endDate
-              : candidateStart,
-          endDate: initialRange.endDate,
-        }
-      } else {
-        const candidateEnd = startOfDay(addDays(initialRange.endDate, diffDays))
-        nextDraft = {
-          itemId: item.id,
-          startDate: initialRange.startDate,
-          endDate:
-            candidateEnd.getTime() < initialRange.startDate.getTime()
-              ? initialRange.startDate
-              : candidateEnd,
-        }
-      }
-
+      nextDraft = getTimelineResizeDraft(item, edge, initialRange, diffDays)
       setResizeDraft(nextDraft)
     }
 
@@ -293,10 +349,7 @@ export function TimelineView({
       document.body.style.removeProperty("user-select")
       setResizeDraft(null)
 
-      if (
-        nextDraft.startDate.getTime() === initialRange.startDate.getTime() &&
-        nextDraft.endDate.getTime() === initialRange.endDate.getTime()
-      ) {
+      if (timelineRangeMatches(nextDraft, initialRange)) {
         return
       }
 
@@ -314,297 +367,541 @@ export function TimelineView({
     document.addEventListener("pointerup", onPointerUp)
   }
 
-  function handleResizeStart(event: ReactMouseEvent) {
-    event.preventDefault()
-    resizingRef.current = true
-    resizeStartRef.current = { x: event.clientX, width: labelColWidth }
+  return { handleTimelineBarResizeStart, resizeDraft }
+}
 
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      if (!resizingRef.current) return
-      const diff = moveEvent.clientX - resizeStartRef.current.x
-      setLabelColWidth(
-        Math.max(160, Math.min(480, resizeStartRef.current.width + diff))
-      )
-    }
+function getTimelineResizeDraft(
+  item: WorkItem,
+  edge: "start" | "end",
+  initialRange: { startDate: Date; endDate: Date },
+  diffDays: number
+): TimelineRangeDraft {
+  if (edge === "start") {
+    const candidateStart = startOfDay(addDays(initialRange.startDate, diffDays))
 
-    const onMouseUp = () => {
-      resizingRef.current = false
-      document.removeEventListener("mousemove", onMouseMove)
-      document.removeEventListener("mouseup", onMouseUp)
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-    }
-
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    document.addEventListener("mousemove", onMouseMove)
-    document.addEventListener("mouseup", onMouseUp)
-  }
-
-  function handleTimelineBodyHorizontalScroll(
-    event: ReactUIEvent<HTMLDivElement>
-  ) {
-    if (timelineHeaderScrollRef.current) {
-      timelineHeaderScrollRef.current.scrollLeft =
-        event.currentTarget.scrollLeft
+    return {
+      itemId: item.id,
+      startDate:
+        candidateStart.getTime() > initialRange.endDate.getTime()
+          ? initialRange.endDate
+          : candidateStart,
+      endDate: initialRange.endDate,
     }
   }
 
-  const dayColumnWidth = 56
-  const timelineGridTemplateColumns = `repeat(${days.length}, ${dayColumnWidth}px)`
-  const timelineCanvasWidth = dayColumnWidth * days.length
-  const visibleGroups = groups.filter(
-    ([groupName]) => !view.hiddenState.groups.includes(groupName)
-  )
-  const activeDragItem = activeItemId
-    ? (data.workItems.find((entry) => entry.id === activeItemId) ?? null)
-    : null
-  const activeDragRange = activeDragItem
-    ? getTimelineRange(activeDragItem, timelineStart)
-    : null
-  const activeDragSpan = activeDragRange
-    ? Math.max(
-        1,
-        differenceInCalendarDays(
-          activeDragRange.endDate,
-          activeDragRange.startDate
-        ) + 1
-      )
-    : 1
+  const candidateEnd = startOfDay(addDays(initialRange.endDate, diffDays))
 
+  return {
+    itemId: item.id,
+    startDate: initialRange.startDate,
+    endDate:
+      candidateEnd.getTime() < initialRange.startDate.getTime()
+        ? initialRange.startDate
+        : candidateEnd,
+  }
+}
+
+function timelineRangeMatches(
+  nextDraft: TimelineRangeDraft,
+  initialRange: { startDate: Date; endDate: Date }
+) {
   return (
-    <DndContext
-      collisionDetection={pointerWithin}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      <div className="grid h-full min-h-0 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-        <div
-          className="relative z-10 shrink-0 border-r bg-background"
-          style={{ width: labelColWidth }}
-        >
-          <div
-            className={cn(
-              "relative flex items-center border-b px-3 leading-none",
-              TIMELINE_HEADER_TOP_ROW_HEIGHT_CLASS
-            )}
-            style={{ height: TIMELINE_HEADER_TOP_ROW_HEIGHT }}
-          >
-            <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-              Items
-            </span>
-            <div
-              className="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize transition-colors hover:bg-primary/20 active:bg-primary/40"
-              onMouseDown={handleResizeStart}
-            />
-          </div>
-          <div
-            className={cn(
-              "border-b bg-background",
-              TIMELINE_HEADER_BOTTOM_ROW_HEIGHT_CLASS
-            )}
-            style={{ height: TIMELINE_HEADER_BOTTOM_ROW_HEIGHT }}
-          />
-        </div>
-
-        <div className="min-w-0 overflow-hidden bg-background">
-          <div ref={timelineHeaderScrollRef} className="overflow-hidden">
-            <div className="min-w-max" style={{ width: timelineCanvasWidth }}>
-              <div
-                className="grid"
-                style={{ gridTemplateColumns: timelineGridTemplateColumns }}
-              >
-                {weeks.map((week, index) => (
-                  <div
-                    key={index}
-                    className={cn(
-                      "flex items-center justify-center border-r border-b px-2 text-center text-[10px] leading-none font-medium whitespace-nowrap text-muted-foreground",
-                      TIMELINE_HEADER_TOP_ROW_HEIGHT_CLASS
-                    )}
-                    style={{
-                      gridColumn: `span ${week.span}`,
-                      height: TIMELINE_HEADER_TOP_ROW_HEIGHT,
-                    }}
-                  >
-                    {week.label}
-                  </div>
-                ))}
-              </div>
-              <div
-                className="grid"
-                style={{ gridTemplateColumns: timelineGridTemplateColumns }}
-              >
-                {days.map((day) => {
-                  const isToday = differenceInCalendarDays(day, today) === 0
-                  const isWeekend = day.getDay() === 0 || day.getDay() === 6
-                  return (
-                    <div
-                      key={day.toISOString()}
-                      className={cn(
-                        "flex items-center justify-center border-r border-b px-1 text-center text-[10px] leading-none whitespace-nowrap",
-                        TIMELINE_HEADER_BOTTOM_ROW_HEIGHT_CLASS,
-                        isToday
-                          ? "bg-primary/10 font-semibold text-primary"
-                          : isWeekend
-                            ? "text-muted-foreground/50"
-                            : "text-muted-foreground"
-                      )}
-                      style={{ height: TIMELINE_HEADER_BOTTOM_ROW_HEIGHT }}
-                    >
-                      {format(day, "EEE")[0]} {format(day, "d")}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-span-2 min-h-0 overflow-y-auto overscroll-contain">
-          <div className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)]">
-            <div
-              className="shrink-0 border-r bg-background"
-              style={{ width: labelColWidth }}
-            >
-              {visibleGroups.map(([groupName, subgroups]) => {
-                const groupItems = Array.from(subgroups.values()).flat()
-                const groupLabel = getGroupValueLabel(view.grouping, groupName)
-                const groupAdornment = getGroupValueAdornment(
-                  view.grouping,
-                  groupName
-                )
-
-                return (
-                  <div key={groupName}>
-                    <div
-                      className={cn(
-                        "flex items-center gap-2 border-b bg-muted/30 px-3",
-                        TIMELINE_GROUP_ROW_HEIGHT_CLASS
-                      )}
-                    >
-                      {groupAdornment}
-                      <span className="text-xs font-medium">{groupLabel}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {groupItems.length}
-                      </span>
-                    </div>
-
-                    {groupItems.map((item) => (
-                      <TimelineLabelRow key={item.id} data={data} item={item} />
-                    ))}
-                  </div>
-                )
-              })}
-            </div>
-
-            <div
-              className="min-w-0 overflow-x-auto overscroll-x-contain"
-              onScroll={handleTimelineBodyHorizontalScroll}
-            >
-              <div
-                className="relative min-w-max"
-                style={{ width: timelineCanvasWidth }}
-              >
-                <div className="relative">
-                  {todayIndex >= 0 && todayIndex < days.length ? (
-                    <div
-                      className="pointer-events-none absolute top-0 bottom-0 z-[5] w-px bg-primary/40"
-                      style={{ left: (todayIndex + 0.5) * dayColumnWidth }}
-                    />
-                  ) : null}
-
-                  {visibleGroups.map(([groupName, subgroups]) => {
-                    const groupItems = Array.from(subgroups.values()).flat()
-
-                    return (
-                      <div key={groupName}>
-                        <div
-                          className={cn(
-                            "border-b bg-muted/30",
-                            TIMELINE_GROUP_ROW_HEIGHT_CLASS
-                          )}
-                        />
-
-                        {groupItems.map((item) => (
-                          <TimelineGridRow
-                            key={item.id}
-                            data={data}
-                            days={days}
-                            gridTemplateColumns={timelineGridTemplateColumns}
-                            item={item}
-                            onCaptureDragOffset={captureDragOffset}
-                            onResizeStart={handleTimelineBarResizeStart}
-                            rangeOverride={
-                              resizeDraft?.itemId === item.id
-                                ? resizeDraft
-                                : null
-                            }
-                          />
-                        ))}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <DragOverlay>
-        {activeDragItem ? (
-          <div
-            className="h-9 px-0.5 py-1"
-            style={{ width: activeDragSpan * dayColumnWidth }}
-          >
-            <TimelineBarPreview item={activeDragItem} span={activeDragSpan} />
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+    nextDraft.startDate.getTime() === initialRange.startDate.getTime() &&
+    nextDraft.endDate.getTime() === initialRange.endDate.getTime()
   )
 }
 
-function TimelineLabelRow({ data, item }: { data: AppData; item: WorkItem }) {
-  const assignees = getItemAssignees(data, [item])
-
+function TimelineFrame({
+  data,
+  days,
+  dayColumnWidth,
+  gridTemplateColumns,
+  headerScrollRef,
+  labelColWidth,
+  onBodyHorizontalScroll,
+  onCaptureDragOffset,
+  onLabelColumnResizeStart,
+  onTimelineBarResizeStart,
+  resizeDraft,
+  timelineCanvasWidth,
+  today,
+  todayIndex,
+  view,
+  visibleGroups,
+  weeks,
+}: {
+  data: AppData
+  days: Date[]
+  dayColumnWidth: number
+  gridTemplateColumns: string
+  headerScrollRef: RefObject<HTMLDivElement | null>
+  labelColWidth: number
+  onBodyHorizontalScroll: (event: ReactUIEvent<HTMLDivElement>) => void
+  onCaptureDragOffset: (
+    item: WorkItem,
+    span: number,
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) => void
+  onLabelColumnResizeStart: (event: ReactMouseEvent) => void
+  onTimelineBarResizeStart: (
+    item: WorkItem,
+    edge: "start" | "end",
+    clientX: number
+  ) => void
+  resizeDraft: TimelineRangeDraft | null
+  timelineCanvasWidth: number
+  today: Date
+  todayIndex: number
+  view: ViewDefinition
+  visibleGroups: TimelineGroupEntry[]
+  weeks: TimelineWeek[]
+}) {
   return (
-    <IssueContextMenu data={data} item={item}>
+    <div className="grid h-full min-h-0 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+      <TimelineLabelColumnHeader
+        labelColWidth={labelColWidth}
+        onResizeStart={onLabelColumnResizeStart}
+      />
+      <TimelineDateHeader
+        days={days}
+        gridTemplateColumns={gridTemplateColumns}
+        headerScrollRef={headerScrollRef}
+        timelineCanvasWidth={timelineCanvasWidth}
+        today={today}
+        weeks={weeks}
+      />
+      <TimelineBody
+        data={data}
+        dayColumnWidth={dayColumnWidth}
+        days={days}
+        gridTemplateColumns={gridTemplateColumns}
+        labelColWidth={labelColWidth}
+        onBodyHorizontalScroll={onBodyHorizontalScroll}
+        onCaptureDragOffset={onCaptureDragOffset}
+        onTimelineBarResizeStart={onTimelineBarResizeStart}
+        resizeDraft={resizeDraft}
+        timelineCanvasWidth={timelineCanvasWidth}
+        todayIndex={todayIndex}
+        view={view}
+        visibleGroups={visibleGroups}
+      />
+    </div>
+  )
+}
+
+function TimelineLabelColumnHeader({
+  labelColWidth,
+  onResizeStart,
+}: {
+  labelColWidth: number
+  onResizeStart: (event: ReactMouseEvent) => void
+}) {
+  return (
+    <div
+      className="relative z-10 shrink-0 border-r bg-background"
+      style={{ width: labelColWidth }}
+    >
       <div
         className={cn(
-          "flex items-center gap-2.5 border-b bg-background px-3",
-          TIMELINE_ITEM_ROW_HEIGHT_CLASS
+          "relative flex items-center border-b px-3 leading-none",
+          TIMELINE_HEADER_TOP_ROW_HEIGHT_CLASS
+        )}
+        style={{ height: TIMELINE_HEADER_TOP_ROW_HEIGHT }}
+      >
+        <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+          Items
+        </span>
+        <div
+          className="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize transition-colors hover:bg-primary/20 active:bg-primary/40"
+          onMouseDown={onResizeStart}
+        />
+      </div>
+      <div
+        className={cn(
+          "border-b bg-background",
+          TIMELINE_HEADER_BOTTOM_ROW_HEIGHT_CLASS
+        )}
+        style={{ height: TIMELINE_HEADER_BOTTOM_ROW_HEIGHT }}
+      />
+    </div>
+  )
+}
+
+function TimelineDateHeader({
+  days,
+  gridTemplateColumns,
+  headerScrollRef,
+  timelineCanvasWidth,
+  today,
+  weeks,
+}: {
+  days: Date[]
+  gridTemplateColumns: string
+  headerScrollRef: RefObject<HTMLDivElement | null>
+  timelineCanvasWidth: number
+  today: Date
+  weeks: TimelineWeek[]
+}) {
+  return (
+    <div className="min-w-0 overflow-hidden bg-background">
+      <div ref={headerScrollRef} className="overflow-hidden">
+        <div className="min-w-max" style={{ width: timelineCanvasWidth }}>
+          <TimelineWeekHeader
+            gridTemplateColumns={gridTemplateColumns}
+            weeks={weeks}
+          />
+          <TimelineDayHeader
+            days={days}
+            gridTemplateColumns={gridTemplateColumns}
+            today={today}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TimelineWeekHeader({
+  gridTemplateColumns,
+  weeks,
+}: {
+  gridTemplateColumns: string
+  weeks: TimelineWeek[]
+}) {
+  return (
+    <div className="grid" style={{ gridTemplateColumns }}>
+      {weeks.map((week, index) => (
+        <div
+          key={index}
+          className={cn(
+            "flex items-center justify-center border-r border-b px-2 text-center text-[10px] leading-none font-medium whitespace-nowrap text-muted-foreground",
+            TIMELINE_HEADER_TOP_ROW_HEIGHT_CLASS
+          )}
+          style={{
+            gridColumn: `span ${week.span}`,
+            height: TIMELINE_HEADER_TOP_ROW_HEIGHT,
+          }}
+        >
+          {week.label}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function TimelineDayHeader({
+  days,
+  gridTemplateColumns,
+  today,
+}: {
+  days: Date[]
+  gridTemplateColumns: string
+  today: Date
+}) {
+  return (
+    <div className="grid" style={{ gridTemplateColumns }}>
+      {days.map((day) => (
+        <TimelineDayHeaderCell key={day.toISOString()} day={day} today={today} />
+      ))}
+    </div>
+  )
+}
+
+function TimelineDayHeaderCell({ day, today }: { day: Date; today: Date }) {
+  const isToday = differenceInCalendarDays(day, today) === 0
+  const isWeekend = day.getDay() === 0 || day.getDay() === 6
+
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-center border-r border-b px-1 text-center text-[10px] leading-none whitespace-nowrap",
+        TIMELINE_HEADER_BOTTOM_ROW_HEIGHT_CLASS,
+        isToday
+          ? "bg-primary/10 font-semibold text-primary"
+          : isWeekend
+            ? "text-muted-foreground/50"
+            : "text-muted-foreground"
+      )}
+      style={{ height: TIMELINE_HEADER_BOTTOM_ROW_HEIGHT }}
+    >
+      {format(day, "EEE")[0]} {format(day, "d")}
+    </div>
+  )
+}
+
+type TimelineGridInteractionProps = {
+  dayColumnWidth: number
+  days: Date[]
+  gridTemplateColumns: string
+  onBodyHorizontalScroll: (event: ReactUIEvent<HTMLDivElement>) => void
+  onCaptureDragOffset: (
+    item: WorkItem,
+    span: number,
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) => void
+  onTimelineBarResizeStart: (
+    item: WorkItem,
+    edge: "start" | "end",
+    clientX: number
+  ) => void
+  resizeDraft: TimelineRangeDraft | null
+  timelineCanvasWidth: number
+  todayIndex: number
+}
+
+type TimelineBodyProps = TimelineGridInteractionProps & {
+  data: AppData
+  labelColWidth: number
+  view: ViewDefinition
+  visibleGroups: TimelineGroupEntry[]
+}
+
+type TimelineGridGroupsProps = TimelineGridInteractionProps & {
+  data: AppData
+  visibleGroups: TimelineGroupEntry[]
+}
+
+function TimelineBody({
+  data,
+  dayColumnWidth,
+  days,
+  gridTemplateColumns,
+  labelColWidth,
+  onBodyHorizontalScroll,
+  onCaptureDragOffset,
+  onTimelineBarResizeStart,
+  resizeDraft,
+  timelineCanvasWidth,
+  todayIndex,
+  view,
+  visibleGroups,
+}: TimelineBodyProps) {
+  return (
+    <div className="col-span-2 min-h-0 overflow-y-auto overscroll-contain">
+      <div className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)]">
+        <TimelineLabelGroupsColumn
+          data={data}
+          labelColWidth={labelColWidth}
+          view={view}
+          visibleGroups={visibleGroups}
+        />
+        <TimelineGridGroups
+          data={data}
+          dayColumnWidth={dayColumnWidth}
+          days={days}
+          gridTemplateColumns={gridTemplateColumns}
+          onBodyHorizontalScroll={onBodyHorizontalScroll}
+          onCaptureDragOffset={onCaptureDragOffset}
+          onTimelineBarResizeStart={onTimelineBarResizeStart}
+          resizeDraft={resizeDraft}
+          timelineCanvasWidth={timelineCanvasWidth}
+          todayIndex={todayIndex}
+          visibleGroups={visibleGroups}
+        />
+      </div>
+    </div>
+  )
+}
+
+function TimelineLabelGroupsColumn({
+  data,
+  labelColWidth,
+  view,
+  visibleGroups,
+}: {
+  data: AppData
+  labelColWidth: number
+  view: ViewDefinition
+  visibleGroups: TimelineGroupEntry[]
+}) {
+  return (
+    <div
+      className="shrink-0 border-r bg-background"
+      style={{ width: labelColWidth }}
+    >
+      {visibleGroups.map(([groupName, subgroups]) => (
+        <TimelineLabelGroup
+          key={groupName}
+          data={data}
+          groupName={groupName}
+          subgroups={subgroups}
+          view={view}
+        />
+      ))}
+    </div>
+  )
+}
+
+function TimelineLabelGroup({
+  data,
+  groupName,
+  subgroups,
+  view,
+}: {
+  data: AppData
+  groupName: string
+  subgroups: Map<string, WorkItem[]>
+  view: ViewDefinition
+}) {
+  const groupItems = Array.from(subgroups.values()).flat()
+  const groupLabel = getGroupValueLabel(view.grouping, groupName)
+  const groupAdornment = getGroupValueAdornment(view.grouping, groupName)
+
+  return (
+    <div>
+      <div
+        className={cn(
+          "flex items-center gap-2 border-b bg-muted/30 px-3",
+          TIMELINE_GROUP_ROW_HEIGHT_CLASS
         )}
       >
-        <div
-          className={cn(
-            "size-2 shrink-0 rounded-full",
-            item.status === "done"
-              ? "bg-green-500"
-              : item.status === "in-progress"
-                ? "bg-blue-500"
-                : item.status === "cancelled"
-                  ? "bg-red-500"
-                  : "bg-muted-foreground/30"
-          )}
-        />
-        <div className="min-w-0 flex-1">
-          <Link
-            className="block truncate text-xs hover:underline"
-            href={`/items/${item.id}`}
-          >
-            {item.title}
-          </Link>
-        </div>
-        <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
-        {assignees[0] ? (
-          <span className="shrink-0 text-[10px] text-muted-foreground">
-            {assignees[0].name.split(" ")[0]}
-          </span>
-        ) : null}
+        {groupAdornment}
+        <span className="text-xs font-medium">{groupLabel}</span>
+        <span className="text-[10px] text-muted-foreground">
+          {groupItems.length}
+        </span>
       </div>
-    </IssueContextMenu>
+
+      {groupItems.map((item) => (
+        <TimelineLabelRow key={item.id} data={data} item={item} />
+      ))}
+    </div>
+  )
+}
+
+function TimelineGridGroups({
+  data,
+  dayColumnWidth,
+  days,
+  gridTemplateColumns,
+  onBodyHorizontalScroll,
+  onCaptureDragOffset,
+  onTimelineBarResizeStart,
+  resizeDraft,
+  timelineCanvasWidth,
+  todayIndex,
+  visibleGroups,
+}: TimelineGridGroupsProps) {
+  return (
+    <div
+      className="min-w-0 overflow-x-auto overscroll-x-contain"
+      onScroll={onBodyHorizontalScroll}
+    >
+      <div className="relative min-w-max" style={{ width: timelineCanvasWidth }}>
+        <div className="relative">
+          <TimelineTodayMarker
+            dayColumnWidth={dayColumnWidth}
+            days={days}
+            todayIndex={todayIndex}
+          />
+          {visibleGroups.map(([groupName, subgroups]) => (
+            <TimelineGridGroup
+              key={groupName}
+              data={data}
+              days={days}
+              gridTemplateColumns={gridTemplateColumns}
+              onCaptureDragOffset={onCaptureDragOffset}
+              onTimelineBarResizeStart={onTimelineBarResizeStart}
+              resizeDraft={resizeDraft}
+              subgroups={subgroups}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TimelineTodayMarker({
+  dayColumnWidth,
+  days,
+  todayIndex,
+}: {
+  dayColumnWidth: number
+  days: Date[]
+  todayIndex: number
+}) {
+  if (todayIndex < 0 || todayIndex >= days.length) {
+    return null
+  }
+
+  return (
+    <div
+      className="pointer-events-none absolute top-0 bottom-0 z-[5] w-px bg-primary/40"
+      style={{ left: (todayIndex + 0.5) * dayColumnWidth }}
+    />
+  )
+}
+
+function TimelineGridGroup({
+  data,
+  days,
+  gridTemplateColumns,
+  onCaptureDragOffset,
+  onTimelineBarResizeStart,
+  resizeDraft,
+  subgroups,
+}: {
+  data: AppData
+  days: Date[]
+  gridTemplateColumns: string
+  onCaptureDragOffset: (
+    item: WorkItem,
+    span: number,
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) => void
+  onTimelineBarResizeStart: (
+    item: WorkItem,
+    edge: "start" | "end",
+    clientX: number
+  ) => void
+  resizeDraft: TimelineRangeDraft | null
+  subgroups: Map<string, WorkItem[]>
+}) {
+  const groupItems = Array.from(subgroups.values()).flat()
+
+  return (
+    <div>
+      <div
+        className={cn("border-b bg-muted/30", TIMELINE_GROUP_ROW_HEIGHT_CLASS)}
+      />
+
+      {groupItems.map((item) => (
+        <TimelineGridRow
+          key={item.id}
+          data={data}
+          days={days}
+          gridTemplateColumns={gridTemplateColumns}
+          item={item}
+          onCaptureDragOffset={onCaptureDragOffset}
+          onResizeStart={onTimelineBarResizeStart}
+          rangeOverride={resizeDraft?.itemId === item.id ? resizeDraft : null}
+        />
+      ))}
+    </div>
+  )
+}
+
+function TimelineDragOverlay({
+  activeDragItem,
+  activeDragSpan,
+  dayColumnWidth,
+}: {
+  activeDragItem: WorkItem | null
+  activeDragSpan: number
+  dayColumnWidth: number
+}) {
+  return (
+    <DragOverlay>
+      {activeDragItem ? (
+        <div
+          className="h-9 px-0.5 py-1"
+          style={{ width: activeDragSpan * dayColumnWidth }}
+        >
+          <TimelineBarPreview item={activeDragItem} span={activeDragSpan} />
+        </div>
+      ) : null}
+    </DragOverlay>
   )
 }
 
@@ -697,100 +994,5 @@ function TimelineDropCell({
         isOver && "bg-primary/10"
       )}
     />
-  )
-}
-
-const barColors: Record<string, string> = {
-  backlog: "bg-muted-foreground/20 text-foreground",
-  todo: "bg-muted-foreground/30 text-foreground",
-  "in-progress": "bg-blue-500/90 text-white",
-  "in-review": "bg-violet-500/90 text-white",
-  done: "bg-green-500/80 text-white",
-  cancelled: "bg-red-400/60 text-white",
-}
-
-function TimelineBarPreview({ item, span }: { item: WorkItem; span: number }) {
-  const colorClass =
-    barColors[item.status] ?? "bg-primary text-primary-foreground"
-
-  return (
-    <div
-      className={cn(
-        "flex h-full w-full items-center rounded-[5px] px-2 text-left text-[11px] font-medium shadow-sm",
-        colorClass
-      )}
-    >
-      <span className="truncate">{span >= 3 ? item.title : item.key}</span>
-    </div>
-  )
-}
-
-function TimelineBar({
-  data,
-  item,
-  span,
-  onCaptureDragOffset,
-  onResizeStart,
-}: {
-  data: AppData
-  item: WorkItem
-  span: number
-  onCaptureDragOffset: (
-    item: WorkItem,
-    span: number,
-    event: ReactPointerEvent<HTMLButtonElement>
-  ) => void
-  onResizeStart: (
-    item: WorkItem,
-    edge: "start" | "end",
-    clientX: number
-  ) => void
-}) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({
-      id: item.id,
-    })
-
-  const colorClass =
-    barColors[item.status] ?? "bg-primary text-primary-foreground"
-
-  return (
-    <IssueContextMenu data={data} item={item}>
-      <button
-        ref={setNodeRef}
-        type="button"
-        className={cn(
-          "group/timeline-bar relative flex h-full w-full items-center rounded-[5px] px-2 text-left text-[11px] font-medium shadow-sm transition-shadow hover:shadow-md",
-          isDragging && "opacity-0",
-          colorClass
-        )}
-        style={{
-          transform: isDragging ? undefined : CSS.Translate.toString(transform),
-        }}
-        onPointerDownCapture={(event) => onCaptureDragOffset(item, span, event)}
-        {...listeners}
-        {...attributes}
-      >
-        <span
-          data-timeline-resize-handle="start"
-          className="absolute inset-y-0 left-0 w-2.5 cursor-ew-resize rounded-l-[5px] opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
-          onPointerDown={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            onResizeStart(item, "start", event.clientX)
-          }}
-        />
-        <span className="truncate">{span >= 3 ? item.title : item.key}</span>
-        <span
-          data-timeline-resize-handle="end"
-          className="absolute inset-y-0 right-0 w-2.5 cursor-ew-resize rounded-r-[5px] opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
-          onPointerDown={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            onResizeStart(item, "end", event.clientX)
-          }}
-        />
-      </button>
-    </IssueContextMenu>
   )
 }

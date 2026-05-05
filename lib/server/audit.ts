@@ -1,65 +1,50 @@
 import { api } from "@/convex/_generated/api"
+import type { AuditEventInput } from "@/lib/domain/audit"
 import {
   getConvexServerClient,
   runConvexRequestWithRetry,
   withServerToken,
 } from "@/lib/server/convex/core"
 
-type OperationalAuditEventInput = {
-  type:
-    | "membership.role_changed"
-    | "membership.removed_from_team"
-    | "membership.removed_from_workspace"
-    | "membership.left_team"
-    | "membership.left_workspace"
-    | "workspace.deleted"
-    | "account.deleted"
-    | "invite.created"
-    | "invite.accepted"
-    | "invite.declined"
-    | "provider.membership_cleanup_failed"
-    | "provider.account_cleanup_failed"
-  outcome?: "success" | "failure"
-  actorUserId?: string | null
-  subjectUserId?: string | null
-  workspaceId?: string | null
-  teamId?: string | null
-  entityId?: string | null
-  summary: string
-  details?: {
-    deletedPrivateDocumentIds?: string[]
-    email?: string
-    inviteRole?: "admin" | "member" | "viewer" | "guest"
-    nextRole?: "admin" | "member" | "viewer" | "guest"
-    organizationId?: string
-    previousRole?: "admin" | "member" | "viewer" | "guest"
-    provider?: string
-    reason?: string
-    removedTeamIds?: string[]
-    source?: "convex" | "server"
-    workosUserId?: string
-  }
+function auditNullable<T>(value: T | null | undefined) {
+  return value ?? null
+}
+
+function auditDetails(details: AuditEventInput["details"]) {
+  return details ?? {}
+}
+
+function auditOutcome(outcome: AuditEventInput["outcome"]) {
+  return outcome ?? "success"
+}
+
+function createOperationalAuditMutationArgs(input: AuditEventInput) {
+  return withServerToken({
+    actorUserId: auditNullable(input.actorUserId),
+    details: auditDetails(input.details),
+    entityId: auditNullable(input.entityId),
+    outcome: auditOutcome(input.outcome),
+    subjectUserId: auditNullable(input.subjectUserId),
+    summary: input.summary,
+    teamId: auditNullable(input.teamId),
+    type: input.type,
+    workspaceId: auditNullable(input.workspaceId),
+  })
+}
+
+async function persistOperationalAuditEvent(input: AuditEventInput) {
+  await getConvexServerClient().mutation(
+    api.app.logAuditEvent,
+    createOperationalAuditMutationArgs(input)
+  )
 }
 
 export async function recordOperationalAuditEvent(
-  input: OperationalAuditEventInput
+  input: AuditEventInput
 ) {
   try {
     await runConvexRequestWithRetry(`audit:${input.type}`, () =>
-      getConvexServerClient().mutation(
-        api.app.logAuditEvent,
-        withServerToken({
-          actorUserId: input.actorUserId ?? null,
-          details: input.details ?? {},
-          entityId: input.entityId ?? null,
-          outcome: input.outcome ?? "success",
-          subjectUserId: input.subjectUserId ?? null,
-          summary: input.summary,
-          teamId: input.teamId ?? null,
-          type: input.type,
-          workspaceId: input.workspaceId ?? null,
-        })
-      )
+      persistOperationalAuditEvent(input)
     )
   } catch (error) {
     console.warn(`Failed to persist operational audit event ${input.type}`, {

@@ -58,6 +58,89 @@ type WorkspaceSlice = Pick<
   | "updateTeamWorkflowSettings"
 >
 
+function getCurrentWorkspaceOrToast(get: AppStoreGet) {
+  const state = get()
+  const workspace = state.workspaces.find(
+    (entry) => entry.id === state.currentWorkspaceId
+  )
+
+  if (!workspace) {
+    toast.error("Workspace not found")
+    return null
+  }
+
+  return workspace
+}
+
+function getTeamOrToast(get: AppStoreGet, teamId: string) {
+  const team = get().teams.find((entry) => entry.id === teamId)
+
+  if (!team) {
+    toast.error("Team not found")
+    return null
+  }
+
+  return team
+}
+
+function getCurrentUserOrToast(get: AppStoreGet) {
+  const state = get()
+  const currentUser = state.users.find((user) => user.id === state.currentUserId)
+
+  if (!currentUser) {
+    toast.error("Profile not found")
+    return null
+  }
+
+  return currentUser
+}
+
+function parseCreateTeamInput(input: Parameters<AppStore["createTeam"]>[0]) {
+  return teamDetailsSchema.safeParse({
+    ...input,
+    icon: normalizeTeamIconToken(input.icon, input.experience),
+  })
+}
+
+function requireCreatedTeamResult(
+  result: Awaited<ReturnType<typeof syncCreateTeam>>
+) {
+  if (!result?.teamId || !result.teamSlug) {
+    throw new Error("Failed to create team")
+  }
+
+  return result
+}
+
+function applyCreatedTeamState(
+  state: AppStore,
+  input: {
+    parsedTeam: Parameters<typeof buildLocalTeamCreateState>[0]
+    teamId: string
+  }
+) {
+  const localTeam = buildLocalTeamCreateState(input.parsedTeam)
+  const teams = state.teams.some((team) => team.id === input.teamId)
+    ? state.teams
+    : [localTeam.team, ...state.teams]
+  const teamMemberships = state.teamMemberships.some(
+    (membership) =>
+      membership.teamId === localTeam.membership.teamId &&
+      membership.userId === localTeam.membership.userId
+  )
+    ? state.teamMemberships
+    : [localTeam.membership, ...state.teamMemberships]
+
+  return {
+    teams,
+    teamMemberships,
+    ui: {
+      ...state.ui,
+      activeTeamId: input.teamId,
+    },
+  }
+}
+
 export function createWorkspaceSlice(
   set: AppStoreSet,
   get: AppStoreGet,
@@ -109,12 +192,9 @@ export function createWorkspaceSlice(
       toast.success("Workspace updated")
     },
     async deleteCurrentWorkspace() {
-      const workspace = get().workspaces.find(
-        (entry) => entry.id === get().currentWorkspaceId
-      )
+      const workspace = getCurrentWorkspaceOrToast(get)
 
       if (!workspace) {
-        toast.error("Workspace not found")
         return false
       }
 
@@ -137,12 +217,9 @@ export function createWorkspaceSlice(
       }
     },
     async leaveWorkspace() {
-      const workspace = get().workspaces.find(
-        (entry) => entry.id === get().currentWorkspaceId
-      )
+      const workspace = getCurrentWorkspaceOrToast(get)
 
       if (!workspace) {
-        toast.error("Workspace not found")
         return false
       }
 
@@ -218,54 +295,31 @@ export function createWorkspaceSlice(
       }
     },
     async createTeam(input) {
-      const parsed = teamDetailsSchema.safeParse({
-        ...input,
-        icon: normalizeTeamIconToken(input.icon, input.experience),
-      })
+      const parsed = parseCreateTeamInput(input)
       if (!parsed.success) {
         toast.error("Team details are invalid")
         return null
       }
 
       try {
-        const result = await syncCreateTeam(parsed.data)
-
-        if (!result?.teamId || !result.teamSlug) {
-          throw new Error("Failed to create team")
-        }
+        const result = requireCreatedTeamResult(await syncCreateTeam(parsed.data))
 
         set((state) => {
-          const localTeam = buildLocalTeamCreateState({
-            currentUserId: state.currentUserId,
-            workspaceId: state.currentWorkspaceId,
+          return applyCreatedTeamState(state, {
             teamId: result.teamId,
-            teamSlug: result.teamSlug,
-            joinCode: result.joinCode,
-            name: parsed.data.name,
-            icon: parsed.data.icon,
-            summary: parsed.data.summary,
-            experience: parsed.data.experience,
-            features: result.features,
-          })
-          const teams = state.teams.some((team) => team.id === result.teamId)
-            ? state.teams
-            : [localTeam.team, ...state.teams]
-          const teamMemberships = state.teamMemberships.some(
-            (membership) =>
-              membership.teamId === localTeam.membership.teamId &&
-              membership.userId === localTeam.membership.userId
-          )
-            ? state.teamMemberships
-            : [localTeam.membership, ...state.teamMemberships]
-
-          return {
-            teams,
-            teamMemberships,
-            ui: {
-              ...state.ui,
-              activeTeamId: result.teamId,
+            parsedTeam: {
+              currentUserId: state.currentUserId,
+              workspaceId: state.currentWorkspaceId,
+              teamId: result.teamId,
+              teamSlug: result.teamSlug,
+              joinCode: result.joinCode,
+              name: parsed.data.name,
+              icon: parsed.data.icon,
+              summary: parsed.data.summary,
+              experience: parsed.data.experience,
+              features: result.features,
             },
-          }
+          })
         })
         toast.success("Team created")
 
@@ -283,10 +337,9 @@ export function createWorkspaceSlice(
       }
     },
     async deleteTeam(teamId) {
-      const team = get().teams.find((entry) => entry.id === teamId)
+      const team = getTeamOrToast(get, teamId)
 
       if (!team) {
-        toast.error("Team not found")
         return false
       }
 
@@ -306,10 +359,9 @@ export function createWorkspaceSlice(
       }
     },
     async leaveTeam(teamId) {
-      const team = get().teams.find((entry) => entry.id === teamId)
+      const team = getTeamOrToast(get, teamId)
 
       if (!team) {
-        toast.error("Team not found")
         return false
       }
 
@@ -524,10 +576,9 @@ export function createWorkspaceSlice(
       }
     },
     async regenerateTeamJoinCode(teamId) {
-      const team = get().teams.find((entry) => entry.id === teamId)
+      const team = getTeamOrToast(get, teamId)
 
       if (!team) {
-        toast.error("Team not found")
         return false
       }
 
@@ -611,11 +662,9 @@ export function createWorkspaceSlice(
       toast.success("Profile updated")
     },
     updateCurrentUserStatus(input) {
-      const currentUserId = get().currentUserId
-      const currentUser = get().users.find((user) => user.id === currentUserId)
+      const currentUser = getCurrentUserOrToast(get)
 
       if (!currentUser) {
-        toast.error("Profile not found")
         return
       }
 
@@ -630,7 +679,7 @@ export function createWorkspaceSlice(
 
       set((state) => ({
         users: state.users.map((user) =>
-          user.id === currentUserId
+          user.id === currentUser.id
             ? {
                 ...user,
                 hasExplicitStatus: true,
@@ -659,11 +708,9 @@ export function createWorkspaceSlice(
       toast.success("Status updated")
     },
     clearCurrentUserStatus() {
-      const currentUserId = get().currentUserId
-      const currentUser = get().users.find((user) => user.id === currentUserId)
+      const currentUser = getCurrentUserOrToast(get)
 
       if (!currentUser) {
-        toast.error("Profile not found")
         return
       }
 
@@ -673,7 +720,7 @@ export function createWorkspaceSlice(
 
       set((state) => ({
         users: state.users.map((user) =>
-          user.id === currentUserId
+          user.id === currentUser.id
             ? {
                 ...user,
                 hasExplicitStatus: false,

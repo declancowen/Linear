@@ -3,6 +3,7 @@
 import {
   useRef,
   type ElementType,
+  type RefObject,
   type ReactNode,
 } from "react"
 import {
@@ -211,6 +212,67 @@ export function SettingsHero({
   )
 }
 
+type SettingsSectionVariant = "card" | "plain"
+
+function hasSettingsSectionHeaderContent(input: {
+  action?: ReactNode
+  description?: ReactNode
+  title?: string
+}) {
+  return Boolean(input.title || input.description || input.action)
+}
+
+function getSettingsSectionHeaderClassName(variant: SettingsSectionVariant) {
+  return cn(
+    "flex items-end justify-between gap-4",
+    variant === "card" ? "border-b border-line-soft px-5 pt-4 pb-3.5" : "pb-1"
+  )
+}
+
+function SettingsSectionHeading({
+  description,
+  title,
+}: {
+  description?: ReactNode
+  title?: string
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      {title ? (
+        <h2 className="text-[14px] font-semibold tracking-tight">{title}</h2>
+      ) : null}
+      {description ? (
+        <p className="max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
+          {description}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function SettingsSectionHeader({
+  action,
+  description,
+  title,
+  variant,
+}: {
+  action?: ReactNode
+  description?: ReactNode
+  title?: string
+  variant: SettingsSectionVariant
+}) {
+  if (!hasSettingsSectionHeaderContent({ action, description, title })) {
+    return null
+  }
+
+  return (
+    <header className={getSettingsSectionHeaderClassName(variant)}>
+      <SettingsSectionHeading description={description} title={title} />
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </header>
+  )
+}
+
 export function SettingsSection({
   title,
   description,
@@ -224,33 +286,16 @@ export function SettingsSection({
   children: ReactNode
   action?: ReactNode
   className?: string
-  variant?: "card" | "plain"
+  variant?: SettingsSectionVariant
 }) {
-  const header =
-    title || description || action ? (
-      <header
-        className={cn(
-          "flex items-end justify-between gap-4",
-          variant === "card"
-            ? "border-b border-line-soft px-5 pt-4 pb-3.5"
-            : "pb-1"
-        )}
-      >
-        <div className="min-w-0 space-y-1">
-          {title ? (
-            <h2 className="text-[14px] font-semibold tracking-tight">
-              {title}
-            </h2>
-          ) : null}
-          {description ? (
-            <p className="max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
-              {description}
-            </p>
-          ) : null}
-        </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
-      </header>
-    ) : null
+  const header = (
+    <SettingsSectionHeader
+      action={action}
+      description={description}
+      title={title}
+      variant={variant}
+    />
+  )
 
   if (variant === "plain") {
     return (
@@ -416,93 +461,167 @@ export function ImageUploadControl({
   onClear: () => void
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const disabledOrUploading = disabled || uploading
+  const openFilePicker = () => inputRef.current?.click()
 
   return (
     <div className="flex items-center gap-4 py-1">
-      <button
-        type="button"
-        aria-label={`Change ${title.toLowerCase()}`}
-        disabled={disabled || uploading}
-        onClick={() => inputRef.current?.click()}
+      <ImageUploadPreviewButton
+        disabled={disabledOrUploading}
+        imageSrc={imageSrc}
+        preview={preview}
+        shape={shape}
+        title={title}
+        uploading={uploading}
+        onClick={openFilePicker}
+      />
+      <ImageUploadDescription description={description} title={title} />
+      <ImageUploadActions
+        disabled={disabled}
+        imageSrc={imageSrc}
+        uploading={uploading}
+        onClear={onClear}
+        onUpload={openFilePicker}
+      />
+      <ImageUploadInput inputRef={inputRef} onSelect={onSelect} />
+    </div>
+  )
+}
+
+function ImageUploadPreviewButton({
+  disabled,
+  imageSrc,
+  preview,
+  shape,
+  title,
+  uploading,
+  onClick,
+}: {
+  disabled?: boolean
+  imageSrc: string | null
+  preview: ReactNode
+  shape: "circle" | "square"
+  title: string
+  uploading?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={`Change ${title.toLowerCase()}`}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "group relative flex size-16 shrink-0 items-center justify-center overflow-hidden border border-line bg-surface-2 transition-colors hover:border-line",
+        shape === "circle" ? "rounded-full" : "rounded-2xl",
+        disabled && "cursor-not-allowed opacity-70"
+      )}
+    >
+      {imageSrc ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img alt={title} className="size-full object-cover" src={imageSrc} />
+      ) : (
+        preview
+      )}
+      <span
         className={cn(
-          "group relative flex size-16 shrink-0 items-center justify-center overflow-hidden border border-line bg-surface-2 transition-colors hover:border-line",
-          shape === "circle" ? "rounded-full" : "rounded-2xl",
-          (disabled || uploading) && "cursor-not-allowed opacity-70"
+          "pointer-events-none absolute inset-0 flex items-center justify-center bg-foreground/55 text-background opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100",
+          shape === "circle" ? "rounded-full" : "rounded-2xl"
         )}
       >
-        {imageSrc ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img alt={title} className="size-full object-cover" src={imageSrc} />
+        {uploading ? (
+          <SpinnerGap className="size-4 animate-spin" />
         ) : (
-          preview
+          <Camera className="size-4" />
         )}
-        <span
-          className={cn(
-            "pointer-events-none absolute inset-0 flex items-center justify-center bg-foreground/55 text-background opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100",
-            shape === "circle" ? "rounded-full" : "rounded-2xl"
-          )}
-        >
-          {uploading ? (
-            <SpinnerGap className="size-4 animate-spin" />
-          ) : (
-            <Camera className="size-4" />
-          )}
-        </span>
-      </button>
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <div className="text-[13px] font-medium">{title}</div>
-        {description ? (
-          <div className="text-[12.5px] leading-relaxed text-muted-foreground">
-            {description}
-          </div>
-        ) : (
-          <div className="text-[12.5px] leading-relaxed text-muted-foreground">
-            Square image, at least 256px. PNG or JPG up to 10 MB.
-          </div>
-        )}
-      </div>
-      <div className="flex shrink-0 gap-1.5">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled || uploading}
-          onClick={() => inputRef.current?.click()}
-        >
-          {uploading ? (
-            <SpinnerGap className="size-3.5 animate-spin" />
-          ) : (
-            <Camera className="size-3.5" />
-          )}
-          {uploading ? "Uploading..." : "Upload"}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-label="Remove image"
-          disabled={disabled || (!imageSrc && !uploading)}
-          onClick={onClear}
-        >
-          <Trash className="size-3.5" />
-        </Button>
-      </div>
-      <input
-        ref={inputRef}
-        accept="image/*"
-        className="hidden"
-        type="file"
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          event.target.value = ""
+      </span>
+    </button>
+  )
+}
 
-          if (!file) {
-            return
-          }
-
-          void onSelect(file)
-        }}
-      />
+function ImageUploadDescription({
+  description,
+  title,
+}: {
+  description?: string
+  title: string
+}) {
+  return (
+    <div className="min-w-0 flex-1 space-y-0.5">
+      <div className="text-[13px] font-medium">{title}</div>
+      <div className="text-[12.5px] leading-relaxed text-muted-foreground">
+        {description ?? "Square image, at least 256px. PNG or JPG up to 10 MB."}
+      </div>
     </div>
+  )
+}
+
+function ImageUploadActions({
+  disabled,
+  imageSrc,
+  uploading,
+  onClear,
+  onUpload,
+}: {
+  disabled?: boolean
+  imageSrc: string | null
+  uploading?: boolean
+  onClear: () => void
+  onUpload: () => void
+}) {
+  return (
+    <div className="flex shrink-0 gap-1.5">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={disabled || uploading}
+        onClick={onUpload}
+      >
+        {uploading ? (
+          <SpinnerGap className="size-3.5 animate-spin" />
+        ) : (
+          <Camera className="size-3.5" />
+        )}
+        {uploading ? "Uploading..." : "Upload"}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        aria-label="Remove image"
+        disabled={disabled || (!imageSrc && !uploading)}
+        onClick={onClear}
+      >
+        <Trash className="size-3.5" />
+      </Button>
+    </div>
+  )
+}
+
+function ImageUploadInput({
+  inputRef,
+  onSelect,
+}: {
+  inputRef: RefObject<HTMLInputElement | null>
+  onSelect: (file: File) => Promise<void> | void
+}) {
+  return (
+    <input
+      ref={inputRef}
+      accept="image/*"
+      className="hidden"
+      type="file"
+      onChange={(event) => {
+        const file = event.target.files?.[0]
+        event.target.value = ""
+
+        if (!file) {
+          return
+        }
+
+        void onSelect(file)
+      }}
+    />
   )
 }

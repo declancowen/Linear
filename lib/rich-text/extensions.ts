@@ -13,6 +13,11 @@ import Underline from "@tiptap/extension-underline"
 import type { Extensions } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 
+import {
+  renderMentionHTML,
+  renderMentionText,
+} from "@/lib/rich-text/mention-rendering"
+
 export function createRichTextBaseExtensions(options?: {
   placeholder?: string
   collaboration?: boolean
@@ -56,19 +61,8 @@ export function createRichTextBaseExtensions(options?: {
         class: "editor-mention",
       },
       deleteTriggerWithBackspace: true,
-      renderText({ node, suggestion }) {
-        const label = node.attrs.label ?? node.attrs.id ?? ""
-        return `${suggestion?.char ?? "@"}${label}`
-      },
-      renderHTML({ options: mentionOptions, node, suggestion }) {
-        const label = node.attrs.label ?? node.attrs.id ?? ""
-
-        return [
-          "span",
-          mentionOptions.HTMLAttributes,
-          `${suggestion?.char ?? "@"}${label}`,
-        ]
-      },
+      renderText: renderMentionText,
+      renderHTML: renderMentionHTML,
       suggestion: {
         allow: () => false,
       },

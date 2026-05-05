@@ -1,10 +1,15 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
+import type { JSONContent } from "@tiptap/core"
 import { StrictMode, type ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { CollaborationTransportSession } from "@/lib/collaboration/transport"
+import { DEFAULT_COLLABORATION_LIMITS } from "@/lib/collaboration/limits"
+import type {
+  CollaborationStatusChange,
+  CollaborationTransportSession,
+} from "@/lib/collaboration/transport"
 
-const bootstrapContentJson = {
+const bootstrapContentJson: JSONContent = {
   type: "doc",
   content: [
     {
@@ -17,7 +22,7 @@ const bootstrapContentJson = {
       ],
     },
   ],
-} as const
+}
 
 const openDocumentCollaborationSessionMock = vi.hoisted(() => vi.fn())
 const createPartyKitCollaborationAdapterMock = vi.hoisted(() => vi.fn())
@@ -59,9 +64,11 @@ function createSession() {
     selection: { anchor: number; head: number } | null
     cursorSide: "before" | "after" | null
   }, {
+    doc: never
     provider: typeof provider
   }> = {
     binding: {
+      doc: {} as never,
       provider,
     },
     connect: vi.fn().mockResolvedValue(undefined),
@@ -73,6 +80,104 @@ function createSession() {
   }
 
   return session
+}
+
+function createOpenSessionResult(session: ReturnType<typeof createSession>) {
+  return {
+    bootstrap: {
+      roomId: "doc:document_1",
+      documentId: "document_1",
+      token: "token",
+      serviceUrl: "https://collab.example.com",
+      role: "editor" as const,
+      sessionId: "session_1",
+      protocolVersion: 1,
+      schemaVersion: 1,
+      limits: DEFAULT_COLLABORATION_LIMITS,
+      expiresAt: Date.now() + 60_000,
+      contentJson: bootstrapContentJson,
+    },
+    session,
+  }
+}
+
+function mockOpenSession(session: ReturnType<typeof createSession>) {
+  openDocumentCollaborationSessionMock.mockResolvedValue(
+    createOpenSessionResult(session)
+  )
+}
+
+async function renderCollaborationHook(
+  options: {
+    avatarImageUrl?: string | null
+    enabled?: boolean
+  } = {}
+) {
+  const { useDocumentCollaboration } = await import(
+    "@/hooks/use-document-collaboration"
+  )
+
+  return renderHook(() =>
+    useDocumentCollaboration({
+      documentId: "document_1",
+      enabled: options.enabled ?? true,
+      currentUser: {
+        id: "user_1",
+        name: "Alex",
+        avatarUrl: "",
+        avatarImageUrl:
+          options.avatarImageUrl ?? "https://example.com/avatar.png",
+      },
+    })
+  )
+}
+
+type CollaborationHookResult = Awaited<
+  ReturnType<typeof renderCollaborationHook>
+>["result"]
+
+function captureSessionStatusChanges(
+  session: ReturnType<typeof createSession>
+) {
+  let statusListener: ((change: CollaborationStatusChange) => void) | null =
+    null
+
+  session.onStatusChange = vi.fn((listener) => {
+    statusListener = listener
+    return vi.fn()
+  })
+
+  return {
+    emit(change: CollaborationStatusChange) {
+      act(() => {
+        statusListener?.(change)
+      })
+    },
+  }
+}
+
+async function expectBootstrappingCollaboration(
+  result: CollaborationHookResult,
+  options: {
+    expectBootstrapContent?: boolean
+  } = {}
+) {
+  await waitFor(() => {
+    expect(result.current.lifecycle).toBe("bootstrapping")
+    expect(result.current.editorCollaboration).not.toBeNull()
+    if (options.expectBootstrapContent) {
+      expect(result.current.bootstrapContent).toEqual(bootstrapContentJson)
+    }
+    expect(result.current.collaboration).toBeNull()
+  })
+}
+
+async function expectAttachedCollaboration(result: CollaborationHookResult) {
+  await waitFor(() => {
+    expect(result.current.lifecycle).toBe("attached")
+    expect(result.current.editorCollaboration).not.toBeNull()
+    expect(result.current.collaboration).not.toBeNull()
+  })
 }
 
 describe("useDocumentCollaboration", () => {
@@ -89,18 +194,7 @@ describe("useDocumentCollaboration", () => {
   it("updates local awareness in place when avatar data changes", async () => {
     const session = createSession()
 
-    openDocumentCollaborationSessionMock.mockResolvedValue({
-      bootstrap: {
-        roomId: "doc:document_1",
-        documentId: "document_1",
-        token: "token",
-        serviceUrl: "https://collab.example.com",
-        role: "editor",
-        sessionId: "session_1",
-        contentJson: bootstrapContentJson,
-      },
-      session,
-    })
+    mockOpenSession(session)
 
     const { useDocumentCollaboration } = await import(
       "@/hooks/use-document-collaboration"
@@ -156,21 +250,70 @@ describe("useDocumentCollaboration", () => {
     )
   })
 
+  it("classifies expected collaboration outages and applies synced state safely", async () => {
+    const {
+      getSyncedCollaborationState,
+      isExpectedCollaborationUnavailable,
+    } = await import("@/hooks/document-collaboration-state")
+    const { RouteMutationError } = await import("@/lib/convex/client")
+    const session = createSession()
+    const bootstrap = createOpenSessionResult(session).bootstrap
+    const collaborationState = {
+      provider: session.binding.provider,
+    }
+    const current = {
+      documentId: "document_1",
+      error: new Error("stale"),
+      hasAttachedOnce: false,
+      role: null,
+      connectionState: "connecting",
+      session,
+      editorCollaboration: null,
+      collaboration: null,
+      bootstrapContent: null,
+      viewers: [],
+    }
+
+    expect(
+      isExpectedCollaborationUnavailable(
+        new Error("Collaboration service must use HTTPS/WSS")
+      )
+    ).toBe(true)
+    expect(
+      isExpectedCollaborationUnavailable(
+        new RouteMutationError("unavailable", 503)
+      )
+    ).toBe(true)
+    expect(isExpectedCollaborationUnavailable(new Error("boom"))).toBe(false)
+    expect(
+      getSyncedCollaborationState(current as never, {
+        bootstrap,
+        bootstrapContent: bootstrapContentJson,
+        collaborationState: collaborationState as never,
+        session: session as never,
+      })
+    ).toMatchObject({
+      error: null,
+      hasAttachedOnce: true,
+      role: "editor",
+      editorCollaboration: collaborationState,
+      collaboration: collaborationState,
+      bootstrapContent: bootstrapContentJson,
+    })
+    expect(
+      getSyncedCollaborationState(current as never, {
+        bootstrap,
+        bootstrapContent: null,
+        collaborationState: collaborationState as never,
+        session: createSession() as never,
+      })
+    ).toBe(current)
+  })
+
   it("does not issue duplicate session bootstraps during Strict Mode effect probing", async () => {
     const session = createSession()
 
-    openDocumentCollaborationSessionMock.mockResolvedValue({
-      bootstrap: {
-        roomId: "doc:document_1",
-        documentId: "document_1",
-        token: "token",
-        serviceUrl: "https://collab.example.com",
-        role: "editor",
-        sessionId: "session_1",
-        contentJson: bootstrapContentJson,
-      },
-      session,
-    })
+    mockOpenSession(session)
 
     const { useDocumentCollaboration } = await import(
       "@/hooks/use-document-collaboration"
@@ -204,32 +347,12 @@ describe("useDocumentCollaboration", () => {
   it("clears stale collaboration state before re-enabling the same document", async () => {
     const firstSession = createSession()
 
-    let resolveSecondOpen: ((value: {
-      bootstrap: {
-        roomId: string
-        documentId: string
-        token: string
-        serviceUrl: string
-        role: "editor"
-        sessionId: string
-        contentJson: typeof bootstrapContentJson
-      }
-      session: ReturnType<typeof createSession>
-    }) => void) | null = null
+    let resolveSecondOpen:
+      | ((value: ReturnType<typeof createOpenSessionResult>) => void)
+      | null = null
 
     openDocumentCollaborationSessionMock
-      .mockResolvedValueOnce({
-        bootstrap: {
-          roomId: "doc:document_1",
-          documentId: "document_1",
-          token: "token-1",
-          serviceUrl: "https://collab.example.com",
-          role: "editor",
-          sessionId: "session_1",
-          contentJson: bootstrapContentJson,
-        },
-        session: firstSession,
-      })
+      .mockResolvedValueOnce(createOpenSessionResult(firstSession))
       .mockImplementationOnce(
         () =>
           new Promise((resolve) => {
@@ -300,112 +423,39 @@ describe("useDocumentCollaboration", () => {
         })
     )
 
-    openDocumentCollaborationSessionMock.mockResolvedValue({
-      bootstrap: {
-        roomId: "doc:document_1",
-        documentId: "document_1",
-        token: "token",
-        serviceUrl: "https://collab.example.com",
-        role: "editor",
-        sessionId: "session_1",
-        contentJson: bootstrapContentJson,
-      },
-      session,
-    })
+    mockOpenSession(session)
 
-    const { useDocumentCollaboration } = await import(
-      "@/hooks/use-document-collaboration"
-    )
+    const { result } = await renderCollaborationHook()
 
-    const { result } = renderHook(() =>
-      useDocumentCollaboration({
-        documentId: "document_1",
-        enabled: true,
-        currentUser: {
-          id: "user_1",
-          name: "Alex",
-          avatarUrl: "",
-          avatarImageUrl: "https://example.com/avatar.png",
-        },
-      })
-    )
-
-    await waitFor(() => {
-      expect(result.current.lifecycle).toBe("bootstrapping")
-      expect(result.current.editorCollaboration).not.toBeNull()
-      expect(result.current.bootstrapContent).toEqual(bootstrapContentJson)
-      expect(result.current.collaboration).toBeNull()
+    await expectBootstrappingCollaboration(result, {
+      expectBootstrapContent: true,
     })
 
     act(() => {
       resolveConnect?.()
     })
 
-    await waitFor(() => {
-      expect(result.current.lifecycle).toBe("attached")
-      expect(result.current.collaboration).not.toBeNull()
-    })
+    await expectAttachedCollaboration(result)
   })
 
   it("keeps collaboration bootstrapping until the websocket transport is connected", async () => {
     const session = createSession()
-    let statusListener:
-      | ((change: { state: "connected" | "disconnected"; reason?: string }) => void)
-      | null = null
+    const statusChanges = captureSessionStatusChanges(session)
 
     session.binding.provider.wsconnected = false
-    session.onStatusChange = vi.fn((listener) => {
-      statusListener = listener as typeof statusListener
-      return vi.fn()
+
+    mockOpenSession(session)
+
+    const { result } = await renderCollaborationHook()
+
+    await expectBootstrappingCollaboration(result)
+
+    session.binding.provider.wsconnected = true
+    statusChanges.emit({
+      state: "connected",
     })
 
-    openDocumentCollaborationSessionMock.mockResolvedValue({
-      bootstrap: {
-        roomId: "doc:document_1",
-        documentId: "document_1",
-        token: "token",
-        serviceUrl: "https://collab.example.com",
-        role: "editor",
-        sessionId: "session_1",
-        contentJson: bootstrapContentJson,
-      },
-      session,
-    })
-
-    const { useDocumentCollaboration } = await import(
-      "@/hooks/use-document-collaboration"
-    )
-
-    const { result } = renderHook(() =>
-      useDocumentCollaboration({
-        documentId: "document_1",
-        enabled: true,
-        currentUser: {
-          id: "user_1",
-          name: "Alex",
-          avatarUrl: "",
-          avatarImageUrl: "https://example.com/avatar.png",
-        },
-      })
-    )
-
-    await waitFor(() => {
-      expect(result.current.lifecycle).toBe("bootstrapping")
-      expect(result.current.editorCollaboration).not.toBeNull()
-      expect(result.current.collaboration).toBeNull()
-    })
-
-    act(() => {
-      session.binding.provider.wsconnected = true
-      statusListener?.({
-        state: "connected",
-      })
-    })
-
-    await waitFor(() => {
-      expect(result.current.lifecycle).toBe("attached")
-      expect(result.current.collaboration).not.toBeNull()
-    })
+    await expectAttachedCollaboration(result)
   })
 
   it("does not attach collaboration early when initial sync times out", async () => {
@@ -415,94 +465,25 @@ describe("useDocumentCollaboration", () => {
       new Error("Timed out waiting for collaboration document sync")
     )
 
-    openDocumentCollaborationSessionMock.mockResolvedValue({
-      bootstrap: {
-        roomId: "doc:document_1",
-        documentId: "document_1",
-        token: "token",
-        serviceUrl: "https://collab.example.com",
-        role: "editor",
-        sessionId: "session_1",
-        contentJson: bootstrapContentJson,
-      },
-      session,
-    })
+    mockOpenSession(session)
 
-    const { useDocumentCollaboration } = await import(
-      "@/hooks/use-document-collaboration"
-    )
+    const { result } = await renderCollaborationHook()
 
-    const { result } = renderHook(() =>
-      useDocumentCollaboration({
-        documentId: "document_1",
-        enabled: true,
-        currentUser: {
-          id: "user_1",
-          name: "Alex",
-          avatarUrl: "",
-          avatarImageUrl: "https://example.com/avatar.png",
-        },
-      })
-    )
-
-    await waitFor(() => {
-      expect(result.current.lifecycle).toBe("bootstrapping")
-      expect(result.current.editorCollaboration).not.toBeNull()
-      expect(result.current.collaboration).toBeNull()
-    })
+    await expectBootstrappingCollaboration(result)
   })
 
   it("degrades out of collaboration when an attached session disconnects", async () => {
     const session = createSession()
-    let statusListener:
-      | ((change: { state: "disconnected"; reason?: string }) => void)
-      | null = null
+    const statusChanges = captureSessionStatusChanges(session)
 
-    session.onStatusChange = vi.fn((listener) => {
-      statusListener = listener as typeof statusListener
-      return vi.fn()
-    })
+    mockOpenSession(session)
+    const { result } = await renderCollaborationHook()
 
-    openDocumentCollaborationSessionMock.mockResolvedValue({
-      bootstrap: {
-        roomId: "doc:document_1",
-        documentId: "document_1",
-        token: "token",
-        serviceUrl: "https://collab.example.com",
-        role: "editor",
-        sessionId: "session_1",
-        contentJson: bootstrapContentJson,
-      },
-      session,
-    })
+    await expectAttachedCollaboration(result)
 
-    const { useDocumentCollaboration } = await import(
-      "@/hooks/use-document-collaboration"
-    )
-
-    const { result } = renderHook(() =>
-      useDocumentCollaboration({
-        documentId: "document_1",
-        enabled: true,
-        currentUser: {
-          id: "user_1",
-          name: "Alex",
-          avatarUrl: "",
-          avatarImageUrl: "https://example.com/avatar.png",
-        },
-      })
-    )
-
-    await waitFor(() => {
-      expect(result.current.lifecycle).toBe("attached")
-      expect(result.current.editorCollaboration).not.toBeNull()
-    })
-
-    act(() => {
-      statusListener?.({
-        state: "disconnected",
-        reason: "document-missing",
-      })
+    statusChanges.emit({
+      state: "disconnected",
+      reason: "document-missing",
     })
 
     await waitFor(() => {
@@ -514,63 +495,18 @@ describe("useDocumentCollaboration", () => {
 
   it("surfaces reload-required collaboration errors from structured status changes", async () => {
     const session = createSession()
-    let statusListener:
-      | ((
-          change: {
-            state: "errored"
-            reason?: string
-            code?: string
-            reloadRequired?: boolean
-          }
-        ) => void)
-      | null = null
+    const statusChanges = captureSessionStatusChanges(session)
 
-    session.onStatusChange = vi.fn((listener) => {
-      statusListener = listener as typeof statusListener
-      return vi.fn()
-    })
+    mockOpenSession(session)
+    const { result } = await renderCollaborationHook()
 
-    openDocumentCollaborationSessionMock.mockResolvedValue({
-      bootstrap: {
-        roomId: "doc:document_1",
-        documentId: "document_1",
-        token: "token",
-        serviceUrl: "https://collab.example.com",
-        role: "editor",
-        sessionId: "session_1",
-        contentJson: bootstrapContentJson,
-      },
-      session,
-    })
+    await expectAttachedCollaboration(result)
 
-    const { useDocumentCollaboration } = await import(
-      "@/hooks/use-document-collaboration"
-    )
-
-    const { result } = renderHook(() =>
-      useDocumentCollaboration({
-        documentId: "document_1",
-        enabled: true,
-        currentUser: {
-          id: "user_1",
-          name: "Alex",
-          avatarUrl: "",
-          avatarImageUrl: "https://example.com/avatar.png",
-        },
-      })
-    )
-
-    await waitFor(() => {
-      expect(result.current.lifecycle).toBe("attached")
-    })
-
-    act(() => {
-      statusListener?.({
-        state: "errored",
-        reason: "This page is out of date. Reload to continue editing.",
-        code: "collaboration_schema_version_unsupported",
-        reloadRequired: true,
-      })
+    statusChanges.emit({
+      state: "errored",
+      reason: "This page is out of date. Reload to continue editing.",
+      code: "collaboration_schema_version_unsupported",
+      reloadRequired: true,
     })
 
     await waitFor(() => {
@@ -584,35 +520,8 @@ describe("useDocumentCollaboration", () => {
   it("uses teardown-content flush when the attached editor session unmounts", async () => {
     const session = createSession()
 
-    openDocumentCollaborationSessionMock.mockResolvedValue({
-      bootstrap: {
-        roomId: "doc:document_1",
-        documentId: "document_1",
-        token: "token",
-        serviceUrl: "https://collab.example.com",
-        role: "editor",
-        sessionId: "session_1",
-        contentJson: bootstrapContentJson,
-      },
-      session,
-    })
-
-    const { useDocumentCollaboration } = await import(
-      "@/hooks/use-document-collaboration"
-    )
-
-    const { unmount } = renderHook(() =>
-      useDocumentCollaboration({
-        documentId: "document_1",
-        enabled: true,
-        currentUser: {
-          id: "user_1",
-          name: "Alex",
-          avatarUrl: "",
-          avatarImageUrl: "https://example.com/avatar.png",
-        },
-      })
-    )
+    mockOpenSession(session)
+    const { unmount } = await renderCollaborationHook()
 
     await waitFor(() => {
       expect(session.connect).toHaveBeenCalledTimes(1)
@@ -631,35 +540,8 @@ describe("useDocumentCollaboration", () => {
   it("uses teardown-content flush on pagehide for attached editor sessions", async () => {
     const session = createSession()
 
-    openDocumentCollaborationSessionMock.mockResolvedValue({
-      bootstrap: {
-        roomId: "doc:document_1",
-        documentId: "document_1",
-        token: "token",
-        serviceUrl: "https://collab.example.com",
-        role: "editor",
-        sessionId: "session_1",
-        contentJson: bootstrapContentJson,
-      },
-      session,
-    })
-
-    const { useDocumentCollaboration } = await import(
-      "@/hooks/use-document-collaboration"
-    )
-
-    renderHook(() =>
-      useDocumentCollaboration({
-        documentId: "document_1",
-        enabled: true,
-        currentUser: {
-          id: "user_1",
-          name: "Alex",
-          avatarUrl: "",
-          avatarImageUrl: "https://example.com/avatar.png",
-        },
-      })
-    )
+    mockOpenSession(session)
+    await renderCollaborationHook()
 
     await waitFor(() => {
       expect(session.connect).toHaveBeenCalledTimes(1)

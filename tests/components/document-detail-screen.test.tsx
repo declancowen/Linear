@@ -1,8 +1,10 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react"
+import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
+import "@/tests/lib/fixtures/detail-screen-mocks"
 import { DocumentDetailScreen } from "@/components/app/screens/document-detail-screen"
+import { getAnchorInternalNavigationHref } from "@/components/app/screens/document-navigation"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
 
@@ -40,37 +42,18 @@ const {
   useDocumentCollaborationMock: vi.fn(),
 }))
 
-vi.mock("next/link", () => ({
-  default: ({
-    children,
-    href,
-    ...props
-  }: {
-    children: ReactNode
-    href: string
-  }) => (
-    <a href={href} {...props}>
-      {children}
-    </a>
-  ),
-}))
+vi.mock("next/link", async () => {
+  const { LinkStub } = await import("@/tests/lib/fixtures/component-stubs")
+
+  return {
+    default: LinkStub,
+  }
+})
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: routerPushMock,
   }),
-}))
-
-vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
-}))
-
-vi.mock("@/lib/realtime/feature-flags", () => ({
-  isCollaborationEnabled: () => false,
-  isScopedSyncEnabled: () => true,
 }))
 
 vi.mock("@/lib/convex/client", () => ({
@@ -232,52 +215,101 @@ vi.mock("@/components/app/rich-text-editor", () => ({
   },
 }))
 
-vi.mock("@/components/app/rich-text-content", () => ({
-  RichTextContent: (props: { content: string | Record<string, unknown> }) => {
-    richTextContentRenderMock(props)
-    return <div data-testid="rich-text-content" />
-  },
-}))
+vi.mock("@/components/app/rich-text-content", async () => {
+  const { createRichTextContentStub } = await import(
+    "@/tests/lib/fixtures/component-stubs"
+  )
+
+  return {
+    RichTextContent: createRichTextContentStub(richTextContentRenderMock),
+  }
+})
 
 vi.mock("@/components/app/screens/helpers", () => ({
   canEditDocumentInUi: () => true,
   getDocumentPresenceSessionId: () => "session_1",
 }))
 
-vi.mock("@/components/app/screens/document-ui", () => ({
-  DocumentPresenceAvatarGroup: ({
-    viewers,
-  }: {
-    viewers: Array<{ name: string }>
-  }) => <div>{viewers.map((viewer) => viewer.name).join(",")}</div>,
-}))
+async function withDocumentVisibilityState(
+  visibilityState: DocumentVisibilityState,
+  run: () => Promise<void>
+) {
+  const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+    document,
+    "visibilityState"
+  )
 
-vi.mock("@/components/app/screens/shared", () => ({
-  MissingState: ({ title }: { title: string }) => <div>{title}</div>,
-}))
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => visibilityState,
+  })
 
-vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-}))
+  try {
+    await run()
+  } finally {
+    if (visibilityStateDescriptor) {
+      Object.defineProperty(
+        document,
+        "visibilityState",
+        visibilityStateDescriptor
+      )
+    } else {
+      Reflect.deleteProperty(document, "visibilityState")
+    }
+  }
+}
 
-vi.mock("@/components/ui/input", () => ({
-  Input: (props: InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
-}))
+async function dispatchVisibilityChange() {
+  await act(async () => {
+    document.dispatchEvent(new Event("visibilitychange"))
+  })
+}
 
-vi.mock("@/components/ui/sidebar", () => ({
-  SidebarTrigger: (props: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      Sidebar
-    </button>
-  ),
-}))
+vi.mock("@/components/app/screens/document-ui", async () => {
+  const { DocumentPresenceAvatarGroupStub } = await import(
+    "@/tests/lib/fixtures/component-stubs"
+  )
+
+  return {
+    DocumentPresenceAvatarGroup: DocumentPresenceAvatarGroupStub,
+  }
+})
+
+vi.mock("@/components/app/screens/shared", async () => {
+  const { MissingStateStub } = await import(
+    "@/tests/lib/fixtures/component-stubs"
+  )
+
+  return {
+    MissingState: MissingStateStub,
+  }
+})
+
+vi.mock("@/components/ui/button", async () => {
+  const { ButtonStub } = await import("@/tests/lib/fixtures/component-stubs")
+
+  return {
+    Button: ButtonStub,
+  }
+})
+
+vi.mock("@/components/ui/input", async () => {
+  const { InputStub } = await import("@/tests/lib/fixtures/component-stubs")
+
+  return {
+    Input: InputStub,
+  }
+})
+
+vi.mock("@/components/ui/sidebar", async () => {
+  const { SidebarTriggerStub } = await import(
+    "@/tests/lib/fixtures/component-stubs"
+  )
+
+  return {
+    SidebarTrigger: SidebarTriggerStub,
+  }
+})
 
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({
@@ -346,6 +378,67 @@ const mentionedUser = {
     theme: "system" as const,
   },
 }
+
+function queueMentionAfterSync(syncButtonName: string) {
+  fireEvent.click(screen.getByRole("button", { name: syncButtonName }))
+  expect(screen.queryByText("Send mention notifications")).toBeNull()
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Insert mention after sync",
+    })
+  )
+}
+
+function expectSentDocumentMention() {
+  expect(syncSendDocumentMentionNotificationsMock).toHaveBeenCalledWith(
+    "doc_1",
+    [
+      {
+        userId: "user_2",
+        count: 1,
+      },
+    ]
+  )
+}
+
+async function waitForSentDocumentMention() {
+  await waitFor(() => {
+    expectSentDocumentMention()
+  })
+}
+
+function renderAndSendDocumentMention() {
+  render(<DocumentDetailScreen documentId="doc_1" />)
+  fireEvent.click(screen.getByRole("button", { name: "Insert mention" }))
+  fireEvent.click(screen.getByRole("button", { name: "Send notifications" }))
+}
+
+describe("document internal link navigation", () => {
+  function createAnchor(href: string) {
+    const anchor = document.createElement("a")
+    anchor.setAttribute("href", href)
+    return anchor
+  }
+
+  it("keeps only same-origin document links eligible for client navigation", () => {
+    expect(getAnchorInternalNavigationHref(createAnchor(""))).toBeNull()
+    expect(getAnchorInternalNavigationHref(createAnchor("#section"))).toBeNull()
+    expect(
+      getAnchorInternalNavigationHref(createAnchor("mailto:a@example.com"))
+    ).toBeNull()
+    expect(
+      getAnchorInternalNavigationHref(createAnchor("tel:+15555550100"))
+    ).toBeNull()
+    expect(
+      getAnchorInternalNavigationHref(createAnchor("https://example.com/docs"))
+    ).toBeNull()
+    expect(
+      getAnchorInternalNavigationHref(
+        createAnchor("/docs/doc_1?comment=comment_1#thread")
+      )
+    ).toBe("/docs/doc_1?comment=comment_1#thread")
+  })
+})
 
 describe("DocumentDetailScreen", () => {
   afterEach(() => {
@@ -708,21 +801,8 @@ describe("DocumentDetailScreen", () => {
 
     syncClearDocumentPresenceMock.mockClear()
 
-    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
-      document,
-      "visibilityState"
-    )
-
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "hidden",
-    })
-
-    try {
-      await act(async () => {
-        document.dispatchEvent(new Event("visibilitychange"))
-      })
-
+    await withDocumentVisibilityState("hidden", async () => {
+      await dispatchVisibilityChange()
       await waitFor(() => {
         expect(syncClearDocumentPresenceMock).toHaveBeenCalledWith(
           "doc_1",
@@ -732,17 +812,7 @@ describe("DocumentDetailScreen", () => {
           }
         )
       })
-    } finally {
-      if (visibilityStateDescriptor) {
-        Object.defineProperty(
-          document,
-          "visibilityState",
-          visibilityStateDescriptor
-        )
-      } else {
-        Reflect.deleteProperty(document, "visibilityState")
-      }
-    }
+    })
   })
 
   it("does not resume document presence while hidden when connectivity returns", async () => {
@@ -756,21 +826,8 @@ describe("DocumentDetailScreen", () => {
       )
     })
 
-    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
-      document,
-      "visibilityState"
-    )
-
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "hidden",
-    })
-
-    try {
-      await act(async () => {
-        document.dispatchEvent(new Event("visibilitychange"))
-      })
-
+    await withDocumentVisibilityState("hidden", async () => {
+      await dispatchVisibilityChange()
       syncHeartbeatDocumentPresenceMock.mockClear()
 
       await act(async () => {
@@ -778,17 +835,7 @@ describe("DocumentDetailScreen", () => {
       })
 
       expect(syncHeartbeatDocumentPresenceMock).not.toHaveBeenCalled()
-    } finally {
-      if (visibilityStateDescriptor) {
-        Object.defineProperty(
-          document,
-          "visibilityState",
-          visibilityStateDescriptor
-        )
-      } else {
-        Reflect.deleteProperty(document, "visibilityState")
-      }
-    }
+    })
   })
 
   it("does not restart heartbeat polling after leaving with an in-flight heartbeat", async () => {
@@ -810,21 +857,8 @@ describe("DocumentDetailScreen", () => {
 
     expect(syncHeartbeatDocumentPresenceMock).toHaveBeenCalledTimes(1)
 
-    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
-      document,
-      "visibilityState"
-    )
-
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "hidden",
-    })
-
-    try {
-      await act(async () => {
-        document.dispatchEvent(new Event("visibilitychange"))
-      })
-
+    await withDocumentVisibilityState("hidden", async () => {
+      await dispatchVisibilityChange()
       syncHeartbeatDocumentPresenceMock.mockClear()
 
       await act(async () => {
@@ -837,17 +871,7 @@ describe("DocumentDetailScreen", () => {
       })
 
       expect(syncHeartbeatDocumentPresenceMock).not.toHaveBeenCalled()
-    } finally {
-      if (visibilityStateDescriptor) {
-        Object.defineProperty(
-          document,
-          "visibilityState",
-          visibilityStateDescriptor
-        )
-      } else {
-        Reflect.deleteProperty(document, "visibilityState")
-      }
-    }
+    })
   })
 
   it("does not show stale viewers when a hidden in-flight heartbeat resolves", async () => {
@@ -867,21 +891,8 @@ describe("DocumentDetailScreen", () => {
       await Promise.resolve()
     })
 
-    const visibilityStateDescriptor = Object.getOwnPropertyDescriptor(
-      document,
-      "visibilityState"
-    )
-
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "hidden",
-    })
-
-    try {
-      await act(async () => {
-        document.dispatchEvent(new Event("visibilitychange"))
-      })
-
+    await withDocumentVisibilityState("hidden", async () => {
+      await dispatchVisibilityChange()
       await act(async () => {
         resolveHeartbeat?.([
           {
@@ -895,17 +906,7 @@ describe("DocumentDetailScreen", () => {
       })
 
       expect(screen.queryByText("Sam")).not.toBeInTheDocument()
-    } finally {
-      if (visibilityStateDescriptor) {
-        Object.defineProperty(
-          document,
-          "visibilityState",
-          visibilityStateDescriptor
-        )
-      } else {
-        Reflect.deleteProperty(document, "visibilityState")
-      }
-    }
+    })
   })
 
   it("opens the exit dialog when browser history navigation is attempted with pending mentions", async () => {
@@ -964,15 +965,7 @@ describe("DocumentDetailScreen", () => {
   it("does not include externally synced mentions in a later notification batch", async () => {
     render(<DocumentDetailScreen documentId="doc_1" />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Sync external mentions" }))
-
-    expect(screen.queryByText("Send mention notifications")).toBeNull()
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Insert mention after sync",
-      })
-    )
+    queueMentionAfterSync("Sync external mentions")
 
     expect(
       screen.getByText(
@@ -982,45 +975,17 @@ describe("DocumentDetailScreen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Send notifications" }))
 
-    await waitFor(() => {
-      expect(syncSendDocumentMentionNotificationsMock).toHaveBeenCalledWith(
-        "doc_1",
-        [
-          {
-            userId: "user_2",
-            count: 1,
-          },
-        ]
-      )
-    })
+    await waitForSentDocumentMention()
   })
 
   it("does not include initially hydrated mentions in a later notification batch", async () => {
     render(<DocumentDetailScreen documentId="doc_1" />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Sync initial mentions" }))
-
-    expect(screen.queryByText("Send mention notifications")).toBeNull()
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Insert mention after sync",
-      })
-    )
+    queueMentionAfterSync("Sync initial mentions")
 
     fireEvent.click(screen.getByRole("button", { name: "Send notifications" }))
 
-    await waitFor(() => {
-      expect(syncSendDocumentMentionNotificationsMock).toHaveBeenCalledWith(
-        "doc_1",
-        [
-          {
-            userId: "user_2",
-            count: 1,
-          },
-        ]
-      )
-    })
+    await waitForSentDocumentMention()
   })
 
   it("ignores self mentions when another pending mention is already queued", () => {
@@ -1048,10 +1013,7 @@ describe("DocumentDetailScreen", () => {
         })
     )
 
-    render(<DocumentDetailScreen documentId="doc_1" />)
-
-    fireEvent.click(screen.getByRole("button", { name: "Insert mention" }))
-    fireEvent.click(screen.getByRole("button", { name: "Send notifications" }))
+    renderAndSendDocumentMention()
     await waitFor(() => {
       expect(syncSendDocumentMentionNotificationsMock).toHaveBeenCalledTimes(1)
     })
@@ -1075,23 +1037,12 @@ describe("DocumentDetailScreen", () => {
   })
 
   it("flushes pending document sync before sending mention notifications", async () => {
-    render(<DocumentDetailScreen documentId="doc_1" />)
-
-    fireEvent.click(screen.getByRole("button", { name: "Insert mention" }))
-    fireEvent.click(screen.getByRole("button", { name: "Send notifications" }))
+    renderAndSendDocumentMention()
 
     await waitFor(() => {
       expect(flushDocumentSyncMock).toHaveBeenCalledWith("doc_1")
     })
-    expect(syncSendDocumentMentionNotificationsMock).toHaveBeenCalledWith(
-      "doc_1",
-      [
-        {
-          userId: "user_2",
-          count: 1,
-        },
-      ]
-    )
+    expectSentDocumentMention()
     expect(flushDocumentSyncMock.mock.invocationCallOrder[0]).toBeLessThan(
       syncSendDocumentMentionNotificationsMock.mock.invocationCallOrder[0]
     )

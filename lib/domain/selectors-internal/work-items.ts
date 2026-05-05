@@ -28,6 +28,8 @@ import {
   getUser,
   getWorkItem,
 } from "@/lib/domain/selectors-internal/core"
+import { isProjectAvailableGroupKey } from "@/lib/domain/selectors-internal/work-item-grouping"
+import { compareOptionalDescendingValues } from "@/lib/domain/selectors-internal/work-item-ordering"
 
 export function getVisibleWorkItems(
   data: AppData,
@@ -394,25 +396,6 @@ export function comparePriority(left: Priority, right: Priority) {
   return priorityMeta[right].weight - priorityMeta[left].weight
 }
 
-function compareOptionalDescendingValues(
-  leftValue: string | null | undefined,
-  rightValue: string | null | undefined
-) {
-  if (!leftValue && !rightValue) {
-    return 0
-  }
-
-  if (!leftValue) {
-    return 1
-  }
-
-  if (!rightValue) {
-    return -1
-  }
-
-  return rightValue.localeCompare(leftValue)
-}
-
 function compareItemsByOrdering(
   left: WorkItem,
   right: WorkItem,
@@ -582,11 +565,7 @@ function addProjectGroupKeys(
   keys.add("No project")
 
   context.data.projects.forEach((project) => {
-    if (
-      (project.scopeType === "team" && context.teamIds.has(project.scopeId)) ||
-      (project.scopeType === "workspace" &&
-        context.workspaceIds.has(project.scopeId))
-    ) {
+    if (isProjectAvailableGroupKey(project, context)) {
       keys.add(project.name)
     }
   })

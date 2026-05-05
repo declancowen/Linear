@@ -1,198 +1,172 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react"
-import { afterEach, describe, expect, it, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
 
-vi.mock("next/link", () => ({
-  default: ({ children, href }: { children: ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
-  ),
-}))
-
-vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: ComponentPropsWithoutRef<"button"> & { children?: ReactNode }) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-}))
-
-vi.mock("@/components/ui/scroll-area", () => ({
-  ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}))
-
-vi.mock("@/components/ui/tooltip", () => ({
-  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
-  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
-  TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
-}))
+import { InboxDetailPane } from "@/components/app/screens/inbox-ui"
+import { InboxRowAvatar } from "@/components/app/screens/inbox-display"
+import { InboxRow } from "@/components/app/screens/inbox-row"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import { createTestUser } from "@/tests/lib/fixtures/app-data"
 
 vi.mock("@/components/app/user-presence", () => ({
-  UserAvatar: ({ name }: { name: string }) => <div>{name}</div>,
+  UserAvatar: ({ name }: { name?: string }) => <span>{name ?? "Someone"}</span>,
 }))
 
-vi.mock("@phosphor-icons/react", () => {
-  const Icon = () => null
-
-  return {
-    Archive: Icon,
-    ArrowCounterClockwise: Icon,
-    Bell: Icon,
-    Buildings: Icon,
-    ChatCircle: Icon,
-    CheckCircle: Icon,
-    Circle: Icon,
-    EnvelopeSimple: Icon,
-    FileText: Icon,
-    Hash: Icon,
-    Kanban: Icon,
-    Target: Icon,
-    Trash: Icon,
-    UsersThree: Icon,
-  }
-})
-
-import {
-  buildInboxNotificationSubtitle,
-  InboxDetailPane,
-  type InboxEntry,
-} from "@/components/app/screens/inbox-ui"
-import { type Notification, type UserProfile } from "@/lib/domain/types"
-
-function createNotification(overrides?: Partial<Notification>): Notification {
+function createNotification(overrides = {}) {
   return {
     id: "notification_1",
     userId: "user_1",
-    type: "mention",
-    entityType: "team",
-    entityId: "team_1",
+    type: "comment",
+    entityType: "workItem",
+    entityId: "item_1",
     actorId: "user_2",
-    message: "Someone mentioned you",
+    message: "Maya commented on Test item",
     readAt: null,
     archivedAt: null,
     emailedAt: null,
-    createdAt: "2026-04-21T11:59:30.000Z",
+    createdAt: "2026-04-18T10:00:00.000Z",
     ...overrides,
-  }
+  } as never
 }
 
-function createActor(overrides?: Partial<UserProfile>): UserProfile {
-  return {
-    id: "user_2",
-    name: "Alex",
-    handle: "alex",
-    email: "alex@example.com",
-    avatarUrl: "",
-    avatarImageUrl: null,
-    workosUserId: null,
-    title: "Engineer",
-    status: "offline",
-    statusMessage: "",
-    preferences: {
-      emailMentions: true,
-      emailAssignments: true,
-      emailDigest: true,
-      theme: "system",
-    },
-    ...overrides,
-  }
-}
-
-function renderDetailPane(entry: InboxEntry) {
-  render(
-    <InboxDetailPane
-      activeEntry={entry}
-      visibleNotificationCount={1}
-      activeProjectHref={null}
-      activeChannelPostHref={null}
-      activeChatHref={null}
-      hasPendingActiveInvite={false}
-      acceptingInvite={false}
-      onAcceptInvite={() => undefined}
-      onToggleArchive={() => undefined}
-      onToggleRead={() => undefined}
-      onDelete={() => undefined}
-    />
-  )
-}
-
-describe("InboxDetailPane", () => {
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('renders "now" without an "ago" suffix for recent notifications', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-04-21T12:00:00.000Z"))
-
-    renderDetailPane({
-      notification: createNotification({
-        createdAt: "2026-04-21T11:59:30.000Z",
-      }),
-      actor: createActor(),
+describe("Inbox row primitives", () => {
+  it("renders unread rows and routes row actions through callbacks", () => {
+    const onSelect = vi.fn()
+    const onToggleArchive = vi.fn()
+    const actor = createTestUser({
+      id: "user_2",
+      name: "Maya",
     })
 
-    expect(screen.getByText("now")).toBeInTheDocument()
-    expect(screen.queryByText("now ago")).not.toBeInTheDocument()
+    render(
+      <TooltipProvider>
+        <InboxRow
+          active
+          entry={{
+            actor,
+            notification: createNotification(),
+          }}
+          onSelect={onSelect}
+          onToggleArchive={onToggleArchive}
+        />
+      </TooltipProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /Maya/ }))
+    fireEvent.click(screen.getByRole("button", { name: "Archive notification" }))
+
+    expect(screen.getAllByText("Maya")).toHaveLength(2)
+    expect(screen.getByText("Commented on Test item")).toBeInTheDocument()
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(onToggleArchive).toHaveBeenCalledTimes(1)
   })
 
-  it("renders dated timestamps without an extra relative suffix", () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-04-28T12:00:00.000Z"))
+  it("renders fallback avatars for archived notifications without actors", () => {
+    render(
+      <InboxRowAvatar
+        actor={null}
+        actorName="Someone"
+        notification={createNotification({
+          archivedAt: "2026-04-19T10:00:00.000Z",
+          entityType: "chat",
+          readAt: "2026-04-19T10:00:00.000Z",
+        })}
+      />
+    )
 
-    renderDetailPane({
-      notification: createNotification({
-        createdAt: "2026-04-20T10:00:00.000Z",
-      }),
-      actor: createActor(),
+    expect(screen.getByText("Someone")).toBeInTheDocument()
+  })
+
+  it("renders active detail panes and routes toolbar actions", () => {
+    const onToggleArchive = vi.fn()
+    const onToggleRead = vi.fn()
+    const onDelete = vi.fn()
+    const actor = createTestUser({
+      id: "user_2",
+      name: "Maya",
     })
 
-    expect(screen.getByText("Apr 20")).toBeInTheDocument()
-    expect(screen.queryByText("Apr 20 ago")).not.toBeInTheDocument()
+    render(
+      <TooltipProvider>
+        <InboxDetailPane
+          acceptingInvite={false}
+          activeChannelPostHref={null}
+          activeChatHref={null}
+          activeEntry={{
+            actor,
+            notification: createNotification(),
+          }}
+          activeProjectHref={null}
+          hasPendingActiveInvite={false}
+          visibleNotificationCount={1}
+          onAcceptInvite={vi.fn()}
+          onDelete={onDelete}
+          onToggleArchive={onToggleArchive}
+          onToggleRead={onToggleRead}
+        />
+      </TooltipProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark as read" }))
+    fireEvent.click(screen.getByRole("button", { name: "Archive notification" }))
+    fireEvent.click(screen.getByRole("button", { name: "Delete notification" }))
+
+    expect(screen.getByText("Work item")).toBeInTheDocument()
+    expect(screen.getByText("Unread")).toBeInTheDocument()
+    expect(screen.getAllByText("Maya")).toHaveLength(2)
+    expect(screen.getByText("Maya commented on Test item")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Open work item" })).toHaveAttribute(
+      "href",
+      "/items/item_1"
+    )
+    expect(onToggleRead).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "notification_1" })
+    )
+    expect(onToggleArchive).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "notification_1" })
+    )
+    expect(onDelete).toHaveBeenCalledTimes(1)
   })
 
-  it("keeps sub-hour values in minutes until the hour boundary", () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-04-21T12:00:00.000Z"))
+  it("renders invite detail actions for read notifications without actors", () => {
+    const onAcceptInvite = vi.fn()
+    const onToggleRead = vi.fn()
 
-    renderDetailPane({
-      notification: createNotification({
-        createdAt: "2026-04-21T11:00:30.000Z",
-      }),
-      actor: createActor(),
-    })
+    render(
+      <TooltipProvider>
+        <InboxDetailPane
+          acceptingInvite={false}
+          activeChannelPostHref={null}
+          activeChatHref={null}
+          activeEntry={{
+            actor: null,
+            notification: createNotification({
+              archivedAt: "2026-04-19T10:00:00.000Z",
+              entityId: "invite_1",
+              entityType: "invite",
+              message: "Maya invited you to Ops",
+              readAt: "2026-04-19T10:00:00.000Z",
+            }),
+          }}
+          activeProjectHref={null}
+          hasPendingActiveInvite
+          visibleNotificationCount={1}
+          onAcceptInvite={onAcceptInvite}
+          onDelete={vi.fn()}
+          onToggleArchive={vi.fn()}
+          onToggleRead={onToggleRead}
+        />
+      </TooltipProvider>
+    )
 
-    expect(screen.getByText("59m ago")).toBeInTheDocument()
-    expect(screen.queryByText("1h ago")).not.toBeInTheDocument()
-  })
-})
+    fireEvent.click(screen.getByRole("button", { name: "Mark as unread" }))
+    fireEvent.click(screen.getByRole("button", { name: "Accept invite" }))
 
-describe("buildInboxNotificationSubtitle", () => {
-  it("omits the actor name from work item status updates", () => {
-    expect(
-      buildInboxNotificationSubtitle(
-        createNotification({
-          type: "status-change",
-          entityType: "workItem",
-          message: 'Declan Cowan moved "Ship inbox polish" to Done',
-        }),
-        "Declan Cowan"
-      )
-    ).toBe('Moved "Ship inbox polish" to Done')
-  })
-
-  it("removes duplicate actor framing from mention subtitles", () => {
-    expect(
-      buildInboxNotificationSubtitle(
-        createNotification({
-          type: "mention",
-          entityType: "channelPost",
-          message: "Declan Cowan mentioned you in Sprint planning",
-        }),
-        "Declan Cowan"
-      )
-    ).toBe("Mentioned in Sprint planning")
+    expect(screen.getByText("Invite")).toBeInTheDocument()
+    expect(screen.getAllByText("Someone")).toHaveLength(2)
+    expect(screen.queryByText("Unread")).not.toBeInTheDocument()
+    expect(onToggleRead).toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: "invite" })
+    )
+    expect(onAcceptInvite).toHaveBeenCalledTimes(1)
   })
 })

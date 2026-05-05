@@ -1,11 +1,13 @@
 "use client"
 
 import {
+  forwardRef,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
+  type ComponentPropsWithoutRef,
   type ElementType,
   type KeyboardEvent,
   type ReactNode,
@@ -67,6 +69,42 @@ import { cn } from "@/lib/utils"
 
 export const PROPERTY_SELECT_SEPARATOR_VALUE = "__separator__"
 
+export type PropertySelectOption = { value: string; label: string }
+export type PropertySelectRender = (value: string, label: string) => ReactNode
+
+export type PropertySelectCommonProps = {
+  value: string
+  options: PropertySelectOption[]
+  onValueChange: (value: string) => void
+  disabled?: boolean
+  renderValue?: PropertySelectRender
+  renderOption?: PropertySelectRender
+}
+
+function isListboxSelectKey(key: string) {
+  return key === "Enter" || key === " "
+}
+
+function isTypeaheadKeyEvent(event: KeyboardEvent<HTMLDivElement>) {
+  return (
+    event.key.length === 1 &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey
+  )
+}
+
+export function getSelectedPropertySelectOption(
+  options: PropertySelectOption[],
+  value: string
+) {
+  return (
+    options.find((option) => option.value === value) ??
+    options.find((option) => option.value !== PROPERTY_SELECT_SEPARATOR_VALUE) ??
+    null
+  )
+}
+
 export const SCREEN_HEADER_CLASS_NAME =
   "flex min-h-10 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 py-2"
 
@@ -123,6 +161,47 @@ export function ScreenHeader({
   )
 }
 
+function LayoutSegmentedControl({
+  boardLabel,
+  layout,
+  onLayoutChange,
+}: {
+  boardLabel: string
+  layout: "list" | "board"
+  onLayoutChange: (layout: "list" | "board") => void
+}) {
+  return (
+    <div className="flex rounded-md bg-muted/50 p-0.5">
+      {[
+        {
+          value: "list" as const,
+          label: "List",
+          icon: <Rows className="size-3" />,
+        },
+        {
+          value: "board" as const,
+          label: boardLabel,
+          icon: <Kanban className="size-3" />,
+        },
+      ].map((option) => (
+        <button
+          key={option.value}
+          className={cn(
+            "flex flex-1 items-center justify-center gap-1.5 rounded-[5px] py-1.5 text-[11px] transition-all",
+            layout === option.value
+              ? "bg-background font-medium text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={() => onLayoutChange(option.value)}
+        >
+          {option.icon}
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function ViewsDisplaySettingsPopover({
   layout,
   onLayoutChange,
@@ -147,34 +226,11 @@ export function ViewsDisplaySettingsPopover({
       </PopoverTrigger>
       <PopoverContent align="end" className="w-56 p-0">
         <div className="border-b px-3 py-2.5">
-          <div className="flex rounded-md bg-muted/50 p-0.5">
-            {[
-              {
-                value: "list",
-                label: "List",
-                icon: <Rows className="size-3" />,
-              },
-              {
-                value: "board",
-                label: "Board",
-                icon: <Kanban className="size-3" />,
-              },
-            ].map((option) => (
-              <button
-                key={option.value}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-[5px] py-1.5 text-[11px] transition-all",
-                  layout === option.value
-                    ? "bg-background font-medium text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() => onLayoutChange(option.value as "list" | "board")}
-              >
-                {option.icon}
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <LayoutSegmentedControl
+            boardLabel="Board"
+            layout={layout}
+            onLayoutChange={onLayoutChange}
+          />
         </div>
         <div className="flex flex-col px-3 py-2">
           <ConfigSelect
@@ -224,34 +280,11 @@ export function CollectionDisplaySettingsPopover({
       </PopoverTrigger>
       <PopoverContent align="end" className="w-52 p-0">
         <div className="px-3 py-2.5">
-          <div className="flex rounded-md bg-muted/50 p-0.5">
-            {[
-              {
-                value: "list",
-                label: "List",
-                icon: <Rows className="size-3" />,
-              },
-              {
-                value: "board",
-                label: "Grid",
-                icon: <Kanban className="size-3" />,
-              },
-            ].map((option) => (
-              <button
-                key={option.value}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-[5px] py-1.5 text-[11px] transition-all",
-                  layout === option.value
-                    ? "bg-background font-medium text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() => onLayoutChange(option.value as "list" | "board")}
-              >
-                {option.icon}
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <LayoutSegmentedControl
+            boardLabel="Grid"
+            layout={layout}
+            onLayoutChange={onLayoutChange}
+          />
         </div>
         {extraAction ? (
           <>
@@ -283,8 +316,9 @@ export function HeaderTitle({
 }
 
 export function StatusIcon({ status }: { status: string }) {
-  const statusLower = status.toLowerCase()
-  if (statusLower === "done" || statusLower === "completed") {
+  const iconStatus = getStatusIconStatus(status)
+
+  if (iconStatus === "done") {
     return (
       <span className="relative inline-grid size-3.5 shrink-0 place-items-center">
         <StatusRing status="done" className="size-3.5" />
@@ -296,25 +330,45 @@ export function StatusIcon({ status }: { status: string }) {
       </span>
     )
   }
-  if (statusLower === "in-progress" || statusLower === "in progress") {
-    return <StatusRing status="in-progress" className="size-3.5" />
-  }
-  if (statusLower === "in-review" || statusLower === "in review") {
+
+  if (iconStatus === "review") {
     return (
       <Circle className="size-3.5 shrink-0 text-status-review" weight="fill" />
     )
   }
-  if (statusLower === "cancelled") {
-    return <StatusRing status="cancelled" className="size-3.5" />
-  }
-  if (statusLower === "todo") {
-    return <StatusRing status="todo" className="size-3.5" />
-  }
-  if (statusLower === "duplicate") {
-    return <StatusRing status="duplicate" className="size-3.5" />
-  }
 
-  return <StatusRing status="backlog" className="size-3.5 opacity-70" />
+  return (
+    <StatusRing
+      status={iconStatus}
+      className={cn("size-3.5", iconStatus === "backlog" && "opacity-70")}
+    />
+  )
+}
+
+type StatusIconRingStatus =
+  | "backlog"
+  | "todo"
+  | "in-progress"
+  | "done"
+  | "cancelled"
+  | "duplicate"
+type StatusIconStatus = StatusIconRingStatus | "review"
+
+const STATUS_ICON_STATUS_BY_LABEL: Record<string, StatusIconStatus> = {
+  backlog: "backlog",
+  todo: "todo",
+  done: "done",
+  completed: "done",
+  "in-progress": "in-progress",
+  "in progress": "in-progress",
+  "in-review": "review",
+  "in review": "review",
+  cancelled: "cancelled",
+  duplicate: "duplicate",
+}
+
+function getStatusIconStatus(status: string): StatusIconStatus {
+  return STATUS_ICON_STATUS_BY_LABEL[status.toLowerCase()] ?? "backlog"
 }
 
 const PRIORITY_ICON_TOKEN: Record<Priority, string> = {
@@ -464,12 +518,47 @@ export function PropertySelect({
 }: {
   accessibleLabel?: string
   label: string
+} & PropertySelectCommonProps) {
+  const controller = usePropertySelectController({
+    accessibleLabel,
+    label,
+    onValueChange,
+    options,
+    value,
+  })
+  const trigger = (
+    <PropertySelectPopover
+      controller={controller}
+      disabled={disabled}
+      options={options}
+      renderOption={renderOption}
+      renderValue={renderValue}
+    />
+  )
+
+  if (label) {
+    return (
+      <PropertySelectDefinitionRow label={label}>
+        {trigger}
+      </PropertySelectDefinitionRow>
+    )
+  }
+
+  return <dd className="col-span-2 m-0">{trigger}</dd>
+}
+
+function usePropertySelectController({
+  accessibleLabel,
+  label,
+  value,
+  options,
+  onValueChange,
+}: {
+  accessibleLabel?: string
+  label: string
   value: string
-  options: Array<{ value: string; label: string }>
+  options: PropertySelectOption[]
   onValueChange: (value: string) => void
-  disabled?: boolean
-  renderValue?: (value: string, label: string) => ReactNode
-  renderOption?: (value: string, label: string) => ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const [activeValue, setActiveValue] = useState(value)
@@ -552,6 +641,10 @@ export function PropertySelect({
     onValueChange(nextValue)
   }
 
+  function setOptionRef(value: string, element: HTMLButtonElement | null) {
+    optionRefs.current[value] = element
+  }
+
   function handleOpenChange(nextOpen: boolean) {
     if (nextOpen) {
       setActiveValue(
@@ -589,74 +682,74 @@ export function PropertySelect({
     }
   }
 
-  function handleListboxKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    switch (event.key) {
-      case "ArrowDown":
-        event.preventDefault()
-        moveActiveOption(1)
-        return
-      case "ArrowUp":
-        event.preventDefault()
-        moveActiveOption(-1)
-        return
-      case "Home":
-        event.preventDefault()
-        moveToBoundaryOption("first")
-        return
-      case "End":
-        event.preventDefault()
-        moveToBoundaryOption("last")
-        return
-      case "Enter":
-      case " ":
-        if (!activeValue) {
-          return
-        }
+  const listboxNavigationHandlers: Partial<Record<string, () => void>> = {
+    ArrowDown: () => moveActiveOption(1),
+    ArrowUp: () => moveActiveOption(-1),
+    Home: () => moveToBoundaryOption("first"),
+    End: () => moveToBoundaryOption("last"),
+  }
 
-        event.preventDefault()
-        selectOption(activeValue)
-        return
-      default:
-        if (
-          event.key.length === 1 &&
-          !event.altKey &&
-          !event.ctrlKey &&
-          !event.metaKey
-        ) {
-          handleTypeahead(event.key)
-        }
+  function handleListboxKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const navigationHandler = listboxNavigationHandlers[event.key]
+
+    if (navigationHandler) {
+      event.preventDefault()
+      navigationHandler()
+      return
+    }
+
+    if (isListboxSelectKey(event.key) && activeValue) {
+      event.preventDefault()
+      selectOption(activeValue)
+      return
+    }
+
+    if (isTypeaheadKeyEvent(event)) {
+      handleTypeahead(event.key)
     }
   }
 
-  const trigger = (
+  return {
+    activeValue,
+    handleListboxKeyDown,
+    handleOpenChange,
+    listboxId,
+    open,
+    resolvedAccessibleLabel,
+    selectOption,
+    selectedLabel,
+    selectedValue,
+    setActiveValue,
+    setOptionRef,
+  }
+}
+
+type PropertySelectController = ReturnType<typeof usePropertySelectController>
+
+function PropertySelectPopover({
+  controller,
+  disabled,
+  options,
+  renderOption,
+  renderValue,
+}: {
+  controller: PropertySelectController
+  disabled?: boolean
+  options: PropertySelectOption[]
+  renderOption?: PropertySelectRender
+  renderValue?: PropertySelectRender
+}) {
+  return (
     <Popover
-      open={disabled ? false : open}
-      onOpenChange={disabled ? undefined : handleOpenChange}
+      open={disabled ? false : controller.open}
+      onOpenChange={disabled ? undefined : controller.handleOpenChange}
     >
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={resolvedAccessibleLabel}
-          aria-controls={open ? listboxId : undefined}
-          aria-expanded={open}
-          aria-haspopup="listbox"
+        <PropertySelectTriggerButton
+          controller={controller}
           disabled={disabled}
-          className={cn(
-            "flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12.5px] text-foreground transition-colors focus-visible:ring-0 focus-visible:outline-none",
-            disabled
-              ? "cursor-not-allowed text-fg-4 hover:bg-transparent"
-              : "cursor-pointer hover:bg-surface-3"
-          )}
-        >
-          <span className="flex min-w-0 flex-1 items-center gap-2">
-            {renderValue ? (
-              renderValue(selectedValue, selectedLabel)
-            ) : (
-              <span className="truncate">{selectedLabel}</span>
-            )}
-          </span>
-          <CaretDown className="size-3 shrink-0 text-fg-4" />
-        </button>
+          renderValue={renderValue}
+        />
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -665,70 +758,248 @@ export function PropertySelect({
           event.preventDefault()
         }}
       >
-        <div
-          id={listboxId}
-          role="listbox"
-          aria-label={resolvedAccessibleLabel}
-          className="flex max-h-[320px] flex-col gap-0.5 overflow-y-auto p-1"
-          onKeyDown={handleListboxKeyDown}
-        >
-          {options.map((option, index) =>
-            option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? (
-              <div
-                key={`separator-${index}`}
-                className="my-1 h-px bg-line-soft"
-              />
-            ) : (
-              <button
-                key={option.value}
-                type="button"
-                ref={(element) => {
-                  optionRefs.current[option.value] = element
-                }}
-                id={`${listboxId}-${option.value}`}
-                role="option"
-                aria-selected={option.value === selectedValue}
-                tabIndex={option.value === activeValue ? 0 : -1}
-                className={cn(
-                  "flex min-h-8 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground",
-                  option.value === activeValue && "bg-surface-3 text-foreground"
-                )}
-                onFocus={() => setActiveValue(option.value)}
-                onClick={() => {
-                  selectOption(option.value)
-                }}
-              >
-                <span className="min-w-0 flex-1">
-                  {renderOption
-                    ? renderOption(option.value, option.label)
-                    : option.label}
-                </span>
-                {option.value === selectedValue ? (
-                  <CheckCircle
-                    className="size-3.5 shrink-0 text-accent-fg"
-                    weight="fill"
-                  />
-                ) : null}
-              </button>
-            )
-          )}
-        </div>
+        <PropertySelectListbox
+          controller={controller}
+          options={options}
+          renderOption={renderOption}
+        />
       </PopoverContent>
     </Popover>
   )
+}
 
-  if (label) {
+const PropertySelectTriggerButton = forwardRef<
+  HTMLButtonElement,
+  {
+    controller: PropertySelectController
+    disabled?: boolean
+    renderValue?: PropertySelectRender
+  } & ComponentPropsWithoutRef<"button">
+>(function PropertySelectTriggerButton(
+  { className, controller, disabled, renderValue, ...props },
+  ref
+) {
+  return (
+    <button
+      {...props}
+      ref={ref}
+      type="button"
+      aria-label={controller.resolvedAccessibleLabel}
+      aria-controls={controller.open ? controller.listboxId : undefined}
+      aria-expanded={controller.open}
+      aria-haspopup="listbox"
+      disabled={disabled}
+      className={cn(
+        "flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12.5px] text-foreground transition-colors focus-visible:ring-0 focus-visible:outline-none",
+        disabled
+          ? "cursor-not-allowed text-fg-4 hover:bg-transparent"
+          : "cursor-pointer hover:bg-surface-3",
+        className
+      )}
+    >
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        {renderValue ? (
+          renderValue(controller.selectedValue, controller.selectedLabel)
+        ) : (
+          <span className="truncate">{controller.selectedLabel}</span>
+        )}
+      </span>
+      <CaretDown className="size-3 shrink-0 text-fg-4" />
+    </button>
+  )
+})
+
+function PropertySelectListbox({
+  controller,
+  options,
+  renderOption,
+}: {
+  controller: PropertySelectController
+  options: PropertySelectOption[]
+  renderOption?: PropertySelectRender
+}) {
+  return (
+    <div
+      id={controller.listboxId}
+      role="listbox"
+      aria-label={controller.resolvedAccessibleLabel}
+      className="flex max-h-[320px] flex-col gap-0.5 overflow-y-auto p-1"
+      onKeyDown={controller.handleListboxKeyDown}
+    >
+      {options.map((option, index) => (
+        <PropertySelectOptionEntry
+          key={option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? index : option.value}
+          controller={controller}
+          index={index}
+          option={option}
+          renderOption={renderOption}
+        />
+      ))}
+    </div>
+  )
+}
+
+function PropertySelectOptionEntry({
+  controller,
+  index,
+  option,
+  renderOption,
+}: {
+  controller: PropertySelectController
+  index: number
+  option: PropertySelectOption
+  renderOption?: PropertySelectRender
+}) {
+  if (option.value === PROPERTY_SELECT_SEPARATOR_VALUE) {
     return (
-      <>
-        <dt className="flex items-center gap-2 self-center py-1.5 text-fg-3">
-          {label}
-        </dt>
-        <dd className="m-0">{trigger}</dd>
-      </>
+      <div key={`separator-${index}`} className="my-1 h-px bg-line-soft" />
     )
   }
 
-  return <dd className="col-span-2 m-0">{trigger}</dd>
+  return (
+    <button
+      type="button"
+      ref={(element) => {
+        controller.setOptionRef(option.value, element)
+      }}
+      id={`${controller.listboxId}-${option.value}`}
+      role="option"
+      aria-selected={option.value === controller.selectedValue}
+      tabIndex={option.value === controller.activeValue ? 0 : -1}
+      className={cn(
+        "flex min-h-8 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground",
+        option.value === controller.activeValue && "bg-surface-3 text-foreground"
+      )}
+      onFocus={() => controller.setActiveValue(option.value)}
+      onClick={() => {
+        controller.selectOption(option.value)
+      }}
+    >
+      <span className="min-w-0 flex-1">
+        {renderOption ? renderOption(option.value, option.label) : option.label}
+      </span>
+      {option.value === controller.selectedValue ? (
+        <CheckCircle className="size-3.5 shrink-0 text-accent-fg" weight="fill" />
+      ) : null}
+    </button>
+  )
+}
+
+function PropertySelectDefinitionRow({
+  children,
+  label,
+}: {
+  children: ReactNode
+  label: string
+}) {
+  return (
+    <>
+      <dt className="flex items-center gap-2 self-center py-1.5 text-fg-3">
+        {label}
+      </dt>
+      <dd className="m-0">{children}</dd>
+    </>
+  )
+}
+
+export function useWorkItemLabelEditorState({
+  item,
+  labels,
+  requireWorkspace,
+  requireTrimmedName,
+  workspaceId,
+}: {
+  item: WorkItem
+  labels: AppData["labels"]
+  requireWorkspace?: boolean
+  requireTrimmedName?: boolean
+  workspaceId: string | null | undefined
+}) {
+  const [newLabelName, setNewLabelName] = useState("")
+  const labelNameLimitState = getTextInputLimitState(
+    newLabelName,
+    labelNameConstraints
+  )
+  const selectedLabels = labels.filter((label) => item.labelIds.includes(label.id))
+
+  function toggleLabel(labelId: string) {
+    const nextLabelIds = item.labelIds.includes(labelId)
+      ? item.labelIds.filter((currentId) => currentId !== labelId)
+      : [...item.labelIds, labelId]
+
+    useAppStore.getState().updateWorkItem(item.id, {
+      labelIds: nextLabelIds,
+    })
+  }
+
+  async function handleCreateLabel() {
+    if (
+      !canCreateWorkItemLabel({
+        labelNameLimitState,
+        newLabelName,
+        requireTrimmedName,
+        requireWorkspace,
+        workspaceId,
+      })
+    ) {
+      return
+    }
+
+    const created = await useAppStore
+      .getState()
+      .createLabel(newLabelName, workspaceId ?? null)
+
+    if (!created) {
+      return
+    }
+
+    const latestItem =
+      useAppStore.getState().workItems.find((entry) => entry.id === item.id) ??
+      item
+
+    setNewLabelName("")
+
+    if (latestItem.labelIds.includes(created.id)) {
+      return
+    }
+
+    useAppStore.getState().updateWorkItem(item.id, {
+      labelIds: [...latestItem.labelIds, created.id],
+    })
+  }
+
+  return {
+    handleCreateLabel,
+    labelNameLimitState,
+    newLabelName,
+    selectedLabels,
+    setNewLabelName,
+    toggleLabel,
+  }
+}
+
+function canCreateWorkItemLabel({
+  labelNameLimitState,
+  newLabelName,
+  requireTrimmedName,
+  requireWorkspace,
+  workspaceId,
+}: {
+  labelNameLimitState: ReturnType<typeof getTextInputLimitState>
+  newLabelName: string
+  requireTrimmedName?: boolean
+  requireWorkspace?: boolean
+  workspaceId: string | null | undefined
+}) {
+  if (!labelNameLimitState.canSubmit) {
+    return false
+  }
+
+  if (requireWorkspace && !workspaceId) {
+    return false
+  }
+
+  return !(requireTrimmedName && newLabelName.trim().length === 0)
 }
 
 export function WorkItemLabelsEditor({
@@ -749,52 +1020,18 @@ export function WorkItemLabelsEditor({
       )
     )
   )
-  const [newLabelName, setNewLabelName] = useState("")
-  const newLabelNameLimitState = getTextInputLimitState(
+  const {
+    handleCreateLabel,
+    labelNameLimitState: newLabelNameLimitState,
     newLabelName,
-    labelNameConstraints
-  )
-  const selectedLabels = availableLabels.filter((label) =>
-    item.labelIds.includes(label.id)
-  )
-
-  function toggleLabel(labelId: string) {
-    const nextLabelIds = item.labelIds.includes(labelId)
-      ? item.labelIds.filter((currentId) => currentId !== labelId)
-      : [...item.labelIds, labelId]
-
-    useAppStore.getState().updateWorkItem(item.id, {
-      labelIds: nextLabelIds,
-    })
-  }
-
-  async function handleCreateLabel() {
-    if (!newLabelNameLimitState.canSubmit) {
-      return
-    }
-
-    const created = await useAppStore
-      .getState()
-      .createLabel(newLabelName, itemWorkspaceId)
-
-    if (!created) {
-      return
-    }
-
-    setNewLabelName("")
-
-    const latestItem =
-      useAppStore.getState().workItems.find((entry) => entry.id === item.id) ??
-      item
-
-    if (latestItem.labelIds.includes(created.id)) {
-      return
-    }
-
-    useAppStore.getState().updateWorkItem(item.id, {
-      labelIds: [...latestItem.labelIds, created.id],
-    })
-  }
+    selectedLabels,
+    setNewLabelName,
+    toggleLabel,
+  } = useWorkItemLabelEditorState({
+    item,
+    labels: availableLabels,
+    workspaceId: itemWorkspaceId,
+  })
 
   return (
     <div className="flex flex-col gap-2">
@@ -1133,6 +1370,24 @@ function getHierarchyParentPatch(
   return { parentId: parent.id }
 }
 
+type FieldPatchResolverInput = {
+  data: AppData
+  item: WorkItem | null
+  value: string
+}
+
+const FIELD_PATCH_RESOLVERS: Partial<
+  Record<GroupField, (input: FieldPatchResolverInput) => Partial<WorkItem>>
+> = {
+  assignee: ({ data, value }) => getAssigneePatch(data, value),
+  project: ({ data, value }) => getProjectPatch(data, value),
+  label: ({ data, item, value }) => getLabelPatch(data, item, value),
+  epic: ({ data, item, value }) =>
+    getHierarchyParentPatch(data, item, "epic", value),
+  feature: ({ data, item, value }) =>
+    getHierarchyParentPatch(data, item, "feature", value),
+}
+
 export function getPatchForField(
   data: AppData,
   item: WorkItem | null,
@@ -1146,23 +1401,81 @@ export function getPatchForField(
     return scalarPatch
   }
 
-  if (field === "assignee") {
-    return getAssigneePatch(data, value)
+  return FIELD_PATCH_RESOLVERS[field]?.({ data, item, value }) ?? {}
+}
+
+function getHierarchyCreateDefaults({
+  data,
+  field,
+  item,
+  options,
+  value,
+}: {
+  data: AppData
+  field: "epic" | "feature"
+  item: WorkItem | null
+  options?: {
+    teamId?: string | null
+  }
+  value: string
+}): ReturnType<typeof getCreateDefaultsForField> {
+  const parent = findHierarchyCreateParent({ data, field, item, options, value })
+
+  if (!parent) {
+    return { patch: {} }
   }
 
-  if (field === "project") {
-    return getProjectPatch(data, value)
+  return {
+    patch: { parentId: parent.id },
+    defaultTeamId: parent.teamId,
+    initialType: getHierarchyCreateInitialType(item, parent),
+  }
+}
+
+function findHierarchyCreateParent({
+  data,
+  field,
+  item,
+  options,
+  value,
+}: {
+  data: AppData
+  field: "epic" | "feature"
+  item: WorkItem | null
+  options?: {
+    teamId?: string | null
+  }
+  value: string
+}) {
+  const emptyValue = `No ${field}`
+
+  if (value === emptyValue) {
+    return null
   }
 
-  if (field === "label") {
-    return getLabelPatch(data, item, value)
+  const scopedTeamId = options?.teamId ?? item?.teamId ?? null
+
+  if (!scopedTeamId) {
+    return null
   }
 
-  if (field === "epic" || field === "feature") {
-    return getHierarchyParentPatch(data, item, field, value)
+  return data.workItems.find(
+    (entry) =>
+      entry.teamId === scopedTeamId &&
+      entry.type === field &&
+      `${entry.key} · ${entry.title}` === value
+  )
+}
+
+function getHierarchyCreateInitialType(
+  item: WorkItem | null,
+  parent: WorkItem
+) {
+  if (item && canParentWorkItemTypeAcceptChild(parent.type, item.type)) {
+    return item.type
   }
 
-  return {}
+  return getSingleChildWorkItemType(parent.type)
 }
 
 export function getCreateDefaultsForField(
@@ -1189,39 +1502,7 @@ export function getCreateDefaultsForField(
   initialType?: WorkItem["type"] | null
 } {
   if (field === "epic" || field === "feature") {
-    const emptyValue = `No ${field}`
-
-    if (value === emptyValue) {
-      return { patch: {} }
-    }
-
-    const scopedTeamId = options?.teamId ?? item?.teamId ?? null
-
-    if (!scopedTeamId) {
-      return { patch: {} }
-    }
-
-    const parent = data.workItems.find(
-      (entry) =>
-        entry.teamId === scopedTeamId &&
-        entry.type === field &&
-        `${entry.key} · ${entry.title}` === value
-    )
-
-    if (!parent) {
-      return { patch: {} }
-    }
-
-    const candidateType =
-      item && canParentWorkItemTypeAcceptChild(parent.type, item.type)
-        ? item.type
-        : getSingleChildWorkItemType(parent.type)
-
-    return {
-      patch: { parentId: parent.id },
-      defaultTeamId: parent.teamId,
-      initialType: candidateType,
-    }
+    return getHierarchyCreateDefaults({ data, field, item, options, value })
   }
 
   return {

@@ -12,6 +12,7 @@ import {
   buildPostAuthPath,
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
+import { getPasswordAuthFormFields } from "@/lib/auth-form"
 import { logProviderError } from "@/lib/server/provider-errors"
 import { getRequestMetadata } from "@/lib/server/auth-request"
 import { redirectToRoute } from "@/lib/server/route-response"
@@ -116,13 +117,12 @@ async function getSignupFormFields(
   request: Request
 ): Promise<SignupFormFields> {
   const formData = await request.formData()
+  const passwordFields = getPasswordAuthFormFields(formData)
 
   return {
     firstName: String(formData.get("firstName") ?? "").trim(),
     lastName: String(formData.get("lastName") ?? "").trim(),
-    email: String(formData.get("email") ?? "").trim(),
-    password: String(formData.get("password") ?? ""),
-    nextPath: normalizeAuthNextPath(String(formData.get("next") ?? "")),
+    ...passwordFields,
   }
 }
 

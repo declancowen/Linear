@@ -21,6 +21,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { getTeamMemberManagementActionState } from "@/components/app/settings-screens/member-management-actions"
 
 type MemberIdentity = {
   id: string
@@ -473,68 +474,111 @@ export function TeamMembersList({
   return (
     <MemberList
       members={members}
-      renderRow={(member) => {
-        const isBusy = pendingMemberId === member.id
-
-        return (
-          <MemberListRow
-            key={member.id}
-            identity={
-              <MemberIdentityBlock
-                member={member}
-                badge={
-                  member.isCurrentUser ? (
-                    <Badge variant="outline">You</Badge>
-                  ) : undefined
-                }
-              />
-            }
-            actions={
-              canManage ? (
-                <>
-                  <Select
-                    disabled={isBusy || member.isCurrentUser}
-                    value={member.role}
-                    onValueChange={(nextRole) =>
-                      onRoleChange(member.id, nextRole as Role)
-                    }
-                  >
-                    <SelectTrigger className="w-32">
-                      <SelectValue placeholder="Role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {teamRoleOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={isBusy || member.isCurrentUser}
-                    className="text-muted-foreground hover:text-destructive"
-                    onClick={() => onRemove(member)}
-                  >
-                    <Trash className="size-3.5" />
-                    {isBusy && pendingAction === "remove"
-                      ? "Removing..."
-                      : "Remove"}
-                  </Button>
-                </>
-              ) : (
-                <Badge
-                  variant={member.role === "admin" ? "default" : "outline"}
-                >
-                  {getRoleLabel(member.role)}
-                </Badge>
-              )
-            }
-          />
-        )
-      }}
+      renderRow={(member) => (
+        <TeamMemberRow
+          key={member.id}
+          canManage={canManage}
+          isBusy={pendingMemberId === member.id}
+          member={member}
+          pendingAction={pendingAction}
+          onRemove={onRemove}
+          onRoleChange={onRoleChange}
+        />
+      )}
     />
+  )
+}
+
+function TeamMemberRow({
+  canManage,
+  isBusy,
+  member,
+  pendingAction,
+  onRemove,
+  onRoleChange,
+}: {
+  canManage: boolean
+  isBusy: boolean
+  member: TeamSettingsMember
+  pendingAction: "role" | "remove" | null
+  onRemove: (member: TeamSettingsMember) => void
+  onRoleChange: (userId: string, role: Role) => void
+}) {
+  return (
+    <MemberListRow
+      identity={
+        <MemberIdentityBlock
+          member={member}
+          badge={member.isCurrentUser ? <Badge variant="outline">You</Badge> : undefined}
+        />
+      }
+      actions={
+        canManage ? (
+          <TeamMemberManagementActions
+            isBusy={isBusy}
+            member={member}
+            pendingAction={pendingAction}
+            onRemove={onRemove}
+            onRoleChange={onRoleChange}
+          />
+        ) : (
+          <Badge variant={member.role === "admin" ? "default" : "outline"}>
+            {getRoleLabel(member.role)}
+          </Badge>
+        )
+      }
+    />
+  )
+}
+
+function TeamMemberManagementActions({
+  isBusy,
+  member,
+  pendingAction,
+  onRemove,
+  onRoleChange,
+}: {
+  isBusy: boolean
+  member: TeamSettingsMember
+  pendingAction: "role" | "remove" | null
+  onRemove: (member: TeamSettingsMember) => void
+  onRoleChange: (userId: string, role: Role) => void
+}) {
+  const actionState = getTeamMemberManagementActionState({
+    isBusy,
+    isCurrentUser: member.isCurrentUser,
+    pendingAction,
+  })
+
+  return (
+    <>
+      <Select
+        disabled={actionState.disabled}
+        value={member.role}
+        onValueChange={(nextRole) => onRoleChange(member.id, nextRole as Role)}
+      >
+        <SelectTrigger className="w-32">
+          <SelectValue placeholder="Role" />
+        </SelectTrigger>
+        <SelectContent>
+          {teamRoleOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={actionState.disabled}
+        className="text-muted-foreground hover:text-destructive"
+        onClick={() => onRemove(member)}
+      >
+        <Trash className="size-3.5" />
+        {actionState.removeLabel}
+      </Button>
+    </>
   )
 }

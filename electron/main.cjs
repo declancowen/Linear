@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { spawn } = require("node:child_process")
 const fs = require("node:fs")
-const { createServer } = require("node:net")
 const path = require("node:path")
 
 const { app, BrowserWindow, nativeImage, shell } = require("electron")
+const { findAvailablePort, waitForUrl } = require("./local-server.cjs")
 const { resolvePackagedRendererUrl } = require("./runtime-config.cjs")
 
 const appName = "Recipe Room"
@@ -12,6 +12,16 @@ const isDevelopment = !app.isPackaged && process.env.NODE_ENV === "development"
 const shouldUseLocalStandaloneServer = process.env.ELECTRON_LOCAL_SERVER === "1"
 const localServerUrl =
   process.env.NEXT_DEV_SERVER_URL ?? "http://localhost:3000"
+const trustedInAppExactHosts = new Set([
+  "api.workos.com",
+  "accounts.google.com",
+  "appleid.apple.com",
+])
+const trustedInAppHostSuffixes = [
+  ".workos.com",
+  ".google.com",
+  ".googleusercontent.com",
+]
 
 let mainWindow = null
 let nextServerProcess = null
@@ -41,59 +51,6 @@ function resolveDesktopIcon() {
   return null
 }
 
-function sleep(duration) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, duration)
-  })
-}
-
-async function waitForUrl(url, timeout = 30000) {
-  const startedAt = Date.now()
-
-  while (Date.now() - startedAt < timeout) {
-    try {
-      const response = await fetch(url, {
-        method: "HEAD",
-      })
-
-      if (response.ok || response.status < 500) {
-        return
-      }
-    } catch {}
-
-    await sleep(500)
-  }
-
-  throw new Error(`Timed out waiting for ${url}`)
-}
-
-function findAvailablePort(host = "127.0.0.1") {
-  return new Promise((resolve, reject) => {
-    const server = createServer()
-    server.unref()
-    server.on("error", reject)
-    server.listen(0, host, () => {
-      const address = server.address()
-
-      if (!address || typeof address === "string") {
-        server.close(() => {
-          reject(new Error("Failed to allocate a local port"))
-        })
-        return
-      }
-
-      server.close((error) => {
-        if (error) {
-          reject(error)
-          return
-        }
-
-        resolve(address.port)
-      })
-    })
-  })
-}
-
 function isAllowedExternalUrl(url) {
   try {
     const parsed = new URL(url)
@@ -108,6 +65,13 @@ function isAllowedExternalUrl(url) {
   }
 }
 
+function isTrustedInAppHttpsHost(hostname) {
+  return (
+    trustedInAppExactHosts.has(hostname) ||
+    trustedInAppHostSuffixes.some((suffix) => hostname.endsWith(suffix))
+  )
+}
+
 function isTrustedInAppUrl(url, rendererOrigin) {
   try {
     const parsed = new URL(url)
@@ -116,18 +80,7 @@ function isTrustedInAppUrl(url, rendererOrigin) {
       return true
     }
 
-    if (parsed.protocol !== "https:") {
-      return false
-    }
-
-    return (
-      parsed.hostname === "api.workos.com" ||
-      parsed.hostname.endsWith(".workos.com") ||
-      parsed.hostname === "accounts.google.com" ||
-      parsed.hostname.endsWith(".google.com") ||
-      parsed.hostname.endsWith(".googleusercontent.com") ||
-      parsed.hostname === "appleid.apple.com"
-    )
+    return parsed.protocol === "https:" && isTrustedInAppHttpsHost(parsed.hostname)
   } catch {
     return false
   }
@@ -141,30 +94,53 @@ async function resolveRendererUrl() {
 
   const appPath = app.getAppPath()
   const standaloneServer = path.join(appPath, ".next", "standalone", "server.js")
-  const hasStandaloneServer = fs.existsSync(standaloneServer)
-  const shouldUseBundledStandaloneServer =
-    hasStandaloneServer && (shouldUseLocalStandaloneServer || app.isPackaged)
 
-  if (!shouldUseBundledStandaloneServer) {
+  if (!shouldUseStandaloneRendererServer(standaloneServer)) {
     return resolvePackagedRendererUrl(appPath)
   }
 
-  if (
+  const existingServerUrl = await resolveExistingStandaloneRendererUrl()
+
+  if (existingServerUrl) {
+    return existingServerUrl
+  }
+
+  return startStandaloneRendererServer(appPath, standaloneServer)
+}
+
+function shouldUseStandaloneRendererServer(standaloneServer) {
+  return (
+    fs.existsSync(standaloneServer) &&
+    (shouldUseLocalStandaloneServer || app.isPackaged)
+  )
+}
+
+function hasRunningStandaloneRendererServer() {
+  return (
     nextServerProcess &&
     nextServerProcess.exitCode === null &&
     !nextServerProcess.killed &&
     nextServerUrl
-  ) {
-    try {
-      await waitForUrl(nextServerUrl, 5000)
-      return nextServerUrl
-    } catch {
-      nextServerProcess.kill()
-      nextServerProcess = null
-      nextServerUrl = null
-    }
+  )
+}
+
+async function resolveExistingStandaloneRendererUrl() {
+  if (!hasRunningStandaloneRendererServer()) {
+    return null
   }
 
+  try {
+    await waitForUrl(nextServerUrl, 5000)
+    return nextServerUrl
+  } catch {
+    nextServerProcess.kill()
+    nextServerProcess = null
+    nextServerUrl = null
+    return null
+  }
+}
+
+async function startStandaloneRendererServer(appPath, standaloneServer) {
   const port = await findAvailablePort()
   const rendererUrl = `http://localhost:${port}`
   const serverProcess = spawn(process.execPath, [standaloneServer], {
@@ -194,15 +170,16 @@ async function resolveRendererUrl() {
   return rendererUrl
 }
 
-async function createWindow(iconPath) {
+function getExistingMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.focus()
     return mainWindow
   }
 
-  const rendererUrl = await resolveRendererUrl()
-  const rendererOrigin = new URL(rendererUrl).origin
-  mainWindow = new BrowserWindow({
+  return null
+}
+
+function createMainBrowserWindow(iconPath) {
+  return new BrowserWindow({
     width: 1220,
     height: 820,
     minWidth: 1024,
@@ -218,14 +195,18 @@ async function createWindow(iconPath) {
       sandbox: true,
     },
   })
+}
 
-  mainWindow.on("closed", () => {
+function registerMainWindowLifecycle(window) {
+  window.on("closed", () => {
     mainWindow = null
   })
+}
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+function registerMainWindowNavigationGuards(window, rendererOrigin) {
+  window.webContents.setWindowOpenHandler(({ url }) => {
     if (isTrustedInAppUrl(url, rendererOrigin)) {
-      void mainWindow.loadURL(url)
+      void window.loadURL(url)
       return { action: "deny" }
     }
 
@@ -236,7 +217,7 @@ async function createWindow(iconPath) {
     return { action: "deny" }
   })
 
-  mainWindow.webContents.on("will-navigate", (event, url) => {
+  window.webContents.on("will-navigate", (event, url) => {
     if (isTrustedInAppUrl(url, rendererOrigin)) {
       return
     }
@@ -247,14 +228,33 @@ async function createWindow(iconPath) {
       void shell.openExternal(url)
     }
   })
+}
 
-  await mainWindow.loadURL(rendererUrl)
-
+function openDevToolsForDevelopment(window) {
   if (isDevelopment) {
-    mainWindow.webContents.openDevTools({
+    window.webContents.openDevTools({
       mode: "detach",
     })
   }
+}
+
+async function createWindow(iconPath) {
+  const existingWindow = getExistingMainWindow()
+
+  if (existingWindow) {
+    existingWindow.focus()
+    return existingWindow
+  }
+
+  const rendererUrl = await resolveRendererUrl()
+  const rendererOrigin = new URL(rendererUrl).origin
+  mainWindow = createMainBrowserWindow(iconPath)
+
+  registerMainWindowLifecycle(mainWindow)
+  registerMainWindowNavigationGuards(mainWindow, rendererOrigin)
+
+  await mainWindow.loadURL(rendererUrl)
+  openDevToolsForDevelopment(mainWindow)
 
   return mainWindow
 }

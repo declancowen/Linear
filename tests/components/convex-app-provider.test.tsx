@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import type { AppSnapshot, ThemePreference } from "@/lib/domain/types"
+import { createEmptyState } from "@/lib/domain/empty-state"
+import { createTestTeam } from "@/tests/lib/fixtures/app-data"
 
 const {
   fetchSnapshotStateMock,
@@ -121,6 +123,26 @@ const initialShellSeed: ReadModelFetchResult<Partial<AppSnapshot>> = {
   ],
 }
 
+async function renderConvexAppProvider() {
+  const { ConvexAppProvider } = await import(
+    "@/components/providers/convex-app-provider"
+  )
+
+  render(
+    <ConvexAppProvider
+      initialShellSeed={initialShellSeed}
+      initialWorkspaceId="workspace_1"
+    >
+      <div>App content</div>
+    </ConvexAppProvider>
+  )
+}
+
+function expectAppContentReady() {
+  expect(screen.getByText("App content")).toBeInTheDocument()
+  expect(screen.queryByText("Loading workspace...")).not.toBeInTheDocument()
+}
+
 describe("ConvexAppProvider", () => {
   beforeEach(() => {
     fetchSnapshotStateMock.mockReset()
@@ -135,21 +157,8 @@ describe("ConvexAppProvider", () => {
   })
 
   it("hydrates the initial shell seed and renders children without a loading overlay", async () => {
-    const { ConvexAppProvider } = await import(
-      "@/components/providers/convex-app-provider"
-    )
-
-    render(
-      <ConvexAppProvider
-        initialShellSeed={initialShellSeed}
-        initialWorkspaceId="workspace_1"
-      >
-        <div>App content</div>
-      </ConvexAppProvider>
-    )
-
-    expect(screen.getByText("App content")).toBeInTheDocument()
-    expect(screen.queryByText("Loading workspace...")).not.toBeInTheDocument()
+    await renderConvexAppProvider()
+    expectAppContentReady()
 
     await waitFor(() => {
       expect(mergeReadModelDataMock).toHaveBeenCalledWith(
@@ -166,18 +175,7 @@ describe("ConvexAppProvider", () => {
   it("applies theme from the seeded current user preferences", async () => {
     resolveSnapshotThemePreferenceMock.mockReturnValue("dark")
 
-    const { ConvexAppProvider } = await import(
-      "@/components/providers/convex-app-provider"
-    )
-
-    render(
-      <ConvexAppProvider
-        initialShellSeed={initialShellSeed}
-        initialWorkspaceId="workspace_1"
-      >
-        <div>App content</div>
-      </ConvexAppProvider>
-    )
+    await renderConvexAppProvider()
 
     await waitFor(() => {
       expect(setThemeMock).toHaveBeenCalledWith("dark")
@@ -189,53 +187,14 @@ describe("ConvexAppProvider", () => {
     fetchSnapshotStateMock.mockResolvedValue({
       version: 7,
       snapshot: {
+        ...createEmptyState(),
         currentUserId: "user_1",
         currentWorkspaceId: "workspace_1",
-        workspaces: [],
-        workspaceMemberships: [],
-        teams: [],
-        teamMemberships: [],
-        users: [],
-        labels: [],
-        projects: [],
-        milestones: [],
-        workItems: [],
-        documents: [],
-        views: [],
-        comments: [],
-        attachments: [],
-        notifications: [],
-        invites: [],
-        projectUpdates: [],
-        conversations: [],
-        calls: [],
-        chatMessages: [],
-        channelPosts: [],
-        channelPostComments: [],
-        ui: {
-          activeTeamId: "",
-          activeInboxNotificationId: null,
-          selectedViewByRoute: {},
-          activeCreateDialog: null,
-        },
       },
     })
 
-    const { ConvexAppProvider } = await import(
-      "@/components/providers/convex-app-provider"
-    )
-
-    render(
-      <ConvexAppProvider
-        initialShellSeed={initialShellSeed}
-        initialWorkspaceId="workspace_1"
-      >
-        <div>App content</div>
-      </ConvexAppProvider>
-    )
-
-    expect(screen.getByText("App content")).toBeInTheDocument()
-    expect(screen.queryByText("Loading workspace...")).not.toBeInTheDocument()
+    await renderConvexAppProvider()
+    expectAppContentReady()
 
     await waitFor(() => {
       expect(replaceDomainDataMock).toHaveBeenCalled()
@@ -251,69 +210,7 @@ describe("ConvexAppProvider", () => {
       ...initialShellSeed,
       data: {
         ...initialShellSeed.data,
-        teams: [
-          {
-            id: "team_1",
-            workspaceId: "workspace_1",
-            slug: "platform",
-            name: "Platform",
-            icon: "code",
-            settings: {
-              joinCode: "JOIN1234",
-              summary: "Platform team",
-              guestProjectIds: [],
-              guestDocumentIds: [],
-              guestWorkItemIds: [],
-              experience: "software-development",
-              features: {
-                issues: true,
-                projects: true,
-                views: true,
-                docs: true,
-                chat: true,
-                channels: true,
-              },
-              workflow: {
-                statusOrder: [
-                  "backlog",
-                  "todo",
-                  "in-progress",
-                  "done",
-                  "cancelled",
-                  "duplicate",
-                ],
-                templateDefaults: {
-                  "software-delivery": {
-                    defaultPriority: "high",
-                    targetWindowDays: 28,
-                    defaultViewLayout: "board",
-                    recommendedItemTypes: [
-                      "epic",
-                      "feature",
-                      "requirement",
-                      "story",
-                    ],
-                    summaryHint: "",
-                  },
-                  "bug-tracking": {
-                    defaultPriority: "high",
-                    targetWindowDays: 14,
-                    defaultViewLayout: "list",
-                    recommendedItemTypes: ["issue", "sub-issue"],
-                    summaryHint: "",
-                  },
-                  "project-management": {
-                    defaultPriority: "medium",
-                    targetWindowDays: 35,
-                    defaultViewLayout: "timeline",
-                    recommendedItemTypes: ["task", "sub-task"],
-                    summaryHint: "",
-                  },
-                },
-              },
-            },
-          },
-        ],
+        teams: [createTestTeam({ icon: "code" })],
       },
     }
 

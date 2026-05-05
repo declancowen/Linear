@@ -3,10 +3,12 @@ import { ApplicationError } from "@/lib/server/application-errors"
 
 const requireSessionMock = vi.fn()
 const requireConvexUserMock = vi.fn()
+const requireConvexRouteContextMock = vi.fn()
 const getScopedReadModelVersionsServerMock = vi.fn()
 const authorizeScopedReadModelScopeKeysServerMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
+  requireConvexRouteContext: requireConvexRouteContextMock,
   requireSession: requireSessionMock,
   requireConvexUser: requireConvexUserMock,
 }))
@@ -28,6 +30,7 @@ describe("scoped events route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
     requireConvexUserMock.mockReset()
+    requireConvexRouteContextMock.mockReset()
     getScopedReadModelVersionsServerMock.mockReset()
     authorizeScopedReadModelScopeKeysServerMock.mockReset()
 
@@ -42,6 +45,29 @@ describe("scoped events route contracts", () => {
       currentUser: {
         id: "user_1",
       },
+    })
+    requireConvexRouteContextMock.mockImplementation(async () => {
+      const session = await requireSessionMock()
+
+      if (session instanceof Response) {
+        return session
+      }
+
+      const authContext = await requireConvexUserMock(session)
+
+      if (authContext instanceof Response) {
+        return authContext
+      }
+
+      return {
+        authContext,
+        authenticatedUser: {
+          email: session.user.email,
+          organizationId: session.organizationId,
+          workosUserId: session.user.id,
+        },
+        session,
+      }
     })
     getScopedReadModelVersionsServerMock.mockResolvedValue({
       versions: [],
@@ -147,5 +173,70 @@ describe("scoped events route contracts", () => {
     const body = await response.text()
     expect(body).toContain("retry: 10000")
     expect(body).toContain("event: unavailable")
+  })
+
+  it("polls changed scoped read model versions and stops when unavailable", async () => {
+    const { pollScopedReadModelVersions } = await import(
+      "@/app/api/events/scoped/polling"
+    )
+    const context = {
+      sendEvent: vi.fn(),
+    }
+    const state = {
+      currentVersions: new Map([
+        ["shell-context", 1],
+        ["workspace:1", 2],
+      ]),
+    }
+
+    getScopedReadModelVersionsServerMock.mockResolvedValueOnce({
+      versions: [
+        {
+          scopeKey: "shell-context",
+          version: 1,
+        },
+        {
+          scopeKey: "workspace:1",
+          version: 3,
+        },
+      ],
+    })
+
+    await expect(
+      pollScopedReadModelVersions(
+        context,
+        state,
+        ["shell-context", "workspace:1"],
+        10000
+      )
+    ).resolves.toBe("changed")
+    expect(context.sendEvent).toHaveBeenCalledWith("scope", {
+      versions: [
+        {
+          scopeKey: "workspace:1",
+          version: 3,
+        },
+      ],
+    })
+    expect(state.currentVersions.get("workspace:1")).toBe(3)
+
+    getScopedReadModelVersionsServerMock.mockRejectedValueOnce(
+      new ApplicationError("Scoped read model versions are unavailable", 503, {
+        code: "SCOPED_READ_MODELS_UNAVAILABLE",
+      })
+    )
+    await expect(
+      pollScopedReadModelVersions(context, state, ["shell-context"], 10000)
+    ).resolves.toBe("stop")
+    expect(context.sendEvent).toHaveBeenCalledWith(
+      "unavailable",
+      {
+        code: "SCOPED_READ_MODELS_UNAVAILABLE",
+        message: "Scoped read model versions are unavailable",
+      },
+      {
+        retryMs: 10000,
+      }
+    )
   })
 })

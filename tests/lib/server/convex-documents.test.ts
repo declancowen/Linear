@@ -1,17 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { createConvexServerCoreMock } from "@/tests/lib/fixtures/convex-server"
+
 const mutationMock = vi.fn()
 
-vi.mock("@/lib/server/convex/core", () => ({
-  getConvexServerClient: () => ({
-    mutation: mutationMock,
-  }),
-  withServerToken: <T extends Record<string, unknown>>(input: T) => input,
-  runConvexRequestWithRetry: async (
-    _label: string,
-    request: () => Promise<unknown>
-  ) => request(),
-}))
+vi.mock("@/lib/server/convex/core", () =>
+  createConvexServerCoreMock(mutationMock)
+)
 
 describe("convex document server wrappers", () => {
   beforeEach(() => {

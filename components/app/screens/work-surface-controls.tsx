@@ -1,9 +1,11 @@
 "use client"
 
 import {
+  forwardRef,
   useMemo,
   useRef,
   useState,
+  type ComponentPropsWithoutRef,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react"
@@ -17,7 +19,6 @@ import {
 } from "@dnd-kit/core"
 import {
   SortableContext,
-  arrayMove,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
@@ -48,6 +49,10 @@ import {
   ProjectTemplateGlyph,
   TeamIconGlyph,
 } from "@/components/app/entity-icons"
+import {
+  getProjectStatusIconStatus,
+  getReorderedDisplayPropertiesAfterDrag,
+} from "@/components/app/screens/work-surface-control-state"
 import { getStatusOrderForTeam, getTeam } from "@/lib/domain/selectors"
 import {
   EMPTY_PARENT_FILTER_VALUE,
@@ -205,6 +210,63 @@ function getChipToneClass(tone: ChipTone) {
 
   return chipDefault
 }
+
+function createViewConfigUpdater(
+  viewId: string,
+  onUpdateView?: (patch: ViewConfigPatch) => void
+) {
+  return (patch: ViewConfigPatch) => {
+    if (onUpdateView) {
+      onUpdateView(patch)
+      return
+    }
+
+    useAppStore.getState().updateViewConfig(viewId, patch)
+  }
+}
+
+const ViewChipTrigger = forwardRef<HTMLButtonElement, {
+  icon: ReactNode
+  label: string
+  showLabel?: boolean
+  showValue?: boolean
+  tone: ChipTone
+  value: string
+  valuePrefix?: string
+} & ComponentPropsWithoutRef<"button">>(function ViewChipTrigger(
+  {
+    className,
+    icon,
+    label,
+    showLabel = true,
+    showValue = true,
+    tone,
+    type = "button",
+    value,
+    valuePrefix = "",
+    ...props
+  },
+  ref
+) {
+  return (
+    <button
+      ref={ref}
+      type={type}
+      className={cn(chipBase, getChipToneClass(tone), className)}
+      {...props}
+    >
+      {icon}
+      {showLabel ? <span>{label}</span> : null}
+      {showValue ? (
+        <span className="font-semibold">
+          {valuePrefix}
+          {value}
+        </span>
+      ) : null}
+      <CaretDown className="size-3 opacity-70" />
+    </button>
+  )
+})
 
 const displayPropertyOptions: DisplayProperty[] = [
   "type",
@@ -503,28 +565,63 @@ function getWorkFilterChipClass({
     : getChipToneClass(chipTone)
 }
 
-function WorkFilterTrigger({
-  activeCount,
-  chipTone,
-  dashedWhenEmpty,
-  label,
-  variant,
+function toggleFilterValueOrDelegate<TKey extends ViewFilterKey>({
+  canPersistKey = () => true,
+  key,
+  onToggleFilterValue,
+  value,
+  viewId,
 }: {
+  canPersistKey?: (key: TKey) => boolean
+  key: TKey
+  onToggleFilterValue?: (key: TKey, value: string) => void
+  value: string
+  viewId: string
+}) {
+  if (onToggleFilterValue) {
+    onToggleFilterValue(key, value)
+    return
+  }
+
+  if (canPersistKey(key)) {
+    useAppStore.getState().toggleViewFilterValue(viewId, key, value)
+  }
+}
+
+function clearFiltersOrDelegate({
+  onClearFilters,
+  viewId,
+}: {
+  onClearFilters?: () => void
+  viewId: string
+}) {
+  if (onClearFilters) {
+    onClearFilters()
+    return
+  }
+
+  useAppStore.getState().clearViewFilters(viewId)
+}
+
+const FilterTriggerButton = forwardRef<HTMLButtonElement, {
   activeCount: number
-  chipTone: ChipTone | "adaptive"
-  dashedWhenEmpty: boolean
+  className?: string
   label: string
   variant: "icon" | "chip"
-}) {
+} & ComponentPropsWithoutRef<"button">>(function FilterTriggerButton(
+  {
+    activeCount,
+    className,
+    label,
+    type = "button",
+    variant,
+    ...props
+  },
+  ref
+) {
   if (variant === "chip") {
     return (
-      <button
-        type="button"
-        className={cn(
-          chipBase,
-          getWorkFilterChipClass({ activeCount, chipTone, dashedWhenEmpty })
-        )}
-      >
+      <button ref={ref} type={type} className={className} {...props}>
         <FunnelSimple className="size-3.5" />
         <span>{label}</span>
         {activeCount > 0 ? (
@@ -537,7 +634,14 @@ function WorkFilterTrigger({
   }
 
   return (
-    <Button size="icon-xs" variant="ghost" className="relative">
+    <Button
+      ref={ref}
+      type={type}
+      size="icon-xs"
+      variant="ghost"
+      className="relative"
+      {...props}
+    >
       <FadersHorizontal className="size-3.5" />
       {activeCount > 0 ? (
         <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
@@ -546,7 +650,7 @@ function WorkFilterTrigger({
       ) : null}
     </Button>
   )
-}
+})
 
 function WorkFilterHeader({
   activeCount,
@@ -914,34 +1018,28 @@ export function FilterPopover({
   const activeCount = getWorkFilterActiveCount(view.filters)
 
   function handleToggleFilterValue(key: ViewFilterKey, value: string) {
-    if (onToggleFilterValue) {
-      onToggleFilterValue(key, value)
-      return
-    }
-
-    if (!isPersistedViewFilterKey(key)) {
-      return
-    }
-
-    useAppStore.getState().toggleViewFilterValue(view.id, key, value)
+    toggleFilterValueOrDelegate({
+      canPersistKey: isPersistedViewFilterKey,
+      key,
+      onToggleFilterValue,
+      value,
+      viewId: view.id,
+    })
   }
 
   function handleClearFilters() {
-    if (onClearFilters) {
-      onClearFilters()
-      return
-    }
-
-    useAppStore.getState().clearViewFilters(view.id)
+    clearFiltersOrDelegate({ onClearFilters, viewId: view.id })
   }
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <WorkFilterTrigger
+        <FilterTriggerButton
           activeCount={activeCount}
-          chipTone={chipTone}
-          dashedWhenEmpty={dashedWhenEmpty}
+          className={cn(
+            chipBase,
+            getWorkFilterChipClass({ activeCount, chipTone, dashedWhenEmpty })
+          )}
           label={label}
           variant={variant}
         />
@@ -1214,22 +1312,6 @@ type ProjectFilterSectionData = {
   rows: ProjectFilterRowData[]
 }
 
-function getProjectStatusIconStatus(status: Project["status"]) {
-  if (status === "in-progress") {
-    return "in-progress"
-  }
-
-  if (status === "completed") {
-    return "completed"
-  }
-
-  if (status === "cancelled") {
-    return "cancelled"
-  }
-
-  return status === "backlog" ? "backlog" : "todo"
-}
-
 function getProjectFilterChipClass({
   activeCount,
   chipTone,
@@ -1250,55 +1332,6 @@ function getProjectFilterChipClass({
   return activeCount === 0 && dashedWhenEmpty
     ? chipDashed
     : getChipToneClass(chipTone)
-}
-
-function ProjectFilterTriggerButton({
-  activeCount,
-  chipTone,
-  dashedWhenEmpty,
-  label,
-  variant,
-}: {
-  activeCount: number
-  chipTone: ChipTone | "adaptive"
-  dashedWhenEmpty: boolean
-  label: string
-  variant: "icon" | "chip"
-}) {
-  if (variant === "chip") {
-    return (
-      <button
-        type="button"
-        className={cn(
-          chipBase,
-          getProjectFilterChipClass({
-            activeCount,
-            chipTone,
-            dashedWhenEmpty,
-          })
-        )}
-      >
-        <FunnelSimple className="size-3.5" />
-        <span>{label}</span>
-        {activeCount > 0 ? (
-          <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
-            {activeCount}
-          </span>
-        ) : null}
-      </button>
-    )
-  }
-
-  return (
-    <Button size="icon-xs" variant="ghost" className="relative">
-      <FadersHorizontal className="size-3.5" />
-      {activeCount > 0 ? (
-        <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
-          {activeCount}
-        </span>
-      ) : null}
-    </Button>
-  )
 }
 
 function ProjectFilterSectionList({
@@ -1403,21 +1436,16 @@ export function ProjectFilterPopover({
     key: "status" | "priority" | "leadIds" | "health" | "teamIds",
     value: string
   ) {
-    if (onToggleFilterValue) {
-      onToggleFilterValue(key, value)
-      return
-    }
-
-    useAppStore.getState().toggleViewFilterValue(view.id, key, value)
+    toggleFilterValueOrDelegate({
+      key,
+      onToggleFilterValue,
+      value,
+      viewId: view.id,
+    })
   }
 
   function handleClearFilters() {
-    if (onClearFilters) {
-      onClearFilters()
-      return
-    }
-
-    useAppStore.getState().clearViewFilters(view.id)
+    clearFiltersOrDelegate({ onClearFilters, viewId: view.id })
   }
 
   const filterSections: ProjectFilterSectionData[] = [
@@ -1515,10 +1543,16 @@ export function ProjectFilterPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <ProjectFilterTriggerButton
+        <FilterTriggerButton
           activeCount={activeCount}
-          chipTone={chipTone}
-          dashedWhenEmpty={dashedWhenEmpty}
+          className={cn(
+            chipBase,
+            getProjectFilterChipClass({
+              activeCount,
+              chipTone,
+              dashedWhenEmpty,
+            })
+          )}
           label={label}
           variant={variant}
         />
@@ -1773,18 +1807,27 @@ export function ProjectLayoutChipPopover({
   )
 }
 
-export function ProjectSortChipPopover({
-  view,
-  onUpdateView,
-  tone = "default",
-  label,
-  showValue = true,
-}: {
+type SortChipPopoverProps = {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
   tone?: ChipTone
   label?: string
   showValue?: boolean
+}
+
+function SortChipPopoverWithOptions({
+  contentWidthClassName,
+  options,
+  showCompletedToggle,
+  view,
+  onUpdateView,
+  tone = "default",
+  label,
+  showValue = true,
+}: SortChipPopoverProps & {
+  contentWidthClassName: string
+  options: OrderingField[]
+  showCompletedToggle?: boolean
 }) {
   return (
     <ViewSortChipPopover
@@ -1793,6 +1836,17 @@ export function ProjectSortChipPopover({
       tone={tone}
       label={label}
       showValue={showValue}
+      options={options}
+      contentWidthClassName={contentWidthClassName}
+      showCompletedToggle={showCompletedToggle}
+    />
+  )
+}
+
+export function ProjectSortChipPopover(props: SortChipPopoverProps) {
+  return (
+    <SortChipPopoverWithOptions
+      {...props}
       options={PROJECT_ORDERING_OPTIONS}
       contentWidthClassName="w-[220px]"
       showCompletedToggle
@@ -1855,30 +1909,19 @@ export function GroupChipPopover({
   getOptionLabel?: (field: GroupField) => string
 }) {
   const resolveOptionLabel = getOptionLabel ?? getGroupFieldOptionLabel
-
-  function handleUpdateView(patch: ViewConfigPatch) {
-    if (onUpdateView) {
-      onUpdateView(patch)
-      return
-    }
-
-    useAppStore.getState().updateViewConfig(view.id, patch)
-  }
+  const handleUpdateView = createViewConfigUpdater(view.id, onUpdateView)
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
-          <TreeStructure className="size-3.5" />
-          <span>{label}</span>
-          {showValue ? (
-            <span className="font-semibold">
-              {label === "Group" ? "· " : ""}
-              {resolveOptionLabel(view.grouping)}
-            </span>
-          ) : null}
-          <CaretDown className="size-3 opacity-70" />
-        </button>
+        <ViewChipTrigger
+          icon={<TreeStructure className="size-3.5" />}
+          label={label}
+          showValue={showValue}
+          tone={tone}
+          value={resolveOptionLabel(view.grouping)}
+          valuePrefix={label === "Group" ? "· " : ""}
+        />
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -1966,29 +2009,87 @@ export function GroupChipPopover({
   )
 }
 
-export function SortChipPopover({
-  view,
-  onUpdateView,
-  tone = "default",
-  label,
-  showValue = true,
-}: {
-  view: ViewDefinition
-  onUpdateView?: (patch: ViewConfigPatch) => void
-  tone?: ChipTone
-  label?: string
-  showValue?: boolean
-}) {
+export function SortChipPopover(props: SortChipPopoverProps) {
   return (
-    <ViewSortChipPopover
-      view={view}
-      onUpdateView={onUpdateView}
-      tone={tone}
-      label={label}
-      showValue={showValue}
+    <SortChipPopoverWithOptions
+      {...props}
       options={orderingOptions}
       contentWidthClassName="w-[200px]"
     />
+  )
+}
+
+function getPropertiesChipClassName({
+  count,
+  dashedWhenEmpty,
+  showCount,
+  tone,
+}: {
+  count: number
+  dashedWhenEmpty: boolean
+  showCount: boolean
+  tone: ChipTone | "adaptive"
+}) {
+  const toneClass =
+    tone === "adaptive"
+      ? count > 0
+        ? chipSelected
+        : dashedWhenEmpty
+          ? chipDashed
+          : chipGhost
+      : count === 0 && dashedWhenEmpty
+        ? chipDashed
+        : getChipToneClass(tone)
+
+  return cn(chipBase, toneClass, !showCount && tone === "ghost" && chipMuted)
+}
+
+const PropertiesChipTrigger = forwardRef<
+  HTMLButtonElement,
+  {
+    count: number
+    dashedWhenEmpty: boolean
+    label: string
+    showCount: boolean
+    tone: ChipTone | "adaptive"
+  } & ComponentPropsWithoutRef<"button">
+>(function PropertiesChipTrigger(
+  { className, count, dashedWhenEmpty, label, showCount, tone, ...props },
+  ref
+) {
+  return (
+    <button
+      {...props}
+      ref={ref}
+      type="button"
+      className={cn(
+        getPropertiesChipClassName({
+          count,
+          dashedWhenEmpty,
+          showCount,
+          tone,
+        }),
+        className
+      )}
+    >
+      <Eye className="size-3.5" />
+      <span>{label}</span>
+      {showCount ? (
+        <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
+          {count}
+        </span>
+      ) : null}
+    </button>
+  )
+})
+
+function EmptyPropertiesListItem({ label }: { label: string }) {
+  return (
+    <div className="px-1 pb-1">
+      <PropertyPopoverItem muted className="pointer-events-none">
+        {label}
+      </PropertyPopoverItem>
+    </div>
   )
 }
 
@@ -2101,20 +2202,17 @@ export function PropertiesChipPopover({
 
     suppressNextToggle(active.id as DisplayProperty)
 
-    if (!over || active.id === over.id) {
+    const nextProperties = getReorderedDisplayPropertiesAfterDrag({
+      activeId: active.id as DisplayProperty,
+      overId: over?.id ? (over.id as DisplayProperty) : null,
+      visibleProperties,
+    })
+
+    if (!nextProperties) {
       return
     }
 
-    const oldIndex = visibleProperties.indexOf(active.id as DisplayProperty)
-    const newIndex = visibleProperties.indexOf(over.id as DisplayProperty)
-
-    if (oldIndex < 0 || newIndex < 0) {
-      return
-    }
-
-    handleReorderDisplayProperties(
-      arrayMove(visibleProperties, oldIndex, newIndex)
-    )
+    handleReorderDisplayProperties(nextProperties)
   }
 
   function handleDragCancel() {
@@ -2129,30 +2227,13 @@ export function PropertiesChipPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            chipBase,
-            tone === "adaptive"
-              ? count > 0
-                ? chipSelected
-                : dashedWhenEmpty
-                  ? chipDashed
-                  : chipGhost
-              : count === 0 && dashedWhenEmpty
-                ? chipDashed
-                : getChipToneClass(tone),
-            !showCount && tone === "ghost" && chipMuted
-          )}
-        >
-          <Eye className="size-3.5" />
-          <span>{label}</span>
-          {showCount ? (
-            <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
-              {count}
-            </span>
-          ) : null}
-        </button>
+        <PropertiesChipTrigger
+          count={count}
+          dashedWhenEmpty={dashedWhenEmpty}
+          label={label}
+          showCount={showCount}
+          tone={tone}
+        />
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -2196,11 +2277,7 @@ export function PropertiesChipPopover({
                 </SortableContext>
               </DndContext>
             ) : (
-              <div className="px-1 pb-1">
-                <PropertyPopoverItem muted className="pointer-events-none">
-                  No visible properties
-                </PropertyPopoverItem>
-              </div>
+              <EmptyPropertiesListItem label="No visible properties" />
             )}
           </PropertyPopoverList>
           <PropertyPopoverList className="min-h-[240px] overflow-x-hidden px-0">
@@ -2219,11 +2296,7 @@ export function PropertiesChipPopover({
                 ))}
               </div>
             ) : (
-              <div className="px-1 pb-1">
-                <PropertyPopoverItem muted className="pointer-events-none">
-                  No hidden properties
-                </PropertyPopoverItem>
-              </div>
+              <EmptyPropertiesListItem label="No hidden properties" />
             )}
           </PropertyPopoverList>
         </div>
@@ -2348,29 +2421,20 @@ export function LevelChipPopover({
         team?.settings.experience
       )
     : "Level"
-
-  function handleUpdateView(patch: ViewConfigPatch) {
-    if (onUpdateView) {
-      onUpdateView(patch)
-      return
-    }
-
-    useAppStore.getState().updateViewConfig(view.id, patch)
-  }
+  const handleUpdateView = createViewConfigUpdater(view.id, onUpdateView)
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
-          <Stack className="size-3.5" />
-          {showLabel ? <span>{label}</span> : null}
-          {showValue ? (
-            <span className="font-semibold">
-              {showLabel ? `· ${currentLabel}` : currentLabel}
-            </span>
-          ) : null}
-          <CaretDown className="size-3 opacity-70" />
-        </button>
+        <ViewChipTrigger
+          icon={<Stack className="size-3.5" />}
+          label={label}
+          showLabel={showLabel}
+          showValue={showValue}
+          tone={tone}
+          value={currentLabel}
+          valuePrefix={showLabel ? "· " : ""}
+        />
       </PopoverTrigger>
       <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
         <PropertyPopoverList>

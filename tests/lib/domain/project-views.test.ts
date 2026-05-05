@@ -14,6 +14,7 @@ import {
   type Project,
   type ViewDefinition,
 } from "@/lib/domain/types"
+import { createTestTeam } from "@/tests/lib/fixtures/app-data"
 
 function createProject(id: string, overrides?: Partial<Project>): Project {
   return {
@@ -79,6 +80,48 @@ function createProjectView(
     updatedAt: "2026-04-18T10:00:00.000Z",
     ...overrides,
   }
+}
+
+function createProjectItemsViewFromPresentation(input: {
+  defaultItemLevelExperience?: Parameters<
+    typeof createViewDefinition
+  >[0]["defaultItemLevelExperience"]
+  effectiveItemLevel: ViewDefinition["itemLevel"] | undefined
+  presentation: ReturnType<typeof createDefaultProjectPresentationConfig>
+  route: string
+  scopeId: string
+  scopeType: "team" | "workspace"
+  teamSlug?: string
+}) {
+  return createViewDefinition({
+    id: `${input.scopeType}-project-items-default`,
+    name: "All items",
+    description: "All items linked to this project.",
+    scopeType: input.scopeType,
+    scopeId: input.scopeId,
+    entityKind: "items",
+    route: input.route,
+    teamSlug: input.teamSlug,
+    defaultItemLevelExperience: input.defaultItemLevelExperience,
+    isShared: false,
+    createdAt: "2026-04-18T09:00:00.000Z",
+    overrides: {
+      layout: input.presentation.layout,
+      filters: input.presentation.filters,
+      grouping: input.presentation.grouping,
+      subGrouping: null,
+      ordering: input.presentation.ordering,
+      ...(input.effectiveItemLevel !== undefined
+        ? { itemLevel: input.effectiveItemLevel }
+        : {}),
+      showChildItems: input.presentation.showChildItems ?? false,
+      displayProps: input.presentation.displayProps,
+      hiddenState: {
+        groups: [],
+        subgroups: [],
+      },
+    },
+  })
 }
 
 describe("project views", () => {
@@ -314,34 +357,14 @@ describe("project views", () => {
       presentation.itemLevel === undefined
         ? getDefaultViewItemLevelForTeamExperience("software-development")
         : presentation.itemLevel
-    const view = createViewDefinition({
-      id: "project-items-default",
-      name: "All items",
-      description: "All items linked to this project.",
-      scopeType: "team",
-      scopeId: "team_1",
-      entityKind: "items",
-      route: "/team/platform/projects/project_1",
-      teamSlug: "platform",
+    const view = createProjectItemsViewFromPresentation({
       defaultItemLevelExperience: "software-development",
-      isShared: false,
-      createdAt: "2026-04-18T09:00:00.000Z",
-      overrides: {
-        layout: presentation.layout,
-        filters: presentation.filters,
-        grouping: presentation.grouping,
-        subGrouping: null,
-        ordering: presentation.ordering,
-        ...(effectiveItemLevel !== undefined
-          ? { itemLevel: effectiveItemLevel }
-          : {}),
-        showChildItems: presentation.showChildItems ?? false,
-        displayProps: presentation.displayProps,
-        hiddenState: {
-          groups: [],
-          subgroups: [],
-        },
-      },
+      teamSlug: "platform",
+      effectiveItemLevel,
+      presentation,
+      route: "/team/platform/projects/project_1",
+      scopeId: "team_1",
+      scopeType: "team",
     })
 
     expect(presentation.itemLevel).toBeUndefined()
@@ -355,32 +378,12 @@ describe("project views", () => {
       presentation.itemLevel === undefined
         ? getDefaultViewItemLevelForProjectTemplate("project-management")
         : presentation.itemLevel
-    const view = createViewDefinition({
-      id: "workspace-project-items-default",
-      name: "All items",
-      description: "All items linked to this project.",
-      scopeType: "workspace",
-      scopeId: "workspace_1",
-      entityKind: "items",
+    const view = createProjectItemsViewFromPresentation({
+      effectiveItemLevel,
+      presentation,
       route: "/workspace/projects/project_1",
-      isShared: false,
-      createdAt: "2026-04-18T09:00:00.000Z",
-      overrides: {
-        layout: presentation.layout,
-        filters: presentation.filters,
-        grouping: presentation.grouping,
-        subGrouping: null,
-        ordering: presentation.ordering,
-        ...(effectiveItemLevel !== undefined
-          ? { itemLevel: effectiveItemLevel }
-          : {}),
-        showChildItems: presentation.showChildItems ?? false,
-        displayProps: presentation.displayProps,
-        hiddenState: {
-          groups: [],
-          subgroups: [],
-        },
-      },
+      scopeId: "workspace_1",
+      scopeType: "workspace",
     })
 
     expect(presentation.itemLevel).toBeUndefined()
@@ -396,67 +399,12 @@ describe("project views", () => {
       }),
     ]
     state.teams = [
-      {
-        id: "team_1",
-        workspaceId: "workspace_1",
-        slug: "platform",
-        name: "Platform",
+      createTestTeam({
         icon: "code",
         settings: {
-          joinCode: "JOIN1234",
           summary: "",
-          guestProjectIds: [],
-          guestDocumentIds: [],
-          guestWorkItemIds: [],
-          experience: "software-development",
-          features: {
-            issues: true,
-            projects: true,
-            views: true,
-            docs: true,
-            chat: false,
-            channels: false,
-          },
-          workflow: {
-            statusOrder: [
-              "backlog",
-              "todo",
-              "in-progress",
-              "done",
-              "cancelled",
-              "duplicate",
-            ],
-            templateDefaults: {
-              "software-delivery": {
-                defaultPriority: "high",
-                targetWindowDays: 28,
-                defaultViewLayout: "board",
-                recommendedItemTypes: [
-                  "epic",
-                  "feature",
-                  "requirement",
-                  "story",
-                ],
-                summaryHint: "",
-              },
-              "bug-tracking": {
-                defaultPriority: "high",
-                targetWindowDays: 14,
-                defaultViewLayout: "list",
-                recommendedItemTypes: ["issue", "sub-issue"],
-                summaryHint: "",
-              },
-              "project-management": {
-                defaultPriority: "medium",
-                targetWindowDays: 35,
-                defaultViewLayout: "timeline",
-                recommendedItemTypes: ["task", "sub-task"],
-                summaryHint: "",
-              },
-            },
-          },
         },
-      },
+      }),
     ]
 
     expect(getProjectDetailModel(state, "launch")).toMatchObject({

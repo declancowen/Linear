@@ -1,55 +1,35 @@
-import type {
-  ButtonHTMLAttributes,
-  ReactNode,
-} from "react"
+import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 
-import { ProjectsScreen, ViewsScreen } from "@/components/app/screens"
-import { createEmptyState } from "@/lib/domain/empty-state"
+import "@/tests/lib/fixtures/common-screen-mocks"
 import {
-  createDefaultTeamFeatureSettings,
-  createDefaultTeamWorkflowSettings,
-  type CreateDialogState,
-  type ViewDefinition,
-} from "@/lib/domain/types"
+  DocsScreen,
+  ProjectsScreen,
+  TeamWorkScreen,
+  ViewsScreen,
+} from "@/components/app/screens"
+import {
+  getDocsDialogInput,
+} from "@/components/app/screens/docs-dialog-input"
+import {
+  DocsContent,
+} from "@/components/app/screens/docs-content"
+import { getDocumentListRowMeta } from "@/components/app/screens/document-list-row-meta"
+import { buildGroupedSections } from "@/components/app/screens/grouped-sections"
+import { createEmptyState } from "@/lib/domain/empty-state"
+import type { CreateDialogState, ViewDefinition } from "@/lib/domain/types"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
 import { getViewerScopedDirectoryKey } from "@/lib/domain/viewer-view-config"
-
-vi.mock("next/link", () => ({
-  default: ({
-    children,
-    href,
-    ...props
-  }: {
-    children: ReactNode
-    href: string
-  }) => (
-    <a href={href} {...props}>
-      {children}
-    </a>
-  ),
-}))
-
-vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(),
-  useRouter: () => ({
-    push: vi.fn(),
-  }),
-}))
-
-vi.mock("@/lib/browser/dialog-transitions", () => ({
-  openManagedCreateDialog: vi.fn(),
-}))
-
-vi.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-}))
+import {
+  createTestAppData,
+  createTestDocument,
+  createTestProject,
+  createTestTeam,
+  createTestUser,
+  createTestWorkspaceDirectoryAppData,
+} from "@/tests/lib/fixtures/app-data"
 
 vi.mock("@/components/app/screens/shared", () => ({
   CollectionDisplaySettingsPopover: () => null,
@@ -99,6 +79,12 @@ vi.mock("@/components/app/screens/collection-boards", () => ({
 
 vi.mock("@/components/app/screens/work-surface", () => ({
   WorkSurface: () => <div>Work surface</div>,
+}))
+
+vi.mock("@/hooks/use-scoped-read-model-refresh", () => ({
+  useScopedReadModelRefresh: () => ({
+    hasLoadedOnce: true,
+  }),
 }))
 
 vi.mock("@/components/app/screens/create-document-dialog", () => ({
@@ -220,183 +206,75 @@ vi.mock("@/components/app/screens/directory-controls", () => ({
   ViewsDirectorySortChipPopover: () => null,
 }))
 
-vi.mock("@/components/ui/template-primitives", () => ({
-  IconButton: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-  Topbar: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  Viewbar: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}))
+vi.mock("@/components/ui/template-primitives", async () =>
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createTemplatePrimitivesStubModule()
+)
 
 vi.mock("@phosphor-icons/react", () => ({
+  Archive: () => null,
+  ArrowCounterClockwise: () => null,
   CalendarDots: () => null,
   ArrowSquareOut: () => null,
+  Bell: () => null,
   Briefcase: () => null,
+  Buildings: () => null,
   BugBeetle: () => null,
+  ChatCircle: () => null,
+  CheckCircle: () => null,
+  Circle: () => null,
   FunnelSimple: () => null,
   FileText: () => null,
+  Hash: () => null,
+  EnvelopeSimple: () => null,
   CodesandboxLogo: () => null,
+  NotePencil: () => null,
   PencilSimple: () => null,
   Plus: () => null,
   Kanban: () => null,
   Rows: () => null,
   Robot: () => null,
   SortAscending: () => null,
+  Stack: () => null,
   Eye: () => null,
   CaretDown: () => null,
   Check: () => null,
   MagnifyingGlass: () => null,
   SquaresFour: () => null,
+  Tag: () => null,
+  Target: () => null,
   Trash: () => null,
   UsersThree: () => null,
 }))
 
-function createView(overrides?: Partial<ViewDefinition>): ViewDefinition {
-  return {
-    id: "view_1",
-    name: "All work",
-    description: "",
-    scopeType: "team",
-    scopeId: "team_1",
-    entityKind: "items",
-    itemLevel: null,
-    showChildItems: false,
-    layout: "board",
-    filters: {
-      status: [],
-      priority: [],
-      assigneeIds: [],
-      creatorIds: [],
-      leadIds: [],
-      health: [],
-      milestoneIds: [],
-      relationTypes: [],
-      projectIds: [],
-      itemTypes: [],
-      labelIds: [],
-      teamIds: [],
-      showCompleted: true,
-    },
-    grouping: "status",
-    subGrouping: null,
-    ordering: "priority",
-    displayProps: ["id", "status"],
-    hiddenState: {
-      groups: [],
-      subgroups: [],
-    },
-    isShared: true,
-    route: "/team/platform/work",
-    createdAt: "2026-04-18T10:00:00.000Z",
-    updatedAt: "2026-04-18T10:00:00.000Z",
-    ...overrides,
-  }
+function seedState() {
+  useAppStore.setState(createTestWorkspaceDirectoryAppData())
 }
 
-function seedState() {
-  useAppStore.setState({
-    ...createEmptyState(),
-    currentUserId: "user_1",
-    currentWorkspaceId: "workspace_1",
-    workspaces: [
-      {
-        id: "workspace_1",
-        slug: "acme",
-        name: "Acme",
-        logoUrl: "",
-        logoImageUrl: null,
-        createdBy: "user_1",
-        workosOrganizationId: null,
-        settings: {
-          accent: "#000000",
-          description: "",
-        },
-      },
-    ],
-    teams: [
-      {
-        id: "team_1",
-        workspaceId: "workspace_1",
-        slug: "platform",
-        name: "Platform",
-        icon: "rocket",
-        settings: {
-          joinCode: "JOIN1234",
-          summary: "",
-          guestProjectIds: [],
-          guestDocumentIds: [],
-          guestWorkItemIds: [],
-          experience: "software-development",
-          features: createDefaultTeamFeatureSettings("software-development"),
-          workflow: createDefaultTeamWorkflowSettings("software-development"),
-        },
-      },
-      {
-        id: "team_2",
-        workspaceId: "workspace_1",
-        slug: "design",
-        name: "Design",
-        icon: "palette",
-        settings: {
-          joinCode: "JOIN5678",
-          summary: "",
-          guestProjectIds: [],
-          guestDocumentIds: [],
-          guestWorkItemIds: [],
-          experience: "software-development",
-          features: createDefaultTeamFeatureSettings("software-development"),
-          workflow: createDefaultTeamWorkflowSettings("software-development"),
-        },
-      },
-    ],
-    teamMemberships: [
-      {
-        teamId: "team_1",
-        userId: "user_1",
-        role: "admin",
-      },
-    ],
-    views: [
-      createView({
-        id: "workspace-view",
-        name: "Workspace roadmap",
-        scopeType: "workspace",
-        scopeId: "workspace_1",
-        entityKind: "projects",
-        route: "/workspace/projects",
-      }),
-      createView({
-        id: "team-view",
-        name: "Platform board",
-        scopeType: "team",
-        scopeId: "team_1",
-        entityKind: "projects",
-        route: "/team/platform/projects",
-      }),
-      createView({
-        id: "legacy-view",
-        name: "Legacy workspace board",
-        scopeType: "personal",
-        scopeId: "user_1",
-        entityKind: "projects",
-        isShared: false,
-        route: "/workspace/projects",
-      }),
-      createView({
-        id: "hidden-team-view",
-        name: "Design board",
-        scopeType: "team",
-        scopeId: "team_2",
-        entityKind: "projects",
-        route: "/team/design/projects",
-      }),
-    ],
+function createLaunchProject() {
+  return createTestProject({
+    id: "project_1",
+    scopeType: "team",
+    scopeId: "team_1",
+    templateType: "software-delivery",
+    name: "Launch",
+    status: "in-progress",
+    createdAt: "2026-04-18T09:00:00.000Z",
+    updatedAt: "2026-04-18T10:00:00.000Z",
+    presentation: undefined,
   })
+}
+
+function renderTeamProjectsScreen() {
+  render(
+    <ProjectsScreen
+      scopeId="team_1"
+      scopeType="team"
+      team={useAppStore.getState().teams[0]}
+      title="Projects"
+    />
+  )
 }
 
 describe("ViewsScreen", () => {
@@ -407,6 +285,72 @@ describe("ViewsScreen", () => {
   afterEach(() => {
     useAppStore.setState(createEmptyState())
     vi.clearAllMocks()
+  })
+
+  it("renders team work and docs screens through scoped screen owners", () => {
+    render(<TeamWorkScreen teamSlug="platform" />)
+    expect(screen.getByText("Work surface")).toBeInTheDocument()
+
+    useAppStore.setState(
+      createTestAppData({
+        documents: [
+          createTestDocument({
+            id: "doc_screen",
+            title: "Screen document",
+          }),
+        ],
+      })
+    )
+
+    render(
+      <DocsScreen
+        scopeId="team_1"
+        scopeType="team"
+        team={useAppStore.getState().teams[0]}
+        title="Docs"
+      />
+    )
+
+    expect(screen.getByText("Docs")).toBeInTheDocument()
+    expect(screen.getByText("Screen document")).toBeInTheDocument()
+  })
+
+  it("renders docs content loading, empty, list, and board states", () => {
+    const data = createTestAppData()
+
+    const { rerender } = render(
+      <DocsContent
+        data={data}
+        documents={[]}
+        emptyTitle="No documents"
+        hasLoadedOnce={false}
+        layout="list"
+      />
+    )
+
+    expect(screen.getByText("Loading documents...")).toBeInTheDocument()
+
+    rerender(
+      <DocsContent
+        data={data}
+        documents={[]}
+        emptyTitle="No documents"
+        hasLoadedOnce
+        layout="list"
+      />
+    )
+    expect(screen.getByText("No documents")).toBeInTheDocument()
+
+    rerender(
+      <DocsContent
+        data={data}
+        documents={[createTestDocument({ title: "Specs" })]}
+        emptyTitle="No documents"
+        hasLoadedOnce
+        layout="board"
+      />
+    )
+    expect(screen.getByText("Document board")).toBeInTheDocument()
   })
 
   it("shows workspace and accessible team views together with their real scope labels", () => {
@@ -453,37 +397,10 @@ describe("ViewsScreen", () => {
     useAppStore.setState((state) => ({
       ...state,
       views: [],
-      projects: [
-        {
-          id: "project_1",
-          scopeType: "team",
-          scopeId: "team_1",
-          templateType: "software-delivery",
-          name: "Launch",
-          summary: "",
-          description: "",
-          leadId: "user_1",
-          memberIds: [],
-          health: "on-track",
-          priority: "medium",
-          status: "in-progress",
-          startDate: null,
-          targetDate: null,
-          createdAt: "2026-04-18T09:00:00.000Z",
-          updatedAt: "2026-04-18T10:00:00.000Z",
-          presentation: undefined,
-        },
-      ],
+      projects: [createLaunchProject()],
     }))
 
-    render(
-      <ProjectsScreen
-        scopeId="team_1"
-        scopeType="team"
-        team={useAppStore.getState().teams[0]}
-        title="Projects"
-      />
-    )
+    renderTeamProjectsScreen()
 
     fireEvent.click(screen.getByRole("button", { name: "Layout:list" }))
     expect(
@@ -532,37 +449,10 @@ describe("ViewsScreen", () => {
       views: state.views.map((view) =>
         view.id === "team-view" ? { ...view, layout: "board" } : view
       ),
-      projects: [
-        {
-          id: "project_1",
-          scopeType: "team",
-          scopeId: "team_1",
-          templateType: "software-delivery",
-          name: "Launch",
-          summary: "",
-          description: "",
-          leadId: "user_1",
-          memberIds: [],
-          health: "on-track",
-          priority: "medium",
-          status: "in-progress",
-          startDate: null,
-          targetDate: null,
-          createdAt: "2026-04-18T09:00:00.000Z",
-          updatedAt: "2026-04-18T10:00:00.000Z",
-          presentation: undefined,
-        },
-      ],
+      projects: [createLaunchProject()],
     }))
 
-    render(
-      <ProjectsScreen
-        scopeId="team_1"
-        scopeType="team"
-        team={useAppStore.getState().teams[0]}
-        title="Projects"
-      />
-    )
+    renderTeamProjectsScreen()
 
     expect(screen.getByRole("button", { name: "Layout:board" })).toBeInTheDocument()
 
@@ -571,5 +461,169 @@ describe("ViewsScreen", () => {
     })
 
     expect(screen.getByRole("button", { name: "Layout:list" })).toBeInTheDocument()
+  })
+
+  it("builds grouped sections with owned subgroup boundaries", () => {
+    const items = [
+      { id: "done-backend", status: "done", area: "backend" },
+      { id: "todo-design", status: "todo", area: "design" },
+      { id: "todo-backend", status: "todo", area: "backend" },
+    ]
+    const groupingConfig = {
+      getGroupKey: (
+        item: (typeof items)[number],
+        field: string
+      ) => item[field as "status" | "area"],
+      getGroupLabel: (field: string, key: string) => `${field}:${key}`,
+      compareGroupKeys: (_field: string, left: string, right: string) =>
+        left.localeCompare(right),
+    }
+
+    expect(
+      buildGroupedSections({
+        items,
+        grouping: "none",
+        subGrouping: "area",
+        ...groupingConfig,
+      })
+    ).toEqual([
+      {
+        key: "all",
+        label: "All",
+        items,
+        children: null,
+      },
+    ])
+
+    const grouped = buildGroupedSections({
+      items,
+      grouping: "status",
+      subGrouping: "area",
+      ...groupingConfig,
+    })
+
+    expect(grouped).toEqual([
+      {
+        key: "done",
+        label: "status:done",
+        items: [items[0]],
+        children: [
+          {
+            key: "done:backend",
+            label: "area:backend",
+            items: [items[0]],
+            children: null,
+          },
+        ],
+      },
+      {
+        key: "todo",
+        label: "status:todo",
+        items: [items[1], items[2]],
+        children: [
+          {
+            key: "todo:backend",
+            label: "area:backend",
+            items: [items[2]],
+            children: null,
+          },
+          {
+            key: "todo:design",
+            label: "area:design",
+            items: [items[1]],
+            children: null,
+          },
+        ],
+      },
+    ])
+
+    expect(
+      buildGroupedSections({
+        items,
+        grouping: "status",
+        subGrouping: "status",
+        ...groupingConfig,
+      })[0]?.children
+    ).toBeNull()
+  })
+
+  it("chooses the document dialog owner from the active docs scope", () => {
+    expect(
+      getDocsDialogInput({
+        activeTab: "workspace",
+        activeTeamId: "team_1",
+        isWorkspaceDocs: true,
+        scopeId: "workspace_1",
+      })
+    ).toEqual({ kind: "workspace-document", workspaceId: "workspace_1" })
+    expect(
+      getDocsDialogInput({
+        activeTab: "private",
+        activeTeamId: "team_1",
+        isWorkspaceDocs: true,
+        scopeId: "workspace_1",
+      })
+    ).toEqual({ kind: "private-document", workspaceId: "workspace_1" })
+    expect(
+      getDocsDialogInput({
+        activeTab: "workspace",
+        activeTeamId: "active_team",
+        isWorkspaceDocs: false,
+        scopeId: "team_1",
+        team: createTestTeam({ id: "team_2" }),
+      })
+    ).toEqual({ kind: "team-document", teamId: "team_2" })
+    expect(
+      getDocsDialogInput({
+        activeTab: "workspace",
+        activeTeamId: "active_team",
+        isWorkspaceDocs: false,
+        scopeId: "team_1",
+        team: null,
+      })
+    ).toEqual({ kind: "team-document", teamId: "active_team" })
+  })
+
+  it("derives document list metadata from the document author fallback chain", () => {
+    const data = createTestAppData({
+      users: [
+        createTestUser({
+          id: "creator",
+          name: "Creator",
+          avatarImageUrl: "https://example.com/creator.png",
+        }),
+        createTestUser({
+          id: "updater",
+          name: "Updater",
+          avatarUrl: "https://example.com/updater.svg",
+        }),
+      ],
+    })
+
+    expect(
+      getDocumentListRowMeta(
+        data,
+        createTestDocument({
+          createdBy: "creator",
+          updatedBy: "updater",
+          updatedAt: "2026-05-05T09:00:00.000Z",
+        })
+      )
+    ).toMatchObject({
+      authorAvatarUrl: "https://example.com/updater.svg",
+      authorName: "Updater",
+      preview: "",
+      updated: "May 5",
+    })
+
+    expect(
+      getDocumentListRowMeta(
+        data,
+        createTestDocument({
+          createdBy: "missing",
+          updatedBy: undefined,
+        })
+      ).authorName
+    ).toBe("Unknown")
   })
 })

@@ -11,6 +11,13 @@ type EventStreamContext = {
   sendEvent: (event: string, payload: unknown, options?: EventOptions) => void
 }
 
+type PollingEventStreamOptions = {
+  heartbeatIntervalMs: number
+  maxDurationMs: number
+  pollIntervalMs: number
+  poll: () => Promise<"changed" | "stop" | void>
+}
+
 const EVENT_STREAM_HEADERS = {
   "Cache-Control": "no-cache, no-transform",
   Connection: "keep-alive",
@@ -26,7 +33,7 @@ function formatServerSentEvent(
   return `${options?.retryMs ? `retry: ${options.retryMs}\n` : ""}event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
 }
 
-export function sleep(durationMs: number) {
+function sleep(durationMs: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, durationMs)
   })
@@ -112,4 +119,42 @@ export function createEventStreamResponse(
   return new NextResponse(stream, {
     headers: EVENT_STREAM_HEADERS,
   })
+}
+
+export async function runPollingEventStream(
+  context: EventStreamContext,
+  options: PollingEventStreamOptions
+) {
+  let lastHeartbeatAt = Date.now()
+  const startedAt = Date.now()
+
+  while (!context.isClosed()) {
+    if (Date.now() - startedAt >= options.maxDurationMs) {
+      break
+    }
+
+    await sleep(options.pollIntervalMs)
+
+    if (context.isClosed()) {
+      break
+    }
+
+    const result = await options.poll()
+
+    if (result === "stop") {
+      break
+    }
+
+    if (result === "changed") {
+      lastHeartbeatAt = Date.now()
+      continue
+    }
+
+    if (Date.now() - lastHeartbeatAt >= options.heartbeatIntervalMs) {
+      context.sendEvent("ping", {
+        timestamp: new Date().toISOString(),
+      })
+      lastHeartbeatAt = Date.now()
+    }
+  }
 }

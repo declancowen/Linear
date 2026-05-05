@@ -1,4 +1,3 @@
-import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 
@@ -20,143 +19,17 @@ vi.mock("@/components/app/screens/work-item-ui", () => ({
   WorkItemAssigneeAvatar: () => <span>Avatar</span>,
 }))
 
-vi.mock("@/components/ui/dropdown-menu", async () => {
-  const React = await import("react")
+vi.mock("@/components/ui/dropdown-menu", async () =>
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createSelectableMenuStubModule("DropdownMenu")
+)
 
-  const DropdownMenuContext = React.createContext<{
-    close: () => void
-    open: boolean
-  } | null>(null)
-
-  return {
-    DropdownMenu: ({ children }: { children: ReactNode }) => {
-      const [open, setOpen] = React.useState(true)
-
-      return (
-        <DropdownMenuContext.Provider
-          value={{
-            close: () => setOpen(false),
-            open,
-          }}
-        >
-          {children}
-        </DropdownMenuContext.Provider>
-      )
-    },
-    DropdownMenuTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
-    DropdownMenuContent: ({ children }: { children: ReactNode }) => {
-      const context = React.useContext(DropdownMenuContext)
-      return context?.open ? <div>{children}</div> : null
-    },
-    DropdownMenuLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-    DropdownMenuSeparator: () => null,
-    DropdownMenuSub: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-    DropdownMenuSubTrigger: ({ children }: { children: ReactNode }) => (
-      <div>{children}</div>
-    ),
-    DropdownMenuSubContent: ({ children }: { children: ReactNode }) => (
-      <div>{children}</div>
-    ),
-    DropdownMenuItem: ({
-      children,
-      onSelect,
-    }: {
-      children: ReactNode
-      onSelect?: (event: Event) => void
-    }) => {
-      const context = React.useContext(DropdownMenuContext)
-
-      return (
-        <button
-          type="button"
-          onClick={() => {
-            let defaultPrevented = false
-            onSelect?.({
-              preventDefault() {
-                defaultPrevented = true
-              },
-              stopPropagation() {},
-            } as Event)
-            if (!defaultPrevented) {
-              context?.close()
-            }
-          }}
-        >
-          {children}
-        </button>
-      )
-    },
-  }
-})
-
-vi.mock("@/components/ui/context-menu", async () => {
-  const React = await import("react")
-
-  const ContextMenuState = React.createContext<{
-    close: () => void
-    open: boolean
-  } | null>(null)
-
-  return {
-    ContextMenu: ({ children }: { children: ReactNode }) => {
-      const [open, setOpen] = React.useState(true)
-
-      return (
-        <ContextMenuState.Provider
-          value={{
-            close: () => setOpen(false),
-            open,
-          }}
-        >
-          {children}
-        </ContextMenuState.Provider>
-      )
-    },
-    ContextMenuTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
-    ContextMenuContent: ({ children }: { children: ReactNode }) => {
-      const context = React.useContext(ContextMenuState)
-      return context?.open ? <div>{children}</div> : null
-    },
-    ContextMenuLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-    ContextMenuSeparator: () => null,
-    ContextMenuSub: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-    ContextMenuSubTrigger: ({ children }: { children: ReactNode }) => (
-      <div>{children}</div>
-    ),
-    ContextMenuSubContent: ({ children }: { children: ReactNode }) => (
-      <div>{children}</div>
-    ),
-    ContextMenuItem: ({
-      children,
-      onSelect,
-    }: {
-      children: ReactNode
-      onSelect?: (event: Event) => void
-    }) => {
-      const context = React.useContext(ContextMenuState)
-
-      return (
-        <button
-          type="button"
-          onClick={() => {
-            let defaultPrevented = false
-            onSelect?.({
-              preventDefault() {
-                defaultPrevented = true
-              },
-              stopPropagation() {},
-            } as Event)
-            if (!defaultPrevented) {
-              context?.close()
-            }
-          }}
-        >
-          {children}
-        </button>
-      )
-    },
-  }
-})
+vi.mock("@/components/ui/context-menu", async () =>
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createSelectableMenuStubModule("ContextMenu")
+)
 
 vi.mock("@phosphor-icons/react", async (importOriginal) => {
   const actual =

@@ -13,6 +13,20 @@ type HookProps = {
   retentionKey: string | null
 }
 
+function renderRetainedWorkspaceHook(initialProps: HookProps) {
+  return renderHook<RetainedWorkspaceValue | null, HookProps>(
+    ({ value, retentionKey }) =>
+      useExpiringRetainedValue({
+        value,
+        retentionKey,
+        gracePeriodMs: 1000,
+      }),
+    {
+      initialProps,
+    }
+  )
+}
+
 describe("useExpiringRetainedValue", () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -21,23 +35,10 @@ describe("useExpiringRetainedValue", () => {
   it("retains the last live value briefly when the key stays the same", () => {
     vi.useFakeTimers()
 
-    const { result, rerender } = renderHook<
-      RetainedWorkspaceValue | null,
-      HookProps
-    >(
-      ({ value, retentionKey }) =>
-        useExpiringRetainedValue({
-          value,
-          retentionKey,
-          gracePeriodMs: 1000,
-        }),
-      {
-        initialProps: {
-          value: { id: "workspace_1", name: "Acme" },
-          retentionKey: "workspace_1",
-        },
-      }
-    )
+    const { result, rerender } = renderRetainedWorkspaceHook({
+      value: { id: "workspace_1", name: "Acme" },
+      retentionKey: "workspace_1",
+    })
 
     expect(result.current?.name).toBe("Acme")
 
@@ -56,23 +57,10 @@ describe("useExpiringRetainedValue", () => {
   })
 
   it("clears the retained value immediately when the retention key changes", () => {
-    const { result, rerender } = renderHook<
-      RetainedWorkspaceValue | null,
-      HookProps
-    >(
-      ({ value, retentionKey }) =>
-        useExpiringRetainedValue({
-          value,
-          retentionKey,
-          gracePeriodMs: 1000,
-        }),
-      {
-        initialProps: {
-          value: { id: "workspace_1", name: "Acme" },
-          retentionKey: "workspace_1",
-        },
-      }
-    )
+    const { result, rerender } = renderRetainedWorkspaceHook({
+      value: { id: "workspace_1", name: "Acme" },
+      retentionKey: "workspace_1",
+    })
 
     expect(result.current?.name).toBe("Acme")
 

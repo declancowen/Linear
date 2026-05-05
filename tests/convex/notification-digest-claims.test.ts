@@ -47,6 +47,32 @@ function createNotification(input: Partial<Record<string, unknown>> & {
   }
 }
 
+function mockNotificationDocs(
+  notifications: Array<ReturnType<typeof createNotification>>
+) {
+  const notificationsById = new Map(
+    notifications.map((notification) => [notification.id, notification])
+  )
+
+  getNotificationDocMock.mockImplementation(
+    async (_ctx, notificationId: string) =>
+      notificationsById.get(notificationId) ?? null
+  )
+}
+
+function createPatchContext() {
+  const patchMock = vi.fn()
+
+  return {
+    ctx: {
+      db: {
+        patch: patchMock,
+      },
+    } as never,
+    patchMock,
+  }
+}
+
 describe("notification digest claims", () => {
   beforeEach(() => {
     assertServerTokenMock.mockReset()
@@ -159,39 +185,27 @@ describe("notification digest claims", () => {
   })
 
   it("marks only matching claimed notifications as emailed and clears claims", async () => {
-    const notificationsById = new Map(
-      [
-        createNotification({
-          id: "notification_1",
-          userId: "user_1",
-          digestClaimId: "claim_1",
-          digestClaimedAt: "2026-04-17T10:00:00.000Z",
-        }),
-        createNotification({
-          id: "notification_2",
-          userId: "user_1",
-          digestClaimId: "other-claim",
-          digestClaimedAt: "2026-04-17T10:00:00.000Z",
-        }),
-      ].map((notification) => [notification.id, notification])
-    )
-
-    getNotificationDocMock.mockImplementation(
-      async (_ctx, notificationId: string) =>
-        notificationsById.get(notificationId) ?? null
-    )
-
-    const patchMock = vi.fn()
+    mockNotificationDocs([
+      createNotification({
+        id: "notification_1",
+        userId: "user_1",
+        digestClaimId: "claim_1",
+        digestClaimedAt: "2026-04-17T10:00:00.000Z",
+      }),
+      createNotification({
+        id: "notification_2",
+        userId: "user_1",
+        digestClaimId: "other-claim",
+        digestClaimedAt: "2026-04-17T10:00:00.000Z",
+      }),
+    ])
+    const { ctx, patchMock } = createPatchContext()
     const { markNotificationsEmailedHandler } = await import(
       "@/convex/app/notification_handlers"
     )
 
     await markNotificationsEmailedHandler(
-      {
-        db: {
-          patch: patchMock,
-        },
-      } as never,
+      ctx,
       {
         serverToken: "server_token",
         claimId: "claim_1",
@@ -208,46 +222,34 @@ describe("notification digest claims", () => {
   })
 
   it("releases only matching unemailed claims", async () => {
-    const notificationsById = new Map(
-      [
-        createNotification({
-          id: "notification_1",
-          userId: "user_1",
-          digestClaimId: "claim_1",
-          digestClaimedAt: "2026-04-17T10:00:00.000Z",
-        }),
-        createNotification({
-          id: "notification_2",
-          userId: "user_1",
-          digestClaimId: "other-claim",
-          digestClaimedAt: "2026-04-17T10:00:00.000Z",
-        }),
-        createNotification({
-          id: "notification_3",
-          userId: "user_1",
-          digestClaimId: "claim_1",
-          digestClaimedAt: "2026-04-17T10:00:00.000Z",
-          emailedAt: "2026-04-17T10:01:00.000Z",
-        }),
-      ].map((notification) => [notification.id, notification])
-    )
-
-    getNotificationDocMock.mockImplementation(
-      async (_ctx, notificationId: string) =>
-        notificationsById.get(notificationId) ?? null
-    )
-
-    const patchMock = vi.fn()
+    mockNotificationDocs([
+      createNotification({
+        id: "notification_1",
+        userId: "user_1",
+        digestClaimId: "claim_1",
+        digestClaimedAt: "2026-04-17T10:00:00.000Z",
+      }),
+      createNotification({
+        id: "notification_2",
+        userId: "user_1",
+        digestClaimId: "other-claim",
+        digestClaimedAt: "2026-04-17T10:00:00.000Z",
+      }),
+      createNotification({
+        id: "notification_3",
+        userId: "user_1",
+        digestClaimId: "claim_1",
+        digestClaimedAt: "2026-04-17T10:00:00.000Z",
+        emailedAt: "2026-04-17T10:01:00.000Z",
+      }),
+    ])
+    const { ctx, patchMock } = createPatchContext()
     const { releaseNotificationDigestClaimHandler } = await import(
       "@/convex/app/notification_handlers"
     )
 
     await releaseNotificationDigestClaimHandler(
-      {
-        db: {
-          patch: patchMock,
-        },
-      } as never,
+      ctx,
       {
         serverToken: "server_token",
         claimId: "claim_1",

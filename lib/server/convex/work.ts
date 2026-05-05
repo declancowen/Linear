@@ -1,18 +1,23 @@
 import { api } from "@/convex/_generated/api"
 import type {
+  CreateViewInput,
   DocumentPresenceViewer,
   DisplayProperty,
   GroupField,
   OrderingField,
-  Priority,
-  ViewContainerType,
-  ViewFilters,
   WorkItemType,
-  WorkStatus,
 } from "@/lib/domain/types"
+import type {
+  CreateWorkItemMutationInput,
+  WorkItemMutationPatch,
+} from "@/lib/domain/work-item-inputs"
 import { coerceApplicationError } from "@/lib/server/application-errors"
 
 import { getConvexServerClient, withServerToken } from "./core"
+import type {
+  ServerPresenceClearInput,
+  ServerPresenceHeartbeatInput,
+} from "./presence-inputs"
 import { resolveServerOrigin } from "../request-origin"
 
 const WORK_ITEM_MUTATION_ERROR_MAPPINGS = [
@@ -233,26 +238,7 @@ const LABEL_MUTATION_ERROR_MAPPINGS = [
 export async function updateWorkItemServer(input: {
   currentUserId: string
   itemId: string
-  patch: {
-    title?: string
-    description?: string
-    expectedUpdatedAt?: string
-    status?:
-      | "backlog"
-      | "todo"
-      | "in-progress"
-      | "done"
-      | "cancelled"
-      | "duplicate"
-    priority?: "none" | "low" | "medium" | "high" | "urgent"
-    assigneeId?: string | null
-    parentId?: string | null
-    primaryProjectId?: string | null
-    labelIds?: string[]
-    startDate?: string | null
-    dueDate?: string | null
-    targetDate?: string | null
-  }
+  patch: WorkItemMutationPatch
 }) {
   try {
     const origin = await resolveServerOrigin()
@@ -358,29 +344,8 @@ export async function deleteViewServer(input: {
   }
 }
 
-export async function createViewServer(input: {
+export async function createViewServer(input: CreateViewInput & {
   currentUserId: string
-  id?: string
-  scopeType: "team" | "workspace"
-  scopeId: string
-  entityKind: "items" | "projects" | "docs"
-  containerType?: ViewContainerType | null
-  containerId?: string | null
-  route: string
-  name: string
-  description: string
-  layout?: "list" | "board" | "timeline"
-  grouping?: GroupField
-  subGrouping?: GroupField | null
-  ordering?: OrderingField
-  itemLevel?: WorkItemType | null
-  showChildItems?: boolean
-  filters?: ViewFilters
-  displayProps?: DisplayProperty[]
-  hiddenState?: {
-    groups: string[]
-    subgroups: string[]
-  }
 }) {
   try {
     return await getConvexServerClient().mutation(
@@ -499,17 +464,9 @@ export async function shiftTimelineItemServer(input: {
   }
 }
 
-export async function heartbeatWorkItemPresenceServer(input: {
-  currentUserId: string
-  itemId: string
-  workosUserId: string
-  email: string
-  name: string
-  avatarUrl: string
-  avatarImageUrl?: string | null
-  activeBlockId?: string | null
-  sessionId: string
-}): Promise<DocumentPresenceViewer[]> {
+export async function heartbeatWorkItemPresenceServer(
+  input: ServerPresenceHeartbeatInput<"itemId">
+): Promise<DocumentPresenceViewer[]> {
   try {
     return await getConvexServerClient().mutation(
       api.app.heartbeatWorkItemPresence,
@@ -523,12 +480,9 @@ export async function heartbeatWorkItemPresenceServer(input: {
   }
 }
 
-export async function clearWorkItemPresenceServer(input: {
-  currentUserId: string
-  itemId: string
-  workosUserId: string
-  sessionId: string
-}) {
+export async function clearWorkItemPresenceServer(
+  input: ServerPresenceClearInput<"itemId">
+) {
   try {
     return await getConvexServerClient().mutation(
       api.app.clearWorkItemPresence,
@@ -544,21 +498,7 @@ export async function clearWorkItemPresenceServer(input: {
 
 export async function createWorkItemServer(input: {
   currentUserId: string
-  id?: string
-  descriptionDocId?: string
-  teamId: string
-  type: WorkItemType
-  title: string
-  parentId?: string | null
-  primaryProjectId: string | null
-  assigneeId: string | null
-  status?: WorkStatus
-  priority: Priority
-  labelIds?: string[]
-  startDate?: string | null
-  dueDate?: string | null
-  targetDate?: string | null
-}) {
+} & CreateWorkItemMutationInput) {
   try {
     const origin = await resolveServerOrigin()
 

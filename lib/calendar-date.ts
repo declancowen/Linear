@@ -2,12 +2,25 @@ const CALENDAR_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
 const CALENDAR_DATE_PREFIX_PATTERN = /^(\d{4}-\d{2}-\d{2})/
 const CALENDAR_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T.+$/
 
+export interface CalendarDateParts {
+  year: number
+  month: number
+  day: number
+}
+
 function padCalendarDateSegment(value: number) {
   return value.toString().padStart(2, "0")
 }
 
-function parseCalendarDatePrefix(value: string) {
-  const match = CALENDAR_DATE_PATTERN.exec(value)
+export function parseCalendarDateValue(
+  value: string | null | undefined
+): CalendarDateParts | null {
+  if (!value) {
+    return null
+  }
+
+  const trimmed = value.trim()
+  const match = CALENDAR_DATE_PATTERN.exec(trimmed)
 
   if (!match) {
     return null
@@ -30,7 +43,7 @@ function parseCalendarDatePrefix(value: string) {
 }
 
 function isValidCalendarDatePrefix(value: string) {
-  return parseCalendarDatePrefix(value) !== null
+  return parseCalendarDateValue(value) !== null
 }
 
 export function formatLocalCalendarDate(date = new Date()) {
@@ -57,7 +70,7 @@ export function shiftCalendarDate(
     return null
   }
 
-  const parsed = parseCalendarDatePrefix(prefix)
+  const parsed = parseCalendarDateValue(prefix)
 
   if (!parsed) {
     return null

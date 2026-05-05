@@ -1,10 +1,22 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
+import type { ReactNode } from "react"
 
+import "@/tests/lib/fixtures/collaboration-screen-ui-mocks"
 import { WorkspaceChatsScreen } from "@/components/app/collaboration-screens/workspace-chats-screen"
+import { WorkspaceChatParticipantAvatar } from "@/components/app/collaboration-screens/workspace-chat-avatar"
+import { WorkspaceConversationListPane } from "@/components/app/collaboration-screens/workspace-conversation-list-pane"
+import {
+  getConversationPreview,
+  getLatestMessagesByConversationId,
+} from "@/components/app/collaboration-screens/workspace-conversation-preview"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  createTestUser,
+  createTestWorkspace,
+  createTestWorkspaceMembership,
+} from "@/tests/lib/fixtures/app-data"
 
 const useScopedReadModelRefreshMock = vi.hoisted(() => vi.fn())
 
@@ -32,76 +44,175 @@ vi.mock("@/components/app/collaboration-screens/call-invite-launcher", () => ({
   CallInviteLauncher: () => null,
 }))
 
-vi.mock("@/components/app/collaboration-screens/shared-ui", () => ({
-  ChatHeaderActions: ({
-    detailsAction,
-  }: {
-    detailsAction?: ReactNode
-  }) => <div>{detailsAction}</div>,
-  DetailsSidebarToggle: () => null,
-  EmptyState: ({
-    title,
-    description,
-    action,
-  }: {
-    title: string
-    description: string
-    action?: ReactNode
-  }) => (
-    <div>
-      <div>{title}</div>
-      <div>{description}</div>
-      {action}
-    </div>
-  ),
-  MembersSidebar: () => null,
-  PageHeader: ({
-    title,
-    actions,
-  }: {
-    title: string
-    actions?: ReactNode
-  }) => (
-    <div>
-      <div>{title}</div>
-      {actions}
-    </div>
-  ),
-  SurfaceSidebarContent: () => null,
+vi.mock("@/components/app/user-presence", () => ({
+  UserAvatar: ({ name }: { name?: string }) => <span>{name ?? "Unknown"}</span>,
 }))
 
 vi.mock("@/components/app/collaboration-screens/workspace-chat-ui", () => ({
   WORKSPACE_CHAT_LIST_DEFAULT_WIDTH: 256,
   WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY: "workspace-chat-list-width",
   clampWorkspaceChatListWidth: (value: number) => value,
-  ConversationList: () => <div>Conversation list</div>,
+  ConversationList: ({
+    conversations,
+    onSelect,
+    renderLeading,
+    renderPreview,
+  }: {
+    conversations: Array<{ id: string; title: string }>
+    onSelect: (id: string) => void
+    renderLeading?: (id: string) => ReactNode
+    renderPreview: (id: string) => string
+  }) => (
+    <div>
+      {conversations.map((conversation) => (
+        <button
+          key={conversation.id}
+          type="button"
+          onClick={() => onSelect(conversation.id)}
+        >
+          {renderLeading?.(conversation.id)}
+          {conversation.title}
+          {renderPreview(conversation.id)}
+        </button>
+      ))}
+    </div>
+  ),
   CreateWorkspaceChatDialog: () => null,
 }))
 
-vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: ComponentPropsWithoutRef<"button"> & { children?: ReactNode }) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-}))
+describe("workspace chat display helpers", () => {
+  it("derives conversation previews for empty, call, and text messages", () => {
+    expect(getConversationPreview(undefined)).toBe("Open the conversation")
+    expect(
+      getConversationPreview({
+        kind: "call",
+        callId: "call_1",
+        content: "",
+      } as never)
+    ).toBe("Started a call")
+    expect(
+      getConversationPreview({
+        kind: "text",
+        callId: null,
+        content: "<p>Hello team</p>",
+      } as never)
+    ).toBe("Hello team")
+  })
 
-vi.mock("@/components/ui/scroll-area", () => ({
-  ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}))
+  it("selects the latest message for visible conversations only", () => {
+    const latestMessagesByConversationId = getLatestMessagesByConversationId(
+      [{ id: "chat_1" }, { id: "chat_2" }] as never,
+      [
+        {
+          id: "message_orphan",
+          conversationId: "chat_orphan",
+          createdAt: "2026-05-05T09:00:00.000Z",
+        },
+        {
+          id: "message_older",
+          conversationId: "chat_1",
+          createdAt: "2026-05-05T10:00:00.000Z",
+        },
+        {
+          id: "message_latest",
+          conversationId: "chat_1",
+          createdAt: "2026-05-05T11:00:00.000Z",
+        },
+        {
+          id: "message_stale",
+          conversationId: "chat_1",
+          createdAt: "2026-05-05T10:30:00.000Z",
+        },
+        {
+          id: "message_chat_2",
+          conversationId: "chat_2",
+          createdAt: "2026-05-05T08:00:00.000Z",
+        },
+      ] as never
+    )
 
-vi.mock("@/components/ui/sheet", () => ({
-  Sheet: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  SheetContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  SheetDescription: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  SheetHeader: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  SheetTitle: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}))
+    expect(latestMessagesByConversationId.get("chat_1")).toMatchObject({
+      id: "message_latest",
+    })
+    expect(latestMessagesByConversationId.get("chat_2")).toMatchObject({
+      id: "message_chat_2",
+    })
+    expect(latestMessagesByConversationId.has("chat_orphan")).toBe(false)
+  })
+
+  it("renders participant avatars and the resizable conversation list pane", () => {
+    const workspace = createTestWorkspace()
+    const participant = createTestUser({
+      id: "user_2",
+      name: "Maya Patel",
+      avatarImageUrl: "https://example.com/maya.png",
+    })
+    const conversation = {
+      id: "chat_1",
+      kind: "chat",
+      title: "Planning",
+      updatedAt: "2026-04-18T10:00:00.000Z",
+    } as never
+    const onCreateChat = vi.fn()
+    const onResizeStart = vi.fn()
+    const onResetWidth = vi.fn()
+    const onSelectChat = vi.fn()
+
+    render(
+      <>
+        <WorkspaceChatParticipantAvatar
+          accessCollections={{
+            workspaces: [workspace],
+            workspaceMemberships: [
+              createTestWorkspaceMembership({ userId: participant.id }),
+            ],
+            teams: [],
+            teamMemberships: [],
+          }}
+          participant={participant}
+          workspace={workspace}
+        />
+        <WorkspaceConversationListPane
+          chats={[conversation]}
+          activeChat={conversation}
+          conversationListWidth={288}
+          conversationListResizing
+          latestMessagesByConversationId={
+            new Map([
+              [
+                "chat_1",
+                {
+                  kind: "text",
+                  callId: null,
+                  content: "<p>Latest update</p>",
+                } as never,
+              ],
+            ])
+          }
+          renderConversationAvatar={() => <span>Avatar</span>}
+          onCreateChat={onCreateChat}
+          onResizeStart={onResizeStart}
+          onResetWidth={onResetWidth}
+          onSelectChat={onSelectChat}
+        />
+      </>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }))
+    fireEvent.pointerDown(screen.getByLabelText("Resize chat list"))
+    fireEvent.doubleClick(screen.getByLabelText("Resize chat list"))
+    fireEvent.click(screen.getByRole("button", { name: /Planning/ }))
+
+    expect(screen.getByText("Maya Patel")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /Latest update/ })
+    ).toBeInTheDocument()
+    expect(onCreateChat).toHaveBeenCalledTimes(1)
+    expect(onResizeStart).toHaveBeenCalledTimes(1)
+    expect(onResetWidth).toHaveBeenCalledTimes(1)
+    expect(onSelectChat).toHaveBeenCalledWith("chat_1")
+  })
+})
 
 describe("WorkspaceChatsScreen", () => {
   beforeEach(() => {

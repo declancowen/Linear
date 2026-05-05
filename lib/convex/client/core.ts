@@ -1,9 +1,6 @@
 "use client"
 
-import type {
-  DocumentPresenceViewer,
-  UserStatus,
-} from "@/lib/domain/types"
+import type { DocumentPresenceViewer, UserStatus } from "@/lib/domain/types"
 
 import {
   normalizeDeleteCurrentAccountResult,
@@ -250,20 +247,100 @@ export function syncUpdateCurrentUserProfile(
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      name,
-      title,
-      avatarUrl,
-      ...(options?.avatarImageStorageId
-        ? { avatarImageStorageId: options.avatarImageStorageId }
-        : {}),
-      ...(options?.clearAvatarImage ? { clearAvatarImage: true } : {}),
-      ...(options?.clearStatus ? { clearStatus: true } : {}),
-      ...(options?.status !== undefined ? { status: options.status } : {}),
-      ...(options?.statusMessage !== undefined
-        ? { statusMessage: options.statusMessage }
-        : {}),
-      preferences,
-    }),
+    body: JSON.stringify(
+      buildCurrentUserProfileMutationBody({
+        avatarUrl,
+        name,
+        options,
+        preferences,
+        title,
+      })
+    ),
   })
+}
+
+function buildCurrentUserProfileMutationBody(input: {
+  avatarUrl: string
+  name: string
+  title: string
+  preferences: {
+    emailMentions: boolean
+    emailAssignments: boolean
+    emailDigest: boolean
+    theme: "light" | "dark" | "system"
+  }
+  options?: {
+    avatarImageStorageId?: string
+    clearAvatarImage?: boolean
+    clearStatus?: boolean
+    status?: UserStatus
+    statusMessage?: string
+  }
+}) {
+  const body: CurrentUserProfileMutationBody = {
+    avatarUrl: input.avatarUrl,
+    name: input.name,
+    preferences: input.preferences,
+    title: input.title,
+  }
+
+  if (!input.options) {
+    return body
+  }
+
+  applyCurrentUserProfileAvatarOptions(body, input.options)
+  applyCurrentUserProfileStatusOptions(body, input.options)
+
+  return body
+}
+
+type CurrentUserProfileMutationBody = {
+  avatarImageStorageId?: string
+  avatarUrl: string
+  clearAvatarImage?: true
+  clearStatus?: true
+  name: string
+  preferences: {
+    emailMentions: boolean
+    emailAssignments: boolean
+    emailDigest: boolean
+    theme: "light" | "dark" | "system"
+  }
+  status?: UserStatus
+  statusMessage?: string
+  title: string
+}
+
+type CurrentUserProfileMutationOptions = NonNullable<
+  Parameters<typeof syncUpdateCurrentUserProfile>[5]
+>
+
+function applyCurrentUserProfileAvatarOptions(
+  body: CurrentUserProfileMutationBody,
+  options: CurrentUserProfileMutationOptions
+) {
+  if (options.avatarImageStorageId) {
+    body.avatarImageStorageId = options.avatarImageStorageId
+  }
+
+  if (options.clearAvatarImage) {
+    body.clearAvatarImage = true
+  }
+}
+
+function applyCurrentUserProfileStatusOptions(
+  body: CurrentUserProfileMutationBody,
+  options: CurrentUserProfileMutationOptions
+) {
+  if (options.clearStatus) {
+    body.clearStatus = true
+  }
+
+  if (options.status !== undefined) {
+    body.status = options.status
+  }
+
+  if (options.statusMessage !== undefined) {
+    body.statusMessage = options.statusMessage
+  }
 }

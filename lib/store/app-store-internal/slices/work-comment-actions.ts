@@ -3,12 +3,17 @@
 import { toast } from "sonner"
 
 import { syncAddComment, syncToggleCommentReaction } from "@/lib/convex/client"
+import {
+  collectDocumentCommentFollowerIds,
+  collectWorkItemCommentFollowerIds,
+} from "@/lib/domain/comment-followers"
 import { commentSchema } from "@/lib/domain/types"
 
 import {
   createId,
   createMentionIds,
   createNotification,
+  createNotificationDraft,
   getNow,
   toggleReactionUsers,
 } from "../helpers"
@@ -65,12 +70,14 @@ function resolveWorkItemCommentTarget(
 
   return {
     teamId: item.teamId,
-    followerIds: [
-      ...item.subscriberIds,
-      item.creatorId,
-      item.assigneeId ?? "",
-      ...existingComments.map((comment) => comment.createdBy),
-    ].filter(Boolean),
+    followerIds: collectWorkItemCommentFollowerIds({
+      subscriberIds: item.subscriberIds,
+      creatorId: item.creatorId,
+      assigneeId: item.assigneeId,
+      existingCommentAuthorIds: existingComments.map(
+        (comment) => comment.createdBy
+      ),
+    }),
     entityType: "workItem",
     entityTitle: item.title,
   }
@@ -88,11 +95,13 @@ function resolveDocumentCommentTarget(
 
   return {
     teamId: document.teamId ?? "",
-    followerIds: [
-      document.createdBy,
-      document.updatedBy,
-      ...existingComments.map((comment) => comment.createdBy),
-    ],
+    followerIds: collectDocumentCommentFollowerIds({
+      createdBy: document.createdBy,
+      updatedBy: document.updatedBy,
+      existingCommentAuthorIds: existingComments.map(
+        (comment) => comment.createdBy
+      ),
+    }),
     entityType: "document",
     entityTitle: document.title,
   }
@@ -202,10 +211,8 @@ function createCommentNotifications(
   audienceUserIds: string[],
   mentionUserIds: string[]
 ) {
-  const notifications = [...state.notifications]
-  const actor = state.users.find((user) => user.id === state.currentUserId)
-  const actorName = actor?.name ?? "Someone"
-  const notifiedUserIds = new Set<string>()
+  const { actorName, notifications, notifiedUserIds } =
+    createNotificationDraft(state)
   const context = {
     audienceUserIds,
     currentUserId: state.currentUserId,

@@ -2,6 +2,7 @@
 
 import {
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
   useCallback,
   useMemo,
@@ -9,7 +10,6 @@ import {
 } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
-  CalendarDots,
   CaretDown,
   Check,
   FolderSimple,
@@ -30,7 +30,6 @@ import {
   projectNameConstraints,
   projectSummaryConstraints,
 } from "@/lib/domain/input-constraints"
-import { formatDateInputLabel as formatDateChipLabel } from "@/lib/date-input"
 import {
   createDefaultProjectPresentationConfig,
   getDefaultTemplateTypeForTeamExperience,
@@ -43,6 +42,8 @@ import {
   type ProjectStatus,
   type ViewDefinition,
 } from "@/lib/domain/types"
+import { sortLabelsByName } from "@/lib/domain/labels"
+import { getUsersForTeamMemberships } from "@/lib/domain/team-members"
 import { useAppStore } from "@/lib/store/app-store"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
@@ -70,6 +71,7 @@ import { PriorityIcon } from "@/components/app/screens/shared"
 import { TeamSpaceCrumbPicker } from "@/components/app/screens/team-space-crumb-picker"
 import { WorkItemAssigneeAvatar } from "@/components/app/screens/work-item-ui"
 import {
+  applyViewConfigPatch,
   cloneViewFilters,
   createEmptyViewFilters,
   getProjectPresentationGroupOptions,
@@ -85,6 +87,13 @@ import {
   SortChipPopover,
   type ViewConfigPatch,
 } from "@/components/app/screens/work-surface-controls"
+import {
+  PropertyDateChip,
+  PropertySelectionPopover,
+  propertyChipTriggerClass as chipTriggerClass,
+  propertyChipTriggerDashedClass as chipTriggerDashedClass,
+  propertyCrumbTriggerClass as crumbTriggerClass,
+} from "@/components/app/screens/property-chips"
 import {
   PROPERTY_POPOVER_CLASS,
   PropertyPopoverFoot,
@@ -136,6 +145,90 @@ function toggleSelection(current: string[], value: string) {
     : [...current, value]
 }
 
+function ProjectMultiSelectPopover({
+  children,
+  disabled,
+  hasSelection,
+  open,
+  popoverWidthClass,
+  query,
+  searchIcon,
+  searchPlaceholder,
+  selectedCount,
+  triggerIcon,
+  triggerText,
+  onClear,
+  onOpenChange,
+  onQueryChange,
+}: {
+  children: ReactNode
+  disabled?: boolean
+  hasSelection: boolean
+  open: boolean
+  popoverWidthClass: string
+  query: string
+  searchIcon: ReactNode
+  searchPlaceholder: string
+  selectedCount: number
+  triggerIcon: ReactNode
+  triggerText: string
+  onClear: () => void
+  onOpenChange: (open: boolean) => void
+  onQueryChange: (query: string) => void
+}) {
+  const trigger = (
+    <button
+      type="button"
+      className={cn(chipTriggerClass, !hasSelection && chipTriggerDashedClass)}
+      disabled={disabled}
+    >
+      {triggerIcon}
+      <span
+        className={cn("truncate", hasSelection && "font-medium text-foreground")}
+      >
+        {triggerText}
+      </span>
+      <CaretDown className="size-3 shrink-0 opacity-60" />
+    </button>
+  )
+
+  return (
+    <PropertySelectionPopover
+      open={open}
+      trigger={trigger}
+      onOpenChange={onOpenChange}
+      onQueryChange={onQueryChange}
+    >
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, popoverWidthClass)}
+      >
+        <PropertyPopoverSearch
+          icon={searchIcon}
+          placeholder={searchPlaceholder}
+          value={query}
+          onChange={onQueryChange}
+          trailing={
+            hasSelection ? (
+              <button
+                type="button"
+                className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+                onClick={onClear}
+              >
+                Clear
+              </button>
+            ) : undefined
+          }
+        />
+        <PropertyPopoverList>{children}</PropertyPopoverList>
+        <PropertyPopoverFoot>
+          <span>{selectedCount} selected</span>
+        </PropertyPopoverFoot>
+      </PopoverContent>
+    </PropertySelectionPopover>
+  )
+}
+
 function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
   return (
     <span className="flex items-center gap-1.5">
@@ -148,15 +241,6 @@ function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
     </span>
   )
 }
-
-const chipTriggerClass =
-  "inline-flex h-7 w-fit max-w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
-
-const chipTriggerDashedClass =
-  "border-dashed bg-transparent text-fg-3 hover:bg-surface-3 hover:text-foreground"
-
-const crumbTriggerClass =
-  "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
 
 function UserOption({
   user,
@@ -186,15 +270,11 @@ function getDialogTeamMembers(
   teamMemberships: AppData["teamMemberships"],
   users: AppData["users"]
 ) {
-  const memberIds = new Set(
-    teamMemberships
-      .filter((membership) => membership.teamId === teamId)
-      .map((membership) => membership.userId)
-  )
-
-  return users
-    .filter((user) => memberIds.has(user.id))
-    .sort((left, right) => left.name.localeCompare(right.name))
+  return getUsersForTeamMemberships({
+    teamId,
+    teamMemberships,
+    users,
+  }).sort((left, right) => left.name.localeCompare(right.name))
 }
 
 function createInitialProjectPresentationConfig(
@@ -466,34 +546,31 @@ function ProjectLeadChip({
   onOpenChange: (open: boolean) => void
   onQueryChange: (query: string) => void
 }) {
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        onOpenChange(next)
-        if (!next) onQueryChange("")
-      }}
+  const trigger = (
+    <button
+      type="button"
+      className={cn(chipTriggerClass, !selectedLead && chipTriggerDashedClass)}
+      disabled={teamMembers.length === 0}
     >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            chipTriggerClass,
-            !selectedLead && "border-dashed text-fg-3"
-          )}
-          disabled={teamMembers.length === 0}
-        >
-          {selectedLead ? (
-            <UserOption user={selectedLead} />
-          ) : (
-            <>
-              <User className="size-[13px]" />
-              <span>Lead</span>
-            </>
-          )}
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
+      {selectedLead ? (
+        <UserOption user={selectedLead} />
+      ) : (
+        <>
+          <User className="size-[13px]" />
+          <span>Lead</span>
+        </>
+      )}
+      <CaretDown className="size-3 shrink-0 opacity-60" />
+    </button>
+  )
+
+  return (
+    <PropertySelectionPopover
+      open={open}
+      trigger={trigger}
+      onOpenChange={onOpenChange}
+      onQueryChange={onQueryChange}
+    >
       <PopoverContent
         align="start"
         className={cn(PROPERTY_POPOVER_CLASS, "w-[300px]")}
@@ -540,7 +617,7 @@ function ProjectLeadChip({
             })}
         </PropertyPopoverList>
       </PopoverContent>
-    </Popover>
+    </PropertySelectionPopover>
   )
 }
 
@@ -568,139 +645,49 @@ function ProjectMembersChip({
   onQueryChange: (query: string) => void
 }) {
   return (
-    <Popover
+    <ProjectMultiSelectPopover
+      disabled={teamMembers.length === 0}
+      hasSelection={selectedMembers.length > 0}
       open={open}
-      onOpenChange={(next) => {
-        onOpenChange(next)
-        if (!next) onQueryChange("")
-      }}
+      popoverWidthClass="w-[300px]"
+      query={query}
+      searchIcon={<MagnifyingGlass className="size-[14px]" />}
+      searchPlaceholder="Add members…"
+      selectedCount={selectedMembers.length}
+      triggerIcon={<UsersThree className="size-[13px]" />}
+      triggerText={triggerText}
+      onClear={() => onMemberIdsChange(() => [])}
+      onOpenChange={onOpenChange}
+      onQueryChange={onQueryChange}
     >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            chipTriggerClass,
-            selectedMembers.length === 0 && "border-dashed text-fg-3"
-          )}
-          disabled={teamMembers.length === 0}
-        >
-          <UsersThree className="size-[13px]" />
-          <span
-            className={cn(
-              "truncate",
-              selectedMembers.length > 0 && "font-medium text-foreground"
-            )}
-          >
-            {triggerText}
-          </span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[300px]")}
-      >
-        <PropertyPopoverSearch
-          icon={<MagnifyingGlass className="size-[14px]" />}
-          placeholder="Add members…"
-          value={query}
-          onChange={onQueryChange}
-          trailing={
-            selectedMembers.length > 0 ? (
-              <button
-                type="button"
-                className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-                onClick={() => onMemberIdsChange(() => [])}
-              >
-                Clear
-              </button>
-            ) : undefined
-          }
-        />
-        <PropertyPopoverList>
-          {teamMembers
-            .filter((member) => matchesQuery(member.name, query))
-            .map((member) => {
-              const selected = memberIds.includes(member.id)
-              const isLead = member.id === leadId
-              return (
-                <PropertyPopoverItem
-                  key={member.id}
-                  selected={selected}
-                  onClick={() =>
-                    onMemberIdsChange((current) =>
-                      toggleSelection(current, member.id)
-                    )
-                  }
-                  trailing={
-                    selected ? (
-                      <Check className="size-[14px] text-foreground" />
-                    ) : null
-                  }
-                >
-                  <UserOption
-                    user={member}
-                    secondaryLabel={isLead ? "Lead" : undefined}
-                  />
-                </PropertyPopoverItem>
-              )
-            })}
-        </PropertyPopoverList>
-        <PropertyPopoverFoot>
-          <span>{selectedMembers.length} selected</span>
-        </PropertyPopoverFoot>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function ProjectDateChip({
-  label,
-  value,
-  onValueChange,
-}: {
-  label: string
-  value: string | null
-  onValueChange: (value: string | null) => void
-}) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(chipTriggerClass, !value && chipTriggerDashedClass)}
-        >
-          <CalendarDots className="size-[13px]" />
-          <span className={cn(value && "font-medium text-foreground")}>
-            {formatDateChipLabel(value, label)}
-          </span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[240px]")}
-      >
-        <div className="px-3 py-3">
-          <div className="mb-2 text-[11px] font-medium text-fg-3">{label}</div>
-          <input
-            type="date"
-            value={value ?? ""}
-            onChange={(event) => onValueChange(event.target.value || null)}
-            className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
-          />
-        </div>
-        <PropertyPopoverFoot>
-          <button
-            type="button"
-            className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-            onClick={() => onValueChange(null)}
-          >
-            Clear
-          </button>
-        </PropertyPopoverFoot>
-      </PopoverContent>
-    </Popover>
+      {teamMembers
+        .filter((member) => matchesQuery(member.name, query))
+        .map((member) => {
+          const selected = memberIds.includes(member.id)
+          const isLead = member.id === leadId
+          return (
+            <PropertyPopoverItem
+              key={member.id}
+              selected={selected}
+              onClick={() =>
+                onMemberIdsChange((current) =>
+                  toggleSelection(current, member.id)
+                )
+              }
+              trailing={
+                selected ? (
+                  <Check className="size-[14px] text-foreground" />
+                ) : null
+              }
+            >
+              <UserOption
+                user={member}
+                secondaryLabel={isLead ? "Lead" : undefined}
+              />
+            </PropertyPopoverItem>
+          )
+        })}
+    </ProjectMultiSelectPopover>
   )
 }
 
@@ -726,89 +713,47 @@ function ProjectLabelsChip({
   onQueryChange: (query: string) => void
 }) {
   return (
-    <Popover
+    <ProjectMultiSelectPopover
+      hasSelection={selectedLabels.length > 0}
       open={open}
-      onOpenChange={(next) => {
-        onOpenChange(next)
-        if (!next) onQueryChange("")
-      }}
+      popoverWidthClass="w-[260px]"
+      query={labelQuery}
+      searchIcon={<Tag className="size-[14px]" />}
+      searchPlaceholder="Filter labels…"
+      selectedCount={selectedLabels.length}
+      triggerIcon={<Tag className="size-[13px]" />}
+      triggerText={labelsTriggerText}
+      onClear={() => onLabelIdsChange(() => [])}
+      onOpenChange={onOpenChange}
+      onQueryChange={onQueryChange}
     >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            chipTriggerClass,
-            selectedLabels.length === 0 && "border-dashed text-fg-3"
-          )}
-        >
-          <Tag className="size-[13px]" />
-          <span
-            className={cn(
-              "truncate",
-              selectedLabels.length > 0 && "font-medium text-foreground"
-            )}
-          >
-            {labelsTriggerText}
-          </span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[260px]")}
-      >
-        <PropertyPopoverSearch
-          icon={<Tag className="size-[14px]" />}
-          placeholder="Filter labels…"
-          value={labelQuery}
-          onChange={onQueryChange}
-          trailing={
-            selectedLabels.length > 0 ? (
-              <button
-                type="button"
-                className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-                onClick={() => onLabelIdsChange(() => [])}
-              >
-                Clear
-              </button>
-            ) : undefined
-          }
-        />
-        <PropertyPopoverList>
-          {availableLabels
-            .filter((label) => matchesQuery(label.name, labelQuery))
-            .map((label) => {
-              const selected = selectedLabelIds.includes(label.id)
-              return (
-                <PropertyPopoverItem
-                  key={label.id}
-                  selected={selected}
-                  onClick={() =>
-                    onLabelIdsChange((current) =>
-                      toggleSelection(current, label.id)
-                    )
-                  }
-                  trailing={
-                    selected ? (
-                      <Check className="size-[14px] text-foreground" />
-                    ) : null
-                  }
-                >
-                  <span
-                    aria-hidden
-                    className="inline-block size-2 shrink-0 rounded-full"
-                    style={{ background: label.color }}
-                  />
-                  <span className="truncate">{label.name}</span>
-                </PropertyPopoverItem>
-              )
-            })}
-        </PropertyPopoverList>
-        <PropertyPopoverFoot>
-          <span>{selectedLabels.length} selected</span>
-        </PropertyPopoverFoot>
-      </PopoverContent>
-    </Popover>
+      {availableLabels
+        .filter((label) => matchesQuery(label.name, labelQuery))
+        .map((label) => {
+          const selected = selectedLabelIds.includes(label.id)
+          return (
+            <PropertyPopoverItem
+              key={label.id}
+              selected={selected}
+              onClick={() =>
+                onLabelIdsChange((current) => toggleSelection(current, label.id))
+              }
+              trailing={
+                selected ? (
+                  <Check className="size-[14px] text-foreground" />
+                ) : null
+              }
+            >
+              <span
+                aria-hidden
+                className="inline-block size-2 shrink-0 rounded-full"
+                style={{ background: label.color }}
+              />
+              <span className="truncate">{label.name}</span>
+            </PropertyPopoverItem>
+          )
+        })}
+    </ProjectMultiSelectPopover>
   )
 }
 
@@ -1025,12 +970,12 @@ function ProjectDialogControlStrip({
         onOpenChange={onMembersPickerOpenChange}
         onQueryChange={onMemberQueryChange}
       />
-      <ProjectDateChip
+      <PropertyDateChip
         label="Start date"
         value={startDate}
         onValueChange={onStartDateChange}
       />
-      <ProjectDateChip
+      <PropertyDateChip
         label="Target date"
         value={targetDate}
         onValueChange={onTargetDateChange}
@@ -1131,10 +1076,14 @@ function CreateProjectDialogContent({
   const availableTeams = useAppStore(
     useShallow((state) => getEditableTeamsForFeature(state, "projects"))
   )
-  const allLabels = useAppStore((state) => state.labels)
-  const teamMemberships = useAppStore((state) => state.teamMemberships)
-  const users = useAppStore((state) => state.users)
-  const currentUserId = useAppStore((state) => state.currentUserId)
+  const { allLabels, currentUserId, teamMemberships, users } = useAppStore(
+    useShallow((state) => ({
+      allLabels: state.labels,
+      currentUserId: state.currentUserId,
+      teamMemberships: state.teamMemberships,
+      users: state.users,
+    }))
+  )
   const shortcutModifierLabel = useShortcutModifierLabel()
 
   const initialTeamId =
@@ -1174,8 +1123,7 @@ function CreateProjectDialogContent({
     [selectedTeamId, teamMemberships, users]
   )
   const availableLabels = useMemo(
-    () =>
-      [...labels].sort((left, right) => left.name.localeCompare(right.name)),
+    () => sortLabelsByName(labels),
     [labels]
   )
   const templateType = getDefaultTemplateTypeForTeamExperience(
@@ -1283,24 +1231,7 @@ function CreateProjectDialogContent({
   }, [presentation, selectedTeamId, settingsTeam])
 
   function updatePresentationView(patch: ViewConfigPatch) {
-    setPresentation((current) => ({
-      ...current,
-      ...(patch.layout !== undefined ? { layout: patch.layout } : {}),
-      ...(patch.grouping !== undefined ? { grouping: patch.grouping } : {}),
-      ...(patch.ordering !== undefined ? { ordering: patch.ordering } : {}),
-      ...(patch.itemLevel !== undefined ? { itemLevel: patch.itemLevel } : {}),
-      ...(patch.showChildItems !== undefined
-        ? { showChildItems: patch.showChildItems }
-        : {}),
-      ...(patch.showCompleted !== undefined
-        ? {
-            filters: {
-              ...current.filters,
-              showCompleted: patch.showCompleted,
-            },
-          }
-        : {}),
-    }))
+    setPresentation((current) => applyViewConfigPatch(current, patch))
   }
 
   function togglePresentationFilterValue(key: ViewFilterKey, value: string) {
@@ -1438,6 +1369,56 @@ function CreateProjectDialogContent({
     "members"
   )
 
+  const controlStripProps = {
+    availableLabels,
+    teamMembers,
+    defaultLeadIdForSelectedTeam,
+    selectedMembers,
+    labelQuery,
+    selectedLead,
+    labelsPickerOpen,
+    selectedLabels,
+    labelsTriggerText,
+    selectedLabelIds,
+    leadId,
+    scopedTeamItems,
+    leadPickerOpen,
+    priorityPickerOpen,
+    leadQuery,
+    priority,
+    memberIds,
+    presentationView,
+    memberQuery,
+    presentationGroupOptions,
+    membersPickerOpen,
+    membersTriggerText,
+    startDate,
+    status,
+    statusPickerOpen,
+    targetDate,
+    onClearPresentationDisplayProperties: clearPresentationDisplayProperties,
+    onClearPresentationFilters: clearPresentationFilters,
+    onLabelIdsChange: setSelectedLabelIds,
+    onLabelsPickerOpenChange: setLabelsPickerOpen,
+    onLabelQueryChange: setLabelQuery,
+    onLeadChange: setLeadId,
+    onLeadPickerOpenChange: setLeadPickerOpen,
+    onLeadQueryChange: setLeadQuery,
+    onMemberIdsChange: setMemberIds,
+    onMembersPickerOpenChange: setMembersPickerOpen,
+    onMemberQueryChange: setMemberQuery,
+    onPriorityChange: setPriority,
+    onPriorityPickerOpenChange: setPriorityPickerOpen,
+    onReorderPresentationDisplayProperties: reorderPresentationDisplayProperties,
+    onStartDateChange: setStartDate,
+    onStatusChange: setStatus,
+    onStatusPickerOpenChange: setStatusPickerOpen,
+    onTargetDateChange: setTargetDate,
+    onTogglePresentationDisplayProperty: togglePresentationDisplayProperty,
+    onTogglePresentationFilterValue: togglePresentationFilterValue,
+    onUpdatePresentationView: updatePresentationView,
+  } satisfies Parameters<typeof ProjectDialogControlStrip>[0]
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -1468,61 +1449,7 @@ function CreateProjectDialogContent({
           onSummaryChange={setSummary}
         />
 
-        <ProjectDialogControlStrip
-          availableLabels={availableLabels}
-          defaultLeadIdForSelectedTeam={defaultLeadIdForSelectedTeam}
-          labelQuery={labelQuery}
-          labelsPickerOpen={labelsPickerOpen}
-          labelsTriggerText={labelsTriggerText}
-          leadId={leadId}
-          leadPickerOpen={leadPickerOpen}
-          leadQuery={leadQuery}
-          memberIds={memberIds}
-          memberQuery={memberQuery}
-          membersPickerOpen={membersPickerOpen}
-          membersTriggerText={membersTriggerText}
-          presentationGroupOptions={presentationGroupOptions}
-          presentationView={presentationView}
-          priority={priority}
-          priorityPickerOpen={priorityPickerOpen}
-          scopedTeamItems={scopedTeamItems}
-          selectedLabelIds={selectedLabelIds}
-          selectedLabels={selectedLabels}
-          selectedLead={selectedLead}
-          selectedMembers={selectedMembers}
-          startDate={startDate}
-          status={status}
-          statusPickerOpen={statusPickerOpen}
-          targetDate={targetDate}
-          teamMembers={teamMembers}
-          onClearPresentationDisplayProperties={
-            clearPresentationDisplayProperties
-          }
-          onClearPresentationFilters={clearPresentationFilters}
-          onLabelIdsChange={setSelectedLabelIds}
-          onLabelsPickerOpenChange={setLabelsPickerOpen}
-          onLabelQueryChange={setLabelQuery}
-          onLeadChange={setLeadId}
-          onLeadPickerOpenChange={setLeadPickerOpen}
-          onLeadQueryChange={setLeadQuery}
-          onMemberIdsChange={setMemberIds}
-          onMembersPickerOpenChange={setMembersPickerOpen}
-          onMemberQueryChange={setMemberQuery}
-          onPriorityChange={setPriority}
-          onPriorityPickerOpenChange={setPriorityPickerOpen}
-          onReorderPresentationDisplayProperties={
-            reorderPresentationDisplayProperties
-          }
-          onStartDateChange={setStartDate}
-          onStatusChange={setStatus}
-          onStatusPickerOpenChange={setStatusPickerOpen}
-          onTargetDateChange={setTargetDate}
-          onTogglePresentationDisplayProperty={
-            togglePresentationDisplayProperty
-          }
-          onTogglePresentationFilterValue={togglePresentationFilterValue}
-          onUpdatePresentationView={updatePresentationView}
-        />
+        <ProjectDialogControlStrip {...controlStripProps} />
 
         {availableTeams.length === 0 ? (
           <p className="px-[18px] pt-2 text-xs text-destructive">

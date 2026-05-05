@@ -417,7 +417,7 @@ export const labelFields = {
   color: v.string(),
 }
 
-export const viewFiltersValidator = v.object({
+const baseViewFilterFields = {
   status: v.array(viewFilterStatusValidator),
   priority: v.array(priorityValidator),
   assigneeIds: v.array(v.string()),
@@ -428,26 +428,18 @@ export const viewFiltersValidator = v.object({
   relationTypes: v.array(v.string()),
   projectIds: v.array(v.string()),
   parentIds: v.optional(v.array(v.string())),
-  itemTypes: v.array(workItemTypeValidator),
   labelIds: v.array(v.string()),
   teamIds: v.array(v.string()),
   showCompleted: v.boolean(),
+}
+
+export const viewFiltersValidator = v.object({
+  ...baseViewFilterFields,
+  itemTypes: v.array(workItemTypeValidator),
 })
 export const storedViewFiltersValidator = v.object({
-  status: v.array(viewFilterStatusValidator),
-  priority: v.array(priorityValidator),
-  assigneeIds: v.array(v.string()),
-  creatorIds: v.array(v.string()),
-  leadIds: v.array(v.string()),
-  health: v.array(projectHealthValidator),
-  milestoneIds: v.array(v.string()),
-  relationTypes: v.array(v.string()),
-  projectIds: v.array(v.string()),
-  parentIds: v.optional(v.array(v.string())),
+  ...baseViewFilterFields,
   itemTypes: v.array(storedWorkItemTypeValidator),
-  labelIds: v.array(v.string()),
-  teamIds: v.array(v.string()),
-  showCompleted: v.boolean(),
 })
 
 export const projectFields = {
@@ -579,6 +571,15 @@ export const viewDefinitionFields = {
   updatedAt: v.string(),
 }
 
+const reactionListValidator = v.optional(
+  v.array(
+    v.object({
+      emoji: v.string(),
+      userIds: v.array(v.string()),
+    })
+  )
+)
+
 export const commentFields = {
   id: v.string(),
   targetType: commentTargetTypeValidator,
@@ -586,14 +587,7 @@ export const commentFields = {
   parentCommentId: nullableString,
   content: v.string(),
   mentionUserIds: v.optional(v.array(v.string())),
-  reactions: v.optional(
-    v.array(
-      v.object({
-        emoji: v.string(),
-        userIds: v.array(v.string()),
-      })
-    )
-  ),
+  reactions: reactionListValidator,
   createdBy: v.string(),
   createdAt: v.string(),
 }
@@ -692,14 +686,7 @@ export const chatMessageFields = {
   content: v.string(),
   callId: v.optional(nullableString),
   mentionUserIds: v.optional(v.array(v.string())),
-  reactions: v.optional(
-    v.array(
-      v.object({
-        emoji: v.string(),
-        userIds: v.array(v.string()),
-      })
-    )
-  ),
+  reactions: reactionListValidator,
   createdBy: v.string(),
   createdAt: v.string(),
 }

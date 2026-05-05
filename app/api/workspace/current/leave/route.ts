@@ -7,7 +7,7 @@ import {
   getConvexErrorMessage,
   logProviderError,
 } from "@/lib/server/provider-errors"
-import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+import { requireAppRouteContext } from "@/lib/server/route-auth"
 import {
   isRouteResponse,
   jsonApplicationError,
@@ -16,19 +16,14 @@ import {
 } from "@/lib/server/route-response"
 
 export async function DELETE() {
-  const session = await requireSession()
-
-  if (isRouteResponse(session)) {
-    return session
-  }
-
   try {
-    const appContext = await requireAppContext(session)
+    const context = await requireAppRouteContext()
 
-    if (isRouteResponse(appContext)) {
-      return appContext
+    if (isRouteResponse(context)) {
+      return context
     }
 
+    const { appContext, session } = context
     const workspaceId = appContext.authContext?.currentWorkspace?.id
 
     if (!workspaceId) {

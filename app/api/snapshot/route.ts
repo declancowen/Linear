@@ -9,6 +9,10 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireConvexUser, requireSession } from "@/lib/server/route-auth"
 import {
+  applySelectedWorkspaceIdToSnapshot,
+  getSelectedWorkspaceIdFromCookies,
+} from "@/lib/server/workspace-selection"
+import {
   isRouteResponse,
   jsonApplicationError,
   jsonError,
@@ -40,9 +44,10 @@ async function loadSnapshotWithVersion(
     workosUserId: authenticatedUser.workosUserId,
     email: authenticatedUser.email,
   })
+  const selectedWorkspaceId = await getSelectedWorkspaceIdFromCookies()
 
   return {
-    snapshot,
+    snapshot: applySelectedWorkspaceIdToSnapshot(snapshot, selectedWorkspaceId),
     version,
   }
 }
@@ -61,7 +66,10 @@ export async function GET() {
       return authContext
     }
 
-    const authenticatedUser = toAuthenticatedAppUser(session.user, session.organizationId)
+    const authenticatedUser = toAuthenticatedAppUser(
+      session.user,
+      session.organizationId
+    )
     const payload = await loadSnapshotWithVersion(authenticatedUser)
 
     if (!authContext.currentUser) {

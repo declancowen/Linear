@@ -1,34 +1,21 @@
 import { spawn } from "node:child_process"
 import fs from "node:fs/promises"
+import { createRequire } from "node:module"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { findBuiltApp } from "./shared/electron-package.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+const require = createRequire(import.meta.url)
+const { DEFAULT_RENDERER_URL, resolveConfiguredRendererUrl } = require(
+  "../electron/renderer-url-config.cjs"
+)
 const repoRoot = path.resolve(__dirname, "..")
 const outputDir = path.join(repoRoot, "dist", "electron")
 const installDir = path.join(os.homedir(), "Applications")
 const installedAppPath = path.join(installDir, "Recipe Room.app")
-const defaultRendererUrl = "https://teams.reciperoom.io"
-
-function trimTrailingSlash(value) {
-  return value.replace(/\/+$/, "")
-}
-
-function readUrlValue(value) {
-  const trimmed = value?.trim()
-  return trimmed ? trimTrailingSlash(trimmed) : null
-}
-
-function resolveConfiguredRendererUrl(env = process.env) {
-  return (
-    readUrlValue(env.APP_URL) ??
-    readUrlValue(env.NEXT_PUBLIC_APP_URL) ??
-    readUrlValue(env.TEAMS_URL) ??
-    readUrlValue(env.ELECTRON_RENDERER_URL)
-  )
-}
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -53,28 +40,6 @@ function run(command, args, options = {}) {
   })
 }
 
-async function findBuiltApp(searchDir) {
-  const outputEntries = await fs.readdir(searchDir, { withFileTypes: true })
-
-  for (const entry of outputEntries) {
-    if (!entry.isDirectory() || !entry.name.startsWith("mac")) {
-      continue
-    }
-
-    const appPath = path.join(searchDir, entry.name, "Recipe Room.app")
-
-    try {
-      await fs.access(appPath)
-      return {
-        appPath,
-        archivePath: path.join(searchDir, `Recipe Room-${entry.name}.zip`),
-      }
-    } catch {}
-  }
-
-  throw new Error("Packaged app bundle was not created")
-}
-
 async function main() {
   const rootPackageJsonPath = path.join(repoRoot, "package.json")
   const rootPackageJson = JSON.parse(
@@ -87,7 +52,7 @@ async function main() {
   const stageOutputDir = path.join(stageRoot, "out")
   const desktopRuntimeConfig = {
     rendererUrl:
-      resolveConfiguredRendererUrl(process.env) ?? defaultRendererUrl,
+      resolveConfiguredRendererUrl(process.env) ?? DEFAULT_RENDERER_URL,
   }
 
   try {

@@ -1,7 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import { useState, type ReactNode } from "react"
+import {
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react"
 import { CSS } from "@dnd-kit/utilities"
 import {
   closestCorners,
@@ -29,16 +34,13 @@ import {
   buildItemGroups,
   buildItemGroupsWithEmptyGroups,
   getDirectChildWorkItemsForDisplay,
-  getGroupValue,
   getTeam,
   getUser,
-  getWorkItemDescendantIds,
   getWorkItemChildProgress,
 } from "@/lib/domain/selectors"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { getCalendarDateDayOffset } from "@/lib/date-input"
 import {
-  canParentWorkItemTypeAcceptChild,
   getDisplayLabelForWorkItemType,
   getDisplayPluralLabelForWorkItemType,
   type AppData,
@@ -59,7 +61,6 @@ import {
 import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
 import {
   getCreateDefaultsForField,
-  getPatchForField,
   LabelColorDot,
 } from "./shared"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
@@ -74,6 +75,12 @@ import {
   formatWorkSurfaceDueDate,
   formatWorkSurfaceTimestamp,
 } from "./date-presentation"
+import { BoardChildItemRow } from "./work-surface-view/board-child-item-row"
+import {
+  requestWorkSurfaceDragUpdate,
+  type RequestConfirmedWorkItemUpdate,
+  type WorkSurfaceScope,
+} from "./work-surface-view/drag-state"
 export { TimelineView } from "./work-surface-view/timeline-view"
 import { cn } from "@/lib/utils"
 
@@ -115,39 +122,9 @@ function CollapseCaret({
   )
 }
 
-function parseGroupDropTarget(id: string, scope: "board" | "list") {
-  const [dropScope, groupValue, subgroupValue] = id.split("::")
-
-  if (dropScope === `${scope}-group` && groupValue) {
-    return {
-      groupValue,
-      subgroupValue: undefined,
-    }
-  }
-
-  if (dropScope === scope && groupValue) {
-    return {
-      groupValue,
-      subgroupValue,
-    }
-  }
-
-  return null
-}
-
-function parseItemDropTarget(id: string, scope: "board" | "list") {
-  const [dropScope, itemId] = id.split("::")
-
-  if (dropScope === `${scope}-item` && itemId) {
-    return { itemId }
-  }
-
-  return null
-}
-
 function prioritizeItemDropTargets(
   collisions: Collision[],
-  scope: "board" | "list"
+  scope: WorkSurfaceScope
 ) {
   const itemPrefix = `${scope}-item::`
   const itemCollisions = collisions.filter((collision) =>
@@ -158,7 +135,7 @@ function prioritizeItemDropTargets(
 }
 
 function createWorkSurfaceCollisionDetection(
-  scope: "board" | "list"
+  scope: WorkSurfaceScope
 ): CollisionDetection {
   return (args) => {
     const pointerCollisions = pointerWithin(args)
@@ -174,29 +151,48 @@ function createWorkSurfaceCollisionDetection(
 const boardCollisionDetection = createWorkSurfaceCollisionDetection("board")
 const listCollisionDetection = createWorkSurfaceCollisionDetection("list")
 
-function buildGroupedWorkItemPatch({
-  data,
-  items,
-  itemId,
-  view,
-  groupValue,
-  subgroupValue,
-}: {
-  data: AppData
-  items: WorkItem[]
-  itemId: string
-  view: Pick<ViewDefinition, "grouping" | "subGrouping">
-  groupValue: string
-  subgroupValue?: string
-}) {
-  const item = items.find((entry) => entry.id === itemId) ?? null
+function toggleSetMember<T>(
+  setValues: Dispatch<SetStateAction<Set<T>>>,
+  value: T
+) {
+  setValues((current) => {
+    const next = new Set(current)
 
-  return {
-    ...getPatchForField(data, item, view.grouping, groupValue),
-    ...(subgroupValue === undefined
-      ? {}
-      : getPatchForField(data, item, view.subGrouping, subgroupValue)),
-  }
+    if (next.has(value)) {
+      next.delete(value)
+    } else {
+      next.add(value)
+    }
+
+    return next
+  })
+}
+
+function getWorkSurfaceGroups({
+  createContext,
+  data,
+  editable,
+  items,
+  scopedItems,
+  view,
+}: {
+  createContext?: WorkSurfaceCreateContext
+  data: AppData
+  editable: boolean
+  items: WorkItem[]
+  scopedItems?: WorkItem[]
+  view: ViewDefinition
+}) {
+  return [
+    ...(editable
+      ? buildItemGroupsWithEmptyGroups(data, items, view, {
+          sourceItems: scopedItems,
+          teamId: createContext?.defaultTeamId,
+          projectId: createContext?.defaultProjectId,
+        })
+      : buildItemGroups(data, items, view)
+    ).entries(),
+  ]
 }
 
 type CreateDefaultsForFieldResult = ReturnType<typeof getCreateDefaultsForField>
@@ -329,9 +325,186 @@ function buildCreateDefaultsForGroup({
   }
 }
 
+function openCreateDialogForWorkSurfaceGroup({
+  createContext,
+  data,
+  groupValue,
+  items,
+  laneItems,
+  scopedItems,
+  subgroupValue,
+  view,
+}: {
+  createContext?: WorkSurfaceCreateContext
+  data: AppData
+  groupValue: string
+  items: WorkItem[]
+  laneItems: WorkItem[]
+  scopedItems?: WorkItem[]
+  subgroupValue?: string
+  view: Pick<ViewDefinition, "grouping" | "subGrouping">
+}) {
+  const createDefaults = buildCreateDefaultsForGroup({
+    data,
+    items: laneItems,
+    view,
+    groupValue,
+    subgroupValue,
+    createContext,
+  })
+
+  openManagedCreateDialog({
+    kind: "workItem",
+    defaultTeamId:
+      createDefaults.defaultTeamId ??
+      laneItems[0]?.teamId ??
+      items[0]?.teamId ??
+      scopedItems?.[0]?.teamId ??
+      createContext?.defaultTeamId ??
+      null,
+    defaultProjectId: createDefaults.defaultValues.primaryProjectId,
+    initialType: createDefaults.initialType,
+    defaultValues: createDefaults.defaultValues,
+  })
+}
+
 type WorkSurfaceCreateContext = {
   defaultTeamId?: string | null
   defaultProjectId?: string | null
+}
+
+type WorkSurfaceViewProps = {
+  data: AppData
+  items: WorkItem[]
+  scopedItems?: WorkItem[]
+  view: ViewDefinition
+  editable: boolean
+  childDisplayMode?: ChildDisplayMode
+  createContext?: WorkSurfaceCreateContext
+  onToggleHiddenValue?: (key: "groups" | "subgroups", value: string) => void
+}
+
+type OpenCreateForGroupInput = {
+  groupValue: string
+  subgroupValue?: string
+  laneItems: WorkItem[]
+}
+
+function createWorkSurfaceGroupCreateHandler(input: {
+  createContext?: WorkSurfaceCreateContext
+  data: AppData
+  items: WorkItem[]
+  scopedItems?: WorkItem[]
+  view: ViewDefinition
+}) {
+  return function openCreateForGroup({
+    groupValue,
+    subgroupValue,
+    laneItems,
+  }: OpenCreateForGroupInput) {
+    openCreateDialogForWorkSurfaceGroup({
+      createContext: input.createContext,
+      data: input.data,
+      groupValue,
+      items: input.items,
+      laneItems,
+      scopedItems: input.scopedItems,
+      subgroupValue,
+      view: input.view,
+    })
+  }
+}
+
+function useWorkSurfaceDragController({
+  data,
+  editable,
+  itemPool,
+  onDragCancel,
+  onDragStart,
+  requestUpdate,
+  scope,
+  view,
+}: {
+  data: AppData
+  editable: boolean
+  itemPool: WorkItem[]
+  onDragCancel?: () => void
+  onDragStart?: (event: DragStartEvent) => void
+  requestUpdate: RequestConfirmedWorkItemUpdate
+  scope: WorkSurfaceScope
+  view: ViewDefinition
+}) {
+  const [activeItemId, setActiveItemId] = useState<string | null>(null)
+  const sensors = useHoldToDragSensors()
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveItemId(String(event.active.id))
+    onDragStart?.(event)
+  }
+
+  function handleDragCancel() {
+    setActiveItemId(null)
+    onDragCancel?.()
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveItemId(null)
+    onDragCancel?.()
+
+    requestWorkSurfaceDragUpdate({
+      data,
+      editable,
+      event,
+      itemPool,
+      requestUpdate,
+      scope,
+      view,
+    })
+  }
+
+  return {
+    activeItem: itemPool.find((item) => item.id === activeItemId) ?? null,
+    handleDragCancel,
+    handleDragEnd,
+    handleDragStart,
+    sensors,
+  }
+}
+
+function useWorkSurfaceInteractionState({
+  data,
+  editable,
+  onDragCancel,
+  onDragStart,
+  scopedItems,
+  scope,
+  view,
+}: Pick<WorkSurfaceViewProps, "data" | "editable" | "scopedItems" | "view"> & {
+  onDragCancel?: () => void
+  onDragStart?: (event: DragStartEvent) => void
+  scope: WorkSurfaceScope
+}) {
+  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
+  const itemPool = scopedItems ?? data.workItems
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
+  const dragController = useWorkSurfaceDragController({
+    data,
+    editable,
+    itemPool,
+    onDragCancel,
+    onDragStart,
+    requestUpdate: requestConfirmedWorkItemUpdate,
+    scope,
+    view,
+  })
+
+  return {
+    ...dragController,
+    confirmationDialog,
+    expandedItemIds,
+    setExpandedItemIds,
+  }
 }
 
 function GroupPill({
@@ -688,33 +861,39 @@ export function BoardView({
   childDisplayMode = "direct",
   createContext,
   onToggleHiddenValue,
-}: {
-  data: AppData
-  items: WorkItem[]
-  scopedItems?: WorkItem[]
-  view: ViewDefinition
-  editable: boolean
-  childDisplayMode?: ChildDisplayMode
-  createContext?: WorkSurfaceCreateContext
-  onToggleHiddenValue?: (key: "groups" | "subgroups", value: string) => void
-}) {
-  const groups = [
-    ...(editable
-      ? buildItemGroupsWithEmptyGroups(data, items, view, {
-          sourceItems: scopedItems,
-          teamId: createContext?.defaultTeamId,
-          projectId: createContext?.defaultProjectId,
-        })
-      : buildItemGroups(data, items, view)
-    ).entries(),
-  ]
-  const [activeItemId, setActiveItemId] = useState<string | null>(null)
+}: WorkSurfaceViewProps) {
+  const groups = getWorkSurfaceGroups({
+    createContext,
+    data,
+    editable,
+    items,
+    scopedItems,
+    view,
+  })
   const [activeDragPreviewKind, setActiveDragPreviewKind] = useState<
     "card" | "child" | null
   >(null)
-  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
-  const sensors = useHoldToDragSensors()
-  const itemPool = scopedItems ?? data.workItems
+  const {
+    activeItem,
+    confirmationDialog,
+    expandedItemIds,
+    handleDragCancel,
+    handleDragEnd,
+    handleDragStart,
+    sensors,
+    setExpandedItemIds,
+  } = useWorkSurfaceInteractionState({
+      data,
+      editable,
+      onDragCancel: () => setActiveDragPreviewKind(null),
+      onDragStart: (event) =>
+        setActiveDragPreviewKind(
+          event.active.data.current?.previewKind === "child" ? "child" : "card"
+        ),
+      scopedItems,
+      scope: "board",
+      view,
+    })
   const hiddenGroups = groups.filter(([groupName]) =>
     view.hiddenState.groups.includes(groupName)
   )
@@ -722,147 +901,25 @@ export function BoardView({
     ([groupName]) => !view.hiddenState.groups.includes(groupName)
   )
   const showChildItems = Boolean(view.showChildItems)
-  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
-    useWorkItemProjectCascadeConfirmation()
 
   function toggleExpandedItem(itemId: string) {
-    setExpandedItemIds((current) => {
-      const next = new Set(current)
-
-      if (next.has(itemId)) {
-        next.delete(itemId)
-      } else {
-        next.add(itemId)
-      }
-
-      return next
-    })
+    toggleSetMember(setExpandedItemIds, itemId)
   }
 
-  function handleDragStart(event: DragStartEvent) {
-    setActiveItemId(String(event.active.id))
-    setActiveDragPreviewKind(
-      event.active.data.current?.previewKind === "child" ? "child" : "card"
-    )
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    setActiveItemId(null)
-    setActiveDragPreviewKind(null)
-
-    if (!editable || !event.over) {
-      return
-    }
-
-    const activeId = String(event.active.id)
-    const overId = String(event.over.id)
-    const activeItem = itemPool.find((entry) => entry.id === activeId) ?? null
-
-    if (!activeItem) {
-      return
-    }
-
-    const itemTarget = parseItemDropTarget(overId, "board")
-
-    if (itemTarget) {
-      const targetItem =
-        itemPool.find((entry) => entry.id === itemTarget.itemId) ?? null
-
-      if (
-        !targetItem ||
-        targetItem.id === activeItem.id ||
-        targetItem.teamId !== activeItem.teamId
-      ) {
-        return
-      }
-
-      const patch = buildGroupedWorkItemPatch({
-        data,
-        items: itemPool,
-        itemId: activeItem.id,
-        view,
-        groupValue: getGroupValue(data, targetItem, view.grouping),
-        subgroupValue: view.subGrouping
-          ? getGroupValue(data, targetItem, view.subGrouping)
-          : undefined,
-      })
-      const canNestOnTarget =
-        activeItem.parentId !== null &&
-        canParentWorkItemTypeAcceptChild(targetItem.type, activeItem.type) &&
-        !getWorkItemDescendantIds(data, activeItem.id).has(targetItem.id)
-
-      requestConfirmedWorkItemUpdate(activeItem.id, {
-        ...patch,
-        parentId: canNestOnTarget ? targetItem.id : null,
-      })
-      return
-    }
-
-    const target = parseGroupDropTarget(overId, "board")
-
-    if (!target) {
-      return
-    }
-
-    const patch = buildGroupedWorkItemPatch({
-      data,
-      items: itemPool,
-      itemId: activeItem.id,
-      view,
-      groupValue: target.groupValue,
-      subgroupValue: target.subgroupValue,
-    })
-
-    requestConfirmedWorkItemUpdate(activeItem.id, {
-      ...patch,
-      parentId: null,
-    })
-  }
-
-  function openCreateForGroup({
-    groupValue,
-    subgroupValue,
-    laneItems,
-  }: {
-    groupValue: string
-    subgroupValue?: string
-    laneItems: WorkItem[]
-  }) {
-    const createDefaults = buildCreateDefaultsForGroup({
-      data,
-      items: laneItems,
-      view,
-      groupValue,
-      subgroupValue,
-      createContext,
-    })
-
-    openManagedCreateDialog({
-      kind: "workItem",
-      defaultTeamId:
-        createDefaults.defaultTeamId ??
-        laneItems[0]?.teamId ??
-        items[0]?.teamId ??
-        scopedItems?.[0]?.teamId ??
-        createContext?.defaultTeamId ??
-        null,
-      defaultProjectId: createDefaults.defaultValues.primaryProjectId,
-      initialType: createDefaults.initialType,
-      defaultValues: createDefaults.defaultValues,
-    })
-  }
-
-  const activeItem = itemPool.find((item) => item.id === activeItemId) ?? null
+  const openCreateForGroup = createWorkSurfaceGroupCreateHandler({
+    createContext,
+    data,
+    items,
+    scopedItems,
+    view,
+  })
 
   return (
     <DndContext
       collisionDetection={boardCollisionDetection}
       sensors={sensors}
       onDragStart={handleDragStart}
-      onDragCancel={() => {
-        setActiveItemId(null)
-        setActiveDragPreviewKind(null)
-      }}
+      onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
       <ScrollArea className="h-full w-full">
@@ -1076,178 +1133,56 @@ export function ListView({
   childDisplayMode = "direct",
   createContext,
   onToggleHiddenValue,
-}: {
-  data: AppData
-  items: WorkItem[]
-  scopedItems?: WorkItem[]
-  view: ViewDefinition
-  editable: boolean
-  childDisplayMode?: ChildDisplayMode
-  createContext?: WorkSurfaceCreateContext
-  onToggleHiddenValue?: (key: "groups" | "subgroups", value: string) => void
-}) {
-  const groups = [
-    ...(editable
-      ? buildItemGroupsWithEmptyGroups(data, items, view, {
-          sourceItems: scopedItems,
-          teamId: createContext?.defaultTeamId,
-          projectId: createContext?.defaultProjectId,
-        })
-      : buildItemGroups(data, items, view)
-    ).entries(),
-  ]
+}: WorkSurfaceViewProps) {
+  const groups = getWorkSurfaceGroups({
+    createContext,
+    data,
+    editable,
+    items,
+    scopedItems,
+    view,
+  })
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
-  const [activeItemId, setActiveItemId] = useState<string | null>(null)
-  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
-  const sensors = useHoldToDragSensors()
-  const itemPool = scopedItems ?? data.workItems
+  const {
+    activeItem,
+    confirmationDialog,
+    expandedItemIds,
+    handleDragCancel,
+    handleDragEnd,
+    handleDragStart,
+    sensors,
+    setExpandedItemIds,
+  } = useWorkSurfaceInteractionState({
+      data,
+      editable,
+      scopedItems,
+      scope: "list",
+      view,
+    })
   const showChildItems = Boolean(view.showChildItems)
-  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
-    useWorkItemProjectCascadeConfirmation()
 
   function toggleGroup(groupName: string) {
-    setCollapsedGroups((current) => {
-      const next = new Set(current)
-      if (next.has(groupName)) {
-        next.delete(groupName)
-      } else {
-        next.add(groupName)
-      }
-      return next
-    })
-  }
-
-  function handleDragStart(event: DragStartEvent) {
-    setActiveItemId(String(event.active.id))
+    toggleSetMember(setCollapsedGroups, groupName)
   }
 
   function toggleExpandedItem(itemId: string) {
-    setExpandedItemIds((current) => {
-      const next = new Set(current)
-
-      if (next.has(itemId)) {
-        next.delete(itemId)
-      } else {
-        next.add(itemId)
-      }
-
-      return next
-    })
+    toggleSetMember(setExpandedItemIds, itemId)
   }
 
-  function handleDragEnd(event: DragEndEvent) {
-    setActiveItemId(null)
-
-    if (!editable || !event.over) {
-      return
-    }
-
-    const activeId = String(event.active.id)
-    const overId = String(event.over.id)
-    const activeItem = itemPool.find((entry) => entry.id === activeId) ?? null
-
-    if (!activeItem) {
-      return
-    }
-
-    const itemTarget = parseItemDropTarget(overId, "list")
-
-    if (itemTarget) {
-      const targetItem =
-        itemPool.find((entry) => entry.id === itemTarget.itemId) ?? null
-
-      if (
-        !targetItem ||
-        targetItem.id === activeItem.id ||
-        targetItem.teamId !== activeItem.teamId
-      ) {
-        return
-      }
-
-      const patch = buildGroupedWorkItemPatch({
-        data,
-        items: itemPool,
-        itemId: activeItem.id,
-        view,
-        groupValue: getGroupValue(data, targetItem, view.grouping),
-        subgroupValue: view.subGrouping
-          ? getGroupValue(data, targetItem, view.subGrouping)
-          : undefined,
-      })
-      const canNestOnTarget =
-        activeItem.parentId !== null &&
-        canParentWorkItemTypeAcceptChild(targetItem.type, activeItem.type) &&
-        !getWorkItemDescendantIds(data, activeItem.id).has(targetItem.id)
-
-      requestConfirmedWorkItemUpdate(activeItem.id, {
-        ...patch,
-        parentId: canNestOnTarget ? targetItem.id : null,
-      })
-      return
-    }
-
-    const target = parseGroupDropTarget(overId, "list")
-
-    if (!target) {
-      return
-    }
-
-    const patch = buildGroupedWorkItemPatch({
-      data,
-      items: itemPool,
-      itemId: activeItem.id,
-      view,
-      groupValue: target.groupValue,
-      subgroupValue: target.subgroupValue,
-    })
-
-    requestConfirmedWorkItemUpdate(activeItem.id, {
-      ...patch,
-      parentId: null,
-    })
-  }
-
-  function openCreateForGroup({
-    groupValue,
-    subgroupValue,
-    laneItems,
-  }: {
-    groupValue: string
-    subgroupValue?: string
-    laneItems: WorkItem[]
-  }) {
-    const createDefaults = buildCreateDefaultsForGroup({
-      data,
-      items: laneItems,
-      view,
-      groupValue,
-      subgroupValue,
-      createContext,
-    })
-
-    openManagedCreateDialog({
-      kind: "workItem",
-      defaultTeamId:
-        createDefaults.defaultTeamId ??
-        laneItems[0]?.teamId ??
-        items[0]?.teamId ??
-        scopedItems?.[0]?.teamId ??
-        createContext?.defaultTeamId ??
-        null,
-      defaultProjectId: createDefaults.defaultValues.primaryProjectId,
-      initialType: createDefaults.initialType,
-      defaultValues: createDefaults.defaultValues,
-    })
-  }
-
-  const activeItem = itemPool.find((item) => item.id === activeItemId) ?? null
+  const openCreateForGroup = createWorkSurfaceGroupCreateHandler({
+    createContext,
+    data,
+    items,
+    scopedItems,
+    view,
+  })
 
   return (
     <DndContext
       collisionDetection={listCollisionDetection}
       sensors={sensors}
       onDragStart={handleDragStart}
-      onDragCancel={() => setActiveItemId(null)}
+      onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
       <div className="flex flex-col pb-10">
@@ -1593,15 +1528,23 @@ type ListRowBodyProps = {
   dragListeners?: DraggableBindings["listeners"]
 }
 
-function getListRowDisplayState({
+type ListRowProps = Omit<
+  ListRowBodyProps,
+  "dragAttributes" | "dragListeners" | "interactive" | "isDropTarget"
+>
+
+function getWorkSurfaceItemDisplayState({
   childCountOverride,
   data,
   displayProps,
   item,
+  variant,
 }: Pick<
   ListRowBodyProps,
   "childCountOverride" | "data" | "displayProps" | "item"
->) {
+> & {
+  variant: "board" | "list"
+}) {
   const dueDateLabel =
     displayProps.includes("dueDate") && item.dueDate
       ? formatWorkSurfaceDueDate(item.dueDate)
@@ -1620,7 +1563,7 @@ function getListRowDisplayState({
       data,
       item,
       property: "id",
-      variant: "list",
+      variant,
       childProgress,
       dueDateLabel,
       isOverdue,
@@ -1631,13 +1574,31 @@ function getListRowDisplayState({
       data,
       item,
       displayProps: displayProps.filter((property) => property !== "id"),
-      variant: "list",
+      variant,
       childProgress,
       dueDateLabel,
       isOverdue,
       isSoon,
     }),
   }
+}
+
+function getListRowDisplayState({
+  childCountOverride,
+  data,
+  displayProps,
+  item,
+}: Pick<
+  ListRowBodyProps,
+  "childCountOverride" | "data" | "displayProps" | "item"
+>) {
+  return getWorkSurfaceItemDisplayState({
+    childCountOverride,
+    data,
+    displayProps,
+    item,
+    variant: "list",
+  })
 }
 
 function ListRowDisclosure({
@@ -1860,57 +1821,22 @@ function ListRowBody({
   )
 }
 
-function ListRow({
-  data,
-  item,
-  displayProps,
-  depth,
-  childCountOverride,
-  hasChildren,
-  expanded,
-  onToggleExpanded,
-}: {
-  data: AppData
-  item: WorkItem
-  displayProps: DisplayProperty[]
-  depth: number
-  childCountOverride?: number
-  hasChildren?: boolean
-  expanded?: boolean
-  onToggleExpanded?: () => void
-}) {
-  return (
-    <ListRowBody
-      data={data}
-      item={item}
-      displayProps={displayProps}
-      depth={depth}
-      childCountOverride={childCountOverride}
-      hasChildren={hasChildren}
-      expanded={expanded}
-      onToggleExpanded={onToggleExpanded}
-    />
-  )
+function ListRow(props: ListRowProps) {
+  return <ListRowBody {...props} />
 }
 
-function DraggableListRow({
-  data,
-  item,
-  displayProps,
-  depth,
-  childCountOverride,
-  hasChildren,
-  expanded,
-  onToggleExpanded,
+function DraggableWorkSurfaceItem({
+  children,
+  dropId,
+  itemId,
 }: {
-  data: AppData
-  item: WorkItem
-  displayProps: DisplayProperty[]
-  depth: number
-  childCountOverride?: number
-  hasChildren?: boolean
-  expanded?: boolean
-  onToggleExpanded?: () => void
+  children: (
+    args: DraggableBindings & {
+      isDropTarget: boolean
+    }
+  ) => ReactNode
+  dropId: string
+  itemId: string
 }) {
   const {
     attributes,
@@ -1919,10 +1845,10 @@ function DraggableListRow({
     transform,
     isDragging,
   } = useDraggable({
-    id: item.id,
+    id: itemId,
   })
   const { isOver, setNodeRef: setDroppableNodeRef } = useDroppable({
-    id: `list-item::${item.id}`,
+    id: dropId,
   })
 
   function setNodeRef(node: HTMLDivElement | null) {
@@ -1936,20 +1862,32 @@ function DraggableListRow({
       style={{ transform: CSS.Translate.toString(transform) }}
       className={cn(isDragging ? "opacity-60" : "opacity-100")}
     >
-      <ListRowBody
-        data={data}
-        item={item}
-        displayProps={displayProps}
-        depth={depth}
-        childCountOverride={childCountOverride}
-        hasChildren={hasChildren}
-        expanded={expanded}
-        onToggleExpanded={onToggleExpanded}
-        isDropTarget={isOver && !isDragging}
-        dragAttributes={attributes}
-        dragListeners={listeners}
-      />
+      {children({
+        attributes,
+        listeners,
+        isDropTarget: isOver && !isDragging,
+      })}
     </div>
+  )
+}
+
+function DraggableListRow(props: ListRowProps) {
+  const { item } = props
+
+  return (
+    <DraggableWorkSurfaceItem
+      itemId={item.id}
+      dropId={`list-item::${item.id}`}
+    >
+      {({ attributes, isDropTarget, listeners }) => (
+        <ListRowBody
+          {...props}
+          isDropTarget={isDropTarget}
+          dragAttributes={attributes}
+          dragListeners={listeners}
+        />
+      )}
+    </DraggableWorkSurfaceItem>
   )
 }
 
@@ -2027,41 +1965,24 @@ function DraggableWorkCard({
   childCountOverride?: number
   details?: ReactNode
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef: setDraggableNodeRef,
-    transform,
-    isDragging,
-  } = useDraggable({
-    id: item.id,
-  })
-  const { isOver, setNodeRef: setDroppableNodeRef } = useDroppable({
-    id: `board-item::${item.id}`,
-  })
-
-  function setNodeRef(node: HTMLDivElement | null) {
-    setDraggableNodeRef(node)
-    setDroppableNodeRef(node)
-  }
-
   return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform) }}
-      className={cn(isDragging ? "opacity-60" : "opacity-100")}
+    <DraggableWorkSurfaceItem
+      itemId={item.id}
+      dropId={`board-item::${item.id}`}
     >
-      <BoardCardBody
-        data={data}
-        item={item}
-        displayProps={displayProps}
-        childCountOverride={childCountOverride}
-        details={details}
-        isDropTarget={isOver && !isDragging}
-        dragAttributes={attributes}
-        dragListeners={listeners}
-      />
-    </div>
+      {({ attributes, isDropTarget, listeners }) => (
+        <BoardCardBody
+          data={data}
+          item={item}
+          displayProps={displayProps}
+          childCountOverride={childCountOverride}
+          details={details}
+          isDropTarget={isDropTarget}
+          dragAttributes={attributes}
+          dragListeners={listeners}
+        />
+      )}
+    </DraggableWorkSurfaceItem>
   )
 }
 
@@ -2084,37 +2005,14 @@ function BoardCardBody({
   dragAttributes?: DraggableBindings["attributes"]
   dragListeners?: DraggableBindings["listeners"]
 }) {
-  const dueDateLabel =
-    displayProps.includes("dueDate") && item.dueDate
-      ? formatWorkSurfaceDueDate(item.dueDate)
-      : null
-  const daysUntilDue = dueDateLabel
-    ? getCalendarDateDayOffset(item.dueDate)
-    : null
-  const isOverdue = daysUntilDue !== null && daysUntilDue < 0
-  const isSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 5
-  const childProgress = getChildProgressRollup(data, item)
-  const subCount = childCountOverride ?? childProgress?.totalChildren ?? 0
-  const idProperty = renderWorkItemDisplayProperty({
-    data,
-    item,
-    property: "id",
-    variant: "board",
-    childProgress,
-    dueDateLabel,
-    isOverdue,
-    isSoon,
-  })
-  const visibleProperties = renderWorkItemDisplayProperties({
-    data,
-    item,
-    displayProps: displayProps.filter((property) => property !== "id"),
-    variant: "board",
-    childProgress,
-    dueDateLabel,
-    isOverdue,
-    isSoon,
-  })
+  const { idProperty, subCount, visibleProperties } =
+    getWorkSurfaceItemDisplayState({
+      childCountOverride,
+      data,
+      displayProps,
+      item,
+      variant: "board",
+    })
   const itemHref = `/items/${item.id}`
 
   return (
@@ -2304,54 +2202,5 @@ function DraggableBoardChildItem({
         dragListeners={listeners}
       />
     </div>
-  )
-}
-
-function BoardChildItemRow({
-  item,
-  assignee,
-  interactive,
-  href,
-  isDropTarget = false,
-  dragAttributes,
-  dragListeners,
-}: {
-  item: WorkItem
-  assignee: ReturnType<typeof getUser> | null
-  interactive: boolean
-  href?: string
-  isDropTarget?: boolean
-  dragAttributes?: DraggableBindings["attributes"]
-  dragListeners?: DraggableBindings["listeners"]
-}) {
-  const className = cn(
-    "flex cursor-grab touch-none items-center gap-2 rounded-md px-1.5 py-1 text-[12px] transition-colors hover:bg-surface-3 active:cursor-grabbing",
-    isDropTarget && "bg-surface-3"
-  )
-
-  const content = (
-    <>
-      <StatusRing status={item.status} className="size-2.5" />
-      <span className="shrink-0 text-[11px] text-fg-3">{item.key}</span>
-      <span className="min-w-0 flex-1 truncate text-fg-2">{item.title}</span>
-      {assignee ? (
-        <WorkItemAssigneeAvatar user={assignee} className="size-4" />
-      ) : null}
-    </>
-  )
-
-  if (!interactive || !href) {
-    return <div className={className}>{content}</div>
-  }
-
-  return (
-    <Link
-      href={href}
-      className={className}
-      {...dragAttributes}
-      {...dragListeners}
-    >
-      {content}
-    </Link>
   )
 }
