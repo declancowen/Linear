@@ -19,6 +19,7 @@ const authenticateWithOrganizationSelectionMock = vi.fn()
 const listUsersMock = vi.fn()
 const listOrganizationMembershipsMock = vi.fn()
 const resetWorkOSPasswordMock = vi.fn()
+const requestWorkOSPasswordResetMock = vi.fn()
 const mapWorkOSAccountErrorMock = vi.fn()
 const listWorkspacesForSyncServerMock = vi.fn()
 
@@ -45,6 +46,7 @@ vi.mock("@/lib/server/workos", () => ({
   getWorkOSAuthErrorCode: getMockWorkOSAuthErrorCode,
   getWorkOSPendingAuthentication: getMockWorkOSPendingAuthentication,
   resetWorkOSPassword: resetWorkOSPasswordMock,
+  requestWorkOSPasswordReset: requestWorkOSPasswordResetMock,
   mapWorkOSAccountError: mapWorkOSAccountErrorMock,
 }))
 
@@ -66,6 +68,17 @@ function expectLoginErrorRedirect(response: Response, error: string) {
   expect(redirectUrl.searchParams.get("error")).toBe(error)
 }
 
+function expectForgotPasswordRedirect(response: Response) {
+  const redirectUrl = getRedirectPath(response)
+
+  expect(response.status).toBe(303)
+  expect(redirectUrl.pathname).toBe("/forgot-password")
+  expect(redirectUrl.searchParams.get("next")).toBe("/workspace/docs")
+  expect(redirectUrl.searchParams.has("nextPath")).toBe(false)
+
+  return redirectUrl
+}
+
 function buildAuthState(input: { mode: "login" | "signup"; nextPath: string }) {
   return JSON.stringify(input)
 }
@@ -81,10 +94,24 @@ function resetAuthRouteMocks() {
   listUsersMock.mockReset()
   listOrganizationMembershipsMock.mockReset()
   resetWorkOSPasswordMock.mockReset()
+  requestWorkOSPasswordResetMock.mockReset()
   mapWorkOSAccountErrorMock.mockReset()
   mapWorkOSAccountErrorMock.mockReturnValue("Provider account error")
   listWorkspacesForSyncServerMock.mockReset()
   listWorkspacesForSyncServerMock.mockResolvedValue([])
+}
+
+function createForgotPasswordRequest(
+  entries: Partial<{
+    email: string
+    next: string
+  }> = {}
+) {
+  return createFormRouteRequest("http://localhost/auth/forgot-password", {
+    email: "alex@example.com",
+    next: "/workspace/docs",
+    ...entries,
+  })
 }
 
 function createResetPasswordRequest(
@@ -470,6 +497,41 @@ describe("auth login route", () => {
   })
 })
 
+describe("forgot password route", () => {
+  beforeEach(resetAuthRouteMocks)
+
+  it("preserves the next query parameter on validation redirects", async () => {
+    const { POST } = await import("@/app/auth/forgot-password/route")
+    const response = await POST(
+      createForgotPasswordRequest({
+        email: "",
+        next: "/workspace/docs",
+      })
+    )
+    const redirectUrl = expectForgotPasswordRedirect(response)
+
+    expect(redirectUrl.searchParams.get("error")).toBe(
+      "Enter the email you use to sign in."
+    )
+    expect(requestWorkOSPasswordResetMock).not.toHaveBeenCalled()
+  })
+
+  it("preserves the next query parameter on notice redirects", async () => {
+    requestWorkOSPasswordResetMock.mockResolvedValue(undefined)
+    const { POST } = await import("@/app/auth/forgot-password/route")
+    const response = await POST(createForgotPasswordRequest())
+    const redirectUrl = expectForgotPasswordRedirect(response)
+
+    expect(redirectUrl.searchParams.get("email")).toBe("alex@example.com")
+    expect(redirectUrl.searchParams.get("notice")).toBe(
+      "If an account exists for that email, a password reset link has been sent."
+    )
+    expect(requestWorkOSPasswordResetMock).toHaveBeenCalledWith(
+      "alex@example.com"
+    )
+  })
+})
+
 describe("reset password route", () => {
   beforeEach(resetAuthRouteMocks)
 
@@ -492,8 +554,20 @@ describe("reset password route", () => {
     expect(getRedirectPath(missingToken).searchParams.get("error")).toBe(
       "That password reset link is missing its token."
     )
+    expect(getRedirectPath(missingToken).searchParams.get("next")).toBe(
+      "/workspace"
+    )
+    expect(getRedirectPath(missingToken).searchParams.has("nextPath")).toBe(
+      false
+    )
     expect(getRedirectPath(missingPassword).searchParams.get("error")).toBe(
       "Enter a new password."
+    )
+    expect(getRedirectPath(missingPassword).searchParams.get("next")).toBe(
+      "/workspace"
+    )
+    expect(getRedirectPath(missingPassword).searchParams.has("nextPath")).toBe(
+      false
     )
     expect(resetWorkOSPasswordMock).not.toHaveBeenCalled()
   })
@@ -513,6 +587,8 @@ describe("reset password route", () => {
     expect(redirectUrl.searchParams.get("error")).toBe(
       "The passwords do not match."
     )
+    expect(redirectUrl.searchParams.get("next")).toBe("/workspace")
+    expect(redirectUrl.searchParams.has("nextPath")).toBe(false)
     expect(resetWorkOSPasswordMock).not.toHaveBeenCalled()
   })
 
@@ -544,6 +620,8 @@ describe("reset password route", () => {
       "We couldn't reset your password."
     )
     expect(redirectUrl.pathname).toBe("/reset-password")
+    expect(redirectUrl.searchParams.get("next")).toBe("/workspace/docs")
+    expect(redirectUrl.searchParams.has("nextPath")).toBe(false)
     expect(redirectUrl.searchParams.get("error")).toBe("Try again later.")
   })
 })

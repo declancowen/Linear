@@ -36,11 +36,91 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-01 22:08 BST |
-| **Last reviewed**     | 2026-05-05 18:22 BST |
-| **Total turns**       | 6                    |
+| **Last reviewed**     | 2026-05-05 18:36 BST |
+| **Total turns**       | 7                    |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 7                    |
+| **Resolved findings** | 9                    |
 | **Accepted findings** | 1                    |
+
+## Turn 7 - 2026-05-05 18:36 BST
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `dc699d9c` plus working tree |
+| **IDE / Agent** | Codex + GitHub Codex review  |
+
+**Summary:** GitHub Codex PR review found two P2 auth redirect regressions in `lib/auth-routing.ts`: forgot-password and reset-password page builders emitted `nextPath` instead of the route-owned `next` query parameter. The fix keeps the internal caller API as `nextPath` but serializes the public route/query contract as `next`, with route-level tests covering validation, notice, and provider-failure redirects.
+**Outcome:** external findings resolved locally, ready to push
+**Risk score:** medium - narrow auth-routing fix in a high-risk authentication surface.
+**Change archetypes:** external review remediation, route-contract bug fix, owner-local auth helper correction.
+**Intended change:** Preserve intended post-auth destinations across forgot-password and reset-password redirect loops.
+**Intent vs actual:** Matches intent. Redirects now include `next`, never `nextPath`, on the affected branches.
+**Confidence:** high for these findings - targeted route tests fail under the reported shape and now assert the corrected contract.
+**Coverage note:** `pnpm test:coverage` passed with `174` files and `955` tests after the fix.
+**Finding triage:** Two external P2 findings were accepted and fixed. No new local diff-review findings are open.
+**Static/analyzer evidence:** Full dead-code `0`, full duplication `0`, full health findings `0`, and `pnpm fallow:gate` passed after the fix.
+**Architecture impact:** The route/query serialization rule stays in the auth-routing owner. Tests assert the public route contract rather than duplicating URL-building details in callers.
+**Bug classes / invariants checked:** Redirect integrity, query parameter contract, authentication flow continuation, and analyzer zero-regression policy.
+**Branch totality:** Current review target is the full PR branch plus the two-file auth follow-up.
+**Sibling closure:** Forgot-password and reset-password both had the same key mismatch and were fixed together.
+**Remediation impact surface:** `lib/auth-routing.ts` and `tests/app/auth-route-contracts.test.ts`.
+**Residual risk / unknowns:** Existing GitHub review comments remain on the old commit until the follow-up commit is pushed and Codex re-reviews.
+
+### Validation
+
+- `pnpm exec vitest run tests/app/auth-route-contracts.test.ts tests/app/auth-provider-logging.test.ts` - passed, `2` files and `18` tests
+- `pnpm test:coverage` - passed, `174` files and `955` tests
+- `pnpm exec fallow dead-code --format json --quiet --explain` - passed, `total_issues: 0`
+- `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` - passed, `clone_groups: 0`, `duplicated_lines: 0`
+- `pnpm exec fallow health --format json --quiet --explain` - findings `0`, functions above threshold `0`; command exits `1` only because aggregate score remains below `100`
+- `pnpm fallow:gate` - passed
+- `pnpm lint` - passed
+- `pnpm typecheck` - passed
+- `pnpm build` - passed
+- `pnpm desktop:smoke` - passed
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` - passed analyzer preflight
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** PR review comments, `lib/auth-routing.ts`, forgot/reset auth routes, and auth route contract tests.
+- **Prior open findings rechecked:** No Turn 6 local findings were open; the new PR findings are resolved in this turn.
+- **Prior resolved/adjacent areas revalidated:** Full Fallow dead-code, duplication, health, local Fallow gate, lint, typecheck, build, desktop smoke, and coverage.
+- **Hotspots or sibling paths revisited:** Both forgot-password and reset-password redirect builders were fixed together because they shared the same `nextPath` to `next` mismatch.
+- **Dependency/adjacent surfaces revalidated:** Auth provider logging tests still pass with the route mocks updated for forgot-password reset requests.
+- **Why this is enough:** The bug was a deterministic query-key mismatch and is now covered by route-level assertions on the public redirect contract.
+
+### Challenger pass
+
+- `pass` - The likely incomplete fix would correct only one builder or assert only the helper output. The implementation fixes both sibling builders and tests route behavior.
+
+### Resolved / Carried / New findings
+
+#### FSR-09 - Resolved - Forgot-password redirects serialized `nextPath` instead of `next`
+
+- **Type / Severity:** Bug, P2
+- **Source:** GitHub Codex review comment `discussion_r3190349824`
+- **File:** `lib/auth-routing.ts`
+- **Root cause:** `buildForgotPasswordPageHref` passed its internal input object directly into query serialization.
+- **Impact:** Redirects back to `/forgot-password` dropped the intended destination because the page and form read `next`, not `nextPath`.
+- **Resolution:** Serialize `next: normalizeAuthNextPath(input.nextPath)` and keep `nextPath` out of the URL.
+
+#### FSR-10 - Resolved - Reset-password redirects serialized `nextPath` instead of `next`
+
+- **Type / Severity:** Bug, P2
+- **Source:** GitHub Codex review comment `discussion_r3190349830`
+- **File:** `lib/auth-routing.ts`
+- **Root cause:** `buildResetPasswordPageHref` had the same internal-field/public-query mismatch.
+- **Impact:** Reset failure redirects back to `/reset-password` lost the original post-reset destination.
+- **Resolution:** Serialize `next: normalizeAuthNextPath(input.nextPath)` and cover missing token, missing password, mismatch, and provider failure redirect branches.
+
+### Recommendations
+
+1. **Fix first:** Push the auth-routing follow-up commit.
+2. **Then address:** Trigger/monitor a fresh Codex PR review on the new commit.
+3. **Patterns noticed:** Internal option names are fine, but route helper serialization must speak the public query contract.
+4. **Suggested approach:** Keep redirect contract assertions at route level for auth flows.
+5. **Architecture transition:** Auth-routing remains the single owner of auth URL construction.
+6. **Defer on purpose:** No CI policy changes in this follow-up.
 
 ## Turn 6 - 2026-05-05 18:22 BST
 

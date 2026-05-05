@@ -6,6 +6,28 @@ Fallow was adopted as a report-first static codebase intelligence tool for this 
 
 This is a Fallow baseline, not a full manual repo-audit-skill report. The architecture interpretation below uses the repository architecture standards: findings are grouped by ownership, boundary enforcement, public API intent, generated/runtime entry points, and operational risk.
 
+## PR Review Auth Redirect Checkpoint - 2026-05-05
+
+This checkpoint records the first GitHub Codex review loop for PR #32. Codex reported two P2 redirect-contract regressions in `lib/auth-routing.ts`: forgot-password and reset-password page href builders used the internal `nextPath` option name as the public query key. The affected pages/routes consume `next`, so redirect loops could drop the intended post-auth destination.
+
+The fix stayed inside the auth-routing owner: callers still pass `nextPath`, while the helper serializes `next: normalizeAuthNextPath(input.nextPath)` for both routes. Route-level tests now assert that forgot-password and reset-password redirects preserve `next` and do not emit `nextPath`.
+
+### Validation
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `pnpm exec vitest run tests/app/auth-route-contracts.test.ts tests/app/auth-provider-logging.test.ts` | 0 | `2` files and `18` tests passed. |
+| `pnpm test:coverage` | 0 | `174` files and `955` tests passed with Istanbul JSON coverage. |
+| `pnpm exec fallow dead-code --format json --quiet --explain` | 0 | `total_issues: 0`. |
+| `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` | 0 | `clone_groups: 0`, `duplicated_lines: 0`, `duplication_percentage: 0`. |
+| `pnpm exec fallow health --format json --quiet --explain` | 1 | `findings: 0`, `functions_above_threshold: 0`, `critical/high/moderate: 0/0/0`, `score=97.7`, `grade=A`; exit remains `1` due aggregate score below `100`. |
+| `pnpm fallow:gate` | 0 | Full dead-code zero, production health zero-findings gate, and full zero-duplication budget passed. |
+| `pnpm lint` | 0 | ESLint passed with `--max-warnings 0`. |
+| `pnpm typecheck` | 0 | `tsc --noEmit` passed. |
+| `pnpm build` | 0 | Next.js production build completed successfully. |
+| `pnpm desktop:smoke` | 0 | Packaged runtime smoke probe passed. |
+| `~/.codex/skills/diff-review/scripts/review-preflight.sh` | 0 | Changed-file audit passed; production/full dead-code, production/full duplication, production health, and full health all reported `0` findings. |
+
 ## Diff Review Finalization Checkpoint - 2026-05-05
 
 This checkpoint records the final local diff-review loop before commit and PR creation. The live review finding was a production public-surface regression: coverage-first remediation had left test-only exports in production modules, causing production Fallow dead-code noise. The fix removed those test-only exports by moving directly testable branches into owner-local modules imported by production and tests, or by keeping helpers file-local where no production caller needed them.

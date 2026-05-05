@@ -127,7 +127,12 @@ export function buildForgotPasswordPageHref(input: {
   error?: string | null
   notice?: string | null
 }) {
-  return buildAuthRoutePath("/forgot-password", input)
+  return buildAuthRoutePath("/forgot-password", {
+    next: normalizeAuthNextPath(input.nextPath),
+    email: input.email,
+    error: input.error,
+    notice: input.notice,
+  })
 }
 
 export function buildResetPasswordPageHref(input: {
@@ -136,7 +141,12 @@ export function buildResetPasswordPageHref(input: {
   error?: string | null
   notice?: string | null
 }) {
-  return buildAuthRoutePath("/reset-password", input)
+  return buildAuthRoutePath("/reset-password", {
+    token: input.token,
+    next: normalizeAuthNextPath(input.nextPath),
+    error: input.error,
+    notice: input.notice,
+  })
 }
 
 export function buildPostAuthPath(nextPath?: string | null) {
