@@ -13,7 +13,7 @@ function addInferredLabelWorkspaceId(
   labelWorkspaceIds.set(labelId, existingWorkspaceIds)
 }
 
-type LabelWorkspaceInferenceInput = {
+export type LabelWorkspaceInferenceInput = {
   teams: Array<{ id: string; workspaceId: string }>
   workItems: Array<{ teamId: string; labelIds: string[] }>
   views: Array<{

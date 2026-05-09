@@ -14,9 +14,14 @@ export type PresenceActor = {
   sessionId: string
 }
 
+export type PresenceClearActor = Pick<
+  PresenceActor,
+  "currentUserId" | "sessionId" | "workosUserId"
+>
+
 function presenceEntryMatchesActor(
   entry: DocumentPresenceDoc,
-  actor: PresenceActor
+  actor: PresenceClearActor
 ) {
   return (
     entry.workosUserId === actor.workosUserId ||
@@ -26,7 +31,7 @@ function presenceEntryMatchesActor(
 
 function presenceEntryConflictsWithActor(
   entry: DocumentPresenceDoc,
-  actor: PresenceActor
+  actor: PresenceClearActor
 ) {
   return entry.workosUserId
     ? entry.workosUserId !== actor.workosUserId
@@ -51,7 +56,7 @@ function getLatestPresenceForActor(
 
 function assertPresenceSessionOwnedByActor(
   entries: DocumentPresenceDoc[],
-  actor: PresenceActor
+  actor: PresenceClearActor
 ) {
   const hasConflictingPresence = entries.some((entry) =>
     presenceEntryConflictsWithActor(entry, actor)
@@ -132,4 +137,29 @@ export async function upsertDocumentPresenceForActor(
     sessionId: actor.sessionId,
     createdAt: currentTime,
   })
+}
+
+export async function clearDocumentPresenceForActor(
+  ctx: MutationCtx,
+  documentId: string,
+  actor: PresenceClearActor
+) {
+  const existingPresenceEntries = await ctx.db
+    .query("documentPresence")
+    .withIndex("by_session", (q) => q.eq("sessionId", actor.sessionId))
+    .collect()
+
+  if (existingPresenceEntries.length === 0) {
+    return { ok: true }
+  }
+
+  assertPresenceSessionOwnedByActor(existingPresenceEntries, actor)
+
+  for (const existingPresence of existingPresenceEntries) {
+    if (existingPresence.documentId === documentId) {
+      await ctx.db.delete(existingPresence._id)
+    }
+  }
+
+  return { ok: true }
 }

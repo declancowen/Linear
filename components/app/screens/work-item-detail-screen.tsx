@@ -11,6 +11,7 @@ import {
   useState,
   type ComponentProps,
   type Dispatch,
+  type MutableRefObject,
   type ReactNode,
   type SetStateAction,
 } from "react"
@@ -29,7 +30,6 @@ import {
   Plus,
   SidebarSimple,
   Smiley,
-  Tag,
   Trash,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
@@ -56,7 +56,6 @@ import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh
 import {
   commentContentConstraints,
   getTextInputLimitState,
-  labelNameConstraints,
   workItemTitleConstraints,
 } from "@/lib/domain/input-constraints"
 import { createWorkItemDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
@@ -77,6 +76,10 @@ import {
   sortItems,
 } from "@/lib/domain/selectors"
 import {
+  getRootComments,
+  groupCommentsByParentId,
+} from "@/lib/domain/comment-threads"
+import {
   getAllowedChildWorkItemTypesForItem,
   getChildWorkItemCopy,
   getDisplayLabelForWorkItemType,
@@ -96,19 +99,18 @@ import {
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { useAppStore } from "@/lib/store/app-store"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import { DetailSidebarLabelsRow } from "@/components/app/screens/detail-sidebar-labels-row"
+import {
+  detailChipClassName,
+  renderDetailSidebarTerm,
+  renderDetailSidebarValueButton,
+} from "@/components/app/screens/detail-sidebar-primitives"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { ShortcutKeys } from "@/components/app/shortcut-keys"
 import { UserAvatar } from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -123,7 +125,9 @@ import {
 } from "@/components/ui/popover"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 
+import { CollaborationSyncDialog } from "./collaboration-sync-dialog"
 import { DocumentPresenceAvatarGroup } from "./document-ui"
+import { useLegacyPresenceHeartbeat } from "./legacy-presence-heartbeat"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
 import {
   getEligibleParentWorkItems,
@@ -132,17 +136,23 @@ import {
   selectAppDataSnapshot,
 } from "./helpers"
 import {
-  LabelColorDot,
   MissingState,
   PROPERTY_SELECT_SEPARATOR_VALUE,
   PriorityIcon,
   StatusIcon,
   buildPropertyStatusOptions,
+  getSelectedPropertySelectOption,
+  type PropertySelectCommonProps,
+  type PropertySelectOption,
 } from "./shared"
 import {
-  WorkItemAssigneeAvatar,
+  WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS,
+  CommentReactionButtons,
   InlineChildIssueComposer,
+  WorkItemAssigneeAvatar,
+  WorkItemCommentComposerActions,
 } from "./work-item-ui"
+import { useCommentComposer } from "./use-comment-composer"
 import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import { formatWorkItemDetailDate } from "./date-presentation"
 import { cn } from "@/lib/utils"
@@ -160,12 +170,6 @@ function isAlreadyDeliveredMentionConflict(error: unknown) {
 
 const detailIconButtonClassName =
   "inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
-
-const detailPropertyValueClassName =
-  "flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12.5px] text-foreground transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:text-fg-4 disabled:hover:bg-transparent"
-
-const detailChipClassName =
-  "inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 py-1 text-[11.5px] text-fg-2"
 
 function formatDetailDate(value: string | null) {
   if (!value) {
@@ -229,10 +233,7 @@ function DetailSidebarStaticRow({
 }) {
   return (
     <>
-      <dt className="flex items-center gap-2 self-center py-1.5 text-fg-3">
-        <span className="text-fg-4">{icon}</span>
-        <span>{label}</span>
-      </dt>
+      {renderDetailSidebarTerm(label, icon)}
       <dd className="m-0">
         <div className="flex min-h-7 items-center gap-2 rounded-md px-1.5 py-1 text-[12.5px] text-foreground">
           {children}
@@ -254,46 +255,31 @@ function DetailSidebarSelectRow({
 }: {
   label: string
   icon: ReactNode
-  value: string
-  options: Array<{ value: string; label: string }>
-  onValueChange: (value: string) => void
-  disabled?: boolean
-  renderValue?: (value: string, label: string) => ReactNode
-  renderOption?: (value: string, label: string) => ReactNode
-}) {
+} & PropertySelectCommonProps) {
   const [open, setOpen] = useState(false)
-  const selectedOption =
-    options.find((option) => option.value === value) ??
-    options.find(
-      (option) => option.value !== PROPERTY_SELECT_SEPARATOR_VALUE
-    ) ??
-    null
+  const selectedOption = getSelectedPropertySelectOption(options, value)
   const selectedValue = selectedOption?.value ?? value
   const selectedLabel = selectedOption?.label ?? value
 
   return (
     <>
-      <dt className="flex items-center gap-2 self-center py-1.5 text-fg-3">
-        <span className="text-fg-4">{icon}</span>
-        <span>{label}</span>
-      </dt>
+      {renderDetailSidebarTerm(label, icon)}
       <dd className="m-0">
         <Popover open={disabled ? false : open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <button
-              type="button"
-              aria-label={label}
-              disabled={disabled}
-              className={detailPropertyValueClassName}
-            >
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                {renderValue ? (
-                  renderValue(selectedValue, selectedLabel)
-                ) : (
-                  <span className="truncate">{selectedLabel}</span>
-                )}
-              </span>
-            </button>
+            {renderDetailSidebarValueButton({
+              disabled,
+              label,
+              children: (
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  {renderValue ? (
+                    renderValue(selectedValue, selectedLabel)
+                  ) : (
+                    <span className="truncate">{selectedLabel}</span>
+                  )}
+                </span>
+              ),
+            })}
           </PopoverTrigger>
           <PopoverContent
             align="end"
@@ -353,24 +339,22 @@ function DetailSidebarDateRow({
 
   return (
     <>
-      <dt className="flex items-center gap-2 self-center py-1.5 text-fg-3">
-        <span className="text-fg-4">{icon}</span>
-        <span>{label}</span>
-      </dt>
+      {renderDetailSidebarTerm(label, icon)}
       <dd className="m-0">
         <Popover open={disabled ? false : open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <button
-              type="button"
-              aria-label={label}
-              disabled={disabled}
-              className={detailPropertyValueClassName}
-            >
-              <span className={cn(!value && "text-fg-4")}>
-                {value ? formatDetailDate(value) : "Set date"}
-              </span>
-              <CaretDown className="ml-auto size-3 shrink-0 text-fg-4" />
-            </button>
+            {renderDetailSidebarValueButton({
+              disabled,
+              label,
+              children: (
+                <>
+                  <span className={cn(!value && "text-fg-4")}>
+                    {value ? formatDetailDate(value) : "Set date"}
+                  </span>
+                  <CaretDown className="ml-auto size-3 shrink-0 text-fg-4" />
+                </>
+              ),
+            })}
           </PopoverTrigger>
           <PopoverContent
             align="end"
@@ -404,190 +388,6 @@ function DetailSidebarDateRow({
                 <Button size="sm" onClick={() => setOpen(false)}>
                   Done
                 </Button>
-              </div>
-            </div>
-          </PopoverContent>
-        </Popover>
-      </dd>
-    </>
-  )
-}
-
-function DetailSidebarLabelsRow({
-  item,
-  workspaceId,
-  labels,
-  editable,
-}: {
-  item: WorkItem
-  workspaceId: string | null | undefined
-  labels: AppData["labels"]
-  editable: boolean
-}) {
-  const [newLabelName, setNewLabelName] = useState("")
-  const labelNameLimitState = getTextInputLimitState(
-    newLabelName,
-    labelNameConstraints
-  )
-  const selectedLabels = labels.filter((label) =>
-    item.labelIds.includes(label.id)
-  )
-
-  function toggleLabel(labelId: string) {
-    const nextLabelIds = item.labelIds.includes(labelId)
-      ? item.labelIds.filter((currentId) => currentId !== labelId)
-      : [...item.labelIds, labelId]
-
-    useAppStore.getState().updateWorkItem(item.id, {
-      labelIds: nextLabelIds,
-    })
-  }
-
-  async function handleCreateLabel() {
-    if (
-      !workspaceId ||
-      newLabelName.trim().length === 0 ||
-      !labelNameLimitState.canSubmit
-    ) {
-      return
-    }
-
-    const created = await useAppStore
-      .getState()
-      .createLabel(newLabelName, workspaceId)
-
-    if (!created) {
-      return
-    }
-
-    const latestItem =
-      useAppStore.getState().workItems.find((entry) => entry.id === item.id) ??
-      item
-
-    setNewLabelName("")
-    useAppStore.getState().updateWorkItem(item.id, {
-      labelIds: latestItem.labelIds.includes(created.id)
-        ? latestItem.labelIds
-        : [...latestItem.labelIds, created.id],
-    })
-  }
-
-  return (
-    <>
-      <dt className="flex items-center gap-2 self-center py-1.5 text-fg-3">
-        <span className="text-fg-4">
-          <Tag className="size-[13px]" />
-        </span>
-        <span>Labels</span>
-      </dt>
-      <dd className="m-0">
-        <Popover>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              aria-label="Manage labels"
-              disabled={!editable}
-              className={detailPropertyValueClassName}
-            >
-              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                {selectedLabels.length > 0 ? (
-                  selectedLabels.map((label) => (
-                    <span key={label.id} className={detailChipClassName}>
-                      <LabelColorDot color={label.color} className="size-1.5" />
-                      <span>{label.name}</span>
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-fg-4">No labels</span>
-                )}
-                {editable ? (
-                  <span
-                    className={cn(
-                      detailChipClassName,
-                      "border-dashed bg-transparent text-fg-3"
-                    )}
-                  >
-                    <Plus className="size-3" />
-                  </span>
-                ) : null}
-              </span>
-            </button>
-          </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            className="w-72 rounded-lg border border-line bg-surface p-3 shadow-lg"
-          >
-            <div className="flex flex-col gap-3">
-              <div className="space-y-1">
-                <div className="text-[11.5px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
-                  Labels
-                </div>
-                <div className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
-                  {labels.length > 0 ? (
-                    labels.map((label) => {
-                      const selected = item.labelIds.includes(label.id)
-
-                      return (
-                        <button
-                          key={label.id}
-                          type="button"
-                          disabled={!editable}
-                          className={cn(
-                            detailChipClassName,
-                            selected &&
-                              "border-transparent bg-accent-bg text-accent-fg"
-                          )}
-                          onClick={() => toggleLabel(label.id)}
-                        >
-                          <LabelColorDot
-                            color={label.color}
-                            className="size-1.5"
-                          />
-                          <span>{label.name}</span>
-                        </button>
-                      )
-                    })
-                  ) : (
-                    <span className="text-[12.5px] text-fg-4">
-                      No labels yet
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-[11.5px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
-                  New label
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={newLabelName}
-                    onChange={(event) => setNewLabelName(event.target.value)}
-                    placeholder="Add label"
-                    maxLength={labelNameConstraints.max}
-                    disabled={!editable || !workspaceId}
-                    className="h-8"
-                  />
-                  <Button
-                    size="sm"
-                    disabled={
-                      !editable ||
-                      !workspaceId ||
-                      newLabelName.trim().length === 0 ||
-                      !labelNameLimitState.canSubmit
-                    }
-                    onClick={() => void handleCreateLabel()}
-                  >
-                    Create
-                  </Button>
-                </div>
-                {newLabelName.length > 0 ? (
-                  <FieldCharacterLimit
-                    state={labelNameLimitState}
-                    limit={labelNameConstraints.max}
-                    className="mt-0"
-                  />
-                ) : null}
               </div>
             </div>
           </PopoverContent>
@@ -717,31 +517,14 @@ function DetailSidebarComment({
             />
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
-            {comment.reactions.map((reaction) => {
-              const active = reaction.userIds.includes(currentUserId)
-
-              return (
-                <button
-                  key={`${comment.id}-${reaction.emoji}`}
-                  type="button"
-                  disabled={!editable}
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] transition-colors",
-                    active
-                      ? "border-transparent bg-accent-bg text-accent-fg"
-                      : "border-line bg-surface-2 text-fg-2 hover:bg-surface-3"
-                  )}
-                  onClick={() =>
-                    useAppStore
-                      .getState()
-                      .toggleCommentReaction(comment.id, reaction.emoji)
-                  }
-                >
-                  <span>{reaction.emoji}</span>
-                  <span>{reaction.userIds.length}</span>
-                </button>
-              )
-            })}
+            <CommentReactionButtons
+              activeClassName="border-transparent bg-accent-bg text-accent-fg"
+              buttonClassName="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] transition-colors"
+              comment={comment}
+              currentUserId={currentUserId}
+              disabled={!editable}
+              inactiveClassName="border-line bg-surface-2 text-fg-2 hover:bg-surface-3"
+            />
           </div>
         </div>
       </div>
@@ -761,6 +544,32 @@ function DetailSidebarComment({
   )
 }
 
+function getWorkItemActivityContext(input: {
+  currentUserId: string
+  data: AppData
+  item: WorkItem
+}) {
+  const comments = getCommentsForTarget(input.data, "workItem", input.item.id)
+  const rootComments = getRootComments(comments)
+  const repliesByParentId = groupCommentsByParentId(comments)
+
+  return {
+    assignee: input.item.assigneeId
+      ? getUser(input.data, input.item.assigneeId)
+      : null,
+    creator: getUser(input.data, input.item.creatorId),
+    mentionCandidates: getTeamMembers(input.data, input.item.teamId).filter(
+      (candidate) => candidate.id !== input.currentUserId
+    ),
+    repliesByParentId,
+    rootComments,
+  }
+}
+
+function useWorkItemCommentComposer(itemId: string) {
+  return useCommentComposer("workItem", itemId)
+}
+
 function DetailSidebarActivity({
   data,
   currentUserId,
@@ -772,51 +581,20 @@ function DetailSidebarActivity({
   item: WorkItem
   editable: boolean
 }) {
-  const comments = getCommentsForTarget(data, "workItem", item.id)
-  const rootComments = comments.filter(
-    (comment) => comment.parentCommentId === null
-  )
-  const repliesByParentId = comments.reduce<
-    Record<string, AppData["comments"]>
-  >((accumulator, comment) => {
-    if (!comment.parentCommentId) {
-      return accumulator
-    }
-
-    accumulator[comment.parentCommentId] = [
-      ...(accumulator[comment.parentCommentId] ?? []),
-      comment,
-    ]
-
-    return accumulator
-  }, {})
-  const creator = getUser(data, item.creatorId)
-  const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
-  const [content, setContent] = useState("")
-  const commentEditorRef = useRef<Editor | null>(null)
-  const commentLimitState = getTextInputLimitState(
+  const {
+    assignee,
+    creator,
+    mentionCandidates,
+    repliesByParentId,
+    rootComments,
+  } = getWorkItemActivityContext({ currentUserId, data, item })
+  const {
+    commentEditorRef,
+    commentLimitState,
     content,
-    commentContentConstraints,
-    {
-      plainText: true,
-    }
-  )
-  const mentionCandidates = getTeamMembers(data, item.teamId).filter(
-    (candidate) => candidate.id !== currentUserId
-  )
-
-  function handleComment() {
-    if (!commentLimitState.canSubmit) {
-      return
-    }
-
-    useAppStore.getState().addComment({
-      targetType: "workItem",
-      targetId: item.id,
-      content,
-    })
-    setContent("")
-  }
+    handleComment,
+    setContent,
+  } = useWorkItemCommentComposer(item.id)
 
   const activityEvents = [
     {
@@ -1040,181 +818,262 @@ function MainActivityCommentCard({
         !nested && "shadow-[0_1px_0_0_var(--line-soft)]"
       )}
     >
-      <header className="flex items-center gap-2 px-3.5 pt-2.5">
-        {nested ? (
-          <UserAvatar
-            name={author?.name ?? "Unknown"}
-            avatarImageUrl={author?.avatarImageUrl}
-            avatarUrl={author?.avatarUrl}
-            status={author?.status}
-            size="sm"
-            showStatus={false}
-            className="size-5"
-          />
-        ) : null}
-        <span className="text-[12.5px] font-semibold text-foreground">
-          {author?.name ?? "Unknown"}
-        </span>
-        <span className="text-[11px] text-fg-4">
-          commented {formatRelativeTimestamp(comment.createdAt)}
-        </span>
-        <span className="ml-auto hidden text-[11px] text-fg-4 group-hover/comment:inline">
-          {format(new Date(comment.createdAt), "MMM d, h:mm a")}
-        </span>
-      </header>
+      <MainActivityCommentHeader
+        author={author}
+        comment={comment}
+        nested={nested}
+      />
       <div className="px-3.5 pt-1 pb-3">
         <RichTextContent
           content={comment.content}
           className="text-[13px] leading-[1.6] text-fg-2 [&_p]:my-0 [&_p+p]:mt-2 [&_ul]:my-1 [&_ul]:ml-4 [&_ul]:list-disc"
         />
       </div>
-      {comment.reactions.length > 0 || editable ? (
-        <footer className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-surface-2/40 px-3.5 py-1.5">
-          {comment.reactions.map((reaction) => (
-            <MainActivityReactionButton
-              key={`${comment.id}-${reaction.emoji}`}
-              emoji={reaction.emoji}
-              count={reaction.userIds.length}
-              active={reaction.userIds.includes(currentUserId)}
-              disabled={!editable}
-              onToggle={() =>
-                useAppStore
-                  .getState()
-                  .toggleCommentReaction(comment.id, reaction.emoji)
-              }
-            />
-          ))}
-          {editable ? (
-            <>
-              <EmojiPickerPopover
-                align="start"
-                side="top"
-                onEmojiSelect={(emoji) => {
-                  useAppStore
-                    .getState()
-                    .toggleCommentReaction(comment.id, emoji)
-                }}
-                trigger={
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-line px-2 py-0.5 text-[11.5px] text-fg-3 transition-colors hover:border-fg-4 hover:bg-surface-3 hover:text-foreground"
-                  >
-                    <Smiley className="size-3" />
-                    <span>React</span>
-                  </button>
-                }
-              />
-              <button
-                type="button"
-                className="ml-1 text-[11.5px] text-fg-3 transition-colors hover:text-foreground"
-                onClick={() => setReplyOpen((current) => !current)}
-              >
-                {replyOpen ? "Cancel reply" : "Reply"}
-              </button>
-            </>
-          ) : null}
-        </footer>
-      ) : null}
-
-      {replies.length > 0 ? (
-        <div className="border-t border-line-soft bg-surface-2/30 px-3.5 py-3">
-          <ul className="flex flex-col gap-2.5">
-            {replies.map((reply) => (
-              <li key={reply.id}>
-                <MainActivityCommentCard
-                  data={data}
-                  comment={reply}
-                  repliesByParentId={repliesByParentId}
-                  currentUserId={currentUserId}
-                  editable={editable}
-                  mentionCandidates={mentionCandidates}
-                  nested
-                />
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <MainActivityCommentFooter
+        comment={comment}
+        currentUserId={currentUserId}
+        editable={editable}
+        replyOpen={replyOpen}
+        onToggleReply={() => setReplyOpen((current) => !current)}
+      />
+      <MainActivityCommentReplies
+        data={data}
+        replies={replies}
+        repliesByParentId={repliesByParentId}
+        currentUserId={currentUserId}
+        editable={editable}
+        mentionCandidates={mentionCandidates}
+      />
 
       {replyOpen ? (
-        <div className="border-t border-line-soft bg-background px-3.5 py-3">
-          <div className="rounded-lg border border-line bg-surface transition-colors focus-within:border-fg-3">
-            <div className="px-3 py-2">
-              <RichTextEditor
-                content={replyContent}
-                onChange={setReplyContent}
-                editable={editable}
-                compact
-                autoFocus
-                allowSlashCommands={false}
-                showToolbar={false}
-                showStats={false}
-                placeholder="Write a reply…"
-                editorInstanceRef={replyEditorRef}
-                mentionCandidates={mentionCandidates}
-                minPlainTextCharacters={commentContentConstraints.min}
-                maxPlainTextCharacters={commentContentConstraints.max}
-                enforcePlainTextLimit
-                onSubmitShortcut={handleReply}
-                submitOnEnter
-                className="[&_.ProseMirror]:min-h-[2.5rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
-              />
-            </div>
-            <div className="border-t border-dashed border-line px-3 py-1.5">
-              <FieldCharacterLimit
-                state={replyLimitState}
-                limit={commentContentConstraints.max}
-                className="mt-0 mb-1.5"
-              />
-              <div className="flex items-center justify-between gap-2">
-                <EmojiPickerPopover
-                  align="start"
-                  side="top"
-                  onEmojiSelect={(emoji) =>
-                    replyEditorRef.current
-                      ?.chain()
-                      .focus()
-                      .insertContent(emoji)
-                      .run()
-                  }
-                  trigger={
-                    <button
-                      type="button"
-                      className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
-                    >
-                      <Smiley className="size-3.5" />
-                    </button>
-                  }
-                />
-                <div className="flex items-center gap-2">
-                  <ShortcutKeys
-                    keys={["Enter"]}
-                    keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setReplyContent("")
-                      setReplyOpen(false)
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={!replyLimitState.canSubmit}
-                    onClick={handleReply}
-                  >
-                    Reply
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <MainActivityReplyComposer
+          editable={editable}
+          mentionCandidates={mentionCandidates}
+          replyContent={replyContent}
+          replyEditorRef={replyEditorRef}
+          replyLimitState={replyLimitState}
+          onCancel={() => {
+            setReplyContent("")
+            setReplyOpen(false)
+          }}
+          onReply={handleReply}
+          onReplyContentChange={setReplyContent}
+        />
       ) : null}
     </article>
+  )
+}
+
+function MainActivityCommentHeader({
+  author,
+  comment,
+  nested,
+}: {
+  author: AppData["users"][number] | null | undefined
+  comment: AppData["comments"][number]
+  nested: boolean
+}) {
+  return (
+    <header className="flex items-center gap-2 px-3.5 pt-2.5">
+      {nested ? (
+        <UserAvatar
+          name={author?.name ?? "Unknown"}
+          avatarImageUrl={author?.avatarImageUrl}
+          avatarUrl={author?.avatarUrl}
+          status={author?.status}
+          size="sm"
+          showStatus={false}
+          className="size-5"
+        />
+      ) : null}
+      <span className="text-[12.5px] font-semibold text-foreground">
+        {author?.name ?? "Unknown"}
+      </span>
+      <span className="text-[11px] text-fg-4">
+        commented {formatRelativeTimestamp(comment.createdAt)}
+      </span>
+      <span className="ml-auto hidden text-[11px] text-fg-4 group-hover/comment:inline">
+        {format(new Date(comment.createdAt), "MMM d, h:mm a")}
+      </span>
+    </header>
+  )
+}
+
+function MainActivityCommentFooter({
+  comment,
+  currentUserId,
+  editable,
+  replyOpen,
+  onToggleReply,
+}: {
+  comment: AppData["comments"][number]
+  currentUserId: string
+  editable: boolean
+  replyOpen: boolean
+  onToggleReply: () => void
+}) {
+  if (comment.reactions.length === 0 && !editable) {
+    return null
+  }
+
+  return (
+    <footer className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-surface-2/40 px-3.5 py-1.5">
+      {comment.reactions.map((reaction) => (
+        <MainActivityReactionButton
+          key={`${comment.id}-${reaction.emoji}`}
+          emoji={reaction.emoji}
+          count={reaction.userIds.length}
+          active={reaction.userIds.includes(currentUserId)}
+          disabled={!editable}
+          onToggle={() =>
+            useAppStore
+              .getState()
+              .toggleCommentReaction(comment.id, reaction.emoji)
+          }
+        />
+      ))}
+      {editable ? (
+        <>
+          <EmojiPickerPopover
+            align="start"
+            side="top"
+            onEmojiSelect={(emoji) => {
+              useAppStore.getState().toggleCommentReaction(comment.id, emoji)
+            }}
+            trigger={
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-full border border-dashed border-line px-2 py-0.5 text-[11.5px] text-fg-3 transition-colors hover:border-fg-4 hover:bg-surface-3 hover:text-foreground"
+              >
+                <Smiley className="size-3" />
+                <span>React</span>
+              </button>
+            }
+          />
+          <button
+            type="button"
+            className="ml-1 text-[11.5px] text-fg-3 transition-colors hover:text-foreground"
+            onClick={onToggleReply}
+          >
+            {replyOpen ? "Cancel reply" : "Reply"}
+          </button>
+        </>
+      ) : null}
+    </footer>
+  )
+}
+
+function MainActivityCommentReplies({
+  data,
+  replies,
+  repliesByParentId,
+  currentUserId,
+  editable,
+  mentionCandidates,
+}: {
+  data: AppData
+  replies: AppData["comments"]
+  repliesByParentId: Record<string, AppData["comments"]>
+  currentUserId: string
+  editable: boolean
+  mentionCandidates: AppData["users"]
+}) {
+  if (replies.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="border-t border-line-soft bg-surface-2/30 px-3.5 py-3">
+      <ul className="flex flex-col gap-2.5">
+        {replies.map((reply) => (
+          <li key={reply.id}>
+            <MainActivityCommentCard
+              data={data}
+              comment={reply}
+              repliesByParentId={repliesByParentId}
+              currentUserId={currentUserId}
+              editable={editable}
+              mentionCandidates={mentionCandidates}
+              nested
+            />
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function MainActivityReplyComposer({
+  editable,
+  mentionCandidates,
+  replyContent,
+  replyEditorRef,
+  replyLimitState,
+  onCancel,
+  onReply,
+  onReplyContentChange,
+}: {
+  editable: boolean
+  mentionCandidates: AppData["users"]
+  replyContent: string
+  replyEditorRef: MutableRefObject<Editor | null>
+  replyLimitState: ReturnType<typeof getTextInputLimitState>
+  onCancel: () => void
+  onReply: () => void
+  onReplyContentChange: (content: string) => void
+}) {
+  return (
+    <div className="border-t border-line-soft bg-background px-3.5 py-3">
+      <div className="rounded-lg border border-line bg-surface transition-colors focus-within:border-fg-3">
+        <div className="px-3 py-2">
+          <RichTextEditor
+            content={replyContent}
+            onChange={onReplyContentChange}
+            editable={editable}
+            compact
+            autoFocus
+            allowSlashCommands={false}
+            showToolbar={false}
+            showStats={false}
+            placeholder="Write a reply…"
+            editorInstanceRef={replyEditorRef}
+            mentionCandidates={mentionCandidates}
+            minPlainTextCharacters={commentContentConstraints.min}
+            maxPlainTextCharacters={commentContentConstraints.max}
+            enforcePlainTextLimit
+            onSubmitShortcut={onReply}
+            submitOnEnter
+            className="[&_.ProseMirror]:min-h-[2.5rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+          />
+        </div>
+        <div className="border-t border-dashed border-line px-3 py-1.5">
+          <WorkItemCommentComposerActions
+            editable={editable}
+            editorRef={replyEditorRef}
+            emojiButtonClassName="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
+            emojiIconClassName="size-3.5"
+            limitState={replyLimitState}
+          >
+            <div className="flex items-center gap-2">
+              <ShortcutKeys
+                keys={["Enter"]}
+                keyClassName={WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS}
+              />
+              <Button size="sm" variant="ghost" onClick={onCancel}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={!replyLimitState.canSubmit}
+                onClick={onReply}
+              >
+                Reply
+              </Button>
+            </div>
+          </WorkItemCommentComposerActions>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1229,52 +1088,21 @@ function MainActivityTimeline({
   currentUserId: string
   editable: boolean
 }) {
-  const comments = getCommentsForTarget(data, "workItem", item.id)
-  const rootComments = comments.filter(
-    (comment) => comment.parentCommentId === null
-  )
-  const repliesByParentId = comments.reduce<
-    Record<string, AppData["comments"]>
-  >((accumulator, comment) => {
-    if (!comment.parentCommentId) {
-      return accumulator
-    }
-
-    accumulator[comment.parentCommentId] = [
-      ...(accumulator[comment.parentCommentId] ?? []),
-      comment,
-    ]
-
-    return accumulator
-  }, {})
-  const creator = getUser(data, item.creatorId)
-  const assignee = item.assigneeId ? getUser(data, item.assigneeId) : null
+  const {
+    assignee,
+    creator,
+    mentionCandidates,
+    repliesByParentId,
+    rootComments,
+  } = getWorkItemActivityContext({ currentUserId, data, item })
   const currentUser = getUser(data, currentUserId)
-  const mentionCandidates = getTeamMembers(data, item.teamId).filter(
-    (candidate) => candidate.id !== currentUserId
-  )
-  const [content, setContent] = useState("")
-  const commentEditorRef = useRef<Editor | null>(null)
-  const commentLimitState = getTextInputLimitState(
+  const {
+    commentEditorRef,
+    commentLimitState,
     content,
-    commentContentConstraints,
-    {
-      plainText: true,
-    }
-  )
-
-  function handleComment() {
-    if (!commentLimitState.canSubmit) {
-      return
-    }
-
-    useAppStore.getState().addComment({
-      targetType: "workItem",
-      targetId: item.id,
-      content,
-    })
-    setContent("")
-  }
+    handleComment,
+    setContent,
+  } = useWorkItemCommentComposer(item.id)
 
   type TimelineEntry =
     | {
@@ -1427,36 +1255,16 @@ function MainActivityTimeline({
             />
           </div>
           <div className="border-t border-dashed border-line px-3 py-1.5">
-            <FieldCharacterLimit
-              state={commentLimitState}
-              limit={commentContentConstraints.max}
-              className="mt-0 mb-1.5"
-            />
-            <div className="flex items-center justify-between gap-2">
-              <EmojiPickerPopover
-                align="start"
-                side="top"
-                onEmojiSelect={(emoji) =>
-                  commentEditorRef.current
-                    ?.chain()
-                    .focus()
-                    .insertContent(emoji)
-                    .run()
-                }
-                trigger={
-                  <button
-                    type="button"
-                    disabled={!editable}
-                    className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
-                  >
-                    <Smiley className="size-4" />
-                  </button>
-                }
-              />
+            <WorkItemCommentComposerActions
+              editable={editable}
+              editorRef={commentEditorRef}
+              emojiButtonClassName="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
+              limitState={commentLimitState}
+            >
               <div className="flex items-center gap-2">
                 <ShortcutKeys
                   keys={["Enter"]}
-                  keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+                  keyClassName={WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS}
                 />
                 <Button
                   size="sm"
@@ -1467,7 +1275,7 @@ function MainActivityTimeline({
                   Comment
                 </Button>
               </div>
-            </div>
+            </WorkItemCommentComposerActions>
           </div>
         </div>
       </MainActivityThreadItem>
@@ -1486,7 +1294,16 @@ type StableCollaborationUser = {
   avatarImageUrl?: string | null
 }
 
-type DetailSelectOption = { value: string; label: string }
+type DetailSelectOption = PropertySelectOption
+type DetailPropertyChangeHandlers = {
+  onStatusChange: (value: string) => void
+  onPriorityChange: (value: string) => void
+  onAssigneeChange: (value: string) => void
+  onStartDateChange: (value: string | null) => void
+  onEndDateChange: (value: string | null) => void
+  onProjectChange: (value: string) => void
+  onParentChange: (value: string) => void
+}
 type DetailTextLimitState = ReturnType<typeof getTextInputLimitState>
 type DetailChildProgress = ReturnType<typeof getWorkItemChildProgress>
 type DetailChildCopy = ReturnType<typeof getChildWorkItemCopy>
@@ -1924,171 +1741,34 @@ function useLegacyWorkItemPresence({
   collaborationLifecycle: WorkItemCollaborationLifecycle
   isEditingCurrentItem: boolean
 }) {
-  const [workItemPresenceViewers, setWorkItemPresenceViewers] = useState<
-    DocumentPresenceViewer[]
-  >([])
   const [legacyActiveBlockId, setLegacyActiveBlockId] = useState<string | null>(
     null
   )
   const legacyActiveBlockIdRef = useRef<string | null>(null)
-  const sendLegacyPresenceRef = useRef<(() => void) | null>(null)
   const hasLiveDescriptionPresence = collaborationLifecycle === "attached"
+  const {
+    presenceViewers: workItemPresenceViewers,
+    sendLegacyPresenceRef,
+  } = useLegacyPresenceHeartbeat({
+    activeId: activeItemId,
+    activeBlockIdRef: legacyActiveBlockIdRef,
+    clearErrorMessage: "Failed to clear work item presence",
+    clearPresence: syncClearWorkItemPresence,
+    collaborationLifecycle,
+    currentUserId,
+    heartbeatErrorMessage: "Failed to sync work item presence",
+    heartbeatIntervalMs: WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS,
+    heartbeatPresence: syncHeartbeatWorkItemPresence,
+    getSessionId: getWorkItemPresenceSessionId,
+  })
 
   useEffect(() => {
     if (!activeItemId) {
-      sendLegacyPresenceRef.current = null
-      setWorkItemPresenceViewers([])
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- route changes must clear the previous legacy presence target.
       setLegacyActiveBlockId(null)
       legacyActiveBlockIdRef.current = null
-      return
     }
-
-    if (
-      collaborationLifecycle === "bootstrapping" ||
-      collaborationLifecycle === "attached"
-    ) {
-      sendLegacyPresenceRef.current = null
-      setWorkItemPresenceViewers([])
-      return
-    }
-
-    let cancelled = false
-    let presenceActive = window.document.visibilityState === "visible"
-    let heartbeatTimeoutId: number | null = null
-    const activeItemIdValue = activeItemId
-    const sessionId = getWorkItemPresenceSessionId(currentUserId)
-
-    function clearHeartbeatTimeout() {
-      if (heartbeatTimeoutId !== null) {
-        window.clearTimeout(heartbeatTimeoutId)
-        heartbeatTimeoutId = null
-      }
-    }
-
-    function scheduleHeartbeat(delayMs: number) {
-      clearHeartbeatTimeout()
-
-      if (
-        cancelled ||
-        !presenceActive ||
-        window.document.visibilityState !== "visible"
-      ) {
-        return
-      }
-
-      heartbeatTimeoutId = window.setTimeout(() => {
-        void sendHeartbeat()
-      }, delayMs)
-    }
-
-    async function sendHeartbeat() {
-      if (
-        cancelled ||
-        !presenceActive ||
-        window.document.visibilityState !== "visible"
-      ) {
-        return
-      }
-
-      try {
-        const viewers = await syncHeartbeatWorkItemPresence(
-          activeItemIdValue,
-          sessionId,
-          legacyActiveBlockIdRef.current
-        )
-
-        if (
-          !cancelled &&
-          presenceActive &&
-          window.document.visibilityState === "visible"
-        ) {
-          setWorkItemPresenceViewers(viewers)
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to sync work item presence", error)
-        }
-      } finally {
-        scheduleHeartbeat(WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS)
-      }
-    }
-
-    sendLegacyPresenceRef.current = () => {
-      void sendHeartbeat()
-    }
-
-    function resumePresence() {
-      if (cancelled || window.document.visibilityState !== "visible") {
-        return
-      }
-
-      presenceActive = true
-      void sendHeartbeat()
-    }
-
-    function leaveWorkItem(options?: { keepalive?: boolean }) {
-      presenceActive = false
-      clearHeartbeatTimeout()
-
-      if (!cancelled) {
-        setWorkItemPresenceViewers([])
-      }
-
-      void syncClearWorkItemPresence(activeItemIdValue, sessionId, {
-        keepalive: options?.keepalive,
-      }).catch((error) => {
-        if (!cancelled && window.document.visibilityState === "visible") {
-          console.error("Failed to clear work item presence", error)
-        }
-      })
-    }
-
-    const handleVisibilityChange = () => {
-      if (window.document.visibilityState === "visible") {
-        resumePresence()
-        return
-      }
-
-      leaveWorkItem({ keepalive: true })
-    }
-    const handleWindowFocus = () => {
-      resumePresence()
-    }
-    const handleWindowOnline = () => {
-      resumePresence()
-    }
-    const handlePageShow = () => {
-      resumePresence()
-    }
-    const handlePageHide = () => {
-      leaveWorkItem({ keepalive: true })
-    }
-
-    resumePresence()
-
-    window.addEventListener("focus", handleWindowFocus)
-    window.addEventListener("online", handleWindowOnline)
-    window.addEventListener("pageshow", handlePageShow)
-    window.document.addEventListener("visibilitychange", handleVisibilityChange)
-    window.addEventListener("pagehide", handlePageHide)
-
-    return () => {
-      cancelled = true
-      clearHeartbeatTimeout()
-      window.removeEventListener("focus", handleWindowFocus)
-      window.removeEventListener("online", handleWindowOnline)
-      window.removeEventListener("pageshow", handlePageShow)
-      window.document.removeEventListener(
-        "visibilitychange",
-        handleVisibilityChange
-      )
-      window.removeEventListener("pagehide", handlePageHide)
-      sendLegacyPresenceRef.current = null
-      void syncClearWorkItemPresence(activeItemIdValue, sessionId, {
-        keepalive: true,
-      }).catch(() => {})
-    }
-  }, [activeItemId, collaborationLifecycle, currentUserId])
+  }, [activeItemId])
 
   const handleLegacyActiveBlockChange = useCallback(
     (activeBlockId: string | null) => {
@@ -2115,6 +1795,7 @@ function useLegacyWorkItemPresence({
     hasLiveDescriptionPresence,
     isEditingCurrentItem,
     legacyActiveBlockId,
+    sendLegacyPresenceRef,
   ])
 
   return {
@@ -3461,14 +3142,7 @@ function WorkItemSidebarProperties({
   displayedEndDate: string | null
   sidebarEditable: boolean
   statusOptions: DetailSelectOption[]
-  onStatusChange: (value: string) => void
-  onPriorityChange: (value: string) => void
-  onAssigneeChange: (value: string) => void
-  onStartDateChange: (value: string | null) => void
-  onEndDateChange: (value: string | null) => void
-  onProjectChange: (value: string) => void
-  onParentChange: (value: string) => void
-}) {
+} & DetailPropertyChangeHandlers) {
   return (
     <dl className="mt-5 grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12.5px]">
       <DetailSidebarSelectRow
@@ -3856,16 +3530,9 @@ function WorkItemDetailSidebar({
   linkedDocuments: AppDocument[]
   currentUserId: string
   onCopyItemLink: () => void
-  onStatusChange: (value: string) => void
-  onPriorityChange: (value: string) => void
-  onAssigneeChange: (value: string) => void
-  onStartDateChange: (value: string | null) => void
-  onEndDateChange: (value: string | null) => void
-  onProjectChange: (value: string) => void
-  onParentChange: (value: string) => void
   onToggleChildComposer: () => void
   onCloseChildComposer: () => void
-}) {
+} & DetailPropertyChangeHandlers) {
   const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
 
   return (
@@ -4198,6 +3865,59 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     await copyCurrentItemLink()
   }
 
+  const mainArticleProps = {
+    currentItem,
+    data,
+    team,
+    workCopy,
+    parentItem,
+    editable,
+    isMainEditing,
+    currentUserId,
+    mainDraftTitle,
+    isCollaborationAttached,
+    mainTitleLimitState,
+    editorCollaboration,
+    mainDraftStale,
+    collaboration,
+    descriptionContent,
+    isCollaborationBootstrapping,
+    showDescriptionBootPreview,
+    otherDescriptionViewers,
+    bootstrapContent,
+    mentionCandidates,
+    collaborationDescriptionContent,
+    childItems,
+    childProgress,
+    childCopy,
+    canCreateChildItem,
+    subIssuesOpen,
+    mainChildComposerOpen,
+    onMainDraftTitleChange: setMainDraftTitle,
+    onReloadMainDraft: handleReloadMainDraft,
+    onLegacyActiveBlockChange: handleLegacyActiveBlockChange,
+    onDescriptionChange: handleDescriptionChange,
+    onUploadAttachment: (file) =>
+      useAppStore.getState().uploadAttachment("workItem", currentItem.id, file),
+    onStartMainEdit: handleStartMainEdit,
+    onToggleSubIssues: () => setSubIssuesOpen((current) => !current),
+    onToggleMainChildComposer: () => {
+      setSubIssuesOpen(true)
+      setMainChildComposerOpen((current) => {
+        const next = !current
+        if (next) {
+          setSidebarChildComposerOpen(false)
+        }
+        return next
+      })
+    },
+    onOpenMainChildComposer: () => {
+      setSidebarChildComposerOpen(false)
+      setMainChildComposerOpen(true)
+    },
+    onCloseMainChildComposer: () => setMainChildComposerOpen(false),
+  } satisfies Parameters<typeof WorkItemMainArticle>[0]
+
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -4222,61 +3942,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         />
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <WorkItemMainArticle
-            data={data}
-            currentItem={currentItem}
-            team={team}
-            workCopy={workCopy}
-            parentItem={parentItem}
-            isMainEditing={isMainEditing}
-            mainDraftTitle={mainDraftTitle}
-            mainTitleLimitState={mainTitleLimitState}
-            mainDraftStale={mainDraftStale}
-            descriptionContent={descriptionContent}
-            showDescriptionBootPreview={showDescriptionBootPreview}
-            bootstrapContent={bootstrapContent}
-            collaborationDescriptionContent={collaborationDescriptionContent}
-            isCollaborationAttached={isCollaborationAttached}
-            editorCollaboration={editorCollaboration}
-            collaboration={collaboration}
-            currentUserId={currentUserId}
-            editable={editable}
-            isCollaborationBootstrapping={isCollaborationBootstrapping}
-            otherDescriptionViewers={otherDescriptionViewers}
-            mentionCandidates={mentionCandidates}
-            childItems={childItems}
-            childProgress={childProgress}
-            childCopy={childCopy}
-            canCreateChildItem={canCreateChildItem}
-            subIssuesOpen={subIssuesOpen}
-            mainChildComposerOpen={mainChildComposerOpen}
-            onMainDraftTitleChange={setMainDraftTitle}
-            onReloadMainDraft={handleReloadMainDraft}
-            onLegacyActiveBlockChange={handleLegacyActiveBlockChange}
-            onDescriptionChange={handleDescriptionChange}
-            onUploadAttachment={(file) =>
-              useAppStore
-                .getState()
-                .uploadAttachment("workItem", currentItem.id, file)
-            }
-            onStartMainEdit={handleStartMainEdit}
-            onToggleSubIssues={() => setSubIssuesOpen((current) => !current)}
-            onToggleMainChildComposer={() => {
-              setSubIssuesOpen(true)
-              setMainChildComposerOpen((current) => {
-                const next = !current
-                if (next) {
-                  setSidebarChildComposerOpen(false)
-                }
-                return next
-              })
-            }}
-            onOpenMainChildComposer={() => {
-              setSidebarChildComposerOpen(false)
-              setMainChildComposerOpen(true)
-            }}
-            onCloseMainChildComposer={() => setMainChildComposerOpen(false)}
-          />
+          <WorkItemMainArticle {...mainArticleProps} />
 
           <WorkItemDetailSidebar
             open={propertiesOpen}
@@ -4337,28 +4003,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
         </div>
       </div>
       {confirmationDialog}
-      <Dialog open={showDescriptionSyncDialog}>
-        <DialogContent className="max-w-sm gap-0 p-0" showCloseButton={false}>
-          <div className="px-5 py-5">
-            <DialogHeader className="p-0">
-              <DialogTitle className="text-base font-semibold">
-                Syncing latest changes
-              </DialogTitle>
-              <DialogDescription className="text-sm text-muted-foreground">
-                Loading the latest description state. Editing will unlock
-                automatically in a moment.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-              <span
-                aria-hidden="true"
-                className="size-2 animate-pulse rounded-full bg-primary"
-              />
-              <span>Syncing latest changes…</span>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <CollaborationSyncDialog
+        descriptionSubject="description"
+        open={showDescriptionSyncDialog}
+      />
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}

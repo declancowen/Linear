@@ -29,6 +29,27 @@ export function createId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
 }
 
+export function getNextActiveTeamId(
+  teams: AppData["teams"],
+  currentWorkspaceId: string,
+  currentActiveTeamId: string
+) {
+  const activeTeamStillVisible = teams.some(
+    (team) =>
+      team.id === currentActiveTeamId && team.workspaceId === currentWorkspaceId
+  )
+
+  if (activeTeamStillVisible) {
+    return currentActiveTeamId
+  }
+
+  return (
+    teams.find((team) => team.workspaceId === currentWorkspaceId)?.id ??
+    teams[0]?.id ??
+    ""
+  )
+}
+
 export function createNotification(
   userId: string,
   actorId: string,
@@ -61,6 +82,19 @@ export function createNotification(
     archivedAt: null,
     emailedAt: null,
     createdAt: getNow(),
+  }
+}
+
+export function createNotificationDraft(
+  state: Pick<AppData, "currentUserId" | "notifications" | "users">
+) {
+  const notifications = [...state.notifications]
+  const actor = state.users.find((user) => user.id === state.currentUserId)
+
+  return {
+    actorName: actor?.name ?? "Someone",
+    notifications,
+    notifiedUserIds: new Set<string>(),
   }
 }
 

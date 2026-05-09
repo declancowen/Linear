@@ -1,7 +1,7 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import "@/tests/lib/fixtures/common-screen-mocks"
 import { ProjectDetailScreen } from "@/components/app/screens/project-detail-screen"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { createViewDefinition } from "@/lib/domain/default-views"
@@ -15,48 +15,13 @@ import {
   getViewerScopedViewKey,
 } from "@/lib/domain/viewer-view-config"
 import { useAppStore } from "@/lib/store/app-store"
+import { createTestUser } from "@/tests/lib/fixtures/app-data"
 
-vi.mock("next/link", () => ({
-  default: ({
-    children,
-    href,
-    ...props
-  }: {
-    children: ReactNode
-    href: string
-  }) => (
-    <a href={href} {...props}>
-      {children}
-    </a>
-  ),
-}))
-
-vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(),
-  useRouter: () => ({
-    push: vi.fn(),
-  }),
-}))
-
-vi.mock("@/lib/browser/dialog-transitions", () => ({
-  openManagedCreateDialog: vi.fn(),
-}))
-
-vi.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-}))
-
-vi.mock("@/components/ui/sidebar", () => ({
-  SidebarTrigger: (props: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      Sidebar
-    </button>
-  ),
-}))
+vi.mock("@/components/ui/sidebar", async () =>
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createSidebarTriggerStubModule()
+)
 
 vi.mock("@/components/app/screens/shared", () => ({
   HeaderTitle: ({ title }: { title: string }) => <div>{title}</div>,
@@ -113,25 +78,14 @@ function seedState() {
     currentUserId: "user_1",
     currentWorkspaceId: "workspace_1",
     users: [
-      {
+      createTestUser({
         id: "user_1",
         name: "Alex",
         handle: "alex",
         email: "alex@example.com",
-        avatarUrl: "",
-        avatarImageUrl: null,
-        workosUserId: null,
         title: "Founder",
-        status: "active",
-        statusMessage: "",
         hasExplicitStatus: false,
-        preferences: {
-          emailMentions: true,
-          emailAssignments: true,
-          emailDigest: true,
-          theme: "system",
-        },
-      },
+      }),
     ],
     teams: [
       {
@@ -209,6 +163,20 @@ function seedState() {
   })
 }
 
+async function renderProjectDetailAndFlush(projectId = "project_1") {
+  render(<ProjectDetailScreen projectId={projectId} />)
+
+  await act(async () => {
+    await Promise.resolve()
+  })
+}
+
+async function clickProjectDetailButton(name: string) {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name }))
+  })
+}
+
 describe("ProjectDetailScreen", () => {
   beforeEach(() => {
     seedState()
@@ -219,17 +187,11 @@ describe("ProjectDetailScreen", () => {
   })
 
   it("does not reset local item layout on unrelated rerenders when the project has no persisted presentation", async () => {
-    render(<ProjectDetailScreen projectId="project_1" />)
-
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await renderProjectDetailAndFlush()
 
     expect(screen.getByText("Board layout")).toBeInTheDocument()
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Switch layout" }))
-    })
+    await clickProjectDetailButton("Switch layout")
 
     expect(screen.getByText("List layout")).toBeInTheDocument()
     expect(screen.getByText("level:label")).toBeInTheDocument()
@@ -398,29 +360,19 @@ describe("ProjectDetailScreen", () => {
   })
 
   it("restores the stable all-items template after switching between builtin tabs", async () => {
-    render(<ProjectDetailScreen projectId="project_1" />)
-
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await renderProjectDetailAndFlush()
 
     expect(screen.getByText("Board layout")).toBeInTheDocument()
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Active" }))
-    })
+    await clickProjectDetailButton("Active")
 
     expect(screen.getByText("Board layout")).toBeInTheDocument()
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Switch layout" }))
-    })
+    await clickProjectDetailButton("Switch layout")
 
     expect(screen.getByText("List layout")).toBeInTheDocument()
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "All work" }))
-    })
+    await clickProjectDetailButton("All work")
 
     expect(screen.getByText("Board layout")).toBeInTheDocument()
     expect(screen.queryByText("List layout")).not.toBeInTheDocument()

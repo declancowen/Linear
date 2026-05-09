@@ -2,6 +2,10 @@ import { generateHTML, getSchema, type JSONContent } from "@tiptap/core"
 import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model"
 import { parseHTML } from "linkedom"
 
+import {
+  getNormalizedStyleValue,
+  normalizeCanonicalUrl,
+} from "@/lib/collaboration/canonical-content-normalization"
 import { extractDocumentTitleFromContent } from "@/lib/content/document-title"
 import { createRichTextBaseExtensions } from "@/lib/rich-text/extensions"
 
@@ -52,18 +56,8 @@ const ALLOWED_HTML_TAGS = new Set([
   "u",
   "ul",
 ])
-const ALLOWED_TEXT_ALIGN_VALUES = new Set([
-  "left",
-  "center",
-  "right",
-  "justify",
-])
-const LENGTH_STYLE_VALUE = /^\d+(\.\d+)?(px|%)$/
 const ALLOWED_SPAN_CLASSES = new Set(["editor-highlight", "editor-mention"])
 const ALLOWED_IMAGE_CLASSES = new Set(["editor-image"])
-const LENGTH_STYLE_TAGS = new Set(["col", "td", "th"])
-const LENGTH_STYLE_PROPERTIES = new Set(["width", "min-width"])
-const TEXT_ALIGN_STYLE_TAGS = new Set(["p", "h1", "h2", "h3", "td", "th"])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -152,35 +146,6 @@ function serializeCanonicalContentJson(contentJson: JSONContent) {
   })
 }
 
-function normalizeUrl(
-  value: string | null,
-  allowedSchemes: ReadonlySet<string>
-) {
-  if (!value) {
-    return null
-  }
-
-  const normalizedValue = value.trim()
-
-  if (normalizedValue.length === 0) {
-    return null
-  }
-
-  const schemeMatch = normalizedValue.match(/^([a-z][a-z0-9+.-]*):/i)
-
-  if (!schemeMatch) {
-    return null
-  }
-
-  const scheme = schemeMatch[1]?.toLowerCase()
-
-  if (!scheme || !allowedSchemes.has(scheme)) {
-    return null
-  }
-
-  return normalizedValue
-}
-
 function normalizeClassNames(
   value: string | null,
   allowedClasses: ReadonlySet<string>
@@ -201,24 +166,6 @@ function normalizeClassNames(
   return [...new Set(normalized)].sort().join(" ")
 }
 
-function normalizeLengthStyleValue(value: string | null) {
-  if (!value) {
-    return null
-  }
-
-  const normalizedValue = value.trim().toLowerCase()
-  return LENGTH_STYLE_VALUE.test(normalizedValue) ? normalizedValue : null
-}
-
-function normalizeTextAlignValue(value: string | null) {
-  if (!value) {
-    return null
-  }
-
-  const normalizedValue = value.trim().toLowerCase()
-  return ALLOWED_TEXT_ALIGN_VALUES.has(normalizedValue) ? normalizedValue : null
-}
-
 function parseStyleDeclarationEntry(entry: string) {
   const separatorIndex = entry.indexOf(":")
 
@@ -237,28 +184,6 @@ function parseStyleDeclarationEntry(entry: string) {
     propertyName,
     propertyValue,
   }
-}
-
-function getNormalizedStyleValue(input: {
-  propertyName: string
-  propertyValue: string
-  tagName: string
-}) {
-  if (
-    LENGTH_STYLE_TAGS.has(input.tagName) &&
-    LENGTH_STYLE_PROPERTIES.has(input.propertyName)
-  ) {
-    return normalizeLengthStyleValue(input.propertyValue)
-  }
-
-  if (
-    TEXT_ALIGN_STYLE_TAGS.has(input.tagName) &&
-    input.propertyName === "text-align"
-  ) {
-    return normalizeTextAlignValue(input.propertyValue)
-  }
-
-  return null
 }
 
 function normalizeStyleDeclaration(tagName: string, styleValue: string | null) {
@@ -325,7 +250,7 @@ function collectAnchorAttributes(
   element: Element,
   target: Map<string, string>
 ) {
-  const href = normalizeUrl(
+  const href = normalizeCanonicalUrl(
     element.getAttribute("href"),
     new Set(["http", "https", "mailto", "tel"])
   )
@@ -362,7 +287,7 @@ function collectStyledBlockAttributes(
 }
 
 function collectImageAttributes(element: Element, target: Map<string, string>) {
-  const src = normalizeUrl(
+  const src = normalizeCanonicalUrl(
     element.getAttribute("src"),
     new Set(["http", "https"])
   )
@@ -413,44 +338,46 @@ function collectSpanAttributes(element: Element, target: Map<string, string>) {
   setTrimmedAttribute(target, element, "data-label")
 }
 
+type AttributeCollector = (
+  tagName: string,
+  element: Element,
+  target: Map<string, string>
+) => void
+
+const styledBlockTagNames = new Set(["col", "p", "h1", "h2", "h3", "td", "th"])
+
+const attributeCollectors: Record<string, AttributeCollector> = {
+  a: (_tagName, element, target) => collectAnchorAttributes(element, target),
+  div: (tagName, element, target) =>
+    setTrimmedAttribute(target, element, getDataAttributeForTag(tagName)),
+  img: (_tagName, element, target) => collectImageAttributes(element, target),
+  input: (_tagName, element, target) => collectInputAttributes(element, target),
+  label: (tagName, element, target) =>
+    setTrimmedAttribute(target, element, getDataAttributeForTag(tagName)),
+  li: (_tagName, element, target) => {
+    setTrimmedAttribute(target, element, "data-type")
+    setTrimmedAttribute(target, element, "data-checked")
+  },
+  span: (_tagName, element, target) => collectSpanAttributes(element, target),
+  ul: (tagName, element, target) =>
+    setTrimmedAttribute(target, element, getDataAttributeForTag(tagName)),
+}
+
+for (const tagName of styledBlockTagNames) {
+  attributeCollectors[tagName] = (blockTagName, element, target) =>
+    collectStyledBlockAttributes(blockTagName, element, target)
+}
+
+function getDataAttributeForTag(tagName: string) {
+  return tagName === "label" ? "contenteditable" : "data-type"
+}
+
 function collectAllowedAttributes(tagName: string, element: Element) {
   const nextAttributes = new Map<string, string>()
+  const collectAttributes = attributeCollectors[tagName]
 
-  switch (tagName) {
-    case "a":
-      collectAnchorAttributes(element, nextAttributes)
-      break
-    case "col":
-    case "p":
-    case "h1":
-    case "h2":
-    case "h3":
-    case "td":
-    case "th":
-      collectStyledBlockAttributes(tagName, element, nextAttributes)
-      break
-    case "div":
-    case "label":
-    case "ul":
-      setTrimmedAttribute(
-        nextAttributes,
-        element,
-        tagName === "label" ? "contenteditable" : "data-type"
-      )
-      break
-    case "img":
-      collectImageAttributes(element, nextAttributes)
-      break
-    case "input":
-      collectInputAttributes(element, nextAttributes)
-      break
-    case "li":
-      setTrimmedAttribute(nextAttributes, element, "data-type")
-      setTrimmedAttribute(nextAttributes, element, "data-checked")
-      break
-    case "span":
-      collectSpanAttributes(element, nextAttributes)
-      break
+  if (collectAttributes) {
+    collectAttributes(tagName, element, nextAttributes)
   }
 
   return nextAttributes

@@ -25,6 +25,7 @@ import {
   isSystemView,
 } from "@/lib/domain/default-views"
 import {
+  clearViewFilterSelections,
   viewNameMaxLength,
   viewNameMinLength,
   viewSchema,
@@ -50,6 +51,93 @@ type ViewSlice = Pick<
 
 type CreateViewInput = Parameters<AppStore["createView"]>[0]
 type CreateViewTeam = ReturnType<typeof getTeam>
+type EditableCreateViewTeam = NonNullable<CreateViewTeam>
+
+const TEAM_VIEW_ENTITY_FEATURES = {
+  docs: {
+    feature: "docs",
+    message: "Document views are disabled for this team",
+  },
+  items: {
+    feature: "issues",
+    message: "Work views are disabled for this team",
+  },
+  projects: {
+    feature: "projects",
+    message: "Project views are disabled for this team",
+  },
+} as const
+
+function clearPendingViewConfig(
+  state: AppStore,
+  viewId: string,
+  pendingToken: string
+) {
+  const pendingConfig = state.pendingViewConfigById?.[viewId]
+
+  if (!pendingConfig || pendingConfig.token !== pendingToken) {
+    return state
+  }
+
+  const nextPendingViewConfigById = {
+    ...(state.pendingViewConfigById ?? {}),
+  }
+  delete nextPendingViewConfigById[viewId]
+
+  return {
+    pendingViewConfigById: nextPendingViewConfigById,
+  }
+}
+
+function getViewNameValidationMessage(name: string) {
+  if (!name) {
+    return "View name is required"
+  }
+
+  if (name.length < viewNameMinLength) {
+    return `View name must be at least ${viewNameMinLength} characters`
+  }
+
+  if (name.length > viewNameMaxLength) {
+    return `View name must be at most ${viewNameMaxLength} characters`
+  }
+
+  return null
+}
+
+function applyRenamedView(state: AppStore, viewId: string, name: string) {
+  return {
+    views: state.views.map((entry) =>
+      entry.id === viewId
+        ? {
+            ...entry,
+            name,
+            updatedAt: getNow(),
+          }
+        : entry
+    ),
+  }
+}
+
+function getEditableCustomView(
+  state: AppStore,
+  viewId: string,
+  systemViewMessage: string
+) {
+  const view = state.views.find((entry) => entry.id === viewId)
+
+  if (!view) {
+    toast.error("View not found")
+    return null
+  }
+
+  if (isSystemView(view)) {
+    toast.error(systemViewMessage)
+    return null
+  }
+
+  return view
+}
 
 function resolveCreateViewTeam(
   state: AppStore,
@@ -76,27 +164,37 @@ function resolveCreateViewTeam(
     return undefined
   }
 
-  if (!teamHasFeature(team, "views")) {
-    toast.error("Views are disabled for this team")
-    return undefined
-  }
+  const disabledMessage = getCreateViewTeamDisabledMessage(
+    team,
+    input.entityKind
+  )
 
-  if (input.entityKind === "items" && !teamHasFeature(team, "issues")) {
-    toast.error("Work views are disabled for this team")
-    return undefined
-  }
-
-  if (input.entityKind === "projects" && !teamHasFeature(team, "projects")) {
-    toast.error("Project views are disabled for this team")
-    return undefined
-  }
-
-  if (input.entityKind === "docs" && !teamHasFeature(team, "docs")) {
-    toast.error("Document views are disabled for this team")
+  if (disabledMessage) {
+    toast.error(disabledMessage)
     return undefined
   }
 
   return team
+}
+
+function getCreateViewTeamDisabledMessage(
+  team: EditableCreateViewTeam,
+  entityKind: CreateViewInput["entityKind"]
+) {
+  if (!teamHasFeature(team, "views")) {
+    return "Views are disabled for this team"
+  }
+
+  const entityFeature =
+    TEAM_VIEW_ENTITY_FEATURES[
+      entityKind as keyof typeof TEAM_VIEW_ENTITY_FEATURES
+    ]
+
+  if (!entityFeature || teamHasFeature(team, entityFeature.feature)) {
+    return null
+  }
+
+  return entityFeature.message
 }
 
 function isCreateViewRouteAllowed(
@@ -314,50 +412,22 @@ export function createViewSlice(
     },
     async renameView(viewId, name) {
       const trimmedName = name.trim()
+      const validationMessage = getViewNameValidationMessage(trimmedName)
 
-      if (!trimmedName) {
-        toast.error("View name is required")
+      if (validationMessage) {
+        toast.error(validationMessage)
         return false
       }
 
-      if (trimmedName.length < viewNameMinLength) {
-        toast.error(
-          `View name must be at least ${viewNameMinLength} characters`
-        )
-        return false
-      }
-
-      if (trimmedName.length > viewNameMaxLength) {
-        toast.error(`View name must be at most ${viewNameMaxLength} characters`)
-        return false
-      }
-
-      const state = get()
-      const view = state.views.find((entry) => entry.id === viewId)
-
-      if (!view) {
-        toast.error("View not found")
-        return false
-      }
-
-      if (isSystemView(view)) {
-        toast.error("System views cannot be renamed")
+      if (
+        !getEditableCustomView(get(), viewId, "System views cannot be renamed")
+      ) {
         return false
       }
 
       try {
         await syncRenameView(viewId, trimmedName)
-        set((current) => ({
-          views: current.views.map((entry) =>
-            entry.id === viewId
-              ? {
-                  ...entry,
-                  name: trimmedName,
-                  updatedAt: getNow(),
-                }
-              : entry
-          ),
-        }))
+        set((current) => applyRenamedView(current, viewId, trimmedName))
         toast.success("View renamed")
         return true
       } catch (error) {
@@ -369,16 +439,9 @@ export function createViewSlice(
       }
     },
     async deleteView(viewId) {
-      const state = get()
-      const view = state.views.find((entry) => entry.id === viewId)
-
-      if (!view) {
-        toast.error("View not found")
-        return false
-      }
-
-      if (isSystemView(view)) {
-        toast.error("System views cannot be deleted")
+      if (
+        !getEditableCustomView(get(), viewId, "System views cannot be deleted")
+      ) {
         return false
       }
 
@@ -442,40 +505,14 @@ export function createViewSlice(
       runtime.syncInBackground(
         Promise.resolve(syncUpdateViewConfig(viewId, patch))
           .then(() => {
-            set((state) => {
-              const pendingConfig = state.pendingViewConfigById?.[viewId]
-
-              if (!pendingConfig || pendingConfig.token !== pendingToken) {
-                return state
-              }
-
-              const nextPendingViewConfigById = {
-                ...(state.pendingViewConfigById ?? {}),
-              }
-              delete nextPendingViewConfigById[viewId]
-
-              return {
-                pendingViewConfigById: nextPendingViewConfigById,
-              }
-            })
+            set((state) =>
+              clearPendingViewConfig(state, viewId, pendingToken)
+            )
           })
           .catch((error) => {
-            set((state) => {
-              const pendingConfig = state.pendingViewConfigById?.[viewId]
-
-              if (!pendingConfig || pendingConfig.token !== pendingToken) {
-                return state
-              }
-
-              const nextPendingViewConfigById = {
-                ...(state.pendingViewConfigById ?? {}),
-              }
-              delete nextPendingViewConfigById[viewId]
-
-              return {
-                pendingViewConfigById: nextPendingViewConfigById,
-              }
-            })
+            set((state) =>
+              clearPendingViewConfig(state, viewId, pendingToken)
+            )
 
             throw error
           }),
@@ -591,22 +628,7 @@ export function createViewSlice(
 
           return {
             ...view,
-            filters: {
-              ...view.filters,
-              status: [],
-              priority: [],
-              assigneeIds: [],
-              creatorIds: [],
-              leadIds: [],
-              health: [],
-              milestoneIds: [],
-              relationTypes: [],
-              projectIds: [],
-              parentIds: [],
-              itemTypes: [],
-              labelIds: [],
-              teamIds: [],
-            },
+            filters: clearViewFilterSelections(view.filters),
             updatedAt: getNow(),
           }
         }),

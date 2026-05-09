@@ -3,12 +3,10 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
-  CalendarDots,
   CaretDown,
   Check,
   FolderSimple,
   MagnifyingGlass,
-  Plus,
   Tag,
   TreeStructure,
   X,
@@ -23,8 +21,6 @@ import {
   labelNameConstraints,
   workItemTitleConstraints,
 } from "@/lib/domain/input-constraints"
-import { formatDateInputLabel as formatDateChipLabel } from "@/lib/date-input"
-import { getDisplayInitials } from "@/lib/display-initials"
 import {
   canParentWorkItemTypeAcceptChild,
   getAllowedWorkItemTypesForTemplate,
@@ -33,8 +29,6 @@ import {
   getDefaultWorkItemTypesForTeamExperience,
   getDisplayLabelForWorkItemType,
   getWorkSurfaceCopy,
-  priorityMeta,
-  statusMeta,
   type Label,
   type Priority,
   type Project,
@@ -45,8 +39,8 @@ import {
   type WorkItemType,
   type WorkStatus,
 } from "@/lib/domain/types"
+import { sortLabelsByName } from "@/lib/domain/labels"
 import { useAppStore } from "@/lib/store/app-store"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   ShortcutKeys,
@@ -78,256 +72,35 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import {
-  PriorityDot,
-  PriorityIcon,
-  StatusIcon,
-} from "@/components/app/screens/shared"
+  createLabelAndSelect,
+  NewLabelInput,
+} from "@/components/app/screens/create-work-item-labels"
 import {
   formatInlineDescriptionContent,
   getPreferredCreateDialogType,
 } from "@/components/app/screens/helpers"
-import { cn, resolveImageAssetSource } from "@/lib/utils"
-
-const TEAM_DOT_COLORS = [
-  "var(--label-1)",
-  "var(--label-2)",
-  "var(--label-3)",
-  "var(--label-4)",
-  "var(--label-5)",
-]
-
-function getTeamDotColor(teamId: string | null | undefined) {
-  if (!teamId) {
-    return TEAM_DOT_COLORS[3]
-  }
-
-  let hash = 0
-  for (let index = 0; index < teamId.length; index += 1) {
-    hash = (hash * 31 + teamId.charCodeAt(index)) >>> 0
-  }
-
-  return TEAM_DOT_COLORS[hash % TEAM_DOT_COLORS.length]
-}
-
-function AssigneeOption({
-  name,
-  avatarUrl,
-  avatarImageUrl,
-}: {
-  name: string
-  avatarUrl?: string | null
-  avatarImageUrl?: string | null
-}) {
-  const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
-
-  return (
-    <span className="flex min-w-0 items-center gap-2">
-      <Avatar size="sm" className="size-4 data-[size=sm]:size-4">
-        {imageSrc ? <AvatarImage src={imageSrc} alt={name} /> : null}
-        <AvatarFallback>{getDisplayInitials(name, "?")}</AvatarFallback>
-      </Avatar>
-      <span className="min-w-0 truncate">{name}</span>
-    </span>
-  )
-}
-
-const OPEN_STATUSES: WorkStatus[] = ["backlog", "todo", "in-progress"]
-const CLOSED_STATUSES: WorkStatus[] = ["done", "cancelled", "duplicate"]
-const PRIORITY_ORDER: Priority[] = ["none", "urgent", "high", "medium", "low"]
-
-function matchesQuery(value: string, query: string) {
-  if (!query) {
-    return true
-  }
-  return value.toLowerCase().includes(query.toLowerCase())
-}
-
-const chipTriggerClass =
-  "inline-flex h-7 w-fit max-w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
-
-const chipTriggerDashedClass =
-  "border-dashed text-fg-3 bg-transparent hover:bg-surface-3"
-
-const crumbTriggerClass =
-  "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
+import {
+  PropertyDateChip,
+  PropertyAssigneePicker,
+  WorkItemPriorityPropertyPicker,
+  WorkItemStatusPropertyPicker,
+  WorkItemTypePropertyPicker,
+  PropertySelectionPopover,
+  matchesPropertyQuery,
+  propertyChipTriggerClass as chipTriggerClass,
+  propertyChipTriggerDashedClass as chipTriggerDashedClass,
+  propertyCrumbTriggerClass as crumbTriggerClass,
+} from "@/components/app/screens/property-chips"
+import { cn } from "@/lib/utils"
+import { TeamSpaceCrumbPicker } from "./team-space-crumb-picker"
+import { useWorkItemCorePickerState } from "./work-item-picker-state"
 
 type TextLimitState = ReturnType<typeof getTextInputLimitState>
-
-function TeamSpacePicker({
-  open,
-  onOpenChange,
-  query,
-  onQueryChange,
-  filteredTeams,
-  selectedTeamId,
-  team,
-  teamDotColor,
-  onSelectTeam,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  query: string
-  onQueryChange: (query: string) => void
-  filteredTeams: Team[]
-  selectedTeamId: string
-  team: Team | null
-  teamDotColor: string
-  onSelectTeam: (teamId: string) => void
-}) {
-  const matchingTeams = filteredTeams.filter((entry) =>
-    matchesQuery(entry.name, query)
-  )
-
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(nextOpen) => {
-        onOpenChange(nextOpen)
-        if (!nextOpen) {
-          onQueryChange("")
-        }
-      }}
-    >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(crumbTriggerClass, "min-w-0")}
-          disabled={filteredTeams.length === 0}
-        >
-          <span className="flex items-center gap-1.5">
-            <span
-              aria-hidden
-              className="inline-block size-2 shrink-0 rounded-full"
-              style={{ background: teamDotColor }}
-            />
-            <span className="truncate font-medium text-foreground">
-              {team?.name ?? "Team space"}
-            </span>
-          </span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
-        <PropertyPopoverSearch
-          icon={<MagnifyingGlass className="size-[14px]" />}
-          placeholder="Switch team space…"
-          value={query}
-          onChange={onQueryChange}
-        />
-        <PropertyPopoverList>
-          {filteredTeams.length === 0 ? (
-            <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
-              No team spaces
-            </div>
-          ) : (
-            <>
-              <PropertyPopoverGroup>Team spaces</PropertyPopoverGroup>
-              {matchingTeams.map((teamOption) => {
-                const selected = teamOption.id === selectedTeamId
-                return (
-                  <PropertyPopoverItem
-                    key={teamOption.id}
-                    selected={selected}
-                    onClick={() => onSelectTeam(teamOption.id)}
-                    trailing={
-                      selected ? (
-                        <Check className="size-[14px] text-foreground" />
-                      ) : null
-                    }
-                  >
-                    <span
-                      aria-hidden
-                      className="inline-block size-2 shrink-0 rounded-full"
-                      style={{
-                        background: getTeamDotColor(teamOption.id),
-                      }}
-                    />
-                    <span className="truncate">{teamOption.name}</span>
-                  </PropertyPopoverItem>
-                )
-              })}
-            </>
-          )}
-        </PropertyPopoverList>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function WorkItemTypePicker({
-  open,
-  onOpenChange,
-  availableItemTypes,
-  selectedType,
-  selectedTypeLabel,
-  team,
-  onSelectType,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  availableItemTypes: WorkItemType[]
-  selectedType: WorkItemType | null
-  selectedTypeLabel: string
-  team: Team | null
-  onSelectType: (type: WorkItemType) => void
-}) {
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={crumbTriggerClass}
-          disabled={availableItemTypes.length === 0 || !team}
-        >
-          <span className="font-medium text-foreground">
-            {selectedTypeLabel}
-          </span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
-      >
-        <PropertyPopoverList>
-          <PropertyPopoverGroup>Work item type</PropertyPopoverGroup>
-          {availableItemTypes.map((value) => {
-            const selected = value === selectedType
-            return (
-              <PropertyPopoverItem
-                key={value}
-                selected={selected}
-                onClick={() => onSelectType(value)}
-                trailing={
-                  selected ? (
-                    <Check className="size-[14px] text-foreground" />
-                  ) : null
-                }
-              >
-                <span className="truncate">
-                  {getDisplayLabelForWorkItemType(
-                    value,
-                    team?.settings.experience
-                  )}
-                </span>
-              </PropertyPopoverItem>
-            )
-          })}
-        </PropertyPopoverList>
-      </PopoverContent>
-    </Popover>
-  )
-}
 
 function CreateWorkItemCrumbRow({
   filteredTeams,
   selectedTeamId,
   team,
-  teamDotColor,
-  teamPickerOpen,
-  onTeamPickerOpenChange,
-  teamQuery,
-  onTeamQueryChange,
   onSelectTeam,
   typePickerOpen,
   onTypePickerOpenChange,
@@ -340,11 +113,6 @@ function CreateWorkItemCrumbRow({
   filteredTeams: Team[]
   selectedTeamId: string
   team: Team | null
-  teamDotColor: string
-  teamPickerOpen: boolean
-  onTeamPickerOpenChange: (open: boolean) => void
-  teamQuery: string
-  onTeamQueryChange: (query: string) => void
   onSelectTeam: (teamId: string) => void
   typePickerOpen: boolean
   onTypePickerOpenChange: (open: boolean) => void
@@ -356,26 +124,25 @@ function CreateWorkItemCrumbRow({
 }) {
   return (
     <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
-      <TeamSpacePicker
-        open={teamPickerOpen}
-        onOpenChange={onTeamPickerOpenChange}
-        query={teamQuery}
-        onQueryChange={onTeamQueryChange}
-        filteredTeams={filteredTeams}
-        selectedTeamId={selectedTeamId}
-        team={team}
-        teamDotColor={teamDotColor}
-        onSelectTeam={onSelectTeam}
+      <TeamSpaceCrumbPicker
+        options={filteredTeams.map((teamOption) => ({
+          id: teamOption.id,
+          label: teamOption.name,
+          teamId: teamOption.id,
+        }))}
+        selectedId={selectedTeamId}
+        onSelect={onSelectTeam}
+        triggerClassName={crumbTriggerClass}
       />
 
-      <WorkItemTypePicker
+      <WorkItemTypePropertyPicker
         open={typePickerOpen}
         onOpenChange={onTypePickerOpenChange}
         availableItemTypes={availableItemTypes}
         selectedType={selectedType}
         selectedTypeLabel={selectedTypeLabel}
         team={team}
-        onSelectType={onSelectType}
+        onSelect={onSelectType}
       />
 
       {secondaryContextLabel ? (
@@ -438,178 +205,6 @@ function CreateWorkItemTitleFields({
   )
 }
 
-function StatusPicker({
-  open,
-  onOpenChange,
-  query,
-  onQueryChange,
-  team,
-  status,
-  teamStatuses,
-  onStatusChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  query: string
-  onQueryChange: (query: string) => void
-  team: Team | null
-  status: WorkStatus
-  teamStatuses: WorkStatus[]
-  onStatusChange: (status: WorkStatus) => void
-}) {
-  const activeMatches = teamStatuses.filter(
-    (value) =>
-      OPEN_STATUSES.includes(value) &&
-      matchesQuery(statusMeta[value].label, query)
-  )
-  const closedMatches = teamStatuses.filter(
-    (value) =>
-      CLOSED_STATUSES.includes(value) &&
-      matchesQuery(statusMeta[value].label, query)
-  )
-
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(nextOpen) => {
-        onOpenChange(nextOpen)
-        if (!nextOpen) {
-          onQueryChange("")
-        }
-      }}
-    >
-      <PopoverTrigger asChild>
-        <button type="button" className={chipTriggerClass} disabled={!team}>
-          <StatusIcon status={status} />
-          <span className="font-medium text-foreground">
-            {statusMeta[status].label}
-          </span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
-        <PropertyPopoverSearch
-          icon={<MagnifyingGlass className="size-[14px]" />}
-          placeholder="Change status…"
-          value={query}
-          onChange={onQueryChange}
-        />
-        <PropertyPopoverList>
-          {activeMatches.length > 0 ? (
-            <>
-              <PropertyPopoverGroup>Active</PropertyPopoverGroup>
-              {activeMatches.map((value) => {
-                const selected = value === status
-                return (
-                  <PropertyPopoverItem
-                    key={value}
-                    selected={selected}
-                    onClick={() => onStatusChange(value)}
-                    trailing={
-                      selected ? (
-                        <Check className="size-[14px] text-foreground" />
-                      ) : null
-                    }
-                  >
-                    <StatusIcon status={value} />
-                    <span>{statusMeta[value].label}</span>
-                  </PropertyPopoverItem>
-                )
-              })}
-            </>
-          ) : null}
-          {closedMatches.length > 0 ? (
-            <>
-              <PropertyPopoverGroup>Closed</PropertyPopoverGroup>
-              {closedMatches.map((value) => {
-                const selected = value === status
-                return (
-                  <PropertyPopoverItem
-                    key={value}
-                    selected={selected}
-                    onClick={() => onStatusChange(value)}
-                    trailing={
-                      selected ? (
-                        <Check className="size-[14px] text-foreground" />
-                      ) : null
-                    }
-                  >
-                    <StatusIcon status={value} />
-                    <span>{statusMeta[value].label}</span>
-                  </PropertyPopoverItem>
-                )
-              })}
-            </>
-          ) : null}
-          {activeMatches.length === 0 && closedMatches.length === 0 ? (
-            <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
-              No statuses match
-            </div>
-          ) : null}
-        </PropertyPopoverList>
-        <PropertyPopoverFoot>
-          <span>↑↓ to navigate · ↵ to select</span>
-        </PropertyPopoverFoot>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function PriorityPicker({
-  open,
-  onOpenChange,
-  team,
-  priority,
-  onPriorityChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  team: Team | null
-  priority: Priority
-  onPriorityChange: (priority: Priority) => void
-}) {
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <button type="button" className={chipTriggerClass} disabled={!team}>
-          <PriorityDot priority={priority} />
-          <span className="font-medium text-foreground">
-            {priorityMeta[priority].label}
-          </span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
-      >
-        <PropertyPopoverList>
-          {PRIORITY_ORDER.map((value) => {
-            const selected = value === priority
-            return (
-              <PropertyPopoverItem
-                key={value}
-                selected={selected}
-                onClick={() => onPriorityChange(value)}
-                trailing={
-                  selected ? (
-                    <Check className="size-[14px] text-foreground" />
-                  ) : null
-                }
-              >
-                <PriorityIcon priority={value} />
-                <span>
-                  {value === "none" ? "No priority" : priorityMeta[value].label}
-                </span>
-              </PropertyPopoverItem>
-            )
-          })}
-        </PropertyPopoverList>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
 function AssigneePicker({
   open,
   onOpenChange,
@@ -631,101 +226,18 @@ function AssigneePicker({
   effectiveAssigneeId: string
   onAssigneeChange: (assigneeId: string) => void
 }) {
-  const matches = teamMembers.filter((user) => matchesQuery(user.name, query))
-
   return (
-    <Popover
+    <PropertyAssigneePicker
       open={open}
-      onOpenChange={(nextOpen) => {
-        onOpenChange(nextOpen)
-        if (!nextOpen) {
-          onQueryChange("")
-        }
-      }}
-    >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            chipTriggerClass,
-            !selectedAssignee && chipTriggerDashedClass
-          )}
-          disabled={!team}
-        >
-          {selectedAssignee ? (
-            <AssigneeOption
-              name={selectedAssignee.name}
-              avatarImageUrl={selectedAssignee.avatarImageUrl}
-              avatarUrl={selectedAssignee.avatarUrl}
-            />
-          ) : (
-            <span className="flex items-center gap-1.5 text-fg-3">
-              <span className="inline-grid size-[18px] place-items-center rounded-full border border-dashed border-line text-[9px] text-fg-3">
-                ?
-              </span>
-              Unassigned
-            </span>
-          )}
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[300px]")}
-      >
-        <PropertyPopoverSearch
-          icon={<MagnifyingGlass className="size-[14px]" />}
-          placeholder="Assign someone…"
-          value={query}
-          onChange={onQueryChange}
-        />
-        <PropertyPopoverList>
-          {matches.length > 0 ? (
-            <>
-              <PropertyPopoverGroup>Members</PropertyPopoverGroup>
-              {matches.map((user) => {
-                const selected = user.id === effectiveAssigneeId
-                return (
-                  <PropertyPopoverItem
-                    key={user.id}
-                    selected={selected}
-                    onClick={() => onAssigneeChange(user.id)}
-                    trailing={
-                      selected ? (
-                        <Check className="size-[14px] text-foreground" />
-                      ) : null
-                    }
-                  >
-                    <AssigneeOption
-                      name={user.name}
-                      avatarImageUrl={user.avatarImageUrl}
-                      avatarUrl={user.avatarUrl}
-                    />
-                  </PropertyPopoverItem>
-                )
-              })}
-            </>
-          ) : (
-            <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
-              No members match
-            </div>
-          )}
-          <PropertyPopoverItem
-            muted
-            selected={effectiveAssigneeId === "none"}
-            onClick={() => onAssigneeChange("none")}
-            trailing={
-              effectiveAssigneeId === "none" ? (
-                <Check className="size-[14px] text-foreground" />
-              ) : null
-            }
-          >
-            <X className="size-[14px] shrink-0" />
-            <span>Unassign</span>
-          </PropertyPopoverItem>
-        </PropertyPopoverList>
-      </PopoverContent>
-    </Popover>
+      onOpenChange={onOpenChange}
+      query={query}
+      onQueryChange={onQueryChange}
+      members={teamMembers}
+      selectedAssignee={selectedAssignee}
+      selectedAssigneeId={effectiveAssigneeId}
+      disabled={!team}
+      onSelect={onAssigneeChange}
+    />
   )
 }
 
@@ -753,20 +265,15 @@ function ProjectPicker({
   onProjectChange: (projectId: string) => void
 }) {
   const matches = teamProjects.filter((project) =>
-    matchesQuery(project.name, query)
+    matchesPropertyQuery(project.name, query)
   )
 
   return (
-    <Popover
+    <PropertySelectionPopover
       open={open}
-      onOpenChange={(nextOpen) => {
-        onOpenChange(nextOpen)
-        if (!nextOpen) {
-          onQueryChange("")
-        }
-      }}
-    >
-      <PopoverTrigger asChild>
+      onOpenChange={onOpenChange}
+      onQueryChange={onQueryChange}
+      trigger={
         <button
           type="button"
           className={cn(
@@ -786,7 +293,8 @@ function ProjectPicker({
           </span>
           <CaretDown className="size-3 shrink-0 opacity-60" />
         </button>
-      </PopoverTrigger>
+      }
+    >
       <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
         <PropertyPopoverSearch
           icon={<MagnifyingGlass className="size-[14px]" />}
@@ -837,59 +345,7 @@ function ProjectPicker({
           </PropertyPopoverItem>
         </PropertyPopoverList>
       </PopoverContent>
-    </Popover>
-  )
-}
-
-function DateChipPicker({
-  value,
-  label,
-  onValueChange,
-}: {
-  value: string | null
-  label: string
-  onValueChange: (value: string | null) => void
-}) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(chipTriggerClass, !value && chipTriggerDashedClass)}
-        >
-          <CalendarDots className="size-[13px]" />
-          <span
-            className={cn("truncate", value && "font-medium text-foreground")}
-          >
-            {formatDateChipLabel(value, label)}
-          </span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[240px]")}
-      >
-        <div className="px-3 py-3">
-          <div className="mb-2 text-[11px] font-medium text-fg-3">{label}</div>
-          <input
-            type="date"
-            value={value ?? ""}
-            onChange={(event) => onValueChange(event.target.value || null)}
-            className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
-          />
-        </div>
-        <PropertyPopoverFoot>
-          <button
-            type="button"
-            className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-            onClick={() => onValueChange(null)}
-          >
-            Clear
-          </button>
-        </PropertyPopoverFoot>
-      </PopoverContent>
-    </Popover>
+    </PropertySelectionPopover>
   )
 }
 
@@ -915,20 +371,15 @@ function ParentPicker({
   onParentChange: (parentId: string) => void
 }) {
   const matches = parentOptions.filter(
-    (item) => matchesQuery(item.key, query) || matchesQuery(item.title, query)
+    (item) => matchesPropertyQuery(item.key, query) || matchesPropertyQuery(item.title, query)
   )
 
   return (
-    <Popover
+    <PropertySelectionPopover
       open={open}
-      onOpenChange={(nextOpen) => {
-        onOpenChange(nextOpen)
-        if (!nextOpen) {
-          onQueryChange("")
-        }
-      }}
-    >
-      <PopoverTrigger asChild>
+      onOpenChange={onOpenChange}
+      onQueryChange={onQueryChange}
+      trigger={
         <button
           type="button"
           className={cn(
@@ -948,7 +399,8 @@ function ParentPicker({
           </span>
           <CaretDown className="size-3 shrink-0 opacity-60" />
         </button>
-      </PopoverTrigger>
+      }
+    >
       <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
         <PropertyPopoverSearch
           icon={<MagnifyingGlass className="size-[14px]" />}
@@ -1002,7 +454,7 @@ function ParentPicker({
           </PropertyPopoverItem>
         </PropertyPopoverList>
       </PopoverContent>
-    </Popover>
+    </PropertySelectionPopover>
   )
 }
 
@@ -1024,7 +476,7 @@ function getMatchedLabelGroups(input: {
   selectedLabelIds: string[]
 }) {
   const matched = input.availableLabels.filter((label) =>
-    matchesQuery(label.name, input.query.trim())
+    matchesPropertyQuery(label.name, input.query.trim())
   )
 
   return {
@@ -1110,64 +562,6 @@ function LabelsEmptyState({
     <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
       {availableLabels.length === 0 ? "No labels yet" : "No labels match"}
     </div>
-  )
-}
-
-function NewLabelInput({
-  creatingLabel,
-  labelNameLimitState,
-  newLabelName,
-  team,
-  onCreateLabel,
-  onNewLabelNameChange,
-}: {
-  creatingLabel: boolean
-  labelNameLimitState: TextLimitState
-  newLabelName: string
-  team: Team | null
-  onCreateLabel: () => void
-  onNewLabelNameChange: (name: string) => void
-}) {
-  const trimmedNewLabelName = newLabelName.trim()
-
-  return (
-    <>
-      <div className="mt-1 flex items-center gap-2 border-t border-line-soft px-2.5 pt-2 pb-1 text-fg-3">
-        <Plus className="size-[14px] shrink-0" />
-        <input
-          value={newLabelName}
-          onChange={(event) => onNewLabelNameChange(event.target.value)}
-          maxLength={labelNameConstraints.max}
-          placeholder="Create new label"
-          className="h-5 flex-1 border-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-fg-4"
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") {
-              return
-            }
-            event.preventDefault()
-            onCreateLabel()
-          }}
-          disabled={!team || creatingLabel}
-        />
-        {trimmedNewLabelName.length > 0 ? (
-          <button
-            type="button"
-            className="text-[11px] font-medium text-fg-2 transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={!team || creatingLabel || !labelNameLimitState.canSubmit}
-            onClick={onCreateLabel}
-          >
-            Add
-          </button>
-        ) : null}
-      </div>
-      {newLabelName.length > 0 ? (
-        <FieldCharacterLimit
-          state={labelNameLimitState}
-          limit={labelNameConstraints.max}
-          className="mt-0 border-t border-line-soft px-2.5 pt-2"
-        />
-      ) : null}
-    </>
   )
 }
 
@@ -1412,7 +806,7 @@ function CreateWorkItemPropertiesRow({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-[18px] py-2.5">
-      <StatusPicker
+      <WorkItemStatusPropertyPicker
         open={statusPickerOpen}
         onOpenChange={setStatusPickerOpen}
         query={statusQuery}
@@ -1420,15 +814,15 @@ function CreateWorkItemPropertiesRow({
         team={team}
         status={status}
         teamStatuses={teamStatuses}
-        onStatusChange={onStatusChange}
+        onSelect={onStatusChange}
       />
 
-      <PriorityPicker
+      <WorkItemPriorityPropertyPicker
         open={priorityPickerOpen}
         onOpenChange={setPriorityPickerOpen}
         team={team}
         priority={priority}
-        onPriorityChange={onPriorityChange}
+        onSelect={onPriorityChange}
       />
 
       <AssigneePicker
@@ -1456,12 +850,12 @@ function CreateWorkItemPropertiesRow({
         onProjectChange={onProjectChange}
       />
 
-      <DateChipPicker
+      <PropertyDateChip
         value={startDate}
         label="Start date"
         onValueChange={setStartDate}
       />
-      <DateChipPicker
+      <PropertyDateChip
         value={targetDate}
         label="Target date"
         onValueChange={setTargetDate}
@@ -2220,45 +1614,6 @@ function applyParentChange({
   setParentPickerOpen(false)
 }
 
-async function createLabelAndSelect({
-  newLabelName,
-  creatingLabel,
-  canSubmit,
-  workspaceId,
-  setCreatingLabel,
-  setNewLabelName,
-  setSelectedLabelIds,
-}: {
-  newLabelName: string
-  creatingLabel: boolean
-  canSubmit: boolean
-  workspaceId: string | null
-  setCreatingLabel: Dispatch<SetStateAction<boolean>>
-  setNewLabelName: Dispatch<SetStateAction<string>>
-  setSelectedLabelIds: Dispatch<SetStateAction<string[]>>
-}) {
-  const normalizedName = newLabelName.trim()
-
-  if (!normalizedName || creatingLabel || !canSubmit) {
-    return
-  }
-
-  setCreatingLabel(true)
-  const created = await useAppStore
-    .getState()
-    .createLabel(normalizedName, workspaceId)
-  setCreatingLabel(false)
-
-  if (!created) {
-    return
-  }
-
-  setNewLabelName("")
-  setSelectedLabelIds((current) =>
-    current.includes(created.id) ? current : [...current, created.id]
-  )
-}
-
 function createWorkItemFromDialogState({
   selectedType,
   selectedTeamId,
@@ -2345,11 +1700,16 @@ export function CreateWorkItemDialog({
   const availableTeams = useAppStore(
     useShallow((state) => getEditableTeamsForFeature(state, "issues"))
   )
-  const allLabels = useAppStore((state) => state.labels)
-  const teamMemberships = useAppStore((state) => state.teamMemberships)
-  const users = useAppStore((state) => state.users)
-  const projects = useAppStore((state) => state.projects)
-  const workItems = useAppStore((state) => state.workItems)
+  const { allLabels, projects, teamMemberships, users, workItems } =
+    useAppStore(
+      useShallow((state) => ({
+        allLabels: state.labels,
+        projects: state.projects,
+        teamMemberships: state.teamMemberships,
+        users: state.users,
+        workItems: state.workItems,
+      }))
+    )
   const filteredTeams = useMemo(
     () => getFilteredTeamsForInitialType(availableTeams, initialType),
     [availableTeams, initialType]
@@ -2382,14 +1742,20 @@ export function CreateWorkItemDialog({
   const initialDates = getInitialDates(defaultValues)
   const defaultPriority = getDefaultPriority(defaultValues)
   const [selectedTeamId, setSelectedTeamId] = useState(initialState.teamId)
-  const [teamPickerOpen, setTeamPickerOpen] = useState(false)
-  const [teamQuery, setTeamQuery] = useState("")
-  const [typePickerOpen, setTypePickerOpen] = useState(false)
-  const [statusPickerOpen, setStatusPickerOpen] = useState(false)
-  const [statusQuery, setStatusQuery] = useState("")
-  const [priorityPickerOpen, setPriorityPickerOpen] = useState(false)
-  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false)
-  const [assigneeQuery, setAssigneeQuery] = useState("")
+  const {
+    assigneePickerOpen,
+    assigneeQuery,
+    priorityPickerOpen,
+    setAssigneePickerOpen,
+    setAssigneeQuery,
+    setPriorityPickerOpen,
+    setStatusPickerOpen,
+    setStatusQuery,
+    setTypePickerOpen,
+    statusPickerOpen,
+    statusQuery,
+    typePickerOpen,
+  } = useWorkItemCorePickerState()
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   const [projectQuery, setProjectQuery] = useState("")
   const [parentPickerOpen, setParentPickerOpen] = useState(false)
@@ -2414,8 +1780,7 @@ export function CreateWorkItemDialog({
     [projects, team]
   )
   const availableLabels = useMemo(
-    () =>
-      [...labels].sort((left, right) => left.name.localeCompare(right.name)),
+    () => sortLabelsByName(labels),
     [labels]
   )
   const [type, setType] = useState<WorkItemType>(initialState.type)
@@ -2505,7 +1870,6 @@ export function CreateWorkItemDialog({
     requiresParent,
     selectedParentItem,
   })
-  const teamDotColor = getTeamDotColor(team?.id ?? null)
   const hasEditableTeams = hasItems(filteredTeams)
   const hasAvailableItemTypes = hasItems(availableItemTypes)
 
@@ -2567,8 +1931,6 @@ export function CreateWorkItemDialog({
       setNewLabelName,
       setCreatingLabel,
     })
-    setTeamPickerOpen(false)
-    setTeamQuery("")
   }
 
   function handleSelectType(nextType: WorkItemType) {
@@ -2635,11 +1997,6 @@ export function CreateWorkItemDialog({
           filteredTeams={filteredTeams}
           selectedTeamId={selectedTeamId}
           team={team}
-          teamDotColor={teamDotColor}
-          teamPickerOpen={teamPickerOpen}
-          onTeamPickerOpenChange={setTeamPickerOpen}
-          teamQuery={teamQuery}
-          onTeamQueryChange={setTeamQuery}
           onSelectTeam={handleSelectTeam}
           typePickerOpen={typePickerOpen}
           onTypePickerOpenChange={setTypePickerOpen}

@@ -1,33 +1,7 @@
+import { buildForgotPasswordPageHref } from "@/lib/auth-routing"
 import { logProviderError } from "@/lib/server/provider-errors"
 import { redirectToRoute } from "@/lib/server/route-response"
 import { requestWorkOSPasswordReset } from "@/lib/server/workos"
-
-function buildForgotPasswordPageHref(input: {
-  nextPath: string
-  email: string
-  error?: string | null
-  notice?: string | null
-}) {
-  const url = new URL("/forgot-password", "https://teams.placeholder")
-
-  if (input.nextPath) {
-    url.searchParams.set("next", input.nextPath)
-  }
-
-  if (input.email) {
-    url.searchParams.set("email", input.email)
-  }
-
-  if (input.error) {
-    url.searchParams.set("error", input.error)
-  }
-
-  if (input.notice) {
-    url.searchParams.set("notice", input.notice)
-  }
-
-  return `${url.pathname}${url.search}`
-}
 
 export async function POST(request: Request) {
   const formData = await request.formData()

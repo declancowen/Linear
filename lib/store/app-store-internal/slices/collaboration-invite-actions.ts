@@ -12,6 +12,38 @@ import type {
   CollaborationSlice,
   CollaborationSliceFactoryArgs,
 } from "./collaboration-shared"
+import type { AppStore } from "../types"
+
+type InviteRecord = AppStore["invites"][number]
+
+function canCancelInvite(state: AppStore, invite: InviteRecord) {
+  const isWorkspaceOwner = state.workspaces.some(
+    (workspace) =>
+      workspace.id === invite.workspaceId &&
+      workspace.createdBy === state.currentUserId
+  )
+  const workspaceRole = state.workspaceMemberships.find(
+    (membership) =>
+      membership.workspaceId === invite.workspaceId &&
+      membership.userId === state.currentUserId
+  )?.role
+  const teamRole = effectiveRole(state, invite.teamId)
+
+  return (
+    isWorkspaceOwner || workspaceRole === "admin" || teamRole === "admin"
+  )
+}
+
+function removeCancelledInvites(
+  state: AppStore,
+  cancelledInviteIds: string[]
+) {
+  return {
+    invites: state.invites.filter(
+      (entry) => !cancelledInviteIds.includes(entry.id)
+    ),
+  }
+}
 
 export function createCollaborationInviteActions({
   get,
@@ -120,23 +152,7 @@ export function createCollaborationInviteActions({
         return false
       }
 
-      const isWorkspaceOwner = state.workspaces.some(
-        (workspace) =>
-          workspace.id === invite.workspaceId &&
-          workspace.createdBy === state.currentUserId
-      )
-      const workspaceRole = state.workspaceMemberships.find(
-        (membership) =>
-          membership.workspaceId === invite.workspaceId &&
-          membership.userId === state.currentUserId
-      )?.role
-      const teamRole = effectiveRole(state, invite.teamId)
-
-      if (
-        !isWorkspaceOwner &&
-        workspaceRole !== "admin" &&
-        teamRole !== "admin"
-      ) {
+      if (!canCancelInvite(state, invite)) {
         toast.error("Only admins can cancel invites")
         return false
       }
@@ -144,11 +160,9 @@ export function createCollaborationInviteActions({
       try {
         const cancelled = await syncCancelInvite(inviteId)
 
-        set((current) => ({
-          invites: current.invites.filter(
-            (entry) => !cancelled.cancelledInviteIds.includes(entry.id)
-          ),
-        }))
+        set((current) =>
+          removeCancelledInvites(current, cancelled.cancelledInviteIds)
+        )
 
         toast.success("Invite cancelled")
         return true

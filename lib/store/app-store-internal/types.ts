@@ -7,40 +7,30 @@ import type {
   AppData,
   AppSnapshot,
   CommentTargetType,
+  CreateViewInput as DomainCreateViewInput,
   CreateDialogState,
   DisplayProperty,
   GroupField,
   Label,
   OrderingField,
   Priority,
-  ProjectPresentationConfig,
   ProjectStatus,
   Role,
-  ScopeType,
   TeamFeatureSettings,
   TeamWorkflowSettings,
   UserStatus,
-  ViewContainerType,
   WorkItem,
   WorkItemType,
-  WorkStatus,
   ViewerDirectoryConfig,
 } from "@/lib/domain/types"
+import type {
+  CreateStoreWorkItemInput,
+  StoreWorkItemPatch,
+} from "@/lib/domain/work-item-inputs"
+import type { CreateProjectInput } from "@/lib/domain/project-inputs"
 import type { ScopedReadModelReplaceInstruction } from "@/lib/scoped-sync/read-models"
 
-export type WorkItemPatch = {
-  title?: string
-  expectedUpdatedAt?: string
-  status?: WorkStatus
-  priority?: Priority
-  assigneeId?: string | null
-  parentId?: string | null
-  primaryProjectId?: string | null
-  labelIds?: string[]
-  startDate?: string | null
-  dueDate?: string | null
-  targetDate?: string | null
-}
+export type WorkItemPatch = StoreWorkItemPatch
 
 export type WorkItemUpdateOptions = {
   confirmProjectCascade?: boolean
@@ -62,43 +52,7 @@ export type WorkItemUpdateResult =
       cascadeItemCount: number
     }
 
-export type CreateProjectInput = {
-  scopeType: ScopeType
-  scopeId: string
-  templateType: "software-delivery" | "bug-tracking" | "project-management"
-  name: string
-  summary: string
-  status?: ProjectStatus
-  priority: Priority
-  leadId?: string | null
-  memberIds?: string[]
-  startDate?: string | null
-  targetDate?: string | null
-  labelIds?: string[]
-  settingsTeamId?: string | null
-  presentation?: ProjectPresentationConfig
-}
-
-export type CreateViewInput = {
-  id?: string
-  scopeType: "team" | "workspace"
-  scopeId: string
-  entityKind: "items" | "projects" | "docs"
-  containerType?: ViewContainerType | null
-  containerId?: string | null
-  route: string
-  name: string
-  description: string
-  layout?: "list" | "board" | "timeline"
-  grouping?: GroupField
-  subGrouping?: GroupField | null
-  ordering?: OrderingField
-  itemLevel?: WorkItemType | null
-  showChildItems?: boolean
-  filters?: AppData["views"][number]["filters"]
-  displayProps?: DisplayProperty[]
-  hiddenState?: AppData["views"][number]["hiddenState"]
-}
+export type CreateViewInput = DomainCreateViewInput
 
 export type ProjectPatch = {
   name?: string
@@ -111,20 +65,7 @@ export type ProjectPatch = {
   labelIds?: string[]
 }
 
-export type CreateWorkItemInput = {
-  teamId: string
-  type: WorkItemType
-  title: string
-  parentId?: string | null
-  primaryProjectId: string | null
-  assigneeId: string | null
-  status?: WorkStatus
-  priority: Priority
-  labelIds?: string[]
-  startDate?: string | null
-  dueDate?: string | null
-  targetDate?: string | null
-}
+export type CreateWorkItemInput = CreateStoreWorkItemInput
 
 export type CreateDocumentInput =
   | {

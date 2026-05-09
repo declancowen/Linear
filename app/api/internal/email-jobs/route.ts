@@ -2,11 +2,11 @@ import { timingSafeEqual } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 
 import { api } from "@/convex/_generated/api"
+import { toErrorMessage } from "@/lib/email/errors"
 import {
   getRequiredEnv,
   isConfigurationErrorMessage,
   processQueuedEmailJobsBatch,
-  toErrorMessage,
 } from "@/lib/email/queued-email-worker"
 import {
   getConvexServerClient,

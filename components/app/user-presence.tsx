@@ -15,6 +15,7 @@ import {
   resolveUserStatus,
   userStatusMeta,
 } from "@/lib/domain/types"
+import { getDisplayInitials } from "@/lib/display-initials"
 import {
   buildWorkspaceUserPresenceView,
   type WorkspaceUserMembershipState,
@@ -39,23 +40,6 @@ import {
 
 type UserPresenceData = WorkspaceUserPresenceData & {
   handle?: string | null
-}
-
-function getUserInitials(name: string | null | undefined) {
-  const parts = (name ?? "")
-    .split(" ")
-    .map((part) => part.trim())
-    .filter(Boolean)
-
-  if (parts.length === 0) {
-    return "?"
-  }
-
-  return parts
-    .slice(0, 2)
-    .map((part) => part[0] ?? "")
-    .join("")
-    .toUpperCase()
 }
 
 export function UserStatusDot({
@@ -120,7 +104,7 @@ export function UserAvatar({
       className={cn(showStatus && "overflow-visible", className)}
     >
       {imageSrc ? <AvatarImage src={imageSrc} alt={name ?? "User"} /> : null}
-      <AvatarFallback>{getUserInitials(name)}</AvatarFallback>
+      <AvatarFallback>{getDisplayInitials(name ?? "", "?")}</AvatarFallback>
       {showStatus ? (
         <AvatarBadge
           className={cn("overflow-hidden bg-background", badgeClassName)}

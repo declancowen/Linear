@@ -47,6 +47,63 @@ function createDeferred<T>() {
   }
 }
 
+function createTwoStepFetchMock() {
+  const firstFetch = createDeferred<Record<string, never>>()
+  const secondFetch = createDeferred<Record<string, never>>()
+  const fetchLatestMock = vi
+    .fn()
+    .mockImplementationOnce(() => firstFetch.promise)
+    .mockImplementationOnce(() => secondFetch.promise)
+
+  return {
+    fetchLatestMock,
+    firstFetch,
+    secondFetch,
+  }
+}
+
+type ScopedStreamHandlers = {
+  onReady?: () => void
+  onInvalidate?: () => void
+  onUnavailable?: () => void
+}
+
+function captureScopedStreamHandlers() {
+  let handlers: ScopedStreamHandlers | undefined
+
+  openScopedInvalidationStreamMock.mockImplementation((input) => {
+    handlers = input
+    return vi.fn()
+  })
+
+  return () => handlers
+}
+
+async function renderDefaultScopedRefresh(
+  fetchLatestMock = vi.fn().mockResolvedValue({})
+) {
+  const { useScopedReadModelRefresh } = await import(
+    "@/hooks/use-scoped-read-model-refresh"
+  )
+
+  renderHook(() =>
+    useScopedReadModelRefresh({
+      enabled: true,
+      scopeKeys: ["scope:a"],
+      fetchLatest: fetchLatestMock,
+    })
+  )
+
+  return fetchLatestMock
+}
+
+async function flushScopedRefreshEvent(callback?: () => void) {
+  await act(async () => {
+    callback?.()
+    await Promise.resolve()
+  })
+}
+
 describe("useScopedReadModelRefresh", () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -64,46 +121,18 @@ describe("useScopedReadModelRefresh", () => {
   })
 
   it("refreshes when the scoped stream reports ready after the initial handshake", async () => {
-    let handlers:
-      | {
-          onReady?: () => void
-          onInvalidate?: () => void
-        }
-      | undefined
-
-    openScopedInvalidationStreamMock.mockImplementation((input) => {
-      handlers = input
-      return vi.fn()
-    })
-
-    const fetchLatestMock = vi.fn().mockResolvedValue({})
-    const { useScopedReadModelRefresh } = await import(
-      "@/hooks/use-scoped-read-model-refresh"
-    )
-
-    renderHook(() =>
-      useScopedReadModelRefresh({
-        enabled: true,
-        scopeKeys: ["scope:a"],
-        fetchLatest: fetchLatestMock,
-      })
-    )
+    const getHandlers = captureScopedStreamHandlers()
+    const fetchLatestMock = await renderDefaultScopedRefresh()
 
     await waitFor(() => {
       expect(fetchLatestMock).toHaveBeenCalledTimes(1)
     })
 
-    await act(async () => {
-      handlers?.onReady?.()
-      await Promise.resolve()
-    })
+    await flushScopedRefreshEvent(getHandlers()?.onReady)
 
     expect(fetchLatestMock).toHaveBeenCalledTimes(1)
 
-    await act(async () => {
-      handlers?.onReady?.()
-      await Promise.resolve()
-    })
+    await flushScopedRefreshEvent(getHandlers()?.onReady)
 
     await waitFor(() => {
       expect(fetchLatestMock).toHaveBeenCalledTimes(2)
@@ -111,12 +140,7 @@ describe("useScopedReadModelRefresh", () => {
   })
 
   it("falls back to periodic refresh when the scoped stream is unavailable", async () => {
-    let handlers:
-      | {
-          onReady?: () => void
-          onUnavailable?: () => void
-        }
-      | undefined
+    const getHandlers = captureScopedStreamHandlers()
     let degradedRefreshCallback: (() => void) | null = null
 
     const setIntervalSpy = vi
@@ -129,46 +153,21 @@ describe("useScopedReadModelRefresh", () => {
       .spyOn(window, "clearInterval")
       .mockImplementation(() => {})
 
-    openScopedInvalidationStreamMock.mockImplementation((input) => {
-      handlers = input
-      return vi.fn()
-    })
-
-    const fetchLatestMock = vi.fn().mockResolvedValue({})
-    const { useScopedReadModelRefresh } = await import(
-      "@/hooks/use-scoped-read-model-refresh"
-    )
-
-    renderHook(() =>
-      useScopedReadModelRefresh({
-        enabled: true,
-        scopeKeys: ["scope:a"],
-        fetchLatest: fetchLatestMock,
-      })
-    )
+    const fetchLatestMock = await renderDefaultScopedRefresh()
 
     await waitFor(() => {
       expect(fetchLatestMock).toHaveBeenCalledTimes(1)
     })
 
-    await act(async () => {
-      handlers?.onUnavailable?.()
-      await Promise.resolve()
-    })
+    await flushScopedRefreshEvent(getHandlers()?.onUnavailable)
 
     expect(fetchLatestMock).toHaveBeenCalledTimes(2)
 
-    await act(async () => {
-      degradedRefreshCallback?.()
-      await Promise.resolve()
-    })
+    await flushScopedRefreshEvent(degradedRefreshCallback ?? undefined)
 
     expect(fetchLatestMock).toHaveBeenCalledTimes(3)
 
-    await act(async () => {
-      handlers?.onReady?.()
-      await Promise.resolve()
-    })
+    await flushScopedRefreshEvent(getHandlers()?.onReady)
 
     expect(fetchLatestMock).toHaveBeenCalledTimes(4)
     expect(degradedRefreshCallback).not.toBeNull()
@@ -282,13 +281,9 @@ describe("useScopedReadModelRefresh", () => {
   })
 
   it("does not clear the active in-flight guard when a stale generation settles", async () => {
-    const firstFetch = createDeferred<Record<string, never>>()
-    const secondFetch = createDeferred<Record<string, never>>()
-    const fetchLatestMock = vi
-      .fn()
-      .mockImplementationOnce(() => firstFetch.promise)
-      .mockImplementationOnce(() => secondFetch.promise)
-      .mockResolvedValue({})
+    const { fetchLatestMock, firstFetch, secondFetch } =
+      createTwoStepFetchMock()
+    fetchLatestMock.mockResolvedValue({})
     const { useScopedReadModelRefresh } = await import(
       "@/hooks/use-scoped-read-model-refresh"
     )
@@ -342,12 +337,8 @@ describe("useScopedReadModelRefresh", () => {
   })
 
   it("does not report a new scope as loaded before that scope finishes its first refresh", async () => {
-    const firstFetch = createDeferred<Record<string, never>>()
-    const secondFetch = createDeferred<Record<string, never>>()
-    const fetchLatestMock = vi
-      .fn()
-      .mockImplementationOnce(() => firstFetch.promise)
-      .mockImplementationOnce(() => secondFetch.promise)
+    const { fetchLatestMock, firstFetch, secondFetch } =
+      createTwoStepFetchMock()
     const { useScopedReadModelRefresh } = await import(
       "@/hooks/use-scoped-read-model-refresh"
     )

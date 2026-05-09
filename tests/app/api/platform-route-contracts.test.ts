@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ApplicationError } from "@/lib/server/application-errors"
+import { expectTypedJsonError } from "@/tests/lib/fixtures/api-routes"
 
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
@@ -39,13 +40,11 @@ vi.mock("@/lib/server/scoped-read-models", () => ({
     resolveChatMessageReadModelScopeKeysServerMock,
 }))
 
-vi.mock("@/lib/server/provider-errors", () => ({
-  getConvexErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  getWorkOSErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  logProviderError: logProviderErrorMock,
-}))
+vi.mock("@/lib/server/provider-errors", async () =>
+  (await import("@/tests/lib/fixtures/api-routes")).createProviderErrorsMockModule(
+    logProviderErrorMock
+  )
+)
 
 vi.mock("@/lib/server/workos", async () => {
   const actual = await vi.importActual<typeof import("@/lib/server/workos")>(
@@ -218,13 +217,13 @@ describe("platform route contracts", () => {
 
     const response = await GET()
 
-    expect(response.status).toBe(404)
-    await expect(response.json()).resolves.toEqual({
-      error: "Authenticated user not found",
-      message: "Authenticated user not found",
-      code: "SNAPSHOT_USER_NOT_FOUND",
-    })
-    expect(logProviderErrorMock).not.toHaveBeenCalled()
+    await expectTypedJsonError(
+      response,
+      404,
+      "Authenticated user not found",
+      "SNAPSHOT_USER_NOT_FOUND",
+      logProviderErrorMock
+    )
   })
 
   it("maps snapshot version outer failures without provider-error noise", async () => {
@@ -238,13 +237,13 @@ describe("platform route contracts", () => {
 
     const response = await GET()
 
-    expect(response.status).toBe(404)
-    await expect(response.json()).resolves.toEqual({
-      error: "Authenticated user not found",
-      message: "Authenticated user not found",
-      code: "SNAPSHOT_USER_NOT_FOUND",
-    })
-    expect(logProviderErrorMock).not.toHaveBeenCalled()
+    await expectTypedJsonError(
+      response,
+      404,
+      "Authenticated user not found",
+      "SNAPSHOT_USER_NOT_FOUND",
+      logProviderErrorMock
+    )
   })
 
   it("maps WorkOS account failures to typed error responses", async () => {

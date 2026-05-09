@@ -1,5 +1,6 @@
 import {
   buildAuthPageHref,
+  buildResetPasswordPageHref,
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
 import { redirectToRoute } from "@/lib/server/route-response"
@@ -7,33 +8,6 @@ import {
   mapWorkOSAccountError,
   resetWorkOSPassword,
 } from "@/lib/server/workos"
-
-function buildResetPasswordPageHref(input: {
-  token: string
-  nextPath?: string | null
-  error?: string | null
-  notice?: string | null
-}) {
-  const url = new URL("/reset-password", "https://teams.placeholder")
-
-  if (input.token) {
-    url.searchParams.set("token", input.token)
-  }
-
-  if (input.nextPath) {
-    url.searchParams.set("next", input.nextPath)
-  }
-
-  if (input.error) {
-    url.searchParams.set("error", input.error)
-  }
-
-  if (input.notice) {
-    url.searchParams.set("notice", input.notice)
-  }
-
-  return `${url.pathname}${url.search}`
-}
 
 export async function POST(request: Request) {
   const formData = await request.formData()

@@ -1,7 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
-import { PropertiesChipPopover } from "@/components/app/screens/work-surface-controls"
+import {
+  PropertiesChipPopover,
+} from "@/components/app/screens/work-surface-controls"
+import {
+  getProjectStatusIconStatus,
+  getReorderedDisplayPropertiesAfterDrag,
+} from "@/components/app/screens/work-surface-control-state"
 import { createDefaultViewFilters, type ViewDefinition } from "@/lib/domain/types"
 
 function createView(displayProps: ViewDefinition["displayProps"]): ViewDefinition {
@@ -34,6 +40,40 @@ function createView(displayProps: ViewDefinition["displayProps"]): ViewDefinitio
 }
 
 describe("PropertiesChipPopover", () => {
+  it("maps project statuses to status-ring display buckets", () => {
+    expect(getProjectStatusIconStatus("in-progress")).toBe("in-progress")
+    expect(getProjectStatusIconStatus("completed")).toBe("completed")
+    expect(getProjectStatusIconStatus("cancelled")).toBe("cancelled")
+    expect(getProjectStatusIconStatus("backlog")).toBe("backlog")
+    expect(getProjectStatusIconStatus("planned")).toBe("todo")
+  })
+
+  it("computes display-property drag reorders only for valid targets", () => {
+    const visibleProperties = ["id", "status", "priority"] as const
+
+    expect(
+      getReorderedDisplayPropertiesAfterDrag({
+        activeId: "priority",
+        overId: "id",
+        visibleProperties: [...visibleProperties],
+      })
+    ).toEqual(["priority", "id", "status"])
+    expect(
+      getReorderedDisplayPropertiesAfterDrag({
+        activeId: "priority",
+        overId: "priority",
+        visibleProperties: [...visibleProperties],
+      })
+    ).toBeNull()
+    expect(
+      getReorderedDisplayPropertiesAfterDrag({
+        activeId: "assignee",
+        overId: "id",
+        visibleProperties: [...visibleProperties],
+      })
+    ).toBeNull()
+  })
+
   it("lets visible properties be removed again with a click", () => {
     const onToggleDisplayProperty = vi.fn()
 

@@ -36,7 +36,11 @@ export function getAccessibleTeams(data: AppData) {
       .map((membership) => membership.teamId)
   )
 
-  return data.teams.filter((team) => membershipTeamIds.has(team.id))
+  return data.teams.filter(
+    (team) =>
+      team.workspaceId === data.currentWorkspaceId &&
+      membershipTeamIds.has(team.id)
+  )
 }
 
 function getEditableTeams(data: AppData) {
@@ -50,7 +54,11 @@ function getEditableTeams(data: AppData) {
       .map((membership) => membership.teamId)
   )
 
-  return data.teams.filter((team) => editableTeamIds.has(team.id))
+  return data.teams.filter(
+    (team) =>
+      team.workspaceId === data.currentWorkspaceId &&
+      editableTeamIds.has(team.id)
+  )
 }
 
 export function getEditableTeamsForFeature(
@@ -63,7 +71,12 @@ export function getEditableTeamsForFeature(
 }
 
 export function getTeamBySlug(data: AppData, teamSlug: string) {
-  return data.teams.find((team) => team.slug === teamSlug) ?? null
+  return (
+    data.teams.find(
+      (team) =>
+        team.workspaceId === data.currentWorkspaceId && team.slug === teamSlug
+    ) ?? null
+  )
 }
 
 export function getTeamRole(data: AppData, teamId: string) {
@@ -98,13 +111,30 @@ function getHighestWorkspaceTeamRoleInCollections(
     teamMemberships
       .filter(
         (membership) =>
-          membership.userId === userId && workspaceTeamIds.has(membership.teamId)
+          membership.userId === userId &&
+          workspaceTeamIds.has(membership.teamId)
       )
-      .reduce<AppData["teamMemberships"][number]["role"] | null>(
-        (currentRole, membership) => mergeRole(currentRole, membership.role),
-        null
-      ) ?? null
+      .reduce<
+        AppData["teamMemberships"][number]["role"] | null
+      >((currentRole, membership) => mergeRole(currentRole, membership.role), null) ??
+    null
   )
+}
+
+function getWorkspaceAccessSubject(
+  workspaces: AppData["workspaces"],
+  workspaceId: string,
+  userId: string
+) {
+  const workspace = workspaces.find((entry) => entry.id === workspaceId)
+
+  if (!workspace) {
+    return null
+  }
+
+  return {
+    isCreator: workspace.createdBy === userId,
+  }
 }
 
 function getDirectOrFallbackWorkspaceRoleInCollections(
@@ -115,13 +145,13 @@ function getDirectOrFallbackWorkspaceRoleInCollections(
   workspaceId: string,
   userId: string
 ) {
-  const workspace = workspaces.find((entry) => entry.id === workspaceId)
+  const subject = getWorkspaceAccessSubject(workspaces, workspaceId, userId)
 
-  if (!workspace) {
+  if (!subject) {
     return null
   }
 
-  if (workspace.createdBy === userId) {
+  if (subject.isCreator) {
     return "admin"
   }
 
@@ -195,13 +225,13 @@ export function hasWorkspaceAccessInCollections(
   workspaceId: string,
   userId: string
 ) {
-  const workspace = workspaces.find((entry) => entry.id === workspaceId)
+  const subject = getWorkspaceAccessSubject(workspaces, workspaceId, userId)
 
-  if (!workspace) {
+  if (!subject) {
     return false
   }
 
-  if (workspace.createdBy === userId) {
+  if (subject.isCreator) {
     return true
   }
 
@@ -353,16 +383,14 @@ export function getWorkspaceUsers(data: AppData, workspaceId: string) {
   const teamIds = data.teams
     .filter((team) => team.workspaceId === workspaceId)
     .map((team) => team.id)
-  const userIds = new Set(
-    [
-      ...data.workspaceMemberships
-        .filter((membership) => membership.workspaceId === workspaceId)
-        .map((membership) => membership.userId),
-      ...data.teamMemberships
+  const userIds = new Set([
+    ...data.workspaceMemberships
+      .filter((membership) => membership.workspaceId === workspaceId)
+      .map((membership) => membership.userId),
+    ...data.teamMemberships
       .filter((membership) => teamIds.includes(membership.teamId))
       .map((membership) => membership.userId),
-    ]
-  )
+  ])
 
   if (workspaceOwnerId) {
     userIds.add(workspaceOwnerId)

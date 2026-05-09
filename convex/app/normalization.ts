@@ -1,11 +1,10 @@
 import type { QueryCtx } from "../_generated/server"
 
 import {
-  createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
   getDefaultShowChildItemsForItemLevel,
   getDefaultViewItemLevelForTeamExperience,
-  getTeamFeatureValidationMessage,
+  normalizeTeamFeatureSettings,
   normalizeStoredViewItemLevel,
   normalizeStoredViewItemTypes,
   normalizeStoredWorkItemType,
@@ -49,32 +48,55 @@ export function normalizeUser<
     ...(user as T & { emailNormalized?: string | null }),
   }
   delete restUser.emailNormalized
-  const preferences =
-    "preferences" in user &&
-    user.preferences &&
-    typeof user.preferences === "object"
-      ? (user.preferences as Partial<typeof defaultUserPreferences>)
-      : null
-
-  return {
+  const normalizedUser = {
     ...restUser,
     workosUserId: user.workosUserId ?? null,
-    hasExplicitStatus:
-      typeof user.hasExplicitStatus === "boolean"
-        ? user.hasExplicitStatus
-        : user.status != null,
+    hasExplicitStatus: resolveExplicitUserStatusFlag(user),
     accountDeletionPendingAt: user.accountDeletionPendingAt ?? null,
     accountDeletedAt: user.accountDeletedAt ?? null,
     status: resolveUserStatus(user.status),
     statusMessage: user.statusMessage ?? defaultUserStatusMessage,
-    ...(preferences
-      ? {
-          preferences: {
-            ...defaultUserPreferences,
-            ...preferences,
-          },
-        }
-      : {}),
+  }
+
+  return applyNormalizedUserPreferences(normalizedUser, user)
+}
+
+function resolveExplicitUserStatusFlag(user: {
+  hasExplicitStatus?: boolean | null
+  status?: string | null
+}) {
+  return typeof user.hasExplicitStatus === "boolean"
+    ? user.hasExplicitStatus
+    : user.status != null
+}
+
+function applyNormalizedUserPreferences<T>(normalizedUser: T, user: unknown) {
+  const preferences = getNormalizedUserPreferences(user)
+
+  if (!preferences) {
+    return normalizedUser
+  }
+
+  return {
+    ...normalizedUser,
+    preferences,
+  }
+}
+
+function getNormalizedUserPreferences(user: unknown) {
+  if (!user || typeof user !== "object" || !("preferences" in user)) {
+    return null
+  }
+
+  const preferences = user.preferences
+
+  if (!preferences || typeof preferences !== "object") {
+    return null
+  }
+
+  return {
+    ...defaultUserPreferences,
+    ...(preferences as Partial<typeof defaultUserPreferences>),
   }
 }
 
@@ -267,21 +289,7 @@ export function normalizeTeamFeatures(
     | null
     | undefined
 ) {
-  const resolvedExperience = experience ?? "software-development"
-  const merged = {
-    ...createDefaultTeamFeatureSettings(resolvedExperience),
-    ...(features ?? {}),
-  }
-  const validationMessage = getTeamFeatureValidationMessage(
-    resolvedExperience,
-    merged
-  )
-
-  if (validationMessage) {
-    return createDefaultTeamFeatureSettings(resolvedExperience)
-  }
-
-  return merged
+  return normalizeTeamFeatureSettings(experience, features)
 }
 
 export function normalizeTeam<T extends { settings: Record<string, unknown> }>(
@@ -385,30 +393,16 @@ export function normalizeViewDefinition<
     }
   }>
 ) {
-  const experience =
-    view.scopeType === "team"
-      ? (teams.find((team) => team.id === view.scopeId)?.settings?.experience ??
-        "software-development")
-      : null
-  const normalizedItemLevel =
-    view.entityKind === "items"
-      ? normalizeStoredViewItemLevel(
-          view.itemLevel ??
-            (view.scopeType === "team"
-              ? getDefaultViewItemLevelForTeamExperience(experience)
-              : null),
-          experience
-        )
-      : null
+  const experience = getViewDefinitionTeamExperience(view, teams)
+  const normalizedItemLevel = normalizeViewDefinitionItemLevel(view, experience)
 
   return {
     ...view,
     itemLevel: normalizedItemLevel,
-    showChildItems:
-      view.entityKind === "items" && normalizedItemLevel
-        ? view.showChildItems ??
-          getDefaultShowChildItemsForItemLevel(normalizedItemLevel)
-        : false,
+    showChildItems: normalizeViewDefinitionShowChildItems(
+      view,
+      normalizedItemLevel
+    ),
     filters: {
       ...view.filters,
       itemTypes: normalizeStoredViewItemTypes(
@@ -417,4 +411,66 @@ export function normalizeViewDefinition<
       ),
     },
   }
+}
+
+function getViewDefinitionTeamExperience(
+  view: {
+    scopeType: "personal" | "team" | "workspace"
+    scopeId: string
+  },
+  teams: Array<{
+    id: string
+    settings?: {
+      experience?: TeamExperienceType | null
+    }
+  }>
+) {
+  if (view.scopeType !== "team") {
+    return null
+  }
+
+  return (
+    teams.find((team) => team.id === view.scopeId)?.settings?.experience ??
+    "software-development"
+  )
+}
+
+function normalizeViewDefinitionItemLevel(
+  view: {
+    scopeType: "personal" | "team" | "workspace"
+    entityKind?: "items" | "projects" | "docs"
+    itemLevel?: StoredWorkItemType | null
+  },
+  experience: TeamExperienceType | null
+) {
+  if (view.entityKind !== "items") {
+    return null
+  }
+
+  const defaultItemLevel =
+    view.scopeType === "team"
+      ? getDefaultViewItemLevelForTeamExperience(experience)
+      : null
+
+  return normalizeStoredViewItemLevel(
+    view.itemLevel ?? defaultItemLevel,
+    experience
+  )
+}
+
+function normalizeViewDefinitionShowChildItems(
+  view: {
+    entityKind?: "items" | "projects" | "docs"
+    showChildItems?: boolean
+  },
+  normalizedItemLevel: ReturnType<typeof normalizeStoredViewItemLevel> | null
+) {
+  if (view.entityKind !== "items" || !normalizedItemLevel) {
+    return false
+  }
+
+  return (
+    view.showChildItems ??
+    getDefaultShowChildItemsForItemLevel(normalizedItemLevel)
+  )
 }

@@ -36,9 +36,11 @@ import { serverAccessArgs } from "./app/core"
 import { recordAuditEventHandler } from "./app/audit"
 import { getOrCreateAppConfig } from "./app/data"
 import {
+  backfillWorkItemKeysHandler,
   backfillWorkspaceMembershipsHandler,
   backfillLegacyLookupFieldsHandler,
   getLegacyLookupBackfillStatusHandler,
+  getWorkItemKeyBackfillStatusHandler,
   getWorkspaceMembershipBackfillStatusHandler,
 } from "./app/maintenance"
 import {
@@ -171,6 +173,38 @@ import {
   updateWorkspaceBrandingHandler,
   validateCurrentAccountDeletionHandler,
 } from "./app/workspace_team_handlers"
+
+const viewConfigMutationArgs = {
+  layout: v.optional(viewLayoutValidator),
+  itemLevel: v.optional(v.union(workItemTypeValidator, v.null())),
+  showChildItems: v.optional(v.boolean()),
+  grouping: v.optional(groupFieldValidator),
+  subGrouping: v.optional(v.union(groupFieldValidator, v.null())),
+  ordering: v.optional(orderingFieldValidator),
+}
+
+const viewConfigPatchMutationArgs = {
+  ...viewConfigMutationArgs,
+  showCompleted: v.optional(v.boolean()),
+}
+
+const presenceActorArgs = {
+  currentUserId: v.string(),
+  workosUserId: v.string(),
+  email: v.string(),
+  name: v.string(),
+  avatarUrl: v.string(),
+  avatarImageUrl: v.optional(v.union(v.string(), v.null())),
+  activeBlockId: v.optional(v.union(v.string(), v.null())),
+  sessionId: v.string(),
+}
+
+const clearPresenceActorArgs = {
+  currentUserId: v.string(),
+  workosUserId: v.string(),
+  sessionId: v.string(),
+}
+
 async function bumpSnapshotVersion(ctx: MutationCtx) {
   const config = await getOrCreateAppConfig(ctx)
 
@@ -262,6 +296,21 @@ export const backfillWorkspaceMemberships = operationalMutation({
     limit: v.optional(v.number()),
   },
   handler: backfillWorkspaceMembershipsHandler,
+})
+
+export const getWorkItemKeyBackfillStatus = query({
+  args: {
+    ...serverAccessArgs,
+  },
+  handler: getWorkItemKeyBackfillStatusHandler,
+})
+
+export const backfillWorkItemKeys = mutation({
+  args: {
+    ...serverAccessArgs,
+    limit: v.optional(v.number()),
+  },
+  handler: backfillWorkItemKeysHandler,
 })
 
 export const bumpScopedReadModelVersions = operationalMutation({
@@ -785,15 +834,7 @@ export const updateViewConfig = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     viewId: v.string(),
-    layout: v.optional(
-      v.union(v.literal("list"), v.literal("board"), v.literal("timeline"))
-    ),
-    itemLevel: v.optional(v.union(workItemTypeValidator, v.null())),
-    showChildItems: v.optional(v.boolean()),
-    grouping: v.optional(groupFieldValidator),
-    subGrouping: v.optional(v.union(groupFieldValidator, v.null())),
-    ordering: v.optional(orderingFieldValidator),
-    showCompleted: v.optional(v.boolean()),
+    ...viewConfigPatchMutationArgs,
   },
   handler: updateViewConfigHandler,
 })
@@ -811,14 +852,7 @@ export const createView = mutation({
     route: v.string(),
     name: v.string(),
     description: v.string(),
-    layout: v.optional(
-      v.union(v.literal("list"), v.literal("board"), v.literal("timeline"))
-    ),
-    itemLevel: v.optional(v.union(workItemTypeValidator, v.null())),
-    showChildItems: v.optional(v.boolean()),
-    grouping: v.optional(groupFieldValidator),
-    subGrouping: v.optional(v.union(groupFieldValidator, v.null())),
-    ordering: v.optional(orderingFieldValidator),
+    ...viewConfigMutationArgs,
     filters: v.optional(viewFiltersValidator),
     displayProps: v.optional(v.array(displayPropertyValidator)),
     hiddenState: v.optional(
@@ -1042,15 +1076,8 @@ export const sendItemDescriptionMentionNotifications = mutation({
 export const heartbeatDocumentPresence = convexMutation({
   args: {
     ...serverAccessArgs,
-    currentUserId: v.string(),
     documentId: v.string(),
-    workosUserId: v.string(),
-    email: v.string(),
-    name: v.string(),
-    avatarUrl: v.string(),
-    avatarImageUrl: v.optional(v.union(v.string(), v.null())),
-    activeBlockId: v.optional(v.union(v.string(), v.null())),
-    sessionId: v.string(),
+    ...presenceActorArgs,
   },
   handler: heartbeatDocumentPresenceHandler,
 })
@@ -1058,10 +1085,8 @@ export const heartbeatDocumentPresence = convexMutation({
 export const clearDocumentPresence = convexMutation({
   args: {
     ...serverAccessArgs,
-    currentUserId: v.string(),
     documentId: v.string(),
-    workosUserId: v.string(),
-    sessionId: v.string(),
+    ...clearPresenceActorArgs,
   },
   handler: clearDocumentPresenceHandler,
 })
@@ -1069,15 +1094,8 @@ export const clearDocumentPresence = convexMutation({
 export const heartbeatWorkItemPresence = convexMutation({
   args: {
     ...serverAccessArgs,
-    currentUserId: v.string(),
     itemId: v.string(),
-    workosUserId: v.string(),
-    email: v.string(),
-    name: v.string(),
-    avatarUrl: v.string(),
-    avatarImageUrl: v.optional(v.union(v.string(), v.null())),
-    activeBlockId: v.optional(v.union(v.string(), v.null())),
-    sessionId: v.string(),
+    ...presenceActorArgs,
   },
   handler: heartbeatWorkItemPresenceHandler,
 })
@@ -1085,10 +1103,8 @@ export const heartbeatWorkItemPresence = convexMutation({
 export const clearWorkItemPresence = convexMutation({
   args: {
     ...serverAccessArgs,
-    currentUserId: v.string(),
     itemId: v.string(),
-    workosUserId: v.string(),
-    sessionId: v.string(),
+    ...clearPresenceActorArgs,
   },
   handler: clearWorkItemPresenceHandler,
 })

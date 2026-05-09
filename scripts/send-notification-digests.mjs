@@ -1,11 +1,9 @@
 import { createHash, randomUUID } from "node:crypto"
 import { pathToFileURL } from "node:url"
 
-import { ConvexHttpClient } from "convex/browser"
-import { Resend } from "resend"
-
 import { api } from "../convex/_generated/api.js"
 import { normalizeResendFrom } from "./resend-from.mjs"
+import { readConvexResendConfig } from "./shared/convex-resend.mjs"
 
 const APP_NAME = "Recipe Room"
 const EMAIL_FONT_STACK =
@@ -317,27 +315,14 @@ export async function processNotificationDigestsBatch(input) {
 }
 
 export async function main() {
-  const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
-  const serverToken = process.env.CONVEX_SERVER_TOKEN
-  const resendApiKey = process.env.RESEND_API_KEY
-  const resendFromEmail = process.env.RESEND_FROM_EMAIL
-  const resendFromName = process.env.RESEND_FROM_NAME
+  const {
+    client,
+    resend,
+    resendFromEmail,
+    resendFromName,
+    serverToken,
+  } = readConvexResendConfig()
   const dryRun = process.env.DRY_RUN === "1"
-
-  if (!convexUrl) {
-    throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
-  }
-
-  if (!serverToken) {
-    throw new Error("CONVEX_SERVER_TOKEN is not configured")
-  }
-
-  if (!resendApiKey || !resendFromEmail) {
-    throw new Error("Resend is not configured")
-  }
-
-  const client = new ConvexHttpClient(convexUrl)
-  const resend = new Resend(resendApiKey)
   const claimId = randomUUID()
   const digests =
     (await (dryRun

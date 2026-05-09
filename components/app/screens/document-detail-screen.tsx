@@ -46,6 +46,7 @@ import type { DocumentPresenceViewer } from "@/lib/domain/types"
 import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
 import { useInitialCollaborationSyncPreview } from "@/hooks/use-initial-collaboration-sync-preview"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import { getAnchorInternalNavigationHref } from "@/components/app/screens/document-navigation"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { createDocumentDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
@@ -67,7 +68,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 
+import { CollaborationSyncDialog } from "./collaboration-sync-dialog"
 import { DocumentPresenceAvatarGroup } from "./document-ui"
+import { useLegacyPresenceHeartbeat } from "./legacy-presence-heartbeat"
 import { canEditDocumentInUi, getDocumentPresenceSessionId } from "./helpers"
 import { MissingState } from "./shared"
 
@@ -664,28 +667,10 @@ function DocumentCollaborationSyncDialog({
   showCollaborationBootPreview: boolean
 }) {
   return (
-    <Dialog open={showCollaborationBootPreview}>
-      <DialogContent className="max-w-sm gap-0 p-0" showCloseButton={false}>
-        <div className="px-5 py-5">
-          <DialogHeader className="p-0">
-            <DialogTitle className="text-base font-semibold">
-              Syncing latest changes
-            </DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              Loading the latest document state. Editing will unlock
-              automatically in a moment.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-            <span
-              aria-hidden="true"
-              className="size-2 animate-pulse rounded-full bg-primary"
-            />
-            <span>Syncing latest changes…</span>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <CollaborationSyncDialog
+      descriptionSubject="document"
+      open={showCollaborationBootPreview}
+    />
   )
 }
 
@@ -918,170 +903,22 @@ function useLegacyDocumentPresenceHeartbeat({
   legacyActiveBlockIdRef: MutableRefObject<string | null>
   resolvedDocumentKind: string | null
 }) {
-  const [documentPresenceViewers, setDocumentPresenceViewers] = useState<
-    DocumentPresenceViewer[]
-  >([])
-  const sendLegacyPresenceRef = useRef<(() => void) | null>(null)
-
-  useEffect(() => {
-    if (!currentDocumentId || resolvedDocumentKind === "item-description") {
-      sendLegacyPresenceRef.current = null
-      setDocumentPresenceViewers([])
-      return
-    }
-
-    if (
-      collaborationLifecycle === "bootstrapping" ||
-      collaborationLifecycle === "attached"
-    ) {
-      sendLegacyPresenceRef.current = null
-      setDocumentPresenceViewers([])
-      return
-    }
-
-    let cancelled = false
-    let presenceActive = window.document.visibilityState === "visible"
-    let heartbeatTimeoutId: number | null = null
-    const activeDocumentId = currentDocumentId
-    const sessionId = getDocumentPresenceSessionId(currentUserId)
-
-    function clearHeartbeatTimeout() {
-      if (heartbeatTimeoutId !== null) {
-        window.clearTimeout(heartbeatTimeoutId)
-        heartbeatTimeoutId = null
-      }
-    }
-
-    function scheduleHeartbeat(delayMs: number) {
-      clearHeartbeatTimeout()
-
-      if (
-        cancelled ||
-        !presenceActive ||
-        window.document.visibilityState !== "visible"
-      ) {
-        return
-      }
-
-      heartbeatTimeoutId = window.setTimeout(() => {
-        void sendHeartbeat()
-      }, delayMs)
-    }
-
-    async function sendHeartbeat() {
-      if (
-        cancelled ||
-        !presenceActive ||
-        window.document.visibilityState !== "visible"
-      ) {
-        return
-      }
-
-      try {
-        const viewers = await syncHeartbeatDocumentPresence(
-          activeDocumentId,
-          sessionId,
-          legacyActiveBlockIdRef.current
-        )
-
-        if (
-          !cancelled &&
-          presenceActive &&
-          window.document.visibilityState === "visible"
-        ) {
-          setDocumentPresenceViewers(viewers)
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to sync document presence", error)
-        }
-      } finally {
-        scheduleHeartbeat(DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS)
-      }
-    }
-
-    sendLegacyPresenceRef.current = () => {
-      void sendHeartbeat()
-    }
-
-    function resumePresence() {
-      if (cancelled || window.document.visibilityState !== "visible") {
-        return
-      }
-
-      presenceActive = true
-      void sendHeartbeat()
-    }
-
-    function leaveDocument(options?: { keepalive?: boolean }) {
-      presenceActive = false
-      clearHeartbeatTimeout()
-
-      if (!cancelled) {
-        setDocumentPresenceViewers([])
-      }
-
-      void syncClearDocumentPresence(activeDocumentId, sessionId, {
-        keepalive: options?.keepalive,
-      }).catch((error) => {
-        if (!cancelled && window.document.visibilityState === "visible") {
-          console.error("Failed to clear document presence", error)
-        }
-      })
-    }
-
-    const handleVisibilityChange = () => {
-      if (window.document.visibilityState === "visible") {
-        resumePresence()
-        return
-      }
-
-      leaveDocument({ keepalive: true })
-    }
-    const handleWindowFocus = () => {
-      resumePresence()
-    }
-    const handleWindowOnline = () => {
-      resumePresence()
-    }
-    const handlePageShow = () => {
-      resumePresence()
-    }
-    const handlePageHide = () => {
-      leaveDocument({ keepalive: true })
-    }
-
-    resumePresence()
-
-    window.addEventListener("focus", handleWindowFocus)
-    window.addEventListener("online", handleWindowOnline)
-    window.addEventListener("pageshow", handlePageShow)
-    window.document.addEventListener("visibilitychange", handleVisibilityChange)
-    window.addEventListener("pagehide", handlePageHide)
-
-    return () => {
-      cancelled = true
-      clearHeartbeatTimeout()
-      window.removeEventListener("focus", handleWindowFocus)
-      window.removeEventListener("online", handleWindowOnline)
-      window.removeEventListener("pageshow", handlePageShow)
-      window.document.removeEventListener(
-        "visibilitychange",
-        handleVisibilityChange
-      )
-      window.removeEventListener("pagehide", handlePageHide)
-      sendLegacyPresenceRef.current = null
-      void syncClearDocumentPresence(activeDocumentId, sessionId, {
-        keepalive: true,
-      }).catch(() => {})
-    }
-  }, [
+  const {
+    presenceViewers: documentPresenceViewers,
+    sendLegacyPresenceRef,
+  } = useLegacyPresenceHeartbeat({
+    activeId: currentDocumentId,
+    activeBlockIdRef: legacyActiveBlockIdRef,
+    clearErrorMessage: "Failed to clear document presence",
+    clearPresence: syncClearDocumentPresence,
     collaborationLifecycle,
-    currentDocumentId,
     currentUserId,
-    legacyActiveBlockIdRef,
-    resolvedDocumentKind,
-  ])
+    disabled: resolvedDocumentKind === "item-description",
+    heartbeatErrorMessage: "Failed to sync document presence",
+    heartbeatIntervalMs: DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS,
+    heartbeatPresence: syncHeartbeatDocumentPresence,
+    getSessionId: getDocumentPresenceSessionId,
+  })
 
   return {
     documentPresenceViewers,
@@ -1312,20 +1149,18 @@ function useDocumentBodyProtection({
   }
 }
 
-function getPendingMentionNavigationHref(event: MouseEvent) {
-  if (
-    event.defaultPrevented ||
-    event.button !== 0 ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.shiftKey ||
-    event.altKey
-  ) {
-    return null
-  }
+function isPlainPrimaryNavigationClick(event: MouseEvent) {
+  return (
+    !event.defaultPrevented &&
+    event.button === 0 &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey
+  )
+}
 
-  const target = event.target
-
+function getPendingMentionNavigationAnchor(target: EventTarget | null) {
   if (!(target instanceof Element)) {
     return null
   }
@@ -1334,36 +1169,33 @@ function getPendingMentionNavigationHref(event: MouseEvent) {
 
   if (
     !(anchor instanceof HTMLAnchorElement) ||
-    anchor.hasAttribute("download")
+    anchor.hasAttribute("download") ||
+    (anchor.target && anchor.target !== "_self")
   ) {
     return null
   }
 
-  if (anchor.target && anchor.target !== "_self") {
+  return anchor
+}
+
+function getCurrentNavigationHref() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`
+}
+
+function getPendingMentionNavigationHref(event: MouseEvent) {
+  if (!isPlainPrimaryNavigationClick(event)) {
     return null
   }
 
-  const href = anchor.getAttribute("href")
+  const anchor = getPendingMentionNavigationAnchor(event.target)
 
-  if (
-    !href ||
-    href.startsWith("#") ||
-    href.startsWith("mailto:") ||
-    href.startsWith("tel:")
-  ) {
+  if (!anchor) {
     return null
   }
 
-  const nextUrl = new URL(anchor.href, window.location.href)
+  const nextHref = getAnchorInternalNavigationHref(anchor)
 
-  if (nextUrl.origin !== window.location.origin) {
-    return null
-  }
-
-  const nextHref = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`
-  const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`
-
-  return nextHref === currentHref ? null : nextHref
+  return nextHref && nextHref !== getCurrentNavigationHref() ? nextHref : null
 }
 
 function usePendingMentionBeforeUnload(

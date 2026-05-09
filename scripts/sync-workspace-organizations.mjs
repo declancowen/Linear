@@ -1,30 +1,7 @@
-import { ConvexHttpClient } from "convex/browser"
-import { createWorkOS } from "@workos-inc/node"
-
 import { api } from "../convex/_generated/api.js"
+import { readWorkosConvexConfig } from "./shared/workos-convex.mjs"
 
-const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
-const serverToken = process.env.CONVEX_SERVER_TOKEN
-const apiKey = process.env.WORKOS_API_KEY
-const clientId = process.env.WORKOS_CLIENT_ID
-
-if (!convexUrl) {
-  throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
-}
-
-if (!serverToken) {
-  throw new Error("CONVEX_SERVER_TOKEN is not configured")
-}
-
-if (!apiKey || !clientId) {
-  throw new Error("WorkOS is not configured")
-}
-
-const convex = new ConvexHttpClient(convexUrl)
-const workos = createWorkOS({
-  apiKey,
-  clientId,
-})
+const { convex, serverToken, workos } = readWorkosConvexConfig()
 
 function isNotFoundError(error) {
   return (

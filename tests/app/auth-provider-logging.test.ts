@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { createFormRouteRequest } from "@/tests/lib/fixtures/api-routes"
+import {
+  getMockWorkOSAuthErrorCode,
+  getMockWorkOSAuthErrorMessage,
+  getMockWorkOSPendingAuthentication,
+} from "@/tests/lib/fixtures/workos-auth-mocks"
+
 const saveSessionMock = vi.fn()
 const reconcileAuthenticatedAppContextMock = vi.fn()
 const getWorkOSClientMock = vi.fn()
@@ -21,102 +28,10 @@ vi.mock("@/lib/server/provider-errors", () => ({
 vi.mock("@/lib/server/workos", () => ({
   getWorkOSClient: getWorkOSClientMock,
   requestWorkOSPasswordReset: requestWorkOSPasswordResetMock,
-  getWorkOSAuthErrorCode: (error: unknown) => {
-    if (typeof error !== "object" || error === null) {
-      return null
-    }
-
-    const rawData =
-      "rawData" in error &&
-      typeof error.rawData === "object" &&
-      error.rawData !== null
-        ? error.rawData
-        : null
-
-    if (
-      rawData &&
-      "error" in rawData &&
-      typeof rawData.error === "string"
-    ) {
-      return rawData.error
-    }
-
-    return "error" in error && typeof error.error === "string"
-      ? error.error
-      : null
-  },
-  getWorkOSAuthErrorMessage: (error: unknown) => {
-    if (typeof error !== "object" || error === null) {
-      return null
-    }
-
-    const rawData =
-      "rawData" in error &&
-      typeof error.rawData === "object" &&
-      error.rawData !== null
-        ? error.rawData
-        : null
-
-    if (
-      rawData &&
-      "message" in rawData &&
-      typeof rawData.message === "string"
-    ) {
-      return rawData.message
-    }
-
-    return "message" in error && typeof error.message === "string"
-      ? error.message
-      : null
-  },
-  getWorkOSPendingAuthentication: (error: unknown) => {
-    if (typeof error !== "object" || error === null) {
-      return null
-    }
-
-    const rawData =
-      "rawData" in error &&
-      typeof error.rawData === "object" &&
-      error.rawData !== null
-        ? error.rawData
-        : null
-
-    const pendingAuthenticationToken =
-      rawData &&
-      "pending_authentication_token" in rawData &&
-      typeof rawData.pending_authentication_token === "string"
-        ? rawData.pending_authentication_token
-        : "pendingAuthenticationToken" in error &&
-            typeof error.pendingAuthenticationToken === "string"
-          ? error.pendingAuthenticationToken
-          : null
-
-    if (!pendingAuthenticationToken) {
-      return null
-    }
-
-    return {
-      email:
-        rawData && "email" in rawData && typeof rawData.email === "string"
-          ? rawData.email
-          : null,
-      pendingAuthenticationToken,
-    }
-  },
+  getWorkOSAuthErrorCode: getMockWorkOSAuthErrorCode,
+  getWorkOSAuthErrorMessage: getMockWorkOSAuthErrorMessage,
+  getWorkOSPendingAuthentication: getMockWorkOSPendingAuthentication,
 }))
-
-function buildFormRequest(url: string, entries: Record<string, string>) {
-  const formData = new FormData()
-
-  for (const [key, value] of Object.entries(entries)) {
-    formData.set(key, value)
-  }
-
-  return new Request(url, {
-    method: "POST",
-    body: formData,
-  })
-}
 
 describe("auth route provider logging", () => {
   beforeEach(() => {
@@ -150,7 +65,7 @@ describe("auth route provider logging", () => {
 
     const { POST } = await import("@/app/auth/signup/route")
     const response = await POST(
-      buildFormRequest("http://localhost/auth/signup", {
+      createFormRouteRequest("http://localhost/auth/signup", {
         firstName: "Alex",
         lastName: "Morgan",
         email: "alex@example.com",
@@ -192,7 +107,7 @@ describe("auth route provider logging", () => {
 
     const { POST } = await import("@/app/auth/signup/route")
     const response = await POST(
-      buildFormRequest("http://localhost/auth/signup", {
+      createFormRouteRequest("http://localhost/auth/signup", {
         firstName: "Alex",
         lastName: "Morgan",
         email: "alex@example.com",
@@ -227,7 +142,7 @@ describe("auth route provider logging", () => {
 
     const { POST } = await import("@/app/auth/forgot-password/route")
     const response = await POST(
-      buildFormRequest("http://localhost/auth/forgot-password", {
+      createFormRouteRequest("http://localhost/auth/forgot-password", {
         email: "alex@example.com",
         next: "/login",
       })

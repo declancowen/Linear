@@ -5,14 +5,13 @@ import type { MutationCtx } from "../_generated/server"
 import {
   addLocalCalendarDays,
   formatLocalCalendarDate,
-  getCalendarDatePrefix,
-  isValidCalendarDateString,
   shiftCalendarDate,
 } from "../../lib/calendar-date"
 import {
   buildAssignmentEmailJobs,
   type AssignmentEmail,
 } from "../../lib/email/builders"
+import { formatWorkItemKey } from "../../lib/domain/work-item-key"
 import {
   buildWorkItemAssignmentNotificationMessage,
   buildWorkItemStatusChangeNotificationMessage,
@@ -25,6 +24,10 @@ import {
   type StoredWorkItemType,
   type WorkItemType,
 } from "../../lib/domain/types"
+import type {
+  AuthenticatedCreateWorkItemInput,
+  WorkItemMutationPatch,
+} from "../../lib/domain/work-item-inputs"
 import { createNotification } from "./collaboration_utils"
 import { getClampedNotifiedMentionCounts } from "./document_handlers"
 import { assertServerToken, createId, getNow, toTeamKeyPrefix } from "./core"
@@ -42,8 +45,13 @@ import {
   listWorkspaceDocuments,
 } from "./data"
 import { listDocumentPresenceViewers, normalizeTeam } from "./normalization"
-import { upsertDocumentPresenceForActor } from "./presence_helpers"
 import {
+  clearDocumentPresenceForActor,
+  upsertDocumentPresenceForActor,
+} from "./presence_helpers"
+import {
+  assertScheduleDate,
+  assertTargetDateOnOrAfterStartDate,
   assertWorkspaceLabelIds,
   collectWorkItemCascadeIds,
   getResolvedProjectLinkForWorkItemUpdate,
@@ -57,26 +65,7 @@ type ServerAccessArgs = {
   serverToken: string
 }
 
-type WorkItemPatch = {
-  title?: string
-  description?: string
-  expectedUpdatedAt?: string
-  status?:
-    | "backlog"
-    | "todo"
-    | "in-progress"
-    | "done"
-    | "cancelled"
-    | "duplicate"
-  priority?: "none" | "low" | "medium" | "high" | "urgent"
-  assigneeId?: string | null
-  parentId?: string | null
-  primaryProjectId?: string | null
-  labelIds?: string[]
-  startDate?: string | null
-  dueDate?: string | null
-  targetDate?: string | null
-}
+type WorkItemPatch = WorkItemMutationPatch
 
 type UpdateWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
@@ -125,46 +114,11 @@ type ShiftTimelineItemArgs = ServerAccessArgs & {
   nextStartDate: string
 }
 
-type CreateWorkItemArgs = ServerAccessArgs & {
-  currentUserId: string
-  origin: string
-  id?: string
-  descriptionDocId?: string
-  teamId: string
-  type: WorkItemType
-  title: string
-  parentId?: string | null
-  primaryProjectId: string | null
-  assigneeId: string | null
-  status?:
-    | "backlog"
-    | "todo"
-    | "in-progress"
-    | "done"
-    | "cancelled"
-    | "duplicate"
-  priority: "none" | "low" | "medium" | "high" | "urgent"
-  labelIds?: string[]
-  startDate?: string | null
-  dueDate?: string | null
-  targetDate?: string | null
-}
-
-function assertWorkItemScheduleDate(
-  value: string | null | undefined,
-  label: "Start date" | "Due date" | "Target date"
-) {
-  if (
-    value !== undefined &&
-    value !== null &&
-    !isValidCalendarDateString(value)
-  ) {
-    throw new Error(`${label} must be a valid calendar date`)
-  }
-}
+type CreateWorkItemArgs = ServerAccessArgs & AuthenticatedCreateWorkItemInput
 
 type WorkItemDoc = NonNullable<Awaited<ReturnType<typeof getWorkItemDoc>>>
 type TeamDoc = NonNullable<Awaited<ReturnType<typeof getTeamDoc>>>
+type ProjectDoc = NonNullable<Awaited<ReturnType<typeof getProjectDoc>>>
 
 function assertExpectedWorkItemVersion(
   existing: WorkItemDoc,
@@ -202,24 +156,18 @@ function assertWorkItemSchedulePatch(
   existing: WorkItemDoc,
   patch: WorkItemPatch
 ) {
-  assertWorkItemScheduleDate(patch.startDate, "Start date")
-  assertWorkItemScheduleDate(patch.dueDate, "Due date")
-  assertWorkItemScheduleDate(patch.targetDate, "Target date")
+  assertScheduleDate(patch.startDate, "Start date")
+  assertScheduleDate(patch.dueDate, "Due date")
+  assertScheduleDate(patch.targetDate, "Target date")
 
   const nextStartDate =
     patch.startDate === undefined ? existing.startDate : patch.startDate
   const nextTargetDate =
     patch.targetDate === undefined ? existing.targetDate : patch.targetDate
-  const nextStartDatePrefix = getCalendarDatePrefix(nextStartDate)
-  const nextTargetDatePrefix = getCalendarDatePrefix(nextTargetDate)
-
-  if (
-    nextStartDatePrefix &&
-    nextTargetDatePrefix &&
-    nextTargetDatePrefix < nextStartDatePrefix
-  ) {
-    throw new Error("Target date must be on or after the start date")
-  }
+  assertTargetDateOnOrAfterStartDate({
+    startDate: nextStartDate,
+    targetDate: nextTargetDate,
+  })
 }
 
 async function validateWorkItemParentPatch(
@@ -272,6 +220,83 @@ function isWorkItemAllowedForProjectTemplate(
   )
 }
 
+async function loadProjectLinkPatchProject(
+  ctx: MutationCtx,
+  projectId: string | null
+) {
+  if (!projectId) {
+    return null
+  }
+
+  const project = await getProjectDoc(ctx, projectId)
+
+  if (!project) {
+    throw new Error("Project not found")
+  }
+
+  return project
+}
+
+function assertProjectLinkBelongsToTeam(team: TeamDoc, project: ProjectDoc) {
+  if (!projectBelongsToTeamScope(team, project)) {
+    throw new Error("Project must belong to the same team or workspace")
+  }
+}
+
+function assertProjectTemplateAllowsWorkItem(
+  project: ProjectDoc,
+  normalizedExistingType: WorkItemType
+) {
+  if (
+    !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
+      normalizedExistingType
+    )
+  ) {
+    throw new Error(
+      "Work item type is not allowed for the selected project template"
+    )
+  }
+}
+
+function hasUnsupportedCascadeProjectItem(input: {
+  teamItems: WorkItemDoc[]
+  existing: WorkItemDoc
+  project: ProjectDoc
+  normalizedExperience: ReturnType<typeof normalizeTeam>["settings"]["experience"]
+  cascadeItemIds: Set<string>
+  shouldCascadeProjectLink: boolean
+}) {
+  if (!input.shouldCascadeProjectLink) {
+    return false
+  }
+
+  return input.teamItems.some(
+    (item) =>
+      item.id !== input.existing.id &&
+      input.cascadeItemIds.has(item.id) &&
+      !isWorkItemAllowedForProjectTemplate(
+        item,
+        input.project.templateType,
+        input.normalizedExperience
+      )
+  )
+}
+
+function assertCascadeProjectTemplateAllowsHierarchy(input: {
+  teamItems: WorkItemDoc[]
+  existing: WorkItemDoc
+  project: ProjectDoc
+  normalizedExperience: ReturnType<typeof normalizeTeam>["settings"]["experience"]
+  cascadeItemIds: Set<string>
+  shouldCascadeProjectLink: boolean
+}) {
+  if (hasUnsupportedCascadeProjectItem(input)) {
+    throw new Error(
+      "A work item type in this hierarchy is not allowed for the selected project template"
+    )
+  }
+}
+
 async function assertProjectLinkPatchAllowed(
   ctx: MutationCtx,
   input: {
@@ -287,50 +312,28 @@ async function assertProjectLinkPatchAllowed(
     shouldCascadeProjectLink: boolean
   }
 ) {
-  if (!input.resolvedPrimaryProjectId) {
+  const project = await loadProjectLinkPatchProject(
+    ctx,
+    input.resolvedPrimaryProjectId
+  )
+
+  if (!project) {
     return
   }
 
-  const project = await getProjectDoc(ctx, input.resolvedPrimaryProjectId)
-
-  if (!project) {
-    throw new Error("Project not found")
-  }
-
-  if (!projectBelongsToTeamScope(input.team, project)) {
-    throw new Error("Project must belong to the same team or workspace")
-  }
-
-  if (
-    !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
-      input.normalizedExistingType
-    )
-  ) {
-    throw new Error(
-      "Work item type is not allowed for the selected project template"
-    )
-  }
-
-  if (
-    input.shouldCascadeProjectLink &&
-    input.teamItems.some(
-      (item) =>
-        item.id !== input.existing.id &&
-        input.cascadeItemIds.has(item.id) &&
-        !isWorkItemAllowedForProjectTemplate(
-          item,
-          project.templateType,
-          input.normalizedExperience
-        )
-    )
-  ) {
-    throw new Error(
-      "A work item type in this hierarchy is not allowed for the selected project template"
-    )
-  }
+  assertProjectLinkBelongsToTeam(input.team, project)
+  assertProjectTemplateAllowsWorkItem(project, input.normalizedExistingType)
+  assertCascadeProjectTemplateAllowsHierarchy({
+    teamItems: input.teamItems,
+    existing: input.existing,
+    project,
+    normalizedExperience: input.normalizedExperience,
+    cascadeItemIds: input.cascadeItemIds,
+    shouldCascadeProjectLink: input.shouldCascadeProjectLink,
+  })
 }
 
-async function patchWorkItemDescriptionDocument(
+export async function patchWorkItemDescriptionDocument(
   ctx: MutationCtx,
   input: {
     existing: WorkItemDoc
@@ -381,6 +384,20 @@ async function cascadeProjectLinkToWorkItemHierarchy(
     now: string
   }
 ) {
+  await patchCascadeProjectLinkedItems(ctx, input)
+  await patchCascadeProjectDescriptionDocuments(ctx, input)
+}
+
+async function patchCascadeProjectLinkedItems(
+  ctx: MutationCtx,
+  input: {
+    teamItems: WorkItemDoc[]
+    existing: WorkItemDoc
+    cascadeItemIds: Set<string>
+    resolvedPrimaryProjectId: string | null
+    now: string
+  }
+) {
   for (const item of input.teamItems) {
     if (item.id === input.existing.id || !input.cascadeItemIds.has(item.id)) {
       continue
@@ -391,14 +408,30 @@ async function cascadeProjectLinkToWorkItemHierarchy(
       updatedAt: input.now,
     })
   }
+}
 
-  const cascadeDescriptionDocIds = new Set(
+function getCascadeDescriptionDocIds(input: {
+  teamItems: WorkItemDoc[]
+  cascadeItemIds: Set<string>
+}) {
+  return new Set(
     input.teamItems
       .filter((item) => input.cascadeItemIds.has(item.id))
       .map((item) => item.descriptionDocId)
   )
+}
 
-  for (const documentId of cascadeDescriptionDocIds) {
+async function patchCascadeProjectDescriptionDocuments(
+  ctx: MutationCtx,
+  input: {
+    teamItems: WorkItemDoc[]
+    cascadeItemIds: Set<string>
+    resolvedPrimaryProjectId: string | null
+    currentUserId: string
+    now: string
+  }
+) {
+  for (const documentId of getCascadeDescriptionDocIds(input)) {
     const document = await getDocumentDoc(ctx, documentId)
 
     if (!document) {
@@ -505,7 +538,7 @@ function buildPersistedWorkItemPatch(
   }
 }
 
-async function createAssignmentNotificationForWorkItemUpdate(
+export async function createAssignmentNotificationForWorkItemUpdate(
   ctx: MutationCtx,
   input: {
     args: UpdateWorkItemArgs
@@ -554,7 +587,7 @@ async function createAssignmentNotificationForWorkItemUpdate(
   }
 }
 
-async function createStatusChangeNotificationForWorkItemUpdate(
+export async function createStatusChangeNotificationForWorkItemUpdate(
   ctx: MutationCtx,
   input: {
     args: UpdateWorkItemArgs
@@ -728,6 +761,21 @@ async function requireCollaborationWorkItem(
   return existing
 }
 
+async function requireEditableWorkItem(
+  ctx: MutationCtx,
+  args: { itemId: string; currentUserId: string }
+) {
+  const item = await getWorkItemDoc(ctx, args.itemId)
+
+  if (!item) {
+    throw new Error("Work item not found")
+  }
+
+  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+
+  return item
+}
+
 function getCollaborationWorkItemTitle(
   existing: WorkItemDoc,
   args: PersistCollaborationWorkItemArgs
@@ -818,14 +866,7 @@ export async function heartbeatWorkItemPresenceHandler(
 ) {
   assertServerToken(args.serverToken)
 
-  const item = await getWorkItemDoc(ctx, args.itemId)
-
-  if (!item) {
-    throw new Error("Work item not found")
-  }
-
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
-
+  const item = await requireEditableWorkItem(ctx, args)
   const currentTime = getNow()
   await upsertDocumentPresenceForActor(
     ctx,
@@ -848,42 +889,8 @@ export async function clearWorkItemPresenceHandler(
 ) {
   assertServerToken(args.serverToken)
 
-  const item = await getWorkItemDoc(ctx, args.itemId)
-
-  if (!item) {
-    throw new Error("Work item not found")
-  }
-
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
-
-  const existingPresenceEntries = await ctx.db
-    .query("documentPresence")
-    .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
-    .collect()
-
-  if (existingPresenceEntries.length === 0) {
-    return { ok: true }
-  }
-
-  const conflictingPresenceEntries = existingPresenceEntries.filter((entry) =>
-    entry.workosUserId
-      ? entry.workosUserId !== args.workosUserId
-      : entry.userId !== args.currentUserId
-  )
-
-  if (conflictingPresenceEntries.length > 0) {
-    throw new Error("Document presence session is already in use")
-  }
-
-  for (const existingPresence of existingPresenceEntries) {
-    if (existingPresence.documentId !== item.descriptionDocId) {
-      continue
-    }
-
-    await ctx.db.delete(existingPresence._id)
-  }
-
-  return { ok: true }
+  const item = await requireEditableWorkItem(ctx, args)
+  return clearDocumentPresenceForActor(ctx, item.descriptionDocId, args)
 }
 
 async function requireWorkItemDeleteTarget(
@@ -1132,20 +1139,10 @@ export async function shiftTimelineItemHandler(
 }
 
 function assertCreateWorkItemSchedule(args: CreateWorkItemArgs) {
-  assertWorkItemScheduleDate(args.startDate, "Start date")
-  assertWorkItemScheduleDate(args.dueDate, "Due date")
-  assertWorkItemScheduleDate(args.targetDate, "Target date")
-
-  const startDatePrefix = getCalendarDatePrefix(args.startDate)
-  const targetDatePrefix = getCalendarDatePrefix(args.targetDate)
-
-  if (
-    startDatePrefix &&
-    targetDatePrefix &&
-    targetDatePrefix < startDatePrefix
-  ) {
-    throw new Error("Target date must be on or after the start date")
-  }
+  assertScheduleDate(args.startDate, "Start date")
+  assertScheduleDate(args.dueDate, "Due date")
+  assertScheduleDate(args.targetDate, "Target date")
+  assertTargetDateOnOrAfterStartDate(args)
 }
 
 function assertTeamSupportsWorkItems(team: ReturnType<typeof normalizeTeam>) {
@@ -1320,7 +1317,7 @@ function buildCreatedWorkItem({
 }) {
   return {
     id: args.id ?? createId("item"),
-    key: `${prefix}-${nextNumber}`,
+    key: formatWorkItemKey(prefix, nextNumber),
     teamId: args.teamId,
     type: args.type,
     title: args.title,

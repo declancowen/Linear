@@ -5,6 +5,10 @@ import {
   getSnapshotServer,
 } from "@/lib/server/convex"
 import {
+  applySelectedWorkspaceIdToSnapshot,
+  getSelectedWorkspaceIdFromCookies,
+} from "@/lib/server/workspace-selection"
+import {
   getChannelPostRelatedScopeKeys,
   getChatMessageRelatedScopeKeys,
   getConversationRelatedScopeKeys,
@@ -30,10 +34,13 @@ import {
 export async function loadScopedReadModelSnapshotForSession(
   session: AuthenticatedSession
 ) {
-  return (await getSnapshotServer({
+  const snapshot = (await getSnapshotServer({
     workosUserId: session.user.id,
     email: session.user.email ?? undefined,
   })) as AppSnapshot
+  const selectedWorkspaceId = await getSelectedWorkspaceIdFromCookies()
+
+  return applySelectedWorkspaceIdToSnapshot(snapshot, selectedWorkspaceId)
 }
 
 function parseScopedCollectionScopeId(value: string) {

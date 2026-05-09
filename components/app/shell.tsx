@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   type PointerEvent as ReactPointerEvent,
+  type MutableRefObject,
   type ReactNode,
   useEffect,
   useEffectEvent,
@@ -38,6 +39,7 @@ import { useShallow } from "zustand/react/shallow"
 import {
   fetchNotificationInboxReadModel,
   fetchWorkspaceMembershipReadModel,
+  selectCurrentWorkspaceReadModel,
 } from "@/lib/convex/client/read-models"
 import {
   canAdminWorkspace,
@@ -53,6 +55,7 @@ import {
   type CreateDialogState,
   type Team,
   type TeamMembership,
+  type Invite,
   type Notification,
   type UserProfile,
   getWorkSurfaceCopy,
@@ -77,9 +80,12 @@ import {
   createShellContextScopeKey,
   createWorkspaceMembershipScopeKey,
 } from "@/lib/scoped-sync/scope-keys"
-import { getNotificationInboxScopeKeys } from "@/lib/scoped-sync/read-models"
-import { useAppStore } from "@/lib/store/app-store"
-import { resolveImageAssetSource } from "@/lib/utils"
+import {
+  type ScopedReadModelReplaceInstruction,
+  getNotificationInboxScopeKeys,
+} from "@/lib/scoped-sync/read-models"
+import { type AppStore, useAppStore } from "@/lib/store/app-store"
+import { cn, resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
 import {
@@ -136,8 +142,855 @@ type AppShellProps = {
   children: ReactNode
 }
 
+type ShellNotificationRouteData = Pick<
+  AppStore,
+  "channelPosts" | "conversations" | "projects" | "teams"
+>
+
 const SHELL_CONTEXT_GRACE_PERIOD_MS = 1000
 const NOTIFICATION_TOAST_DURATION_MS = 5000
+
+function isUnreadNotificationForCurrentUser(
+  notification: Notification,
+  currentUserId: string | null
+) {
+  return (
+    notification.userId === currentUserId &&
+    notification.readAt === null &&
+    notification.archivedAt == null
+  )
+}
+
+function selectUnreadNotificationCount(state: AppStore) {
+  return state.notifications.filter((notification) =>
+    isUnreadNotificationForCurrentUser(notification, state.currentUserId)
+  ).length
+}
+
+function selectNotificationToastCandidates(state: AppStore) {
+  return state.notifications
+    .filter((notification) =>
+      isUnreadNotificationForCurrentUser(notification, state.currentUserId)
+    )
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+}
+
+function isPendingInviteForEmail(invite: Invite, email: string) {
+  return (
+    invite.email.toLowerCase() === email.toLowerCase() &&
+    !invite.acceptedAt &&
+    !invite.declinedAt
+  )
+}
+
+function selectPendingInviteCount(state: AppStore) {
+  const user = getCurrentUser(state)
+
+  return user
+    ? state.invites.filter((invite) =>
+        isPendingInviteForEmail(invite, user.email)
+      ).length
+    : 0
+}
+
+function selectCurrentWorkspaceTeamMemberships(state: AppStore) {
+  const currentWorkspaceTeamIds = new Set(
+    state.teams
+      .filter((team) => team.workspaceId === state.currentWorkspaceId)
+      .map((team) => team.id)
+  )
+
+  return state.teamMemberships.filter(
+    (membership) =>
+      membership.userId === state.currentUserId &&
+      currentWorkspaceTeamIds.has(membership.teamId)
+  )
+}
+
+function selectCanLeaveCurrentWorkspace(state: AppStore) {
+  const currentWorkspace = getCurrentWorkspace(state)
+
+  if (!currentWorkspace || canAdminWorkspace(state, currentWorkspace.id)) {
+    return false
+  }
+
+  const workspaceTeamIds = new Set(
+    state.teams
+      .filter((team) => team.workspaceId === currentWorkspace.id)
+      .map((team) => team.id)
+  )
+
+  return state.teamMemberships.some(
+    (membership) =>
+      membership.userId === state.currentUserId &&
+      workspaceTeamIds.has(membership.teamId)
+  )
+}
+
+function selectSwitchableWorkspaces(state: AppStore) {
+  const currentUserId = state.currentUserId
+  const accessibleWorkspaceIds = new Set(
+    state.workspaceMemberships
+      .filter((membership) => membership.userId === currentUserId)
+      .map((membership) => membership.workspaceId)
+  )
+
+  return state.workspaces
+    .filter(
+      (workspace) =>
+        workspace.id !== state.currentWorkspaceId &&
+        (workspace.createdBy === currentUserId ||
+          accessibleWorkspaceIds.has(workspace.id))
+    )
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+    )
+}
+
+function isSearchShortcutEvent(event: KeyboardEvent) {
+  return (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    !event.repeat &&
+    event.key.toLowerCase() === "k"
+  )
+}
+
+function clearNotificationToastFlushTimeout(
+  timeoutRef: MutableRefObject<number | null>
+) {
+  if (timeoutRef.current !== null) {
+    window.clearTimeout(timeoutRef.current)
+    timeoutRef.current = null
+  }
+}
+
+function resetNotificationToastState(input: {
+  currentUserId: string | null
+  knownIdsRef: MutableRefObject<Set<string> | null>
+  pendingIdsRef: MutableRefObject<string[]>
+  startedAtRef: MutableRefObject<string>
+  timeoutRef: MutableRefObject<number | null>
+  userIdRef: MutableRefObject<string | null>
+}) {
+  if (input.userIdRef.current === input.currentUserId) {
+    return
+  }
+
+  input.userIdRef.current = input.currentUserId
+  input.startedAtRef.current = new Date().toISOString()
+  input.knownIdsRef.current = null
+  input.pendingIdsRef.current = []
+  clearNotificationToastFlushTimeout(input.timeoutRef)
+}
+
+function syncPendingNotificationToastIds(input: {
+  candidates: Notification[]
+  knownIdsRef: MutableRefObject<Set<string> | null>
+  pendingIds: string[]
+  startedAt: string
+}) {
+  if (input.knownIdsRef.current === null) {
+    input.knownIdsRef.current = new Set()
+    initializePendingNotificationToastIds({
+      candidates: input.candidates,
+      knownIds: input.knownIdsRef.current,
+      pendingIds: input.pendingIds,
+      startedAt: input.startedAt,
+    })
+    return
+  }
+
+  appendPendingNotificationToastIds({
+    candidates: input.candidates,
+    knownIds: input.knownIdsRef.current,
+    pendingIds: input.pendingIds,
+  })
+}
+
+function shiftNextNotificationToast(
+  candidates: Notification[],
+  pendingIds: string[]
+) {
+  while (pendingIds.length > 0) {
+    const nextNotificationId = pendingIds.shift()
+    const nextNotification =
+      candidates.find(
+        (notification) => notification.id === nextNotificationId
+      ) ?? null
+
+    if (nextNotification) {
+      return nextNotification
+    }
+  }
+
+  return null
+}
+
+function useShellNotificationToasts(input: {
+  currentHash: string
+  currentUserId: string | null
+  hasLoadedNotificationInbox: boolean
+  notificationRouteData: ShellNotificationRouteData
+  notificationToastCandidates: Notification[]
+  pathname: string
+  router: ReturnType<typeof useRouter>
+  searchParams: ReturnType<typeof useSearchParams>
+}) {
+  const {
+    currentHash,
+    currentUserId,
+    hasLoadedNotificationInbox,
+    notificationRouteData,
+    notificationToastCandidates,
+    pathname,
+    router,
+    searchParams,
+  } = input
+  const knownNotificationIdsRef = useRef<Set<string> | null>(null)
+  const pendingNotificationToastIdsRef = useRef<string[]>([])
+  const notificationToastUserIdRef = useRef<string | null>(null)
+  const notificationToastStartedAtRef = useRef("")
+  const notificationToastFlushTimeoutRef = useRef<number | null>(null)
+  const [notificationToastQueueTick, setNotificationToastQueueTick] =
+    useState(0)
+
+  useEffect(
+    () => () => {
+      clearNotificationToastFlushTimeout(notificationToastFlushTimeoutRef)
+    },
+    []
+  )
+
+  useEffect(() => {
+    resetNotificationToastState({
+      currentUserId,
+      knownIdsRef: knownNotificationIdsRef,
+      pendingIdsRef: pendingNotificationToastIdsRef,
+      startedAtRef: notificationToastStartedAtRef,
+      timeoutRef: notificationToastFlushTimeoutRef,
+      userIdRef: notificationToastUserIdRef,
+    })
+
+    if (!currentUserId || !hasLoadedNotificationInbox) {
+      return
+    }
+
+    syncPendingNotificationToastIds({
+      candidates: notificationToastCandidates,
+      knownIdsRef: knownNotificationIdsRef,
+      pendingIds: pendingNotificationToastIdsRef.current,
+      startedAt: notificationToastStartedAtRef.current,
+    })
+
+    if (notificationToastFlushTimeoutRef.current !== null) {
+      return
+    }
+
+    const nextNotification = shiftNextNotificationToast(
+      notificationToastCandidates,
+      pendingNotificationToastIdsRef.current
+    )
+
+    if (!nextNotification) {
+      return
+    }
+
+    const href = getNotificationHref(notificationRouteData, nextNotification)
+
+    if (
+      isViewingNotificationTarget({
+        notification: nextNotification,
+        href,
+        pathname,
+        searchParams,
+        hash: currentHash,
+      })
+    ) {
+      useAppStore.getState().markNotificationRead(nextNotification.id)
+      notificationToastFlushTimeoutRef.current = window.setTimeout(() => {
+        notificationToastFlushTimeoutRef.current = null
+        setNotificationToastQueueTick((current) => current + 1)
+      }, 0)
+      return
+    }
+
+    toast.custom(
+      (toastId) => (
+        <NotificationToastContent
+          notification={nextNotification}
+          onDismiss={() => toast.dismiss(toastId)}
+          onOpen={() => {
+            toast.dismiss(toastId)
+
+            if (!href) {
+              return
+            }
+
+            useAppStore.getState().markNotificationRead(nextNotification.id)
+            router.push(href)
+          }}
+        />
+      ),
+      {
+        id: `notification-${nextNotification.id}`,
+        duration: NOTIFICATION_TOAST_DURATION_MS,
+        position: "bottom-right",
+      }
+    )
+
+    notificationToastFlushTimeoutRef.current = window.setTimeout(() => {
+      notificationToastFlushTimeoutRef.current = null
+      setNotificationToastQueueTick((current) => current + 1)
+    }, NOTIFICATION_TOAST_DURATION_MS)
+  }, [
+    currentUserId,
+    currentHash,
+    hasLoadedNotificationInbox,
+    notificationToastCandidates,
+    notificationRouteData,
+    notificationToastQueueTick,
+    pathname,
+    router,
+    searchParams,
+  ])
+}
+
+function getShellCreateActions(input: {
+  activeTeam: Team | null
+  canEditCurrentWorkspace: boolean
+  currentMemberships: TeamMembership[]
+  renderedWorkspace: Workspace | null
+  teams: Team[]
+}) {
+  const editableTeamIds = new Set(
+    input.currentMemberships
+      .filter(
+        (membership) =>
+          membership.role === "admin" || membership.role === "member"
+      )
+      .map((membership) => membership.teamId)
+  )
+  const editableTeams = input.teams.filter((team) =>
+    editableTeamIds.has(team.id)
+  )
+
+  return buildGlobalCreateActions({
+    activeTeamId: input.activeTeam?.id ?? null,
+    workItemCreateTeams: editableTeams.filter(
+      (team) => getTeamFeatureSettings(team).issues
+    ),
+    projectCreateTeams: editableTeams.filter(
+      (team) => getTeamFeatureSettings(team).projects
+    ),
+    viewTeams: editableTeams.filter(
+      (team) => getTeamFeatureSettings(team).views
+    ),
+    workspaceViewOption:
+      input.renderedWorkspace && input.canEditCurrentWorkspace
+        ? {
+            id: input.renderedWorkspace.id,
+            name: input.renderedWorkspace.name,
+          }
+        : null,
+  })
+}
+
+function useShellSearchController(router: ReturnType<typeof useRouter>) {
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchQueryRef = useRef("")
+  const searchShortcutModifierLabel = useShortcutModifierLabel()
+
+  function handleSearchOpenChange(open: boolean) {
+    if (open) {
+      blurActiveElement()
+    }
+
+    setSearchOpen(open)
+
+    if (!open) {
+      searchQueryRef.current = ""
+    }
+  }
+
+  function openFullSearch(query = "") {
+    const trimmedQuery = query.trim()
+    const href =
+      trimmedQuery.length > 0
+        ? `/workspace/search?q=${encodeURIComponent(trimmedQuery)}`
+        : "/workspace/search"
+
+    handleSearchOpenChange(false)
+    router.push(href)
+  }
+
+  const handleSearchShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (!isSearchShortcutEvent(event)) {
+      return
+    }
+
+    event.preventDefault()
+
+    if (searchOpen) {
+      openFullSearch(searchQueryRef.current)
+      return
+    }
+
+    handleSearchOpenChange(true)
+  })
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      handleSearchShortcut(event)
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [])
+
+  return {
+    searchOpen,
+    searchQueryRef,
+    searchShortcutModifierLabel,
+    handleSearchOpenChange,
+    openFullSearch,
+  }
+}
+
+function useShellLeaveDialogs(input: {
+  pathname: string
+  router: ReturnType<typeof useRouter>
+}) {
+  const [teamPendingLeave, setTeamPendingLeave] = useState<{
+    id: string
+    slug: string
+    name: string
+  } | null>(null)
+  const [leavingTeamId, setLeavingTeamId] = useState<string | null>(null)
+  const [workspacePendingLeave, setWorkspacePendingLeave] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [leavingWorkspaceId, setLeavingWorkspaceId] = useState<string | null>(
+    null
+  )
+
+  async function handleLeaveTeam() {
+    if (!teamPendingLeave) {
+      return
+    }
+
+    const targetTeam = teamPendingLeave
+
+    try {
+      setLeavingTeamId(targetTeam.id)
+      const left = await useAppStore.getState().leaveTeam(targetTeam.id)
+
+      if (!left) {
+        return
+      }
+
+      setTeamPendingLeave(null)
+
+      if (!useAppStore.getState().currentWorkspaceId) {
+        input.router.replace("/")
+        return
+      }
+
+      if (input.pathname.startsWith(`/team/${targetTeam.slug}`)) {
+        input.router.replace("/workspace/projects")
+        return
+      }
+
+      input.router.refresh()
+    } finally {
+      setLeavingTeamId(null)
+    }
+  }
+
+  async function handleLeaveWorkspace() {
+    if (!workspacePendingLeave) {
+      return
+    }
+
+    try {
+      setLeavingWorkspaceId(workspacePendingLeave.id)
+      const left = await useAppStore.getState().leaveWorkspace()
+
+      if (!left) {
+        return
+      }
+
+      setWorkspacePendingLeave(null)
+      input.router.replace(
+        useAppStore.getState().currentWorkspaceId ? "/workspace/projects" : "/"
+      )
+    } finally {
+      setLeavingWorkspaceId(null)
+    }
+  }
+
+  return {
+    leavingTeamId,
+    leavingWorkspaceId,
+    teamPendingLeave,
+    workspacePendingLeave,
+    handleLeaveTeam,
+    handleLeaveWorkspace,
+    setTeamPendingLeave,
+    setWorkspacePendingLeave,
+  }
+}
+
+function useShellLocationState() {
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [currentHash, setCurrentHash] = useState("")
+
+  useEffect(() => {
+    function updateCurrentHash() {
+      setCurrentHash(window.location.hash)
+    }
+
+    updateCurrentHash()
+    window.addEventListener("hashchange", updateCurrentHash)
+
+    return () => {
+      window.removeEventListener("hashchange", updateCurrentHash)
+    }
+  }, [pathname])
+
+  return { currentHash, pathname, router, searchParams }
+}
+
+function useShellReadModels(input: {
+  currentUserId: string | null
+  currentWorkspaceId: string | null
+}) {
+  useScopedReadModelRefresh({
+    enabled: Boolean(input.currentUserId) && Boolean(input.currentWorkspaceId),
+    scopeKeys: input.currentWorkspaceId
+      ? [
+          createShellContextScopeKey(),
+          createWorkspaceMembershipScopeKey(input.currentWorkspaceId),
+        ]
+      : [],
+    fetchLatest: async () =>
+      fetchWorkspaceMembershipReadModel(input.currentWorkspaceId ?? ""),
+  })
+
+  return useScopedReadModelRefresh({
+    enabled: Boolean(input.currentUserId),
+    scopeKeys: input.currentUserId
+      ? getNotificationInboxScopeKeys(input.currentUserId)
+      : [],
+    fetchLatest: async () =>
+      fetchNotificationInboxReadModel(input.currentUserId ?? ""),
+  })
+}
+
+function useShellStoreContext() {
+  const unread = useAppStore(selectUnreadNotificationCount)
+  const notificationToastCandidates = useAppStore(
+    useShallow(selectNotificationToastCandidates)
+  )
+  const notificationRouteData = useAppStore(
+    useShallow((state) => ({
+      channelPosts: state.channelPosts,
+      conversations: state.conversations,
+      projects: state.projects,
+      teams: state.teams,
+    }))
+  )
+  const workspace = useAppStore(getCurrentWorkspace)
+  const currentUser = useAppStore(getCurrentUser)
+  const pendingInviteCount = useAppStore(selectPendingInviteCount)
+  const switchableWorkspaces = useAppStore(
+    useShallow(selectSwitchableWorkspaces)
+  )
+  const teams = useAppStore(useShallow((state) => getAccessibleTeams(state)))
+  const currentMemberships = useAppStore(
+    useShallow(selectCurrentWorkspaceTeamMemberships)
+  )
+  const currentUserId = useAppStore((state) => state.currentUserId)
+  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
+  const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
+  const activeCreateDialog = useAppStore((state) => state.ui.activeCreateDialog)
+  const activeTeam = useAppStore((state) => getTeam(state, activeTeamId))
+  const canCreateTeam = useAppStore((state) =>
+    canAdminWorkspace(state, state.currentWorkspaceId)
+  )
+  const canEditCurrentWorkspace = useAppStore((state) =>
+    currentWorkspaceId ? canEditWorkspace(state, currentWorkspaceId) : false
+  )
+  const canOpenWorkspaceSettings = useAppStore((state) => {
+    const currentWorkspace = getCurrentWorkspace(state)
+
+    return currentWorkspace
+      ? isWorkspaceOwner(state, currentWorkspace.id)
+      : false
+  })
+  const canLeaveWorkspace = useAppStore(selectCanLeaveCurrentWorkspace)
+  const renderedCurrentUser = useExpiringRetainedValue({
+    value: currentUser,
+    retentionKey: currentUserId ?? null,
+    gracePeriodMs: SHELL_CONTEXT_GRACE_PERIOD_MS,
+  })
+  const renderedWorkspace = useExpiringRetainedValue({
+    value: workspace,
+    retentionKey: currentWorkspaceId ?? null,
+    gracePeriodMs: SHELL_CONTEXT_GRACE_PERIOD_MS,
+  })
+
+  return {
+    activeCreateDialog,
+    activeTeam,
+    canCreateTeam,
+    canEditCurrentWorkspace,
+    canLeaveWorkspace,
+    canOpenWorkspaceSettings,
+    currentMemberships,
+    currentUserId,
+    currentWorkspaceId,
+    notificationRouteData,
+    notificationToastCandidates,
+    pendingInviteCount,
+    renderedCurrentUser,
+    renderedWorkspace,
+    switchableWorkspaces,
+    teams,
+    unread,
+  }
+}
+
+function useShellDialogState(input: {
+  handleSearchOpenChange: (open: boolean) => void
+}) {
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [inviteMode, setInviteMode] = useState<"workspace" | "team">(
+    "workspace"
+  )
+  const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false)
+
+  function openCreateDialog(dialog: CreateDialogState) {
+    openManagedCreateDialog(dialog, {
+      beforeOpen: () => {
+        input.handleSearchOpenChange(false)
+      },
+    })
+  }
+
+  function closeCreateDialog() {
+    useAppStore.getState().closeCreateDialog()
+  }
+
+  function openWorkspaceInviteDialog() {
+    openTopLevelDialog(() => {
+      setInviteMode("workspace")
+      setInvitePresetTeamIds([])
+      setInviteOpen(true)
+    })
+  }
+
+  function openTeamInviteDialog(teamId: string) {
+    openTopLevelDialog(() => {
+      setInviteMode("team")
+      setInvitePresetTeamIds([teamId])
+      setInviteOpen(true)
+    })
+  }
+
+  function openStatusMessageDialog() {
+    openTopLevelDialog(() => {
+      setStatusDialogOpen(true)
+    })
+  }
+
+  return {
+    closeCreateDialog,
+    inviteMode,
+    inviteOpen,
+    invitePresetTeamIds,
+    openCreateDialog,
+    openStatusMessageDialog,
+    openTeamInviteDialog,
+    openWorkspaceInviteDialog,
+    setInviteOpen,
+    setInvitePresetTeamIds,
+    setStatusDialogOpen,
+    statusDialogOpen,
+  }
+}
+
+function useShellSectionState(teams: Team[]) {
+  const [workspaceSectionOpen, setWorkspaceSectionOpen] = useState(true)
+  const [teamsSectionOpen, setTeamsSectionOpen] = useState(true)
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(
+    () => new Set(teams.map((team) => team.id))
+  )
+
+  function toggleTeam(teamId: string) {
+    setExpandedTeams((current) => {
+      const next = new Set(current)
+      if (next.has(teamId)) {
+        next.delete(teamId)
+      } else {
+        next.add(teamId)
+      }
+      return next
+    })
+  }
+
+  return {
+    expandedTeams,
+    setTeamsSectionOpen,
+    setWorkspaceSectionOpen,
+    teamsSectionOpen,
+    toggleTeam,
+    workspaceSectionOpen,
+  }
+}
+
+function getWorkspaceSwitchReplaceInstructions(input: {
+  previousWorkspaceId: string
+  nextWorkspaceId: string
+  replace: ScopedReadModelReplaceInstruction[] | undefined
+}) {
+  const replace = [...(input.replace ?? [])]
+
+  if (
+    input.previousWorkspaceId &&
+    input.previousWorkspaceId !== input.nextWorkspaceId &&
+    !replace.some(
+      (instruction) =>
+        instruction.kind === "workspace-membership" &&
+        instruction.workspaceId === input.previousWorkspaceId
+    )
+  ) {
+    replace.unshift({
+      kind: "workspace-membership",
+      workspaceId: input.previousWorkspaceId,
+    })
+  }
+
+  return replace
+}
+
+function useAppShellController() {
+  const { currentHash, pathname, router, searchParams } =
+    useShellLocationState()
+  const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState<
+    string | null
+  >(null)
+  const shellContext = useShellStoreContext()
+  const { hasLoadedOnce: hasLoadedNotificationInbox } = useShellReadModels({
+    currentUserId: shellContext.currentUserId,
+    currentWorkspaceId: shellContext.currentWorkspaceId,
+  })
+  const searchController = useShellSearchController(router)
+  const dialogState = useShellDialogState({
+    handleSearchOpenChange: searchController.handleSearchOpenChange,
+  })
+  const sectionState = useShellSectionState(shellContext.teams)
+  const leaveDialogs = useShellLeaveDialogs({ pathname, router })
+  const currentUserAvatarImageSrc = resolveImageAssetSource(
+    shellContext.renderedCurrentUser?.avatarImageUrl,
+    shellContext.renderedCurrentUser?.avatarUrl
+  )
+  const currentUserStatus = resolveUserStatus(
+    shellContext.renderedCurrentUser?.status
+  )
+  const createActions = getShellCreateActions({
+    activeTeam: shellContext.activeTeam,
+    canEditCurrentWorkspace: shellContext.canEditCurrentWorkspace,
+    currentMemberships: shellContext.currentMemberships,
+    renderedWorkspace: shellContext.renderedWorkspace ?? null,
+    teams: shellContext.teams,
+  })
+
+  async function handleSwitchWorkspace(workspaceId: string) {
+    const state = useAppStore.getState()
+
+    if (
+      switchingWorkspaceId ||
+      !workspaceId ||
+      workspaceId === state.currentWorkspaceId
+    ) {
+      return
+    }
+
+    const targetWorkspace = state.workspaces.find(
+      (workspace) => workspace.id === workspaceId
+    )
+    const previousWorkspaceId = state.currentWorkspaceId
+
+    try {
+      setSwitchingWorkspaceId(workspaceId)
+
+      const result = await selectCurrentWorkspaceReadModel(workspaceId)
+      useAppStore.getState().mergeReadModelData(result.data, {
+        replace: getWorkspaceSwitchReplaceInstructions({
+          previousWorkspaceId,
+          nextWorkspaceId: workspaceId,
+          replace: result.replace,
+        }),
+      })
+
+      router.replace("/workspace/projects")
+    } catch (error) {
+      console.error(error)
+      toast.error(
+        targetWorkspace
+          ? `Failed to switch to ${targetWorkspace.name}`
+          : "Failed to switch workspace"
+      )
+    } finally {
+      setSwitchingWorkspaceId(null)
+    }
+  }
+
+  useShellNotificationToasts({
+    currentUserId: shellContext.currentUserId,
+    currentHash,
+    hasLoadedNotificationInbox,
+    notificationToastCandidates: shellContext.notificationToastCandidates,
+    notificationRouteData: shellContext.notificationRouteData,
+    pathname,
+    router,
+    searchParams,
+  })
+
+  return {
+    ...dialogState,
+    ...leaveDialogs,
+    ...searchController,
+    ...sectionState,
+    ...shellContext,
+    createActions,
+    currentUserAvatarImageSrc,
+    currentUserStatus,
+    handleSwitchWorkspace,
+    pathname,
+    switchingWorkspaceId,
+  }
+}
+
+type AppShellController = ReturnType<typeof useAppShellController>
+
+type AppShellLayoutProps = Omit<
+  AppShellController,
+  "renderedCurrentUser" | "renderedWorkspace"
+> & {
+  children: ReactNode
+  renderedCurrentUser: UserProfile
+  renderedWorkspace: Workspace
+}
 
 function SidebarInsetResizeHandle() {
   const {
@@ -426,24 +1279,62 @@ function ShellSearchDialog({
   )
 }
 
+function WorkspaceLogoMark({
+  workspace,
+  className,
+}: {
+  workspace: Workspace
+  className?: string
+}) {
+  const workspaceLogoImageSrc = resolveImageAssetSource(
+    workspace.logoImageUrl,
+    workspace.logoUrl
+  )
+
+  return (
+    <span
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-primary text-[10px] leading-none font-bold",
+        className
+      )}
+      style={{ color: "var(--primary-foreground)" }}
+    >
+      {workspaceLogoImageSrc ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt={workspace.name}
+          className="size-full rounded-[5px] object-cover"
+          src={workspaceLogoImageSrc}
+        />
+      ) : (
+        workspace.logoUrl
+      )}
+    </span>
+  )
+}
+
 function ShellWorkspaceMenu({
   workspace,
-  workspaceLogoImageSrc,
+  switchableWorkspaces,
+  switchingWorkspaceId,
   canOpenWorkspaceSettings,
   pendingInviteCount,
   canLeaveWorkspace,
   onOpenSearch,
   onOpenWorkspaceInviteDialog,
   onSetWorkspacePendingLeave,
+  onSwitchWorkspace,
 }: {
   workspace: Workspace
-  workspaceLogoImageSrc: string | null
+  switchableWorkspaces: Workspace[]
+  switchingWorkspaceId: string | null
   canOpenWorkspaceSettings: boolean
   pendingInviteCount: number
   canLeaveWorkspace: boolean
   onOpenSearch: () => void
   onOpenWorkspaceInviteDialog: () => void
   onSetWorkspacePendingLeave: (workspace: { id: string; name: string }) => void
+  onSwitchWorkspace: (workspaceId: string) => void
 }) {
   return (
     <SidebarHeader className="pb-1">
@@ -453,18 +1344,7 @@ function ShellWorkspaceMenu({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton className="h-9">
-                  <div className="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-primary text-[10px] font-bold text-primary-foreground">
-                    {workspaceLogoImageSrc ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        alt={workspace.name}
-                        className="size-full rounded-[5px] object-cover"
-                        src={workspaceLogoImageSrc}
-                      />
-                    ) : (
-                      workspace.logoUrl
-                    )}
-                  </div>
+                  <WorkspaceLogoMark workspace={workspace} />
                   <span className="truncate text-[12px] leading-none font-semibold">
                     {workspace.name}
                   </span>
@@ -505,6 +1385,31 @@ function ShellWorkspaceMenu({
                     <PaperPlaneTilt />
                     Invite to workspace
                   </DropdownMenuItem>
+                  {switchableWorkspaces.length > 0 ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel>Switch workspace</DropdownMenuLabel>
+                      {switchableWorkspaces.map((switchableWorkspace) => (
+                        <DropdownMenuItem
+                          key={switchableWorkspace.id}
+                          disabled={
+                            switchingWorkspaceId === switchableWorkspace.id
+                          }
+                          onSelect={() => {
+                            onSwitchWorkspace(switchableWorkspace.id)
+                          }}
+                        >
+                          <WorkspaceLogoMark
+                            workspace={switchableWorkspace}
+                            className="size-4 rounded-[4px] text-[8px]"
+                          />
+                          <span className="truncate">
+                            {switchableWorkspace.name}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  ) : null}
                   {canLeaveWorkspace ? (
                     <>
                       <DropdownMenuSeparator />
@@ -1114,506 +2019,77 @@ function ShellUserFooter({
 }
 
 export function AppShell({ children }: AppShellProps) {
-  const pathname = usePathname()
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const [currentHash, setCurrentHash] = useState("")
-  const unread = useAppStore(
-    (state) =>
-      state.notifications.filter(
-        (notification) =>
-          notification.userId === state.currentUserId &&
-          notification.readAt === null &&
-          notification.archivedAt == null
-      ).length
-  )
-  const notificationToastCandidates = useAppStore(
-    useShallow((state) =>
-      state.notifications
-        .filter(
-          (notification) =>
-            notification.userId === state.currentUserId &&
-            notification.readAt === null &&
-            notification.archivedAt == null
-        )
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    )
-  )
-  const notificationRouteData = useAppStore(
-    useShallow((state) => ({
-      channelPosts: state.channelPosts,
-      conversations: state.conversations,
-      projects: state.projects,
-      teams: state.teams,
-    }))
-  )
-  const workspace = useAppStore(getCurrentWorkspace)
-  const currentUser = useAppStore(getCurrentUser)
-  const pendingInviteCount = useAppStore((state) => {
-    const user = getCurrentUser(state)
-
-    if (!user) {
-      return 0
-    }
-
-    return state.invites.filter((invite) => {
-      if (invite.email.toLowerCase() !== user.email.toLowerCase()) {
-        return false
-      }
-
-      if (invite.acceptedAt || invite.declinedAt) {
-        return false
-      }
-
-      return true
-    }).length
-  })
-  const teams = useAppStore(useShallow((state) => getAccessibleTeams(state)))
-  const currentMemberships = useAppStore(
-    useShallow((state) =>
-      state.teamMemberships.filter(
-        (membership) => membership.userId === state.currentUserId
-      )
-    )
-  )
-  const currentUserId = useAppStore((state) => state.currentUserId)
-  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
-  const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
-  const activeCreateDialog = useAppStore((state) => state.ui.activeCreateDialog)
-  const renderedCurrentUser = useExpiringRetainedValue({
-    value: currentUser,
-    retentionKey: currentUserId ?? null,
-    gracePeriodMs: SHELL_CONTEXT_GRACE_PERIOD_MS,
-  })
-  const renderedWorkspace = useExpiringRetainedValue({
-    value: workspace,
-    retentionKey: currentWorkspaceId ?? null,
-    gracePeriodMs: SHELL_CONTEXT_GRACE_PERIOD_MS,
-  })
-
-  useScopedReadModelRefresh({
-    enabled: Boolean(currentUserId) && Boolean(currentWorkspaceId),
-    scopeKeys: currentWorkspaceId
-      ? [
-          createShellContextScopeKey(),
-          createWorkspaceMembershipScopeKey(currentWorkspaceId),
-        ]
-      : [],
-    fetchLatest: async () =>
-      fetchWorkspaceMembershipReadModel(currentWorkspaceId),
-  })
-  const { hasLoadedOnce: hasLoadedNotificationInbox } =
-    useScopedReadModelRefresh({
-      enabled: Boolean(currentUserId),
-      scopeKeys: currentUserId
-        ? getNotificationInboxScopeKeys(currentUserId)
-        : [],
-      fetchLatest: async () =>
-        fetchNotificationInboxReadModel(currentUserId ?? ""),
-    })
-  const canCreateTeam = useAppStore((state) =>
-    canAdminWorkspace(state, state.currentWorkspaceId)
-  )
-  const canEditCurrentWorkspace = useAppStore((state) =>
-    currentWorkspaceId ? canEditWorkspace(state, currentWorkspaceId) : false
-  )
-  const activeTeam = useAppStore((state) => getTeam(state, activeTeamId))
-  const canOpenWorkspaceSettings = useAppStore((state) => {
-    const currentWorkspace = getCurrentWorkspace(state)
-
-    return currentWorkspace
-      ? isWorkspaceOwner(state, currentWorkspace.id)
-      : false
-  })
-  const canLeaveWorkspace = useAppStore((state) => {
-    const currentWorkspace = getCurrentWorkspace(state)
-
-    if (!currentWorkspace || canAdminWorkspace(state, currentWorkspace.id)) {
-      return false
-    }
-
-    const workspaceTeamIds = new Set(
-      state.teams
-        .filter((team) => team.workspaceId === currentWorkspace.id)
-        .map((team) => team.id)
-    )
-
-    return state.teamMemberships.some(
-      (membership) =>
-        membership.userId === state.currentUserId &&
-        workspaceTeamIds.has(membership.teamId)
-    )
-  })
-  const workspaceLogoImageSrc = resolveImageAssetSource(
-    renderedWorkspace?.logoImageUrl,
-    renderedWorkspace?.logoUrl
-  )
-  const currentUserAvatarImageSrc = resolveImageAssetSource(
-    renderedCurrentUser?.avatarImageUrl,
-    renderedCurrentUser?.avatarUrl
-  )
-  const currentUserStatus = resolveUserStatus(renderedCurrentUser?.status)
-  const editableTeamIds = new Set(
-    currentMemberships
-      .filter(
-        (membership) =>
-          membership.role === "admin" || membership.role === "member"
-      )
-      .map((membership) => membership.teamId)
-  )
-  const editableTeams = teams.filter((team) => editableTeamIds.has(team.id))
-  const workItemCreateTeams = editableTeams.filter(
-    (team) => getTeamFeatureSettings(team).issues
-  )
-  const projectCreateTeams = editableTeams.filter(
-    (team) => getTeamFeatureSettings(team).projects
-  )
-  const viewCreateTeams = editableTeams.filter(
-    (team) => getTeamFeatureSettings(team).views
-  )
-
-  const [inviteOpen, setInviteOpen] = useState(false)
-  const [inviteMode, setInviteMode] = useState<"workspace" | "team">(
-    "workspace"
-  )
-  const [invitePresetTeamIds, setInvitePresetTeamIds] = useState<string[]>([])
-  const [statusDialogOpen, setStatusDialogOpen] = useState(false)
-  const knownNotificationIdsRef = useRef<Set<string> | null>(null)
-  const pendingNotificationToastIdsRef = useRef<string[]>([])
-  const notificationToastUserIdRef = useRef<string | null>(null)
-  const notificationToastStartedAtRef = useRef("")
-  const notificationToastFlushTimeoutRef = useRef<number | null>(null)
-  const [notificationToastQueueTick, setNotificationToastQueueTick] =
-    useState(0)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const searchQueryRef = useRef("")
-  const searchShortcutModifierLabel = useShortcutModifierLabel()
-  const [workspaceSectionOpen, setWorkspaceSectionOpen] = useState(true)
-  const [teamsSectionOpen, setTeamsSectionOpen] = useState(true)
-  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(
-    () => new Set(teams.map((t) => t.id))
-  )
-  const [teamPendingLeave, setTeamPendingLeave] = useState<{
-    id: string
-    slug: string
-    name: string
-  } | null>(null)
-  const [leavingTeamId, setLeavingTeamId] = useState<string | null>(null)
-  const [workspacePendingLeave, setWorkspacePendingLeave] = useState<{
-    id: string
-    name: string
-  } | null>(null)
-  const [leavingWorkspaceId, setLeavingWorkspaceId] = useState<string | null>(
-    null
-  )
-
-  function handleSearchOpenChange(open: boolean) {
-    if (open) {
-      blurActiveElement()
-    }
-
-    setSearchOpen(open)
-
-    if (!open) {
-      searchQueryRef.current = ""
-    }
-  }
-
-  function openFullSearch(query = "") {
-    const trimmedQuery = query.trim()
-    const href =
-      trimmedQuery.length > 0
-        ? `/workspace/search?q=${encodeURIComponent(trimmedQuery)}`
-        : "/workspace/search"
-
-    handleSearchOpenChange(false)
-    router.push(href)
-  }
-
-  function openCreateDialog(dialog: CreateDialogState) {
-    openManagedCreateDialog(dialog, {
-      beforeOpen: () => {
-        handleSearchOpenChange(false)
-      },
-    })
-  }
-
-  function closeCreateDialog() {
-    useAppStore.getState().closeCreateDialog()
-  }
-
-  function openWorkspaceInviteDialog() {
-    openTopLevelDialog(() => {
-      setInviteMode("workspace")
-      setInvitePresetTeamIds([])
-      setInviteOpen(true)
-    })
-  }
-
-  function openTeamInviteDialog(teamId: string) {
-    openTopLevelDialog(() => {
-      setInviteMode("team")
-      setInvitePresetTeamIds([teamId])
-      setInviteOpen(true)
-    })
-  }
-
-  function openStatusMessageDialog() {
-    openTopLevelDialog(() => {
-      setStatusDialogOpen(true)
-    })
-  }
-
-  const createActions = buildGlobalCreateActions({
-    activeTeamId: activeTeam?.id ?? null,
-    workItemCreateTeams,
-    projectCreateTeams,
-    viewTeams: viewCreateTeams,
-    workspaceViewOption:
-      renderedWorkspace && canEditCurrentWorkspace
-        ? {
-            id: renderedWorkspace.id,
-            name: renderedWorkspace.name,
-          }
-        : null,
-  })
-
-  async function handleLeaveTeam() {
-    if (!teamPendingLeave) {
-      return
-    }
-
-    const targetTeam = teamPendingLeave
-
-    try {
-      setLeavingTeamId(targetTeam.id)
-      const left = await useAppStore.getState().leaveTeam(targetTeam.id)
-
-      if (!left) {
-        return
-      }
-
-      setTeamPendingLeave(null)
-
-      if (!useAppStore.getState().currentWorkspaceId) {
-        router.replace("/")
-        return
-      }
-
-      if (pathname.startsWith(`/team/${targetTeam.slug}`)) {
-        router.replace("/workspace/projects")
-        return
-      }
-
-      router.refresh()
-    } finally {
-      setLeavingTeamId(null)
-    }
-  }
-
-  async function handleLeaveWorkspace() {
-    if (!workspacePendingLeave) {
-      return
-    }
-
-    try {
-      setLeavingWorkspaceId(workspacePendingLeave.id)
-      const left = await useAppStore.getState().leaveWorkspace()
-
-      if (!left) {
-        return
-      }
-
-      setWorkspacePendingLeave(null)
-      router.replace(
-        useAppStore.getState().currentWorkspaceId ? "/workspace/projects" : "/"
-      )
-    } finally {
-      setLeavingWorkspaceId(null)
-    }
-  }
-
-  const handleSearchShortcut = useEffectEvent((event: KeyboardEvent) => {
-    if (
-      !(event.metaKey || event.ctrlKey) ||
-      event.altKey ||
-      event.shiftKey ||
-      event.repeat ||
-      event.key.toLowerCase() !== "k"
-    ) {
-      return
-    }
-
-    event.preventDefault()
-
-    if (searchOpen) {
-      openFullSearch(searchQueryRef.current)
-      return
-    }
-
-    handleSearchOpenChange(true)
-  })
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      handleSearchShortcut(event)
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown)
-    }
-  }, [])
-
-  useEffect(() => {
-    function updateCurrentHash() {
-      setCurrentHash(window.location.hash)
-    }
-
-    updateCurrentHash()
-    window.addEventListener("hashchange", updateCurrentHash)
-
-    return () => {
-      window.removeEventListener("hashchange", updateCurrentHash)
-    }
-  }, [pathname])
-
-  useEffect(
-    () => () => {
-      if (notificationToastFlushTimeoutRef.current !== null) {
-        window.clearTimeout(notificationToastFlushTimeoutRef.current)
-        notificationToastFlushTimeoutRef.current = null
-      }
-    },
-    []
-  )
-
-  useEffect(() => {
-    if (notificationToastUserIdRef.current !== currentUserId) {
-      notificationToastUserIdRef.current = currentUserId
-      notificationToastStartedAtRef.current = new Date().toISOString()
-      knownNotificationIdsRef.current = null
-      pendingNotificationToastIdsRef.current = []
-
-      if (notificationToastFlushTimeoutRef.current !== null) {
-        window.clearTimeout(notificationToastFlushTimeoutRef.current)
-        notificationToastFlushTimeoutRef.current = null
-      }
-    }
-
-    if (!currentUserId || !hasLoadedNotificationInbox) {
-      return
-    }
-
-    let knownNotificationIds = knownNotificationIdsRef.current
-
-    if (knownNotificationIds === null) {
-      knownNotificationIds = new Set()
-      knownNotificationIdsRef.current = knownNotificationIds
-      initializePendingNotificationToastIds({
-        candidates: notificationToastCandidates,
-        knownIds: knownNotificationIds,
-        pendingIds: pendingNotificationToastIdsRef.current,
-        startedAt: notificationToastStartedAtRef.current,
-      })
-    } else {
-      appendPendingNotificationToastIds({
-        candidates: notificationToastCandidates,
-        knownIds: knownNotificationIds,
-        pendingIds: pendingNotificationToastIdsRef.current,
-      })
-    }
-
-    if (notificationToastFlushTimeoutRef.current !== null) {
-      return
-    }
-
-    while (pendingNotificationToastIdsRef.current.length > 0) {
-      const nextNotificationId = pendingNotificationToastIdsRef.current.shift()
-      const nextNotification =
-        notificationToastCandidates.find(
-          (notification) => notification.id === nextNotificationId
-        ) ?? null
-
-      if (!nextNotification) {
-        continue
-      }
-
-      const href = getNotificationHref(notificationRouteData, nextNotification)
-
-      if (
-        isViewingNotificationTarget({
-          notification: nextNotification,
-          href,
-          pathname,
-          searchParams,
-          hash: currentHash,
-        })
-      ) {
-        useAppStore.getState().markNotificationRead(nextNotification.id)
-        continue
-      }
-
-      toast.custom(
-        (toastId) => (
-          <NotificationToastContent
-            notification={nextNotification}
-            onDismiss={() => toast.dismiss(toastId)}
-            onOpen={() => {
-              toast.dismiss(toastId)
-
-              if (!href) {
-                return
-              }
-
-              useAppStore.getState().markNotificationRead(nextNotification.id)
-              router.push(href)
-            }}
-          />
-        ),
-        {
-          id: `notification-${nextNotification.id}`,
-          duration: NOTIFICATION_TOAST_DURATION_MS,
-          position: "bottom-right",
-        }
-      )
-
-      notificationToastFlushTimeoutRef.current = window.setTimeout(() => {
-        notificationToastFlushTimeoutRef.current = null
-        setNotificationToastQueueTick((current) => current + 1)
-      }, NOTIFICATION_TOAST_DURATION_MS)
-
-      return
-    }
-  }, [
-    currentUserId,
-    currentHash,
-    hasLoadedNotificationInbox,
-    notificationToastCandidates,
-    notificationToastQueueTick,
-    notificationRouteData,
-    pathname,
-    router,
-    searchParams,
-  ])
-
-  function toggleTeam(teamId: string) {
-    setExpandedTeams((current) => {
-      const next = new Set(current)
-      if (next.has(teamId)) {
-        next.delete(teamId)
-      } else {
-        next.add(teamId)
-      }
-      return next
-    })
-  }
+  const shell = useAppShellController()
+  const { renderedCurrentUser, renderedWorkspace } = shell
 
   if (!renderedCurrentUser || !renderedWorkspace) {
     return <ShellFrameFallback />
   }
 
+  return (
+    <AppShellLayout
+      {...shell}
+      renderedCurrentUser={renderedCurrentUser}
+      renderedWorkspace={renderedWorkspace}
+    >
+      {children}
+    </AppShellLayout>
+  )
+}
+
+function AppShellLayout({
+  activeCreateDialog,
+  canCreateTeam,
+  canLeaveWorkspace,
+  canOpenWorkspaceSettings,
+  children,
+  closeCreateDialog,
+  createActions,
+  currentMemberships,
+  currentUserAvatarImageSrc,
+  currentUserId,
+  currentUserStatus,
+  currentWorkspaceId,
+  expandedTeams,
+  handleLeaveTeam,
+  handleLeaveWorkspace,
+  handleSearchOpenChange,
+  handleSwitchWorkspace,
+  inviteMode,
+  inviteOpen,
+  invitePresetTeamIds,
+  leavingTeamId,
+  leavingWorkspaceId,
+  openCreateDialog,
+  openFullSearch,
+  openStatusMessageDialog,
+  openTeamInviteDialog,
+  openWorkspaceInviteDialog,
+  pathname,
+  pendingInviteCount,
+  renderedCurrentUser,
+  renderedWorkspace,
+  searchOpen,
+  searchQueryRef,
+  searchShortcutModifierLabel,
+  setInviteOpen,
+  setInvitePresetTeamIds,
+  setStatusDialogOpen,
+  setTeamPendingLeave,
+  setTeamsSectionOpen,
+  setWorkspacePendingLeave,
+  setWorkspaceSectionOpen,
+  statusDialogOpen,
+  switchableWorkspaces,
+  switchingWorkspaceId,
+  teamPendingLeave,
+  teams,
+  teamsSectionOpen,
+  toggleTeam,
+  unread,
+  workspacePendingLeave,
+  workspaceSectionOpen,
+}: AppShellLayoutProps) {
   return (
     <SidebarProvider>
       <InviteDialog
@@ -1649,13 +2125,15 @@ export function AppShell({ children }: AppShellProps) {
       <Sidebar variant="inset">
         <ShellWorkspaceMenu
           workspace={renderedWorkspace}
-          workspaceLogoImageSrc={workspaceLogoImageSrc}
+          switchableWorkspaces={switchableWorkspaces}
+          switchingWorkspaceId={switchingWorkspaceId}
           canOpenWorkspaceSettings={canOpenWorkspaceSettings}
           pendingInviteCount={pendingInviteCount}
           canLeaveWorkspace={canLeaveWorkspace}
           onOpenSearch={() => handleSearchOpenChange(true)}
           onOpenWorkspaceInviteDialog={openWorkspaceInviteDialog}
           onSetWorkspacePendingLeave={setWorkspacePendingLeave}
+          onSwitchWorkspace={handleSwitchWorkspace}
         />
         <SidebarContent>
           <ShellPrimaryNavigation pathname={pathname} unread={unread} />

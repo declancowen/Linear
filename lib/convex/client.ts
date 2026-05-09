@@ -1,9 +1,6 @@
 "use client"
 
-export {
-  RouteMutationError,
-  runRouteMutation,
-} from "./client/shared"
+export { RouteMutationError, runRouteMutation } from "./client/shared"
 export {
   fetchSnapshot,
   fetchSnapshotState,

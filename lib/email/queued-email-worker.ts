@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto"
 
 import { Resend } from "resend"
 
+import {
+  releaseEmailJobClaimSafely,
+  type ReleaseEmailJobClaim,
+} from "@/lib/email/queued-email-claim-release"
+import { toErrorMessage } from "@/lib/email/errors"
+
 type ClaimedQueuedEmailJob = {
   id: string
   notificationId?: string
@@ -20,20 +26,6 @@ type MarkEmailJobsSent = (payload: {
   claimId: string
   jobIds: string[]
 }) => Promise<unknown>
-
-type ReleaseEmailJobClaim = (payload: {
-  claimId: string
-  jobIds: string[]
-  errorMessage?: string
-}) => Promise<
-  | Array<{
-      jobId: string
-      retryBackoffMs: number
-    }>
-  | null
-  | undefined
-  | unknown
->
 
 type ProcessQueuedEmailJobsBatchInput = {
   resendApiKey: string
@@ -63,10 +55,6 @@ export function normalizeResendFrom(fromEmail: string, fromName?: string) {
   return `${trimmedFromName} <${trimmedFromEmail}>`
 }
 
-export function toErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
-}
-
 export function getRequiredEnv(
   name: "CRON_SECRET" | "RESEND_API_KEY" | "RESEND_FROM_EMAIL"
 ) {
@@ -81,43 +69,6 @@ export function getRequiredEnv(
 
 export function isConfigurationErrorMessage(message: string) {
   return message.endsWith("is not configured")
-}
-
-async function releaseEmailJobClaimSafely(input: {
-  claimId: string
-  jobId: string
-  errorMessage: string
-  context: "send" | "mark_sent"
-  releaseEmailJobClaim: ReleaseEmailJobClaim
-}) {
-  try {
-    const result = await input.releaseEmailJobClaim({
-      claimId: input.claimId,
-      jobIds: [input.jobId],
-      errorMessage: input.errorMessage,
-    })
-    const releasedClaim = Array.isArray(result)
-      ? result.find(
-          (entry) =>
-            typeof entry === "object" &&
-            entry !== null &&
-            "jobId" in entry &&
-            entry.jobId === input.jobId &&
-            "retryBackoffMs" in entry &&
-            typeof entry.retryBackoffMs === "number"
-        )
-      : null
-
-    return releasedClaim?.retryBackoffMs ?? null
-  } catch (error) {
-    console.error("Failed to release queued email job claim", {
-      claimId: input.claimId,
-      jobId: input.jobId,
-      context: input.context,
-      error: toErrorMessage(error),
-    })
-    return null
-  }
 }
 
 function getEarlierRetryDelay(

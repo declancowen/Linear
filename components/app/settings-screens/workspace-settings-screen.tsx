@@ -16,7 +16,7 @@ import {
 } from "@/lib/domain/input-constraints"
 import { getCurrentWorkspace, isWorkspaceOwner } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
-import { cn, resolveImageAssetSource } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -40,8 +40,16 @@ import {
   SettingsScaffold,
   SettingsSection,
 } from "./shared"
-import { getUserInitials } from "./utils"
-import { uploadSettingsImage } from "./utils"
+import {
+  cancelSettingsInvite,
+  getUserInitials,
+  uploadSettingsImage,
+} from "./utils"
+import {
+  getWorkspaceBrandingSnapshot,
+  upsertGroupedPendingInvite,
+  type WorkspaceBrandingSnapshot,
+} from "./workspace-settings-state"
 
 const workspaceAccentOptions = [
   {
@@ -87,14 +95,6 @@ type InviteCancelTarget = {
   id: string
   email: string
 }
-type WorkspaceBrandingSnapshot = {
-  workspaceId: string | null
-  name: string
-  logoUrl: string
-  logoImageSrc: string | null
-  accent: string
-  description: string
-}
 type WorkspaceBrandingFieldsDraft = {
   snapshotKey: string
   name: string
@@ -108,6 +108,70 @@ type WorkspaceLogoDraft = {
   logoPreviewUrl: string | null
   logoImageStorageId?: string
   clearLogoImage: boolean
+}
+type WorkspaceSettingsStoreState = ReturnType<typeof useAppStore.getState>
+type WorkspaceSettingsInvite = WorkspaceSettingsStoreState["invites"][number]
+type WorkspaceSettingsTeam = WorkspaceSettingsStoreState["teams"][number]
+type WorkspaceSettingsStoreUser = WorkspaceSettingsStoreState["users"][number]
+type GroupedPendingInvite = Omit<SettingsPendingInvite, "teamNames"> & {
+  teamNames: Set<string>
+}
+
+function buildWorkspaceTeamNameMap(
+  teams: WorkspaceSettingsTeam[],
+  workspaceId: string
+) {
+  return new Map(
+    teams
+      .filter((team) => team.workspaceId === workspaceId)
+      .map((team) => [team.id, team.name])
+  )
+}
+
+function isPendingWorkspaceInvite(
+  invite: WorkspaceSettingsInvite,
+  workspaceId: string
+) {
+  return (
+    invite.workspaceId === workspaceId && !invite.acceptedAt && !invite.declinedAt
+  )
+}
+
+function buildPendingWorkspaceInvites({
+  invites,
+  teams,
+  users,
+  workspaceId,
+}: {
+  invites: WorkspaceSettingsInvite[]
+  teams: WorkspaceSettingsTeam[]
+  users: WorkspaceSettingsStoreUser[]
+  workspaceId: string
+}) {
+  const teamNameMap = buildWorkspaceTeamNameMap(teams, workspaceId)
+  const groupedInvites = new Map<string, GroupedPendingInvite>()
+
+  for (const invite of invites) {
+    if (!isPendingWorkspaceInvite(invite, workspaceId)) {
+      continue
+    }
+
+    upsertGroupedPendingInvite({
+      groupedInvites,
+      invite,
+      teamName: teamNameMap.get(invite.teamId),
+      users,
+    })
+  }
+
+  return [...groupedInvites.values()]
+    .map((invite) => ({
+      ...invite,
+      teamNames: [...invite.teamNames].sort((left, right) =>
+        left.localeCompare(right)
+      ),
+    }))
+    .sort((left, right) => left.email.localeCompare(right.email))
 }
 
 function useWorkspaceAccessLists(workspace: WorkspaceSettingsWorkspace) {
@@ -217,61 +281,12 @@ function useWorkspaceAccessLists(workspace: WorkspaceSettingsWorkspace) {
       return []
     }
 
-    const teamNameMap = new Map(
-      teams
-        .filter((team) => team.workspaceId === workspace.id)
-        .map((team) => [team.id, team.name])
-    )
-
-    const groupedInvites = new Map<
-      string,
-      {
-        id: string
-        email: string
-        role: (typeof invites)[number]["role"]
-        invitedByName: string
-        teamNames: Set<string>
-      }
-    >()
-
-    for (const invite of invites) {
-      if (
-        invite.workspaceId !== workspace.id ||
-        invite.acceptedAt ||
-        invite.declinedAt
-      ) {
-        continue
-      }
-
-      const inviter = users.find((entry) => entry.id === invite.invitedBy)
-      const groupKey = invite.batchId ?? invite.id
-      const existingInvite = groupedInvites.get(groupKey)
-      const teamName = teamNameMap.get(invite.teamId)
-
-      if (existingInvite) {
-        if (teamName) {
-          existingInvite.teamNames.add(teamName)
-        }
-        continue
-      }
-
-      groupedInvites.set(groupKey, {
-        id: invite.id,
-        email: invite.email,
-        role: invite.role,
-        invitedByName: inviter?.name ?? "Unknown sender",
-        teamNames: new Set(teamName ? [teamName] : []),
-      })
-    }
-
-    return [...groupedInvites.values()]
-      .map((invite) => ({
-        ...invite,
-        teamNames: [...invite.teamNames].sort((left, right) =>
-          left.localeCompare(right)
-        ),
-      }))
-      .sort((left, right) => left.email.localeCompare(right.email))
+    return buildPendingWorkspaceInvites({
+      invites,
+      teams,
+      users,
+      workspaceId: workspace.id,
+    })
   }, [invites, teams, users, workspace])
   const workspaceTeamsCount = useMemo(() => {
     if (!workspace) {
@@ -677,24 +692,6 @@ function getWorkspaceAccentLabel(accent: string) {
   return accent.charAt(0).toUpperCase() + accent.slice(1)
 }
 
-function getWorkspaceBrandingSnapshot(
-  workspace: WorkspaceSettingsWorkspace
-): WorkspaceBrandingSnapshot {
-  const logoImageSrc = resolveImageAssetSource(
-    workspace?.logoImageUrl,
-    workspace?.logoUrl
-  )
-
-  return {
-    workspaceId: workspace?.id ?? null,
-    name: workspace?.name ?? "",
-    logoUrl: workspace?.logoUrl ?? "",
-    logoImageSrc,
-    accent: workspace?.settings.accent ?? "emerald",
-    description: workspace?.settings.description ?? "",
-  }
-}
-
 function canSaveWorkspaceBrandingDraft(limitStates: WorkspaceTextLimitState[]) {
   return limitStates.every((state) => state.canSubmit)
 }
@@ -1004,22 +1001,10 @@ function useWorkspaceSettingsActions({
   }
 
   async function handleCancelInvite() {
-    if (!inviteToCancel) {
-      return
-    }
-
-    try {
-      setCancellingInviteId(inviteToCancel.id)
-      const cancelled = await useAppStore
-        .getState()
-        .cancelInvite(inviteToCancel.id)
-
-      if (cancelled) {
-        setInviteToCancel(null)
-      }
-    } finally {
-      setCancellingInviteId(null)
-    }
+    await cancelSettingsInvite(inviteToCancel, {
+      setCancellingInviteId,
+      setInviteToCancel,
+    })
   }
 
   function handleWorkspaceUserRemoveRequest(member: WorkspaceSettingsUser) {
@@ -1069,6 +1054,156 @@ function useWorkspaceSettingsActions({
   }
 }
 
+function WorkspaceSettingsUnavailableState() {
+  return (
+    <SettingsScaffold
+      title="Workspace settings"
+      breadcrumb="Settings"
+      subtitle="Current workspace not found"
+    >
+      <SettingsSection
+        title="Workspace unavailable"
+        description="Select a workspace before opening workspace settings."
+      >
+        <div />
+      </SettingsSection>
+    </SettingsScaffold>
+  )
+}
+
+function WorkspaceSettingsAccessRequiredState() {
+  return (
+    <SettingsScaffold
+      title="Workspace settings"
+      breadcrumb="Settings"
+      subtitle="Workspace owner access required"
+    >
+      <SettingsSection
+        title="Redirecting"
+        description="Only the workspace owner can open workspace settings."
+      >
+        <div />
+      </SettingsSection>
+    </SettingsScaffold>
+  )
+}
+
+function WorkspaceSettingsFooter({
+  actions,
+  activeTab,
+  brandingDraft,
+  canManageWorkspace,
+}: {
+  actions: ReturnType<typeof useWorkspaceSettingsActions>
+  activeTab: "workspace" | "users"
+  brandingDraft: ReturnType<typeof useWorkspaceBrandingDraft>
+  canManageWorkspace: boolean
+}) {
+  if (activeTab !== "workspace") {
+    return null
+  }
+
+  return (
+    <Button
+      disabled={
+        !canManageWorkspace || actions.saving || !brandingDraft.canSaveWorkspace
+      }
+      onClick={() => void actions.onSave()}
+    >
+      {actions.saving ? "Saving..." : "Save changes"}
+    </Button>
+  )
+}
+
+function WorkspaceSettingsTabs({
+  activeTab,
+  workspaceUsersCount,
+  onActiveTabChange,
+}: {
+  activeTab: "workspace" | "users"
+  workspaceUsersCount: number
+  onActiveTabChange: (tab: "workspace" | "users") => void
+}) {
+  return (
+    <SettingsNav
+      value={activeTab}
+      onValueChange={onActiveTabChange}
+      options={[
+        { value: "workspace", label: "Workspace" },
+        {
+          value: "users",
+          label: "Members",
+          count: workspaceUsersCount,
+        },
+      ]}
+    />
+  )
+}
+
+function WorkspaceSettingsTabContent({
+  actions,
+  activeTab,
+  brandingDraft,
+  canDeleteWorkspace,
+  canManageWorkspace,
+  pendingInvites,
+  workspaceUsers,
+}: {
+  actions: ReturnType<typeof useWorkspaceSettingsActions>
+  activeTab: "workspace" | "users"
+  brandingDraft: ReturnType<typeof useWorkspaceBrandingDraft>
+  canDeleteWorkspace: boolean
+  canManageWorkspace: boolean
+  pendingInvites: SettingsPendingInvite[]
+  workspaceUsers: WorkspaceSettingsUser[]
+}) {
+  if (activeTab === "users") {
+    return (
+      <WorkspaceMembersSection
+        canManageWorkspace={canManageWorkspace}
+        cancellingInviteId={actions.cancellingInviteId}
+        pendingInvites={pendingInvites}
+        removingWorkspaceUserId={actions.removingWorkspaceUserId}
+        workspaceUsers={workspaceUsers}
+        onCancelInvite={actions.onInviteCancelRequest}
+        onRemoveWorkspaceUser={actions.onWorkspaceUserRemoveRequest}
+      />
+    )
+  }
+
+  return (
+    <>
+      <WorkspaceBrandingSection
+        canManageWorkspace={canManageWorkspace}
+        description={brandingDraft.description}
+        descriptionLimitState={brandingDraft.descriptionLimitState}
+        fallbackBadge={brandingDraft.fallbackBadge}
+        logoLimitState={brandingDraft.logoLimitState}
+        logoPreviewUrl={brandingDraft.logoPreviewUrl}
+        logoUrl={brandingDraft.logoUrl}
+        name={brandingDraft.name}
+        nameLimitState={brandingDraft.nameLimitState}
+        uploadingLogo={brandingDraft.uploadingLogo}
+        onClearLogo={brandingDraft.onClearLogo}
+        onDescriptionChange={brandingDraft.onDescriptionChange}
+        onLogoUrlChange={brandingDraft.onLogoUrlChange}
+        onNameChange={brandingDraft.onNameChange}
+        onUploadLogo={brandingDraft.onUploadLogo}
+      />
+      <WorkspaceAccentSection
+        accent={brandingDraft.accent}
+        canManageWorkspace={canManageWorkspace}
+        onAccentChange={brandingDraft.onAccentChange}
+      />
+      <WorkspaceDangerSection
+        canDeleteWorkspace={canDeleteWorkspace}
+        deletingWorkspace={actions.deletingWorkspace}
+        onDeleteClick={actions.openDeleteDialog}
+      />
+    </>
+  )
+}
+
 export function WorkspaceSettingsScreen() {
   const workspace = useAppStore(getCurrentWorkspace)
   const workspaceId = workspace?.id ?? null
@@ -1098,37 +1233,11 @@ export function WorkspaceSettingsScreen() {
   useWorkspaceOwnerRedirect(workspaceId, canManageWorkspace)
 
   if (!workspace) {
-    return (
-      <SettingsScaffold
-        title="Workspace settings"
-        breadcrumb="Settings"
-        subtitle="Current workspace not found"
-      >
-        <SettingsSection
-          title="Workspace unavailable"
-          description="Select a workspace before opening workspace settings."
-        >
-          <div />
-        </SettingsSection>
-      </SettingsScaffold>
-    )
+    return <WorkspaceSettingsUnavailableState />
   }
 
   if (!canManageWorkspace) {
-    return (
-      <SettingsScaffold
-        title="Workspace settings"
-        breadcrumb="Settings"
-        subtitle="Workspace owner access required"
-      >
-        <SettingsSection
-          title="Redirecting"
-          description="Only the workspace owner can open workspace settings."
-        >
-          <div />
-        </SettingsSection>
-      </SettingsScaffold>
-    )
+    return <WorkspaceSettingsAccessRequiredState />
   }
 
   return (
@@ -1145,74 +1254,28 @@ export function WorkspaceSettingsScreen() {
         />
       }
       footer={
-        activeTab === "workspace" ? (
-          <Button
-            disabled={
-              !canManageWorkspace ||
-              actions.saving ||
-              !brandingDraft.canSaveWorkspace
-            }
-            onClick={() => void actions.onSave()}
-          >
-            {actions.saving ? "Saving..." : "Save changes"}
-          </Button>
-        ) : null
+        <WorkspaceSettingsFooter
+          actions={actions}
+          activeTab={activeTab}
+          brandingDraft={brandingDraft}
+          canManageWorkspace={canManageWorkspace}
+        />
       }
     >
-      <SettingsNav
-        value={activeTab}
-        onValueChange={setActiveTab}
-        options={[
-          { value: "workspace", label: "Workspace" },
-          {
-            value: "users",
-            label: "Members",
-            count: workspaceUsersCount,
-          },
-        ]}
+      <WorkspaceSettingsTabs
+        activeTab={activeTab}
+        workspaceUsersCount={workspaceUsersCount}
+        onActiveTabChange={setActiveTab}
       />
-
-      {activeTab === "workspace" ? (
-        <>
-          <WorkspaceBrandingSection
-            canManageWorkspace={canManageWorkspace}
-            description={brandingDraft.description}
-            descriptionLimitState={brandingDraft.descriptionLimitState}
-            fallbackBadge={brandingDraft.fallbackBadge}
-            logoLimitState={brandingDraft.logoLimitState}
-            logoPreviewUrl={brandingDraft.logoPreviewUrl}
-            logoUrl={brandingDraft.logoUrl}
-            name={brandingDraft.name}
-            nameLimitState={brandingDraft.nameLimitState}
-            uploadingLogo={brandingDraft.uploadingLogo}
-            onClearLogo={brandingDraft.onClearLogo}
-            onDescriptionChange={brandingDraft.onDescriptionChange}
-            onLogoUrlChange={brandingDraft.onLogoUrlChange}
-            onNameChange={brandingDraft.onNameChange}
-            onUploadLogo={brandingDraft.onUploadLogo}
-          />
-          <WorkspaceAccentSection
-            accent={brandingDraft.accent}
-            canManageWorkspace={canManageWorkspace}
-            onAccentChange={brandingDraft.onAccentChange}
-          />
-          <WorkspaceDangerSection
-            canDeleteWorkspace={canDeleteWorkspace}
-            deletingWorkspace={actions.deletingWorkspace}
-            onDeleteClick={actions.openDeleteDialog}
-          />
-        </>
-      ) : (
-        <WorkspaceMembersSection
-          canManageWorkspace={canManageWorkspace}
-          cancellingInviteId={actions.cancellingInviteId}
-          pendingInvites={pendingInvites}
-          removingWorkspaceUserId={actions.removingWorkspaceUserId}
-          workspaceUsers={workspaceUsers}
-          onCancelInvite={actions.onInviteCancelRequest}
-          onRemoveWorkspaceUser={actions.onWorkspaceUserRemoveRequest}
-        />
-      )}
+      <WorkspaceSettingsTabContent
+        actions={actions}
+        activeTab={activeTab}
+        brandingDraft={brandingDraft}
+        canDeleteWorkspace={canDeleteWorkspace}
+        canManageWorkspace={canManageWorkspace}
+        pendingInvites={pendingInvites}
+        workspaceUsers={workspaceUsers}
+      />
 
       <WorkspaceConfirmDialogs
         cancellingInviteId={actions.cancellingInviteId}

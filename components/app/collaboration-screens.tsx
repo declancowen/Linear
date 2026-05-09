@@ -18,15 +18,11 @@ import {
 } from "@/lib/domain/selectors"
 import {
   fetchChannelFeedReadModel,
-  fetchConversationListReadModel,
-  fetchConversationThreadReadModel,
 } from "@/lib/convex/client"
 import { useRetainedTeamBySlug } from "@/hooks/use-retained-team-by-slug"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import {
   getChannelFeedScopeKeys,
-  getConversationListScopeKeys,
-  getConversationThreadScopeKeys,
 } from "@/lib/scoped-sync/read-models"
 import type { AppData } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
@@ -36,6 +32,10 @@ import {
 } from "@/components/app/collaboration-screens/channel-ui"
 import { CallInviteLauncher } from "@/components/app/collaboration-screens/call-invite-launcher"
 import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
+import {
+  useConversationListReadModelRefresh,
+  useConversationThreadReadModelRefresh,
+} from "@/components/app/collaboration-screens/read-model-refresh"
 import {
   ChatHeaderActions,
   DetailsSidebarToggle,
@@ -94,42 +94,54 @@ function CollaborationDetailsSheet({
   )
 }
 
-function WorkspaceChannelPosts({
-  hasLoadedChannelFeed,
-  posts,
-}: {
-  hasLoadedChannelFeed: boolean
-  posts: AppData["channelPosts"]
-}) {
-  if (!hasLoadedChannelFeed && posts.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-20 text-sm text-muted-foreground">
-        Loading posts...
-      </div>
+function useChannelPosts(channels: AppData["conversations"]) {
+  return useAppStore(
+    useShallow((state) =>
+      channels
+        .flatMap((channel) => getChannelPosts(state, channel.id))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     )
-  }
-
-  if (posts.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-          <Hash className="size-5 text-muted-foreground" />
-        </div>
-        <p className="mt-3 text-sm font-medium">No posts yet</p>
-        <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-          Start a workspace discussion by creating the first post.
-        </p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      {posts.map((post) => (
-        <ForumPostCard key={post.id} postId={post.id} />
-      ))}
-    </div>
   )
+}
+
+function useChannelMembers(activeChannel: AppData["conversations"][number] | null) {
+  return useAppStore(
+    useShallow((state) =>
+      activeChannel ? getConversationParticipants(state, activeChannel) : []
+    )
+  )
+}
+
+function useChannelSidebarState() {
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+
+  return {
+    mobileSidebarOpen,
+    setMobileSidebarOpen,
+    setSidebarOpen,
+    sidebarOpen,
+  }
+}
+
+function useChannelReadModelRefresh(input: {
+  activeChannelId?: string | null
+  currentUserId: string | null
+}) {
+  const { hasLoadedOnce: hasLoadedConversationList } =
+    useConversationListReadModelRefresh(input.currentUserId)
+  const { hasLoadedOnce: hasLoadedChannelFeed } = useScopedReadModelRefresh({
+    enabled: Boolean(input.activeChannelId),
+    scopeKeys: input.activeChannelId
+      ? getChannelFeedScopeKeys(input.activeChannelId)
+      : [],
+    fetchLatest: () => fetchChannelFeedReadModel(input.activeChannelId ?? ""),
+  })
+
+  return {
+    hasLoadedChannelFeed,
+    hasLoadedConversationList,
+  }
 }
 
 function WorkspaceChannelBody({
@@ -178,7 +190,8 @@ function WorkspaceChannelBody({
         </div>
         <div className="relative z-0 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="mx-auto max-w-3xl px-5 py-5">
-            <WorkspaceChannelPosts
+            <ChannelPostsState
+              emptyDescription="Start a workspace discussion by creating the first post."
               hasLoadedChannelFeed={hasLoadedChannelFeed}
               posts={posts}
             />
@@ -207,33 +220,19 @@ export function WorkspaceChannelsScreen() {
   const activeChannel = useAppStore((state) =>
     workspace ? getPrimaryWorkspaceChannel(state, workspace.id) : null
   )
-  const posts = useAppStore(
-    useShallow((state) =>
-      channels
-        .flatMap((channel) => getChannelPosts(state, channel.id))
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    )
-  )
-  const members = useAppStore(
-    useShallow((state) =>
-      activeChannel ? getConversationParticipants(state, activeChannel) : []
-    )
-  )
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const { hasLoadedOnce: hasLoadedConversationList } =
-    useScopedReadModelRefresh({
-      enabled: Boolean(currentUserId),
-      scopeKeys: currentUserId
-        ? getConversationListScopeKeys(currentUserId)
-        : [],
-      fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
+  const posts = useChannelPosts(channels)
+  const members = useChannelMembers(activeChannel)
+  const {
+    mobileSidebarOpen,
+    setMobileSidebarOpen,
+    setSidebarOpen,
+    sidebarOpen,
+  } = useChannelSidebarState()
+  const { hasLoadedChannelFeed, hasLoadedConversationList } =
+    useChannelReadModelRefresh({
+      activeChannelId: activeChannel?.id,
+      currentUserId,
     })
-  const { hasLoadedOnce: hasLoadedChannelFeed } = useScopedReadModelRefresh({
-    enabled: Boolean(activeChannel?.id),
-    scopeKeys: activeChannel ? getChannelFeedScopeKeys(activeChannel.id) : [],
-    fetchLatest: () => fetchChannelFeedReadModel(activeChannel?.id ?? ""),
-  })
   const workspaceDescription =
     workspace?.settings.description ||
     "Forum-style updates, questions, and threaded decisions for the entire workspace."
@@ -382,22 +381,9 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const { hasLoadedOnce: hasLoadedConversationList } =
-    useScopedReadModelRefresh({
-      enabled: Boolean(currentUserId),
-      scopeKeys: currentUserId
-        ? getConversationListScopeKeys(currentUserId)
-        : [],
-      fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
-    })
+    useConversationListReadModelRefresh(currentUserId)
   const { hasLoadedOnce: hasLoadedConversationThread } =
-    useScopedReadModelRefresh({
-      enabled: Boolean(conversation?.id),
-      scopeKeys: conversation
-        ? getConversationThreadScopeKeys(conversation.id)
-        : [],
-      fetchLatest: () =>
-        fetchConversationThreadReadModel(conversation?.id ?? ""),
-    })
+    useConversationThreadReadModelRefresh(conversation?.id)
   const teamDescription =
     team?.settings.summary ||
     `One live conversation for everyone working in ${team?.name ?? "this team"}.`
@@ -674,33 +660,19 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
   const activeChannel = useAppStore((state) =>
     team ? getPrimaryTeamChannel(state, team.id) : null
   )
-  const members = useAppStore(
-    useShallow((state) =>
-      activeChannel ? getConversationParticipants(state, activeChannel) : []
-    )
-  )
-  const posts = useAppStore(
-    useShallow((state) =>
-      channels
-        .flatMap((channel) => getChannelPosts(state, channel.id))
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    )
-  )
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const { hasLoadedOnce: hasLoadedConversationList } =
-    useScopedReadModelRefresh({
-      enabled: Boolean(currentUserId),
-      scopeKeys: currentUserId
-        ? getConversationListScopeKeys(currentUserId)
-        : [],
-      fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
+  const members = useChannelMembers(activeChannel)
+  const posts = useChannelPosts(channels)
+  const {
+    mobileSidebarOpen,
+    setMobileSidebarOpen,
+    setSidebarOpen,
+    sidebarOpen,
+  } = useChannelSidebarState()
+  const { hasLoadedChannelFeed, hasLoadedConversationList } =
+    useChannelReadModelRefresh({
+      activeChannelId: activeChannel?.id,
+      currentUserId,
     })
-  const { hasLoadedOnce: hasLoadedChannelFeed } = useScopedReadModelRefresh({
-    enabled: Boolean(activeChannel?.id),
-    scopeKeys: activeChannel ? getChannelFeedScopeKeys(activeChannel.id) : [],
-    fetchLatest: () => fetchChannelFeedReadModel(activeChannel?.id ?? ""),
-  })
   const teamDescription =
     team?.settings.summary ||
     `Forum-style updates, questions, and threaded decisions for ${team?.name ?? "this team"}.`

@@ -12,6 +12,11 @@ type TeamFeatureSet = {
   channels: boolean
 }
 
+type TeamSurfaceDisableCheck = {
+  shouldCheck: boolean
+  getMessage: () => Promise<string | null>
+}
+
 async function getDocsDisableMessage(
   ctx: MutationCtx,
   team: {
@@ -86,6 +91,45 @@ async function getChannelsDisableMessage(
   return null
 }
 
+function getTeamSurfaceDisableChecks(
+  ctx: MutationCtx,
+  team: {
+    id: string
+  },
+  currentFeatures: TeamFeatureSet,
+  nextFeatures: TeamFeatureSet
+): TeamSurfaceDisableCheck[] {
+  return [
+    {
+      shouldCheck: currentFeatures.docs && !nextFeatures.docs,
+      getMessage: () => getDocsDisableMessage(ctx, team),
+    },
+    {
+      shouldCheck: currentFeatures.chat && !nextFeatures.chat,
+      getMessage: () => getChatDisableMessage(ctx, team),
+    },
+    {
+      shouldCheck: currentFeatures.channels && !nextFeatures.channels,
+      getMessage: () => getChannelsDisableMessage(ctx, team),
+    },
+  ]
+}
+
+async function getFirstDisableMessage(checks: TeamSurfaceDisableCheck[]) {
+  for (const check of checks) {
+    if (!check.shouldCheck) {
+      continue
+    }
+
+    const message = await check.getMessage()
+    if (message) {
+      return message
+    }
+  }
+
+  return null
+}
+
 export async function getTeamSurfaceDisableMessage(
   ctx: MutationCtx,
   team: {
@@ -105,30 +149,7 @@ export async function getTeamSurfaceDisableMessage(
     team.settings.experience,
     team.settings.features
   )
-
-  if (currentFeatures.docs && !nextFeatures.docs) {
-    const message = await getDocsDisableMessage(ctx, team)
-
-    if (message) {
-      return message
-    }
-  }
-
-  if (currentFeatures.chat && !nextFeatures.chat) {
-    const message = await getChatDisableMessage(ctx, team)
-
-    if (message) {
-      return message
-    }
-  }
-
-  if (currentFeatures.channels && !nextFeatures.channels) {
-    const message = await getChannelsDisableMessage(ctx, team)
-
-    if (message) {
-      return message
-    }
-  }
-
-  return null
+  return getFirstDisableMessage(
+    getTeamSurfaceDisableChecks(ctx, team, currentFeatures, nextFeatures)
+  )
 }

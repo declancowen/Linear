@@ -26,6 +26,61 @@ type AuthEmailVerificationScreenProps = {
   notice?: string
 }
 
+type AuthEmailVerificationMode = AuthEmailVerificationScreenProps["mode"]
+
+const AUTH_EMAIL_VERIFICATION_COPY: Record<
+  AuthEmailVerificationMode,
+  {
+    actionLabel: string
+    title: string
+  }
+> = {
+  login: {
+    actionLabel: "Back to sign in",
+    title: "Finish signing in",
+  },
+  signup: {
+    actionLabel: "Start again",
+    title: "Verify your email",
+  },
+}
+
+function getAuthEmailVerificationCopy(mode: AuthEmailVerificationMode) {
+  return AUTH_EMAIL_VERIFICATION_COPY[mode]
+}
+
+function getAuthEmailVerificationReturnHref(input: {
+  email: string
+  mode: AuthEmailVerificationMode
+  nextPath: string
+}) {
+  const targetPath = input.mode === "signup" ? "/signup" : "/login"
+  const searchParams = new URLSearchParams({
+    next: input.nextPath,
+    ...(input.email ? { email: input.email } : {}),
+  })
+
+  return `${targetPath}?${searchParams.toString()}`
+}
+
+function AuthEmailVerificationFeedback({
+  error,
+  notice,
+}: {
+  error?: string
+  notice?: string
+}) {
+  return (
+    <>
+      {notice ? (
+        <FieldDescription className="text-center">{notice}</FieldDescription>
+      ) : null}
+
+      {error ? <FieldError className="text-center">{error}</FieldError> : null}
+    </>
+  )
+}
+
 export function AuthEmailVerificationScreen({
   mode,
   nextPath,
@@ -33,14 +88,12 @@ export function AuthEmailVerificationScreen({
   error,
   notice,
 }: AuthEmailVerificationScreenProps) {
-  const loginHref = `/login?${new URLSearchParams({
-    next: nextPath,
-    ...(email ? { email } : {}),
-  }).toString()}`
-  const signupHref = `/signup?${new URLSearchParams({
-    next: nextPath,
-    ...(email ? { email } : {}),
-  }).toString()}`
+  const copy = getAuthEmailVerificationCopy(mode)
+  const returnHref = getAuthEmailVerificationReturnHref({
+    email,
+    mode,
+    nextPath,
+  })
 
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
@@ -49,11 +102,7 @@ export function AuthEmailVerificationScreen({
 
         <Card>
           <CardHeader className="text-center">
-            <CardTitle className="text-xl">
-              {mode === "signup"
-                ? "Verify your email"
-                : "Finish signing in"}
-            </CardTitle>
+            <CardTitle className="text-xl">{copy.title}</CardTitle>
             <CardDescription>
               Enter the code WorkOS sent to {email || "your email address"}.
             </CardDescription>
@@ -79,23 +128,13 @@ export function AuthEmailVerificationScreen({
                   />
                 </Field>
 
-                {notice ? (
-                  <FieldDescription className="text-center">
-                    {notice}
-                  </FieldDescription>
-                ) : null}
-
-                {error ? (
-                  <FieldError className="text-center">{error}</FieldError>
-                ) : null}
+                <AuthEmailVerificationFeedback error={error} notice={notice} />
 
                 <Button type="submit">Continue</Button>
 
                 <FieldDescription className="text-center">
                   Need a different account?{" "}
-                  <Link href={mode === "signup" ? signupHref : loginHref}>
-                    {mode === "signup" ? "Start again" : "Back to sign in"}
-                  </Link>
+                  <Link href={returnHref}>{copy.actionLabel}</Link>
                 </FieldDescription>
               </FieldGroup>
             </form>

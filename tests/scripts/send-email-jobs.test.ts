@@ -1,86 +1,122 @@
 import { describe, expect, it, vi } from "vitest"
 
+type EmailJobBatchResult = {
+  failedCount: number
+  processedCount: number
+  sentCount: number
+}
+
+type ProcessTestEmailJobsBatchOptions = {
+  markEmailJobsSentMock?: ReturnType<typeof vi.fn>
+  releaseEmailJobClaimMock?: ReturnType<typeof vi.fn>
+  resendFromEmail?: string
+  resendFromName?: string | undefined
+  sendMock?: ReturnType<typeof vi.fn>
+}
+
+function createEmailJob() {
+  return {
+    id: "job_1",
+    kind: "mention",
+    notificationId: "notification_1",
+    toEmail: "alex@example.com",
+    subject: "Mention",
+    text: "text",
+    html: "<p>text</p>",
+  }
+}
+
+async function processTestEmailJobsBatch({
+  sendMock = vi.fn().mockResolvedValue({ data: { id: "email_1" } }),
+  markEmailJobsSentMock = vi.fn().mockResolvedValue(undefined),
+  releaseEmailJobClaimMock = vi.fn().mockResolvedValue(undefined),
+  resendFromEmail = "noreply@example.com",
+  resendFromName = undefined,
+}: ProcessTestEmailJobsBatchOptions = {}) {
+  const { processEmailJobsBatch } = await import(
+    "../../scripts/send-email-jobs.mjs"
+  )
+
+  const result = await processEmailJobsBatch({
+    jobs: [createEmailJob()],
+    claimId: "claim_1",
+    resend: {
+      emails: {
+        send: sendMock,
+      },
+    },
+    resendFromEmail,
+    resendFromName,
+    markEmailJobsSent: markEmailJobsSentMock,
+    releaseEmailJobClaim: releaseEmailJobClaimMock,
+  })
+
+  return {
+    markEmailJobsSentMock,
+    releaseEmailJobClaimMock,
+    result,
+    sendMock,
+  }
+}
+
+function expectSingleJobClaimReleased(
+  releaseEmailJobClaimMock: ReturnType<typeof vi.fn>,
+  errorMessage: string
+) {
+  expect(releaseEmailJobClaimMock).toHaveBeenCalledWith({
+    claimId: "claim_1",
+    jobIds: ["job_1"],
+    errorMessage,
+  })
+}
+
+function expectSingleJobFailure(result: EmailJobBatchResult) {
+  expect(result).toEqual({
+    processedCount: 1,
+    sentCount: 0,
+    failedCount: 1,
+  })
+}
+
+function expectSingleEmailSentFrom(
+  sendMock: ReturnType<typeof vi.fn>,
+  from: string
+) {
+  expect(sendMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      from,
+    }),
+    {
+      idempotencyKey: "job_1",
+    }
+  )
+}
+
 describe("send-email-jobs worker", () => {
   it("releases the claim when provider delivery fails", async () => {
-    const { processEmailJobsBatch } = await import(
-      "../../scripts/send-email-jobs.mjs"
-    )
-
     const sendMock = vi.fn().mockRejectedValue(new Error("SMTP timeout"))
     const markEmailJobsSentMock = vi.fn()
-    const releaseEmailJobClaimMock = vi.fn().mockResolvedValue(undefined)
-
-    const result = await processEmailJobsBatch({
-      jobs: [
-        {
-          id: "job_1",
-          kind: "mention",
-          notificationId: "notification_1",
-          toEmail: "alex@example.com",
-          subject: "Mention",
-          text: "text",
-          html: "<p>text</p>",
-        },
-      ],
-      claimId: "claim_1",
-      resend: {
-        emails: {
-          send: sendMock,
-        },
-      },
-      resendFromEmail: "noreply@example.com",
-      resendFromName: undefined,
-      markEmailJobsSent: markEmailJobsSentMock,
-      releaseEmailJobClaim: releaseEmailJobClaimMock,
-    })
+    const { releaseEmailJobClaimMock, result } =
+      await processTestEmailJobsBatch({
+        sendMock,
+        markEmailJobsSentMock,
+      })
 
     expect(markEmailJobsSentMock).not.toHaveBeenCalled()
-    expect(releaseEmailJobClaimMock).toHaveBeenCalledWith({
-      claimId: "claim_1",
-      jobIds: ["job_1"],
-      errorMessage: "SMTP timeout",
-    })
-    expect(result).toEqual({
-      processedCount: 1,
-      sentCount: 0,
-      failedCount: 1,
-    })
+    expectSingleJobClaimReleased(releaseEmailJobClaimMock, "SMTP timeout")
+    expectSingleJobFailure(result)
   })
 
   it("uses a stable provider idempotency key and releases the claim on ack failure", async () => {
-    const { processEmailJobsBatch } = await import(
-      "../../scripts/send-email-jobs.mjs"
-    )
-
     const sendMock = vi.fn().mockResolvedValue({ data: { id: "email_1" } })
     const markEmailJobsSentMock = vi
       .fn()
       .mockRejectedValue(new Error("Convex unavailable"))
-    const releaseEmailJobClaimMock = vi.fn().mockResolvedValue(undefined)
-
-    const result = await processEmailJobsBatch({
-      jobs: [
-        {
-          id: "job_1",
-          kind: "mention",
-          notificationId: "notification_1",
-          toEmail: "alex@example.com",
-          subject: "Mention",
-          text: "text",
-          html: "<p>text</p>",
-        },
-      ],
-      claimId: "claim_1",
-      resend: {
-        emails: {
-          send: sendMock,
-        },
-      },
-      resendFromEmail: "noreply@example.com",
-      resendFromName: undefined,
-      markEmailJobsSent: markEmailJobsSentMock,
-      releaseEmailJobClaim: releaseEmailJobClaimMock,
-    })
+    const { releaseEmailJobClaimMock, result } =
+      await processTestEmailJobsBatch({
+        sendMock,
+        markEmailJobsSentMock,
+      })
 
     expect(sendMock).toHaveBeenCalledWith(
       {
@@ -98,145 +134,39 @@ describe("send-email-jobs worker", () => {
       claimId: "claim_1",
       jobIds: ["job_1"],
     })
-    expect(releaseEmailJobClaimMock).toHaveBeenCalledWith({
-      claimId: "claim_1",
-      jobIds: ["job_1"],
-      errorMessage: "Convex unavailable",
-    })
-    expect(result).toEqual({
-      processedCount: 1,
-      sentCount: 0,
-      failedCount: 1,
-    })
+    expectSingleJobClaimReleased(releaseEmailJobClaimMock, "Convex unavailable")
+    expectSingleJobFailure(result)
   })
 
   it("releases the claim when Resend returns an API error response", async () => {
-    const { processEmailJobsBatch } = await import(
-      "../../scripts/send-email-jobs.mjs"
-    )
+    const { releaseEmailJobClaimMock, result } =
+      await processTestEmailJobsBatch({
+        sendMock: vi.fn().mockResolvedValue({
+          data: null,
+          error: {
+            message: "domain not verified",
+          },
+        }),
+      })
 
-    const releaseEmailJobClaimMock = vi.fn().mockResolvedValue(undefined)
-
-    const result = await processEmailJobsBatch({
-      jobs: [
-        {
-          id: "job_1",
-          kind: "mention",
-          notificationId: "notification_1",
-          toEmail: "alex@example.com",
-          subject: "Mention",
-          text: "text",
-          html: "<p>text</p>",
-        },
-      ],
-      claimId: "claim_1",
-      resend: {
-        emails: {
-          send: vi.fn().mockResolvedValue({
-            data: null,
-            error: {
-              message: "domain not verified",
-            },
-          }),
-        },
-      },
-      resendFromEmail: "noreply@example.com",
-      resendFromName: undefined,
-      markEmailJobsSent: vi.fn().mockResolvedValue(undefined),
-      releaseEmailJobClaim: releaseEmailJobClaimMock,
-    })
-
-    expect(releaseEmailJobClaimMock).toHaveBeenCalledWith({
-      claimId: "claim_1",
-      jobIds: ["job_1"],
-      errorMessage: "domain not verified",
-    })
-    expect(result).toEqual({
-      processedCount: 1,
-      sentCount: 0,
-      failedCount: 1,
-    })
+    expectSingleJobClaimReleased(releaseEmailJobClaimMock, "domain not verified")
+    expectSingleJobFailure(result)
   })
 
   it("preserves an explicit formatted sender", async () => {
-    const { processEmailJobsBatch } = await import(
-      "../../scripts/send-email-jobs.mjs"
-    )
-
-    const sendMock = vi.fn().mockResolvedValue({ data: { id: "email_1" } })
-
-    await processEmailJobsBatch({
-      jobs: [
-        {
-          id: "job_1",
-          kind: "mention",
-          notificationId: "notification_1",
-          toEmail: "alex@example.com",
-          subject: "Mention",
-          text: "text",
-          html: "<p>text</p>",
-        },
-      ],
-      claimId: "claim_1",
-      resend: {
-        emails: {
-          send: sendMock,
-        },
-      },
+    const { sendMock } = await processTestEmailJobsBatch({
       resendFromEmail: "Recipe Room <noreply@example.com>",
       resendFromName: "Ignored",
-      markEmailJobsSent: vi.fn().mockResolvedValue(undefined),
-      releaseEmailJobClaim: vi.fn().mockResolvedValue(undefined),
     })
 
-    expect(sendMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        from: "Recipe Room <noreply@example.com>",
-      }),
-      {
-        idempotencyKey: "job_1",
-      }
-    )
+    expectSingleEmailSentFrom(sendMock, "Recipe Room <noreply@example.com>")
   })
 
   it("formats the sender with an optional display name", async () => {
-    const { processEmailJobsBatch } = await import(
-      "../../scripts/send-email-jobs.mjs"
-    )
-
-    const sendMock = vi.fn().mockResolvedValue({ data: { id: "email_1" } })
-
-    await processEmailJobsBatch({
-      jobs: [
-        {
-          id: "job_1",
-          kind: "mention",
-          notificationId: "notification_1",
-          toEmail: "alex@example.com",
-          subject: "Mention",
-          text: "text",
-          html: "<p>text</p>",
-        },
-      ],
-      claimId: "claim_1",
-      resend: {
-        emails: {
-          send: sendMock,
-        },
-      },
-      resendFromEmail: "noreply@example.com",
+    const { sendMock } = await processTestEmailJobsBatch({
       resendFromName: "Recipe Room",
-      markEmailJobsSent: vi.fn().mockResolvedValue(undefined),
-      releaseEmailJobClaim: vi.fn().mockResolvedValue(undefined),
     })
 
-    expect(sendMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        from: "Recipe Room <noreply@example.com>",
-      }),
-      {
-        idempotencyKey: "job_1",
-      }
-    )
+    expectSingleEmailSentFrom(sendMock, "Recipe Room <noreply@example.com>")
   })
 })

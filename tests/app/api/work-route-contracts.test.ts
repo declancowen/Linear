@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ApplicationError } from "@/lib/server/application-errors"
+import { createProviderErrorsMockModule } from "@/tests/lib/fixtures/api-routes"
+import {
+  createJsonRouteRequest,
+  createRouteHandlerInput,
+  createRouteParams,
+  expectTypedJsonError,
+} from "@/tests/lib/fixtures/api-routes"
 
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
@@ -12,7 +19,9 @@ const shiftTimelineItemServerMock = vi.fn()
 const heartbeatWorkItemPresenceServerMock = vi.fn()
 const clearWorkItemPresenceServerMock = vi.fn()
 const createProjectServerMock = vi.fn()
+const deleteProjectServerMock = vi.fn()
 const createViewServerMock = vi.fn()
+const deleteViewServerMock = vi.fn()
 const updateProjectServerMock = vi.fn()
 const updateViewConfigServerMock = vi.fn()
 const renameViewServerMock = vi.fn()
@@ -45,7 +54,9 @@ vi.mock("@/lib/server/convex", () => ({
   heartbeatWorkItemPresenceServer: heartbeatWorkItemPresenceServerMock,
   clearWorkItemPresenceServer: clearWorkItemPresenceServerMock,
   createProjectServer: createProjectServerMock,
+  deleteProjectServer: deleteProjectServerMock,
   createViewServer: createViewServerMock,
+  deleteViewServer: deleteViewServerMock,
   updateProjectServer: updateProjectServerMock,
   updateViewConfigServer: updateViewConfigServerMock,
   renameViewServer: renameViewServerMock,
@@ -76,11 +87,45 @@ vi.mock("@/lib/server/email", () => ({
   buildAssignmentEmailJobs: vi.fn(() => []),
 }))
 
-vi.mock("@/lib/server/provider-errors", () => ({
-  getConvexErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  logProviderError: logProviderErrorMock,
-}))
+vi.mock("@/lib/server/provider-errors", () =>
+  createProviderErrorsMockModule(logProviderErrorMock)
+)
+
+function itemPatchRouteInput(patch: Record<string, unknown>) {
+  return createRouteHandlerInput(
+    "http://localhost/api/items/item_1",
+    {
+      itemId: "item_1",
+    },
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(patch),
+    }
+  )
+}
+
+function createItemPresencePostInput(action: "heartbeat" | "leave") {
+  return [
+    new Request("http://localhost/api/items/item_1/presence", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action,
+        sessionId: "session_123",
+      }),
+    }) as never,
+    {
+      params: Promise.resolve({
+        itemId: "item_1",
+      }),
+    },
+  ] as const
+}
 
 describe("work route contracts", () => {
   beforeEach(() => {
@@ -94,7 +139,9 @@ describe("work route contracts", () => {
     heartbeatWorkItemPresenceServerMock.mockReset()
     clearWorkItemPresenceServerMock.mockReset()
     createProjectServerMock.mockReset()
+    deleteProjectServerMock.mockReset()
     createViewServerMock.mockReset()
+    deleteViewServerMock.mockReset()
     updateProjectServerMock.mockReset()
     updateViewConfigServerMock.mockReset()
     renameViewServerMock.mockReset()
@@ -351,20 +398,9 @@ describe("work route contracts", () => {
     })
 
     const response = await itemRoute.PATCH(
-      new Request("http://localhost/api/items/item_1", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: "Updated launch task",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          itemId: "item_1",
-        }),
-      }
+      ...itemPatchRouteInput({
+        title: "Updated launch task",
+      })
     )
 
     expect(updateWorkItemServerMock).toHaveBeenCalledWith({
@@ -388,22 +424,11 @@ describe("work route contracts", () => {
     })
 
     const response = await itemRoute.PATCH(
-      new Request("http://localhost/api/items/item_1", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: "Updated launch task",
-          description: "<p>Updated details</p>",
-          expectedUpdatedAt: "2026-04-18T10:00:00.000Z",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          itemId: "item_1",
-        }),
-      }
+      ...itemPatchRouteInput({
+        title: "Updated launch task",
+        description: "<p>Updated details</p>",
+        expectedUpdatedAt: "2026-04-18T10:00:00.000Z",
+      })
     )
 
     expect(updateWorkItemServerMock).toHaveBeenCalledWith({
@@ -435,21 +460,7 @@ describe("work route contracts", () => {
     })
 
     const heartbeatResponse = await itemPresenceRoute.POST(
-      new Request("http://localhost/api/items/item_1/presence", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "heartbeat",
-          sessionId: "session_123",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          itemId: "item_1",
-        }),
-      }
+      ...createItemPresencePostInput("heartbeat")
     )
 
     expect(heartbeatWorkItemPresenceServerMock).toHaveBeenCalledWith({
@@ -477,21 +488,7 @@ describe("work route contracts", () => {
     })
 
     const leaveResponse = await itemPresenceRoute.POST(
-      new Request("http://localhost/api/items/item_1/presence", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "leave",
-          sessionId: "session_123",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          itemId: "item_1",
-        }),
-      }
+      ...createItemPresencePostInput("leave")
     )
 
     expect(clearWorkItemPresenceServerMock).toHaveBeenCalledWith({
@@ -516,21 +513,7 @@ describe("work route contracts", () => {
     )
 
     const response = await itemPresenceRoute.POST(
-      new Request("http://localhost/api/items/item_1/presence", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "heartbeat",
-          sessionId: "session_123",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          itemId: "item_1",
-        }),
-      }
+      ...createItemPresencePostInput("heartbeat")
     )
 
     expect(response.status).toBe(409)
@@ -551,21 +534,7 @@ describe("work route contracts", () => {
     )
 
     const response = await itemPresenceRoute.POST(
-      new Request("http://localhost/api/items/item_1/presence", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "heartbeat",
-          sessionId: "session_123",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          itemId: "item_1",
-        }),
-      }
+      ...createItemPresencePostInput("heartbeat")
     )
 
     expect(response.status).toBe(200)
@@ -584,28 +553,22 @@ describe("work route contracts", () => {
     )
 
     const response = await PATCH(
-      new Request("http://localhost/api/items/item_1/schedule", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      createJsonRouteRequest(
+        "http://localhost/api/items/item_1/schedule",
+        "PATCH",
+        {
           nextStartDate: "2026-05-01",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          itemId: "item_1",
-        }),
-      }
+        }
+      ),
+      createRouteParams({ itemId: "item_1" })
     )
 
-    expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({
-      error: "Work item is not scheduled",
-      message: "Work item is not scheduled",
-      code: "WORK_ITEM_SCHEDULE_MISSING",
-    })
+    await expectTypedJsonError(
+      response,
+      400,
+      "Work item is not scheduled",
+      "WORK_ITEM_SCHEDULE_MISSING"
+    )
   })
 
   it("maps project failures to typed error responses", async () => {
@@ -775,6 +738,31 @@ describe("work route contracts", () => {
       error: "Invalid project update payload",
       message: "Invalid project update payload",
       code: "ROUTE_INVALID_BODY",
+    })
+  })
+
+  it("deletes projects and bumps resolved project scopes", async () => {
+    const { DELETE } = await import("@/app/api/projects/[projectId]/route")
+
+    const response = await DELETE(
+      new Request("http://localhost/api/projects/project_1", {
+        method: "DELETE",
+      }) as never,
+      createRouteParams({
+        projectId: "project_1",
+      })
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+    })
+    expect(deleteProjectServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      projectId: "project_1",
+    })
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
+      scopeKeys: ["project-detail:project_1"],
     })
   })
 
@@ -1000,6 +988,31 @@ describe("work route contracts", () => {
       error: "Invalid view request",
       message: "Invalid view request",
       code: "ROUTE_INVALID_BODY",
+    })
+  })
+
+  it("deletes views and bumps resolved view scopes", async () => {
+    const { DELETE } = await import("@/app/api/views/[viewId]/route")
+
+    const response = await DELETE(
+      new Request("http://localhost/api/views/view_1", {
+        method: "DELETE",
+      }) as never,
+      createRouteParams({
+        viewId: "view_1",
+      })
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+    })
+    expect(deleteViewServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      viewId: "view_1",
+    })
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
+      scopeKeys: ["view-detail:view_1"],
     })
   })
 })

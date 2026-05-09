@@ -2,66 +2,29 @@ import { describe, expect, it } from "vitest"
 
 import { createEmptyState } from "@/lib/domain/empty-state"
 import type { AppSnapshot } from "@/lib/domain/types"
+import { isWorkspaceMembershipInvite } from "@/lib/scoped-sync/invite-selection"
 import {
   getDocumentDetailScopeKeys,
+  getConversationRelatedScopeKeys,
   getProjectDetailScopeKeys,
   getWorkItemDetailScopeKeys,
   selectDocumentDetailReadModel,
   selectProjectDetailReadModel,
   selectWorkItemDetailReadModel,
 } from "@/lib/scoped-sync/read-models"
+import {
+  createScopedReadModelProject,
+  createScopedReadModelTeam,
+  createScopedReadModelUser,
+  createScopedReadModelView,
+} from "@/tests/lib/fixtures/scoped-read-models"
 
 function createSnapshotFixture(): AppSnapshot {
   return {
     ...createEmptyState(),
     currentUserId: "user_1",
     currentWorkspaceId: "workspace_1",
-    teams: [
-      {
-        id: "team_1",
-        workspaceId: "workspace_1",
-        slug: "team-1",
-        name: "Team 1",
-        icon: "sparkles",
-        summary: "",
-        settings: {
-          experience: "software-development",
-          workflow: {
-            statusOrder: ["backlog", "todo", "in-progress", "done", "cancelled", "duplicate"],
-            templateDefaults: {
-              "software-delivery": {
-                defaultViewLayout: "list",
-                defaultViewGrouping: "status",
-                defaultViewOrdering: "priority",
-                recommendedItemTypes: ["epic", "feature", "story", "task", "bug"],
-              },
-              "bug-tracking": {
-                defaultViewLayout: "list",
-                defaultViewGrouping: "status",
-                defaultViewOrdering: "priority",
-                recommendedItemTypes: ["issue", "bug"],
-              },
-              "project-management": {
-                defaultViewLayout: "list",
-                defaultViewGrouping: "status",
-                defaultViewOrdering: "priority",
-                recommendedItemTypes: ["epic", "feature", "task"],
-              },
-            },
-          },
-          features: {
-            issues: true,
-            projects: true,
-            documents: true,
-            chat: true,
-            calls: true,
-          },
-          guestProjectIds: [],
-          guestWorkItemIds: [],
-          guestDocumentIds: [],
-        },
-      },
-    ],
+    teams: [createScopedReadModelTeam()],
     teamMemberships: [
       {
         teamId: "team_1",
@@ -75,48 +38,13 @@ function createSnapshotFixture(): AppSnapshot {
       },
     ],
     users: [
-      {
-        id: "user_1",
-        handle: "alex",
-        email: "alex@example.com",
-        name: "Alex",
-        avatarUrl: "",
-        avatarImageUrl: null,
-        title: "",
-        hasExplicitStatus: false,
-        status: "offline",
-        statusMessage: "",
-        preferences: {
-          emailAssignments: true,
-          emailDigest: true,
-          emailMentions: true,
-          theme: "system",
-        },
-        accountDeletionPendingAt: null,
-        accountDeletedAt: null,
-        workosUserId: null,
-      },
-      {
+      createScopedReadModelUser(),
+      createScopedReadModelUser({
         id: "user_2",
         handle: "sam",
         email: "sam@example.com",
         name: "Sam",
-        avatarUrl: "",
-        avatarImageUrl: null,
-        title: "",
-        hasExplicitStatus: false,
-        status: "offline",
-        statusMessage: "",
-        preferences: {
-          emailAssignments: true,
-          emailDigest: true,
-          emailMentions: true,
-          theme: "system",
-        },
-        accountDeletionPendingAt: null,
-        accountDeletedAt: null,
-        workosUserId: null,
-      },
+      }),
     ],
     labels: [
       {
@@ -127,51 +55,9 @@ function createSnapshotFixture(): AppSnapshot {
       },
     ],
     projects: [
-      {
-        id: "project_1",
-        scopeType: "team",
-        scopeId: "team_1",
-        name: "Alpha",
-        summary: "",
-        description: "",
-        status: "in-progress",
-        health: "on-track",
-        priority: "high",
-        leadId: "user_1",
+      createScopedReadModelProject({
         memberIds: ["user_2"],
-        labelIds: [],
-        startDate: null,
-        targetDate: null,
-        createdAt: "2026-04-22T00:00:00.000Z",
-        updatedAt: "2026-04-22T00:00:00.000Z",
-        templateType: "software-delivery",
-        presentation: {
-          layout: "list",
-          grouping: "status",
-          ordering: "priority",
-          itemLevel: "story",
-          showChildItems: false,
-          filters: {
-            status: [],
-            priority: [],
-            assigneeIds: [],
-            creatorIds: [],
-            leadIds: [],
-            health: [],
-            milestoneIds: [],
-            relationTypes: [],
-            projectIds: [],
-            parentIds: [],
-            itemTypes: [],
-            labelIds: [],
-            teamIds: [],
-            showCompleted: true,
-          },
-          displayProps: [],
-        },
-        blockingProjectIds: [],
-        blockedByProjectIds: [],
-      },
+      }),
     ],
     milestones: [
       {
@@ -253,47 +139,10 @@ function createSnapshotFixture(): AppSnapshot {
       },
     ],
     views: [
-      {
-        id: "view_1",
-        scopeType: "team",
-        scopeId: "team_1",
-        entityKind: "items",
-        route: "/projects/project_1",
-        name: "Project Items",
-        description: "",
-        layout: "list",
-        grouping: "status",
-        subGrouping: null,
-        ordering: "priority",
-        itemLevel: "story",
-        showChildItems: false,
-        filters: {
-          status: [],
-          priority: [],
-          assigneeIds: [],
-          creatorIds: [],
-          leadIds: [],
-          health: [],
-          milestoneIds: [],
-          relationTypes: [],
-          projectIds: [],
-          parentIds: [],
-          itemTypes: [],
-          labelIds: [],
-          teamIds: [],
-          showCompleted: true,
-        },
-        displayProps: [],
-        hiddenState: {
-          groups: [],
-          subgroups: [],
-        },
-        isShared: false,
-        createdAt: "2026-04-22T00:00:00.000Z",
-        updatedAt: "2026-04-22T00:00:00.000Z",
+      createScopedReadModelView({
         containerType: "project-items",
         containerId: "project_1",
-      },
+      }),
     ],
     comments: [
       {
@@ -417,5 +266,114 @@ describe("scoped read model selectors", () => {
     expect(getProjectDetailScopeKeys("project_1")).toEqual([
       "project-detail:project_1",
     ])
+  })
+
+  it("selects workspace membership invites by workspace or pending user email", () => {
+    const snapshot = createSnapshotFixture()
+    const [workspaceInvite, pendingInvite, declinedInvite] = [
+      {
+        workspaceId: "workspace_1",
+        email: "other@example.com",
+        acceptedAt: null,
+        declinedAt: null,
+      },
+      {
+        workspaceId: "workspace_2",
+        email: "alex@example.com",
+        acceptedAt: null,
+        declinedAt: null,
+      },
+      {
+        workspaceId: "workspace_2",
+        email: "alex@example.com",
+        acceptedAt: null,
+        declinedAt: "2026-04-22T00:00:00.000Z",
+      },
+    ] as AppSnapshot["invites"]
+
+    expect(
+      isWorkspaceMembershipInvite(
+        workspaceInvite,
+        "workspace_1",
+        "alex@example.com"
+      )
+    ).toBe(true)
+    expect(
+      isWorkspaceMembershipInvite(
+        pendingInvite,
+        "workspace_1",
+        "alex@example.com"
+      )
+    ).toBe(true)
+    expect(
+      isWorkspaceMembershipInvite(
+        declinedInvite,
+        "workspace_1",
+        "alex@example.com"
+      )
+    ).toBe(false)
+    expect(snapshot.currentWorkspaceId).toBe("workspace_1")
+  })
+
+  it("resolves conversation-related scope keys for team and workspace conversations", () => {
+    const snapshot = createSnapshotFixture()
+
+    snapshot.conversations = [
+      {
+        id: "conversation_team",
+        kind: "chat",
+        scopeType: "team",
+        scopeId: "team_1",
+        variant: "team",
+        title: "Platform",
+        description: "",
+        participantIds: ["user_2"],
+        roomId: null,
+        roomName: null,
+        createdBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+        lastActivityAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
+        id: "conversation_workspace",
+        kind: "channel",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        variant: "team",
+        title: "General",
+        description: "",
+        participantIds: [],
+        roomId: null,
+        roomName: null,
+        createdBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+        lastActivityAt: "2026-04-22T00:00:00.000Z",
+      },
+    ]
+    snapshot.workspaces = [
+      {
+        id: "workspace_1",
+        slug: "workspace-1",
+        name: "Workspace",
+        logoUrl: "",
+        logoImageUrl: null,
+        createdBy: "user_3",
+        workosOrganizationId: null,
+        settings: {
+          accent: "emerald",
+          description: "",
+        },
+      },
+    ]
+
+    expect(
+      getConversationRelatedScopeKeys(snapshot, "conversation_team").sort()
+    ).toContain("conversation-thread:conversation_team")
+    expect(
+      getConversationRelatedScopeKeys(snapshot, "conversation_workspace").sort()
+    ).toContain("conversation-list:user_3")
+    expect(getConversationRelatedScopeKeys(snapshot, "missing")).toEqual([])
   })
 })

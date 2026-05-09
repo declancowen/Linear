@@ -33,28 +33,21 @@ export function OnboardingJoinCard({
   loginHref,
   signupHref,
 }: OnboardingJoinCardProps) {
-  const router = useRouter()
-  const [submitting, setSubmitting] = useState(false)
+  const { handleJoinTeam, submitting } = useJoinTeamAction({
+    alreadyJoined,
+    joinCode,
+    teamName,
+  })
   const workspaceLogoImageSrc = resolveImageAssetSource(null, workspaceLogo)
-  const workspaceBadgeFallback =
-    workspaceName.trim().charAt(0).toUpperCase() || "?"
 
   return (
     <Card className="gap-0 py-0 shadow-none">
       <div className="px-5 py-4">
         <div className="flex items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
-            {workspaceLogoImageSrc ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                alt={workspaceName}
-                className="size-full rounded-lg object-cover"
-                src={workspaceLogoImageSrc}
-              />
-            ) : (
-              workspaceBadgeFallback
-            )}
-          </span>
+          <OnboardingJoinWorkspaceBadge
+            workspaceLogoImageSrc={workspaceLogoImageSrc}
+            workspaceName={workspaceName}
+          />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium">{teamName}</div>
             <div className="text-xs text-muted-foreground">{workspaceName}</div>
@@ -62,59 +55,117 @@ export function OnboardingJoinCard({
         </div>
       </div>
       <div className="border-t px-5 py-4">
-        <div>
-          {authenticated ? (
-            <Button
-              size={alreadyJoined ? "default" : "lg"}
-              className={alreadyJoined ? "w-full" : "h-11 w-full"}
-              disabled={submitting || alreadyJoined}
-              onClick={async () => {
-                if (alreadyJoined) {
-                  return
-                }
-
-                setSubmitting(true)
-
-                try {
-                  const payload = await syncJoinTeam(joinCode)
-
-                  toast.success(
-                    `Joined ${teamName} as ${payload.role ?? "viewer"}`
-                  )
-                  router.push(
-                    payload.teamSlug
-                      ? `/team/${payload.teamSlug}/work`
-                      : "/workspace/projects"
-                  )
-                  router.refresh()
-                } catch (error) {
-                  toast.error(
-                    error instanceof Error
-                      ? error.message
-                      : "Failed to join team"
-                  )
-                } finally {
-                  setSubmitting(false)
-                }
-              }}
-            >
-              {submitting ? (
-                <SpinnerGap className="size-4 animate-spin" />
-              ) : null}
-              {alreadyJoined ? "Already joined" : "Join team"}
-            </Button>
-          ) : (
-            <div className="flex gap-2">
-              <Button asChild variant="ghost" size="lg" className="h-11 flex-1">
-                <Link href={loginHref}>Sign in</Link>
-              </Button>
-              <Button asChild size="lg" className="h-11 flex-1">
-                <Link href={signupHref}>Create account</Link>
-              </Button>
-            </div>
-          )}
-        </div>
+        <OnboardingJoinActions
+          alreadyJoined={alreadyJoined}
+          authenticated={authenticated}
+          loginHref={loginHref}
+          signupHref={signupHref}
+          submitting={submitting}
+          onJoinTeam={handleJoinTeam}
+        />
       </div>
     </Card>
+  )
+}
+
+function useJoinTeamAction({
+  alreadyJoined,
+  joinCode,
+  teamName,
+}: Pick<OnboardingJoinCardProps, "alreadyJoined" | "joinCode" | "teamName">) {
+  const router = useRouter()
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleJoinTeam() {
+    if (alreadyJoined) {
+      return
+    }
+
+    setSubmitting(true)
+
+    try {
+      const payload = await syncJoinTeam(joinCode)
+
+      toast.success(`Joined ${teamName} as ${payload.role ?? "viewer"}`)
+      router.push(
+        payload.teamSlug ? `/team/${payload.teamSlug}/work` : "/workspace/projects"
+      )
+      router.refresh()
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to join team"
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return { handleJoinTeam, submitting }
+}
+
+function OnboardingJoinWorkspaceBadge({
+  workspaceLogoImageSrc,
+  workspaceName,
+}: {
+  workspaceLogoImageSrc: string | null
+  workspaceName: string
+}) {
+  const workspaceBadgeFallback =
+    workspaceName.trim().charAt(0).toUpperCase() || "?"
+
+  return (
+    <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
+      {workspaceLogoImageSrc ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt={workspaceName}
+          className="size-full rounded-lg object-cover"
+          src={workspaceLogoImageSrc}
+        />
+      ) : (
+        workspaceBadgeFallback
+      )}
+    </span>
+  )
+}
+
+function OnboardingJoinActions({
+  alreadyJoined,
+  authenticated,
+  loginHref,
+  signupHref,
+  submitting,
+  onJoinTeam,
+}: {
+  alreadyJoined: boolean
+  authenticated: boolean
+  loginHref: string
+  signupHref: string
+  submitting: boolean
+  onJoinTeam: () => void
+}) {
+  if (!authenticated) {
+    return (
+      <div className="flex gap-2">
+        <Button asChild variant="ghost" size="lg" className="h-11 flex-1">
+          <Link href={loginHref}>Sign in</Link>
+        </Button>
+        <Button asChild size="lg" className="h-11 flex-1">
+          <Link href={signupHref}>Create account</Link>
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <Button
+      size={alreadyJoined ? "default" : "lg"}
+      className={alreadyJoined ? "w-full" : "h-11 w-full"}
+      disabled={submitting || alreadyJoined}
+      onClick={onJoinTeam}
+    >
+      {submitting ? <SpinnerGap className="size-4 animate-spin" /> : null}
+      {alreadyJoined ? "Already joined" : "Join team"}
+    </Button>
   )
 }

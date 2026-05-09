@@ -3,8 +3,6 @@ import type { MutationCtx } from "../_generated/server"
 import {
   addLocalCalendarDays,
   formatLocalCalendarDate,
-  getCalendarDatePrefix,
-  isValidCalendarDateString,
 } from "../../lib/calendar-date"
 import {
   type Priority,
@@ -16,6 +14,7 @@ import {
   projectNameMaxLength,
   projectNameMinLength,
 } from "../../lib/domain/types"
+import type { AuthenticatedCreateProjectInput } from "../../lib/domain/project-inputs"
 import { assertServerToken, createId, getNow } from "./core"
 import {
   getProjectDoc,
@@ -32,7 +31,11 @@ import {
   requireEditableWorkspaceAccess,
 } from "./access"
 import { normalizeTeam, normalizeTeamWorkflowSettings } from "./normalization"
-import { assertWorkspaceLabelIds } from "./work_helpers"
+import {
+  assertScheduleDate,
+  assertTargetDateOnOrAfterStartDate,
+  assertWorkspaceLabelIds,
+} from "./work_helpers"
 import {
   cleanupRemainingLinksAfterDelete,
   cleanupViewFiltersForDeletedEntities,
@@ -43,23 +46,7 @@ type ServerAccessArgs = {
   serverToken: string
 }
 
-type CreateProjectArgs = ServerAccessArgs & {
-  currentUserId: string
-  scopeType: "team" | "workspace"
-  scopeId: string
-  templateType: TemplateType
-  name: string
-  summary: string
-  status?: ProjectStatus
-  priority: Priority
-  leadId?: string | null
-  memberIds?: string[]
-  startDate?: string | null
-  targetDate?: string | null
-  labelIds?: string[]
-  settingsTeamId?: string | null
-  presentation?: ProjectPresentationConfig
-}
+type CreateProjectArgs = ServerAccessArgs & AuthenticatedCreateProjectInput
 
 type UpdateProjectArgs = ServerAccessArgs & {
   currentUserId: string
@@ -82,6 +69,7 @@ type DeleteProjectArgs = ServerAccessArgs & {
   projectId: string
 }
 
+type ProjectDoc = NonNullable<Awaited<ReturnType<typeof getProjectDoc>>>
 type ProjectSettingsTeam = NonNullable<Awaited<ReturnType<typeof getTeamDoc>>>
 
 type ProjectCreationScope = {
@@ -108,17 +96,20 @@ function assertProjectNameLength(name: string) {
   }
 }
 
-function assertProjectScheduleDate(
-  value: string | null | undefined,
-  label: "Start date" | "Target date"
+async function requireEditableProject(
+  ctx: MutationCtx,
+  projectId: string,
+  currentUserId: string
 ) {
-  if (
-    value !== undefined &&
-    value !== null &&
-    !isValidCalendarDateString(value)
-  ) {
-    throw new Error(`${label} must be a valid calendar date`)
+  const project = await getProjectDoc(ctx, projectId)
+
+  if (!project) {
+    throw new Error("Project not found")
   }
+
+  await requireEditableProjectAccess(ctx, project, currentUserId)
+
+  return project
 }
 
 async function resolveTeamProjectScope(
@@ -190,6 +181,19 @@ async function resolveCreateProjectScope(
   }
 
   return resolveWorkspaceProjectScope(ctx, args)
+}
+
+async function requireEditableProjectAccess(
+  ctx: MutationCtx,
+  project: ProjectDoc,
+  currentUserId: string
+) {
+  if (project.scopeType === "team") {
+    await requireEditableTeamAccess(ctx, project.scopeId, currentUserId)
+    return
+  }
+
+  await requireEditableWorkspaceAccess(ctx, project.scopeId, currentUserId)
 }
 
 async function assertCreateProjectLabels(
@@ -282,19 +286,9 @@ async function assertCreateProjectMembers(
 }
 
 function assertProjectSchedule(args: CreateProjectArgs) {
-  assertProjectScheduleDate(args.startDate, "Start date")
-  assertProjectScheduleDate(args.targetDate, "Target date")
-
-  const startDatePrefix = getCalendarDatePrefix(args.startDate)
-  const targetDatePrefix = getCalendarDatePrefix(args.targetDate)
-
-  if (
-    startDatePrefix &&
-    targetDatePrefix &&
-    targetDatePrefix < startDatePrefix
-  ) {
-    throw new Error("Target date must be on or after the start date")
-  }
+  assertScheduleDate(args.startDate, "Start date")
+  assertScheduleDate(args.targetDate, "Target date")
+  assertTargetDateOnOrAfterStartDate(args)
 }
 
 function getSettingsTeamExperience(settingsTeam: ProjectSettingsTeam | null) {
@@ -429,21 +423,11 @@ export async function updateProjectHandler(
   args: UpdateProjectArgs
 ) {
   assertServerToken(args.serverToken)
-  const project = await getProjectDoc(ctx, args.projectId)
-
-  if (!project) {
-    throw new Error("Project not found")
-  }
-
-  if (project.scopeType === "team") {
-    await requireEditableTeamAccess(ctx, project.scopeId, args.currentUserId)
-  } else {
-    await requireEditableWorkspaceAccess(
-      ctx,
-      project.scopeId,
-      args.currentUserId
-    )
-  }
+  const project = await requireEditableProject(
+    ctx,
+    args.projectId,
+    args.currentUserId
+  )
 
   const nextPatch = { ...args.patch }
 
@@ -465,21 +449,11 @@ export async function renameProjectHandler(
   args: RenameProjectArgs
 ) {
   assertServerToken(args.serverToken)
-  const project = await getProjectDoc(ctx, args.projectId)
-
-  if (!project) {
-    throw new Error("Project not found")
-  }
-
-  if (project.scopeType === "team") {
-    await requireEditableTeamAccess(ctx, project.scopeId, args.currentUserId)
-  } else {
-    await requireEditableWorkspaceAccess(
-      ctx,
-      project.scopeId,
-      args.currentUserId
-    )
-  }
+  const project = await requireEditableProject(
+    ctx,
+    args.projectId,
+    args.currentUserId
+  )
 
   const trimmedName = args.name.trim()
 
@@ -496,21 +470,11 @@ export async function deleteProjectHandler(
   args: DeleteProjectArgs
 ) {
   assertServerToken(args.serverToken)
-  const project = await getProjectDoc(ctx, args.projectId)
-
-  if (!project) {
-    throw new Error("Project not found")
-  }
-
-  if (project.scopeType === "team") {
-    await requireEditableTeamAccess(ctx, project.scopeId, args.currentUserId)
-  } else {
-    await requireEditableWorkspaceAccess(
-      ctx,
-      project.scopeId,
-      args.currentUserId
-    )
-  }
+  const project = await requireEditableProject(
+    ctx,
+    args.projectId,
+    args.currentUserId
+  )
 
   const team =
     project.scopeType === "team" ? await getTeamDoc(ctx, project.scopeId) : null

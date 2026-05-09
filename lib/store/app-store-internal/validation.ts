@@ -22,12 +22,12 @@ import {
   resolveWorkItemProjectLinkUpdate,
   type WorkItemProjectLinkResolution,
 } from "@/lib/domain/work-item-project-links"
+import type { CreateProjectInput } from "@/lib/domain/project-inputs"
 
 import { getNow } from "./helpers"
 import type {
   ConversationAudienceState,
   CreateDocumentInput,
-  CreateProjectInput,
   WorkItemCascadeDeletePlan,
   WorkItemValidationInput,
 } from "./types"

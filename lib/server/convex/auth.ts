@@ -96,6 +96,15 @@ export async function getAuthContextServer(input: {
   )
 }
 
+export async function listWorkspacesForSyncServer() {
+  return runConvexRequestWithRetry("listWorkspacesForSyncServer", () =>
+    getConvexServerClient().query(
+      api.app.listWorkspacesForSync,
+      withServerToken({})
+    )
+  )
+}
+
 export async function getSnapshotServer(input?: {
   workosUserId?: string
   email?: string

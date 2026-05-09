@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-const DEFAULT_MAX_CLONE_GROUPS = 181
-const DEFAULT_MAX_DUPLICATED_LINES = 6641
-const DEFAULT_MAX_DUPLICATION_PERCENTAGE = 5.54
+const DEFAULT_MAX_CLONE_GROUPS = 0
+const DEFAULT_MAX_DUPLICATED_LINES = 0
+const DEFAULT_MAX_DUPLICATION_PERCENTAGE = 0
 
 function readNumberBudget(name, fallback) {
   const value = process.env[name]

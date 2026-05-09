@@ -21,6 +21,7 @@ import {
 } from "@phosphor-icons/react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { assignMenuItemRef } from "@/components/app/rich-text-editor/menu-refs"
 import {
   Command,
   CommandEmpty,
@@ -65,6 +66,79 @@ function insertDefaultTable(editor: Editor) {
   editor.chain().focus().insertTable(DEFAULT_TABLE_OPTIONS).run()
 }
 
+function getCurrentTextblockPrefix(editor: Editor) {
+  const { state } = editor
+
+  if (!state.selection.empty) {
+    return null
+  }
+
+  const { $from, from } = state.selection
+
+  if (!$from.parent.isTextblock) {
+    return null
+  }
+
+  return {
+    from,
+    textBefore: state.doc.textBetween($from.start(), from, "\n", "\0"),
+  }
+}
+
+function buildAnchoredMenuState({
+  container,
+  editor,
+  from,
+  menuAnchor,
+  query,
+}: {
+  container: HTMLDivElement | null
+  editor: Editor
+  from: number
+  menuAnchor: number
+  query: string
+}): MenuState {
+  const coords = editor.view.coordsAtPos(Math.max(menuAnchor, 1))
+  const containerRect = container?.getBoundingClientRect()
+
+  return {
+    from,
+    to: editor.state.selection.from,
+    query,
+    top: containerRect ? coords.bottom - containerRect.top + 8 : 12,
+    bottom: containerRect ? containerRect.bottom - coords.top + 8 : 12,
+    left: containerRect ? coords.left - containerRect.left + 8 : 12,
+  }
+}
+
+type CurrentTextblockPrefix = NonNullable<
+  ReturnType<typeof getCurrentTextblockPrefix>
+>
+
+function buildTextblockMatchMenuState(
+  editor: Editor,
+  container: HTMLDivElement | null,
+  pattern: RegExp,
+  buildState: (
+    currentTextblock: CurrentTextblockPrefix,
+    match: RegExpMatchArray
+  ) => MenuState
+) {
+  const currentTextblock = getCurrentTextblockPrefix(editor)
+
+  if (!currentTextblock) {
+    return null
+  }
+
+  const match = currentTextblock.textBefore.match(pattern)
+
+  if (!match) {
+    return null
+  }
+
+  return buildState(currentTextblock, match)
+}
+
 export function insertMention(
   editor: Editor,
   range: { from: number; to: number },
@@ -94,78 +168,44 @@ export function buildSlashState(
   editor: Editor,
   container: HTMLDivElement | null
 ): MenuState | null {
-  const { state, view } = editor
+  return buildTextblockMatchMenuState(editor, container, /^\/([\w\s-]*)$/, (
+    currentTextblock,
+    match
+  ) => {
+    const slashStart = currentTextblock.from - currentTextblock.textBefore.length
 
-  if (!state.selection.empty) {
-    return null
-  }
-
-  const { $from, from } = state.selection
-
-  if (!$from.parent.isTextblock) {
-    return null
-  }
-
-  const textBefore = state.doc.textBetween($from.start(), from, "\n", "\0")
-  const match = textBefore.match(/^\/([\w\s-]*)$/)
-
-  if (!match) {
-    return null
-  }
-
-  const slashStart = from - textBefore.length
-  const menuAnchor = Math.max(slashStart + 1, 1)
-  const coords = view.coordsAtPos(menuAnchor)
-  const containerRect = container?.getBoundingClientRect()
-
-  return {
-    from: slashStart,
-    to: from,
-    query: match[1]?.trim().toLowerCase() ?? "",
-    top: containerRect ? coords.bottom - containerRect.top + 8 : 12,
-    bottom: containerRect ? containerRect.bottom - coords.top + 8 : 12,
-    left: containerRect ? coords.left - containerRect.left + 8 : 12,
-  }
+    return buildAnchoredMenuState({
+      container,
+      editor,
+      from: slashStart,
+      menuAnchor: slashStart + 1,
+      query: match[1]?.trim().toLowerCase() ?? "",
+    })
+  })
 }
 
 export function buildMentionState(
   editor: Editor,
   container: HTMLDivElement | null
 ): MenuState | null {
-  const { state, view } = editor
+  return buildTextblockMatchMenuState(
+    editor,
+    container,
+    /(^|\s)@([a-z0-9_-]*)$/i,
+    (currentTextblock, match) => {
+      const query = match[2] ?? ""
+      const mentionText = `@${query}`
+      const mentionStart = currentTextblock.from - mentionText.length
 
-  if (!state.selection.empty) {
-    return null
-  }
-
-  const { $from, from } = state.selection
-
-  if (!$from.parent.isTextblock) {
-    return null
-  }
-
-  const textBefore = state.doc.textBetween($from.start(), from, "\n", "\0")
-  const match = textBefore.match(/(^|\s)@([a-z0-9_-]*)$/i)
-
-  if (!match) {
-    return null
-  }
-
-  const query = match[2] ?? ""
-  const mentionText = `@${query}`
-  const mentionStart = from - mentionText.length
-  const menuAnchor = Math.max(mentionStart + 1, 1)
-  const coords = view.coordsAtPos(menuAnchor)
-  const containerRect = container?.getBoundingClientRect()
-
-  return {
-    from: mentionStart,
-    to: from,
-    query: query.trim().toLowerCase(),
-    top: containerRect ? coords.bottom - containerRect.top + 8 : 12,
-    bottom: containerRect ? containerRect.bottom - coords.top + 8 : 12,
-    left: containerRect ? coords.left - containerRect.left + 8 : 12,
-  }
+      return buildAnchoredMenuState({
+        container,
+        editor,
+        from: mentionStart,
+        menuAnchor: mentionStart + 1,
+        query: query.trim().toLowerCase(),
+      })
+    }
+  )
 }
 
 function getSlashCommands({
@@ -471,9 +511,7 @@ export function SlashCommandMenu({
             {commands.map((command, index) => (
               <CommandItem
                 key={command.id}
-                ref={(node) => {
-                  itemRefs.current[index] = node
-                }}
+                ref={(node) => assignMenuItemRef(itemRefs, index, node)}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-2 py-1.5",
                   index === activeIndex && "bg-accent"
@@ -555,9 +593,7 @@ export function MentionMenu({
             {candidates.map((candidate, index) => (
               <CommandItem
                 key={candidate.id}
-                ref={(node) => {
-                  itemRefs.current[index] = node
-                }}
+                ref={(node) => assignMenuItemRef(itemRefs, index, node)}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-2 py-1.5",
                   index === activeIndex && "bg-accent"

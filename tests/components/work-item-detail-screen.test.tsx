@@ -1,19 +1,20 @@
-import type {
-  ButtonHTMLAttributes,
-  InputHTMLAttributes,
-  ReactNode,
-} from "react"
+import type { ReactNode } from "react"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import "@/tests/lib/fixtures/detail-screen-mocks"
+import { DetailSidebarLabelsRow } from "@/components/app/screens/detail-sidebar-labels-row"
 import { WorkItemDetailScreen } from "@/components/app/screens/work-item-detail-screen"
 import { createEmptyState } from "@/lib/domain/empty-state"
-import {
-  createDefaultTeamFeatureSettings,
-  createDefaultTeamWorkflowSettings,
-} from "@/lib/domain/types"
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  createTestAppData,
+  createTestDocument,
+  createTestTeamMembership,
+  createTestUser,
+  createTestWorkItem,
+} from "@/tests/lib/fixtures/app-data"
 
 const {
   fetchWorkItemDetailReadModelMock,
@@ -41,37 +42,14 @@ const {
   useDocumentCollaborationMock: vi.fn(),
 }))
 
-vi.mock("next/link", () => ({
-  default: ({
-    children,
-    href,
-    ...props
-  }: {
-    children: ReactNode
-    href: string
-  }) => (
-    <a href={href} {...props}>
-      {children}
-    </a>
-  ),
-}))
+vi.mock("next/link", async () =>
+  (await import("@/tests/lib/fixtures/component-stubs")).createNextLinkStubModule()
+)
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     replace: routerReplaceMock,
   }),
-}))
-
-vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
-}))
-
-vi.mock("@/lib/realtime/feature-flags", () => ({
-  isCollaborationEnabled: () => false,
-  isScopedSyncEnabled: () => true,
 }))
 
 vi.mock("@/lib/convex/client", () => ({
@@ -137,20 +115,25 @@ vi.mock("@/components/app/rich-text-editor", () => ({
   },
 }))
 
-vi.mock("@/components/app/rich-text-content", () => ({
-  RichTextContent: (props: { content: string | Record<string, unknown> }) => {
-    richTextContentRenderMock(props)
-    return <div data-testid="rich-text-content" />
-  },
-}))
+vi.mock("@/components/app/rich-text-content", async () => {
+  const { createRichTextContentStub } = await import(
+    "@/tests/lib/fixtures/component-stubs"
+  )
 
-vi.mock("@/components/app/screens/document-ui", () => ({
-  DocumentPresenceAvatarGroup: ({
-    viewers,
-  }: {
-    viewers: Array<{ name: string }>
-  }) => <div>{viewers.map((viewer) => viewer.name).join(",")}</div>,
-}))
+  return {
+    RichTextContent: createRichTextContentStub(richTextContentRenderMock),
+  }
+})
+
+vi.mock("@/components/app/screens/document-ui", async () => {
+  const { DocumentPresenceAvatarGroupStub } = await import(
+    "@/tests/lib/fixtures/component-stubs"
+  )
+
+  return {
+    DocumentPresenceAvatarGroup: DocumentPresenceAvatarGroupStub,
+  }
+})
 
 vi.mock("@/components/app/screens/shared", () => ({
   buildPropertyStatusOptions: (statuses: string[]) =>
@@ -163,6 +146,13 @@ vi.mock("@/components/app/screens/shared", () => ({
   ),
   MissingState: ({ title }: { title: string }) => <div>{title}</div>,
   PROPERTY_SELECT_SEPARATOR_VALUE: "__separator__",
+  getSelectedPropertySelectOption: (
+    options: Array<{ value: string; label: string }>,
+    value: string
+  ) =>
+    options.find((option) => option.value === value) ??
+    options.find((option) => option.value !== "__separator__") ??
+    null,
   PriorityIcon: () => null,
   PriorityDot: () => null,
   PropertyDateField: ({
@@ -221,7 +211,22 @@ vi.mock("@/components/app/screens/shared", () => ({
       {label || "Project"}:{value}
     </button>
   ),
+  LabelColorDot: () => <span data-testid="label-color-dot" />,
   StatusIcon: () => null,
+  useWorkItemLabelEditorState: ({
+    item,
+    labels,
+  }: {
+    item: { labelIds: string[] }
+    labels: Array<{ id: string }>
+  }) => ({
+    handleCreateLabel: vi.fn(),
+    labelNameLimitState: { canSubmit: false },
+    newLabelName: "",
+    selectedLabels: labels.filter((label) => item.labelIds.includes(label.id)),
+    setNewLabelName: vi.fn(),
+    toggleLabel: vi.fn(),
+  }),
   WorkItemLabelsEditor: ({ editable }: { editable: boolean }) => (
     <button type="button" aria-label="Manage labels" disabled={!editable}>
       Manage labels
@@ -230,33 +235,32 @@ vi.mock("@/components/app/screens/shared", () => ({
 }))
 
 vi.mock("@/components/app/screens/work-item-ui", () => ({
+  CommentReactionButtons: () => null,
   CommentsInline: () => null,
-  WorkItemAssigneeAvatar: () => null,
   InlineChildIssueComposer: () => (
     <div data-testid="inline-child-composer">Inline child composer</div>
+  ),
+  WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS: "",
+  WorkItemAssigneeAvatar: () => null,
+  WorkItemCommentComposerActions: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
   ),
   WorkItemTypeBadge: () => <div>Task</div>,
 }))
 
-vi.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-}))
+vi.mock("@/components/ui/button", async () =>
+  (await import("@/tests/lib/fixtures/component-stubs")).createButtonStubModule()
+)
 
-vi.mock("@/components/ui/input", () => ({
-  Input: (props: InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
-}))
+vi.mock("@/components/ui/input", async () =>
+  (await import("@/tests/lib/fixtures/component-stubs")).createInputStubModule()
+)
 
-vi.mock("@/components/ui/sidebar", () => ({
-  SidebarTrigger: (props: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      Sidebar
-    </button>
-  ),
-}))
+vi.mock("@/components/ui/sidebar", async () =>
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createSidebarTriggerStubModule()
+)
 
 vi.mock("@/components/ui/collapsible-right-sidebar", () => ({
   CollapsibleRightSidebar: ({ children }: { children: ReactNode }) => (
@@ -264,29 +268,17 @@ vi.mock("@/components/ui/collapsible-right-sidebar", () => ({
   ),
 }))
 
-vi.mock("@/components/ui/confirm-dialog", () => ({
-  ConfirmDialog: () => null,
-}))
+vi.mock("@/components/ui/confirm-dialog", async () =>
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createConfirmDialogStubModule()
+)
 
-vi.mock("@/components/ui/dropdown-menu", () => ({
-  DropdownMenu: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuItem: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-}))
+vi.mock("@/components/ui/dropdown-menu", async () =>
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createDropdownMenuStubModule({ triggerAsDiv: true })
+)
 
 vi.mock("@/components/ui/separator", () => ({
   Separator: () => null,
@@ -317,166 +309,242 @@ vi.mock("@phosphor-icons/react", async (importOriginal) => {
 })
 
 function seedState() {
-  useAppStore.setState({
-    ...createEmptyState(),
-    currentUserId: "user_1",
-    currentWorkspaceId: "workspace_1",
-    users: [
-      {
-        id: "user_1",
-        name: "Alex",
-        handle: "alex",
-        email: "alex@example.com",
-        avatarUrl: "",
-        avatarImageUrl: null,
-        workosUserId: null,
-        title: "Founder",
-        status: "active",
-        statusMessage: "",
-        hasExplicitStatus: false,
-        preferences: {
-          emailMentions: true,
-          emailAssignments: true,
-          emailDigest: true,
-          theme: "system",
-        },
-      },
-      {
-        id: "user_2",
-        name: "Taylor",
-        handle: "taylor",
-        email: "taylor@example.com",
-        avatarUrl: "",
-        avatarImageUrl: null,
-        workosUserId: null,
-        title: "Engineer",
-        status: "active",
-        statusMessage: "",
-        hasExplicitStatus: false,
-        preferences: {
-          emailMentions: true,
-          emailAssignments: true,
-          emailDigest: true,
-          theme: "system",
-        },
-      },
-    ],
-    teams: [
-      {
-        id: "team_1",
-        workspaceId: "workspace_1",
-        slug: "platform",
-        name: "Platform",
-        icon: "robot",
-        settings: {
-          joinCode: "JOIN1234",
-          summary: "Platform team",
-          guestProjectIds: [],
-          guestDocumentIds: [],
-          guestWorkItemIds: [],
-          experience: "software-development",
-          features: createDefaultTeamFeatureSettings("software-development"),
-          workflow: createDefaultTeamWorkflowSettings("software-development"),
-        },
-      },
-    ],
-    teamMemberships: [
-      {
-        teamId: "team_1",
-        userId: "user_1",
-        role: "admin",
-      },
-    ],
-    documents: [
-      {
-        id: "document_1",
-        kind: "item-description",
-        workspaceId: "workspace_1",
-        teamId: "team_1",
-        title: "Plan launch",
-        content: "<p>Initial description</p>",
-        linkedProjectIds: [],
-        linkedWorkItemIds: ["item_1"],
-        createdBy: "user_1",
-        updatedBy: "user_1",
-        createdAt: "2026-04-18T10:00:00.000Z",
-        updatedAt: "2026-04-18T10:00:00.000Z",
-      },
-      {
-        id: "document_2",
-        kind: "item-description",
-        workspaceId: "workspace_1",
-        teamId: "team_1",
-        title: "Follow up",
-        content: "<p>Second description</p>",
-        linkedProjectIds: [],
-        linkedWorkItemIds: ["item_2"],
-        createdBy: "user_1",
-        updatedBy: "user_1",
-        createdAt: "2026-04-18T10:00:00.000Z",
-        updatedAt: "2026-04-18T10:00:00.000Z",
-      },
-    ],
-    workItems: [
-      {
-        id: "item_1",
-        key: "PLA-1",
-        teamId: "team_1",
-        type: "task",
-        title: "Plan launch",
-        descriptionDocId: "document_1",
-        status: "todo",
-        priority: "medium",
-        assigneeId: null,
-        creatorId: "user_1",
-        parentId: null,
-        primaryProjectId: null,
-        linkedProjectIds: [],
-        linkedDocumentIds: [],
-        labelIds: [],
-        milestoneId: null,
-        startDate: null,
-        dueDate: null,
-        targetDate: null,
-        subscriberIds: [],
-        createdAt: "2026-04-18T10:00:00.000Z",
-        updatedAt: "2026-04-18T10:00:00.000Z",
-      },
-      {
-        id: "item_2",
-        key: "PLA-2",
-        teamId: "team_1",
-        type: "task",
-        title: "Follow up",
-        descriptionDocId: "document_2",
-        status: "todo",
-        priority: "medium",
-        assigneeId: null,
-        creatorId: "user_1",
-        parentId: null,
-        primaryProjectId: null,
-        linkedProjectIds: [],
-        linkedDocumentIds: [],
-        labelIds: [],
-        milestoneId: null,
-        startDate: null,
-        dueDate: null,
-        targetDate: null,
-        subscriberIds: [],
-        createdAt: "2026-04-18T10:00:00.000Z",
-        updatedAt: "2026-04-18T10:00:00.000Z",
-      },
-    ],
-    ui: {
-      activeTeamId: "team_1",
-      activeInboxNotificationId: null,
-      selectedViewByRoute: {},
-      viewerViewConfigByRoute: {},
-      viewerDirectoryConfigByRoute: {},
-      activeCreateDialog: null,
+  useAppStore.setState(
+    createTestAppData({
+      users: [
+        createTestUser({
+          title: "Founder",
+          hasExplicitStatus: false,
+        }),
+        createTestUser({
+          id: "user_2",
+          name: "Taylor",
+          handle: "taylor",
+          email: "taylor@example.com",
+          hasExplicitStatus: false,
+        }),
+      ],
+      teamMemberships: [createTestTeamMembership()],
+      documents: [
+        createTestDocument({
+          id: "document_1",
+          kind: "item-description",
+          title: "Plan launch",
+          content: "<p>Initial description</p>",
+          linkedWorkItemIds: ["item_1"],
+        }),
+        createTestDocument({
+          id: "document_2",
+          kind: "item-description",
+          title: "Follow up",
+          content: "<p>Second description</p>",
+          linkedWorkItemIds: ["item_2"],
+        }),
+      ],
+      workItems: [
+        createTestWorkItem("item_1", {
+          key: "PLA-1",
+          title: "Plan launch",
+          descriptionDocId: "document_1",
+          subscriberIds: [],
+        }),
+        createTestWorkItem("item_2", {
+          key: "PLA-2",
+          title: "Follow up",
+          descriptionDocId: "document_2",
+          subscriberIds: [],
+        }),
+      ],
+    })
+  )
+}
+
+function addChildWorkItems(
+  children: Array<{
+    id: string
+    key: string
+    title: string
+    assigneeId?: string | null
+    dueDate?: string | null
+    status?: "todo" | "done"
+  }>
+) {
+  act(() => {
+    useAppStore.setState((state) => ({
+      ...state,
+      documents: [
+        ...state.documents,
+        ...children.map((child) =>
+          createTestDocument({
+            id: child.id.replace("item", "document"),
+            kind: "item-description",
+            title: child.title,
+            content: `<p>${child.title}</p>`,
+            linkedWorkItemIds: [child.id],
+          })
+        ),
+      ],
+      workItems: [
+        ...state.workItems,
+        ...children.map((child) =>
+          createTestWorkItem(child.id, {
+            key: child.key,
+            type: "sub-task",
+            title: child.title,
+            descriptionDocId: child.id.replace("item", "document"),
+            status: child.status ?? "todo",
+            assigneeId: child.assigneeId ?? null,
+            parentId: "item_1",
+            dueDate: child.dueDate ?? null,
+            subscriberIds: [],
+          })
+        ),
+      ],
+    }))
+  })
+}
+
+const TAYLOR_MENTION_DESCRIPTION =
+  '<p>Initial description</p><span data-type="mention" data-id="user_2">@Taylor</span>'
+
+function renderWorkItemDetail(itemId = "item_1") {
+  return render(<WorkItemDetailScreen itemId={itemId} />)
+}
+
+function openWorkItemEditor() {
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+}
+
+function updateDescriptionEditor(value: string) {
+  fireEvent.change(screen.getByLabelText("Description editor"), {
+    target: {
+      value,
     },
   })
 }
+
+function clickSaveButton() {
+  fireEvent.click(screen.getByRole("button", { name: "Save" }))
+}
+
+async function expectWorkItemEditorClosed() {
+  expect(await screen.findByRole("button", { name: "Edit" })).toBeInTheDocument()
+}
+
+function setSaveWorkItemMainSectionMock(saveMock: ReturnType<typeof vi.fn>) {
+  useAppStore.setState({
+    saveWorkItemMainSection: saveMock,
+  } as Partial<ReturnType<typeof useAppStore.getState>>)
+}
+
+function createStateUpdatingSaveMock(input?: {
+  getDocumentId?: (itemId: string) => string
+}) {
+  let saveCount = 0
+
+  return vi.fn().mockImplementation(
+    async ({
+      itemId = "item_1",
+      description,
+      title,
+    }: {
+      itemId?: string
+      description: string
+      title: string
+    }) => {
+      saveCount += 1
+      const documentId = input?.getDocumentId?.(itemId) ?? "document_1"
+      const updatedAt = `2026-04-18T10:00:${saveCount
+        .toString()
+        .padStart(2, "0")}.000Z`
+
+      useAppStore.setState((state) => ({
+        workItems: state.workItems.map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                title,
+                updatedAt,
+              }
+            : item
+        ),
+        documents: state.documents.map((document) =>
+          document.id === documentId
+            ? {
+                ...document,
+                content: description,
+                updatedAt,
+              }
+            : document
+        ),
+      }))
+
+      return true
+    }
+  )
+}
+
+function mockRetryingMentionDelivery() {
+  syncSendItemDescriptionMentionNotificationsMock
+    .mockRejectedValueOnce(
+      new Error("Saved changes but failed to notify mentions")
+    )
+    .mockResolvedValueOnce({
+      recipientCount: 1,
+      mentionCount: 1,
+    })
+}
+
+async function expectTaylorMentionDeliveryRetry() {
+  await waitFor(() =>
+    expect(syncSendItemDescriptionMentionNotificationsMock).toHaveBeenNthCalledWith(
+      2,
+      "item_1",
+      [
+        {
+          userId: "user_2",
+          count: 1,
+        },
+      ]
+    )
+  )
+}
+
+describe("DetailSidebarLabelsRow", () => {
+  it("renders selected and empty label states with editability", () => {
+    const labels = [
+      { id: "label_1", name: "Customer", color: "#ff0000" },
+    ] as never
+    const item = createTestWorkItem("item_1", {
+      labelIds: ["label_1"],
+    })
+
+    const { rerender } = render(
+      <DetailSidebarLabelsRow
+        editable
+        item={item}
+        labels={labels}
+        workspaceId="workspace_1"
+      />
+    )
+
+    expect(screen.getByText("Customer")).toBeInTheDocument()
+    expect(screen.getByTestId("label-color-dot")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Manage labels" })).toBeEnabled()
+
+    rerender(
+      <DetailSidebarLabelsRow
+        editable={false}
+        item={createTestWorkItem("item_2", { labelIds: [] })}
+        labels={[]}
+        workspaceId={null}
+      />
+    )
+
+    expect(screen.getByText("No labels")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Manage labels" })).toBeDisabled()
+  })
+})
 
 describe("work item detail screen", () => {
   beforeEach(() => {
@@ -668,9 +736,7 @@ describe("work item detail screen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }))
 
     expect(await screen.findByText("Taylor")).toBeInTheDocument()
-    expect(
-      screen.queryByText("Taylor is also editing this item")
-    ).toBeNull()
+    expect(screen.queryByText("Taylor is also editing this item")).toBeNull()
   })
 
   it("closes edit mode even when mention delivery fails after save", async () => {
@@ -678,215 +744,81 @@ describe("work item detail screen", () => {
     syncSendItemDescriptionMentionNotificationsMock.mockRejectedValue(
       new Error("Saved changes but failed to notify mentions")
     )
-    useAppStore.setState({
-      saveWorkItemMainSection: saveWorkItemMainSectionMock,
-    } as Partial<ReturnType<typeof useAppStore.getState>>)
+    setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
 
-    render(<WorkItemDetailScreen itemId="item_1" />)
-
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-    fireEvent.change(screen.getByLabelText("Description editor"), {
-      target: {
-        value:
-          '<p>Initial description</p><span data-type="mention" data-id="user_2">@Taylor</span>',
-      },
-    })
-
-    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    renderWorkItemDetail()
+    openWorkItemEditor()
+    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+    clickSaveButton()
 
     expect(saveWorkItemMainSectionMock).toHaveBeenCalled()
-    expect(
-      await screen.findByRole("button", { name: "Edit" })
-    ).toBeInTheDocument()
+    await expectWorkItemEditorClosed()
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
   })
 
   it("retries failed mention delivery on the next save without reintroducing the mention", async () => {
-    let saveCount = 0
-    const saveWorkItemMainSectionMock = vi
-      .fn()
-      .mockImplementation(
-        async ({
-          description,
-          title,
-        }: {
-          description: string
-          title: string
-        }) => {
-          saveCount += 1
-          useAppStore.setState((state) => ({
-            workItems: state.workItems.map((item) =>
-              item.id === "item_1"
-                ? {
-                    ...item,
-                    title,
-                    updatedAt: `2026-04-18T10:00:0${saveCount}.000Z`,
-                  }
-                : item
-            ),
-            documents: state.documents.map((document) =>
-              document.id === "document_1"
-                ? {
-                    ...document,
-                    content: description,
-                    updatedAt: `2026-04-18T10:00:0${saveCount}.000Z`,
-                  }
-                : document
-            ),
-          }))
+    setSaveWorkItemMainSectionMock(createStateUpdatingSaveMock())
+    mockRetryingMentionDelivery()
 
-          return true
-        }
-      )
-    syncSendItemDescriptionMentionNotificationsMock
-      .mockRejectedValueOnce(
-        new Error("Saved changes but failed to notify mentions")
-      )
-      .mockResolvedValueOnce({
-        recipientCount: 1,
-        mentionCount: 1,
-      })
-    useAppStore.setState({
-      saveWorkItemMainSection: saveWorkItemMainSectionMock,
-    } as Partial<ReturnType<typeof useAppStore.getState>>)
+    renderWorkItemDetail()
 
-    render(<WorkItemDetailScreen itemId="item_1" />)
+    openWorkItemEditor()
+    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-    fireEvent.change(screen.getByLabelText("Description editor"), {
-      target: {
-        value:
-          '<p>Initial description</p><span data-type="mention" data-id="user_2">@Taylor</span>',
-      },
-    })
+    clickSaveButton()
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await expectWorkItemEditorClosed()
 
-    expect(
-      await screen.findByRole("button", { name: "Edit" })
-    ).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    openWorkItemEditor()
 
     const saveButton = screen.getByRole("button", { name: "Save" })
     expect(saveButton).not.toBeDisabled()
 
     fireEvent.click(saveButton)
 
-    await waitFor(() =>
-      expect(
-        syncSendItemDescriptionMentionNotificationsMock
-      ).toHaveBeenNthCalledWith(2, "item_1", [
-        {
-          userId: "user_2",
-          count: 1,
-        },
-      ])
-    )
+    await expectTaylorMentionDeliveryRetry()
 
     fireEvent.click(await screen.findByRole("button", { name: "Edit" }))
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
   })
 
   it("preserves mention retries for one item when saving a different item without mentions", async () => {
-    let saveCount = 0
-    const saveWorkItemMainSectionMock = vi
-      .fn()
-      .mockImplementation(
-        async ({
-          itemId,
-          description,
-          title,
-        }: {
-          itemId: string
-          description: string
-          title: string
-        }) => {
-          saveCount += 1
-          const documentId = itemId === "item_1" ? "document_1" : "document_2"
-
-          useAppStore.setState((state) => ({
-            workItems: state.workItems.map((item) =>
-              item.id === itemId
-                ? {
-                    ...item,
-                    title,
-                    updatedAt: `2026-04-18T10:00:${saveCount.toString().padStart(2, "0")}.000Z`,
-                  }
-                : item
-            ),
-            documents: state.documents.map((document) =>
-              document.id === documentId
-                ? {
-                    ...document,
-                    content: description,
-                    updatedAt: `2026-04-18T10:00:${saveCount.toString().padStart(2, "0")}.000Z`,
-                  }
-                : document
-            ),
-          }))
-
-          return true
-        }
-      )
-    syncSendItemDescriptionMentionNotificationsMock
-      .mockRejectedValueOnce(
-        new Error("Saved changes but failed to notify mentions")
-      )
-      .mockResolvedValueOnce({
-        recipientCount: 1,
-        mentionCount: 1,
+    setSaveWorkItemMainSectionMock(
+      createStateUpdatingSaveMock({
+        getDocumentId: (itemId) =>
+          itemId === "item_1" ? "document_1" : "document_2",
       })
-    useAppStore.setState({
-      saveWorkItemMainSection: saveWorkItemMainSectionMock,
-    } as Partial<ReturnType<typeof useAppStore.getState>>)
+    )
+    mockRetryingMentionDelivery()
 
-    const { rerender } = render(<WorkItemDetailScreen itemId="item_1" />)
+    const { rerender } = renderWorkItemDetail()
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-    fireEvent.change(screen.getByLabelText("Description editor"), {
-      target: {
-        value:
-          '<p>Initial description</p><span data-type="mention" data-id="user_2">@Taylor</span>',
-      },
-    })
-    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    openWorkItemEditor()
+    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+    clickSaveButton()
 
-    expect(
-      await screen.findByRole("button", { name: "Edit" })
-    ).toBeInTheDocument()
+    await expectWorkItemEditorClosed()
 
     rerender(<WorkItemDetailScreen itemId="item_2" />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    openWorkItemEditor()
     fireEvent.change(screen.getByDisplayValue("Follow up"), {
       target: { value: "Follow up updated" },
     })
-    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    clickSaveButton()
 
-    expect(
-      await screen.findByRole("button", { name: "Edit" })
-    ).toBeInTheDocument()
+    await expectWorkItemEditorClosed()
 
     rerender(<WorkItemDetailScreen itemId="item_1" />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    openWorkItemEditor()
 
     const saveButton = screen.getByRole("button", { name: "Save" })
     expect(saveButton).not.toBeDisabled()
 
     fireEvent.click(saveButton)
 
-    await waitFor(() =>
-      expect(
-        syncSendItemDescriptionMentionNotificationsMock
-      ).toHaveBeenNthCalledWith(2, "item_1", [
-        {
-          userId: "user_2",
-          count: 1,
-        },
-      ])
-    )
+    await expectTaylorMentionDeliveryRetry()
   })
 
   it("sends self-mentions after saving the main section", async () => {
@@ -895,21 +827,16 @@ describe("work item detail screen", () => {
       recipientCount: 1,
       mentionCount: 1,
     })
-    useAppStore.setState({
-      saveWorkItemMainSection: saveWorkItemMainSectionMock,
-    } as Partial<ReturnType<typeof useAppStore.getState>>)
+    setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
 
-    render(<WorkItemDetailScreen itemId="item_1" />)
+    renderWorkItemDetail()
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-    fireEvent.change(screen.getByLabelText("Description editor"), {
-      target: {
-        value:
-          '<p>Initial description</p><span data-type="mention" data-id="user_1">@Alex</span>',
-      },
-    })
+    openWorkItemEditor()
+    updateDescriptionEditor(
+      '<p>Initial description</p><span data-type="mention" data-id="user_1">@Alex</span>'
+    )
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    clickSaveButton()
 
     expect(saveWorkItemMainSectionMock).toHaveBeenCalled()
     await waitFor(() =>
@@ -935,86 +862,39 @@ describe("work item detail screen", () => {
         }
       )
     )
-    useAppStore.setState({
-      saveWorkItemMainSection: saveWorkItemMainSectionMock,
-    } as Partial<ReturnType<typeof useAppStore.getState>>)
+    setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
 
-    render(<WorkItemDetailScreen itemId="item_1" />)
+    renderWorkItemDetail()
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-    fireEvent.change(screen.getByLabelText("Description editor"), {
-      target: {
-        value:
-          '<p>Initial description</p><span data-type="mention" data-id="user_2">@Taylor</span>',
-      },
-    })
+    openWorkItemEditor()
+    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    clickSaveButton()
 
-    expect(
-      await screen.findByRole("button", { name: "Edit" })
-    ).toBeInTheDocument()
+    await expectWorkItemEditorClosed()
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    openWorkItemEditor()
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
   })
 
   it("shows editable sidebar property controls and simplified child rows", () => {
-    act(() => {
-      useAppStore.setState((state) => ({
-        ...state,
-        documents: [
-          ...state.documents,
-          {
-            id: "document_3",
-            kind: "item-description",
-            workspaceId: "workspace_1",
-            teamId: "team_1",
-            title: "Child item",
-            content: "<p>Child description</p>",
-            linkedProjectIds: [],
-            linkedWorkItemIds: ["item_3"],
-            createdBy: "user_1",
-            updatedBy: "user_1",
-            createdAt: "2026-04-18T10:00:00.000Z",
-            updatedAt: "2026-04-18T10:00:00.000Z",
-          },
-        ],
-        workItems: [
-          ...state.workItems,
-          {
-            id: "item_3",
-            key: "PLA-3",
-            teamId: "team_1",
-            type: "sub-task",
-            title: "Child item",
-            descriptionDocId: "document_3",
-            status: "todo",
-            priority: "medium",
-            assigneeId: "user_1",
-            creatorId: "user_1",
-            parentId: "item_1",
-            primaryProjectId: null,
-            linkedProjectIds: [],
-            linkedDocumentIds: [],
-            labelIds: [],
-            milestoneId: null,
-            startDate: null,
-            dueDate: "2030-12-19T09:00:00.000Z",
-            targetDate: null,
-            subscriberIds: [],
-            createdAt: "2026-04-18T10:00:00.000Z",
-            updatedAt: "2026-04-18T10:00:00.000Z",
-          },
-        ],
-      }))
-    })
+    addChildWorkItems([
+      {
+        id: "item_3",
+        key: "PLA-3",
+        title: "Child item",
+        assigneeId: "user_1",
+        dueDate: "2030-12-19T09:00:00.000Z",
+      },
+    ])
 
     render(<WorkItemDetailScreen itemId="item_1" />)
 
     expect(screen.getAllByText("PLA-1").length).toBeGreaterThan(0)
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Copy item link" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Copy item link" })
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "More actions" })
     ).not.toBeInTheDocument()
@@ -1038,153 +918,34 @@ describe("work item detail screen", () => {
   })
 
   it("hides empty child-row assignee and project controls", () => {
-    act(() => {
-      useAppStore.setState((state) => ({
-        ...state,
-        documents: [
-          ...state.documents,
-          {
-            id: "document_3",
-            kind: "item-description",
-            workspaceId: "workspace_1",
-            teamId: "team_1",
-            title: "Unassigned child",
-            content: "<p>Child description</p>",
-            linkedProjectIds: [],
-            linkedWorkItemIds: ["item_3"],
-            createdBy: "user_1",
-            updatedBy: "user_1",
-            createdAt: "2026-04-18T10:00:00.000Z",
-            updatedAt: "2026-04-18T10:00:00.000Z",
-          },
-        ],
-        workItems: [
-          ...state.workItems,
-          {
-            id: "item_3",
-            key: "PLA-3",
-            teamId: "team_1",
-            type: "sub-task",
-            title: "Unassigned child",
-            descriptionDocId: "document_3",
-            status: "todo",
-            priority: "medium",
-            assigneeId: null,
-            creatorId: "user_1",
-            parentId: "item_1",
-            primaryProjectId: null,
-            linkedProjectIds: [],
-            linkedDocumentIds: [],
-            labelIds: [],
-            milestoneId: null,
-            startDate: null,
-            dueDate: null,
-            targetDate: null,
-            subscriberIds: [],
-            createdAt: "2026-04-18T10:00:00.000Z",
-            updatedAt: "2026-04-18T10:00:00.000Z",
-          },
-        ],
-      }))
-    })
+    addChildWorkItems([
+      {
+        id: "item_3",
+        key: "PLA-3",
+        title: "Unassigned child",
+      },
+    ])
 
     render(<WorkItemDetailScreen itemId="item_1" />)
 
-    expect(
-      screen.getAllByRole("button", { name: "Assignee" }).length
-    ).toBe(1)
-    expect(
-      screen.getAllByRole("button", { name: "Project" }).length
-    ).toBe(1)
+    expect(screen.getAllByRole("button", { name: "Assignee" }).length).toBe(1)
+    expect(screen.getAllByRole("button", { name: "Project" }).length).toBe(1)
   })
 
   it("shows sidebar subtask progress above the child list", () => {
-    act(() => {
-      useAppStore.setState((state) => ({
-        documents: [
-          ...state.documents,
-          {
-            id: "document_3",
-            kind: "item-description",
-            workspaceId: "workspace_1",
-            teamId: "team_1",
-            title: "Child done",
-            content: "<p>Done child</p>",
-            linkedProjectIds: [],
-            linkedWorkItemIds: ["item_3"],
-            createdBy: "user_1",
-            updatedBy: "user_1",
-            createdAt: "2026-04-18T10:00:00.000Z",
-            updatedAt: "2026-04-18T10:00:00.000Z",
-          },
-          {
-            id: "document_4",
-            kind: "item-description",
-            workspaceId: "workspace_1",
-            teamId: "team_1",
-            title: "Child todo",
-            content: "<p>Todo child</p>",
-            linkedProjectIds: [],
-            linkedWorkItemIds: ["item_4"],
-            createdBy: "user_1",
-            updatedBy: "user_1",
-            createdAt: "2026-04-18T10:00:00.000Z",
-            updatedAt: "2026-04-18T10:00:00.000Z",
-          },
-        ],
-        workItems: [
-          ...state.workItems,
-          {
-            id: "item_3",
-            key: "PLA-3",
-            teamId: "team_1",
-            type: "sub-task",
-            title: "Child done",
-            descriptionDocId: "document_3",
-            status: "done",
-            priority: "medium",
-            assigneeId: null,
-            creatorId: "user_1",
-            parentId: "item_1",
-            primaryProjectId: null,
-            linkedProjectIds: [],
-            linkedDocumentIds: [],
-            labelIds: [],
-            milestoneId: null,
-            startDate: null,
-            dueDate: null,
-            targetDate: null,
-            subscriberIds: [],
-            createdAt: "2026-04-18T10:00:00.000Z",
-            updatedAt: "2026-04-18T10:00:00.000Z",
-          },
-          {
-            id: "item_4",
-            key: "PLA-4",
-            teamId: "team_1",
-            type: "sub-task",
-            title: "Child todo",
-            descriptionDocId: "document_4",
-            status: "todo",
-            priority: "medium",
-            assigneeId: null,
-            creatorId: "user_1",
-            parentId: "item_1",
-            primaryProjectId: null,
-            linkedProjectIds: [],
-            linkedDocumentIds: [],
-            labelIds: [],
-            milestoneId: null,
-            startDate: null,
-            dueDate: null,
-            targetDate: null,
-            subscriberIds: [],
-            createdAt: "2026-04-18T10:00:00.000Z",
-            updatedAt: "2026-04-18T10:00:00.000Z",
-          },
-        ],
-      }))
-    })
+    addChildWorkItems([
+      {
+        id: "item_3",
+        key: "PLA-3",
+        title: "Child done",
+        status: "done",
+      },
+      {
+        id: "item_4",
+        key: "PLA-4",
+        title: "Child todo",
+      },
+    ])
 
     render(<WorkItemDetailScreen itemId="item_1" />)
 
@@ -1227,7 +988,9 @@ describe("work item detail screen", () => {
     })
 
     expect(commentButton!).toBeDisabled()
-    expect(screen.getAllByText("Enter at least 2 characters").length).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText("Enter at least 2 characters").length
+    ).toBeGreaterThan(0)
 
     act(() => {
       fireEvent.change(commentEditor!, {

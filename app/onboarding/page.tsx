@@ -14,91 +14,153 @@ type OnboardingPageProps = {
     validated?: string
   }>
 }
+type OnboardingSearchParams = Awaited<OnboardingPageProps["searchParams"]>
+type OnboardingAuth = Awaited<ReturnType<typeof withAuth>>
+type OnboardingTokens = {
+  inviteToken?: string
+  joinCode?: string
+}
+type OnboardingPaths = {
+  loginHref: string
+  nextPath: string
+  validatedNextPath: string
+}
 
 export default async function OnboardingPage({
   searchParams,
 }: OnboardingPageProps) {
   const auth = await withAuth()
   const params = await searchParams
-  const inviteToken = params.invite?.trim()
-  const joinCode = params.code?.trim()
+  const tokens = getOnboardingTokens(params)
+  const paths = getOnboardingPaths(tokens)
+  const user = getOnboardingAuthUser(auth, params, paths)
+
+  const { currentWorkspace, joinedTeamIds, pendingInvites } =
+    await getWorkspaceEntryJoinState(user, auth.organizationId)
+
+  redirectIfWorkspaceEntryComplete({
+    currentWorkspace,
+    pendingInvites,
+    tokens,
+  })
+
+  return (
+    <OnboardingPageLayout
+      currentWorkspace={currentWorkspace}
+      joinedTeamIds={joinedTeamIds}
+      loginHref={paths.loginHref}
+      pendingInvites={pendingInvites}
+      tokens={tokens}
+    />
+  )
+}
+
+function getOnboardingTokens(params: OnboardingSearchParams): OnboardingTokens {
+  return {
+    inviteToken: params.invite?.trim(),
+    joinCode: params.code?.trim(),
+  }
+}
+
+function getOnboardingPaths(tokens: OnboardingTokens): OnboardingPaths {
   const nextParams = new URLSearchParams()
 
-  if (inviteToken) {
-    nextParams.set("invite", inviteToken)
+  if (tokens.inviteToken) {
+    nextParams.set("invite", tokens.inviteToken)
   }
 
-  if (joinCode) {
-    nextParams.set("code", joinCode)
+  if (tokens.joinCode) {
+    nextParams.set("code", tokens.joinCode)
   }
 
   const validatedNextParams = new URLSearchParams(nextParams)
   validatedNextParams.set("validated", "1")
-  const nextPath = `/onboarding${nextParams.size > 0 ? `?${nextParams.toString()}` : ""}`
-  const loginHref = buildAuthHref("login", nextPath)
+  const nextPath = `/onboarding${
+    nextParams.size > 0 ? `?${nextParams.toString()}` : ""
+  }`
 
+  return {
+    loginHref: buildAuthHref("login", nextPath),
+    nextPath,
+    validatedNextPath: `/onboarding?${validatedNextParams.toString()}`,
+  }
+}
+
+function getOnboardingAuthUser(
+  auth: OnboardingAuth,
+  params: OnboardingSearchParams,
+  paths: OnboardingPaths
+): NonNullable<OnboardingAuth["user"]> {
   if (auth.user && params.validated !== "1") {
     redirect(
       buildSessionResolvePath({
         mode: "login",
-        nextPath: `/onboarding?${validatedNextParams.toString()}`,
+        nextPath: paths.validatedNextPath,
       })
     )
   }
 
   if (!auth.user) {
-    redirect(loginHref)
+    redirect(paths.loginHref)
   }
 
-  const { currentWorkspace, joinedTeamIds, pendingInvites } =
-    await getWorkspaceEntryJoinState(
-      auth.user,
-      auth.organizationId
-    )
+  return auth.user
+}
 
+function redirectIfWorkspaceEntryComplete({
+  currentWorkspace,
+  pendingInvites,
+  tokens,
+}: {
+  currentWorkspace: Awaited<
+    ReturnType<typeof getWorkspaceEntryJoinState>
+  >["currentWorkspace"]
+  pendingInvites: Awaited<
+    ReturnType<typeof getWorkspaceEntryJoinState>
+  >["pendingInvites"]
+  tokens: OnboardingTokens
+}) {
   if (
     currentWorkspace &&
-    !inviteToken &&
-    !joinCode &&
+    !tokens.inviteToken &&
+    !tokens.joinCode &&
     pendingInvites.length === 0
   ) {
     redirect("/workspace/projects")
   }
+}
 
+function OnboardingPageLayout({
+  currentWorkspace,
+  joinedTeamIds,
+  loginHref,
+  pendingInvites,
+  tokens,
+}: {
+  currentWorkspace: Awaited<
+    ReturnType<typeof getWorkspaceEntryJoinState>
+  >["currentWorkspace"]
+  joinedTeamIds: Awaited<
+    ReturnType<typeof getWorkspaceEntryJoinState>
+  >["joinedTeamIds"]
+  loginHref: string
+  pendingInvites: Awaited<
+    ReturnType<typeof getWorkspaceEntryJoinState>
+  >["pendingInvites"]
+  tokens: OnboardingTokens
+}) {
   return (
     <main className="min-h-screen bg-background px-6 py-10">
       <div className="mx-auto flex w-full max-w-lg flex-col gap-8">
-        <header className="text-center">
-          <h1 className="text-xl font-semibold tracking-tight">
-            Create or join a workspace
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Create one, accept an invite, or join with a team code.
-          </p>
-        </header>
-
+        <OnboardingHeader />
         {currentWorkspace ? (
-          <div className="rounded-xl border border-border/60 px-5 py-4">
-            <div className="text-sm font-medium">
-              You already belong to {currentWorkspace.name}
-            </div>
-            <div className="mt-1 text-sm text-muted-foreground">
-              Go to your dashboard or join another team below.
-            </div>
-            <Link
-              href="/workspace/projects"
-              className="mt-2 inline-block text-sm font-medium text-foreground underline-offset-4 hover:underline"
-            >
-              Go to workspace
-            </Link>
-          </div>
+          <ExistingWorkspaceNotice workspaceName={currentWorkspace.name} />
         ) : (
           <OnboardingWorkspaceForm />
         )}
-
         <WorkspaceEntryJoinSection
-          autoAcceptToken={inviteToken}
-          joinCode={joinCode}
+          autoAcceptToken={tokens.inviteToken}
+          joinCode={tokens.joinCode}
           joinedTeamIds={joinedTeamIds}
           loginHref={loginHref}
           pendingInvites={pendingInvites}
@@ -106,5 +168,37 @@ export default async function OnboardingPage({
         />
       </div>
     </main>
+  )
+}
+
+function OnboardingHeader() {
+  return (
+    <header className="text-center">
+      <h1 className="text-xl font-semibold tracking-tight">
+        Create or join a workspace
+      </h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Create one, accept an invite, or join with a team code.
+      </p>
+    </header>
+  )
+}
+
+function ExistingWorkspaceNotice({ workspaceName }: { workspaceName: string }) {
+  return (
+    <div className="rounded-xl border border-border/60 px-5 py-4">
+      <div className="text-sm font-medium">
+        You already belong to {workspaceName}
+      </div>
+      <div className="mt-1 text-sm text-muted-foreground">
+        Go to your dashboard or join another team below.
+      </div>
+      <Link
+        href="/workspace/projects"
+        className="mt-2 inline-block text-sm font-medium text-foreground underline-offset-4 hover:underline"
+      >
+        Go to workspace
+      </Link>
+    </div>
   )
 }

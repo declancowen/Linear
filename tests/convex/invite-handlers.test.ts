@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import {
+  createMutableConvexTestCtx,
+  type ConvexTestRecord,
+} from "@/tests/lib/convex/test-db"
+
 const assertServerTokenMock = vi.fn()
 const createIdMock = vi.fn()
 const getNowMock = vi.fn()
@@ -42,9 +47,11 @@ const getInviteDocMock = vi.fn()
 const getTeamByJoinCodeMock = vi.fn()
 const getTeamBySlugMock = vi.fn()
 const getTeamDocMock = vi.fn()
+const getTeamMembershipDocMock = vi.fn()
 const getUserByEmailMock = vi.fn()
 const getUserDocMock = vi.fn()
 const getWorkspaceDocMock = vi.fn()
+const resolveTeamByCodeSlugOrJoinCodeMock = vi.fn()
 const setCurrentWorkspaceForUserMock = vi.fn()
 const syncWorkspaceMembershipRoleFromTeamsMock = vi.fn()
 
@@ -96,100 +103,77 @@ vi.mock("@/convex/app/data", () => ({
   getTeamByJoinCode: getTeamByJoinCodeMock,
   getTeamBySlug: getTeamBySlugMock,
   getTeamDoc: getTeamDocMock,
+  getTeamMembershipDoc: getTeamMembershipDocMock,
   getUserByEmail: getUserByEmailMock,
   getUserDoc: getUserDocMock,
   getWorkspaceDoc: getWorkspaceDocMock,
+  resolveTeamByCodeSlugOrJoinCode: resolveTeamByCodeSlugOrJoinCodeMock,
   setCurrentWorkspaceForUser: setCurrentWorkspaceForUserMock,
   syncWorkspaceMembershipRoleFromTeams:
     syncWorkspaceMembershipRoleFromTeamsMock,
 }))
 
-type RecordWithId = {
-  _id: string
-  [key: string]: unknown
-}
-
-function createQuery(records: RecordWithId[]) {
-  return {
-    withIndex: (
-      _indexName: string,
-      build?: (query: {
-        eq: (field: string, value: unknown) => unknown
-      }) => unknown
-    ) => {
-      const filters: Array<{ field: string; value: unknown }> = []
-      const queryApi = {
-        eq(field: string, value: unknown) {
-          filters.push({ field, value })
-          return queryApi
-        },
-      }
-
-      build?.(queryApi)
-
-      const applyFilters = () =>
-        records.filter((record) =>
-          filters.every(({ field, value }) => record[field] === value)
-        )
-
-      return {
-        collect: async () => applyFilters(),
-        unique: async () => applyFilters()[0] ?? null,
-      }
-    },
-  }
-}
+type RecordWithId = ConvexTestRecord
 
 function createCtx(input?: {
   invites?: RecordWithId[]
   notifications?: RecordWithId[]
   teamMemberships?: RecordWithId[]
 }) {
-  const tables = {
-    invites: [...(input?.invites ?? [])],
-    notifications: [...(input?.notifications ?? [])],
-    teamMemberships: [...(input?.teamMemberships ?? [])],
-  }
+  return createMutableConvexTestCtx({
+    invites: input?.invites ?? [],
+    notifications: input?.notifications ?? [],
+    teamMemberships: input?.teamMemberships ?? [],
+  })
+}
 
-  return {
-    tables,
-    db: {
-      insert: vi.fn(
-        async (table: keyof typeof tables, value: Record<string, unknown>) => {
-          const nextId =
-            typeof value.id === "string"
-              ? `${value.id}_doc`
-              : `${table}_${tables[table].length + 1}_doc`
+function mockInviteCancellationTarget() {
+  getInviteDocMock.mockResolvedValue(
+    createInviteRecord({
+      id: "invite_1",
+      teamId: "team_1",
+    })
+  )
+  getTeamDocMock.mockResolvedValue({
+    id: "team_1",
+    name: "Core",
+  })
+  getWorkspaceDocMock.mockResolvedValue({
+    id: "workspace_1",
+    name: "Recipe Room",
+  })
+}
 
-          tables[table].push({
-            ...value,
-            _id: nextId,
-          })
-        }
-      ),
-      patch: vi.fn(async (docId: string, patch: Record<string, unknown>) => {
-        for (const table of Object.values(tables)) {
-          const record = table.find((entry) => entry._id === docId)
+async function cancelInvite(ctx: ReturnType<typeof createCtx>) {
+  const { cancelInviteHandler } = await import("@/convex/app/invite_handlers")
 
-          if (record) {
-            Object.assign(record, patch)
-            return
-          }
-        }
-      }),
-      delete: vi.fn(async (docId: string) => {
-        for (const table of Object.values(tables)) {
-          const index = table.findIndex((entry) => entry._id === docId)
+  return cancelInviteHandler(ctx as never, {
+    serverToken: "server_token",
+    currentUserId: "user_1",
+    inviteId: "invite_1",
+  })
+}
 
-          if (index >= 0) {
-            table.splice(index, 1)
-            return
-          }
-        }
-      }),
-      query: (table: keyof typeof tables) => createQuery(tables[table]),
-    },
-  }
+async function createMemberInvite(
+  ctx: ReturnType<typeof createCtx>,
+  teamIds: string[]
+) {
+  const { createInviteHandler } = await import("@/convex/app/invite_handlers")
+
+  return createInviteHandler(ctx as never, {
+    serverToken: "server_token",
+    currentUserId: "user_1",
+    origin: "https://linear.test",
+    teamIds,
+    email: "Alex@example.com",
+    role: "member",
+  })
+}
+
+function expectOnlyInviteOneCancelled(ctx: ReturnType<typeof createCtx>) {
+  expect(ctx.db.delete).toHaveBeenCalledWith("notification_1_doc")
+  expect(ctx.db.delete).toHaveBeenCalledWith("invite_1_doc")
+  expect(ctx.db.delete).not.toHaveBeenCalledWith("notification_2_doc")
 }
 
 function mergeRole(
@@ -212,6 +196,131 @@ function mergeRole(
   }
 
   return rank[next] > rank[current] ? next : current
+}
+
+function createInviteRecord(
+  overrides: Partial<RecordWithId> & {
+    id: string
+    role?: string
+    teamId: string
+  }
+): RecordWithId {
+  return {
+    _id: `${overrides.id}_doc`,
+    batchId: "invite_batch_1",
+    token: "token_1",
+    workspaceId: "workspace_1",
+    acceptedAt: null,
+    declinedAt: null,
+    email: "alex@example.com",
+    role: "member",
+    ...overrides,
+  }
+}
+
+function createInviteRecords(
+  ...records: Array<
+    Partial<RecordWithId> & {
+      id: string
+      role?: string
+      teamId: string
+    }
+  >
+): RecordWithId[] {
+  return records.map(createInviteRecord)
+}
+
+function createInviteNotification(inviteId: string): RecordWithId {
+  return {
+    _id: `${inviteId.replace("invite", "notification")}_doc`,
+    id: inviteId.replace("invite", "notification"),
+    entityType: "invite",
+    entityId: inviteId,
+  }
+}
+
+function createInviteNotifications(...inviteIds: string[]): RecordWithId[] {
+  return inviteIds.map(createInviteNotification)
+}
+
+function seedDeletedTeamInviteBatch(role = "admin") {
+  const invites = createInviteRecords({
+    id: "invite_1",
+    teamId: "team_missing",
+    role,
+  })
+  const ctx = createCtx({
+    invites,
+    notifications: createInviteNotifications("invite_1"),
+  })
+
+  listInvitesByTokenMock.mockResolvedValue(invites)
+  getTeamDocMock.mockResolvedValue(null)
+
+  return ctx
+}
+
+function seedMixedDeletedTeamInviteBatch(survivingTeamReadCount: number) {
+  const invites = createInviteRecords(
+    {
+      id: "invite_1",
+      teamId: "team_missing",
+      role: "admin",
+    },
+    {
+      id: "invite_2",
+      teamId: "team_2",
+      role: "guest",
+    }
+  )
+  const ctx = createCtx({
+    invites,
+    notifications: createInviteNotifications("invite_1", "invite_2"),
+  })
+
+  listInvitesByTokenMock.mockResolvedValue(invites)
+  getTeamDocMock.mockResolvedValueOnce(null)
+  for (let index = 0; index < survivingTeamReadCount; index += 1) {
+    getTeamDocMock.mockResolvedValueOnce({
+      id: "team_2",
+      slug: "design",
+    })
+  }
+
+  return ctx
+}
+
+function createInviteTokenArgs() {
+  return {
+    serverToken: "server_token",
+    currentUserId: "user_1",
+    token: "token_1",
+  }
+}
+
+async function acceptInviteToken(ctx: ReturnType<typeof createCtx>) {
+  const { acceptInviteHandler } = await import("@/convex/app/invite_handlers")
+
+  return acceptInviteHandler(ctx as never, createInviteTokenArgs())
+}
+
+async function declineInviteToken(ctx: ReturnType<typeof createCtx>) {
+  const { declineInviteHandler } = await import("@/convex/app/invite_handlers")
+
+  return declineInviteHandler(ctx as never, createInviteTokenArgs())
+}
+
+async function expectInviteTokenNotFound(result: Promise<unknown>) {
+  await expect(result).resolves.toEqual({
+    error: "Invite not found",
+    status: 404,
+    code: "INVITE_NOT_FOUND",
+  })
+}
+
+function expectDeletedInviteBatchRetired(ctx: ReturnType<typeof createCtx>) {
+  expect(ctx.tables.invites).toHaveLength(0)
+  expect(ctx.tables.notifications).toHaveLength(0)
 }
 
 describe("invite handlers", () => {
@@ -237,9 +346,11 @@ describe("invite handlers", () => {
     getTeamByJoinCodeMock.mockReset()
     getTeamBySlugMock.mockReset()
     getTeamDocMock.mockReset()
+    getTeamMembershipDocMock.mockReset()
     getUserByEmailMock.mockReset()
     getUserDocMock.mockReset()
     getWorkspaceDocMock.mockReset()
+    resolveTeamByCodeSlugOrJoinCodeMock.mockReset()
     setCurrentWorkspaceForUserMock.mockReset()
     syncWorkspaceMembershipRoleFromTeamsMock.mockReset()
 
@@ -287,7 +398,6 @@ describe("invite handlers", () => {
   })
 
   it("creates one logical invite batch for multiple teams in the same workspace", async () => {
-    const { createInviteHandler } = await import("@/convex/app/invite_handlers")
     const ctx = createCtx()
 
     getTeamDocMock
@@ -312,14 +422,7 @@ describe("invite handlers", () => {
       name: "Recipe Room",
     })
 
-    const result = await createInviteHandler(ctx as never, {
-      serverToken: "server_token",
-      currentUserId: "user_1",
-      origin: "https://linear.test",
-      teamIds: ["team_1", "team_2"],
-      email: "Alex@example.com",
-      role: "member",
-    })
+    const result = await createMemberInvite(ctx, ["team_1", "team_2"])
 
     expect(result).toMatchObject({
       batchId: "invite_batch_1",
@@ -357,7 +460,6 @@ describe("invite handlers", () => {
   })
 
   it("retries invite batch ids and tokens until they are unique", async () => {
-    const { createInviteHandler } = await import("@/convex/app/invite_handlers")
     const ctx = createCtx()
 
     listInvitesByBatchIdMock
@@ -381,14 +483,7 @@ describe("invite handlers", () => {
       name: "Recipe Room",
     })
 
-    const result = await createInviteHandler(ctx as never, {
-      serverToken: "server_token",
-      currentUserId: "user_1",
-      origin: "https://linear.test",
-      teamIds: ["team_1"],
-      email: "Alex@example.com",
-      role: "member",
-    })
+    const result = await createMemberInvite(ctx, ["team_1"])
 
     expect(result).toMatchObject({
       batchId: "invite_batch_2",
@@ -433,135 +528,48 @@ describe("invite handlers", () => {
   })
 
   it("limits team-admin cancellation to the selected team invite", async () => {
-    const { cancelInviteHandler } = await import("@/convex/app/invite_handlers")
     const ctx = createCtx({
-      notifications: [
-        {
-          _id: "notification_1_doc",
-          id: "notification_1",
-          entityType: "invite",
-          entityId: "invite_1",
-        },
-        {
-          _id: "notification_2_doc",
-          id: "notification_2",
-          entityType: "invite",
-          entityId: "invite_2",
-        },
-      ],
+      notifications: createInviteNotifications("invite_1", "invite_2"),
     })
 
-    getInviteDocMock.mockResolvedValue({
-      _id: "invite_1_doc",
-      id: "invite_1",
-      batchId: "invite_batch_1",
-      workspaceId: "workspace_1",
-      teamId: "team_1",
-      email: "alex@example.com",
-      role: "member",
-      acceptedAt: null,
-      declinedAt: null,
-    })
+    mockInviteCancellationTarget()
     requireWorkspaceAdminAccessMock.mockRejectedValue(
       new Error("Only workspace admins can perform this action")
     )
     requireTeamAdminAccessMock.mockResolvedValue("admin")
-    getTeamDocMock.mockResolvedValue({
-      id: "team_1",
-      name: "Core",
-    })
-    getWorkspaceDocMock.mockResolvedValue({
-      id: "workspace_1",
-      name: "Recipe Room",
-    })
 
-    const result = await cancelInviteHandler(ctx as never, {
-      serverToken: "server_token",
-      currentUserId: "user_1",
-      inviteId: "invite_1",
-    })
+    const result = await cancelInvite(ctx)
 
     expect(result.cancelledInviteIds).toEqual(["invite_1"])
     expect(listInvitesByBatchIdMock).not.toHaveBeenCalled()
-    expect(ctx.db.delete).toHaveBeenCalledWith("notification_1_doc")
-    expect(ctx.db.delete).toHaveBeenCalledWith("invite_1_doc")
-    expect(ctx.db.delete).not.toHaveBeenCalledWith("notification_2_doc")
+    expectOnlyInviteOneCancelled(ctx)
   })
 
   it("limits workspace-admin batch cancellation to invites in the same workspace", async () => {
-    const { cancelInviteHandler } = await import("@/convex/app/invite_handlers")
     const ctx = createCtx({
-      notifications: [
-        {
-          _id: "notification_1_doc",
-          id: "notification_1",
-          entityType: "invite",
-          entityId: "invite_1",
-        },
-        {
-          _id: "notification_2_doc",
-          id: "notification_2",
-          entityType: "invite",
-          entityId: "invite_2",
-        },
-      ],
+      notifications: createInviteNotifications("invite_1", "invite_2"),
     })
 
-    getInviteDocMock.mockResolvedValue({
-      _id: "invite_1_doc",
-      id: "invite_1",
-      batchId: "invite_batch_1",
-      workspaceId: "workspace_1",
-      teamId: "team_1",
-      email: "alex@example.com",
-      role: "member",
-      acceptedAt: null,
-      declinedAt: null,
-    })
+    mockInviteCancellationTarget()
     requireWorkspaceAdminAccessMock.mockResolvedValue("admin")
-    listInvitesByBatchIdMock.mockResolvedValue([
-      {
-        _id: "invite_1_doc",
-        id: "invite_1",
-        batchId: "invite_batch_1",
-        workspaceId: "workspace_1",
-        teamId: "team_1",
-        email: "alex@example.com",
-        role: "member",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-      {
-        _id: "invite_2_doc",
-        id: "invite_2",
-        batchId: "invite_batch_1",
-        workspaceId: "workspace_2",
-        teamId: "team_2",
-        email: "alex@example.com",
-        role: "member",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-    ])
-    getTeamDocMock.mockResolvedValue({
-      id: "team_1",
-      name: "Core",
-    })
-    getWorkspaceDocMock.mockResolvedValue({
-      id: "workspace_1",
-      name: "Recipe Room",
-    })
+    listInvitesByBatchIdMock.mockResolvedValue(
+      createInviteRecords(
+        {
+          id: "invite_1",
+          teamId: "team_1",
+        },
+        {
+          id: "invite_2",
+          workspaceId: "workspace_2",
+          teamId: "team_2",
+        }
+      )
+    )
 
-    const result = await cancelInviteHandler(ctx as never, {
-      serverToken: "server_token",
-      currentUserId: "user_1",
-      inviteId: "invite_1",
-    })
+    const result = await cancelInvite(ctx)
 
     expect(result.cancelledInviteIds).toEqual(["invite_1"])
-    expect(ctx.db.delete).toHaveBeenCalledWith("notification_1_doc")
-    expect(ctx.db.delete).toHaveBeenCalledWith("invite_1_doc")
-    expect(ctx.db.delete).not.toHaveBeenCalledWith("notification_2_doc")
+    expectOnlyInviteOneCancelled(ctx)
     expect(ctx.db.delete).not.toHaveBeenCalledWith("invite_2_doc")
   })
 
@@ -569,17 +577,12 @@ describe("invite handlers", () => {
     const { cancelInviteHandler } = await import("@/convex/app/invite_handlers")
     const ctx = createCtx()
 
-    getInviteDocMock.mockResolvedValue({
-      _id: "invite_1_doc",
-      id: "invite_1",
-      batchId: "invite_batch_1",
-      workspaceId: "workspace_1",
-      teamId: "team_1",
-      email: "alex@example.com",
-      role: "member",
-      acceptedAt: null,
-      declinedAt: null,
-    })
+    getInviteDocMock.mockResolvedValue(
+      createInviteRecord({
+        id: "invite_1",
+        teamId: "team_1",
+      })
+    )
     requireWorkspaceAdminAccessMock.mockRejectedValue(
       new Error("datastore offline")
     )
@@ -598,30 +601,18 @@ describe("invite handlers", () => {
     const { acceptInviteHandler } = await import("@/convex/app/invite_handlers")
     const ctx = createCtx()
 
-    listInvitesByTokenMock.mockResolvedValue([
-      {
-        _id: "invite_1_doc",
-        id: "invite_1",
-        batchId: "invite_batch_1",
-        token: "token_1",
-        workspaceId: "workspace_1",
-        teamId: "team_1",
-        role: "member",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-      {
-        _id: "invite_2_doc",
-        id: "invite_2",
-        batchId: "invite_batch_1",
-        token: "token_1",
-        workspaceId: "workspace_1",
-        teamId: "team_2",
-        role: "member",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-    ])
+    listInvitesByTokenMock.mockResolvedValue(
+      createInviteRecords(
+        {
+          id: "invite_1",
+          teamId: "team_1",
+        },
+        {
+          id: "invite_2",
+          teamId: "team_2",
+        }
+      )
+    )
     getTeamDocMock
       .mockResolvedValueOnce({
         id: "team_1",
@@ -663,60 +654,11 @@ describe("invite handlers", () => {
   })
 
   it("retires stale invite batches when every invited team has been deleted", async () => {
-    const { acceptInviteHandler } = await import("@/convex/app/invite_handlers")
-    const ctx = createCtx({
-      invites: [
-        {
-          _id: "invite_1_doc",
-          id: "invite_1",
-          batchId: "invite_batch_1",
-          token: "token_1",
-          workspaceId: "workspace_1",
-          teamId: "team_missing",
-          role: "admin",
-          acceptedAt: null,
-          declinedAt: null,
-        },
-      ],
-      notifications: [
-        {
-          _id: "notification_1_doc",
-          id: "notification_1",
-          entityType: "invite",
-          entityId: "invite_1",
-        },
-      ],
-    })
+    const ctx = seedDeletedTeamInviteBatch()
 
-    listInvitesByTokenMock.mockResolvedValue([
-      {
-        _id: "invite_1_doc",
-        id: "invite_1",
-        batchId: "invite_batch_1",
-        token: "token_1",
-        workspaceId: "workspace_1",
-        teamId: "team_missing",
-        role: "admin",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-    ])
-    getTeamDocMock.mockResolvedValue(null)
+    await expectInviteTokenNotFound(acceptInviteToken(ctx))
 
-    await expect(
-      acceptInviteHandler(ctx as never, {
-        serverToken: "server_token",
-        currentUserId: "user_1",
-        token: "token_1",
-      })
-    ).resolves.toEqual({
-      error: "Invite not found",
-      status: 404,
-      code: "INVITE_NOT_FOUND",
-    })
-
-    expect(ctx.tables.invites).toHaveLength(0)
-    expect(ctx.tables.notifications).toHaveLength(0)
+    expectDeletedInviteBatchRetired(ctx)
     expect(ctx.tables.teamMemberships).toHaveLength(0)
     expect(syncTeamConversationMembershipsMock).not.toHaveBeenCalled()
     expect(syncWorkspaceMembershipRoleFromTeamsMock).not.toHaveBeenCalled()
@@ -726,81 +668,7 @@ describe("invite handlers", () => {
 
   it("accepts surviving teams and drops deleted teams from mixed invite batches", async () => {
     const { acceptInviteHandler } = await import("@/convex/app/invite_handlers")
-    const ctx = createCtx({
-      invites: [
-        {
-          _id: "invite_1_doc",
-          id: "invite_1",
-          batchId: "invite_batch_1",
-          token: "token_1",
-          workspaceId: "workspace_1",
-          teamId: "team_missing",
-          role: "admin",
-          acceptedAt: null,
-          declinedAt: null,
-        },
-        {
-          _id: "invite_2_doc",
-          id: "invite_2",
-          batchId: "invite_batch_1",
-          token: "token_1",
-          workspaceId: "workspace_1",
-          teamId: "team_2",
-          role: "guest",
-          acceptedAt: null,
-          declinedAt: null,
-        },
-      ],
-      notifications: [
-        {
-          _id: "notification_1_doc",
-          id: "notification_1",
-          entityType: "invite",
-          entityId: "invite_1",
-        },
-        {
-          _id: "notification_2_doc",
-          id: "notification_2",
-          entityType: "invite",
-          entityId: "invite_2",
-        },
-      ],
-    })
-
-    listInvitesByTokenMock.mockResolvedValue([
-      {
-        _id: "invite_1_doc",
-        id: "invite_1",
-        batchId: "invite_batch_1",
-        token: "token_1",
-        workspaceId: "workspace_1",
-        teamId: "team_missing",
-        role: "admin",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-      {
-        _id: "invite_2_doc",
-        id: "invite_2",
-        batchId: "invite_batch_1",
-        token: "token_1",
-        workspaceId: "workspace_1",
-        teamId: "team_2",
-        role: "guest",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-    ])
-    getTeamDocMock
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: "team_2",
-        slug: "design",
-      })
-      .mockResolvedValueOnce({
-        id: "team_2",
-        slug: "design",
-      })
+    const ctx = seedMixedDeletedTeamInviteBatch(2)
     getWorkspaceDocMock.mockResolvedValue({
       id: "workspace_1",
       slug: "recipe-room",
@@ -849,137 +717,18 @@ describe("invite handlers", () => {
   })
 
   it("retires stale invite batches when every declined team has been deleted", async () => {
-    const { declineInviteHandler } = await import("@/convex/app/invite_handlers")
-    const ctx = createCtx({
-      invites: [
-        {
-          _id: "invite_1_doc",
-          id: "invite_1",
-          batchId: "invite_batch_1",
-          token: "token_1",
-          workspaceId: "workspace_1",
-          teamId: "team_missing",
-          role: "member",
-          acceptedAt: null,
-          declinedAt: null,
-        },
-      ],
-      notifications: [
-        {
-          _id: "notification_1_doc",
-          id: "notification_1",
-          entityType: "invite",
-          entityId: "invite_1",
-        },
-      ],
-    })
+    const ctx = seedDeletedTeamInviteBatch()
 
-    listInvitesByTokenMock.mockResolvedValue([
-      {
-        _id: "invite_1_doc",
-        id: "invite_1",
-        batchId: "invite_batch_1",
-        token: "token_1",
-        workspaceId: "workspace_1",
-        teamId: "team_missing",
-        role: "member",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-    ])
-    getTeamDocMock.mockResolvedValue(null)
+    await expectInviteTokenNotFound(declineInviteToken(ctx))
 
-    await expect(
-      declineInviteHandler(ctx as never, {
-        serverToken: "server_token",
-        currentUserId: "user_1",
-        token: "token_1",
-      })
-    ).resolves.toEqual({
-      error: "Invite not found",
-      status: 404,
-      code: "INVITE_NOT_FOUND",
-    })
-
-    expect(ctx.tables.invites).toHaveLength(0)
-    expect(ctx.tables.notifications).toHaveLength(0)
+    expectDeletedInviteBatchRetired(ctx)
     expect(archiveInviteNotificationsMock).not.toHaveBeenCalled()
     expect(insertAuditEventMock).not.toHaveBeenCalled()
   })
 
   it("declines surviving teams and drops deleted teams from mixed invite batches", async () => {
     const { declineInviteHandler } = await import("@/convex/app/invite_handlers")
-    const ctx = createCtx({
-      invites: [
-        {
-          _id: "invite_1_doc",
-          id: "invite_1",
-          batchId: "invite_batch_1",
-          token: "token_1",
-          workspaceId: "workspace_1",
-          teamId: "team_missing",
-          role: "admin",
-          acceptedAt: null,
-          declinedAt: null,
-        },
-        {
-          _id: "invite_2_doc",
-          id: "invite_2",
-          batchId: "invite_batch_1",
-          token: "token_1",
-          workspaceId: "workspace_1",
-          teamId: "team_2",
-          role: "guest",
-          acceptedAt: null,
-          declinedAt: null,
-        },
-      ],
-      notifications: [
-        {
-          _id: "notification_1_doc",
-          id: "notification_1",
-          entityType: "invite",
-          entityId: "invite_1",
-        },
-        {
-          _id: "notification_2_doc",
-          id: "notification_2",
-          entityType: "invite",
-          entityId: "invite_2",
-        },
-      ],
-    })
-
-    listInvitesByTokenMock.mockResolvedValue([
-      {
-        _id: "invite_1_doc",
-        id: "invite_1",
-        batchId: "invite_batch_1",
-        token: "token_1",
-        workspaceId: "workspace_1",
-        teamId: "team_missing",
-        role: "admin",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-      {
-        _id: "invite_2_doc",
-        id: "invite_2",
-        batchId: "invite_batch_1",
-        token: "token_1",
-        workspaceId: "workspace_1",
-        teamId: "team_2",
-        role: "guest",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-    ])
-    getTeamDocMock
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: "team_2",
-        slug: "design",
-      })
+    const ctx = seedMixedDeletedTeamInviteBatch(1)
 
     const result = await declineInviteHandler(ctx as never, {
       serverToken: "server_token",
@@ -1013,19 +762,13 @@ describe("invite handlers", () => {
     const { declineInviteHandler } = await import("@/convex/app/invite_handlers")
     const ctx = createCtx()
 
-    listInvitesByTokenMock.mockResolvedValue([
-      {
-        _id: "invite_1_doc",
+    listInvitesByTokenMock.mockResolvedValue(
+      createInviteRecords({
         id: "invite_1",
-        batchId: "invite_batch_1",
-        token: "token_1",
-        workspaceId: "workspace_1",
         teamId: "team_1",
-        role: "member",
-        acceptedAt: null,
         declinedAt: "2026-04-20T12:00:00.000Z",
-      },
-    ])
+      })
+    )
 
     await expect(
       declineInviteHandler(ctx as never, {
@@ -1040,41 +783,25 @@ describe("invite handlers", () => {
     const { acceptInviteHandler } = await import("@/convex/app/invite_handlers")
     const ctx = createCtx()
 
-    listInvitesByTokenMock.mockResolvedValue([
-      {
-        _id: "invite_1_doc",
-        id: "invite_1",
-        batchId: "invite_batch_1",
-        token: "token_1",
-        workspaceId: "workspace_1",
-        teamId: "team_1",
-        role: "member",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-      {
-        _id: "invite_2_doc",
-        id: "invite_2",
-        batchId: "invite_batch_1",
-        token: "token_1",
-        workspaceId: "workspace_1",
-        teamId: "team_2",
-        role: "member",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-      {
-        _id: "invite_3_doc",
-        id: "invite_3",
-        batchId: "invite_batch_2",
-        token: "token_1",
-        workspaceId: "workspace_2",
-        teamId: "team_3",
-        role: "admin",
-        acceptedAt: null,
-        declinedAt: null,
-      },
-    ])
+    listInvitesByTokenMock.mockResolvedValue(
+      createInviteRecords(
+        {
+          id: "invite_1",
+          teamId: "team_1",
+        },
+        {
+          id: "invite_2",
+          teamId: "team_2",
+        },
+        {
+          id: "invite_3",
+          batchId: "invite_batch_2",
+          workspaceId: "workspace_2",
+          teamId: "team_3",
+          role: "admin",
+        }
+      )
+    )
     getTeamDocMock
       .mockResolvedValueOnce({
         id: "team_1",
@@ -1111,6 +838,61 @@ describe("invite handlers", () => {
     expect(archiveInviteNotificationsMock).toHaveBeenCalledWith(ctx, {
       userId: "user_1",
       inviteIds: ["invite_1", "invite_2"],
+    })
+  })
+
+  it("resolves join-by-code context from team, user, invites, and membership", async () => {
+    const { requireJoinTeamByCodeContext } = await import(
+      "@/convex/app/invite_handlers"
+    )
+    const ctx = createCtx()
+
+    await expect(
+      requireJoinTeamByCodeContext(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        code: "missing",
+      })
+    ).rejects.toThrow("Join code not found")
+
+    resolveTeamByCodeSlugOrJoinCodeMock.mockResolvedValue({
+      id: "team_1",
+      workspaceId: "workspace_1",
+    })
+    getUserDocMock.mockResolvedValue({
+      id: "user_1",
+      email: "alex@example.com",
+    })
+    getTeamMembershipDocMock.mockResolvedValue({
+      role: "viewer",
+    })
+    getActiveInvitesForTeamAndEmailMock.mockResolvedValue([
+      createInviteRecord({
+        id: "invite_1",
+        teamId: "team_1",
+        role: "member",
+      }),
+    ])
+
+    await expect(
+      requireJoinTeamByCodeContext(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        code: "JOIN1234",
+      })
+    ).resolves.toMatchObject({
+      existingMembership: {
+        role: "viewer",
+      },
+      matchingInvites: [expect.objectContaining({ id: "invite_1" })],
+      resolvedRole: "member",
+      team: {
+        id: "team_1",
+      },
+    })
+    expect(getActiveInvitesForTeamAndEmailMock).toHaveBeenCalledWith(ctx, {
+      email: "alex@example.com",
+      teamId: "team_1",
     })
   })
 })

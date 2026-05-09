@@ -12,7 +12,6 @@ import {
   type SetStateAction,
 } from "react"
 
-import { RouteMutationError } from "@/lib/convex/client/shared"
 import {
   reportCollaborationSessionDiagnostic,
   reportRealtimeFallbackDiagnostic,
@@ -21,18 +20,22 @@ import {
   createCollaborationAwarenessState,
   type CollaborationAwarenessState,
 } from "@/lib/collaboration/awareness"
-import {
-  createPartyKitCollaborationAdapter,
-  type PartyKitDocumentCollaborationBinding,
-} from "@/lib/collaboration/adapters/partykit"
+import { createPartyKitCollaborationAdapter } from "@/lib/collaboration/adapters/partykit"
 import { getCollaborationUserColor } from "@/lib/collaboration/colors"
 import { openDocumentCollaborationSession } from "@/lib/collaboration/client-session"
+import {
+  getSyncedCollaborationState,
+  isExpectedCollaborationUnavailable,
+  type ActiveDocumentCollaborationState,
+  type DocumentCollaborationSession,
+  type DocumentCollaborationState,
+  type OpenDocumentCollaborationBootstrap,
+} from "@/hooks/document-collaboration-state"
 import type {
   CollaborationStatusChange,
   CollaborationConnectionState,
   CollaborationFlushInput,
   CollaborationSessionRole,
-  CollaborationTransportSession,
 } from "@/lib/collaboration/transport"
 import type { DocumentPresenceViewer } from "@/lib/domain/types"
 import { isCollaborationEnabled } from "@/lib/realtime/feature-flags"
@@ -58,25 +61,11 @@ function mapAwarenessViewer(
   }
 }
 
-type DocumentCollaborationState = {
-  binding: PartyKitDocumentCollaborationBinding
-  localUser: CollaborationAwarenessState
-}
-
-type DocumentCollaborationSession = CollaborationTransportSession<
-  CollaborationAwarenessState,
-  PartyKitDocumentCollaborationBinding
->
-
 type CollaborationLifecycleState =
   | "legacy"
   | "bootstrapping"
   | "attached"
   | "degraded"
-
-type OpenDocumentCollaborationBootstrap = Awaited<
-  ReturnType<typeof openDocumentCollaborationSession>
->["bootstrap"]
 
 type SetActiveDocumentCollaborationState = Dispatch<
   SetStateAction<ActiveDocumentCollaborationState>
@@ -132,19 +121,6 @@ const EMPTY_VIEWERS: DocumentPresenceViewer[] = []
 const COLLABORATION_CONNECT_MAX_ATTEMPTS = 3
 const COLLABORATION_CONNECT_RETRY_BASE_DELAY_MS = 500
 
-type ActiveDocumentCollaborationState = {
-  documentId: string | null
-  error: string | null
-  hasAttachedOnce: boolean
-  role: CollaborationSessionRole | null
-  connectionState: CollaborationConnectionState
-  session: DocumentCollaborationSession | null
-  editorCollaboration: DocumentCollaborationState | null
-  collaboration: DocumentCollaborationState | null
-  bootstrapContent: JSONContent | string | null
-  viewers: DocumentPresenceViewer[]
-}
-
 const EMPTY_COLLABORATION_STATE: ActiveDocumentCollaborationState = {
   documentId: null,
   error: null,
@@ -156,25 +132,6 @@ const EMPTY_COLLABORATION_STATE: ActiveDocumentCollaborationState = {
   collaboration: null,
   bootstrapContent: null,
   viewers: EMPTY_VIEWERS,
-}
-
-function isExpectedCollaborationUnavailable(error: unknown) {
-  if (
-    error instanceof Error &&
-    error.message.includes("Collaboration service must use HTTPS/WSS")
-  ) {
-    return true
-  }
-
-  if (!(error instanceof RouteMutationError)) {
-    return false
-  }
-
-  return (
-    error.status === 503 ||
-    error.code === "COLLABORATION_UNAVAILABLE" ||
-    error.code === "COLLABORATION_SESSION_CREATE_FAILED"
-  )
 }
 
 function isCollaborationSyncTimeout(error: unknown) {
@@ -293,18 +250,12 @@ function setSyncedCollaborationState({
   setState: SetActiveDocumentCollaborationState
 }) {
   setState((current) =>
-    current.session === session
-      ? {
-          ...current,
-          error: null,
-          hasAttachedOnce: true,
-          role: bootstrap.role,
-          editorCollaboration:
-            current.editorCollaboration ?? collaborationState,
-          collaboration: current.collaboration ?? collaborationState,
-          bootstrapContent: current.bootstrapContent ?? bootstrapContent,
-        }
-      : current
+    getSyncedCollaborationState(current, {
+      bootstrap,
+      bootstrapContent,
+      collaborationState,
+      session,
+    })
   )
 }
 

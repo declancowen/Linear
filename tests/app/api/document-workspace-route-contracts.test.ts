@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ApplicationError } from "@/lib/server/application-errors"
+import {
+  createJsonRouteRequest,
+  createRouteParams,
+  expectTypedJsonError,
+} from "@/tests/lib/fixtures/api-routes"
 
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
 const addCommentServerMock = vi.fn()
 const toggleCommentReactionServerMock = vi.fn()
 const updateDocumentServerMock = vi.fn()
+const deleteDocumentServerMock = vi.fn()
 const sendDocumentMentionNotificationsServerMock = vi.fn()
 const updateItemDescriptionServerMock = vi.fn()
 const sendItemDescriptionMentionNotificationsServerMock = vi.fn()
@@ -32,11 +38,27 @@ const notifyCollaborationDocumentChangedServerMock = vi.fn()
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: requireSessionMock,
   requireAppContext: requireAppContextMock,
+  requireAppRouteContext: async () => {
+    const session = await requireSessionMock()
+
+    if (session instanceof Response) {
+      return session
+    }
+
+    const appContext = await requireAppContextMock(session)
+
+    if (appContext instanceof Response) {
+      return appContext
+    }
+
+    return { appContext, session }
+  },
 }))
 
 vi.mock("@/lib/server/convex", () => ({
   addCommentServer: addCommentServerMock,
   toggleCommentReactionServer: toggleCommentReactionServerMock,
+  deleteDocumentServer: deleteDocumentServerMock,
   updateDocumentServer: updateDocumentServerMock,
   sendDocumentMentionNotificationsServer:
     sendDocumentMentionNotificationsServerMock,
@@ -70,13 +92,11 @@ vi.mock("@/lib/server/lifecycle", () => ({
     reconcileDeletedAccountProviderCleanupMock,
 }))
 
-vi.mock("@/lib/server/provider-errors", () => ({
-  getConvexErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  getWorkOSErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  logProviderError: logProviderErrorMock,
-}))
+vi.mock("@/lib/server/provider-errors", async () =>
+  (await import("@/tests/lib/fixtures/api-routes")).createProviderErrorsMockModule(
+    logProviderErrorMock
+  )
+)
 
 vi.mock("@/lib/server/scoped-read-models", () => ({
   resolveDocumentReadModelScopeKeysServer:
@@ -94,12 +114,40 @@ vi.mock("@/lib/server/collaboration-refresh", () => ({
     notifyCollaborationDocumentChangedServerMock,
 }))
 
+function createJsonPatchRequest(url: string, body: unknown) {
+  return createJsonRouteRequest(url, "PATCH", body)
+}
+
+async function patchDocument(body: unknown) {
+  const { PATCH } = await import("@/app/api/documents/[documentId]/route")
+
+  return PATCH(createJsonPatchRequest("http://localhost/api/documents/document_1", body), {
+    params: Promise.resolve({
+      documentId: "document_1",
+    }),
+  })
+}
+
+async function patchItemDescription(body: unknown) {
+  const { PATCH } = await import("@/app/api/items/[itemId]/description/route")
+
+  return PATCH(
+    createJsonPatchRequest("http://localhost/api/items/item_1/description", body),
+    {
+      params: Promise.resolve({
+        itemId: "item_1",
+      }),
+    }
+  )
+}
+
 describe("document and workspace route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
     requireAppContextMock.mockReset()
     addCommentServerMock.mockReset()
     toggleCommentReactionServerMock.mockReset()
+    deleteDocumentServerMock.mockReset()
     updateDocumentServerMock.mockReset()
     sendDocumentMentionNotificationsServerMock.mockReset()
     updateItemDescriptionServerMock.mockReset()
@@ -234,30 +282,15 @@ describe("document and workspace route contracts", () => {
   })
 
   it("maps document update domain failures to typed error responses", async () => {
-    const { PATCH } = await import("@/app/api/documents/[documentId]/route")
-
     updateDocumentServerMock.mockRejectedValue(
       new ApplicationError("Document not found", 404, {
         code: "DOCUMENT_NOT_FOUND",
       })
     )
 
-    const response = await PATCH(
-      new Request("http://localhost/api/documents/document_1", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: "Updated title",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          documentId: "document_1",
-        }),
-      }
-    )
+    const response = await patchDocument({
+      title: "Updated title",
+    })
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toEqual({
@@ -268,28 +301,13 @@ describe("document and workspace route contracts", () => {
   })
 
   it("does not refresh active collaboration rooms for document title-only updates", async () => {
-    const { PATCH } = await import("@/app/api/documents/[documentId]/route")
-
     updateDocumentServerMock.mockResolvedValue({
       updatedAt: "2026-04-22T00:00:00.000Z",
     })
 
-    const response = await PATCH(
-      new Request("http://localhost/api/documents/document_1", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: "Updated title",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          documentId: "document_1",
-        }),
-      }
-    )
+    const response = await patchDocument({
+      title: "Updated title",
+    })
 
     expect(response.status).toBe(200)
     expect(updateDocumentServerMock).toHaveBeenCalledWith(
@@ -332,6 +350,45 @@ describe("document and workspace route contracts", () => {
       kind: "canonical-updated",
       reason: "document-route-patch-content",
     })
+  })
+
+  it("deletes documents, bumps scopes, and warns when room cleanup fails", async () => {
+    const { DELETE } = await import("@/app/api/documents/[documentId]/route")
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+
+    notifyCollaborationDocumentChangedServerMock.mockResolvedValue({
+      ok: false,
+      reason: "room unavailable",
+    })
+
+    const response = await DELETE(
+      new Request("http://localhost/api/documents/document_1", {
+        method: "DELETE",
+      }) as never,
+      createRouteParams({
+        documentId: "document_1",
+      })
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+    })
+    expect(deleteDocumentServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      documentId: "document_1",
+    })
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
+      scopeKeys: ["document-detail:document_1"],
+    })
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[collaboration] failed to close deleted document room",
+      {
+        documentId: "document_1",
+        reason: "room unavailable",
+      }
+    )
+    warnSpy.mockRestore()
   })
 
   it("maps document mention notification failures to typed error responses", async () => {
@@ -379,30 +436,15 @@ describe("document and workspace route contracts", () => {
   })
 
   it("maps item-description domain failures to typed error responses", async () => {
-    const { PATCH } = await import("@/app/api/items/[itemId]/description/route")
-
     updateItemDescriptionServerMock.mockRejectedValue(
       new ApplicationError("Work item not found", 404, {
         code: "WORK_ITEM_NOT_FOUND",
       })
     )
 
-    const response = await PATCH(
-      new Request("http://localhost/api/items/item_1/description", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          content: "<p>Updated description</p>",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          itemId: "item_1",
-        }),
-      }
-    )
+    const response = await patchItemDescription({
+      content: "<p>Updated description</p>",
+    })
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toEqual({
@@ -413,28 +455,13 @@ describe("document and workspace route contracts", () => {
   })
 
   it("bumps scoped read model versions after item-description updates", async () => {
-    const { PATCH } = await import("@/app/api/items/[itemId]/description/route")
-
     updateItemDescriptionServerMock.mockResolvedValue({
       updatedAt: "2026-04-22T00:00:00.000Z",
     })
 
-    const response = await PATCH(
-      new Request("http://localhost/api/items/item_1/description", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          content: "<p>Updated description</p>",
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          itemId: "item_1",
-        }),
-      }
-    )
+    const response = await patchItemDescription({
+      content: "<p>Updated description</p>",
+    })
 
     expect(response.status).toBe(200)
     expect(resolveWorkItemReadModelScopeKeysServerMock).toHaveBeenCalledWith(
@@ -469,33 +496,27 @@ describe("document and workspace route contracts", () => {
     )
 
     const response = await POST(
-      new Request("http://localhost/api/items/item_1/description/mentions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      createJsonRouteRequest(
+        "http://localhost/api/items/item_1/description/mentions",
+        "POST",
+        {
           mentions: [
             {
               userId: "user_2",
               count: 2,
             },
           ],
-        }),
-      }) as never,
-      {
-        params: Promise.resolve({
-          itemId: "item_1",
-        }),
-      }
+        }
+      ),
+      createRouteParams({ itemId: "item_1" })
     )
 
-    expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({
-      error: "One or more mentioned users are invalid for this work item",
-      message: "One or more mentioned users are invalid for this work item",
-      code: "ITEM_DESCRIPTION_MENTION_USERS_INVALID",
-    })
+    await expectTypedJsonError(
+      response,
+      400,
+      "One or more mentioned users are invalid for this work item",
+      "ITEM_DESCRIPTION_MENTION_USERS_INVALID"
+    )
   })
 
   it("maps workspace leave domain failures to typed error responses", async () => {

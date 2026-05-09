@@ -2,49 +2,48 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { verifySignedCollaborationToken } from "@/lib/server/collaboration-token"
+import {
+  createProviderErrorsMockModule,
+  createRouteHandlerInput,
+  createRouteAuthMockModule,
+  expectTypedJsonError,
+  mockCollaborationRouteAuthContext,
+} from "@/tests/lib/fixtures/api-routes"
 
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
 const getCallJoinContextServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 
-vi.mock("@/lib/server/route-auth", () => ({
-  requireSession: requireSessionMock,
-  requireAppContext: requireAppContextMock,
-  requireConvexUser: vi.fn(),
-}))
+vi.mock("@/lib/server/route-auth", () =>
+  createRouteAuthMockModule(requireSessionMock, requireAppContextMock)
+)
 
 vi.mock("@/lib/server/convex", () => ({
   getCallJoinContextServer: getCallJoinContextServerMock,
 }))
 
-vi.mock("@/lib/server/provider-errors", () => ({
-  getConvexErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  logProviderError: logProviderErrorMock,
-}))
+vi.mock("@/lib/server/provider-errors", () =>
+  createProviderErrorsMockModule(logProviderErrorMock)
+)
+
+function chatSessionRouteInput(url = "http://localhost", init?: RequestInit) {
+  return createRouteHandlerInput(
+    url,
+    {
+      chatId: "conversation_1",
+    },
+    init
+  )
+}
 
 describe("chat collaboration session route contracts", () => {
   beforeEach(() => {
-    requireSessionMock.mockReset()
-    requireAppContextMock.mockReset()
-    getCallJoinContextServerMock.mockReset()
-    logProviderErrorMock.mockReset()
-
-    process.env.COLLABORATION_TOKEN_SECRET = "test-collaboration-token-secret"
-    process.env.NEXT_PUBLIC_PARTYKIT_URL = "https://partykit.example.com"
-
-    requireSessionMock.mockResolvedValue({
-      user: {
-        id: "workos_1",
-        email: "alex@example.com",
-      },
-      organizationId: "org_1",
-    })
-    requireAppContextMock.mockResolvedValue({
-      ensuredUser: {
-        userId: "user_1",
-      },
+    mockCollaborationRouteAuthContext({
+      extraMocks: [getCallJoinContextServerMock],
+      requireAppContextMock,
+      requireSessionMock,
+      logProviderErrorMock,
     })
   })
 
@@ -63,11 +62,7 @@ describe("chat collaboration session route contracts", () => {
       role: "host",
     })
 
-    const response = await POST(new Request("http://localhost") as never, {
-      params: Promise.resolve({
-        chatId: "conversation_1",
-      }),
-    })
+    const response = await POST(...chatSessionRouteInput())
 
     expect(response.status).toBe(200)
     const payload = await response.json()
@@ -99,11 +94,7 @@ describe("chat collaboration session route contracts", () => {
       })
     )
 
-    const response = await POST(new Request("http://localhost") as never, {
-      params: Promise.resolve({
-        chatId: "conversation_1",
-      }),
-    })
+    const response = await POST(...chatSessionRouteInput())
 
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({
@@ -131,23 +122,19 @@ describe("chat collaboration session route contracts", () => {
     })
 
     const response = await POST(
-      new Request("https://localhost/api/collaboration/chats/conversation_1/session", {
-        method: "POST",
-      }) as never,
-      {
-        params: Promise.resolve({
-          chatId: "conversation_1",
-        }),
-      }
+      ...chatSessionRouteInput(
+        "https://localhost/api/collaboration/chats/conversation_1/session",
+        {
+          method: "POST",
+        }
+      )
     )
 
-    expect(response.status).toBe(503)
-    await expect(response.json()).resolves.toEqual({
-      error:
-        "Collaboration service must use HTTPS/WSS when the app is served over HTTPS",
-      message:
-        "Collaboration service must use HTTPS/WSS when the app is served over HTTPS",
-      code: "COLLABORATION_UNAVAILABLE",
-    })
+    await expectTypedJsonError(
+      response,
+      503,
+      "Collaboration service must use HTTPS/WSS when the app is served over HTTPS",
+      "COLLABORATION_UNAVAILABLE"
+    )
   })
 })

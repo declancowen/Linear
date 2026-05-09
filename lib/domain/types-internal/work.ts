@@ -12,10 +12,7 @@ import type {
   WorkItemType,
   WorkStatus,
 } from "./primitives"
-import {
-  workStatuses,
-  teamIconTokens,
-} from "./primitives"
+import { workStatuses, teamIconTokens } from "./primitives"
 
 export const templateMeta: Record<
   TemplateType,
@@ -46,6 +43,61 @@ export const templateMeta: Record<
   },
 }
 
+const DEFAULT_TEAM_EXPERIENCE: TeamExperienceType = "software-development"
+
+const WORK_ITEM_TEMPLATE_BY_EXPERIENCE: Record<
+  TeamExperienceType,
+  TemplateType | null
+> = {
+  "software-development": "software-delivery",
+  "issue-analysis": "bug-tracking",
+  "project-management": "project-management",
+  community: null,
+}
+
+const DEFAULT_TEMPLATE_BY_EXPERIENCE: Record<TeamExperienceType, TemplateType> =
+  {
+    "software-development": "software-delivery",
+    "issue-analysis": "bug-tracking",
+    "project-management": "project-management",
+    community: "software-delivery",
+  }
+
+const ALLOWED_TEMPLATES_BY_EXPERIENCE: Record<
+  TeamExperienceType,
+  TemplateType[]
+> = {
+  "software-development": ["software-delivery"],
+  "issue-analysis": ["bug-tracking"],
+  "project-management": ["project-management"],
+  community: [],
+}
+
+const PREFERRED_WORK_ITEM_TYPE_BY_EXPERIENCE: Record<
+  TeamExperienceType,
+  {
+    child: WorkItemType
+    root: WorkItemType
+  }
+> = {
+  "software-development": {
+    child: "story",
+    root: "story",
+  },
+  "issue-analysis": {
+    child: "sub-issue",
+    root: "issue",
+  },
+  "project-management": {
+    child: "sub-task",
+    root: "task",
+  },
+  community: {
+    child: "story",
+    root: "story",
+  },
+}
+
 export function getAllowedWorkItemTypesForTemplate(
   templateType: TemplateType
 ): WorkItemType[] {
@@ -60,44 +112,34 @@ function getAllowedRootWorkItemTypesForTemplate(
   )
 }
 
+function resolveTeamExperience(
+  experience: TeamExperienceType | null | undefined
+) {
+  return experience ?? DEFAULT_TEAM_EXPERIENCE
+}
+
+function getWorkItemTemplateForTeamExperience(
+  experience: TeamExperienceType | null | undefined
+) {
+  return WORK_ITEM_TEMPLATE_BY_EXPERIENCE[resolveTeamExperience(experience)]
+}
+
 export function getDefaultWorkItemTypesForTeamExperience(
   experience: TeamExperienceType | null | undefined
 ): WorkItemType[] {
-  const resolvedExperience = experience ?? "software-development"
+  const templateType = getWorkItemTemplateForTeamExperience(experience)
 
-  if (resolvedExperience === "issue-analysis") {
-    return getAllowedWorkItemTypesForTemplate("bug-tracking")
-  }
-
-  if (resolvedExperience === "project-management") {
-    return getAllowedWorkItemTypesForTemplate("project-management")
-  }
-
-  if (resolvedExperience === "community") {
-    return []
-  }
-
-  return getAllowedWorkItemTypesForTemplate("software-delivery")
+  return templateType ? getAllowedWorkItemTypesForTemplate(templateType) : []
 }
 
 export function getDefaultRootWorkItemTypesForTeamExperience(
   experience: TeamExperienceType | null | undefined
 ): WorkItemType[] {
-  const resolvedExperience = experience ?? "software-development"
+  const templateType = getWorkItemTemplateForTeamExperience(experience)
 
-  if (resolvedExperience === "issue-analysis") {
-    return getAllowedRootWorkItemTypesForTemplate("bug-tracking")
-  }
-
-  if (resolvedExperience === "project-management") {
-    return getAllowedRootWorkItemTypesForTemplate("project-management")
-  }
-
-  if (resolvedExperience === "community") {
-    return []
-  }
-
-  return getAllowedRootWorkItemTypesForTemplate("software-delivery")
+  return templateType
+    ? getAllowedRootWorkItemTypesForTemplate(templateType)
+    : []
 }
 
 export function getDefaultViewItemLevelForTeamExperience(
@@ -120,58 +162,22 @@ export function getPreferredWorkItemTypeForTeamExperience(
   experience: TeamExperienceType | null | undefined,
   options?: { parent?: boolean }
 ): WorkItemType {
-  const resolvedExperience = experience ?? "software-development"
-  const hasParent = Boolean(options?.parent)
+  const preferred =
+    PREFERRED_WORK_ITEM_TYPE_BY_EXPERIENCE[resolveTeamExperience(experience)]
 
-  if (resolvedExperience === "issue-analysis") {
-    return hasParent ? "sub-issue" : "issue"
-  }
-
-  if (resolvedExperience === "project-management") {
-    return hasParent ? "sub-task" : "task"
-  }
-
-  if (resolvedExperience === "community") {
-    return "story"
-  }
-
-  return "story"
+  return options?.parent ? preferred.child : preferred.root
 }
 
 export function getDefaultTemplateTypeForTeamExperience(
   experience: TeamExperienceType | null | undefined
 ): TemplateType {
-  const resolvedExperience = experience ?? "software-development"
-
-  if (resolvedExperience === "issue-analysis") {
-    return "bug-tracking"
-  }
-
-  if (resolvedExperience === "project-management") {
-    return "project-management"
-  }
-
-  return "software-delivery"
+  return DEFAULT_TEMPLATE_BY_EXPERIENCE[resolveTeamExperience(experience)]
 }
 
 export function getAllowedTemplateTypesForTeamExperience(
   experience: TeamExperienceType | null | undefined
 ): TemplateType[] {
-  const resolvedExperience = experience ?? "software-development"
-
-  if (resolvedExperience === "issue-analysis") {
-    return ["bug-tracking"]
-  }
-
-  if (resolvedExperience === "project-management") {
-    return ["project-management"]
-  }
-
-  if (resolvedExperience === "community") {
-    return []
-  }
-
-  return ["software-delivery"]
+  return [...ALLOWED_TEMPLATES_BY_EXPERIENCE[resolveTeamExperience(experience)]]
 }
 
 export const teamIconMeta: Record<
@@ -339,23 +345,41 @@ export function createDefaultTeamFeatureSettings(
   }
 }
 
+const communityForbiddenFeatureKeys = ["issues", "projects", "views"] as const
+const communityRequiredFeatureKeys = ["docs", "chat", "channels"] as const
+const workRequiredFeatureKeys = ["issues", "projects", "views"] as const
+
+function hasAnyTeamFeature(
+  features: TeamFeatureSettings,
+  keys: readonly (keyof TeamFeatureSettings)[]
+) {
+  return keys.some((key) => features[key])
+}
+
+function hasEveryTeamFeature(
+  features: TeamFeatureSettings,
+  keys: readonly (keyof TeamFeatureSettings)[]
+) {
+  return keys.every((key) => features[key])
+}
+
 export function getTeamFeatureValidationMessage(
   experience: TeamExperienceType,
   features: TeamFeatureSettings
 ) {
   if (experience === "community") {
-    if (features.issues || features.projects || features.views) {
+    if (hasAnyTeamFeature(features, communityForbiddenFeatureKeys)) {
       return "Community teams can only enable docs, chat, and channel surfaces."
     }
 
-    if (!features.docs && !features.chat && !features.channels) {
+    if (!hasAnyTeamFeature(features, communityRequiredFeatureKeys)) {
       return "Community teams must enable docs, chat, channel, or a combination."
     }
 
     return null
   }
 
-  if (!features.issues || !features.projects || !features.views) {
+  if (!hasEveryTeamFeature(features, workRequiredFeatureKeys)) {
     return "Non-community teams must include the work surface, projects, and views."
   }
 
@@ -516,6 +540,30 @@ export function getDisplayPluralLabelForWorkItemType(
   return workItemTypeMeta[itemType].pluralLabel
 }
 
+const canonicalWorkItemTypesByExperience: Partial<
+  Record<
+    TeamExperienceType,
+    {
+      root: WorkItemType
+      child: WorkItemType
+    }
+  >
+> = {
+  "issue-analysis": {
+    root: "issue",
+    child: "sub-issue",
+  },
+  "project-management": {
+    root: "task",
+    child: "sub-task",
+  },
+}
+
+const storedChildWorkItemTypes = new Set<StoredWorkItemType>([
+  "sub-task",
+  "sub-issue",
+])
+
 export function normalizeStoredWorkItemType(
   itemType: StoredWorkItemType,
   experience: TeamExperienceType | null | undefined,
@@ -523,21 +571,12 @@ export function normalizeStoredWorkItemType(
 ): WorkItemType {
   const resolvedExperience = experience ?? "software-development"
   const hasParent = Boolean(options?.parentId)
+  const canonicalTypes = canonicalWorkItemTypesByExperience[resolvedExperience]
 
-  if (resolvedExperience === "issue-analysis") {
-    if (hasParent || itemType === "sub-task" || itemType === "sub-issue") {
-      return "sub-issue"
-    }
-
-    return "issue"
-  }
-
-  if (resolvedExperience === "project-management") {
-    if (hasParent || itemType === "sub-task" || itemType === "sub-issue") {
-      return "sub-task"
-    }
-
-    return "task"
+  if (canonicalTypes) {
+    return hasParent || storedChildWorkItemTypes.has(itemType)
+      ? canonicalTypes.child
+      : canonicalTypes.root
   }
 
   if (itemType === "bug") {

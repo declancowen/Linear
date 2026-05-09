@@ -37,6 +37,21 @@ function getErrorCause(error: unknown) {
   return null
 }
 
+function getNestedErrorDiagnostics(error: unknown, depth: number) {
+  const cause = getErrorCause(error)
+
+  return cause ? getErrorDiagnostics(cause, depth + 1) : null
+}
+
+function getErrorObjectDiagnostics(error: unknown, depth: number) {
+  return {
+    name: getErrorProperty(error, "name"),
+    message: getErrorProperty(error, "message"),
+    code: getErrorProperty(error, "code"),
+    cause: getNestedErrorDiagnostics(error, depth),
+  }
+}
+
 export function getErrorDiagnostics(error: unknown, depth = 0): unknown {
   if (depth >= 4) {
     return {
@@ -46,24 +61,14 @@ export function getErrorDiagnostics(error: unknown, depth = 0): unknown {
 
   if (error instanceof Error) {
     return {
+      ...getErrorObjectDiagnostics(error, depth),
       name: error.name,
       message: error.message,
-      code: getErrorProperty(error, "code"),
-      cause: getErrorCause(error)
-        ? getErrorDiagnostics(getErrorCause(error), depth + 1)
-        : null,
     }
   }
 
   if (typeof error === "object" && error !== null) {
-    return {
-      name: getErrorProperty(error, "name"),
-      message: getErrorProperty(error, "message"),
-      code: getErrorProperty(error, "code"),
-      cause: getErrorCause(error)
-        ? getErrorDiagnostics(getErrorCause(error), depth + 1)
-        : null,
-    }
+    return getErrorObjectDiagnostics(error, depth)
   }
 
   return {

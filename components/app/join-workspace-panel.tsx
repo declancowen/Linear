@@ -26,6 +26,10 @@ type JoinWorkspaceLookupResult = {
     name: string
   }
 }
+type JoinWorkspaceLookupOutcome = {
+  error: string | null
+  result: JoinWorkspaceLookupResult | null
+}
 
 function normalizeJoinCodeInput(value: string) {
   return value
@@ -57,6 +61,38 @@ function getJoinWorkspaceStatusLabel(input: {
   }
 
   return input.matchedLookupResult ? "Team found." : "Looking up team…"
+}
+
+async function fetchJoinWorkspaceLookup(nextCode: string) {
+  const response = await fetch(
+    `/api/teams/lookup?code=${encodeURIComponent(nextCode)}`
+  )
+  const payload = (await response.json().catch(() => null)) as
+    | (JoinWorkspaceLookupResult & { error?: string })
+    | null
+
+  if (!response.ok || !payload?.team || !payload.workspace) {
+    throw new Error(payload?.error ?? `No team matched ${nextCode}.`)
+  }
+
+  return payload
+}
+
+async function lookupJoinWorkspaceByCode(
+  nextCode: string
+): Promise<JoinWorkspaceLookupOutcome> {
+  try {
+    return {
+      error: null,
+      result: await fetchJoinWorkspaceLookup(nextCode),
+    }
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error ? error.message : "Unable to find that team",
+      result: null,
+    }
+  }
 }
 
 function JoinCodeInput({
@@ -189,37 +225,15 @@ export function JoinWorkspacePanel({
     setLoading(true)
     setLookupError(null)
 
-    try {
-      const response = await fetch(
-        `/api/teams/lookup?code=${encodeURIComponent(nextCode)}`
-      )
-      const payload = (await response.json().catch(() => null)) as
-        | (JoinWorkspaceLookupResult & { error?: string })
-        | null
+    const outcome = await lookupJoinWorkspaceByCode(nextCode)
 
-      if (!response.ok || !payload?.team || !payload.workspace) {
-        throw new Error(payload?.error ?? `No team matched ${nextCode}.`)
-      }
-
-      if (requestIdRef.current !== requestId) {
-        return
-      }
-
-      setLookupResult(payload)
-    } catch (error) {
-      if (requestIdRef.current !== requestId) {
-        return
-      }
-
-      setLookupResult(null)
-      setLookupError(
-        error instanceof Error ? error.message : "Unable to find that team"
-      )
-    } finally {
-      if (requestIdRef.current === requestId) {
-        setLoading(false)
-      }
+    if (requestIdRef.current !== requestId) {
+      return
     }
+
+    setLookupResult(outcome.result)
+    setLookupError(outcome.error)
+    setLoading(false)
   })
 
   useEffect(() => {
@@ -227,10 +241,15 @@ export function JoinWorkspacePanel({
 
     if (normalizedCode.length !== FULL_JOIN_CODE_LENGTH) {
       requestIdRef.current += 1
-      setLoading(false)
-      setLookupResult(null)
-      setLookupError(null)
-      return
+      const resetId = window.setTimeout(() => {
+        setLoading(false)
+        setLookupResult(null)
+        setLookupError(null)
+      }, 0)
+
+      return () => {
+        window.clearTimeout(resetId)
+      }
     }
 
     if (lookupResult?.team.joinCode === normalizedCode) {

@@ -1,35 +1,41 @@
 "use client"
 
 import type { Editor } from "@tiptap/react"
-import { useMemo, useRef, useState } from "react"
+import {
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type ReactNode,
+} from "react"
 import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
 import {
   CaretDown,
-  Check,
   Circle,
   FolderSimple,
-  MagnifyingGlass,
   Smiley,
-  X,
 } from "@phosphor-icons/react"
 
-import { getStatusOrderForTeam, getTeam, getUser } from "@/lib/domain/selectors"
+import {
+  getStatusOrderForTeam,
+  getTeam,
+  getUser,
+} from "@/lib/domain/selectors"
+import {
+  getRootComments,
+  groupCommentsByParentId,
+} from "@/lib/domain/comment-threads"
+import { getUsersForTeamMemberships } from "@/lib/domain/team-members"
 import {
   commentContentConstraints,
   getTextInputLimitState,
   workItemTitleConstraints,
 } from "@/lib/domain/input-constraints"
-import { getDisplayInitials } from "@/lib/display-initials"
 import {
-  getAllowedChildWorkItemTypesForItem,
-  getAllowedWorkItemTypesForTemplate,
   getChildWorkItemCopy,
-  getDefaultWorkItemTypesForTeamExperience,
   getDisplayLabelForWorkItemType,
   getPreferredWorkItemTypeForTeamExperience,
-  priorityMeta,
-  statusMeta,
   type AppData,
   type Priority,
   type WorkItem,
@@ -38,33 +44,82 @@ import {
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { UserAvatar } from "@/components/app/user-presence"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { ShortcutKeys } from "@/components/app/shortcut-keys"
+import {
+  createInlineChildWorkItem,
+  getInlineChildIssueComposerModel,
+  getInlineChildTeamProjects,
+} from "@/components/app/screens/inline-child-composer-state"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
-  PROPERTY_POPOVER_CLASS,
-  PropertyPopoverFoot,
-  PropertyPopoverGroup,
-  PropertyPopoverItem,
-  PropertyPopoverList,
-  PropertyPopoverSearch,
-} from "@/components/ui/template-primitives"
 import { Textarea } from "@/components/ui/textarea"
 
-import { formatInlineDescriptionContent } from "./helpers"
-import { PriorityDot, PriorityIcon, StatusIcon } from "./shared"
-import { cn, resolveImageAssetSource } from "@/lib/utils"
+import {
+  PropertyAssigneePicker,
+  WorkItemPriorityPropertyPicker,
+  WorkItemStatusPropertyPicker,
+  WorkItemTypePropertyPicker,
+  propertyChipTriggerClass as chipTriggerClass,
+  propertyChipTriggerDashedClass as chipTriggerDashedClass,
+} from "./property-chips"
+import { useCommentComposer } from "./use-comment-composer"
+import { useWorkItemCorePickerState } from "./work-item-picker-state"
+import { cn } from "@/lib/utils"
+
+export const WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS =
+  "h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+
+type WorkItemCommentLimitState = ReturnType<typeof getTextInputLimitState>
+
+export function WorkItemCommentComposerActions({
+  children,
+  editable = true,
+  editorRef,
+  emojiButtonClassName = "rounded-md p-1 text-foreground transition-colors hover:bg-accent disabled:text-muted-foreground/50 disabled:hover:bg-transparent",
+  emojiIconClassName = "size-4",
+  limitState,
+}: {
+  children: ReactNode
+  editable?: boolean
+  editorRef: MutableRefObject<Editor | null>
+  emojiButtonClassName?: string
+  emojiIconClassName?: string
+  limitState: WorkItemCommentLimitState
+}) {
+  return (
+    <>
+      <FieldCharacterLimit
+        state={limitState}
+        limit={commentContentConstraints.max}
+        className="mt-0 mb-1.5"
+      />
+      <div className="flex items-center justify-between gap-2">
+        <EmojiPickerPopover
+          align="start"
+          side="top"
+          onEmojiSelect={(emoji) =>
+            editorRef.current?.chain().focus().insertContent(emoji).run()
+          }
+          trigger={
+            <button
+              type="button"
+              disabled={!editable}
+              className={emojiButtonClassName}
+            >
+              <Smiley className={emojiIconClassName} />
+            </button>
+          }
+        />
+        {children}
+      </div>
+    </>
+  )
+}
 
 export function WorkItemTypeBadge({
   data,
@@ -123,47 +178,223 @@ export function WorkItemAssigneeAvatar({
   )
 }
 
-function AssigneeOption({
-  name,
-  avatarUrl,
-  avatarImageUrl,
+export function CommentReactionButtons({
+  activeClassName,
+  buttonClassName,
+  comment,
+  currentUserId,
+  disabled = false,
+  inactiveClassName,
 }: {
-  name: string
-  avatarUrl?: string | null
-  avatarImageUrl?: string | null
+  activeClassName: string
+  buttonClassName: string
+  comment: AppData["comments"][number]
+  currentUserId: string
+  disabled?: boolean
+  inactiveClassName: string
 }) {
-  const imageSrc = resolveImageAssetSource(avatarImageUrl, avatarUrl)
-
   return (
-    <span className="flex min-w-0 items-center gap-2">
-      <Avatar size="sm" className="size-4 data-[size=sm]:size-4">
-        {imageSrc ? <AvatarImage src={imageSrc} alt={name} /> : null}
-        <AvatarFallback>{getDisplayInitials(name, "?")}</AvatarFallback>
-      </Avatar>
-      <span className="min-w-0 truncate">{name}</span>
-    </span>
+    <>
+      {comment.reactions.map((reaction) => {
+        const active = reaction.userIds.includes(currentUserId)
+
+        return (
+          <button
+            key={`${comment.id}-${reaction.emoji}`}
+            type="button"
+            disabled={disabled}
+            className={cn(
+              buttonClassName,
+              active ? activeClassName : inactiveClassName
+            )}
+            onClick={() =>
+              useAppStore
+                .getState()
+                .toggleCommentReaction(comment.id, reaction.emoji)
+            }
+          >
+            <span>{reaction.emoji}</span>
+            <span>{reaction.userIds.length}</span>
+          </button>
+        )
+      })}
+    </>
   )
 }
 
-const OPEN_STATUSES: WorkStatus[] = ["backlog", "todo", "in-progress"]
-const CLOSED_STATUSES: WorkStatus[] = ["done", "cancelled", "duplicate"]
-const PRIORITY_ORDER: Priority[] = ["none", "urgent", "high", "medium", "low"]
-
-function matchesQuery(value: string, query: string) {
-  if (!query) {
-    return true
-  }
-  return value.toLowerCase().includes(query.toLowerCase())
+function CommentThreadHeader({
+  authorName,
+  createdAt,
+}: {
+  authorName: string | undefined
+  createdAt: string
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-sm font-medium">{authorName}</span>
+      <span className="text-xs text-muted-foreground">
+        {format(new Date(createdAt), "MMM d, h:mm a")}
+      </span>
+    </div>
+  )
 }
 
-const chipTriggerClass =
-  "inline-flex h-7 w-fit max-w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
+function CommentThreadActions({
+  comment,
+  currentUserId,
+  editable,
+  onReplyToggle,
+}: {
+  comment: AppData["comments"][number]
+  currentUserId: string
+  editable: boolean
+  onReplyToggle: () => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <CommentReactionButtons
+        activeClassName="border-primary/40 bg-primary/10 text-foreground"
+        buttonClassName="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition-colors"
+        comment={comment}
+        currentUserId={currentUserId}
+        inactiveClassName="hover:bg-accent"
+      />
+      {editable ? (
+        <EmojiPickerPopover
+          align="start"
+          side="top"
+          onEmojiSelect={(emoji) => {
+            useAppStore.getState().toggleCommentReaction(comment.id, emoji)
+          }}
+          trigger={
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Smiley className="size-3.5" />
+              <span>React</span>
+            </button>
+          }
+        />
+      ) : null}
+      {editable ? (
+        <button
+          type="button"
+          className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+          onClick={onReplyToggle}
+        >
+          Reply
+        </button>
+      ) : null}
+    </div>
+  )
+}
 
-const chipTriggerDashedClass =
-  "border-dashed bg-transparent text-fg-3 hover:bg-surface-3"
+function CommentReplyComposer({
+  editable,
+  mentionCandidates,
+  replyContent,
+  replyEditorRef,
+  replyLimitState,
+  setReplyContent,
+  onCancel,
+  onReply,
+}: {
+  editable: boolean
+  mentionCandidates: AppData["users"]
+  replyContent: string
+  replyEditorRef: MutableRefObject<Editor | null>
+  replyLimitState: ReturnType<typeof getTextInputLimitState>
+  setReplyContent: (content: string) => void
+  onCancel: () => void
+  onReply: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border bg-background/70 p-3">
+      <div className="rounded-md border border-line bg-surface px-3 py-2 transition-colors focus-within:border-fg-3">
+        <RichTextEditor
+          content={replyContent}
+          onChange={setReplyContent}
+          editable={editable}
+          compact
+          autoFocus
+          allowSlashCommands={false}
+          showToolbar={false}
+          showStats={false}
+          placeholder="Reply to this thread..."
+          editorInstanceRef={replyEditorRef}
+          mentionCandidates={mentionCandidates}
+          minPlainTextCharacters={commentContentConstraints.min}
+          maxPlainTextCharacters={commentContentConstraints.max}
+          enforcePlainTextLimit
+          onSubmitShortcut={onReply}
+          submitOnEnter
+          className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+        />
+      </div>
+      <div>
+        <WorkItemCommentComposerActions
+          editorRef={replyEditorRef}
+          limitState={replyLimitState}
+        >
+          <ShortcutKeys
+            keys={["Enter"]}
+            className="ml-auto"
+            keyClassName={WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS}
+          />
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!replyLimitState.canSubmit}
+              onClick={onReply}
+            >
+              Reply
+            </Button>
+          </div>
+        </WorkItemCommentComposerActions>
+      </div>
+    </div>
+  )
+}
 
-const crumbTriggerClass =
-  "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
+function CommentReplies({
+  editable,
+  mentionCandidates,
+  replies,
+  repliesByParentId,
+  targetId,
+  targetType,
+}: {
+  editable: boolean
+  mentionCandidates: AppData["users"]
+  replies: AppData["comments"]
+  repliesByParentId: Record<string, AppData["comments"]>
+  targetId: string
+  targetType: "workItem" | "document"
+}) {
+  if (replies.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="ml-4 flex flex-col gap-3 border-l pl-4">
+      {replies.map((reply) => (
+        <CommentThreadItem
+          key={reply.id}
+          comment={reply}
+          repliesByParentId={repliesByParentId}
+          editable={editable}
+          targetType={targetType}
+          targetId={targetId}
+          mentionCandidates={mentionCandidates}
+        />
+      ))}
+    </div>
+  )
+}
 
 function CommentThreadItem({
   comment,
@@ -215,165 +446,44 @@ function CommentThreadItem({
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border bg-card/60 p-4">
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-medium">{author?.name}</span>
-        <span className="text-xs text-muted-foreground">
-          {format(new Date(comment.createdAt), "MMM d, h:mm a")}
-        </span>
-      </div>
+      <CommentThreadHeader authorName={author?.name} createdAt={comment.createdAt} />
 
       <RichTextContent
         content={comment.content}
         className="text-sm leading-7 text-muted-foreground [&_p]:my-0 [&_p+p]:mt-2"
       />
 
-      <div className="flex flex-wrap items-center gap-2">
-        {comment.reactions.map((reaction) => {
-          const active = reaction.userIds.includes(currentUserId)
-
-          return (
-            <button
-              key={`${comment.id}-${reaction.emoji}`}
-              type="button"
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition-colors",
-                active
-                  ? "border-primary/40 bg-primary/10 text-foreground"
-                  : "hover:bg-accent"
-              )}
-              onClick={() =>
-                useAppStore
-                  .getState()
-                  .toggleCommentReaction(comment.id, reaction.emoji)
-              }
-            >
-              <span>{reaction.emoji}</span>
-              <span>{reaction.userIds.length}</span>
-            </button>
-          )
-        })}
-        {editable ? (
-          <EmojiPickerPopover
-            align="start"
-            side="top"
-            onEmojiSelect={(emoji) => {
-              useAppStore.getState().toggleCommentReaction(comment.id, emoji)
-            }}
-            trigger={
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <Smiley className="size-3.5" />
-                <span>React</span>
-              </button>
-            }
-          />
-        ) : null}
-        {editable ? (
-          <button
-            type="button"
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-            onClick={() => setReplyOpen((current) => !current)}
-          >
-            Reply
-          </button>
-        ) : null}
-      </div>
+      <CommentThreadActions
+        comment={comment}
+        currentUserId={currentUserId}
+        editable={editable}
+        onReplyToggle={() => setReplyOpen((current) => !current)}
+      />
 
       {replyOpen ? (
-        <div className="flex flex-col gap-2 rounded-lg border bg-background/70 p-3">
-          <div className="rounded-md border border-line bg-surface px-3 py-2 transition-colors focus-within:border-fg-3">
-            <RichTextEditor
-              content={replyContent}
-              onChange={setReplyContent}
-              editable={editable}
-              compact
-              autoFocus
-              allowSlashCommands={false}
-              showToolbar={false}
-              showStats={false}
-              placeholder="Reply to this thread..."
-              editorInstanceRef={replyEditorRef}
-              mentionCandidates={mentionCandidates}
-              minPlainTextCharacters={commentContentConstraints.min}
-              maxPlainTextCharacters={commentContentConstraints.max}
-              enforcePlainTextLimit
-              onSubmitShortcut={handleReply}
-              submitOnEnter
-              className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
-            />
-          </div>
-          <div>
-            <FieldCharacterLimit
-              state={replyLimitState}
-              limit={commentContentConstraints.max}
-              className="mt-0 mb-1.5"
-            />
-            <div className="flex items-center justify-between gap-2">
-              <EmojiPickerPopover
-                align="start"
-                side="top"
-                onEmojiSelect={(emoji) =>
-                  replyEditorRef.current
-                    ?.chain()
-                    .focus()
-                    .insertContent(emoji)
-                    .run()
-                }
-                trigger={
-                  <button
-                    type="button"
-                    className="rounded-md p-1 text-foreground transition-colors hover:bg-accent"
-                  >
-                    <Smiley className="size-4" />
-                  </button>
-                }
-              />
-              <ShortcutKeys
-                keys={["Enter"]}
-                className="ml-auto"
-                keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
-              />
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setReplyContent("")
-                    setReplyOpen(false)
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={!replyLimitState.canSubmit}
-                  onClick={handleReply}
-                >
-                  Reply
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <CommentReplyComposer
+          editable={editable}
+          mentionCandidates={mentionCandidates}
+          replyContent={replyContent}
+          replyEditorRef={replyEditorRef}
+          replyLimitState={replyLimitState}
+          setReplyContent={setReplyContent}
+          onCancel={() => {
+            setReplyContent("")
+            setReplyOpen(false)
+          }}
+          onReply={handleReply}
+        />
       ) : null}
 
-      {replies.length > 0 ? (
-        <div className="ml-4 flex flex-col gap-3 border-l pl-4">
-          {replies.map((reply) => (
-            <CommentThreadItem
-              key={reply.id}
-              comment={reply}
-              repliesByParentId={repliesByParentId}
-              editable={editable}
-              targetType={targetType}
-              targetId={targetId}
-              mentionCandidates={mentionCandidates}
-            />
-          ))}
-        </div>
-      ) : null}
+      <CommentReplies
+        editable={editable}
+        mentionCandidates={mentionCandidates}
+        replies={replies}
+        repliesByParentId={repliesByParentId}
+        targetId={targetId}
+        targetType={targetType}
+      />
     </div>
   )
 }
@@ -442,50 +552,20 @@ export function CommentsInline({
     return candidateUsers.filter((candidate) => memberIds.has(candidate.id))
   }, [currentUserId, targetTeamId, teamMemberships, users])
   const rootComments = useMemo(
-    () => comments.filter((comment) => comment.parentCommentId === null),
+    () => getRootComments(comments),
     [comments]
   )
   const repliesByParentId = useMemo(
-    () =>
-      comments.reduce<Record<string, AppData["comments"]>>(
-        (accumulator, comment) => {
-          if (!comment.parentCommentId) {
-            return accumulator
-          }
-
-          accumulator[comment.parentCommentId] = [
-            ...(accumulator[comment.parentCommentId] ?? []),
-            comment,
-          ]
-
-          return accumulator
-        },
-        {}
-      ),
+    () => groupCommentsByParentId(comments),
     [comments]
   )
-  const [content, setContent] = useState("")
-  const commentEditorRef = useRef<Editor | null>(null)
-  const commentLimitState = getTextInputLimitState(
+  const {
+    commentEditorRef,
+    commentLimitState,
     content,
-    commentContentConstraints,
-    {
-      plainText: true,
-    }
-  )
-
-  function handleComment() {
-    if (!commentLimitState.canSubmit) {
-      return
-    }
-
-    useAppStore.getState().addComment({
-      targetType,
-      targetId,
-      content,
-    })
-    setContent("")
-  }
+    handleComment,
+    setContent,
+  } = useCommentComposer(targetType, targetId)
 
   return (
     <div className="flex flex-col gap-4">
@@ -522,35 +602,14 @@ export function CommentsInline({
           />
         </div>
         <div>
-          <FieldCharacterLimit
-            state={commentLimitState}
-            limit={commentContentConstraints.max}
-            className="mt-0 mb-1.5"
-          />
-          <div className="flex items-center justify-between gap-2">
-            <EmojiPickerPopover
-              align="start"
-              side="top"
-              onEmojiSelect={(emoji) =>
-                commentEditorRef.current
-                  ?.chain()
-                  .focus()
-                  .insertContent(emoji)
-                  .run()
-              }
-              trigger={
-                <button
-                  type="button"
-                  disabled={!editable}
-                  className="rounded-md p-1 text-foreground transition-colors hover:bg-accent disabled:text-muted-foreground/50 disabled:hover:bg-transparent"
-                >
-                  <Smiley className="size-4" />
-                </button>
-              }
-            />
+          <WorkItemCommentComposerActions
+            editable={editable}
+            editorRef={commentEditorRef}
+            limitState={commentLimitState}
+          >
             <ShortcutKeys
               keys={["Enter"]}
-              keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+              keyClassName={WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS}
             />
             <Button
               size="sm"
@@ -559,7 +618,7 @@ export function CommentsInline({
             >
               Comment
             </Button>
-          </div>
+          </WorkItemCommentComposerActions>
         </div>
       </div>
     </div>
@@ -614,256 +673,6 @@ function InlineChildIssueFields({
   )
 }
 
-function InlineChildTypePicker({
-  availableItemTypes,
-  open,
-  selectedType,
-  selectedTypeLabel,
-  team,
-  onOpenChange,
-  onSelect,
-}: {
-  availableItemTypes: WorkItemType[]
-  open: boolean
-  selectedType: WorkItemType
-  selectedTypeLabel: string
-  team: TeamRecord | null
-  onOpenChange: (open: boolean) => void
-  onSelect: (value: WorkItemType) => void
-}) {
-  if (availableItemTypes.length === 0) {
-    return null
-  }
-
-  if (availableItemTypes.length === 1) {
-    return (
-      <div
-        className={cn(crumbTriggerClass, "cursor-default hover:bg-transparent")}
-      >
-        <span className="font-medium text-foreground">{selectedTypeLabel}</span>
-      </div>
-    )
-  }
-
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={crumbTriggerClass}
-          disabled={availableItemTypes.length === 0 || !team}
-        >
-          <span className="font-medium text-foreground">
-            {selectedTypeLabel}
-          </span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
-      >
-        <PropertyPopoverList>
-          <PropertyPopoverGroup>Work item type</PropertyPopoverGroup>
-          {availableItemTypes.map((value) => (
-            <PropertyPopoverItem
-              key={value}
-              selected={value === selectedType}
-              onClick={() => onSelect(value)}
-              trailing={
-                value === selectedType ? (
-                  <Check className="size-[14px] text-foreground" />
-                ) : null
-              }
-            >
-              <span className="truncate">
-                {getDisplayLabelForWorkItemType(
-                  value,
-                  team?.settings.experience
-                )}
-              </span>
-            </PropertyPopoverItem>
-          ))}
-        </PropertyPopoverList>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function getStatusPickerMatches(
-  teamStatuses: WorkStatus[],
-  statusQuery: string
-) {
-  return {
-    activeMatches: teamStatuses.filter(
-      (value) =>
-        OPEN_STATUSES.includes(value) &&
-        matchesQuery(statusMeta[value].label, statusQuery)
-    ),
-    closedMatches: teamStatuses.filter(
-      (value) =>
-        CLOSED_STATUSES.includes(value) &&
-        matchesQuery(statusMeta[value].label, statusQuery)
-    ),
-  }
-}
-
-function InlineChildStatusPicker({
-  open,
-  status,
-  statusQuery,
-  team,
-  teamStatuses,
-  onOpenChange,
-  onQueryChange,
-  onSelect,
-}: {
-  open: boolean
-  status: WorkStatus
-  statusQuery: string
-  team: TeamRecord | null
-  teamStatuses: WorkStatus[]
-  onOpenChange: (open: boolean) => void
-  onQueryChange: (value: string) => void
-  onSelect: (value: WorkStatus) => void
-}) {
-  const { activeMatches, closedMatches } = getStatusPickerMatches(
-    teamStatuses,
-    statusQuery
-  )
-  const hasMatches = activeMatches.length > 0 || closedMatches.length > 0
-
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        onOpenChange(next)
-        if (!next) onQueryChange("")
-      }}
-    >
-      <PopoverTrigger asChild>
-        <button type="button" className={chipTriggerClass} disabled={!team}>
-          <StatusIcon status={status} />
-          <span className="font-medium text-foreground">
-            {statusMeta[status].label}
-          </span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
-        <PropertyPopoverSearch
-          icon={<MagnifyingGlass className="size-[14px]" />}
-          placeholder="Change status…"
-          value={statusQuery}
-          onChange={onQueryChange}
-        />
-        <PropertyPopoverList>
-          {activeMatches.length > 0 ? (
-            <>
-              <PropertyPopoverGroup>Active</PropertyPopoverGroup>
-              {activeMatches.map((value) => (
-                <PropertyPopoverItem
-                  key={value}
-                  selected={value === status}
-                  onClick={() => onSelect(value)}
-                  trailing={
-                    value === status ? (
-                      <Check className="size-[14px] text-foreground" />
-                    ) : null
-                  }
-                >
-                  <StatusIcon status={value} />
-                  <span>{statusMeta[value].label}</span>
-                </PropertyPopoverItem>
-              ))}
-            </>
-          ) : null}
-          {closedMatches.length > 0 ? (
-            <>
-              <PropertyPopoverGroup>Closed</PropertyPopoverGroup>
-              {closedMatches.map((value) => (
-                <PropertyPopoverItem
-                  key={value}
-                  selected={value === status}
-                  onClick={() => onSelect(value)}
-                  trailing={
-                    value === status ? (
-                      <Check className="size-[14px] text-foreground" />
-                    ) : null
-                  }
-                >
-                  <StatusIcon status={value} />
-                  <span>{statusMeta[value].label}</span>
-                </PropertyPopoverItem>
-              ))}
-            </>
-          ) : null}
-          {!hasMatches ? (
-            <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
-              No statuses match
-            </div>
-          ) : null}
-        </PropertyPopoverList>
-        <PropertyPopoverFoot>
-          <span>↑↓ to navigate · ↵ to select</span>
-        </PropertyPopoverFoot>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function InlineChildPriorityPicker({
-  open,
-  priority,
-  team,
-  onOpenChange,
-  onSelect,
-}: {
-  open: boolean
-  priority: Priority
-  team: TeamRecord | null
-  onOpenChange: (open: boolean) => void
-  onSelect: (value: Priority) => void
-}) {
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <button type="button" className={chipTriggerClass} disabled={!team}>
-          <PriorityDot priority={priority} />
-          <span className="font-medium text-foreground">
-            {priorityMeta[priority].label}
-          </span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
-      >
-        <PropertyPopoverList>
-          {PRIORITY_ORDER.map((value) => (
-            <PropertyPopoverItem
-              key={value}
-              selected={value === priority}
-              onClick={() => onSelect(value)}
-              trailing={
-                value === priority ? (
-                  <Check className="size-[14px] text-foreground" />
-                ) : null
-              }
-            >
-              <PriorityIcon priority={value} />
-              <span>
-                {value === "none" ? "No priority" : priorityMeta[value].label}
-              </span>
-            </PropertyPopoverItem>
-          ))}
-        </PropertyPopoverList>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
 function InlineChildAssigneePicker({
   assigneeId,
   assigneeQuery,
@@ -885,98 +694,18 @@ function InlineChildAssigneePicker({
   onQueryChange: (value: string) => void
   onSelect: (value: string) => void
 }) {
-  const matches = teamMembers.filter((user) =>
-    matchesQuery(user.name, assigneeQuery)
-  )
-
   return (
-    <Popover
+    <PropertyAssigneePicker
       open={open}
-      onOpenChange={(next) => {
-        onOpenChange(next)
-        if (!next) onQueryChange("")
-      }}
-    >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            chipTriggerClass,
-            !selectedAssignee && chipTriggerDashedClass
-          )}
-          disabled={!team}
-        >
-          {selectedAssignee ? (
-            <AssigneeOption
-              name={selectedAssignee.name}
-              avatarImageUrl={selectedAssignee.avatarImageUrl}
-              avatarUrl={selectedAssignee.avatarUrl}
-            />
-          ) : (
-            <span className="flex items-center gap-1.5 text-fg-3">
-              <span className="inline-grid size-[18px] place-items-center rounded-full border border-dashed border-line text-[9px] text-fg-3">
-                ?
-              </span>
-              Unassigned
-            </span>
-          )}
-          <CaretDown className="size-3 shrink-0 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[300px]")}
-      >
-        <PropertyPopoverSearch
-          icon={<MagnifyingGlass className="size-[14px]" />}
-          placeholder="Assign someone…"
-          value={assigneeQuery}
-          onChange={onQueryChange}
-        />
-        <PropertyPopoverList>
-          {matches.length > 0 ? (
-            <>
-              <PropertyPopoverGroup>Members</PropertyPopoverGroup>
-              {matches.map((user) => (
-                <PropertyPopoverItem
-                  key={user.id}
-                  selected={user.id === assigneeId}
-                  onClick={() => onSelect(user.id)}
-                  trailing={
-                    user.id === assigneeId ? (
-                      <Check className="size-[14px] text-foreground" />
-                    ) : null
-                  }
-                >
-                  <AssigneeOption
-                    name={user.name}
-                    avatarImageUrl={user.avatarImageUrl}
-                    avatarUrl={user.avatarUrl}
-                  />
-                </PropertyPopoverItem>
-              ))}
-            </>
-          ) : (
-            <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
-              No members match
-            </div>
-          )}
-          <PropertyPopoverItem
-            muted
-            selected={assigneeId === "none"}
-            onClick={() => onSelect("none")}
-            trailing={
-              assigneeId === "none" ? (
-                <Check className="size-[14px] text-foreground" />
-              ) : null
-            }
-          >
-            <X className="size-[14px] shrink-0" />
-            <span>Unassign</span>
-          </PropertyPopoverItem>
-        </PropertyPopoverList>
-      </PopoverContent>
-    </Popover>
+      onOpenChange={onOpenChange}
+      query={assigneeQuery}
+      onQueryChange={onQueryChange}
+      members={teamMembers}
+      selectedAssignee={selectedAssignee}
+      selectedAssigneeId={assigneeId}
+      disabled={!team}
+      onSelect={onSelect}
+    />
   )
 }
 
@@ -1031,6 +760,216 @@ function InlineChildComposerActions({
   )
 }
 
+function useInlineChildComposerData({
+  parentItem,
+  teamId,
+}: {
+  parentItem: WorkItem
+  teamId: string
+}) {
+  const { projects, teamMemberships, teams, users } = useAppStore(
+    useShallow((state) => ({
+      projects: state.projects,
+      teamMemberships: state.teamMemberships,
+      teams: state.teams,
+      users: state.users,
+    }))
+  )
+  const team = useMemo(
+    () => teams.find((entry) => entry.id === teamId) ?? null,
+    [teamId, teams]
+  )
+  const teamMembers = useMemo(() => {
+    return getUsersForTeamMemberships({
+      teamId,
+      teamMemberships,
+      users,
+    })
+  }, [teamId, teamMemberships, users])
+  const teamProjects = useMemo(() => {
+    return getInlineChildTeamProjects({ parentItem, projects, teamId })
+  }, [parentItem, projects, teamId])
+
+  return {
+    team,
+    teamMembers,
+    teamProjects,
+  }
+}
+
+function getInitialInlineChildStatus(teamStatuses: WorkStatus[]) {
+  return teamStatuses.includes("todo") ? "todo" : (teamStatuses[0] ?? "backlog")
+}
+
+function useInlineChildIssueDraft({
+  teamExperience,
+  teamStatuses,
+}: {
+  teamExperience: Parameters<typeof getPreferredWorkItemTypeForTeamExperience>[0]
+  teamStatuses: WorkStatus[]
+}) {
+  const [type, setType] = useState<WorkItemType>(
+    getPreferredWorkItemTypeForTeamExperience(teamExperience, {
+      parent: true,
+    })
+  )
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const pickerState = useWorkItemCorePickerState()
+  const [status, setStatus] = useState<WorkStatus>(
+    getInitialInlineChildStatus(teamStatuses)
+  )
+  const [priority, setPriority] = useState<Priority>("none")
+  const [assigneeId, setAssigneeId] = useState<string>("none")
+
+  return {
+    assigneeId,
+    description,
+    pickerState,
+    priority,
+    setAssigneeId,
+    setDescription,
+    setPriority,
+    setStatus,
+    setTitle,
+    setType,
+    status,
+    title,
+    type,
+  }
+}
+
+function InlineChildIssueToolbar({
+  assigneeId,
+  assigneePickerOpen,
+  assigneeQuery,
+  availableItemTypes,
+  canCreate,
+  priority,
+  priorityPickerOpen,
+  selectedAssignee,
+  selectedProject,
+  selectedType,
+  selectedTypeLabel,
+  setAssigneeId,
+  setAssigneePickerOpen,
+  setAssigneeQuery,
+  setPriority,
+  setPriorityPickerOpen,
+  setStatus,
+  setStatusPickerOpen,
+  setStatusQuery,
+  setType,
+  setTypePickerOpen,
+  status,
+  statusPickerOpen,
+  statusQuery,
+  team,
+  teamMembers,
+  teamStatuses,
+  typePickerOpen,
+  onCancel,
+  onCreate,
+}: {
+  assigneeId: string
+  assigneePickerOpen: boolean
+  assigneeQuery: string
+  availableItemTypes: WorkItemType[]
+  canCreate: boolean
+  priority: Priority
+  priorityPickerOpen: boolean
+  selectedAssignee: ReturnType<
+    typeof getInlineChildIssueComposerModel
+  >["selectedAssignee"]
+  selectedProject: ReturnType<
+    typeof getInlineChildIssueComposerModel
+  >["selectedProject"]
+  selectedType: WorkItemType
+  selectedTypeLabel: string
+  setAssigneeId: (value: string) => void
+  setAssigneePickerOpen: (open: boolean) => void
+  setAssigneeQuery: (query: string) => void
+  setPriority: (value: Priority) => void
+  setPriorityPickerOpen: (open: boolean) => void
+  setStatus: (value: WorkStatus) => void
+  setStatusPickerOpen: (open: boolean) => void
+  setStatusQuery: (query: string) => void
+  setType: (value: WorkItemType) => void
+  setTypePickerOpen: (open: boolean) => void
+  status: WorkStatus
+  statusPickerOpen: boolean
+  statusQuery: string
+  team: ReturnType<typeof useInlineChildComposerData>["team"]
+  teamMembers: ReturnType<typeof useInlineChildComposerData>["teamMembers"]
+  teamStatuses: WorkStatus[]
+  typePickerOpen: boolean
+  onCancel: () => void
+  onCreate: () => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-3 py-2">
+      <WorkItemTypePropertyPicker
+        availableItemTypes={availableItemTypes}
+        collapseSingleOption
+        hideWhenEmpty
+        open={typePickerOpen}
+        selectedType={selectedType}
+        selectedTypeLabel={selectedTypeLabel}
+        team={team}
+        onOpenChange={setTypePickerOpen}
+        onSelect={(value) => {
+          setType(value)
+          setTypePickerOpen(false)
+        }}
+      />
+      <WorkItemStatusPropertyPicker
+        open={statusPickerOpen}
+        status={status}
+        query={statusQuery}
+        team={team}
+        teamStatuses={teamStatuses}
+        onOpenChange={setStatusPickerOpen}
+        onQueryChange={setStatusQuery}
+        onSelect={(value: WorkStatus) => {
+          setStatus(value)
+          setStatusPickerOpen(false)
+        }}
+      />
+      <WorkItemPriorityPropertyPicker
+        open={priorityPickerOpen}
+        priority={priority}
+        team={team}
+        onOpenChange={setPriorityPickerOpen}
+        onSelect={(value: Priority) => {
+          setPriority(value)
+          setPriorityPickerOpen(false)
+        }}
+      />
+      <InlineChildAssigneePicker
+        assigneeId={assigneeId}
+        assigneeQuery={assigneeQuery}
+        open={assigneePickerOpen}
+        selectedAssignee={selectedAssignee}
+        team={team}
+        teamMembers={teamMembers}
+        onOpenChange={setAssigneePickerOpen}
+        onQueryChange={setAssigneeQuery}
+        onSelect={(value) => {
+          setAssigneeId(value)
+          setAssigneePickerOpen(false)
+        }}
+      />
+      <InlineChildProjectChip selectedProject={selectedProject} />
+      <InlineChildComposerActions
+        canCreate={canCreate}
+        selectedTypeLabel={selectedTypeLabel}
+        onCancel={onCancel}
+        onCreate={onCreate}
+      />
+    </div>
+  )
+}
+
 export function InlineChildIssueComposer({
   teamId,
   parentItem,
@@ -1044,131 +983,67 @@ export function InlineChildIssueComposer({
   onCancel: () => void
   onCreated: () => void
 }) {
-  const teams = useAppStore((state) => state.teams)
-  const teamMemberships = useAppStore((state) => state.teamMemberships)
-  const users = useAppStore((state) => state.users)
-  const projects = useAppStore((state) => state.projects)
-  const team = useMemo(
-    () => teams.find((entry) => entry.id === teamId) ?? null,
-    [teamId, teams]
-  )
-  const teamMembers = useMemo(() => {
-    const memberIds = new Set(
-      teamMemberships
-        .filter((membership) => membership.teamId === teamId)
-        .map((membership) => membership.userId)
-    )
-
-    return users.filter((user) => memberIds.has(user.id))
-  }, [teamId, teamMemberships, users])
-  const teamProjects = useMemo(() => {
-    const scopedProjects = projects.filter(
-      (project) => project.scopeType === "team" && project.scopeId === teamId
-    )
-
-    if (!parentItem.primaryProjectId) {
-      return scopedProjects
-    }
-
-    const selectedProject =
-      projects.find((project) => project.id === parentItem.primaryProjectId) ??
-      null
-
-    if (
-      !selectedProject ||
-      scopedProjects.some((project) => project.id === selectedProject.id)
-    ) {
-      return scopedProjects
-    }
-
-    return [selectedProject, ...scopedProjects]
-  }, [parentItem.primaryProjectId, projects, teamId])
+  const { team, teamMembers, teamProjects } = useInlineChildComposerData({
+    parentItem,
+    teamId,
+  })
   const childCopy = getChildWorkItemCopy(
     parentItem.type,
     team?.settings.experience
   )
   const teamStatuses = getStatusOrderForTeam(team)
-  const [type, setType] = useState<WorkItemType>(
-    getPreferredWorkItemTypeForTeamExperience(team?.settings.experience, {
-      parent: true,
-    })
-  )
-  const [title, setTitle] = useState("")
-  const [description, setDescription] = useState("")
-  const [typePickerOpen, setTypePickerOpen] = useState(false)
-  const [statusPickerOpen, setStatusPickerOpen] = useState(false)
-  const [statusQuery, setStatusQuery] = useState("")
-  const [priorityPickerOpen, setPriorityPickerOpen] = useState(false)
-  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false)
-  const [assigneeQuery, setAssigneeQuery] = useState("")
-  const [status, setStatus] = useState<WorkStatus>(
-    teamStatuses.includes("todo") ? "todo" : (teamStatuses[0] ?? "backlog")
-  )
-  const [priority, setPriority] = useState<Priority>("none")
-  const [assigneeId, setAssigneeId] = useState<string>("none")
+  const draft = useInlineChildIssueDraft({
+    teamExperience: team?.settings.experience,
+    teamStatuses,
+  })
+  const model = getInlineChildIssueComposerModel({
+    assigneeId: draft.assigneeId,
+    disabled,
+    parentItem,
+    projectId: parentItem.primaryProjectId ?? "none",
+    team,
+    teamMembers,
+    teamProjects,
+    title: draft.title,
+    type: draft.type,
+  })
+  const pickerState = draft.pickerState
   const projectId = parentItem.primaryProjectId ?? "none"
-  const fallbackType = getPreferredWorkItemTypeForTeamExperience(
-    team?.settings.experience,
-    {
-      parent: true,
-    }
-  )
-  const selectedProject =
-    projectId === "none"
-      ? null
-      : (teamProjects.find((project) => project.id === projectId) ?? null)
-  const baseItemTypes = selectedProject
-    ? getAllowedWorkItemTypesForTemplate(selectedProject.templateType)
-    : getDefaultWorkItemTypesForTeamExperience(team?.settings.experience)
-  const availableItemTypes = baseItemTypes.filter((value) =>
-    getAllowedChildWorkItemTypesForItem(parentItem).includes(value)
-  )
-  const selectedType = availableItemTypes.includes(type)
-    ? type
-    : (availableItemTypes[0] ?? fallbackType)
-  const selectedTypeLabel = getDisplayLabelForWorkItemType(
-    selectedType,
-    team?.settings.experience
-  )
-  const selectedAssignee =
-    assigneeId === "none"
-      ? null
-      : (teamMembers.find((user) => user.id === assigneeId) ?? null)
-  const normalizedTitle = title.trim()
-  const titleLimitState = getTextInputLimitState(
-    title,
-    workItemTitleConstraints
-  )
-  const canCreate =
-    !disabled && titleLimitState.canSubmit && availableItemTypes.length > 0
+
+  const {
+    assigneePickerOpen,
+    assigneeQuery,
+    priorityPickerOpen,
+    setAssigneePickerOpen,
+    setAssigneeQuery,
+    setPriorityPickerOpen,
+    setStatusPickerOpen,
+    setStatusQuery,
+    setTypePickerOpen,
+    statusPickerOpen,
+    statusQuery,
+    typePickerOpen,
+  } = pickerState
 
   function handleCreate() {
-    if (!titleLimitState.canSubmit) {
+    if (!model.titleLimitState.canSubmit) {
       return
     }
 
-    const createdItemId = useAppStore.getState().createWorkItem({
+    const createdItemId = createInlineChildWorkItem({
+      assigneeId: draft.assigneeId,
+      description: draft.description,
+      normalizedTitle: model.normalizedTitle,
+      parentItem,
+      priority: draft.priority,
+      projectId,
+      selectedType: model.selectedType,
+      status: draft.status,
       teamId,
-      type: selectedType,
-      title: normalizedTitle,
-      priority,
-      status,
-      parentId: parentItem.id,
-      assigneeId: assigneeId === "none" ? null : assigneeId,
-      primaryProjectId: projectId === "none" ? null : projectId,
     })
 
     if (!createdItemId) {
       return
-    }
-
-    if (description.trim()) {
-      useAppStore
-        .getState()
-        .updateItemDescription(
-          createdItemId,
-          formatInlineDescriptionContent(description)
-        )
     }
 
     onCreated()
@@ -1178,71 +1053,45 @@ export function InlineChildIssueComposer({
     <div className="rounded-b-lg bg-background">
       <InlineChildIssueFields
         childTitlePlaceholder={childCopy.titlePlaceholder}
-        description={description}
-        title={title}
-        titleLimitState={titleLimitState}
-        onDescriptionChange={setDescription}
-        onTitleChange={setTitle}
+        description={draft.description}
+        title={draft.title}
+        titleLimitState={model.titleLimitState}
+        onDescriptionChange={draft.setDescription}
+        onTitleChange={draft.setTitle}
       />
 
-      <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-3 py-2">
-        <InlineChildTypePicker
-          availableItemTypes={availableItemTypes}
-          open={typePickerOpen}
-          selectedType={selectedType}
-          selectedTypeLabel={selectedTypeLabel}
-          team={team}
-          onOpenChange={setTypePickerOpen}
-          onSelect={(value) => {
-            setType(value)
-            setTypePickerOpen(false)
-          }}
-        />
-        <InlineChildStatusPicker
-          open={statusPickerOpen}
-          status={status}
-          statusQuery={statusQuery}
-          team={team}
-          teamStatuses={teamStatuses}
-          onOpenChange={setStatusPickerOpen}
-          onQueryChange={setStatusQuery}
-          onSelect={(value) => {
-            setStatus(value)
-            setStatusPickerOpen(false)
-          }}
-        />
-        <InlineChildPriorityPicker
-          open={priorityPickerOpen}
-          priority={priority}
-          team={team}
-          onOpenChange={setPriorityPickerOpen}
-          onSelect={(value) => {
-            setPriority(value)
-            setPriorityPickerOpen(false)
-          }}
-        />
-        <InlineChildAssigneePicker
-          assigneeId={assigneeId}
-          assigneeQuery={assigneeQuery}
-          open={assigneePickerOpen}
-          selectedAssignee={selectedAssignee}
-          team={team}
-          teamMembers={teamMembers}
-          onOpenChange={setAssigneePickerOpen}
-          onQueryChange={setAssigneeQuery}
-          onSelect={(value) => {
-            setAssigneeId(value)
-            setAssigneePickerOpen(false)
-          }}
-        />
-        <InlineChildProjectChip selectedProject={selectedProject} />
-        <InlineChildComposerActions
-          canCreate={canCreate}
-          selectedTypeLabel={selectedTypeLabel}
-          onCancel={onCancel}
-          onCreate={handleCreate}
-        />
-      </div>
+      <InlineChildIssueToolbar
+        assigneeId={draft.assigneeId}
+        assigneePickerOpen={assigneePickerOpen}
+        assigneeQuery={assigneeQuery}
+        availableItemTypes={model.availableItemTypes}
+        canCreate={model.canCreate}
+        priority={draft.priority}
+        priorityPickerOpen={priorityPickerOpen}
+        selectedAssignee={model.selectedAssignee}
+        selectedProject={model.selectedProject}
+        selectedType={model.selectedType}
+        selectedTypeLabel={model.selectedTypeLabel}
+        setAssigneeId={draft.setAssigneeId}
+        setAssigneePickerOpen={setAssigneePickerOpen}
+        setAssigneeQuery={setAssigneeQuery}
+        setPriority={draft.setPriority}
+        setPriorityPickerOpen={setPriorityPickerOpen}
+        setStatus={draft.setStatus}
+        setStatusPickerOpen={setStatusPickerOpen}
+        setStatusQuery={setStatusQuery}
+        setType={draft.setType}
+        setTypePickerOpen={setTypePickerOpen}
+        status={draft.status}
+        statusPickerOpen={statusPickerOpen}
+        statusQuery={statusQuery}
+        team={team}
+        teamMembers={teamMembers}
+        teamStatuses={teamStatuses}
+        typePickerOpen={typePickerOpen}
+        onCancel={onCancel}
+        onCreate={handleCreate}
+      />
     </div>
   )
 }

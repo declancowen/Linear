@@ -1,47 +1,21 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import "@/tests/lib/fixtures/rich-text-composer-mocks"
 import { CommentsInline } from "@/components/app/screens/work-item-ui"
+import {
+  createInlineChildWorkItem,
+  getInlineChildIssueComposerModel,
+  getInlineChildTeamProjects,
+} from "@/components/app/screens/inline-child-composer-state"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
-
-vi.mock("@/components/app/rich-text-editor", () => ({
-  RichTextEditor: ({
-    content,
-    onChange,
-    placeholder,
-  }: {
-    content: string
-    onChange: (value: string) => void
-    placeholder?: string
-  }) => (
-    <textarea
-      aria-label={placeholder ?? "Rich text editor"}
-      value={content}
-      onChange={(event) => onChange(event.target.value)}
-    />
-  ),
-}))
-
-vi.mock("@/components/app/emoji-picker-popover", () => ({
-  EmojiPickerPopover: ({ trigger }: { trigger: ReactNode }) => trigger,
-}))
-
-vi.mock("@/components/app/shortcut-keys", () => ({
-  ShortcutKeys: () => null,
-}))
-
-vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-}))
+import {
+  createTestProject,
+  createTestTeam,
+  createTestUser,
+  createTestWorkItem,
+} from "@/tests/lib/fixtures/app-data"
 
 describe("CommentsInline", () => {
   const consoleErrorSpy = vi
@@ -54,44 +28,22 @@ describe("CommentsInline", () => {
       currentUserId: "user_1",
       currentWorkspaceId: "workspace_1",
       users: [
-        {
+        createTestUser({
           id: "user_1",
           name: "Alex",
           handle: "alex",
           email: "alex@example.com",
-          avatarUrl: "",
-          avatarImageUrl: null,
-          workosUserId: null,
           title: "Founder",
-          status: "active",
-          statusMessage: "",
           hasExplicitStatus: false,
-          preferences: {
-            emailMentions: true,
-            emailAssignments: true,
-            emailDigest: true,
-            theme: "system",
-          },
-        },
-        {
+        }),
+        createTestUser({
           id: "user_2",
           name: "Taylor",
           handle: "taylor",
           email: "taylor@example.com",
-          avatarUrl: "",
-          avatarImageUrl: null,
-          workosUserId: null,
           title: "Engineer",
-          status: "active",
-          statusMessage: "",
           hasExplicitStatus: false,
-          preferences: {
-            emailMentions: true,
-            emailAssignments: true,
-            emailDigest: true,
-            theme: "system",
-          },
-        },
+        }),
       ],
       teamMemberships: [
         {
@@ -157,6 +109,90 @@ describe("CommentsInline", () => {
 
   afterAll(() => {
     consoleErrorSpy.mockRestore()
+  })
+
+  it("derives inline child project and composer state in the work-item owner", () => {
+    const parentItem = createTestWorkItem("parent_1", {
+      primaryProjectId: "project_external",
+      type: "task",
+    })
+    const teamProject = createTestProject({
+      id: "project_team",
+      templateType: "project-management",
+    })
+    const externalProject = createTestProject({
+      id: "project_external",
+      scopeId: "team_other",
+      templateType: "project-management",
+    })
+    const teamProjects = getInlineChildTeamProjects({
+      parentItem,
+      projects: [teamProject, externalProject],
+      teamId: "team_1",
+    })
+    const model = getInlineChildIssueComposerModel({
+      assigneeId: "user_2",
+      disabled: false,
+      parentItem,
+      projectId: "project_external",
+      team: createTestTeam({
+        settings: {
+          experience: "project-management",
+        },
+      }),
+      teamMembers: [
+        createTestUser({ id: "user_2", name: "Taylor" }),
+      ],
+      teamProjects,
+      title: " Child task ",
+      type: "sub-task",
+    })
+
+    expect(teamProjects.map((project) => project.id)).toEqual([
+      "project_external",
+      "project_team",
+    ])
+    expect(model.canCreate).toBe(true)
+    expect(model.normalizedTitle).toBe("Child task")
+    expect(model.selectedAssignee?.id).toBe("user_2")
+    expect(model.selectedProject?.id).toBe("project_external")
+  })
+
+  it("creates inline child items with normalized optional fields and descriptions", () => {
+    const createWorkItem = vi.fn().mockReturnValue("item_child")
+    const updateItemDescription = vi.fn()
+    useAppStore.setState({
+      ...createEmptyState(),
+      createWorkItem: createWorkItem as never,
+      updateItemDescription: updateItemDescription as never,
+    })
+
+    expect(
+      createInlineChildWorkItem({
+        assigneeId: "none",
+        description: "Follow up",
+        normalizedTitle: "Child item",
+        parentItem: createTestWorkItem("parent_1"),
+        priority: "medium",
+        projectId: "none",
+        selectedType: "task",
+        status: "todo",
+        teamId: "team_1",
+      })
+    ).toBe("item_child")
+
+    expect(createWorkItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assigneeId: null,
+        parentId: "parent_1",
+        primaryProjectId: null,
+        title: "Child item",
+      })
+    )
+    expect(updateItemDescription).toHaveBeenCalledWith(
+      "item_child",
+      "<p>Follow up</p>"
+    )
   })
 
   it("renders without snapshot loop warnings for work item comments", () => {

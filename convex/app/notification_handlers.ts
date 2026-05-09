@@ -71,6 +71,23 @@ type PendingNotificationDigest = {
   notifications: PendingDigestNotification[]
 }
 
+async function requireOwnedNotification(
+  ctx: MutationCtx,
+  args: NotificationMutationArgs
+) {
+  const notification = await getOwnedNotificationOrNull(
+    ctx,
+    args.notificationId,
+    args.currentUserId
+  )
+
+  if (!notification) {
+    throw new Error("Notification not found")
+  }
+
+  return notification
+}
+
 async function buildPendingNotificationDigests(
   ctx: QueryCtx | MutationCtx,
   pendingNotifications: Awaited<ReturnType<typeof listPendingDigestNotifications>>
@@ -202,30 +219,20 @@ export async function markNotificationReadHandler(
   args: NotificationMutationArgs
 ) {
   assertServerToken(args.serverToken)
-  const notification = await getOwnedNotificationOrNull(
-    ctx,
-    args.notificationId,
-    args.currentUserId
-  )
-
-  if (!notification) {
-    throw new Error("Notification not found")
-  }
+  const notification = await requireOwnedNotification(ctx, args)
 
   await ctx.db.patch(notification._id, {
     readAt: notification.readAt ?? getNow(),
   })
 }
 
-export async function updateNotificationsHandler(
+async function listOwnedNotificationsForBulkUpdate(
   ctx: MutationCtx,
   args: NotificationBulkMutationArgs
 ) {
-  assertServerToken(args.serverToken)
-  const notificationIds = [...new Set(args.notificationIds)]
   const notifications = []
 
-  for (const notificationId of notificationIds) {
+  for (const notificationId of [...new Set(args.notificationIds)]) {
     const notification = await getOwnedNotificationOrNull(
       ctx,
       notificationId,
@@ -239,26 +246,60 @@ export async function updateNotificationsHandler(
     notifications.push(notification)
   }
 
+  return notifications
+}
+
+function createNotificationBulkPatch(
+  notification: Awaited<ReturnType<typeof getOwnedNotificationOrNull>>,
+  action: NotificationBulkMutationArgs["action"],
+  now: string
+) {
+  const patchByAction = {
+    archive: () => createArchiveNotificationPatch(notification, now),
+    markRead: () => createReadNotificationPatch(notification, now),
+    unarchive: createUnarchiveNotificationPatch,
+  }
+
+  return patchByAction[action]()
+}
+
+function createArchiveNotificationPatch(
+  notification: Awaited<ReturnType<typeof getOwnedNotificationOrNull>>,
+  now: string
+) {
+  return {
+    archivedAt: notification?.archivedAt ?? now,
+  }
+}
+
+function createUnarchiveNotificationPatch() {
+  return {
+    archivedAt: null,
+  }
+}
+
+function createReadNotificationPatch(
+  notification: Awaited<ReturnType<typeof getOwnedNotificationOrNull>>,
+  now: string
+) {
+  return {
+    readAt: notification?.readAt ?? now,
+  }
+}
+
+export async function updateNotificationsHandler(
+  ctx: MutationCtx,
+  args: NotificationBulkMutationArgs
+) {
+  assertServerToken(args.serverToken)
+  const notifications = await listOwnedNotificationsForBulkUpdate(ctx, args)
   const now = getNow()
 
   for (const notification of notifications) {
-    if (args.action === "archive") {
-      await ctx.db.patch(notification._id, {
-        archivedAt: notification.archivedAt ?? now,
-      })
-      continue
-    }
-
-    if (args.action === "unarchive") {
-      await ctx.db.patch(notification._id, {
-        archivedAt: null,
-      })
-      continue
-    }
-
-    await ctx.db.patch(notification._id, {
-      readAt: notification.readAt ?? now,
-    })
+    await ctx.db.patch(
+      notification._id,
+      createNotificationBulkPatch(notification, args.action, now)
+    )
   }
 }
 
@@ -316,15 +357,7 @@ export async function toggleNotificationReadHandler(
   args: NotificationMutationArgs
 ) {
   assertServerToken(args.serverToken)
-  const notification = await getOwnedNotificationOrNull(
-    ctx,
-    args.notificationId,
-    args.currentUserId
-  )
-
-  if (!notification) {
-    throw new Error("Notification not found")
-  }
+  const notification = await requireOwnedNotification(ctx, args)
 
   await ctx.db.patch(notification._id, {
     readAt: notification.readAt ? null : getNow(),
@@ -336,15 +369,7 @@ export async function archiveNotificationHandler(
   args: NotificationMutationArgs
 ) {
   assertServerToken(args.serverToken)
-  const notification = await getOwnedNotificationOrNull(
-    ctx,
-    args.notificationId,
-    args.currentUserId
-  )
-
-  if (!notification) {
-    throw new Error("Notification not found")
-  }
+  const notification = await requireOwnedNotification(ctx, args)
 
   await ctx.db.patch(notification._id, {
     archivedAt: notification.archivedAt ?? getNow(),
@@ -356,15 +381,7 @@ export async function unarchiveNotificationHandler(
   args: NotificationMutationArgs
 ) {
   assertServerToken(args.serverToken)
-  const notification = await getOwnedNotificationOrNull(
-    ctx,
-    args.notificationId,
-    args.currentUserId
-  )
-
-  if (!notification) {
-    throw new Error("Notification not found")
-  }
+  const notification = await requireOwnedNotification(ctx, args)
 
   await ctx.db.patch(notification._id, {
     archivedAt: null,
@@ -376,15 +393,7 @@ export async function deleteNotificationHandler(
   args: NotificationMutationArgs
 ) {
   assertServerToken(args.serverToken)
-  const notification = await getOwnedNotificationOrNull(
-    ctx,
-    args.notificationId,
-    args.currentUserId
-  )
-
-  if (!notification) {
-    throw new Error("Notification not found")
-  }
+  const notification = await requireOwnedNotification(ctx, args)
 
   await ctx.db.delete(notification._id)
 }

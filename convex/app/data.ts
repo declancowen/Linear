@@ -1,9 +1,19 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 
-import { mergeMembershipRole, normalizeEmailAddress, normalizeJoinCode } from "./core"
+import {
+  createSlug,
+  mergeMembershipRole,
+  normalizeEmailAddress,
+  normalizeJoinCode,
+} from "./core"
 
 export type AppCtx = MutationCtx | QueryCtx
 const QUERY_BATCH_SIZE = 20
+
+type TeamWorkspaceScope = {
+  scopeType: "team" | "workspace"
+  scopeId: string
+}
 
 function uniqueValuesByKey<T>(
   values: Iterable<T>,
@@ -33,6 +43,35 @@ async function flatMapInBatches<T, R>(
   loader: (value: T) => Promise<R[]>
 ) {
   return (await mapInBatches(values, loader)).flat()
+}
+
+async function listByUniqueScopes<T>(
+  scopes: Iterable<TeamWorkspaceScope>,
+  loader: (scope: TeamWorkspaceScope) => Promise<T[]>
+) {
+  const uniqueScopes = uniqueValuesByKey(
+    scopes,
+    (scope) => `${scope.scopeType}:${scope.scopeId}`
+  )
+
+  if (uniqueScopes.length === 0) {
+    return []
+  }
+
+  return flatMapInBatches(uniqueScopes, loader)
+}
+
+async function listByUniqueTargetIds<T>(
+  targetIds: Iterable<string>,
+  loader: (targetId: string) => Promise<T[]>
+) {
+  const uniqueTargetIds = [...new Set(targetIds)]
+
+  if (uniqueTargetIds.length === 0) {
+    return []
+  }
+
+  return flatMapInBatches(uniqueTargetIds, loader)
 }
 
 export async function getWorkspaceDoc(ctx: AppCtx, id: string) {
@@ -84,6 +123,14 @@ export async function getTeamByJoinCode(ctx: AppCtx, code: string) {
       q.eq("joinCodeNormalized", normalizedCode)
     )
     .unique()
+}
+
+export async function resolveTeamByCodeSlugOrJoinCode(ctx: AppCtx, code: string) {
+  return (
+    (await getTeamDoc(ctx, code)) ??
+    (await getTeamBySlug(ctx, createSlug(code))) ??
+    (await getTeamByJoinCode(ctx, code))
+  )
 }
 
 export async function getLabelDoc(ctx: AppCtx, id: string) {
@@ -241,21 +288,9 @@ export async function listProjectsByScope(
 
 export async function listProjectsByScopes(
   ctx: AppCtx,
-  scopes: Iterable<{
-    scopeType: "team" | "workspace"
-    scopeId: string
-  }>
+  scopes: Iterable<TeamWorkspaceScope>
 ) {
-  const uniqueScopes = uniqueValuesByKey(
-    scopes,
-    (scope) => `${scope.scopeType}:${scope.scopeId}`
-  )
-
-  if (uniqueScopes.length === 0) {
-    return []
-  }
-
-  return flatMapInBatches(uniqueScopes, (scope) =>
+  return listByUniqueScopes(scopes, (scope) =>
     listProjectsByScope(ctx, scope.scopeType, scope.scopeId)
   )
 }
@@ -558,13 +593,7 @@ export async function listCommentsByTargets(
     targetIds: Iterable<string>
   }
 ) {
-  const targetIds = [...new Set(input.targetIds)]
-
-  if (targetIds.length === 0) {
-    return []
-  }
-
-  return flatMapInBatches(targetIds, (targetId) =>
+  return listByUniqueTargetIds(input.targetIds, (targetId) =>
     listCommentsByTarget(ctx, input.targetType, targetId)
   )
 }
@@ -624,21 +653,9 @@ export async function listConversationsByScope(
 
 export async function listConversationsByScopes(
   ctx: AppCtx,
-  scopes: Iterable<{
-    scopeType: "team" | "workspace"
-    scopeId: string
-  }>
+  scopes: Iterable<TeamWorkspaceScope>
 ) {
-  const uniqueScopes = uniqueValuesByKey(
-    scopes,
-    (scope) => `${scope.scopeType}:${scope.scopeId}`
-  )
-
-  if (uniqueScopes.length === 0) {
-    return []
-  }
-
-  return flatMapInBatches(uniqueScopes, (scope) =>
+  return listByUniqueScopes(scopes, (scope) =>
     listConversationsByScope(ctx, scope.scopeType, scope.scopeId)
   )
 }
@@ -784,13 +801,7 @@ export async function listAttachmentsByTargets(
     targetIds: Iterable<string>
   }
 ) {
-  const targetIds = [...new Set(input.targetIds)]
-
-  if (targetIds.length === 0) {
-    return []
-  }
-
-  return flatMapInBatches(targetIds, (targetId) =>
+  return listByUniqueTargetIds(input.targetIds, (targetId) =>
     listAttachmentsByTarget(ctx, input.targetType, targetId)
   )
 }
@@ -817,21 +828,9 @@ export async function listViewsByScope(
 
 export async function listViewsByScopes(
   ctx: AppCtx,
-  scopes: Iterable<{
-    scopeType: "team" | "workspace"
-    scopeId: string
-  }>
+  scopes: Iterable<TeamWorkspaceScope>
 ) {
-  const uniqueScopes = uniqueValuesByKey(
-    scopes,
-    (scope) => `${scope.scopeType}:${scope.scopeId}`
-  )
-
-  if (uniqueScopes.length === 0) {
-    return []
-  }
-
-  return flatMapInBatches(uniqueScopes, (scope) =>
+  return listByUniqueScopes(scopes, (scope) =>
     listViewsByScope(ctx, scope.scopeType, scope.scopeId)
   )
 }
@@ -1179,20 +1178,24 @@ export function resolvePreferredWorkspaceId(input: {
 }) {
   const accessibleWorkspaceIds = new Set(input.accessibleWorkspaceIds)
 
-  if (
-    input.selectedWorkspaceId &&
-    accessibleWorkspaceIds.has(input.selectedWorkspaceId)
-  ) {
+  if (isAccessibleWorkspaceId(input.selectedWorkspaceId, accessibleWorkspaceIds)) {
     return input.selectedWorkspaceId
   }
 
   for (const workspaceId of input.fallbackWorkspaceIds ?? []) {
-    if (workspaceId && accessibleWorkspaceIds.has(workspaceId)) {
+    if (isAccessibleWorkspaceId(workspaceId, accessibleWorkspaceIds)) {
       return workspaceId
     }
   }
 
   return null
+}
+
+function isAccessibleWorkspaceId(
+  workspaceId: string | null | undefined,
+  accessibleWorkspaceIds: Set<string>
+): workspaceId is string {
+  return Boolean(workspaceId && accessibleWorkspaceIds.has(workspaceId))
 }
 
 export function isDefinedString(
@@ -1309,15 +1312,31 @@ export async function getWorkspaceEditRole(
   userId: string
 ) {
   const workspace = await getWorkspaceDoc(ctx, workspaceId)
+  const ownerRole = getWorkspaceOwnerEditRole(workspace, userId)
+
+  if (ownerRole) {
+    return ownerRole
+  }
 
   if (!workspace) {
     return null
   }
 
-  if (workspace.createdBy === userId) {
-    return "admin"
-  }
+  return resolveNonOwnerWorkspaceEditRole(ctx, workspaceId, userId)
+}
 
+function getWorkspaceOwnerEditRole(
+  workspace: Awaited<ReturnType<typeof getWorkspaceDoc>>,
+  userId: string
+) {
+  return isLoadedWorkspaceOwner(workspace, userId) ? "admin" : null
+}
+
+async function resolveNonOwnerWorkspaceEditRole(
+  ctx: AppCtx,
+  workspaceId: string,
+  userId: string
+) {
   const [workspaceMembership, memberships] = await Promise.all([
     getWorkspaceMembershipDoc(ctx, workspaceId, userId),
     listTeamMembershipsByUser(ctx, userId),
@@ -1333,23 +1352,44 @@ export async function getWorkspaceEditRole(
     return directRole
   }
 
-  const teams = await listTeamsByIds(
-    ctx,
-    memberships.map((membership) => membership.teamId)
-  )
-  const workspaceTeamIds = new Set(
-    teams
-      .filter((team) => team.workspaceId === workspaceId)
-      .map((team) => team.id)
-  )
-  const highestTeamRole = memberships
-    .filter((membership) => workspaceTeamIds.has(membership.teamId))
-    .map((membership) => membership.role)
+  const highestTeamRole = await listWorkspaceTeamRolesForUser(ctx, {
+    memberships,
+    workspaceId,
+  })
 
   return resolveWorkspaceEditRole({
     directRole,
     teamRoles: highestTeamRole,
   })
+}
+
+function isLoadedWorkspaceOwner(
+  workspace: Awaited<ReturnType<typeof getWorkspaceDoc>>,
+  userId: string
+) {
+  return workspace?.createdBy === userId
+}
+
+async function listWorkspaceTeamRolesForUser(
+  ctx: AppCtx,
+  input: {
+    memberships: Awaited<ReturnType<typeof listTeamMembershipsByUser>>
+    workspaceId: string
+  }
+) {
+  const teams = await listTeamsByIds(
+    ctx,
+    input.memberships.map((membership) => membership.teamId)
+  )
+  const workspaceTeamIds = new Set(
+    teams
+      .filter((team) => team.workspaceId === input.workspaceId)
+      .map((team) => team.id)
+  )
+
+  return input.memberships
+    .filter((membership) => workspaceTeamIds.has(membership.teamId))
+    .map((membership) => membership.role)
 }
 
 export async function ensureWorkspaceMembership(

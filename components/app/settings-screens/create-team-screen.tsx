@@ -32,16 +32,75 @@ import {
 } from "./team-editor-fields"
 import { getTeamLandingHref } from "./utils"
 
-export function CreateTeamScreen() {
-  const router = useRouter()
-  const workspace = useAppStore(getCurrentWorkspace)
-  const canCreateTeam = useAppStore((state) => {
-    const currentWorkspace = getCurrentWorkspace(state)
+type AppStoreSnapshot = Parameters<typeof getCurrentWorkspace>[0]
 
-    return currentWorkspace
-      ? canAdminWorkspace(state, currentWorkspace.id)
-      : false
-  })
+function selectCanCreateTeam(state: AppStoreSnapshot) {
+  const currentWorkspace = getCurrentWorkspace(state)
+
+  return currentWorkspace ? canAdminWorkspace(state, currentWorkspace.id) : false
+}
+
+function CreateTeamUnavailableSection() {
+  return (
+    <SettingsScaffold
+      title="Create team"
+      breadcrumb="Workspace"
+      subtitle="Workspace unavailable"
+    >
+      <SettingsSection
+        title="Workspace unavailable"
+        description="Select a workspace before creating a team."
+      >
+        <div />
+      </SettingsSection>
+    </SettingsScaffold>
+  )
+}
+
+function CreateTeamHero({
+  experience,
+  name,
+  summary,
+  workspaceName,
+  icon,
+}: {
+  experience: TeamExperienceType
+  name: string
+  summary: string
+  workspaceName: string
+  icon: string
+}) {
+  const previewName = name.trim() || "New team"
+  const previewSummary = summary.trim()
+  const previewIcon = normalizeTeamIconToken(icon, experience)
+
+  return (
+    <SettingsHero
+      leading={
+        <div className="flex size-14 items-center justify-center rounded-2xl border border-line bg-surface-2 text-fg-2">
+          <TeamIconGlyph icon={previewIcon} className="size-6" />
+        </div>
+      }
+      title={previewName}
+      description={
+        previewSummary ||
+        `New ${teamExperienceMeta[experience].label.toLowerCase()} team in ${workspaceName}.`
+      }
+      meta={[
+        {
+          key: "type",
+          label: teamExperienceMeta[experience].label,
+        },
+        {
+          key: "workspace",
+          label: workspaceName,
+        },
+      ]}
+    />
+  )
+}
+
+function useCreateTeamDraft() {
   const [name, setName] = useState("")
   const [icon, setIcon] = useState(() =>
     getDefaultTeamIconForExperience("software-development")
@@ -56,79 +115,76 @@ export function CreateTeamScreen() {
   const [saving, setSaving] = useState(false)
   const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
   const summaryLimitState = getTextInputLimitState(summary, teamSummaryConstraints)
-  const canSubmit = nameLimitState.canSubmit && summaryLimitState.canSubmit
+
+  return {
+    canSubmit: nameLimitState.canSubmit && summaryLimitState.canSubmit,
+    experience,
+    features,
+    icon,
+    name,
+    saving,
+    setExperience,
+    setFeatures,
+    setIcon,
+    setName,
+    setSaving,
+    setSummary,
+    summary,
+  }
+}
+
+async function createTeamFromDraft(input: {
+  draft: ReturnType<typeof useCreateTeamDraft>
+  router: ReturnType<typeof useRouter>
+}) {
+  input.draft.setSaving(true)
+  const created = await useAppStore.getState().createTeam({
+    name: input.draft.name,
+    icon: input.draft.icon,
+    summary: input.draft.summary,
+    experience: input.draft.experience,
+    features: input.draft.features,
+  })
+  input.draft.setSaving(false)
+
+  if (created) {
+    input.router.push(getTeamLandingHref(created.teamSlug, created.features))
+  }
+}
+
+export function CreateTeamScreen() {
+  const router = useRouter()
+  const workspace = useAppStore(getCurrentWorkspace)
+  const canCreateTeam = useAppStore(selectCanCreateTeam)
+  const draft = useCreateTeamDraft()
 
   if (!workspace) {
-    return (
-      <SettingsScaffold
-        title="Create team"
-        breadcrumb="Workspace"
-        subtitle="Workspace unavailable"
-      >
-        <SettingsSection
-          title="Workspace unavailable"
-          description="Select a workspace before creating a team."
-        >
-          <div />
-        </SettingsSection>
-      </SettingsScaffold>
-    )
+    return <CreateTeamUnavailableSection />
   }
 
-  const previewName = name.trim() || "New team"
-  const previewSummary = summary.trim()
-  const previewIcon = normalizeTeamIconToken(icon, experience)
+  async function handleCreateTeam() {
+    await createTeamFromDraft({ draft, router })
+  }
 
   return (
     <SettingsScaffold
       title="Create team"
       breadcrumb="Workspace"
       hero={
-        <SettingsHero
-          leading={
-            <div className="flex size-14 items-center justify-center rounded-2xl border border-line bg-surface-2 text-fg-2">
-              <TeamIconGlyph icon={previewIcon} className="size-6" />
-            </div>
-          }
-          title={previewName}
-          description={
-            previewSummary ||
-            `New ${teamExperienceMeta[experience].label.toLowerCase()} team in ${workspace.name}.`
-          }
-          meta={[
-            {
-              key: "type",
-              label: teamExperienceMeta[experience].label,
-            },
-            {
-              key: "workspace",
-              label: workspace.name,
-            },
-          ]}
+        <CreateTeamHero
+          experience={draft.experience}
+          icon={draft.icon}
+          name={draft.name}
+          summary={draft.summary}
+          workspaceName={workspace.name}
         />
       }
       footer={
         <Button
-          disabled={!canCreateTeam || saving || !canSubmit}
-          onClick={async () => {
-            setSaving(true)
-            const created = await useAppStore.getState().createTeam({
-              name,
-              icon,
-              summary,
-              experience,
-              features,
-            })
-            setSaving(false)
-
-            if (created) {
-              router.push(
-                getTeamLandingHref(created.teamSlug, created.features)
-              )
-            }
-          }}
+          disabled={!canCreateTeam || draft.saving || !draft.canSubmit}
+          onClick={handleCreateTeam}
         >
-          {saving ? "Creating..." : "Create team"}
+          {draft.saving ? "Creating..." : "Create team"}
         </Button>
       }
     >
@@ -145,26 +201,26 @@ export function CreateTeamScreen() {
       <TeamEditorFields
         canChangeExperience
         disabled={!canCreateTeam}
-        experience={experience}
-        features={features}
-        icon={icon}
+        experience={draft.experience}
+        features={draft.features}
+        icon={draft.icon}
         joinCode=""
         showJoinCode={false}
         joinCodeReadonlyLabel="A 12-character join code is generated automatically when the team is created."
-        name={name}
-        savedFeatures={features}
-        setFeatures={setFeatures}
+        name={draft.name}
+        savedFeatures={draft.features}
+        setFeatures={draft.setFeatures}
         setIcon={(value) =>
-          setIcon(normalizeTeamIconToken(value, experience))
+          draft.setIcon(normalizeTeamIconToken(value, draft.experience))
         }
-        setName={setName}
-        setSummary={setSummary}
-        summary={summary}
+        setName={draft.setName}
+        setSummary={draft.setSummary}
+        summary={draft.summary}
         surfaceDisableReasons={defaultTeamSurfaceDisableReasons}
         onExperienceChange={(nextExperience) => {
-          setExperience(nextExperience)
-          setIcon(getDefaultTeamIconForExperience(nextExperience))
-          setFeatures(createDefaultTeamFeatureSettings(nextExperience))
+          draft.setExperience(nextExperience)
+          draft.setIcon(getDefaultTeamIconForExperience(nextExperience))
+          draft.setFeatures(createDefaultTeamFeatureSettings(nextExperience))
         }}
       />
     </SettingsScaffold>
