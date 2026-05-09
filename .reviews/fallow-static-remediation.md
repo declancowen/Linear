@@ -6,7 +6,7 @@
 | -------------- | ---------------------------------------------------------------- |
 | **Repository** | `/Users/declancowen/Documents/GitHub/Linear`                     |
 | **Remote**     | `origin https://github.com/declancowen/Linear.git`               |
-| **Branch**     | `codex/fallow-static-remediation`                                |
+| **Branch**     | `codex/fallow-static-zero-finalization`                          |
 | **Stack**      | Next.js 16, React 19, Convex, PartyKit, Electron, Vitest, Fallow |
 
 ## Scope
@@ -36,11 +36,178 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-01 22:08 BST |
-| **Last reviewed**     | 2026-05-05 18:36 BST |
-| **Total turns**       | 7                    |
+| **Last reviewed**     | 2026-05-09 12:49 BST |
+| **Total turns**       | 10                   |
 | **Open findings**     | 0                    |
 | **Resolved findings** | 9                    |
 | **Accepted findings** | 1                    |
+
+## Turn 10 - 2026-05-09 12:49 BST
+
+| Field           | Value      |
+| --------------- | ---------- |
+| **Commit**      | `dc2c78c5` |
+| **IDE / Agent** | Codex      |
+
+**Summary:** Expanded the refactor review beyond the earlier high-risk clusters to answer whether the remaining changed areas had also been checked. I mapped the branch-wide source diff, reviewed the remaining collaboration UI, shell/sidebar, screen extraction, inbox/settings/create-dialog helpers, store collaboration/notification/view slices, Convex collaboration/comment/view/normalization/backfill helpers, server wrappers, hooks, PartyKit, Electron, and script/helper changes. I did not find a refactor-caused source logic regression.
+**Outcome:** no new findings
+**Risk score:** high - the PR remains a broad refactor across `228` changed TypeScript/TSX source files plus supporting scripts and Electron code.
+**Change archetypes:** branch-total refactor review expansion, helper extraction audit, store/Convex/UI/server contract preservation, focused regression validation.
+**Intended change:** Check the changed areas not already covered by the earlier focused review and rerun current gates.
+**Intent vs actual:** Matches intent for the reviewed branch surface. The inspected extractions preserved access checks, read/write scope, optimistic update behavior, notification audience construction, mention/follower side effects, view filtering semantics, and script/Electron helper behavior.
+**Confidence:** medium-high - broad manual inspection plus targeted tests, typecheck, and Fallow passed; this is still not a mathematical line-by-line proof of every UI state.
+**Coverage note:** Directly reviewed source clusters across UI, store, Convex, server, hooks, Electron, and scripts after the earlier auth/workspace/event/read-model/email/domain/rich-text/work-surface pass.
+**Finding triage:** No new findings. One chat-avatar presentation delta and one redundant rich-text comparison remain cleanup/watch items, not merge-blocking logic regressions.
+**Static/analyzer evidence:** Fresh `pnpm fallow:gate` passed with dead-code `0`, production health findings `0`, and duplicate clone groups `0`. Fresh `pnpm typecheck` passed.
+**Architecture impact:** The branch continues to keep extracted logic near its owning component, store slice, route, Convex handler, or script, rather than moving behavior into broad generic utility buckets.
+**Bug classes / invariants checked:** Workspace/team access guards, channel/chat creation rules, mention and follower notification audiences, inbox archive/read/delete behavior, view filter clearing and validation, create-dialog defaults, team/workspace settings permissions, document link handling, presence state parsing, Electron trusted URL handling, backfill batching, and WorkOS/Convex script configuration.
+**Branch totality:** Current review target was `origin/main...dc2c78c5`; working tree contains this review note update plus unrelated untracked `DESIGN.md`.
+**Sibling closure:** Collaboration chat/channel helpers, notification helpers, screen helper families, settings helper families, store action pairs, Convex view/workspace/team helpers, and script backfill/sync helpers were checked in sibling groups.
+**Remediation impact surface:** Review audit updated only; no source edits required.
+**Residual risk / unknowns:** No browser/desktop visual smoke was rerun in this turn. I did not line-review every changed test fixture or generated support line, but I did inspect the remaining changed source clusters and reran current targeted/static gates.
+
+### Validation
+
+- `pnpm exec vitest run tests/components/channel-ui.test.tsx tests/components/workspace-chats-screen.test.tsx tests/components/chat-thread.test.tsx tests/components/collaboration-screens-loading.test.tsx tests/components/workspace-chat-ui.test.tsx tests/components/work-surface.test.tsx tests/components/work-surface-view.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/work-item-ui-comments-inline.test.tsx tests/components/document-detail-screen.test.tsx tests/components/project-detail-screen.test.tsx tests/components/inbox-screen.test.tsx tests/components/inbox-ui.test.tsx tests/components/workspace-search-screen.test.tsx tests/components/settings-screen-helpers.test.ts tests/components/user-presence.test.tsx tests/components/ui-primitives.test.tsx tests/components/create-dialogs.test.tsx tests/components/screen-helpers.test.ts tests/components/views-screen.test.tsx tests/lib/store/collaboration-channel-actions.test.ts tests/lib/store/collaboration-conversation-actions.test.ts tests/lib/store/view-slice.test.ts tests/lib/store/ui-slice.test.ts tests/convex/collaboration-document-helpers.test.ts tests/convex/collaboration-utils.test.ts tests/convex/comment-helpers.test.ts tests/convex/chat-message-notifications.test.ts tests/convex/notifications.test.ts tests/convex/view-handlers.test.ts tests/convex/work-item-handlers.test.ts tests/convex/project-handlers.test.ts tests/convex/document-handlers.test.ts tests/convex/workspace-team-handlers.test.ts tests/convex/email-job-handlers.test.ts tests/convex/email-jobs-action.test.ts tests/electron/local-server.test.ts tests/electron/runtime-config.test.ts tests/scripts/shared-helpers.test.ts tests/scripts/send-email-jobs.test.ts tests/scripts/send-notification-digests.test.ts` - passed, `41` files and `283` tests
+- `pnpm typecheck` - passed
+- `pnpm fallow:gate` - passed; dead-code `0`, production health findings `0`, duplication clone groups `0`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` - completed; Fallow dead-code/health/dupes lenses were clean, with `changed-file-audit` unavailable due a local tool/config error
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** Current branch diff, review/preflight output, collaboration screens, shell/sidebar, user presence, inbox, settings, create/view/screen helpers, store collaboration/notification/view slices, Convex collaboration/comment/view/normalization/backfill helpers, server Convex wrappers, document/chat hooks, PartyKit, Electron helpers, script helpers, package Fallow scripts, and targeted tests.
+- **Prior open findings rechecked:** No open findings from Turn 9; Turn 7 auth redirect fixes and Turn 8 duplicate cleanup remain intact.
+- **Prior resolved/adjacent areas revalidated:** Typecheck and Fallow gate reran cleanly; targeted tests covered the newly reviewed UI/store/Convex/script clusters.
+- **Hotspots or sibling paths revisited:** Channel/chat guards, notification audience and mention paths, inbox selection and archive state, view validation and filter clearing, settings member actions, document navigation guards, presence parsing, Electron URL trust, and backfill/sync scripts.
+- **Dependency/adjacent surfaces revalidated:** Domain feature normalization, comment follower helpers, shared route/server inputs, script shared config parsing, and store selectors were checked against their callers.
+- **Why this is enough:** The follow-up pass attacked the main remaining risk after the earlier review: behavior drift in the changed clusters that were not part of the first high-risk path list. Static gates and targeted tests then exercised those same clusters.
+
+### Challenger pass
+
+- `pass with residual risk` - I looked for removed access checks, changed entity scopes, lost notification side effects, changed fallback state, altered sort/group semantics, optimistic update drift, stale script defaults, and Electron navigation guard changes. No live regression surfaced.
+
+### Resolved / Carried / New findings
+
+No new findings.
+
+### Recommendations
+
+1. **Fix first:** No source fix required from this expanded re-review.
+2. **Before merge:** Run a browser/desktop visual smoke if the PR has not had one since this branch state.
+3. **Cleanup candidate:** The redundant rich-text marker comparison and the chat-avatar status presentation delta can be handled separately if desired.
+
+## Turn 9 - 2026-05-09 12:39 BST
+
+| Field           | Value      |
+| --------------- | ---------- |
+| **Commit**      | `dc2c78c5` |
+| **IDE / Agent** | Codex      |
+
+**Summary:** Re-reviewed the current branch diff for refactor-caused logic regressions across the high-risk PR surface. I focused on auth/workspace routing, selected-workspace reconciliation, scoped event streams, route mutation parsing, store/read-model merging, Convex access/bootstrap/data/workspace/team/work-item/delete helpers, invite routes, email job processing, domain selectors, rich-text helper extraction, and work-surface/timeline helper extraction. I did not find a source logic regression in the inspected paths.
+**Outcome:** no new findings
+**Risk score:** high - broad refactor across hundreds of source files; confidence comes from targeted inspection plus passing behavioral/static gates, not from every file being line-by-line proven.
+**Change archetypes:** branch-wide refactor review, helper extraction audit, route/store/Convex contract preservation, targeted regression validation.
+**Intended change:** Verify the large refactor preserves behavior after the duplicate-artifact cleanup and Fallow rerun.
+**Intent vs actual:** Matches intent for the reviewed surfaces. The helper extractions I inspected preserved access checks, query scope, delete ordering, optimistic store reconciliation, and response/error contracts.
+**Confidence:** medium-high - targeted regression tests, Fallow gate, and typecheck passed; residual risk remains because the branch is too broad for exhaustive manual proof.
+**Coverage note:** Fresh targeted Vitest run covered 13 high-risk files and 109 tests. Turn 8 already has the full-suite evidence after cleanup.
+**Finding triage:** No new source findings. One redundant comparison in `components/app/rich-text-editor/marker-comparison.ts` was noted as a harmless cleanup candidate, not a behavior bug.
+**Static/analyzer evidence:** Fresh `pnpm fallow:gate` passed with dead-code `0`, production health findings `0`, and duplicate clone groups `0`. Fresh `pnpm typecheck` passed.
+**Architecture impact:** The refactor remains owner-local rather than creating broad generic utility layers; extracted helpers sit beside their owning route, Convex handler, store slice, or UI component.
+**Bug classes / invariants checked:** Auth redirect serialization, selected workspace fallback and reconciliation, event stream ready/ping/polling behavior, route error envelope compatibility, invite accept/decline semantics, workspace/team deletion cascade targets, project/work-item date validation, document/work-item presence clearing, optimistic store rollback, workspace-scoped selectors, and email job claim/release handling.
+**Branch totality:** Current review target was `origin/main...dc2c78c5`; working tree contains this audit update plus unrelated untracked `DESIGN.md`.
+**Sibling closure:** Checked sibling routes/helpers together where refactors shared code: auth login/callback/forgot/reset/signup/verify helpers, workspace current/selection/leave routes, scoped snapshot/events routes, invite accept/decline routes, document/work-item presence paths, project/work-item schedule validation, and team/workspace deletion cascades.
+**Remediation impact surface:** Review audit updated only; no source edits required.
+**Residual risk / unknowns:** No browser/desktop smoke was rerun in this turn, and I did not inspect every changed UI component line-by-line.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/data-helpers.test.ts tests/app/api/scoped-events-route-contracts.test.ts tests/lib/store/domain-updates.test.ts tests/lib/store/work-item-actions.test.ts tests/lib/store/work-document-actions.test.ts tests/lib/store/workspace-slice.test.ts tests/lib/domain/project-views.test.ts tests/lib/domain/view-directory.test.ts tests/lib/domain/work-item-selectors.test.ts tests/lib/email-queued-worker.test.ts tests/app/api/internal-email-jobs-route.test.ts tests/components/rich-text-editor-helpers.test.tsx tests/components/work-surface-view.test.tsx` - passed, `13` files and `109` tests
+- `pnpm fallow:gate` - passed; dead-code `0`, production health findings `0`, duplication clone groups `0`
+- `pnpm typecheck` - passed
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** Current branch diff, Fallow/review audit state, auth/workspace route helpers, scoped event streams, Convex bootstrap/access/data/cleanup/work-item/workspace-team handlers, email job worker/action code, domain selectors/types, store domain updates and slices, rich-text helpers, work-surface helpers, and targeted tests.
+- **Prior open findings rechecked:** No open findings from Turn 8; Turn 7 auth redirect fixes remain present.
+- **Prior resolved/adjacent areas revalidated:** Fallow gate and typecheck reran cleanly; targeted tests covered the refactor clusters most likely to drift.
+- **Hotspots or sibling paths revisited:** Workspace selection, current workspace merge semantics, invite token scoping, route mutation compatibility, deletion cascades, presence clearing, project/work-item schedule validation, and optimistic rollback behavior.
+- **Dependency/adjacent surfaces revalidated:** Shared date validation, work-item key formatting, route error parsing, email retry claim release, and workspace-scoped selectors were checked against callers.
+- **Why this is enough:** The review directly attacked the common failure mode for this PR: behavior drift during extraction. The inspected code and targeted tests cover the highest-blast-radius route, Convex, store, and selector contracts.
+
+### Challenger pass
+
+- `pass with residual risk` - I looked for missed authorization checks, narrowed query scopes, changed fallback selection, skipped side effects, altered delete order, changed optimistic/client-server contracts, and stale analyzer evidence. No live regression surfaced.
+
+### Resolved / Carried / New findings
+
+No new findings.
+
+### Recommendations
+
+1. **Fix first:** No source fix required from this re-review.
+2. **Before merge:** Keep the Turn 8 full test/lint evidence with this Turn 9 targeted re-review; run browser/desktop smoke if the UI has not had a current visual pass.
+3. **Cleanup candidate:** The duplicate `top` comparison in `marker-comparison.ts` can be simplified later, but it does not change behavior.
+
+## Turn 8 - 2026-05-09 12:27 BST
+
+| Field           | Value      |
+| --------------- | ---------- |
+| **Commit**      | `dc2c78c5` |
+| **IDE / Agent** | Codex      |
+
+**Summary:** Re-reviewed the large Fallow/static refactor branch at current HEAD after cleaning local duplicate artifacts. The initial Fallow rerun failed because untracked `* 2.*` source copies and generated `.next` type copies polluted the working tree; exact copies and stale generated/source duplicate artifacts were removed. After cleanup, Fallow dead-code, production health, duplication, full health, typecheck, lint, and the full Vitest suite passed. I did not find a live logic regression in the high-risk auth, workspace-selection, scoped read-model, route-client, invite, Convex bootstrap, or store/read-model merge paths reviewed this turn.
+**Outcome:** no open logic findings; all clear with broad-refactor residual risk
+**Risk score:** high - broad analyzer-driven refactor across auth, routes, Convex handlers, stores, UI, scripts, and generated-support surfaces.
+**Change archetypes:** broad refactor re-review, static analyzer remediation, route contract preservation, workspace selection/read-model switching, duplicate artifact cleanup.
+**Intended change:** Verify the finalization branch still preserves behavior after large decomposition and Fallow remediation work.
+**Intent vs actual:** Matches intent for the reviewed paths. The only live issue found was local duplicate artifact pollution, not committed branch logic.
+**Confidence:** medium-high - static gates, typecheck, lint, and tests pass after cleanup; confidence remains short of absolute because the branch is very large and UI browser smoke was not rerun in this turn.
+**Coverage note:** `pnpm test` passed on rerun with `174` files and `955` tests. One earlier default run timed out once in `tests/app/root-pages.test.tsx`, but that file passed in isolation and the default full suite passed on rerun.
+**Finding triage:** No new source-code findings. Local duplicate `* 2.*` / `* 3.*` artifacts were stale or exact generated/source copies and were removed from the working tree.
+**Static/analyzer evidence:** `pnpm fallow:gate` passed; full dead-code `0`; full duplication `0`; full health findings/functions above threshold `0/0`, score `97.7`, grade `A`.
+**Architecture impact:** The reviewed extractions keep ownership local: auth URL serialization stays in `lib/auth-routing.ts`, route mutation parsing stays in the Convex client route layer, workspace selection has a server cookie/route owner, scoped read-model polling has a route-local polling helper, and store merge/pruning remains inside store internals.
+**Bug classes / invariants checked:** Auth redirect query contract, selected-workspace authority and fallback, read-model authorization scope boundaries, route mutation error envelope compatibility, invite token ownership/expiry handling, current workspace merge/replacement, Fallow gate mode separation.
+**Branch totality:** Current review target was `origin/main...dc2c78c5` plus local ignored/untracked artifact state.
+**Sibling closure:** Auth forgot/reset redirect siblings, workspace current/selection/snapshot read paths, scoped events initial/polling paths, and route mutation error parsing consumers were checked together.
+**Remediation impact surface:** Removed local duplicate artifacts only; no tracked source edits were needed for logic.
+**Residual risk / unknowns:** No browser/desktop smoke was rerun during this turn, and the PR is still broad enough that manual review cannot prove every UI state variant.
+
+### Validation
+
+- `pnpm fallow:gate` - passed; dead-code `0`, production health findings `0`, duplication `0`
+- `pnpm exec fallow health --format json --quiet --explain` - findings `0`, functions above threshold `0`, score `97.7`, grade `A` (exit `1` because score is below `100`)
+- `pnpm typecheck` - passed
+- `pnpm lint` - passed
+- `pnpm test` - passed on rerun, `174` files and `955` tests
+- `pnpm exec vitest run tests/app/root-pages.test.tsx` - passed, covering the initially timed-out file
+- `pnpm exec vitest run --testTimeout 10000` - passed, `174` files and `955` tests
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** Current branch diff, `.reviews/fallow-static-remediation.md`, `.audits/fallow-static-audit-2026-05-01.md`, Fallow config/package scripts, auth routing/routes, workspace selection, route-auth, authenticated app context, scoped event/read-model helpers, route mutation client, invite routes, and selected store merge paths.
+- **Prior open findings rechecked:** Prior open findings remained closed; Turn 7 auth redirect fixes are still present at `dc2c78c5`.
+- **Prior resolved/adjacent areas revalidated:** Auth redirect tests, Fallow gate, full health, lint, typecheck, and full Vitest suite were rerun.
+- **Hotspots or sibling paths revisited:** Duplicate local artifacts, auth routes, workspace switching/selection, scoped read-model stream authorization, invite token validation, and route-client error compatibility.
+- **Dependency/adjacent surfaces revalidated:** CI Fallow remains report-only while local package gates enforce dead-code/health/duplication; no Fallow config, threshold, or suppression changes were introduced.
+- **Why this is enough:** The riskiest regression classes for this branch are contract drift and refactor extraction drift. The reviewed source paths plus route/store tests and analyzer gates directly exercise those classes.
+
+### Challenger pass
+
+- `pass with residual risk` - I specifically attacked stale analyzer evidence, duplicate artifact pollution, public query key drift, selected-workspace mismatch, read-model scope authorization, and route error-envelope compatibility. No live source logic issue was found.
+
+### Resolved / Carried / New findings
+
+No new findings.
+
+### Recommendations
+
+1. **Fix first:** No source fix required from this re-review.
+2. **Then address:** Run browser/desktop smoke before merge if this PR has not had a fresh visual pass since the latest branch state.
+3. **Patterns noticed:** Local generated duplicate artifacts can make clean analyzer/compiler evidence look broken; keep them out before running PR gates.
+4. **Suggested approach:** Treat `pnpm fallow:gate`, full health JSON, typecheck, lint, and full tests as the minimum final evidence for this branch.
+5. **Architecture transition:** Continue keeping Fallow-driven helpers owner-local rather than adding generic utility buckets.
+6. **Defer on purpose:** No CI policy changes or Fallow threshold changes in this review turn.
 
 ## Turn 7 - 2026-05-05 18:36 BST
 
