@@ -893,6 +893,47 @@ function selectMissingDocumentDetailReadModel(
   }
 }
 
+function selectDocumentIndexProjects(
+  snapshot: AppSnapshot,
+  documents: Document[]
+) {
+  const projectIds = new Set(
+    documents.flatMap((document) => document.linkedProjectIds)
+  )
+
+  return snapshot.projects.filter((project) => projectIds.has(project.id))
+}
+
+function selectDocumentIndexWorkItems(
+  snapshot: AppSnapshot,
+  documents: Document[]
+) {
+  const workItemIds = new Set(
+    documents.flatMap((document) => document.linkedWorkItemIds)
+  )
+
+  return snapshot.workItems.filter((item) => workItemIds.has(item.id))
+}
+
+function selectDocumentIndexTeams(
+  snapshot: AppSnapshot,
+  documents: Document[],
+  projects: Project[],
+  workItems: WorkItem[]
+) {
+  const teamIds = new Set(
+    compactStringIds([
+      ...documents.map((document) => document.teamId),
+      ...projects.map((project) =>
+        project.scopeType === "team" ? project.scopeId : null
+      ),
+      ...workItems.map((item) => item.teamId),
+    ])
+  )
+
+  return snapshot.teams.filter((team) => teamIds.has(team.id))
+}
+
 export function selectDocumentIndexReadModel(
   snapshot: AppSnapshot,
   scopeType: "team" | "workspace",
@@ -901,6 +942,14 @@ export function selectDocumentIndexReadModel(
   const documents = selectDocumentsForScope(snapshot, scopeType, scopeId).map(
     toDocumentPreviewEntry
   )
+  const projects = selectDocumentIndexProjects(snapshot, documents)
+  const workItems = selectDocumentIndexWorkItems(snapshot, documents)
+  const teams = selectDocumentIndexTeams(
+    snapshot,
+    documents,
+    projects,
+    workItems
+  )
   const views = selectDocumentIndexViews(snapshot, scopeType, scopeId)
   const users = selectUsers(snapshot, collectDocumentUserIds(documents))
 
@@ -908,6 +957,9 @@ export function selectDocumentIndexReadModel(
     currentUserId: snapshot.currentUserId,
     currentWorkspaceId: snapshot.currentWorkspaceId,
     documents,
+    projects,
+    workItems,
+    teams,
     views,
     users,
   }
@@ -1058,6 +1110,9 @@ export function selectProjectDetailReadModel(
     snapshot,
     projectWorkItemIds
   )
+  const teamMemberships = snapshot.teamMemberships.filter((membership) =>
+    projectTeamIds.has(membership.teamId)
+  )
   const milestones = snapshot.milestones.filter(
     (milestone) => milestone.projectId === project.id
   )
@@ -1075,6 +1130,7 @@ export function selectProjectDetailReadModel(
   const users = selectUsers(snapshot, [
     project.leadId,
     ...project.memberIds,
+    ...teamMemberships.map((membership) => membership.userId),
     ...items.flatMap((item) => [
       item.creatorId,
       item.assigneeId ?? "",
@@ -1101,6 +1157,7 @@ export function selectProjectDetailReadModel(
     customPropertyValues,
     documents,
     views,
+    teamMemberships,
     users,
   }
 }

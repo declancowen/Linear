@@ -10,6 +10,7 @@ import {
   getProjectDetailScopeKeys,
   getWorkItemDetailScopeKeys,
   selectDocumentDetailReadModel,
+  selectDocumentIndexReadModel,
   selectProjectDetailReadModel,
   selectWorkItemDetailReadModel,
 } from "@/lib/scoped-sync/read-models"
@@ -228,6 +229,18 @@ describe("scoped read model selectors", () => {
     ])
   })
 
+  it("selects the document index subset with linked entity label dependencies", () => {
+    const snapshot = createSnapshotFixture()
+    const patch = selectDocumentIndexReadModel(snapshot, "team", "team_1")
+
+    expect(patch).toMatchObject({
+      documents: [{ id: "doc_1" }, { id: "doc_linked" }],
+      projects: [{ id: "project_1" }],
+      workItems: [{ id: "item_1" }],
+      teams: [{ id: "team_1" }],
+    })
+  })
+
   it("selects the work item detail subset and related project scopes", () => {
     const snapshot = createSnapshotFixture()
     const patch = selectWorkItemDetailReadModel(snapshot, "item_1")
@@ -282,6 +295,10 @@ describe("scoped read model selectors", () => {
       projectUpdates: [{ id: "update_1" }],
       documents: [{ id: "doc_1" }],
       views: [{ id: "view_1" }],
+      teamMemberships: [
+        { teamId: "team_1", userId: "user_1" },
+        { teamId: "team_1", userId: "user_2" },
+      ],
     })
     expect(getProjectDetailScopeKeys("project_1")).toEqual([
       "project-detail:project_1",

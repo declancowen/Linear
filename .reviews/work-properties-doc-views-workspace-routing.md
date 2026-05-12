@@ -28,11 +28,112 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-12 19:46 BST |
-| **Total turns**       | 5                    |
+| **Last reviewed**     | 2026-05-12 20:04 BST |
+| **Total turns**       | 6                    |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 17                   |
+| **Resolved findings** | 19                   |
 | **Accepted findings** | 0                    |
+
+## Turn 6 — 2026-05-12 20:04 BST
+
+| Field           | Value                      |
+| --------------- | -------------------------- |
+| **Commit**      | `25f64b89` plus local diff |
+| **IDE / Agent** | Codex                      |
+
+### Automation context
+
+| Field                          | Value                                                                |
+| ------------------------------ | -------------------------------------------------------------------- |
+| **Trigger**                    | PR feedback import after pushed `25f64b89`                           |
+| **PR**                         | `declancowen/Linear#34`                                              |
+| **Base ref**                   | `main`                                                               |
+| **Base SHA**                   | `19e92e2dd82e447ff65af210892937c5aa589ab9`                           |
+| **Head SHA**                   | `25f64b891d2b09bd61c9393109661524109ff60f`                           |
+| **Previous reviewed head SHA** | `0f0d61836051ed7bc4412e04a8e0a0680a3e0ee4`                           |
+| **Diff reviewed**              | `19e92e2d...25f64b89` plus local PR-feedback fixes                   |
+| **Workflow run**               | `25755279356`, `25755281667`                                         |
+| **Review comment/check**       | Codex inline review on document/project read-model payloads          |
+| **Trusted state source**       | GitHub checks, GraphQL review thread fetch                           |
+| **Verification policy**        | Fix live PR findings, rerun local diff-review/static/test/build gates |
+
+**Summary:** Imported the latest Codex review on `25f64b89` and reran the diff-review loop with architecture standards. Two live read-model omissions were fixed: document index read models now include linked projects, linked work items, and teams needed by document property labels/filters; project detail read models now include team memberships and membership users so person-typed custom properties work from a cold scoped fetch. A late DR-001 automation thread was also imported and classified as already fixed in the current tree.
+**Outcome:** local fixes complete; ready for one batched commit/push and new PR automation run.
+**Risk score:** high — scoped read-model payload completeness affects cold navigation, refresh, filters, display properties, and custom property editors.
+**Change archetypes:** external PR feedback, scoped read-model payload contract, cold-fetch completeness, custom property person options, branch-total re-review.
+**Intended change:** Close all current PR review findings without pushing partial fixes or creating parallel reviews.
+**Intent vs actual:** Document indexes now carry the entity records consumed by document labels and filter UI. Project details now carry the same membership option data that work item details already provide for person properties.
+**Confidence:** high for the imported findings after direct selector tests, Fallow, type/lint/audit, full tests, and production build all passed.
+**Coverage note:** Browser smoke was not rerun because this turn only changed read-model payload contents and selector tests, not presentation layout or interactions.
+**Finding triage:** The two Codex connector findings were live. The late DR-001 automation review thread was stale against the current tree because Convex and route duplicate option-ID validation already existed and was covered by tests.
+**Static/analyzer evidence:** `pnpm fallow:gate` passes with dead-code `0`, production health findings `0`, and duplication `0/0`. `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passes with dead code `0`, complexity `0`, clone groups `0`; it warns that `node_modules` is not present for maximum analyzer precision.
+**Architecture impact:** The read-model selector layer now owns the payload dependencies for display-property consumers instead of relying on a prior full workspace snapshot.
+**Bug classes / invariants checked:** payload completeness, cold-fetch state, scope/tenancy, person-option availability, stale external finding triage, branch-total feedback loop.
+**Branch totality:** Rechecked the latest PR review threads, stale/later automation thread, cumulative branch diff, read-model selectors, Fallow gates, full test suite, build, and duplicate-file sweep after the fixes.
+**Sibling closure:** Checked document index linked project/item/team dependencies, project detail custom property definitions/values/users/team memberships, work item detail parity, and duplicate option-ID validation.
+**Remediation impact surface:** `lib/scoped-sync/read-models.ts` and `tests/lib/scoped-read-models.test.ts`.
+**Residual risk / unknowns:** GitHub CI and Codex review must rerun after this batch is pushed.
+
+### Validation
+
+- `pnpm exec vitest run tests/lib/scoped-read-models.test.ts` — passed, 1 file / 7 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm audit:deps` — passed high-severity gate; remaining audit output is 1 low / 9 moderate
+- `pnpm fallow:gate` — passed
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` — passed; dead code `0`, complexity `0`, clone groups `0`, with node_modules precision warning
+- `pnpm test` — passed, 176 files / 964 tests
+- `pnpm build` — passed
+- `git diff --check` — passed
+- duplicate-file sweep for `* 2` / `* 3` paths excluding `.git`, `node_modules`, `.next`, and `.fallow` — passed; no matches
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** latest Codex review threads, stale DR-001 automation thread, document property label consumers, project detail custom property consumers, read-model selector tests.
+- **Prior open findings rechecked:** no prior open findings remained; WPDV-14 duplicate option-ID validation was verified in current tree after the late stale thread.
+- **Prior resolved/adjacent areas revalidated:** custom property definition/value payloads, project read-model invalidation, document index views, Fallow zero-finding gates.
+- **Hotspots or sibling paths revisited:** document index cold scoped refresh, project detail cold scoped refresh, person custom property editor option construction, linked project/item labels.
+- **Dependency/adjacent surfaces revalidated:** no package changes in this turn; dependency audit still passes the configured high-severity gate.
+- **Why this is enough:** both live findings were read-model payload omissions fixed at the selector boundary and covered by direct selector assertions plus full branch validation.
+
+### Challenger pass
+
+- done — Assumed document labels might need only project/work item records; the fix also includes teams for document team labels and linked entity context.
+- done — Assumed project person properties might need only users; the fix adds team memberships as the actual option source and includes membership users.
+- done — Assumed the late DR-001 thread might still be live because it points to a current line; current-tree inspection confirmed Convex and route duplicate-ID guards plus regression tests.
+
+### External finding import
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+| ------ | ------- | -------------- | --------- | ------------------------ | ------ |
+| Codex inline review | Document index read model omits linked projects/work items/teams needed by document property labels and filters | Resolved locally | payload completeness / cold-fetch state | display-property consumers must receive referenced entity records in scoped index payloads | Added linked project/work item/team selection and selector regression test |
+| Codex inline review | Project detail read model omits team memberships needed by person custom property editors | Resolved locally | payload completeness / person option availability | person property options come from team memberships, not only users and values | Added team memberships and membership users to project detail payload with selector regression test |
+| Late PR automation thread | DR-001 duplicate custom property option IDs | Already fixed in current tree | identity/uniqueness / persistence contract | persisted option IDs must be unique independent of labels | No new code; current Convex/route guards and tests already cover it |
+
+### Resolved / Carried / New findings
+
+#### WPDV-18 — resolved locally — document index payload omitted linked entity label dependencies
+
+- **Severity:** medium
+- **Evidence:** Codex review on `components/app/screens/docs-content.tsx` noted direct document-index hydration could not resolve linked project/item/team labels.
+- **Fix:** `selectDocumentIndexReadModel()` now includes linked projects, linked work items, and relevant teams.
+- **Prevention:** Added selector coverage proving a team document index returns the linked project, linked work item, and team.
+
+#### WPDV-19 — resolved locally — project detail payload omitted memberships for person custom properties
+
+- **Severity:** medium
+- **Evidence:** Codex review on `lib/scoped-sync/read-models.ts` noted project detail includes custom property definitions/values but not team memberships, so person editors lack options on cold scoped fetches.
+- **Fix:** `selectProjectDetailReadModel()` now includes team memberships for the project item teams and includes those membership users.
+- **Prevention:** Added selector coverage proving project detail includes team memberships.
+
+### Recommendations
+
+1. **Fix first:** Commit this local batch and push once.
+2. **Then address:** Wait for the next GitHub CI/Codex feedback before making another commit or push.
+3. **Patterns noticed:** Any read model that introduces display properties must include the referenced records those display properties resolve, not depend on previous broad snapshots.
+4. **Suggested approach:** Treat read-model selector tests as the contract for cold navigation and scoped refresh payload completeness.
+5. **Architecture transition:** No new exception; this strengthens the selector boundary as the owner of read-side payload completeness.
+6. **Defer on purpose:** Browser smoke remains deferred for this read-model-only feedback batch.
 
 ## Turn 5 — 2026-05-12 19:46 BST
 
