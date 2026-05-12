@@ -28,11 +28,113 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-12 19:23 BST |
-| **Total turns**       | 4                    |
+| **Last reviewed**     | 2026-05-12 19:46 BST |
+| **Total turns**       | 5                    |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 15                   |
+| **Resolved findings** | 17                   |
 | **Accepted findings** | 0                    |
+
+## Turn 5 — 2026-05-12 19:46 BST
+
+| Field           | Value                      |
+| --------------- | -------------------------- |
+| **Commit**      | `0f0d6183` plus local diff |
+| **IDE / Agent** | Codex                      |
+
+### Automation context
+
+| Field                          | Value                                                                 |
+| ------------------------------ | --------------------------------------------------------------------- |
+| **Trigger**                    | PR feedback import after pushed `0f0d6183`                            |
+| **PR**                         | `declancowen/Linear#34`                                               |
+| **Base ref**                   | `main`                                                                |
+| **Base SHA**                   | `19e92e2dd82e447ff65af210892937c5aa589ab9`                            |
+| **Head SHA**                   | `0f0d61836051ed7bc4412e04a8e0a0680a3e0ee4`                            |
+| **Previous reviewed head SHA** | `709b83ba7c23e5eb2db06326cd018aba63eb06d6`                            |
+| **Diff reviewed**              | `19e92e2d...0f0d6183` plus local PR-feedback fix                      |
+| **Workflow run**               | `25754053400`, `25754050481`                                          |
+| **Review comment/check**       | Codex inline review on project read-model invalidation                |
+| **Trusted state source**       | GitHub checks, GraphQL review thread fetch                            |
+| **Verification policy**        | Fix live PR finding, rerun local diff-review/static/test/build gates  |
+
+**Summary:** Imported the new Codex PR review on `0f0d6183` and reran the diff-review loop with architecture standards. One live issue was fixed: custom property definition changes now invalidate project detail and project index read models that render work item custom property definitions/values. The Fallow changed-file audit then found the read-model scope helper shape too complex, so the scope fan-out was split into small owner-local helpers and the adjacent work-item detail scope collector was simplified.
+**Outcome:** local fixes complete; ready for one batched commit/push and new PR automation run.
+**Risk score:** high — scoped read-model freshness for custom property metadata across work item and project surfaces.
+**Change archetypes:** external PR feedback, scoped read-model invalidation, static analyzer follow-up, state freshness, branch-total re-review.
+**Intended change:** Address the latest Codex PR finding without triggering another push until the full local review/validation loop is clean.
+**Intent vs actual:** Project detail read models and team/workspace project indexes now receive version bumps when a team custom property definition changes and those properties can be rendered through project-contained work items. Scope collection remains centralized in `lib/scoped-sync/read-models.ts` and is factored into helper functions that keep Fallow's changed-file audit clean.
+**Confidence:** high for the imported finding and adjacent read-model scope family after targeted tests, Fallow, full test, and build all passed.
+**Coverage note:** Browser smoke was not rerun because this turn only changed read-model scope-key calculation and a selector test. The previous broad presentation changes remain covered by the earlier branch validation.
+**Finding triage:** The Codex project invalidation finding was live. The Fallow complexity signal was live after the first local fix and is now resolved.
+**Static/analyzer evidence:** `pnpm fallow:gate` passes with dead-code `0`, production health findings `0`, and duplication `0/0`. `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passes with dead code `0`, complexity `0`, clone groups `0`; it warns that `node_modules` is not present for maximum analyzer precision.
+**Architecture impact:** Read-model invalidation remains owned by scoped-sync helpers rather than route-local arrays. The custom property definition invalidation helper now covers work item details, work indexes, view catalogs, project details, and project indexes from the same source of truth.
+**Bug classes / invariants checked:** state freshness, scope/tenancy, derived read-model invalidation, analyzer complexity drift, branch-total feedback loop.
+**Branch totality:** Rechecked the cumulative branch diff, latest Codex review thread, previous resolved feedback, Fallow gates, full tests, build, and duplicate-file sweep after the fix.
+**Sibling closure:** Checked work item detail scope keys, project detail scope keys, team project indexes, workspace project indexes, personal/team/workspace work indexes, and custom property definition create/update/archive route invalidation.
+**Remediation impact surface:** `lib/scoped-sync/read-models.ts` and `tests/lib/scoped-read-models.test.ts`.
+**Residual risk / unknowns:** GitHub CI and Codex review must rerun after this batch is pushed.
+
+### Validation
+
+- `pnpm exec vitest run tests/lib/scoped-read-models.test.ts tests/app/api/custom-properties-route-contracts.test.ts` — passed, 2 files / 10 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm audit:deps` — passed high-severity gate; remaining audit output is 1 low / 9 moderate
+- `pnpm fallow:gate` — passed
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` — passed; dead code `0`, complexity `0`, clone groups `0`, with node_modules precision warning
+- `DIFF_BASE=19e92e2dd82e447ff65af210892937c5aa589ab9 DIFF_HEAD=HEAD DEFAULT_BRANCH=main node scripts/verify-convex-generated-fallback.mjs` — passed; schema-change fallback warns and verifies generated API roster
+- `DIFF_BASE=b8e90c3acff541d6246ba21e00911c71e368dd2a DIFF_HEAD=709b83ba7c23e5eb2db06326cd018aba63eb06d6 DEFAULT_BRANCH=main node scripts/verify-convex-generated-fallback.mjs` — passed; dependency-only diff verifies generated API roster
+- `pnpm test` — passed, 176 files / 963 tests
+- `pnpm build` — passed
+- `git diff --check` — passed
+- duplicate-file sweep for `* 2` / `* 3` paths excluding `.git`, `node_modules`, `.next`, and `.fallow` — passed; no matches
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** GitHub PR reviews/checks, custom property routes, server scoped-read-model resolver, project/work item read-model scope helpers, existing review ledger.
+- **Prior open findings rechecked:** no prior open findings remained; WPDV-12 through WPDV-15 were revalidated by CI status plus local Convex fallback, route, Fallow, test, and build checks.
+- **Prior resolved/adjacent areas revalidated:** property definition create/update/archive invalidation, work item detail scope keys, project detail/project index scope keys, Fallow complexity/duplication gates.
+- **Hotspots or sibling paths revisited:** project-contained work items, linked projects, workspace project index containing team projects, team membership personal work indexes, view catalogs.
+- **Dependency/adjacent surfaces revalidated:** no package changes in this turn; dependency audit still passes the high-severity gate.
+- **Why this is enough:** the live finding was a deterministic scope-key omission, fixed at the shared read-model invalidation boundary and protected by selector coverage plus branch-wide static/test/build gates.
+
+### Challenger pass
+
+- done — Assumed project detail invalidation alone was insufficient; the fix also bumps the team project index for team projects and the workspace project index that can include team-scoped projects.
+- done — Assumed the new scope fan-out could degrade maintainability; the helper extraction brings both configured Fallow and changed-file Fallow audit back to zero findings.
+- done — Assumed the same scope-helper family could still carry a complexity finding; `getWorkItemDetailScopeKeys` was simplified using the same helper pattern and its existing test stayed green.
+
+### External finding import
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+| ------ | ------- | -------------- | --------- | ------------------------ | ------ |
+| Codex inline review | Custom-property definition changes did not invalidate project detail/index read models that include custom property definitions/values | Resolved locally | state freshness / scoped read-model invalidation | property metadata changes affect every read model rendering team work item properties, not only work/item/view scopes | Added project detail, team project index, and workspace project index invalidation plus selector coverage |
+| Local Fallow changed-file audit | Read-model scope-key helpers introduced complexity findings in the changed-file audit | Resolved locally | analyzer drift / maintainability | shared invalidation helpers should stay small enough for configured and changed-file Fallow modes | Split scope fan-out into owner-local helpers and reran both Fallow modes |
+
+### Resolved / Carried / New findings
+
+#### WPDV-16 — resolved locally — custom-property definition changes missed project read models
+
+- **Severity:** medium
+- **Evidence:** Codex inline review on `lib/scoped-sync/read-models.ts` correctly noted project detail and project index read models include custom property definitions/values but were not invalidated when definitions changed.
+- **Fix:** `getCustomPropertyDefinitionScopeKeys()` now collects project IDs from the team's work items and adds project detail plus project index scope keys, including the workspace project index for the owning workspace.
+- **Prevention:** Updated the scoped read-model test to assert project detail, team project index, and workspace project index keys are included.
+
+#### WPDV-17 — resolved locally — read-model scope helper complexity regressed Fallow changed-file audit
+
+- **Severity:** medium
+- **Evidence:** `pnpm fallow:gate` initially failed on `getCustomPropertyDefinitionScopeKeys`, then the stricter changed-file audit flagged `getWorkItemDetailScopeKeys`.
+- **Fix:** Extracted custom-property and work-item scope fan-out into small shared helper functions while keeping the invalidation owner in `lib/scoped-sync/read-models.ts`.
+- **Prevention:** Both `pnpm fallow:gate` and `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` now pass with zero findings.
+
+### Recommendations
+
+1. **Fix first:** Commit this local batch and push once.
+2. **Then address:** Wait for the next GitHub CI/Codex feedback before making another commit or push.
+3. **Patterns noticed:** Read-model invalidation must be reviewed by consumer family, not only by the route that mutates the source data.
+4. **Suggested approach:** Keep future custom-property read-model consumers wired through `getCustomPropertyDefinitionScopeKeys()` rather than route-local scope arrays.
+5. **Architecture transition:** No new exception; this strengthens the scoped-sync boundary as the source of truth for read-model fan-out.
+6. **Defer on purpose:** Browser smoke remains deferred for this read-model-only feedback batch.
 
 ## Turn 4 — 2026-05-12 19:23 BST
 

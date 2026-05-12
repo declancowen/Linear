@@ -258,6 +258,9 @@ describe("scoped read model selectors", () => {
     expect(
       getCustomPropertyDefinitionScopeKeys(snapshot, "team_1").sort()
     ).toEqual([
+      "project-detail:project_1",
+      "project-index:team_team_1",
+      "project-index:workspace_workspace_1",
       "view-catalog:team_team_1",
       "view-catalog:workspace_workspace_1",
       "work-index:personal_user_1",

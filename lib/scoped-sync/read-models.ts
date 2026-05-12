@@ -1879,6 +1879,87 @@ export function getWorkIndexScopeKeys(
   ]
 }
 
+function addCustomPropertyWorkspaceScopeKeys(
+  snapshot: AppSnapshot,
+  teamId: string,
+  scopeKeys: Set<string>
+) {
+  const team = snapshot.teams.find((entry) => entry.id === teamId) ?? null
+
+  if (!team) {
+    return
+  }
+
+  addScopeKeys(scopeKeys, getWorkIndexScopeKeys("workspace", team.workspaceId))
+  addScopeKeys(scopeKeys, getViewCatalogScopeKeys("workspace", team.workspaceId))
+  addScopeKeys(
+    scopeKeys,
+    getProjectIndexScopeKeys("workspace", team.workspaceId)
+  )
+}
+
+function collectCustomPropertyTeamProjectIds(
+  snapshot: AppSnapshot,
+  teamId: string,
+  scopeKeys: Set<string>
+) {
+  const projectIds = new Set<string>()
+
+  for (const item of snapshot.workItems) {
+    if (item.teamId !== teamId) {
+      continue
+    }
+
+    scopeKeys.add(createWorkItemDetailScopeKey(item.id))
+    for (const projectId of [
+      item.primaryProjectId,
+      ...item.linkedProjectIds,
+    ]) {
+      if (projectId) {
+        projectIds.add(projectId)
+      }
+    }
+  }
+
+  return projectIds
+}
+
+function addCustomPropertyProjectScopeKeys(
+  snapshot: AppSnapshot,
+  projectIds: Iterable<string>,
+  scopeKeys: Set<string>
+) {
+  for (const projectId of projectIds) {
+    const project =
+      snapshot.projects.find((entry) => entry.id === projectId) ?? null
+
+    if (!project) {
+      continue
+    }
+
+    scopeKeys.add(createProjectDetailScopeKey(project.id))
+    addScopeKeys(
+      scopeKeys,
+      getProjectIndexScopeKeys(project.scopeType, project.scopeId)
+    )
+  }
+}
+
+function addTeamMemberPersonalWorkScopeKeys(
+  snapshot: AppSnapshot,
+  teamId: string,
+  scopeKeys: Set<string>
+) {
+  for (const membership of snapshot.teamMemberships) {
+    if (membership.teamId === teamId) {
+      addScopeKeys(
+        scopeKeys,
+        getWorkIndexScopeKeys("personal", membership.userId)
+      )
+    }
+  }
+}
+
 export function getCustomPropertyDefinitionScopeKeys(
   snapshot: AppSnapshot,
   teamId: string
@@ -1887,41 +1968,15 @@ export function getCustomPropertyDefinitionScopeKeys(
     ...getWorkIndexScopeKeys("team", teamId),
     ...getViewCatalogScopeKeys("team", teamId),
   ])
-  const team = snapshot.teams.find((entry) => entry.id === teamId) ?? null
+  const projectIds = collectCustomPropertyTeamProjectIds(
+    snapshot,
+    teamId,
+    scopeKeys
+  )
 
-  if (team) {
-    for (const scopeKey of getWorkIndexScopeKeys(
-      "workspace",
-      team.workspaceId
-    )) {
-      scopeKeys.add(scopeKey)
-    }
-    for (const scopeKey of getViewCatalogScopeKeys(
-      "workspace",
-      team.workspaceId
-    )) {
-      scopeKeys.add(scopeKey)
-    }
-  }
-
-  for (const item of snapshot.workItems) {
-    if (item.teamId === teamId) {
-      scopeKeys.add(createWorkItemDetailScopeKey(item.id))
-    }
-  }
-
-  for (const membership of snapshot.teamMemberships) {
-    if (membership.teamId !== teamId) {
-      continue
-    }
-
-    for (const scopeKey of getWorkIndexScopeKeys(
-      "personal",
-      membership.userId
-    )) {
-      scopeKeys.add(scopeKey)
-    }
-  }
+  addCustomPropertyWorkspaceScopeKeys(snapshot, teamId, scopeKeys)
+  addCustomPropertyProjectScopeKeys(snapshot, projectIds, scopeKeys)
+  addTeamMemberPersonalWorkScopeKeys(snapshot, teamId, scopeKeys)
 
   return [...scopeKeys]
 }
@@ -1946,6 +2001,33 @@ export function getUserWorkspaceMembershipScopeKeys(
   )
 }
 
+function addWorkItemProjectRelatedScopeKeys(
+  snapshot: AppSnapshot,
+  item: AppSnapshot["workItems"][number],
+  scopeKeys: Set<string>
+) {
+  for (const projectId of compactStringIds([
+    item.primaryProjectId,
+    ...item.linkedProjectIds,
+  ])) {
+    addScopeKeys(scopeKeys, getProjectRelatedScopeKeys(snapshot, projectId))
+  }
+}
+
+function addWorkItemTeamRelatedScopeKeys(
+  snapshot: AppSnapshot,
+  item: AppSnapshot["workItems"][number],
+  scopeKeys: Set<string>
+) {
+  addScopeKeys(scopeKeys, getWorkIndexScopeKeys("team", item.teamId))
+
+  const team = snapshot.teams.find((entry) => entry.id === item.teamId) ?? null
+
+  if (team) {
+    scopeKeys.add(createSearchSeedScopeKey(team.workspaceId))
+  }
+}
+
 export function getWorkItemDetailScopeKeys(
   snapshot: AppSnapshot,
   itemId: string
@@ -1957,34 +2039,9 @@ export function getWorkItemDetailScopeKeys(
     return [...scopeKeys]
   }
 
-  for (const projectId of [
-    item.primaryProjectId,
-    ...item.linkedProjectIds,
-  ].filter((value): value is string => Boolean(value))) {
-    for (const scopeKey of getProjectRelatedScopeKeys(snapshot, projectId)) {
-      scopeKeys.add(scopeKey)
-    }
-  }
-
-  for (const scopeKey of getWorkIndexScopeKeys("team", item.teamId)) {
-    scopeKeys.add(scopeKey)
-  }
-
-  const team = snapshot.teams.find((entry) => entry.id === item.teamId) ?? null
-
-  if (team) {
-    scopeKeys.add(createSearchSeedScopeKey(team.workspaceId))
-  }
-
-  const teamMemberIds = snapshot.teamMemberships
-    .filter((membership) => membership.teamId === item.teamId)
-    .map((membership) => membership.userId)
-
-  for (const userId of teamMemberIds) {
-    for (const scopeKey of getWorkIndexScopeKeys("personal", userId)) {
-      scopeKeys.add(scopeKey)
-    }
-  }
+  addWorkItemProjectRelatedScopeKeys(snapshot, item, scopeKeys)
+  addWorkItemTeamRelatedScopeKeys(snapshot, item, scopeKeys)
+  addTeamMemberPersonalWorkScopeKeys(snapshot, item.teamId, scopeKeys)
 
   return [...scopeKeys]
 }
