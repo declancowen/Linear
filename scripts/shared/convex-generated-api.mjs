@@ -1,7 +1,7 @@
 export function parseGeneratedApiMap(apiText) {
   const modules = new Set()
   const fullApiBody = apiText.match(
-    /declare const fullApi: ApiFromModules<\{\n([\s\S]*?)\n\}>;/
+    /declare\s+const\s+fullApi:\s*ApiFromModules<\{\n([\s\S]*?)\n\}\s*>;?/
   )?.[1]
 
   if (!fullApiBody) {

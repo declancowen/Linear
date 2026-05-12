@@ -28,11 +28,129 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-12 18:39 BST |
-| **Total turns**       | 3                    |
+| **Last reviewed**     | 2026-05-12 19:23 BST |
+| **Total turns**       | 4                    |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 11                   |
+| **Resolved findings** | 15                   |
 | **Accepted findings** | 0                    |
+
+## Turn 4 — 2026-05-12 19:23 BST
+
+| Field           | Value                      |
+| --------------- | -------------------------- |
+| **Commit**      | `709b83ba` plus local diff |
+| **IDE / Agent** | Codex                      |
+
+### Automation context
+
+| Field                          | Value                                                                 |
+| ------------------------------ | --------------------------------------------------------------------- |
+| **Trigger**                    | PR feedback import after pushed `709b83ba`                            |
+| **PR**                         | `declancowen/Linear#34`                                               |
+| **Base ref**                   | `main`                                                                |
+| **Base SHA**                   | `19e92e2dd82e447ff65af210892937c5aa589ab9`                            |
+| **Head SHA**                   | `709b83ba7c23e5eb2db06326cd018aba63eb06d6`                            |
+| **Previous reviewed head SHA** | `b8e90c3acff541d6246ba21e00911c71e368dd2a`                            |
+| **Diff reviewed**              | `19e92e2d...709b83ba` plus local PR-feedback fixes                    |
+| **Workflow run**               | `25751678939`, `25751681656`                                          |
+| **Review comment/check**       | GitHub CI `check` failures, Codex inline review, diff-review comment  |
+| **Trusted state source**       | GitHub checks, GraphQL review thread fetch, PR automation comment     |
+| **Verification policy**        | Fix all imported live findings, rerun local diff-review/static/checks |
+
+**Summary:** Imported the current PR feedback and reran the local diff-review loop with architecture standards. Four live issues were fixed: the Convex fallback checker failed schema-change PRs when no deployment secret was available, the generated API parser assumed semicolon formatting, custom-property definition mutations did not invalidate item detail/view catalog read models, and select option IDs were not guaranteed unique. The route PATCH schema also had a live preservation bug found during the targeted route test: name-only updates defaulted `options` to `[]`, which could clear select options.
+**Outcome:** local fixes complete; ready for one batched commit/push and new PR automation run.
+**Risk score:** high — data model/read-model invalidation, CI release gate, and custom property persistence contracts.
+**Change archetypes:** external PR feedback, CI fallback contract, scoped read-model invalidation, route/schema compatibility, Convex validation, static analyzer zero-clone enforcement.
+**Intended change:** Address all current GitHub/Codex/local automation findings without triggering parallel PR reviews.
+**Intent vs actual:** The custom property read-model owner now computes the full definition invalidation scope; Convex remains the authoritative option-ID validation boundary; route schemas catch invalid payloads earlier and preserve omitted PATCH fields; the fallback CI checker verifies generated API roster locally and relies on typecheck for schema-imported data model bindings when deployment codegen is unavailable.
+**Confidence:** high for targeted fixes and local validation; PR CI/Codex must rerun after the next push.
+**Coverage note:** Added route, read-model, Convex handler, and script parser coverage. Browser smoke was not rerun because this turn touched server/read-model/script contracts and tests, not presentation layout.
+**Finding triage:** All imported findings were live in the current tree. The schema PATCH preservation bug was a local review find discovered by the new route contract test.
+**Static/analyzer evidence:** `pnpm fallow:gate` passes with dead-code `0`, production health findings `0`, and duplication `0/0`. `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passes with dead code `0`, complexity `0`, clone groups `0`; it warns that `node_modules` is not present for maximum analyzer precision.
+**Architecture impact:** Read-model invalidation logic is centralized in `lib/scoped-sync/read-models.ts` and exposed through `lib/server/scoped-read-models.ts`; route handlers no longer hard-code a partial team index scope. Custom property option identity is enforced at the Convex/domain boundary, with route schemas as an edge guard.
+**Bug classes / invariants checked:** state freshness, preservation, contract encoding, compatibility, identity/uniqueness, CI fallback/release safety, analyzer zero-new-clone policy.
+**Branch totality:** Rechecked the cumulative branch diff, latest GitHub review thread state, PR automation comment, CI check logs, and local static/test/build gates after the fixes.
+**Sibling closure:** Checked create/update/archive property definition paths, route schema create/update variants, generated API map/import parsing, schema-change fallback behavior, work index/item detail/view catalog scopes, and select/multi-select option validation.
+**Remediation impact surface:** `app/api/custom-properties/**`, `lib/scoped-sync/read-models.ts`, `lib/server/scoped-read-models.ts`, `convex/app/custom_property_handlers.ts`, `lib/domain/types-internal/schemas.ts`, Convex fallback scripts, and focused tests.
+**Residual risk / unknowns:** GitHub CI and Codex review are still on the previous pushed commit until this batch is committed and pushed.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/custom-property-handlers.test.ts tests/app/api/custom-properties-route-contracts.test.ts tests/lib/scoped-read-models.test.ts tests/scripts/shared-helpers.test.ts` — passed, 4 files / 19 tests
+- `DIFF_BASE=19e92e2dd82e447ff65af210892937c5aa589ab9 DIFF_HEAD=HEAD DEFAULT_BRANCH=main node scripts/verify-convex-generated-fallback.mjs` — passed; schema-change fallback warns and verifies generated API roster
+- `DIFF_BASE=b8e90c3acff541d6246ba21e00911c71e368dd2a DIFF_HEAD=709b83ba7c23e5eb2db06326cd018aba63eb06d6 DEFAULT_BRANCH=main node scripts/verify-convex-generated-fallback.mjs` — passed; dependency-only diff verifies generated API roster
+- `pnpm audit:deps` — passed high-severity gate; remaining audit output is 1 low / 9 moderate
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` — passed; dead code `0`, complexity `0`, clone groups `0`, with node_modules precision warning
+- `pnpm test` — passed, 176 files / 963 tests
+- `pnpm build` — passed
+- `git diff --check` — passed
+- duplicate-file sweep for `* 2` / `* 3` paths excluding `.git`, `node_modules`, `.next`, and `.fallow` — passed; no matches
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** GitHub PR checks, Codex review thread, PR automation comment, custom property Convex handler, route schemas, scoped read-model selectors/scope keys, Convex fallback scripts.
+- **Prior open findings rechecked:** none remained open before this import; WPDV-11 dependency audit fix still passes `pnpm audit:deps`.
+- **Prior resolved/adjacent areas revalidated:** custom property create/update/value route surfaces, work item detail read models, view catalogs, generated Convex API roster, and zero-duplication Fallow policy.
+- **Hotspots or sibling paths revisited:** create/update/archive property definitions, item detail subscriptions, team/workspace/personal work indexes, view catalog scopes, route PATCH preservation, duplicate option ID/label variants.
+- **Dependency/adjacent surfaces revalidated:** no package changes in this turn; existing dependency audit remains below the configured high-severity fail threshold.
+- **Why this is enough:** every imported finding now has an owner-boundary fix plus regression coverage for the failed variant and a sibling path.
+
+### Challenger pass
+
+- done — Assumed the read-model fix could still miss a definition consumer; this added item detail, team/workspace/personal work indexes, and team/workspace view catalog scopes to the invalidation helper.
+- done — Assumed the option-ID fix could be route-only; this added Convex-side validation and route-side schema rejection.
+- done — Assumed the parser fix might only cover the API map, not imports; the generated import parser now also accepts semicolonless Convex output and both fallback CI diff shapes pass locally.
+
+### External finding import
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+| ------ | ------- | -------------- | --------- | ------------------------ | ------ |
+| GitHub CI | Convex fallback blocks schema-change PRs without `CONVEX_DEPLOYMENT` and parser rejects semicolonless generated API output | Resolved locally | CI fallback / release safety / contract encoding | no-deployment fallback must still verify source-committed generated API roster across generated formatting variants | Fallback now warns on schema changes, verifies roster, and parser accepts semicolonless imports/API maps |
+| Codex inline review | Custom-property definition create/update/archive only bumped team work index, leaving item detail subscribers stale | Resolved locally | state freshness / scoped read-model invalidation | definition changes affect item detail, view catalog, and broader work index scopes, not only team index | Added shared property-definition scope helper and route contract coverage |
+| PR diff-review automation | Select option IDs can collide and make persisted values ambiguous | Resolved locally | identity/uniqueness / persistence contract | option IDs are persisted values and must be unique, independent of labels | Added Convex validation, route schema guard, and create/update regression tests |
+| Local re-review | PATCH schema defaulted omitted `options` to `[]`, so name-only property edits could clear select options | Resolved locally | preservation / compatibility | update schemas must preserve omitted fields and differ from create defaults | Split patch schema from create schema and asserted route PATCH payload shape |
+
+### Resolved / Carried / New findings
+
+#### WPDV-12 — resolved locally — Convex generated fallback failed valid no-deployment CI paths
+
+- **Severity:** high
+- **Evidence:** PR CI failed in both schema-change and dependency-only checks: schema changes hard-failed without `CONVEX_DEPLOYMENT`, and generated API parsing rejected the committed semicolonless output.
+- **Fix:** Changed schema-change fallback from hard failure to warning, retained reliable diff-base and generated API roster checks, and made generated import/API map parsing semicolon-tolerant.
+- **Prevention:** Script parser test plus both failed CI diff-shape simulations now pass locally.
+
+#### WPDV-13 — resolved locally — custom-property definition mutations left detail read models stale
+
+- **Severity:** medium
+- **Evidence:** Codex inline review on `app/api/custom-properties/[propertyId]/route.ts` correctly noted item detail read models include `customPropertyDefinitions` but were not invalidated.
+- **Fix:** Added `getCustomPropertyDefinitionScopeKeys()` covering team/workspace/personal work indexes, item detail keys for team items, and team/workspace view catalogs; create/update/archive routes now use the resolver.
+- **Prevention:** Added read-model scope test and route contract tests for create/update/archive invalidation.
+
+#### WPDV-14 — resolved locally — select option IDs were not unique
+
+- **Severity:** medium
+- **Evidence:** PR automation found duplicate option IDs could map one persisted select value to multiple labels.
+- **Fix:** Convex option normalization now trims and enforces unique non-empty option IDs; route schemas reject duplicate option IDs.
+- **Prevention:** Added Convex create/update handler tests and a route invalid-payload test.
+
+#### WPDV-15 — resolved locally — PATCH schema could clear select options on unrelated edits
+
+- **Severity:** medium
+- **Evidence:** The new route contract test showed a name-only PATCH parsed to `{ name, options: [] }`.
+- **Fix:** Split custom property create and patch schemas so update payloads do not inherit create-time defaults.
+- **Prevention:** Route update test asserts the forwarded patch omits `options` for a name-only update.
+
+### Recommendations
+
+1. **Fix first:** Commit this local batch and push once.
+2. **Then address:** Wait for the next GitHub CI/Codex/diff-review feedback before making another push.
+3. **Patterns noticed:** Generated fallback tools need to tolerate formatter differences in generated files; update schemas should not reuse create defaults when omitted fields have preservation semantics.
+4. **Suggested approach:** Keep read-model scope fan-out in shared scoped-sync helpers, not route-local arrays.
+5. **Architecture transition:** No new long-lived exception; the no-deployment Convex fallback is explicitly a source-committed roster check plus TypeScript validation, not a replacement for deployment codegen.
+6. **Defer on purpose:** Browser smoke remains deferred for this contract-only feedback batch.
 
 ## Turn 3 — 2026-05-12 18:39 BST
 

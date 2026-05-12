@@ -9,11 +9,11 @@ import {
   createCustomPropertyDefinitionServer,
 } from "@/lib/server/convex"
 import { getSnapshotServer } from "@/lib/server/convex"
-import { getWorkIndexScopeKeys } from "@/lib/scoped-sync/read-models"
 import { handleCustomPropertyRouteError } from "@/lib/server/custom-property-route-utils"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
 import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
+import { resolveCustomPropertyDefinitionReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 
 type AuthenticatedSession = Exclude<
   Awaited<ReturnType<typeof requireSession>>,
@@ -31,6 +31,7 @@ type CustomPropertyCreateContext = {
     Awaited<ReturnType<typeof parseCreateCustomPropertyRequest>>,
     Response
   >
+  session: AuthenticatedSession
 }
 
 async function requireCustomPropertySession() {
@@ -162,6 +163,7 @@ async function requireCustomPropertyCreateContext(
   return {
     currentUserId: appContext.ensuredUser.userId,
     parsed,
+    session,
   }
 }
 
@@ -171,8 +173,13 @@ async function createCustomProperty(context: CustomPropertyCreateContext) {
       currentUserId: context.currentUserId,
       ...context.parsed,
     })
+    const scopeKeys =
+      await resolveCustomPropertyDefinitionReadModelScopeKeysServer(
+        context.session,
+        context.parsed.teamId
+      )
     await bumpScopedReadModelVersionsServer({
-      scopeKeys: getWorkIndexScopeKeys("team", context.parsed.teamId),
+      scopeKeys,
     })
 
     return jsonOk({

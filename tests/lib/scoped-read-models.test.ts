@@ -4,6 +4,7 @@ import { createEmptyState } from "@/lib/domain/empty-state"
 import type { AppSnapshot } from "@/lib/domain/types"
 import { isWorkspaceMembershipInvite } from "@/lib/scoped-sync/invite-selection"
 import {
+  getCustomPropertyDefinitionScopeKeys,
   getDocumentDetailScopeKeys,
   getConversationRelatedScopeKeys,
   getProjectDetailScopeKeys,
@@ -247,6 +248,22 @@ describe("scoped read model selectors", () => {
       "work-index:personal_user_1",
       "work-index:personal_user_2",
       "work-index:team_team_1",
+      "work-item-detail:item_1",
+    ])
+  })
+
+  it("resolves custom property definition invalidations for indexes, details, and view catalogs", () => {
+    const snapshot = createSnapshotFixture()
+
+    expect(
+      getCustomPropertyDefinitionScopeKeys(snapshot, "team_1").sort()
+    ).toEqual([
+      "view-catalog:team_team_1",
+      "view-catalog:workspace_workspace_1",
+      "work-index:personal_user_1",
+      "work-index:personal_user_2",
+      "work-index:team_team_1",
+      "work-index:workspace_workspace_1",
       "work-item-detail:item_1",
     ])
   })

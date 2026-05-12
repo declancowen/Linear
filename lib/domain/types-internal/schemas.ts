@@ -414,42 +414,71 @@ const customPropertyDefinitionBaseSchema = z.object({
   options: z.array(customPropertyOptionSchema).default([]),
 })
 
+function addCustomPropertyOptionValidationIssues(
+  value: {
+    options?: Array<z.infer<typeof customPropertyOptionSchema>>
+    type?: (typeof customPropertyTypes)[number]
+  },
+  ctx: z.RefinementCtx
+) {
+  const options = value.options ?? []
+  const isChoiceType = value.type === "select" || value.type === "multiSelect"
+
+  if (value.type && !isChoiceType && options.length > 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["options"],
+      message: "Only select properties can define options",
+    })
+  }
+
+  if (isChoiceType && options.length === 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["options"],
+      message: "Add at least one option",
+    })
+  }
+
+  const normalizedIds = options.map((option) => option.id.trim())
+  if (new Set(normalizedIds).size !== normalizedIds.length) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["options"],
+      message: "Option ids must be unique",
+    })
+  }
+
+  const normalizedLabels = options.map((option) =>
+    option.label.trim().toLowerCase()
+  )
+  if (new Set(normalizedLabels).size !== normalizedLabels.length) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["options"],
+      message: "Option labels must be unique",
+    })
+  }
+}
+
+const customPropertyDefinitionPatchBaseSchema = z.object({
+  name: z.string().trim().min(1).max(64),
+  icon: z.string().trim().min(1).max(80),
+  type: z.enum(customPropertyTypes),
+  options: z.array(customPropertyOptionSchema),
+})
+
 export const customPropertyDefinitionSchema =
   customPropertyDefinitionBaseSchema.superRefine((value, ctx) => {
-    const isChoiceType = value.type === "select" || value.type === "multiSelect"
-
-    if (!isChoiceType && value.options.length > 0) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["options"],
-        message: "Only select properties can define options",
-      })
-    }
-
-    if (isChoiceType && value.options.length === 0) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["options"],
-        message: "Add at least one option",
-      })
-    }
-
-    const normalizedLabels = value.options.map((option) =>
-      option.label.trim().toLowerCase()
-    )
-    if (new Set(normalizedLabels).size !== normalizedLabels.length) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["options"],
-        message: "Option labels must be unique",
-      })
-    }
+    addCustomPropertyOptionValidationIssues(value, ctx)
   })
 
 export const customPropertyDefinitionPatchSchema =
-  customPropertyDefinitionBaseSchema
-    .omit({ teamId: true, targetType: true })
+  customPropertyDefinitionPatchBaseSchema
     .partial()
+    .superRefine((value, ctx) => {
+      addCustomPropertyOptionValidationIssues(value, ctx)
+    })
     .refine((value) => Object.keys(value).length > 0, {
       message: "At least one property field is required",
     })

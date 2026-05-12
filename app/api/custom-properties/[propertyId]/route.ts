@@ -6,13 +6,13 @@ import {
   bumpScopedReadModelVersionsServer,
   updateCustomPropertyDefinitionServer,
 } from "@/lib/server/convex"
-import { getWorkIndexScopeKeys } from "@/lib/scoped-sync/read-models"
 import type { AppSnapshot } from "@/lib/domain/types"
 import { getSnapshotServer } from "@/lib/server/convex"
 import { handleCustomPropertyRouteError } from "@/lib/server/custom-property-route-utils"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
 import { isRouteResponse, jsonOk } from "@/lib/server/route-response"
+import { resolveCustomPropertyDefinitionReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 
 async function resolvePropertyTeamId(
   session: Exclude<Awaited<ReturnType<typeof requireSession>>, Response>,
@@ -30,13 +30,22 @@ async function resolvePropertyTeamId(
   )
 }
 
-async function bumpPropertyReadModel(teamId: string | null) {
+async function bumpPropertyReadModel(
+  session: Exclude<Awaited<ReturnType<typeof requireSession>>, Response>,
+  teamId: string | null
+) {
   if (!teamId) {
     return
   }
 
+  const scopeKeys =
+    await resolveCustomPropertyDefinitionReadModelScopeKeysServer(
+      session,
+      teamId
+    )
+
   await bumpScopedReadModelVersionsServer({
-    scopeKeys: getWorkIndexScopeKeys("team", teamId),
+    scopeKeys,
   })
 }
 
@@ -62,7 +71,7 @@ async function runPropertyMutation({
 
     const teamId = await resolvePropertyTeamId(session, propertyId)
     await mutate(appContext.ensuredUser.userId)
-    await bumpPropertyReadModel(teamId)
+    await bumpPropertyReadModel(session, teamId)
 
     return jsonOk({ ok: true })
   } catch (error) {

@@ -12,6 +12,7 @@ import {
   getChannelPostRelatedScopeKeys,
   getChatMessageRelatedScopeKeys,
   getConversationRelatedScopeKeys,
+  getCustomPropertyDefinitionScopeKeys,
   getDocumentIndexScopeKeys,
   getDocumentRelatedScopeKeys,
   getDocumentDetailScopeKeys,
@@ -276,6 +277,15 @@ export async function resolveWorkItemReadModelScopeKeysServer(
   const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   return getWorkItemDetailScopeKeys(snapshot, itemId)
+}
+
+export async function resolveCustomPropertyDefinitionReadModelScopeKeysServer(
+  session: AuthenticatedSession,
+  teamId: string
+) {
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
+
+  return getCustomPropertyDefinitionScopeKeys(snapshot, teamId)
 }
 
 export async function resolveProjectReadModelScopeKeysServer(

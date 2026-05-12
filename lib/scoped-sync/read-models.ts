@@ -1879,6 +1879,53 @@ export function getWorkIndexScopeKeys(
   ]
 }
 
+export function getCustomPropertyDefinitionScopeKeys(
+  snapshot: AppSnapshot,
+  teamId: string
+) {
+  const scopeKeys = new Set<string>([
+    ...getWorkIndexScopeKeys("team", teamId),
+    ...getViewCatalogScopeKeys("team", teamId),
+  ])
+  const team = snapshot.teams.find((entry) => entry.id === teamId) ?? null
+
+  if (team) {
+    for (const scopeKey of getWorkIndexScopeKeys(
+      "workspace",
+      team.workspaceId
+    )) {
+      scopeKeys.add(scopeKey)
+    }
+    for (const scopeKey of getViewCatalogScopeKeys(
+      "workspace",
+      team.workspaceId
+    )) {
+      scopeKeys.add(scopeKey)
+    }
+  }
+
+  for (const item of snapshot.workItems) {
+    if (item.teamId === teamId) {
+      scopeKeys.add(createWorkItemDetailScopeKey(item.id))
+    }
+  }
+
+  for (const membership of snapshot.teamMemberships) {
+    if (membership.teamId !== teamId) {
+      continue
+    }
+
+    for (const scopeKey of getWorkIndexScopeKeys(
+      "personal",
+      membership.userId
+    )) {
+      scopeKeys.add(scopeKey)
+    }
+  }
+
+  return [...scopeKeys]
+}
+
 export function getViewCatalogScopeKeys(
   scopeType: "team" | "workspace",
   scopeId: string

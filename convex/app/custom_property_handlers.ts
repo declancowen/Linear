@@ -121,16 +121,29 @@ function assertOptionLabelsValid(options: CustomPropertyOption[]) {
   }
 }
 
+function assertOptionIdsValid(options: CustomPropertyOption[]) {
+  const ids = options.map((option) => option.id.trim())
+
+  if (ids.some((id) => id.length === 0)) {
+    throw new Error("Property option id is required")
+  }
+
+  if (new Set(ids).size !== ids.length) {
+    throw new Error("Property option ids must be unique")
+  }
+}
+
 function normalizeOptions(
   type: CustomPropertyType,
   options: CustomPropertyOption[] | undefined
 ) {
   const nextOptions = getNormalizedOptionsForType(type, options)
   assertChoiceOptionsPresent(type, nextOptions)
+  assertOptionIdsValid(nextOptions)
   assertOptionLabelsValid(nextOptions)
 
   return nextOptions.map((option) => ({
-    id: option.id,
+    id: option.id.trim(),
     label: option.label.trim(),
     color: option.color,
   }))
