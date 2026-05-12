@@ -4,11 +4,9 @@ import { z } from "zod"
 import { isApplicationError } from "@/lib/server/application-errors"
 import {
   displayProperties,
-  groupFields,
-  orderingFields,
+  viewConfigPatchSchema,
   viewNameMaxLength,
   viewNameMinLength,
-  workItemTypes,
 } from "@/lib/domain/types"
 import {
   bumpScopedReadModelVersionsServer,
@@ -38,15 +36,7 @@ import {
 const viewMutationSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("updateConfig"),
-    patch: z.object({
-      layout: z.enum(["list", "board", "timeline"]).optional(),
-      grouping: z.enum(groupFields).optional(),
-      subGrouping: z.enum(groupFields).nullable().optional(),
-      ordering: z.enum(orderingFields).optional(),
-      itemLevel: z.enum(workItemTypes).nullable().optional(),
-      showChildItems: z.boolean().optional(),
-      showCompleted: z.boolean().optional(),
-    }),
+    patch: viewConfigPatchSchema,
   }),
   z.object({
     action: z.literal("toggleDisplayProperty"),

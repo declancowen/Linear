@@ -192,36 +192,6 @@ export const channelPostCommentContentConstraints = {
   trim: true,
 } satisfies TextInputConstraint
 
-export const inputConstraints = {
-  labelName: labelNameConstraints,
-  workspaceSetupName: workspaceSetupNameConstraints,
-  workspaceDescription: workspaceDescriptionConstraints,
-  workspaceBrandingName: workspaceBrandingNameConstraints,
-  workspaceFallbackBadge: workspaceFallbackBadgeConstraints,
-  workspaceAccent: workspaceAccentConstraints,
-  teamName: teamNameConstraints,
-  teamSummary: teamSummaryConstraints,
-  teamJoinCode: teamJoinCodeConstraints,
-  requiredTeamJoinCode: requiredTeamJoinCodeConstraints,
-  profileName: profileNameConstraints,
-  profileTitle: profileTitleConstraints,
-  profileAvatarFallback: profileAvatarFallbackConstraints,
-  profileStatusMessage: profileStatusMessageConstraints,
-  projectName: projectNameConstraints,
-  projectSummary: projectSummaryConstraints,
-  viewName: viewNameConstraints,
-  viewDescription: viewDescriptionConstraints,
-  workItemTitle: workItemTitleConstraints,
-  documentTitle: documentTitleConstraints,
-  commentContent: commentContentConstraints,
-  conversationTitle: conversationTitleConstraints,
-  conversationDescription: conversationDescriptionConstraints,
-  chatMessageContent: chatMessageContentConstraints,
-  channelPostTitle: channelPostTitleConstraints,
-  channelPostContent: channelPostContentConstraints,
-  channelPostCommentContent: channelPostCommentContentConstraints,
-} as const
-
 function resolveCountSource(value: string, trim = true) {
   return trim ? value.trim() : value
 }
@@ -236,7 +206,7 @@ export function isLegacyImageSourceValue(
   )
 }
 
-export function getTextLength(
+function getTextLength(
   value: string,
   constraint: Pick<TextInputConstraint, "trim"> = {}
 ) {

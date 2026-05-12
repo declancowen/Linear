@@ -1,25 +1,45 @@
 import { sortViewsForDisplay } from "@/lib/domain/default-views"
 import { getViewerScopedDirectoryKey } from "@/lib/domain/viewer-view-config"
-import type {
-  AppData,
-  Document,
-  Project,
-  ViewDefinition,
-} from "@/lib/domain/types"
+import type { AppData, Project, ViewDefinition } from "@/lib/domain/types"
 
 import {
   canEditTeam,
   canEditWorkspace,
   getAccessibleTeams,
-  getDocument,
-  getTeam,
 } from "@/lib/domain/selectors-internal/core"
+
+type ChannelRouteData = Pick<
+  AppData,
+  "channelPosts" | "conversations" | "teams"
+>
+type ConversationRouteData = Pick<AppData, "conversations" | "teams">
+type ConversationRoute = ConversationRouteData["conversations"][number]
+type ChannelPostRoute = ChannelRouteData["channelPosts"][number]
+type TeamSurfaceFeature = "docs" | "chat" | "channels"
+type TeamSurfaceDisableReasonResolver = (
+  data: AppData,
+  teamId: string
+) => string | null
 
 function isTopLevelView(view: ViewDefinition) {
   return !view.containerType
 }
 
-export function getWorkspacePersonalViews(
+function isWorkspaceLegacyPersonalView(
+  data: AppData,
+  view: ViewDefinition,
+  entityKind?: "items" | "projects" | "docs"
+) {
+  return (
+    isTopLevelView(view) &&
+    view.scopeType === "personal" &&
+    view.scopeId === data.currentUserId &&
+    view.route.startsWith("/workspace/") &&
+    (entityKind ? view.entityKind === entityKind : true)
+  )
+}
+
+function getWorkspacePersonalViews(
   data: AppData,
   entityKind?: "items" | "projects" | "docs"
 ) {
@@ -30,13 +50,8 @@ export function getWorkspacePersonalViews(
       view.scopeId === data.currentWorkspaceId &&
       (entityKind ? view.entityKind === entityKind : true)
   )
-  const legacyPersonalViews = data.views.filter(
-    (view) =>
-      isTopLevelView(view) &&
-      view.scopeType === "personal" &&
-      view.scopeId === data.currentUserId &&
-      view.route.startsWith("/workspace/") &&
-      (entityKind ? view.entityKind === entityKind : true)
+  const legacyPersonalViews = data.views.filter((view) =>
+    isWorkspaceLegacyPersonalView(data, view, entityKind)
   )
 
   return sortViewsForDisplay([...workspaceViews, ...legacyPersonalViews])
@@ -69,13 +84,8 @@ export function getWorkspaceDirectoryViews(
   )
   const legacyPersonalViews =
     workspaceId === data.currentWorkspaceId
-      ? data.views.filter(
-          (view) =>
-            isTopLevelView(view) &&
-            view.scopeType === "personal" &&
-            view.scopeId === data.currentUserId &&
-            view.route.startsWith("/workspace/") &&
-            (entityKind ? view.entityKind === entityKind : true)
+      ? data.views.filter((view) =>
+          isWorkspaceLegacyPersonalView(data, view, entityKind)
         )
       : []
 
@@ -90,26 +100,51 @@ export function getViewContextLabel(
   data: Pick<AppData, "teams" | "workspaces" | "currentWorkspaceId">,
   view: ViewDefinition
 ) {
-  if (view.scopeType === "team") {
-    return data.teams.find((team) => team.id === view.scopeId)?.name ?? "Team"
-  }
+  return (
+    getViewScopeContextLabel(data, view) ??
+    getPersonalViewContextLabel(data, view)
+  )
+}
 
-  if (view.scopeType === "workspace") {
-    return (
-      data.workspaces.find((workspace) => workspace.id === view.scopeId)?.name ??
-      "Workspace"
-    )
-  }
+function getViewScopeContextLabel(
+  data: Pick<AppData, "teams" | "workspaces">,
+  view: ViewDefinition
+) {
+  return view.scopeType === "team"
+    ? getTeamContextLabel(data, view.scopeId)
+    : getWorkspaceScopeContextLabel(data, view)
+}
 
-  if (view.route.startsWith("/workspace/")) {
-    return (
-      data.workspaces.find(
-        (workspace) => workspace.id === data.currentWorkspaceId
-      )?.name ?? "Workspace"
-    )
-  }
+function getTeamContextLabel(data: Pick<AppData, "teams">, teamId: string) {
+  return data.teams.find((team) => team.id === teamId)?.name ?? "Team"
+}
 
-  return "Personal"
+function getWorkspaceScopeContextLabel(
+  data: Pick<AppData, "workspaces">,
+  view: ViewDefinition
+) {
+  return view.scopeType === "workspace"
+    ? getWorkspaceContextLabel(data, view.scopeId)
+    : null
+}
+
+function getPersonalViewContextLabel(
+  data: Pick<AppData, "workspaces" | "currentWorkspaceId">,
+  view: ViewDefinition
+) {
+  return view.route.startsWith("/workspace/")
+    ? getWorkspaceContextLabel(data, data.currentWorkspaceId)
+    : "Personal"
+}
+
+function getWorkspaceContextLabel(
+  data: Pick<AppData, "workspaces">,
+  workspaceId: string
+) {
+  return (
+    data.workspaces.find((workspace) => workspace.id === workspaceId)?.name ??
+    "Workspace"
+  )
 }
 
 export function canMutateView(data: AppData, view: ViewDefinition) {
@@ -132,7 +167,7 @@ export function canMutateProject(data: AppData, project: Project) {
   return canEditWorkspace(data, project.scopeId)
 }
 
-export function getDocumentsForScope(
+function getDocumentsForScope(
   data: AppData,
   scopeType: "team" | "workspace",
   scopeId: string
@@ -182,18 +217,6 @@ export function getSearchableDocuments(data: AppData, workspaceId: string) {
     ...getWorkspaceDocuments(data, workspaceId),
     ...getPrivateDocuments(data, workspaceId),
   ]
-}
-
-export function getDocumentContextLabel(data: AppData, document: Document) {
-  if (document.kind === "workspace-document") {
-    return "Workspace"
-  }
-
-  if (document.kind === "private-document") {
-    return "Private"
-  }
-
-  return getTeam(data, document.teamId ?? "")?.name ?? "Team"
 }
 
 export function getViewsForScope(
@@ -293,26 +316,36 @@ export function getPrimaryTeamChannel(data: AppData, teamId: string) {
 export function getTeamSurfaceDisableReason(
   data: AppData,
   teamId: string,
-  feature: "docs" | "chat" | "channels"
+  feature: TeamSurfaceFeature
 ) {
-  if (feature === "docs") {
-    return getTeamDocuments(data, teamId).length > 0
-      ? "Docs cannot be turned off while this team still has documents."
-      : null
+  return teamSurfaceDisableReasonResolvers[feature](data, teamId)
+}
+
+const teamSurfaceDisableReasonResolvers = {
+  docs: getTeamDocsDisableReason,
+  chat: getTeamChatDisableReason,
+  channels: getTeamChannelsDisableReason,
+} satisfies Record<TeamSurfaceFeature, TeamSurfaceDisableReasonResolver>
+
+function getTeamDocsDisableReason(data: AppData, teamId: string) {
+  return getTeamDocuments(data, teamId).length > 0
+    ? "Docs cannot be turned off while this team still has documents."
+    : null
+}
+
+function getTeamChatDisableReason(data: AppData, teamId: string) {
+  const conversation = getTeamChatConversation(data, teamId)
+
+  if (!conversation) {
+    return null
   }
 
-  if (feature === "chat") {
-    const conversation = getTeamChatConversation(data, teamId)
+  return getChatMessages(data, conversation.id).length > 0
+    ? "Chat cannot be turned off while the team chat has messages."
+    : null
+}
 
-    if (!conversation) {
-      return null
-    }
-
-    return getChatMessages(data, conversation.id).length > 0
-      ? "Chat cannot be turned off while the team chat has messages."
-      : null
-  }
-
+function getTeamChannelsDisableReason(data: AppData, teamId: string) {
   const channelIds = new Set(
     getTeamChannels(data, teamId).map((channel) => channel.id)
   )
@@ -352,73 +385,67 @@ export function getChannelPostComments(data: AppData, postId: string) {
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
 }
 
-export function getChannelPostHref(data: AppData, postId: string) {
+export function getChannelPostHref(data: ChannelRouteData, postId: string) {
   const post = data.channelPosts.find((entry) => entry.id === postId)
+  const conversation = post
+    ? getRoutableConversation(data, post.conversationId, "channel")
+    : null
 
-  if (!post) {
-    return null
-  }
-
-  const conversation = data.conversations.find(
-    (entry) => entry.id === post.conversationId
-  )
-
-  if (!conversation || conversation.kind !== "channel") {
-    return null
-  }
-
-  if (conversation.scopeType === "workspace") {
-    return `/workspace/channel#${post.id}`
-  }
-
-  const team = data.teams.find((entry) => entry.id === conversation.scopeId)
-
-  if (!team) {
-    return null
-  }
-
-  return `/team/${team.slug}/channel#${post.id}`
+  return post && conversation
+    ? getChannelConversationHref(data, conversation, post)
+    : null
 }
 
-export function getConversationHref(data: AppData, conversationId: string) {
+export function getConversationHref(
+  data: ConversationRouteData,
+  conversationId: string
+) {
+  const conversation = getRoutableConversation(data, conversationId, "chat")
+
+  return conversation ? getChatConversationHref(data, conversation) : null
+}
+
+function getRoutableConversation(
+  data: ConversationRouteData,
+  conversationId: string,
+  kind: "channel" | "chat"
+) {
   const conversation = data.conversations.find(
     (entry) => entry.id === conversationId
   )
 
-  if (!conversation || conversation.kind !== "chat") {
-    return null
-  }
-
-  if (conversation.scopeType === "workspace") {
-    return `/chats?chatId=${conversation.id}`
-  }
-
-  const team = data.teams.find((entry) => entry.id === conversation.scopeId)
-
-  if (!team) {
-    return null
-  }
-
-  return `/team/${team.slug}/chat`
+  return conversation?.kind === kind ? conversation : null
 }
 
-export function getAttachmentsForTarget(
-  data: AppData,
-  targetType: "workItem" | "document",
-  targetId: string
+function getChannelConversationHref(
+  data: ChannelRouteData,
+  conversation: ConversationRoute,
+  post: ChannelPostRoute
 ) {
-  return data.attachments
-    .filter(
-      (attachment) =>
-        attachment.targetType === targetType && attachment.targetId === targetId
-    )
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  return conversation.scopeType === "workspace"
+    ? `/workspace/channel#${post.id}`
+    : getTeamScopedHref(data, conversation, "channel", post.id)
 }
 
-export function getRecentDocuments(data: AppData) {
-  return [...data.documents]
-    .filter((document) => document.kind !== "item-description")
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+function getChatConversationHref(
+  data: ConversationRouteData,
+  conversation: ConversationRoute
+) {
+  return conversation.scopeType === "workspace"
+    ? `/chats?chatId=${conversation.id}`
+    : getTeamScopedHref(data, conversation, "chat")
+}
+
+function getTeamScopedHref(
+  data: ConversationRouteData,
+  conversation: ConversationRoute,
+  surface: "channel" | "chat",
+  hashId?: string
+) {
+  const team = data.teams.find((entry) => entry.id === conversation.scopeId)
+  const hash = hashId ? `#${hashId}` : ""
+
+  return team ? `/team/${team.slug}/${surface}${hash}` : null
 }
 
 export function getViewByRoute(data: AppData, route: string) {
@@ -427,10 +454,4 @@ export function getViewByRoute(data: AppData, route: string) {
       getViewerScopedDirectoryKey(data.currentUserId, route)
     ] ?? data.ui.selectedViewByRoute[route]
   return data.views.find((view) => view.id === selected) ?? null
-}
-
-export function getLinkedDocuments(data: AppData, item: { linkedDocumentIds: string[] }) {
-  return item.linkedDocumentIds
-    .map((documentId) => getDocument(data, documentId))
-    .filter(Boolean) as Document[]
 }

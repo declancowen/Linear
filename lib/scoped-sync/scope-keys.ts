@@ -28,11 +28,6 @@ export type ReadModelScopeDescriptor = {
   scopeKey: string
 }
 
-export type ScopedInvalidationEnvelope = {
-  scopeKey: string
-  version: number
-}
-
 const READ_MODEL_SCOPE_KIND_SET = new Set<ReadModelScopeKind>(
   Object.values(READ_MODEL_SCOPE_KINDS)
 )

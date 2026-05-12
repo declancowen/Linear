@@ -212,6 +212,27 @@ export interface ViewDefinition {
   updatedAt: string
 }
 
+export type CreateViewInput = {
+  id?: string
+  scopeType: ScopeType
+  scopeId: string
+  entityKind: EntityKind
+  containerType?: ViewContainerType | null
+  containerId?: string | null
+  route: string
+  name: string
+  description: string
+  layout?: ViewLayout
+  grouping?: GroupField
+  subGrouping?: GroupField | null
+  ordering?: OrderingField
+  itemLevel?: WorkItemType | null
+  showChildItems?: boolean
+  filters?: ViewFilters
+  displayProps?: DisplayProperty[]
+  hiddenState?: HiddenState
+}
+
 export type ViewerViewConfigOverride = Partial<{
   layout: ViewLayout
   filters: Partial<ViewFilters>

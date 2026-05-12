@@ -1,0 +1,741 @@
+# Review: Fallow static remediation
+
+## Project context
+
+| Field          | Value                                                            |
+| -------------- | ---------------------------------------------------------------- |
+| **Repository** | `/Users/declancowen/Documents/GitHub/Linear`                     |
+| **Remote**     | `origin https://github.com/declancowen/Linear.git`               |
+| **Branch**     | `codex/fallow-static-zero-finalization`                          |
+| **Stack**      | Next.js 16, React 19, Convex, PartyKit, Electron, Vitest, Fallow |
+
+## Scope
+
+- `.fallowrc.json` - added Turn 1
+- `package.json`, `pnpm-lock.yaml` - added Turn 1
+- `.github/workflows/ci.yml`, `.gitignore` - added Turn 1
+- `scripts/fallow-health-zero-findings-gate.mjs`, `scripts/fallow-dupes-budget-gate.mjs` - added Turn 1
+- `.audits/fallow-static-audit-2026-05-01.md` - added Turn 1
+- `lib/server/scoped-read-model-route-handlers.ts`, `lib/server/scoped-read-models.ts` - added Turn 2
+- `convex/_generated/api.d.ts`, `scripts/verify-convex-generated-fallback.mjs` - added Turn 3
+- Fallow-driven route, domain, Convex, collaboration, store, and screen refactors listed in the branch diff - added Turn 1
+
+## Hotspots
+
+- Static analyzer policy drift and report-only CI rollout - added Turn 1
+- Broad behavior-preserving refactors across API routes, Convex handlers, collaboration, and presentation screens - added Turn 1
+- Duplication transition debt accepted as a regression budget, not as a zero-debt claim - added Turn 1
+- Local audit/tooling artifacts accidentally entering the branch - added Turn 1
+- Route auth imports crossing into pure read-model authorization tests - added Turn 2
+- Convex generated binding verification when deployment secrets are absent - added Turn 3
+- No-secret CI fallback must fail closed when it cannot resolve a schema diff base - added Turn 4
+- Test-only production exports weakening the production Fallow report lens - added Turn 5
+
+## Review status
+
+| Field                 | Value                |
+| --------------------- | -------------------- |
+| **Review started**    | 2026-05-01 22:08 BST |
+| **Last reviewed**     | 2026-05-09 12:49 BST |
+| **Total turns**       | 10                   |
+| **Open findings**     | 0                    |
+| **Resolved findings** | 9                    |
+| **Accepted findings** | 1                    |
+
+## Turn 10 - 2026-05-09 12:49 BST
+
+| Field           | Value      |
+| --------------- | ---------- |
+| **Commit**      | `dc2c78c5` |
+| **IDE / Agent** | Codex      |
+
+**Summary:** Expanded the refactor review beyond the earlier high-risk clusters to answer whether the remaining changed areas had also been checked. I mapped the branch-wide source diff, reviewed the remaining collaboration UI, shell/sidebar, screen extraction, inbox/settings/create-dialog helpers, store collaboration/notification/view slices, Convex collaboration/comment/view/normalization/backfill helpers, server wrappers, hooks, PartyKit, Electron, and script/helper changes. I did not find a refactor-caused source logic regression.
+**Outcome:** no new findings
+**Risk score:** high - the PR remains a broad refactor across `228` changed TypeScript/TSX source files plus supporting scripts and Electron code.
+**Change archetypes:** branch-total refactor review expansion, helper extraction audit, store/Convex/UI/server contract preservation, focused regression validation.
+**Intended change:** Check the changed areas not already covered by the earlier focused review and rerun current gates.
+**Intent vs actual:** Matches intent for the reviewed branch surface. The inspected extractions preserved access checks, read/write scope, optimistic update behavior, notification audience construction, mention/follower side effects, view filtering semantics, and script/Electron helper behavior.
+**Confidence:** medium-high - broad manual inspection plus targeted tests, typecheck, and Fallow passed; this is still not a mathematical line-by-line proof of every UI state.
+**Coverage note:** Directly reviewed source clusters across UI, store, Convex, server, hooks, Electron, and scripts after the earlier auth/workspace/event/read-model/email/domain/rich-text/work-surface pass.
+**Finding triage:** No new findings. One chat-avatar presentation delta and one redundant rich-text comparison remain cleanup/watch items, not merge-blocking logic regressions.
+**Static/analyzer evidence:** Fresh `pnpm fallow:gate` passed with dead-code `0`, production health findings `0`, and duplicate clone groups `0`. Fresh `pnpm typecheck` passed.
+**Architecture impact:** The branch continues to keep extracted logic near its owning component, store slice, route, Convex handler, or script, rather than moving behavior into broad generic utility buckets.
+**Bug classes / invariants checked:** Workspace/team access guards, channel/chat creation rules, mention and follower notification audiences, inbox archive/read/delete behavior, view filter clearing and validation, create-dialog defaults, team/workspace settings permissions, document link handling, presence state parsing, Electron trusted URL handling, backfill batching, and WorkOS/Convex script configuration.
+**Branch totality:** Current review target was `origin/main...dc2c78c5`; working tree contains this review note update plus unrelated untracked `DESIGN.md`.
+**Sibling closure:** Collaboration chat/channel helpers, notification helpers, screen helper families, settings helper families, store action pairs, Convex view/workspace/team helpers, and script backfill/sync helpers were checked in sibling groups.
+**Remediation impact surface:** Review audit updated only; no source edits required.
+**Residual risk / unknowns:** No browser/desktop visual smoke was rerun in this turn. I did not line-review every changed test fixture or generated support line, but I did inspect the remaining changed source clusters and reran current targeted/static gates.
+
+### Validation
+
+- `pnpm exec vitest run tests/components/channel-ui.test.tsx tests/components/workspace-chats-screen.test.tsx tests/components/chat-thread.test.tsx tests/components/collaboration-screens-loading.test.tsx tests/components/workspace-chat-ui.test.tsx tests/components/work-surface.test.tsx tests/components/work-surface-view.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/work-item-ui-comments-inline.test.tsx tests/components/document-detail-screen.test.tsx tests/components/project-detail-screen.test.tsx tests/components/inbox-screen.test.tsx tests/components/inbox-ui.test.tsx tests/components/workspace-search-screen.test.tsx tests/components/settings-screen-helpers.test.ts tests/components/user-presence.test.tsx tests/components/ui-primitives.test.tsx tests/components/create-dialogs.test.tsx tests/components/screen-helpers.test.ts tests/components/views-screen.test.tsx tests/lib/store/collaboration-channel-actions.test.ts tests/lib/store/collaboration-conversation-actions.test.ts tests/lib/store/view-slice.test.ts tests/lib/store/ui-slice.test.ts tests/convex/collaboration-document-helpers.test.ts tests/convex/collaboration-utils.test.ts tests/convex/comment-helpers.test.ts tests/convex/chat-message-notifications.test.ts tests/convex/notifications.test.ts tests/convex/view-handlers.test.ts tests/convex/work-item-handlers.test.ts tests/convex/project-handlers.test.ts tests/convex/document-handlers.test.ts tests/convex/workspace-team-handlers.test.ts tests/convex/email-job-handlers.test.ts tests/convex/email-jobs-action.test.ts tests/electron/local-server.test.ts tests/electron/runtime-config.test.ts tests/scripts/shared-helpers.test.ts tests/scripts/send-email-jobs.test.ts tests/scripts/send-notification-digests.test.ts` - passed, `41` files and `283` tests
+- `pnpm typecheck` - passed
+- `pnpm fallow:gate` - passed; dead-code `0`, production health findings `0`, duplication clone groups `0`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` - completed; Fallow dead-code/health/dupes lenses were clean, with `changed-file-audit` unavailable due a local tool/config error
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** Current branch diff, review/preflight output, collaboration screens, shell/sidebar, user presence, inbox, settings, create/view/screen helpers, store collaboration/notification/view slices, Convex collaboration/comment/view/normalization/backfill helpers, server Convex wrappers, document/chat hooks, PartyKit, Electron helpers, script helpers, package Fallow scripts, and targeted tests.
+- **Prior open findings rechecked:** No open findings from Turn 9; Turn 7 auth redirect fixes and Turn 8 duplicate cleanup remain intact.
+- **Prior resolved/adjacent areas revalidated:** Typecheck and Fallow gate reran cleanly; targeted tests covered the newly reviewed UI/store/Convex/script clusters.
+- **Hotspots or sibling paths revisited:** Channel/chat guards, notification audience and mention paths, inbox selection and archive state, view validation and filter clearing, settings member actions, document navigation guards, presence parsing, Electron URL trust, and backfill/sync scripts.
+- **Dependency/adjacent surfaces revalidated:** Domain feature normalization, comment follower helpers, shared route/server inputs, script shared config parsing, and store selectors were checked against their callers.
+- **Why this is enough:** The follow-up pass attacked the main remaining risk after the earlier review: behavior drift in the changed clusters that were not part of the first high-risk path list. Static gates and targeted tests then exercised those same clusters.
+
+### Challenger pass
+
+- `pass with residual risk` - I looked for removed access checks, changed entity scopes, lost notification side effects, changed fallback state, altered sort/group semantics, optimistic update drift, stale script defaults, and Electron navigation guard changes. No live regression surfaced.
+
+### Resolved / Carried / New findings
+
+No new findings.
+
+### Recommendations
+
+1. **Fix first:** No source fix required from this expanded re-review.
+2. **Before merge:** Run a browser/desktop visual smoke if the PR has not had one since this branch state.
+3. **Cleanup candidate:** The redundant rich-text marker comparison and the chat-avatar status presentation delta can be handled separately if desired.
+
+## Turn 9 - 2026-05-09 12:39 BST
+
+| Field           | Value      |
+| --------------- | ---------- |
+| **Commit**      | `dc2c78c5` |
+| **IDE / Agent** | Codex      |
+
+**Summary:** Re-reviewed the current branch diff for refactor-caused logic regressions across the high-risk PR surface. I focused on auth/workspace routing, selected-workspace reconciliation, scoped event streams, route mutation parsing, store/read-model merging, Convex access/bootstrap/data/workspace/team/work-item/delete helpers, invite routes, email job processing, domain selectors, rich-text helper extraction, and work-surface/timeline helper extraction. I did not find a source logic regression in the inspected paths.
+**Outcome:** no new findings
+**Risk score:** high - broad refactor across hundreds of source files; confidence comes from targeted inspection plus passing behavioral/static gates, not from every file being line-by-line proven.
+**Change archetypes:** branch-wide refactor review, helper extraction audit, route/store/Convex contract preservation, targeted regression validation.
+**Intended change:** Verify the large refactor preserves behavior after the duplicate-artifact cleanup and Fallow rerun.
+**Intent vs actual:** Matches intent for the reviewed surfaces. The helper extractions I inspected preserved access checks, query scope, delete ordering, optimistic store reconciliation, and response/error contracts.
+**Confidence:** medium-high - targeted regression tests, Fallow gate, and typecheck passed; residual risk remains because the branch is too broad for exhaustive manual proof.
+**Coverage note:** Fresh targeted Vitest run covered 13 high-risk files and 109 tests. Turn 8 already has the full-suite evidence after cleanup.
+**Finding triage:** No new source findings. One redundant comparison in `components/app/rich-text-editor/marker-comparison.ts` was noted as a harmless cleanup candidate, not a behavior bug.
+**Static/analyzer evidence:** Fresh `pnpm fallow:gate` passed with dead-code `0`, production health findings `0`, and duplicate clone groups `0`. Fresh `pnpm typecheck` passed.
+**Architecture impact:** The refactor remains owner-local rather than creating broad generic utility layers; extracted helpers sit beside their owning route, Convex handler, store slice, or UI component.
+**Bug classes / invariants checked:** Auth redirect serialization, selected workspace fallback and reconciliation, event stream ready/ping/polling behavior, route error envelope compatibility, invite accept/decline semantics, workspace/team deletion cascade targets, project/work-item date validation, document/work-item presence clearing, optimistic store rollback, workspace-scoped selectors, and email job claim/release handling.
+**Branch totality:** Current review target was `origin/main...dc2c78c5`; working tree contains this audit update plus unrelated untracked `DESIGN.md`.
+**Sibling closure:** Checked sibling routes/helpers together where refactors shared code: auth login/callback/forgot/reset/signup/verify helpers, workspace current/selection/leave routes, scoped snapshot/events routes, invite accept/decline routes, document/work-item presence paths, project/work-item schedule validation, and team/workspace deletion cascades.
+**Remediation impact surface:** Review audit updated only; no source edits required.
+**Residual risk / unknowns:** No browser/desktop smoke was rerun in this turn, and I did not inspect every changed UI component line-by-line.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/data-helpers.test.ts tests/app/api/scoped-events-route-contracts.test.ts tests/lib/store/domain-updates.test.ts tests/lib/store/work-item-actions.test.ts tests/lib/store/work-document-actions.test.ts tests/lib/store/workspace-slice.test.ts tests/lib/domain/project-views.test.ts tests/lib/domain/view-directory.test.ts tests/lib/domain/work-item-selectors.test.ts tests/lib/email-queued-worker.test.ts tests/app/api/internal-email-jobs-route.test.ts tests/components/rich-text-editor-helpers.test.tsx tests/components/work-surface-view.test.tsx` - passed, `13` files and `109` tests
+- `pnpm fallow:gate` - passed; dead-code `0`, production health findings `0`, duplication clone groups `0`
+- `pnpm typecheck` - passed
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** Current branch diff, Fallow/review audit state, auth/workspace route helpers, scoped event streams, Convex bootstrap/access/data/cleanup/work-item/workspace-team handlers, email job worker/action code, domain selectors/types, store domain updates and slices, rich-text helpers, work-surface helpers, and targeted tests.
+- **Prior open findings rechecked:** No open findings from Turn 8; Turn 7 auth redirect fixes remain present.
+- **Prior resolved/adjacent areas revalidated:** Fallow gate and typecheck reran cleanly; targeted tests covered the refactor clusters most likely to drift.
+- **Hotspots or sibling paths revisited:** Workspace selection, current workspace merge semantics, invite token scoping, route mutation compatibility, deletion cascades, presence clearing, project/work-item schedule validation, and optimistic rollback behavior.
+- **Dependency/adjacent surfaces revalidated:** Shared date validation, work-item key formatting, route error parsing, email retry claim release, and workspace-scoped selectors were checked against callers.
+- **Why this is enough:** The review directly attacked the common failure mode for this PR: behavior drift during extraction. The inspected code and targeted tests cover the highest-blast-radius route, Convex, store, and selector contracts.
+
+### Challenger pass
+
+- `pass with residual risk` - I looked for missed authorization checks, narrowed query scopes, changed fallback selection, skipped side effects, altered delete order, changed optimistic/client-server contracts, and stale analyzer evidence. No live regression surfaced.
+
+### Resolved / Carried / New findings
+
+No new findings.
+
+### Recommendations
+
+1. **Fix first:** No source fix required from this re-review.
+2. **Before merge:** Keep the Turn 8 full test/lint evidence with this Turn 9 targeted re-review; run browser/desktop smoke if the UI has not had a current visual pass.
+3. **Cleanup candidate:** The duplicate `top` comparison in `marker-comparison.ts` can be simplified later, but it does not change behavior.
+
+## Turn 8 - 2026-05-09 12:27 BST
+
+| Field           | Value      |
+| --------------- | ---------- |
+| **Commit**      | `dc2c78c5` |
+| **IDE / Agent** | Codex      |
+
+**Summary:** Re-reviewed the large Fallow/static refactor branch at current HEAD after cleaning local duplicate artifacts. The initial Fallow rerun failed because untracked `* 2.*` source copies and generated `.next` type copies polluted the working tree; exact copies and stale generated/source duplicate artifacts were removed. After cleanup, Fallow dead-code, production health, duplication, full health, typecheck, lint, and the full Vitest suite passed. I did not find a live logic regression in the high-risk auth, workspace-selection, scoped read-model, route-client, invite, Convex bootstrap, or store/read-model merge paths reviewed this turn.
+**Outcome:** no open logic findings; all clear with broad-refactor residual risk
+**Risk score:** high - broad analyzer-driven refactor across auth, routes, Convex handlers, stores, UI, scripts, and generated-support surfaces.
+**Change archetypes:** broad refactor re-review, static analyzer remediation, route contract preservation, workspace selection/read-model switching, duplicate artifact cleanup.
+**Intended change:** Verify the finalization branch still preserves behavior after large decomposition and Fallow remediation work.
+**Intent vs actual:** Matches intent for the reviewed paths. The only live issue found was local duplicate artifact pollution, not committed branch logic.
+**Confidence:** medium-high - static gates, typecheck, lint, and tests pass after cleanup; confidence remains short of absolute because the branch is very large and UI browser smoke was not rerun in this turn.
+**Coverage note:** `pnpm test` passed on rerun with `174` files and `955` tests. One earlier default run timed out once in `tests/app/root-pages.test.tsx`, but that file passed in isolation and the default full suite passed on rerun.
+**Finding triage:** No new source-code findings. Local duplicate `* 2.*` / `* 3.*` artifacts were stale or exact generated/source copies and were removed from the working tree.
+**Static/analyzer evidence:** `pnpm fallow:gate` passed; full dead-code `0`; full duplication `0`; full health findings/functions above threshold `0/0`, score `97.7`, grade `A`.
+**Architecture impact:** The reviewed extractions keep ownership local: auth URL serialization stays in `lib/auth-routing.ts`, route mutation parsing stays in the Convex client route layer, workspace selection has a server cookie/route owner, scoped read-model polling has a route-local polling helper, and store merge/pruning remains inside store internals.
+**Bug classes / invariants checked:** Auth redirect query contract, selected-workspace authority and fallback, read-model authorization scope boundaries, route mutation error envelope compatibility, invite token ownership/expiry handling, current workspace merge/replacement, Fallow gate mode separation.
+**Branch totality:** Current review target was `origin/main...dc2c78c5` plus local ignored/untracked artifact state.
+**Sibling closure:** Auth forgot/reset redirect siblings, workspace current/selection/snapshot read paths, scoped events initial/polling paths, and route mutation error parsing consumers were checked together.
+**Remediation impact surface:** Removed local duplicate artifacts only; no tracked source edits were needed for logic.
+**Residual risk / unknowns:** No browser/desktop smoke was rerun during this turn, and the PR is still broad enough that manual review cannot prove every UI state variant.
+
+### Validation
+
+- `pnpm fallow:gate` - passed; dead-code `0`, production health findings `0`, duplication `0`
+- `pnpm exec fallow health --format json --quiet --explain` - findings `0`, functions above threshold `0`, score `97.7`, grade `A` (exit `1` because score is below `100`)
+- `pnpm typecheck` - passed
+- `pnpm lint` - passed
+- `pnpm test` - passed on rerun, `174` files and `955` tests
+- `pnpm exec vitest run tests/app/root-pages.test.tsx` - passed, covering the initially timed-out file
+- `pnpm exec vitest run --testTimeout 10000` - passed, `174` files and `955` tests
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** Current branch diff, `.reviews/fallow-static-remediation.md`, `.audits/fallow-static-audit-2026-05-01.md`, Fallow config/package scripts, auth routing/routes, workspace selection, route-auth, authenticated app context, scoped event/read-model helpers, route mutation client, invite routes, and selected store merge paths.
+- **Prior open findings rechecked:** Prior open findings remained closed; Turn 7 auth redirect fixes are still present at `dc2c78c5`.
+- **Prior resolved/adjacent areas revalidated:** Auth redirect tests, Fallow gate, full health, lint, typecheck, and full Vitest suite were rerun.
+- **Hotspots or sibling paths revisited:** Duplicate local artifacts, auth routes, workspace switching/selection, scoped read-model stream authorization, invite token validation, and route-client error compatibility.
+- **Dependency/adjacent surfaces revalidated:** CI Fallow remains report-only while local package gates enforce dead-code/health/duplication; no Fallow config, threshold, or suppression changes were introduced.
+- **Why this is enough:** The riskiest regression classes for this branch are contract drift and refactor extraction drift. The reviewed source paths plus route/store tests and analyzer gates directly exercise those classes.
+
+### Challenger pass
+
+- `pass with residual risk` - I specifically attacked stale analyzer evidence, duplicate artifact pollution, public query key drift, selected-workspace mismatch, read-model scope authorization, and route error-envelope compatibility. No live source logic issue was found.
+
+### Resolved / Carried / New findings
+
+No new findings.
+
+### Recommendations
+
+1. **Fix first:** No source fix required from this re-review.
+2. **Then address:** Run browser/desktop smoke before merge if this PR has not had a fresh visual pass since the latest branch state.
+3. **Patterns noticed:** Local generated duplicate artifacts can make clean analyzer/compiler evidence look broken; keep them out before running PR gates.
+4. **Suggested approach:** Treat `pnpm fallow:gate`, full health JSON, typecheck, lint, and full tests as the minimum final evidence for this branch.
+5. **Architecture transition:** Continue keeping Fallow-driven helpers owner-local rather than adding generic utility buckets.
+6. **Defer on purpose:** No CI policy changes or Fallow threshold changes in this review turn.
+
+## Turn 7 - 2026-05-05 18:36 BST
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `dc699d9c` plus working tree |
+| **IDE / Agent** | Codex + GitHub Codex review  |
+
+**Summary:** GitHub Codex PR review found two P2 auth redirect regressions in `lib/auth-routing.ts`: forgot-password and reset-password page builders emitted `nextPath` instead of the route-owned `next` query parameter. The fix keeps the internal caller API as `nextPath` but serializes the public route/query contract as `next`, with route-level tests covering validation, notice, and provider-failure redirects.
+**Outcome:** external findings resolved locally, ready to push
+**Risk score:** medium - narrow auth-routing fix in a high-risk authentication surface.
+**Change archetypes:** external review remediation, route-contract bug fix, owner-local auth helper correction.
+**Intended change:** Preserve intended post-auth destinations across forgot-password and reset-password redirect loops.
+**Intent vs actual:** Matches intent. Redirects now include `next`, never `nextPath`, on the affected branches.
+**Confidence:** high for these findings - targeted route tests fail under the reported shape and now assert the corrected contract.
+**Coverage note:** `pnpm test:coverage` passed with `174` files and `955` tests after the fix.
+**Finding triage:** Two external P2 findings were accepted and fixed. No new local diff-review findings are open.
+**Static/analyzer evidence:** Full dead-code `0`, full duplication `0`, full health findings `0`, and `pnpm fallow:gate` passed after the fix.
+**Architecture impact:** The route/query serialization rule stays in the auth-routing owner. Tests assert the public route contract rather than duplicating URL-building details in callers.
+**Bug classes / invariants checked:** Redirect integrity, query parameter contract, authentication flow continuation, and analyzer zero-regression policy.
+**Branch totality:** Current review target is the full PR branch plus the two-file auth follow-up.
+**Sibling closure:** Forgot-password and reset-password both had the same key mismatch and were fixed together.
+**Remediation impact surface:** `lib/auth-routing.ts` and `tests/app/auth-route-contracts.test.ts`.
+**Residual risk / unknowns:** Existing GitHub review comments remain on the old commit until the follow-up commit is pushed and Codex re-reviews.
+
+### Validation
+
+- `pnpm exec vitest run tests/app/auth-route-contracts.test.ts tests/app/auth-provider-logging.test.ts` - passed, `2` files and `18` tests
+- `pnpm test:coverage` - passed, `174` files and `955` tests
+- `pnpm exec fallow dead-code --format json --quiet --explain` - passed, `total_issues: 0`
+- `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` - passed, `clone_groups: 0`, `duplicated_lines: 0`
+- `pnpm exec fallow health --format json --quiet --explain` - findings `0`, functions above threshold `0`; command exits `1` only because aggregate score remains below `100`
+- `pnpm fallow:gate` - passed
+- `pnpm lint` - passed
+- `pnpm typecheck` - passed
+- `pnpm build` - passed
+- `pnpm desktop:smoke` - passed
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` - passed analyzer preflight
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** PR review comments, `lib/auth-routing.ts`, forgot/reset auth routes, and auth route contract tests.
+- **Prior open findings rechecked:** No Turn 6 local findings were open; the new PR findings are resolved in this turn.
+- **Prior resolved/adjacent areas revalidated:** Full Fallow dead-code, duplication, health, local Fallow gate, lint, typecheck, build, desktop smoke, and coverage.
+- **Hotspots or sibling paths revisited:** Both forgot-password and reset-password redirect builders were fixed together because they shared the same `nextPath` to `next` mismatch.
+- **Dependency/adjacent surfaces revalidated:** Auth provider logging tests still pass with the route mocks updated for forgot-password reset requests.
+- **Why this is enough:** The bug was a deterministic query-key mismatch and is now covered by route-level assertions on the public redirect contract.
+
+### Challenger pass
+
+- `pass` - The likely incomplete fix would correct only one builder or assert only the helper output. The implementation fixes both sibling builders and tests route behavior.
+
+### Resolved / Carried / New findings
+
+#### FSR-09 - Resolved - Forgot-password redirects serialized `nextPath` instead of `next`
+
+- **Type / Severity:** Bug, P2
+- **Source:** GitHub Codex review comment `discussion_r3190349824`
+- **File:** `lib/auth-routing.ts`
+- **Root cause:** `buildForgotPasswordPageHref` passed its internal input object directly into query serialization.
+- **Impact:** Redirects back to `/forgot-password` dropped the intended destination because the page and form read `next`, not `nextPath`.
+- **Resolution:** Serialize `next: normalizeAuthNextPath(input.nextPath)` and keep `nextPath` out of the URL.
+
+#### FSR-10 - Resolved - Reset-password redirects serialized `nextPath` instead of `next`
+
+- **Type / Severity:** Bug, P2
+- **Source:** GitHub Codex review comment `discussion_r3190349830`
+- **File:** `lib/auth-routing.ts`
+- **Root cause:** `buildResetPasswordPageHref` had the same internal-field/public-query mismatch.
+- **Impact:** Reset failure redirects back to `/reset-password` lost the original post-reset destination.
+- **Resolution:** Serialize `next: normalizeAuthNextPath(input.nextPath)` and cover missing token, missing password, mismatch, and provider failure redirect branches.
+
+### Recommendations
+
+1. **Fix first:** Push the auth-routing follow-up commit.
+2. **Then address:** Trigger/monitor a fresh Codex PR review on the new commit.
+3. **Patterns noticed:** Internal option names are fine, but route helper serialization must speak the public query contract.
+4. **Suggested approach:** Keep redirect contract assertions at route level for auth flows.
+5. **Architecture transition:** Auth-routing remains the single owner of auth URL construction.
+6. **Defer on purpose:** No CI policy changes in this follow-up.
+
+## Turn 6 - 2026-05-05 18:22 BST
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `7c031a58` plus working tree |
+| **IDE / Agent** | Codex                        |
+
+**Summary:** Resolved the Turn 5 production dead-code regression by removing test-only exports from production modules and moving directly testable branches into owner-local modules imported by production and tests. A final full-health rerun briefly surfaced one moderate workspace chat helper finding; that was fixed by extracting `getLatestMessagesByConversationId` into the collaboration-screen owner and covering the visible-conversation/latest-message branches.
+**Outcome:** all clear with residual broad-refactor risk
+**Risk score:** high - the branch remains a large analyzer-driven refactor across route, Convex, store, collaboration, screen, script, Electron, and test surfaces.
+**Change archetypes:** static analyzer remediation, owner-local decomposition, testability extraction, architecture boundary cleanup.
+**Intended change:** Preserve the full zero dead-code, zero duplication, and zero health-findings state while restoring the clean production Fallow lens.
+**Intent vs actual:** Matches intent. Full and production Fallow inventories are clean; production exports no longer exist only for tests.
+**Confidence:** medium-high. Static gates, lint, typecheck, full tests, coverage, and build pass locally; GitHub PR review is still needed because the diff is broad.
+**Coverage note:** `pnpm test` and `pnpm test:coverage` both passed with `174` test files and `953` tests.
+**Finding triage:** FSR-08 is resolved. No new local diff-review findings are open.
+**Static/analyzer evidence:** Diff-review preflight at `2026-05-05 18:22 BST` reports changed-file audit pass, production/full dead-code `0`, production/full duplication `0`, production health findings `0`, and full health findings `0`.
+**Architecture impact:** Testability moved back behind owner-local modules instead of public production module APIs. The workspace chat helper stayed inside `components/app/collaboration-screens/`, matching the collaboration-screen owner.
+**Bug classes / invariants checked:** Production public surface, analyzer policy integrity, owner-local extraction, PartyKit behavior preservation, and zero-suppression policy.
+**Branch totality:** Current review target is the full local working tree after the Fallow remediation and export cleanup.
+**Sibling closure:** Production/full dead-code, full duplication, and full health were rerun after the final helper extraction.
+**Remediation impact surface:** Rich-text/collaboration helpers, work-surface and inbox helpers, store/domain helpers, route/server helpers, Convex helpers, scripts, Electron utilities, and test fixtures.
+**Residual risk / unknowns:** The branch size creates integration risk that local static and test gates cannot fully eliminate; the next control is the GitHub PR/Codex review loop.
+
+### Validation
+
+- `pnpm exec fallow dead-code --format json --quiet --explain` - passed, `total_issues: 0`
+- `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` - passed, `clone_groups: 0`, `duplicated_lines: 0`, `duplication_percentage: 0`
+- `pnpm exec fallow health --format json --quiet --explain` - findings `0`, functions above threshold `0`; command exits `1` only because aggregate score remains below `100`
+- `pnpm fallow:gate` - passed
+- `pnpm lint` - passed
+- `pnpm typecheck` - passed
+- `pnpm exec vitest run tests/components/workspace-chats-screen.test.tsx` - passed, `5` tests
+- `pnpm test` - passed, `174` test files and `953` tests
+- `pnpm test:coverage` - passed, `174` test files and `953` tests
+- `pnpm build` - passed
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` - passed analyzer preflight
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** Fallow package scripts, `.fallowrc.json`, existing audit/review records, CI Fallow posture, and final raw Fallow JSON outputs.
+- **Prior open findings rechecked:** FSR-08 was rechecked with production dead-code and full dead-code after the export cleanup; both are zero.
+- **Prior resolved/adjacent areas revalidated:** Full duplication, full health findings, production health, lint, typecheck, tests, coverage, and build were rerun.
+- **Hotspots or sibling paths revisited:** Collaboration/rich-text owner-local helper modules, workspace chat helper extraction, PartyKit tests, and production export surfaces.
+- **Dependency/adjacent surfaces revalidated:** Package Fallow gates now enforce full dead-code and full zero duplication locally while CI remains report-only.
+- **Why this is enough:** The local review finding was concrete and analyzer-measurable. The relevant analyzers and full validation suite now agree it is resolved.
+
+### Challenger pass
+
+- `pass with residual risk` - The likely failure mode was leaving test-only production exports behind. Production dead-code and full dead-code now return zero. A secondary stale-coverage health finding was caught and fixed before commit.
+
+### Resolved / Carried / New findings
+
+#### FSR-08 - Resolved - Test-only exports pollute production module APIs and production Fallow dead-code reporting
+
+- **Type / Severity:** Bug, High
+- **Resolution:** Removed the test-only production export surface by moving testable primitives into owner-local modules imported by production and tests, or by keeping helpers file-local when only the runtime owner needs them.
+- **Evidence:** Production dead-code and full dead-code now report `total_issues: 0`; diff-review preflight reports production dead-code `0`.
+- **Prevention artifact:** `pnpm fallow:gate` now includes full-scope dead-code and full zero-duplication gates, with production health still checked by the configured gate.
+
+### Recommendations
+
+1. **Fix first:** No local review bugs remain before commit.
+2. **Then address:** Open the GitHub PR and run the Codex/PR feedback loop because the branch is broad.
+3. **Patterns noticed:** Coverage-first refactors need a final production export sweep, not just full dead-code.
+4. **Suggested approach:** Keep future helper extraction inside the owning capability and import it from production plus tests.
+5. **Architecture transition:** The repo is now in a zero dead-code, zero duplication, zero health-findings static state; CI blocking promotion remains a separate policy pass.
+6. **Defer on purpose:** Aggregate health score chasing remains out of scope because it is no longer backed by Fallow findings.
+
+## Turn 5 - 2026-05-05 17:04 BST
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `7c031a58` plus working tree |
+| **IDE / Agent** | Codex                        |
+
+**Summary:** Preflight for the final local diff-review loop found that the full remediation branch is clean for full dead-code, full duplication, full health findings, lint, typecheck, tests, coverage, and build, but production dead-code now reports 81 unused exports. These are test-only exports added in production modules during coverage-first health remediation.
+**Outcome:** blocked by open findings
+**Risk score:** high - the branch is broad and analyzer-policy driven, and this regression weakens the configured/report-only production Fallow signal that CI still runs.
+**Change archetypes:** static analyzer remediation, broad behavior-preserving refactor, testability extraction, architecture boundary cleanup.
+**Intended change:** Drive Fallow duplication/dead-code/health inventories to zero while preserving production behavior and keeping CI policy unchanged.
+**Intent vs actual:** Full inventories are clean, but production dead-code is not scope-safe because 81 production exports exist only for tests.
+**Confidence:** high for the finding - `pnpm exec fallow dead-code --production --format json --quiet --explain` reports exactly 81 unused exports and identifies each export.
+**Coverage note:** The bug is in analyzer policy and production public-surface shape, not failed runtime behavior.
+**Finding triage:** One new live finding is open. No suppressions, ignores, threshold changes, or CI changes are acceptable fixes.
+**Static/analyzer evidence:** Full dead-code `0`, full duplication `0`, full health findings `0`; production dead-code `81` unused exports at `/tmp/linear-production-dead-code-review.json`.
+**Architecture impact:** The coverage-first tests exposed internals through production module APIs. The fix needs to move testable primitives to owner-local modules imported by production and tests, or test public behavior, without adding generic helper buckets.
+**Bug classes / invariants checked:** Authority and API surface. Production exports should model product/runtime interfaces, not test-only reachability.
+**Branch totality:** Current review target is the full local working tree after the Fallow remediation work.
+**Sibling closure:** All production dead-code exports will be swept by Fallow after remediation, not fixed one file at a time without a final production rerun.
+**Remediation impact surface:** UI feature modules, rich-text/collaboration helpers, domain selectors, email worker helper, scoped read-model helper, and store channel action helper.
+**Residual risk / unknowns:** Broad refactors remain high risk until the production export cleanup and full validation loop rerun.
+
+### Validation
+
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` - failed changed-file audit because production dead-code reports 81 unused exports
+- `pnpm exec fallow dead-code --production --format json --quiet --explain` - failed with `total_issues: 81`
+- `pnpm exec fallow dead-code --format json --quiet --explain` - passed before this review turn, full `total_issues: 0`
+- `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` - passed before this review turn, full duplication `0`
+- `pnpm exec fallow health --format json --quiet --explain` - no health findings before this review turn; exit remained advisory because score was below `100`
+- `pnpm fallow:gate` - passed before this review turn
+- `pnpm lint` - passed before this review turn
+- `pnpm typecheck` - passed before this review turn
+- `pnpm test` - passed before this review turn
+- `pnpm test:coverage` - passed before this review turn
+- `pnpm build` - passed before this review turn
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** Existing Fallow audit/review history, package analyzer scripts, Fallow production/full outputs, and CI Fallow posture.
+- **Prior open findings rechecked:** Prior turns had no open local findings; the new production-dead-code regression supersedes the previous all-clear state.
+- **Prior resolved/adjacent areas revalidated:** Full dead-code, full duplication, full health findings, and local gate results were revalidated before this turn.
+- **Hotspots or sibling paths revisited:** All 32 production files with test-only exports are in remediation scope.
+- **Dependency/adjacent surfaces revalidated:** Production Fallow mode remains relevant because CI still runs report-only `fallow --ci --production`.
+- **Why this is enough:** The open finding is analyzer-policy concrete and blocks a scope-safe conclusion until the production dead-code command returns zero.
+
+### Challenger pass
+
+- `blocked` - The most likely remaining issue is that a coverage helper was made public for tests but is not a real production API. The production dead-code report confirmed that exact class.
+
+### Resolved / Carried / New findings
+
+#### FSR-08 - Open - Test-only exports pollute production module APIs and production Fallow dead-code reporting
+
+- **Type / Severity:** Bug, High
+- **Files:** 32 production modules including `components/app/rich-text-editor.tsx`, `components/app/screens.tsx`, `components/app/screens/work-surface-view.tsx`, `components/app/collaboration-screens/*`, `hooks/use-document-collaboration.ts`, `lib/collaboration/canonical-content.ts`, `lib/rich-text/extensions.ts`, and `lib/store/app-store-internal/slices/collaboration-channel-actions.ts`
+- **Root cause:** Health remediation preferred direct helper coverage and exported branch-bearing internals from production modules so tests could import them.
+- **Impact:** Production configured Fallow dead-code now reports 81 unused exports, making the CI report-only Fallow output noisy and contradicting the audit claim that the production lens is clean.
+- **Concrete evidence:** `/tmp/linear-production-dead-code-review.json` reports `summary.total_issues: 81`, all `unused_exports`.
+- **Solution options:** Proper fix: move stable primitives/components into owner-local modules imported by production and tests, or test behavior through existing public components. Quick fix rejected: suppressions, ignores, dummy imports, or widening Fallow policy would hide the issue.
+- **Remediation radius:** Must fix now before commit/PR because it invalidates the analyzer-policy conclusion.
+- **Prevention artifact:** Production Fallow dead-code rerun plus full dead-code/duplication/health and local gates after remediation.
+
+### Recommendations
+
+1. **Fix first:** Remove all 81 production-unused test exports without suppressions or Fallow config changes.
+2. **Then address:** Rerun production and full Fallow gates, lint, typecheck, tests, coverage, build, and `git diff --check`.
+3. **Patterns noticed:** Coverage-first helper exports can accidentally become public production surface.
+4. **Suggested approach:** Keep direct unit-testable code in owner-local modules that production imports, not as test-only exports from feature files.
+5. **Architecture transition:** Public component/module APIs should shrink back to runtime-owned boundaries after the health-zero campaign.
+6. **Defer on purpose:** CI workflow promotion remains out of scope.
+
+## Turn 4 - 2026-05-01 22:32 BST
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `58b0eee0` plus working tree |
+| **IDE / Agent** | Codex                        |
+
+**Summary:** Imported the Codex PR review finding against the no-secret Convex fallback. The fallback now fails closed when no reliable diff base can be resolved, preventing schema changes from passing without deployment-backed codegen verification.
+**Outcome:** all clear with low-risk unknowns
+**Risk score:** high - the finding involved CI policy that protects Convex generated data-model correctness.
+**Change archetypes:** external finding import, CI fail-closed guard, generated contract verification.
+**Intended change:** Preserve the fallback's ability to verify module roster freshness while refusing unprovable schema-drift cases.
+**Intent vs actual:** `assertNoSchemaDriftWithoutDeployment` now exits 1 when `diffRange` is unavailable. Normal branch mode still passes with the resolved merge base; the forced missing-base local check fails as expected.
+**Confidence:** high for this fix - the live review comment maps directly to one branch in the script, and both positive and negative verifier paths were exercised.
+**Coverage note:** This turn focused only on the Codex review finding and its sibling no-diff-base path.
+**Finding triage:** One external P1 finding from `chatgpt-codex-connector[bot]` was live and is resolved locally.
+**Static/analyzer evidence:** Not an analyzer-count issue; this is CI fitness-function correctness. Fallow gate passed after the fix.
+**Architecture impact:** Strengthens operations-owned CI policy by making unverifiable safety checks fail closed instead of warning.
+**Bug classes / invariants checked:** Authority and Compatibility. The CI fallback must not claim generated-contract safety when it cannot determine whether the schema changed.
+**Branch totality:** Rechecked the current PR review comments, latest review metadata, CI status, and the fallback script.
+**Sibling closure:** Checked both fallback variants: normal merge-base resolution and forced missing-base resolution. Schema-change verification remains deployment-backed or fail-closed.
+**Remediation impact surface:** One script branch only; no product runtime behavior changed.
+**Residual risk / unknowns:** The next push will trigger another automatic Codex review; no further push should happen until that review completes.
+
+### External finding import
+
+| Source                 | Finding                                                    | Current status   | Bug class                 | Missed invariant/variant                                          | Action |
+| ---------------------- | ---------------------------------------------------------- | ---------------- | ------------------------- | ----------------------------------------------------------------- | ------ |
+| Codex PR review on #30 | P1: fail fallback when schema diff base cannot be resolved | live -> resolved | Authority / Compatibility | no-secret CI must fail closed when schema drift cannot be checked | fixed  |
+
+### Validation
+
+- `node scripts/verify-convex-generated-fallback.mjs` - passed, 35 modules
+- `DIFF_BASE=0000000000000000000000000000000000000000 DEFAULT_BRANCH=definitely-missing-branch DIFF_HEAD=HEAD node scripts/verify-convex-generated-fallback.mjs` - expected failure verified, exit 1
+- `pnpm lint` - passed
+- `pnpm typecheck` - passed
+- `pnpm test` - passed, 140 files and 739 tests
+- `pnpm fallow:gate` - passed
+- `pnpm exec fallow --ci --production --format json` - passed, total issues 0
+- `git diff --check` - passed
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** PR review comments, latest review metadata, CI status, and `scripts/verify-convex-generated-fallback.mjs`.
+- **Prior open findings rechecked:** FSR-06 is strengthened so its no-secret fallback cannot skip schema verification when no base exists.
+- **Prior resolved/adjacent areas revalidated:** Generated API roster remains valid in the normal branch path.
+- **Hotspots or sibling paths revisited:** Missing-base path and normal-base path were both tested.
+- **Dependency/adjacent surfaces revalidated:** No new dependencies were added.
+- **Why this is enough:** The Codex finding identified a single fail-open branch; the fix converts that branch to a hard failure and verifies it.
+
+### Challenger pass
+
+- `done` - Assumed the fallback might still pass an unprovable state. The forced missing-base test now fails, proving the fail-closed behavior.
+
+### Resolved / Carried / New findings
+
+#### FSR-07 - Resolved - No-secret Convex fallback skipped schema-drift enforcement without a diff base
+
+- **Severity:** High
+- **Files:** `scripts/verify-convex-generated-fallback.mjs`
+- **External source:** Codex PR review on #30
+- **Root cause:** `assertNoSchemaDriftWithoutDeployment` logged a warning and returned when `diffRange` was unavailable.
+- **Impact:** A CI context with no resolvable base could pass no-secret fallback mode without checking whether `convex/schema.ts` changed.
+- **Fix:** Changed the unavailable-diff-base branch to print an error and exit 1.
+- **Architecture decision:** Generated contract safety is an operations-owned invariant. When CI cannot prove the schema did not change and lacks deployment-backed codegen, it must fail closed.
+- **Verification:** Positive fallback path passes; forced missing-base path fails with exit 1.
+
+### Recommendations
+
+1. **Fix first:** Commit and push this single fix round.
+2. **Then address:** Wait for the new auto-review to finish before making any further changes.
+3. **Patterns noticed:** Fallback CI modes need explicit fail-closed behavior for evidence gaps.
+4. **Suggested approach:** Keep future CI fallbacks small enough that both positive and negative paths are easy to exercise locally.
+5. **Architecture transition:** The generated-contract gate now has a clear proof boundary.
+6. **Defer on purpose:** Deployment-backed schema/data-model codegen still requires repository secrets.
+
+## Turn 3 - 2026-05-01 22:23 BST
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `9318d8e2` plus working tree |
+| **IDE / Agent** | Codex                        |
+
+**Summary:** PR CI failed because the existing Convex generated-binding guard blocks any Convex source change when `CONVEX_DEPLOYMENT` is unavailable. The fix commits the regenerated API roster for the new helper module and replaces the no-secret guard with a local fallback verifier that checks what CI can prove without contacting Convex.
+**Outcome:** all clear with low-risk unknowns
+**Risk score:** high - CI/generation policy affects deploy safety for Convex source changes.
+**Change archetypes:** CI policy, generated contract verification, operations fallback, static-analysis governance.
+**Intended change:** Keep strong Convex codegen verification when deployment secrets exist, while allowing no-secret CI to verify committed generated API roster freshness instead of failing unconditionally.
+**Intent vs actual:** The secret-backed path still runs `pnpm convex:codegen` and checks `convex/_generated`; the no-secret path runs `node scripts/verify-convex-generated-fallback.mjs`. The generated API file now includes `convex/app/presence_helpers.ts`.
+**Confidence:** high for this CI fix - local Convex codegen produced only the expected generated API roster diff; fallback verifier, lint, typecheck, full tests, Fallow gate, CI-style Fallow JSON, and whitespace checks passed.
+**Coverage note:** This turn focused on the external CI failure, generated binding freshness, and no-secret CI behavior.
+**Finding triage:** The GitHub CI failure is live and resolved locally. It is an operations-policy finding, not a product behavior bug.
+**Static/analyzer evidence:** `pnpm fallow:gate` passed; `pnpm exec fallow --ci --production --format json` exited 0 with total issues 0 after the CI fix.
+**Architecture impact:** The fix preserves Convex as the owner of generated contracts. CI now has two explicit modes: deployment-backed codegen verification, or no-secret static roster/schema fallback.
+**Bug classes / invariants checked:** Convex module additions must be reflected in generated API bindings; schema changes must not pass no-secret CI without deployment-backed codegen; broad CI policy must not block source-only refactors that have committed generated roster updates.
+**Branch totality:** Rechecked CI logs, workflow policy, generated API binding diff, current Convex module roster, local fallback script, and full validation.
+**Sibling closure:** Checked that `convex/schema.ts` is unchanged in this branch and that the generated API roster matches all current Convex function modules excluding `_generated` and schema.
+**Remediation impact surface:** CI behavior changes only for missing Convex deployment secrets. Secret-backed CI remains the authoritative generated-binding verification path.
+**Residual risk / unknowns:** The fallback cannot reproduce Convex's deployment-backed codegen or generated data model drift for schema changes; it explicitly fails schema changes without deployment secrets.
+
+### Validation
+
+- `pnpm convex:codegen` - passed; produced expected `convex/_generated/api.d.ts` roster update
+- `node scripts/verify-convex-generated-fallback.mjs` - passed, 35 modules
+- `pnpm lint` - passed
+- `pnpm typecheck` - passed
+- `pnpm test` - passed, 140 files and 739 tests
+- `pnpm fallow:gate` - passed
+- `pnpm exec fallow --ci --production --format json` - passed, total issues 0
+- `git diff --check` - passed
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** `.github/workflows/ci.yml`, `convex/_generated/api.d.ts`, `convex/app/presence_helpers.ts`, and the Convex module tree.
+- **Prior open findings rechecked:** The GitHub CI failure mode is addressed by committing generated bindings and replacing the unconditional no-secret failure.
+- **Prior resolved/adjacent areas revalidated:** Turn 1 Fallow policy and Turn 2 read-model split still pass full local validation.
+- **Hotspots or sibling paths revisited:** Schema drift path is explicitly checked and fails no-secret CI if `convex/schema.ts` changes.
+- **Dependency/adjacent surfaces revalidated:** The new verifier uses only Node built-ins and git, so CI does not gain a new package dependency.
+- **Why this is enough:** The external failure was caused by CI lacking secrets, not codegen output drift. The fallback now verifies the committed generated API roster and refuses the case it cannot safely prove.
+
+### Challenger pass
+
+- `done` - Attacked the fallback's weakest assumption: a new helper module could be missing from `api.d.ts`. Regenerating bindings added the missing module, and the verifier now checks imports plus `fullApi` map entries.
+
+### Resolved / Carried / New findings
+
+#### FSR-06 - Resolved - No-secret CI blocked Convex source changes even with committed generated bindings
+
+- **Severity:** High
+- **Files:** `.github/workflows/ci.yml`, `scripts/verify-convex-generated-fallback.mjs`, `convex/_generated/api.d.ts`
+- **External source:** GitHub Actions CI on PR #30
+- **Root cause:** The guard treated any Convex source or generated binding change as unverifiable without `CONVEX_DEPLOYMENT`, so PR/push CI failed before `pnpm check`.
+- **Impact:** The PR could not reach reviewable green CI in the current GitHub environment, even though local codegen could update the generated module roster.
+- **Fix:** Committed the regenerated API roster for `presence_helpers` and added a no-secret verifier that checks generated API imports/map entries against the Convex module tree while failing schema changes that require deployment-backed codegen.
+- **Architecture decision:** Operations owns CI mode selection. Deployment-backed codegen remains authoritative when secrets exist; no-secret CI has a narrower, explicit fallback rather than a blanket pass or blanket fail.
+- **Verification:** Local fallback verifier, full lint/typecheck/tests, Fallow gate, CI-style Fallow JSON, and `git diff --check` passed.
+
+### Recommendations
+
+1. **Fix first:** Push the CI fix and verify GitHub Actions reruns.
+2. **Then address:** Continue waiting for Codex review comments after checks finish.
+3. **Patterns noticed:** CI fallback policy should encode exactly what can be proven without secrets.
+4. **Suggested approach:** Keep generated-contract checks strict for schema changes; allow module-only helper splits when generated API roster is committed.
+5. **Architecture transition:** The generated-contract fitness function now has a usable no-secret mode.
+6. **Defer on purpose:** Deployment-backed Convex codegen remains dependent on repository secrets.
+
+## Turn 2 - 2026-05-01 22:15 BST
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `d8737fdf` plus working tree |
+| **IDE / Agent** | Codex                        |
+
+**Summary:** Full test validation found a Vitest/ESM failure in scoped read-model tests caused by importing WorkOS/Next auth through a module whose test target was pure read-model authorization. The fix split HTTP route handlers into a route-edge module while keeping read-model authorization/invalidation in `scoped-read-models`.
+**Outcome:** all clear with low-risk unknowns
+**Risk score:** high - this turn touched shared read-model route imports after broad route helper extraction.
+**Change archetypes:** route edge split, auth boundary, test-environment compatibility, architecture remediation.
+**Intended change:** Preserve route behavior while removing the WorkOS/Next auth import from pure scoped read-model authorization tests.
+**Intent vs actual:** Route handlers now import `scoped-read-model-route-handlers`; read-model authorization/invalidation imports no value from `route-auth`. The failing test file passes without mocking WorkOS.
+**Confidence:** high for this fix - targeted test, full Vitest, lint, typecheck, Fallow gate, CI-style Fallow JSON, and whitespace checks passed.
+**Coverage note:** This turn revalidated the full local test suite and static gates after the split.
+**Finding triage:** One live test/import-boundary finding was fixed. No open local diff-review findings remain.
+**Static/analyzer evidence:** `pnpm fallow:gate` passed after the split; `pnpm exec fallow --ci --production --format json` exited 0 with total issues 0.
+**Architecture impact:** Improved dependency direction by keeping WorkOS/Next auth and HTTP response mapping at the route edge. The read-model service now owns scope authorization and invalidation without loading framework auth dependencies on import.
+**Bug classes / invariants checked:** Test import boundaries should not load vendor auth modules unless the test targets auth; route handlers must still require a session before loading snapshots; read-model scope authorization must still use the session's WorkOS user id and email.
+**Branch totality:** Rechecked route import callers under `app/api/read-models`, the new route-edge module, the read-model service, package gates, and the full test suite.
+**Sibling closure:** All route handler helper imports were moved with a mechanical sweep under `app/api/read-models`; `rg` confirmed no handler exports remain consumed from `scoped-read-models`.
+**Remediation impact surface:** The public route behavior is preserved through the same handler functions, now in an edge-owned file. The service export added for snapshot loading is narrow and server-only.
+**Residual risk / unknowns:** Browser visual smoke and production deployment/runtime coverage remain outside this local loop. The repeated Vitest `--localstorage-file` warning is existing test-run noise and did not fail tests.
+
+### Validation
+
+- `pnpm exec vitest run tests/lib/server/scoped-read-models.test.ts` - passed, 6 tests
+- `pnpm lint` - passed
+- `pnpm typecheck` - passed
+- `pnpm test` - passed, 140 files and 739 tests
+- `pnpm fallow:gate` - passed
+- `pnpm exec fallow --ci --production --format json` - passed, total issues 0
+- `git diff --check` - passed
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** `lib/server/scoped-read-models.ts`, `lib/server/scoped-read-model-route-handlers.ts`, and all `app/api/read-models/**/route.ts` imports.
+- **Prior open findings rechecked:** The full-suite failure in `tests/lib/server/scoped-read-models.test.ts` is resolved.
+- **Prior resolved/adjacent areas revalidated:** Static analyzer policy fixes from Turn 1 still pass Fallow gates and CI-style JSON output.
+- **Hotspots or sibling paths revisited:** Route helper consumers under `app/api/read-models` were swept for old imports.
+- **Dependency/adjacent surfaces revalidated:** `route-auth` remains value-imported only by the route-edge handler module; `scoped-read-models` keeps only a type import for the session shape.
+- **Why this is enough:** The failure class was an import boundary problem; the owner split removes the cross-boundary value import and full validation passed.
+
+### Challenger pass
+
+- `done` - Attacked the weakest new assumption: that moving handler exports would preserve all route imports and not change analyzer gates. `rg`, typecheck, full tests, and Fallow all passed.
+
+### Resolved / Carried / New findings
+
+#### FSR-05 - Resolved - Read-model tests loaded WorkOS/Next auth through a mixed module boundary
+
+- **Severity:** High
+- **Files:** `lib/server/scoped-read-models.ts`, `lib/server/scoped-read-model-route-handlers.ts`, `app/api/read-models/**/route.ts`
+- **Root cause:** `scoped-read-models.ts` mixed route-edge request handling with read-model authorization/invalidation helpers, so importing the pure authorization helpers also value-imported `route-auth` and `@workos-inc/authkit-nextjs`.
+- **Impact:** Full Vitest failed in `tests/lib/server/scoped-read-models.test.ts` because the WorkOS auth package imports `next/cache` in a way the test runner could not resolve.
+- **Fix:** Moved HTTP route helper functions into `lib/server/scoped-read-model-route-handlers.ts` and updated read-model routes to import from that edge-owned module. `scoped-read-models.ts` now keeps only the read-model service boundary plus a narrow snapshot loader.
+- **Architecture decision:** Auth/session acquisition and HTTP response mapping belong at the route/API edge; scope authorization and invalidation belong in the read-model server service.
+- **Verification:** Targeted scoped read-model test, full Vitest, lint, typecheck, Fallow gate, CI-style Fallow JSON, and `git diff --check` all passed.
+
+### Recommendations
+
+1. **Fix first:** None open locally.
+2. **Then address:** Publish the PR and wait for Codex/GitHub review.
+3. **Patterns noticed:** Mixed route-edge and service modules can create hidden vendor dependency problems in pure tests.
+4. **Suggested approach:** Keep HTTP/auth wrappers in route-edge modules and test business/service helpers without vendor auth imports.
+5. **Architecture transition:** The read-model route helper extraction is now a clearer two-layer split instead of one mixed helper module.
+6. **Defer on purpose:** Browser visual smoke and runtime coverage remain separate from this static remediation PR.
+
+## Turn 1 - 2026-05-01 22:08 BST
+
+| Field           | Value                        |
+| --------------- | ---------------------------- |
+| **Commit**      | `d8737fdf` plus working tree |
+| **IDE / Agent** | Codex                        |
+
+**Summary:** Local diff review of the Fallow remediation branch found three policy/review hygiene issues and fixed them before publishing: local Graphify outputs were unignored, CI used an unpinned Fallow install path, and the audit still described the old CI command. The remaining duplication debt is intentionally budget-gated at the current baseline.
+**Outcome:** all clear with low-risk unknowns
+**Risk score:** high - broad refactor branch touching shared route helpers, Convex handlers, collaboration runtime, store logic, editor/screen presentation, static analysis policy, dependencies, and CI.
+**Change archetypes:** static-analysis policy, architecture remediation, shared helper extraction, presentation split, route helper extraction, CI/reporting.
+**Intended change:** Adopt Fallow, clear production dead-code and complexity/cognitive findings, split high-risk hotspots along existing ownership boundaries, and add repeatable local/CI analyzer gates.
+**Intent vs actual:** The diff matches the remediation intent. Production dead-code is zero, complexity/cognitive findings are zero through the JSON health gate, and duplication is held to a named budget instead of being hidden by broad suppressions.
+**Confidence:** medium - static gates, typecheck, targeted lint, and focused tests passed; the branch is large enough that exhaustive visual/browser and full build verification remain useful after PR publication.
+**Coverage note:** Review concentrated on the static-analysis policy surface, branch hygiene, generated/local artifact boundaries, and late policy fixes. Earlier remediation batches covered focused screen/API/editor tests.
+**Finding triage:** Three local findings were live and are now resolved. No open critical/high local diff-review findings remain.
+**Static/analyzer evidence:** `pnpm fallow:gate` passed; `pnpm exec fallow --ci --production --format json` exited 0 with total issues 0; duplication is budget-gated at 181 clone groups, 6,641 duplicated lines, and 5.54%.
+**Architecture impact:** The branch improves current-state ownership by moving repeated route, domain, collaboration, Convex, store, and presentation responsibilities into capability/layer-local helpers. The duplication budget models transition debt rather than pretending broad cross-boundary extraction is safe.
+**Bug classes / invariants checked:** Analyzer policy must use repo-pinned tools; local audit outputs must not enter product PRs; report-only CI must not block rollout; duplication exceptions must have explicit budgets and revisit pressure.
+**Branch totality:** Current branch status, analyzer config, package scripts, CI workflow, audit notes, ignored local artifacts, and review history were reassessed before PR creation.
+**Sibling closure:** Checked `.gitignore` against Graphify local outputs, CI against package-managed Fallow, and audit docs against the workflow. No sibling branch-hygiene issue remained visible in `git status --short`.
+**Remediation impact surface:** Policy fixes touch operations/CI and local tooling only; Fallow refactors touch product paths but retain exported screen props and route contracts as validated by typecheck and focused tests.
+**Residual risk / unknowns:** Full `pnpm check`, browser visual smoke, and deployment/runtime coverage were not part of the last local validation batch. CI remains report-only for Fallow by design during rollout.
+
+### Validation
+
+- `pnpm exec eslint --max-warnings 0 components/app/screens.tsx components/app/rich-text-editor.tsx scripts/fallow-health-zero-findings-gate.mjs scripts/fallow-dupes-budget-gate.mjs` - passed before this review turn
+- `pnpm typecheck` - passed before this review turn
+- `pnpm exec vitest run tests/components/rich-text-toolbar.test.tsx tests/lib/content/rich-text-security.test.ts tests/components/views-screen.test.tsx tests/app/workspace-layout.test.tsx tests/components/document-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx` - passed before this review turn
+- `pnpm fallow:gate` - passed before this review turn
+- `pnpm exec fallow --ci --production --format json` - passed before this review turn
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** `package.json`, `.fallowrc.json`, `.github/workflows/ci.yml`, `.gitignore`, Fallow gate scripts, and the audit file were reread for policy consistency.
+- **Prior open findings rechecked:** Prior local Fallow gate failures for health and duplication are resolved by zero-finding health gating plus a named duplication budget.
+- **Prior resolved/adjacent areas revalidated:** CI documentation and workflow now agree on `pnpm exec fallow --ci --production`.
+- **Hotspots or sibling paths revisited:** Local Graphify artifacts and Fallow local output paths were checked through `git status --short` and `.gitignore`.
+- **Dependency/adjacent surfaces revalidated:** `fallow` is pinned in `devDependencies`; removed packages are reflected in `pnpm-lock.yaml`; scripts call the local package-managed binary.
+- **Why this is enough:** The remaining open risk is broad behavioral confidence, not a known unresolved analyzer-policy defect; PR review and CI will provide another branch-total pass.
+
+### Challenger pass
+
+- `done` - Assumed one serious issue remained in the policy layer. The pass found local audit outputs that could be staged and a CI command that bypassed the pinned dependency. Both were fixed.
+
+### Resolved / Carried / New findings
+
+#### FSR-01 - Resolved - Local Graphify outputs were not ignored
+
+- **Severity:** Medium
+- **Files:** `.gitignore`
+- **Root cause:** Local architecture/audit tooling generated `.graphify_detect.json`, `.graphify_python`, and `graphify-out/` outside existing ignore rules.
+- **Impact:** A broad `git add -A` during PR creation could accidentally publish local/generated analysis artifacts.
+- **Fix:** Added narrow local audit/tooling ignore patterns for Graphify outputs.
+- **Architecture decision:** Operations-owned local tooling artifacts stay outside product source and review scope.
+- **Verification:** `git status --short` no longer lists Graphify artifacts.
+
+#### FSR-02 - Resolved - CI Fallow command used a floating install path
+
+- **Severity:** Medium
+- **Files:** `.github/workflows/ci.yml`, `package.json`, `pnpm-lock.yaml`
+- **Root cause:** The report-only CI step used `npx --yes fallow --ci`, while the branch also pinned `fallow` as a dev dependency and added local scripts.
+- **Impact:** CI could review a different Fallow version than local validation, making analyzer policy non-reproducible.
+- **Fix:** Changed CI to `pnpm exec fallow --ci --production`.
+- **Architecture decision:** Static analyzer policy is operations-owned and must use repo-pinned tooling in the same production scope as the local gate.
+- **Verification:** Workflow and audit now reference the pinned CI command.
+
+#### FSR-03 - Resolved - Audit CI section documented the stale command
+
+- **Severity:** Low
+- **Files:** `.audits/fallow-static-audit-2026-05-01.md`
+- **Root cause:** The audit captured the original report-only CI snippet before the pinned-command correction.
+- **Impact:** Future maintainers could follow the stale command and reintroduce CI/local analyzer drift.
+- **Fix:** Updated the audit CI snippet and explanation to use `pnpm exec fallow --ci --production`.
+- **Architecture decision:** Audit artifacts are governance documentation for static-analysis policy and should match the enforced workflow.
+- **Verification:** `rg` confirmed the live workflow uses the pinned command.
+
+#### FSR-04 - Accepted - Residual duplication debt is budget-gated
+
+- **Severity:** Low
+- **Files:** `scripts/fallow-dupes-budget-gate.mjs`, `package.json`, `.audits/fallow-static-audit-2026-05-01.md`
+- **Status:** Accepted transition debt
+- **Rationale:** Forcing duplicate clone groups to zero would require broad abstractions across presentation, route, domain, and runtime owners. That would likely increase coupling and hide meaningful variants.
+- **Policy:** Local duplication gate fails if clone groups, duplicated lines, or duplication percentage exceed the current baseline. Future reductions should happen through capability-owned extractions with behavior tests.
+- **Revisit trigger:** Any increase over the budget or any repeated business rule crossing owners should become a targeted architecture/refactor task.
+
+### Recommendations
+
+1. **Fix first:** None open locally.
+2. **Then address:** Let PR review and CI run before merging because the branch is broad.
+3. **Patterns noticed:** Static analysis is useful here as architecture evidence, but warnings need owner-aware interpretation.
+4. **Suggested approach:** Keep clearing duplication by capability owner, not by creating generic shared helpers.
+5. **Architecture transition:** Treat the current duplication budget as a ceiling, not a stable target.
+6. **Defer on purpose:** Runtime coverage and full visual smoke remain post-PR hardening candidates.

@@ -1,49 +1,9 @@
-import { ConvexHttpClient } from "convex/browser"
-import { createWorkOS } from "@workos-inc/node"
-
 import { api } from "../convex/_generated/api.js"
-
-const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
-const serverToken = process.env.CONVEX_SERVER_TOKEN
-const apiKey = process.env.WORKOS_API_KEY
-const clientId = process.env.WORKOS_CLIENT_ID
-
-if (!convexUrl) {
-  throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
-}
-
-if (!serverToken) {
-  throw new Error("CONVEX_SERVER_TOKEN is not configured")
-}
-
-if (!apiKey || !clientId) {
-  throw new Error("WorkOS is not configured")
-}
-
-function parseArgs(argv) {
-  const parsed = {}
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const value = argv[index]
-
-    if (!value?.startsWith("--")) {
-      continue
-    }
-
-    const key = value.slice(2)
-    const next = argv[index + 1]
-
-    if (!next || next.startsWith("--")) {
-      parsed[key] = "true"
-      continue
-    }
-
-    parsed[key] = next
-    index += 1
-  }
-
-  return parsed
-}
+import {
+  getOrganizationByExternalId,
+  parseBootstrapAppWorkspaceArgs,
+} from "./shared/bootstrap-app-workspace.mjs"
+import { readWorkosConvexConfig } from "./shared/workos-convex.mjs"
 
 function slugify(value) {
   return value
@@ -62,15 +22,8 @@ function normalizeJoinCode(value) {
 }
 
 function toInitials(name, email) {
-  const source = name.trim() || email
-
-  return source
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("")
-    .slice(0, 2)
+  const [first = "", second = ""] = (name.trim() || email).split(/\s+/, 2)
+  return `${first[0] ?? ""}${second[0] ?? ""}`.toUpperCase().slice(0, 2)
 }
 
 function getName(user) {
@@ -90,19 +43,7 @@ function getDefaultTeamIcon(experience) {
   }
 }
 
-async function getOrganizationByExternalId(workos, externalId) {
-  try {
-    return await workos.organizations.getOrganizationByExternalId(externalId)
-  } catch (error) {
-    if (typeof error === "object" && error !== null && "status" in error && error.status === 404) {
-      return null
-    }
-
-    throw error
-  }
-}
-
-const args = parseArgs(process.argv.slice(2))
+const args = parseBootstrapAppWorkspaceArgs(process.argv.slice(2))
 const email = args.email
 
 if (!email) {
@@ -127,11 +68,7 @@ const teamJoinCode =
   "TEAMJOIN"
 const role = args.role ?? "admin"
 
-const convex = new ConvexHttpClient(convexUrl)
-const workos = createWorkOS({
-  apiKey,
-  clientId,
-})
+const { convex, serverToken, workos } = readWorkosConvexConfig()
 
 const users = await workos.userManagement.listUsers({
   email,

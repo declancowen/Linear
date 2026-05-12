@@ -1,24 +1,29 @@
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 
-import { SurfaceSidebarContent } from "@/components/app/collaboration-screens/shared-ui"
+import {
+  SurfaceSidebarContent,
+} from "@/components/app/collaboration-screens/shared-ui"
+import { getSurfaceSidebarHeroDisplay } from "@/components/app/collaboration-screens/surface-sidebar-display"
 import { UserHoverCard } from "@/components/app/user-presence"
-import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  createTestUser,
+  createTestWorkspaceShellData,
+} from "@/tests/lib/fixtures/app-data"
+
+const routerPushMock = vi.hoisted(() => vi.fn())
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
-    push: vi.fn(),
+    push: routerPushMock,
   }),
 }))
 
-vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
-}))
+vi.mock("sonner", async () =>
+  (await import("@/tests/lib/fixtures/component-stubs")).createToastStubModule()
+)
 
 vi.mock("@/components/ui/hover-card", () => ({
   HoverCard: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -30,100 +35,84 @@ vi.mock("@/components/ui/hover-card", () => ({
   ),
 }))
 
-const currentUser = {
+const currentUser = createTestUser({
   id: "user_current",
   name: "Current User",
   handle: "current-user",
   email: "current@example.com",
-  avatarUrl: "",
-  avatarImageUrl: null,
-  workosUserId: null,
   title: "Founder",
-  status: "active" as const,
-  statusMessage: "",
   hasExplicitStatus: false,
-  accountDeletionPendingAt: null,
-  accountDeletedAt: null,
-  preferences: {
-    emailMentions: true,
-    emailAssignments: true,
-    emailDigest: true,
-    theme: "system" as const,
-  },
-}
+})
 
-const formerUser = {
+const formerUser = createTestUser({
   id: "user_former",
   name: "Declan Cowen",
   handle: "declan-cowen",
   email: "declan@example.com",
   avatarUrl: "https://example.com/declan.png",
-  avatarImageUrl: null,
-  workosUserId: null,
   title: "Product Owner",
-  status: "out-of-office" as const,
+  status: "out-of-office",
   statusMessage: "No status message",
   hasExplicitStatus: true,
-  accountDeletionPendingAt: null,
-  accountDeletedAt: null,
-  preferences: {
-    emailMentions: true,
-    emailAssignments: true,
-    emailDigest: true,
-    theme: "system" as const,
-  },
-}
+})
 
-const offlineUser = {
+const offlineUser = createTestUser({
   id: "user_offline",
   name: "Offline User",
   handle: "offline-user",
   email: "offline@example.com",
-  avatarUrl: "",
-  avatarImageUrl: null,
-  workosUserId: null,
   title: "Engineer",
-  status: "offline" as const,
+  status: "offline",
   statusMessage: "",
   hasExplicitStatus: false,
-  accountDeletionPendingAt: null,
-  accountDeletedAt: null,
-  preferences: {
-    emailMentions: true,
-    emailAssignments: true,
-    emailDigest: true,
-    theme: "system" as const,
-  },
-}
+})
 
 beforeEach(() => {
-  useAppStore.setState({
-    ...createEmptyState(),
-    currentUserId: currentUser.id,
-    currentWorkspaceId: "workspace_1",
-    workspaces: [
-      {
-        id: "workspace_1",
-        slug: "workspace-1",
-        name: "Workspace 1",
-        logoUrl: "",
-        logoImageUrl: null,
-        createdBy: currentUser.id,
-        workosOrganizationId: null,
-        settings: {
-          accent: "#000000",
-          description: "",
-        },
-      },
-    ],
-    workspaceMemberships: [],
-    teams: [],
-    teamMemberships: [],
-    users: [currentUser, formerUser, offlineUser],
-  })
+  routerPushMock.mockReset()
+  useAppStore.setState(
+    createTestWorkspaceShellData({
+      currentUserId: currentUser.id,
+      users: [currentUser, formerUser, offlineUser],
+    })
+  )
 })
 
 describe("workspace former-member presence", () => {
+  it("resolves sidebar hero display fallback and former-member state", () => {
+    expect(
+      getSurfaceSidebarHeroDisplay({
+        heroMember: formerUser,
+        heroView: null,
+        title: "Direct chat",
+      })
+    ).toMatchObject({
+      name: "Declan Cowen",
+      showStatus: true,
+      title: "Declan Cowen",
+    })
+
+    expect(
+      getSurfaceSidebarHeroDisplay({
+        heroMember: formerUser,
+        heroView: {
+          avatarImageUrl: "https://example.com/declan-image.png",
+          avatarUrl: "https://example.com/declan-avatar.png",
+          id: formerUser.id,
+          isFormerMember: true,
+          name: "Former teammate",
+          status: "offline",
+        } as never,
+        title: "Direct chat",
+      })
+    ).toMatchObject({
+      avatarImageUrl: "https://example.com/declan-image.png",
+      avatarUrl: "https://example.com/declan-avatar.png",
+      name: "Former teammate",
+      showStatus: false,
+      title: "Former teammate",
+    })
+  })
+
   it("redacts former members in the hover card", () => {
     render(
       <UserHoverCard
@@ -186,5 +175,41 @@ describe("workspace former-member presence", () => {
     expect(screen.getByText("No status set")).toBeInTheDocument()
     expect(screen.getByText("No status message")).toBeInTheDocument()
     expect(screen.queryByText("Offline")).not.toBeInTheDocument()
+  })
+
+  it("starts a direct workspace chat from the hover card message action", () => {
+    const createWorkspaceChat = vi.fn().mockReturnValue("chat_1")
+    useAppStore.setState((state) => ({
+      ...state,
+      createWorkspaceChat: createWorkspaceChat as never,
+      workspaceMemberships: [
+        {
+          workspaceId: "workspace_1",
+          userId: formerUser.id,
+          role: "member",
+        },
+      ],
+    }))
+
+    render(
+      <UserHoverCard
+        user={formerUser}
+        userId={formerUser.id}
+        currentUserId={currentUser.id}
+        workspaceId="workspace_1"
+      >
+        <button type="button">Open profile</button>
+      </UserHoverCard>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Message" }))
+
+    expect(createWorkspaceChat).toHaveBeenCalledWith({
+      participantIds: [formerUser.id],
+      workspaceId: "workspace_1",
+      title: "",
+      description: "",
+    })
+    expect(routerPushMock).toHaveBeenCalledWith("/chats?chatId=chat_1")
   })
 })

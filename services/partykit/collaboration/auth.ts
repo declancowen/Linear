@@ -70,15 +70,11 @@ function timingSafeEqual(left: Uint8Array, right: Uint8Array) {
   return mismatch === 0
 }
 
-export async function verifyCollaborationRequestClaims(input: {
-  request: PartyRequest | Request
-  secret: string
-  expectedRoomId: string
-  requireClientVersionParams?: boolean
-  allowLegacyClientVersionParams?: boolean
-}): Promise<CollaborationSessionTokenClaims> {
-  const url = new URL(input.request.url)
-  const authorization = input.request.headers.get("authorization")?.trim()
+function getCollaborationRequestToken(
+  request: PartyRequest | Request,
+  url: URL
+) {
+  const authorization = request.headers.get("authorization")?.trim()
   const bearerToken = authorization?.startsWith("Bearer ")
     ? authorization.slice("Bearer ".length).trim()
     : null
@@ -88,37 +84,58 @@ export async function verifyCollaborationRequestClaims(input: {
     throw new Error("Missing collaboration token")
   }
 
+  return token
+}
+
+function splitCollaborationToken(token: string) {
   const [encodedClaims, providedSignature, ...rest] = token.split(".")
 
   if (!encodedClaims || !providedSignature || rest.length > 0) {
     throw new Error("Invalid collaboration token")
   }
 
-  const expectedSignature = await signPayload(encodedClaims, input.secret)
-  let providedSignatureBytes: Uint8Array
+  return {
+    encodedClaims,
+    providedSignature,
+  }
+}
 
+function decodeProvidedSignature(providedSignature: string) {
   try {
-    providedSignatureBytes = decodeBase64UrlBytes(providedSignature)
+    return decodeBase64UrlBytes(providedSignature)
   } catch {
     throw new Error("Invalid collaboration token")
   }
+}
+
+async function assertCollaborationTokenSignature(input: {
+  encodedClaims: string
+  providedSignature: string
+  secret: string
+}) {
+  const expectedSignature = await signPayload(input.encodedClaims, input.secret)
+  const providedSignatureBytes = decodeProvidedSignature(
+    input.providedSignature
+  )
 
   if (!timingSafeEqual(expectedSignature, providedSignatureBytes)) {
     throw new Error("Invalid collaboration token signature")
   }
+}
 
-  let decodedClaims: unknown
-
+function decodeCollaborationTokenClaims(encodedClaims: string) {
   try {
-    decodedClaims = JSON.parse(decodeBase64UrlUtf8(encodedClaims))
+    return JSON.parse(decodeBase64UrlUtf8(encodedClaims))
   } catch {
     throw new Error("Invalid collaboration token")
   }
+}
 
-  let claims: CollaborationSessionTokenClaims
-
+function parseVerifiedCollaborationClaims(
+  decodedClaims: unknown
+): CollaborationSessionTokenClaims {
   try {
-    claims = parseCollaborationSessionTokenClaims(decodedClaims)
+    return parseCollaborationSessionTokenClaims(decodedClaims)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
 
@@ -131,14 +148,43 @@ export async function verifyCollaborationRequestClaims(input: {
 
     throw new Error("Invalid collaboration token")
   }
+}
 
+function assertCollaborationClaimsMatchRequest(
+  claims: CollaborationSessionTokenClaims,
+  expectedRoomId: string
+) {
   if (claims.exp * 1000 <= Date.now()) {
     throw new Error("Expired collaboration token")
   }
 
-  if (claims.roomId !== input.expectedRoomId) {
+  if (claims.roomId !== expectedRoomId) {
     throw new Error("Collaboration room mismatch")
   }
+}
+
+export async function verifyCollaborationRequestClaims(input: {
+  request: PartyRequest | Request
+  secret: string
+  expectedRoomId: string
+  requireClientVersionParams?: boolean
+  allowLegacyClientVersionParams?: boolean
+}): Promise<CollaborationSessionTokenClaims> {
+  const url = new URL(input.request.url)
+  const token = getCollaborationRequestToken(input.request, url)
+  const { encodedClaims, providedSignature } = splitCollaborationToken(token)
+
+  await assertCollaborationTokenSignature({
+    encodedClaims,
+    providedSignature,
+    secret: input.secret,
+  })
+
+  const claims = parseVerifiedCollaborationClaims(
+    decodeCollaborationTokenClaims(encodedClaims)
+  )
+
+  assertCollaborationClaimsMatchRequest(claims, input.expectedRoomId)
 
   if (claims.kind === "doc") {
     assertDocumentClientVersionParams({

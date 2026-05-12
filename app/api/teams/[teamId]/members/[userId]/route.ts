@@ -1,25 +1,17 @@
 import { NextRequest } from "next/server"
 
-import { ApplicationError } from "@/lib/server/application-errors"
 import { teamMembershipRoleSchema } from "@/lib/domain/types"
 import {
   removeTeamMemberServer,
   updateTeamMemberRoleServer,
 } from "@/lib/server/convex"
 import { reconcileProviderMembershipCleanup } from "@/lib/server/lifecycle"
+import {
+  handleAppContextJsonRoute,
+  handleAppContextRoute,
+} from "@/lib/server/route-handlers"
+import { jsonOk } from "@/lib/server/route-response"
 import { bumpWorkspaceMembershipReadModelScopesServer } from "@/lib/server/scoped-read-models"
-import {
-  getConvexErrorMessage,
-  logProviderError,
-} from "@/lib/server/provider-errors"
-import { requireAppContext, requireSession } from "@/lib/server/route-auth"
-import { parseJsonBody } from "@/lib/server/route-body"
-import {
-  isRouteResponse,
-  jsonApplicationError,
-  jsonError,
-  jsonOk,
-} from "@/lib/server/route-response"
 
 export async function PATCH(
   request: NextRequest,
@@ -29,66 +21,37 @@ export async function PATCH(
     params: Promise<{ teamId: string; userId: string }>
   }
 ) {
-  const session = await requireSession()
+  return handleAppContextJsonRoute(request, {
+    schema: teamMembershipRoleSchema,
+    invalidMessage: "Invalid team member role payload",
+    failureLogLabel: "Failed to update team member role",
+    failureMessage: "Failed to update team member role",
+    failureCode: "TEAM_MEMBER_ROLE_UPDATE_FAILED",
+    async handle({ appContext, parsed }) {
+      const { teamId, userId } = await params
+      const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
+      const result = await updateTeamMemberRoleServer({
+        currentUserId: appContext.ensuredUser.userId,
+        teamId,
+        userId,
+        role: parsed.role,
+      })
+      const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
 
-  if (isRouteResponse(session)) {
-    return session
-  }
-
-  const parsed = await parseJsonBody(
-    request,
-    teamMembershipRoleSchema,
-    "Invalid team member role payload"
-  )
-
-  if (isRouteResponse(parsed)) {
-    return parsed
-  }
-
-  try {
-    const { teamId, userId } = await params
-    const appContext = await requireAppContext(session)
-
-    if (isRouteResponse(appContext)) {
-      return appContext
-    }
-
-    const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
-
-    const result = await updateTeamMemberRoleServer({
-      currentUserId: appContext.ensuredUser.userId,
-      teamId,
-      userId,
-      role: parsed.role,
-    })
-    const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
-
-    if (invalidationWorkspaceId) {
-      await bumpWorkspaceMembershipReadModelScopesServer(
-        invalidationWorkspaceId
-      )
-    }
-
-    return jsonOk({
-      ok: true,
-      teamId,
-      userId,
-      role: parsed.role,
-    })
-  } catch (error) {
-    if (error instanceof ApplicationError) {
-      return jsonApplicationError(error)
-    }
-
-    logProviderError("Failed to update team member role", error)
-    return jsonError(
-      getConvexErrorMessage(error, "Failed to update team member role"),
-      500,
-      {
-        code: "TEAM_MEMBER_ROLE_UPDATE_FAILED",
+      if (invalidationWorkspaceId) {
+        await bumpWorkspaceMembershipReadModelScopesServer(
+          invalidationWorkspaceId
+        )
       }
-    )
-  }
+
+      return jsonOk({
+        ok: true,
+        teamId,
+        userId,
+        role: parsed.role,
+      })
+    },
+  })
 }
 
 export async function DELETE(
@@ -99,57 +62,36 @@ export async function DELETE(
     params: Promise<{ teamId: string; userId: string }>
   }
 ) {
-  const session = await requireSession()
+  return handleAppContextRoute({
+    failureLogLabel: "Failed to remove team member",
+    failureMessage: "Failed to remove team member",
+    failureCode: "TEAM_MEMBER_REMOVE_FAILED",
+    async handle({ appContext }) {
+      const { teamId, userId } = await params
+      const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
+      const result = await removeTeamMemberServer({
+        currentUserId: appContext.ensuredUser.userId,
+        teamId,
+        userId,
+      })
 
-  if (isRouteResponse(session)) {
-    return session
-  }
+      await reconcileProviderMembershipCleanup({
+        label: "Failed to deactivate WorkOS membership after team removal",
+        memberships: result?.providerMemberships ?? [],
+      })
+      const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
 
-  try {
-    const { teamId, userId } = await params
-    const appContext = await requireAppContext(session)
-
-    if (isRouteResponse(appContext)) {
-      return appContext
-    }
-
-    const workspaceId = appContext.authContext?.currentWorkspace?.id ?? null
-
-    const result = await removeTeamMemberServer({
-      currentUserId: appContext.ensuredUser.userId,
-      teamId,
-      userId,
-    })
-
-    await reconcileProviderMembershipCleanup({
-      label: "Failed to deactivate WorkOS membership after team removal",
-      memberships: result?.providerMemberships ?? [],
-    })
-    const invalidationWorkspaceId = result?.workspaceId ?? workspaceId
-
-    if (invalidationWorkspaceId) {
-      await bumpWorkspaceMembershipReadModelScopesServer(
-        invalidationWorkspaceId
-      )
-    }
-
-    return jsonOk({
-      ok: true,
-      teamId: result?.teamId ?? teamId,
-      userId: result?.userId ?? userId,
-    })
-  } catch (error) {
-    if (error instanceof ApplicationError) {
-      return jsonApplicationError(error)
-    }
-
-    logProviderError("Failed to remove team member", error)
-    return jsonError(
-      getConvexErrorMessage(error, "Failed to remove team member"),
-      500,
-      {
-        code: "TEAM_MEMBER_REMOVE_FAILED",
+      if (invalidationWorkspaceId) {
+        await bumpWorkspaceMembershipReadModelScopesServer(
+          invalidationWorkspaceId
+        )
       }
-    )
-  }
+
+      return jsonOk({
+        ok: true,
+        teamId: result?.teamId ?? teamId,
+        userId: result?.userId ?? userId,
+      })
+    },
+  })
 }

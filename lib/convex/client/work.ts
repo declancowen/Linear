@@ -2,25 +2,23 @@
 
 import type {
   AttachmentTargetType,
+  CreateViewInput,
   DocumentPresenceViewer,
   DisplayProperty,
-  EntityKind,
   GroupField,
-  HiddenState,
   OrderingField,
   Priority,
-  ProjectPresentationConfig,
   ProjectStatus,
   Role,
-  ScopeType,
   TeamFeatureSettings,
   TeamWorkflowSettings,
-  TemplateType,
-  ViewContainerType,
-  ViewFilters,
   WorkItemType,
-  WorkStatus,
 } from "@/lib/domain/types"
+import type { CreateProjectInput } from "@/lib/domain/project-inputs"
+import type {
+  CreateWorkItemMutationInput,
+  WorkItemMutationPatch,
+} from "@/lib/domain/work-item-inputs"
 
 import {
   normalizeCreateAttachmentResult,
@@ -34,20 +32,7 @@ import {
 } from "./contracts"
 import { runRouteMutation } from "./shared"
 
-type WorkItemPatch = {
-  title?: string
-  description?: string
-  expectedUpdatedAt?: string
-  status?: WorkStatus
-  priority?: Priority
-  assigneeId?: string | null
-  parentId?: string | null
-  primaryProjectId?: string | null
-  labelIds?: string[]
-  startDate?: string | null
-  dueDate?: string | null
-  targetDate?: string | null
-}
+type WorkItemPatch = WorkItemMutationPatch
 
 type UpdateViewConfigPatch = Partial<{
   layout: "list" | "board" | "timeline"
@@ -58,27 +43,6 @@ type UpdateViewConfigPatch = Partial<{
   showChildItems: boolean
   showCompleted: boolean
 }>
-
-type CreateViewInput = {
-  id?: string
-  scopeType: "team" | "workspace"
-  scopeId: string
-  entityKind: EntityKind
-  containerType?: ViewContainerType | null
-  containerId?: string | null
-  route: string
-  name: string
-  description: string
-  layout?: "list" | "board" | "timeline"
-  grouping?: GroupField
-  subGrouping?: GroupField | null
-  ordering?: OrderingField
-  itemLevel?: WorkItemType | null
-  showChildItems?: boolean
-  filters?: ViewFilters
-  displayProps?: DisplayProperty[]
-  hiddenState?: HiddenState
-}
 
 export function syncMarkNotificationRead(notificationId: string) {
   return runRouteMutation(`/api/notifications/${notificationId}`, {
@@ -670,22 +634,7 @@ export function syncCreateTeam(input: {
 
 export function syncCreateProject(
   _currentUserId: string,
-  input: {
-    scopeType: ScopeType
-    scopeId: string
-    templateType: TemplateType
-    name: string
-    summary: string
-    status?: ProjectStatus
-    priority: Priority
-    leadId?: string | null
-    memberIds?: string[]
-    startDate?: string | null
-    targetDate?: string | null
-    labelIds?: string[]
-    settingsTeamId?: string | null
-    presentation?: ProjectPresentationConfig
-  }
+  input: CreateProjectInput
 ) {
   return runRouteMutation("/api/projects", {
     method: "POST",
@@ -845,22 +794,7 @@ export function syncCreateDocument(
 
 export function syncCreateWorkItem(
   _currentUserId: string,
-  input: {
-    id?: string
-    descriptionDocId?: string
-    teamId: string
-    type: WorkItemType
-    title: string
-    parentId?: string | null
-    primaryProjectId: string | null
-    assigneeId: string | null
-    status?: WorkStatus
-    priority: Priority
-    labelIds?: string[]
-    startDate?: string | null
-    dueDate?: string | null
-    targetDate?: string | null
-  }
+  input: CreateWorkItemMutationInput
 ) {
   return runRouteMutation<{
     ok: true

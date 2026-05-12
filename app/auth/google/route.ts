@@ -1,15 +1,10 @@
-import { NextResponse } from "next/server"
-
 import { getWorkOSClient } from "@/lib/server/workos"
 import {
   buildAuthPageHref,
   normalizeAuthNextPath,
   parseAuthMode,
 } from "@/lib/auth-routing"
-
-function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, request.url))
-}
+import { redirectToRoute } from "@/lib/server/route-response"
 
 function isLocalRedirectUri(redirectUri: string) {
   return (
@@ -25,7 +20,7 @@ export async function GET(request: Request) {
   const redirectUri = process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI
 
   if (!redirectUri) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildAuthPageHref(mode, {
         nextPath,
@@ -35,7 +30,7 @@ export async function GET(request: Request) {
   }
 
   if (isLocalRedirectUri(redirectUri)) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildAuthPageHref(mode, {
         nextPath,
@@ -55,5 +50,5 @@ export async function GET(request: Request) {
     }),
   })
 
-  return NextResponse.redirect(authorizationUrl)
+  return redirectToRoute(request, authorizationUrl)
 }

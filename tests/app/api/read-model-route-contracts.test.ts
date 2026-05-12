@@ -2,6 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createEmptyState } from "@/lib/domain/empty-state"
 import type { AppSnapshot } from "@/lib/domain/types"
+import {
+  createScopedReadModelProject,
+  createScopedReadModelTeam,
+  createScopedReadModelUser,
+  createScopedReadModelView,
+} from "@/tests/lib/fixtures/scoped-read-models"
+import {
+  createProviderErrorsMockModule,
+  createRouteHandlerInput,
+} from "@/tests/lib/fixtures/api-routes"
 
 const requireSessionMock = vi.fn()
 const getSnapshotServerMock = vi.fn()
@@ -17,11 +27,15 @@ vi.mock("@/lib/server/convex", () => ({
   getWorkspaceMembershipBootstrapServer: getWorkspaceMembershipBootstrapServerMock,
 }))
 
-vi.mock("@/lib/server/provider-errors", () => ({
-  getConvexErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  logProviderError: logProviderErrorMock,
-}))
+vi.mock("@/lib/server/provider-errors", () =>
+  createProviderErrorsMockModule(logProviderErrorMock)
+)
+
+function documentReadModelRequest(documentId: string) {
+  return createRouteHandlerInput("http://localhost", {
+    documentId,
+  })
+}
 
 function createSnapshot(): AppSnapshot {
   return {
@@ -50,52 +64,7 @@ function createSnapshot(): AppSnapshot {
         role: "admin",
       },
     ],
-    teams: [
-      {
-        id: "team_1",
-        workspaceId: "workspace_1",
-        slug: "team-1",
-        name: "Team 1",
-        icon: "sparkles",
-        summary: "",
-        settings: {
-          experience: "software-development",
-          workflow: {
-            statusOrder: ["backlog", "todo", "in-progress", "done", "cancelled", "duplicate"],
-            templateDefaults: {
-              "software-delivery": {
-                defaultViewLayout: "list",
-                defaultViewGrouping: "status",
-                defaultViewOrdering: "priority",
-                recommendedItemTypes: ["epic", "feature", "story", "task", "bug"],
-              },
-              "bug-tracking": {
-                defaultViewLayout: "list",
-                defaultViewGrouping: "status",
-                defaultViewOrdering: "priority",
-                recommendedItemTypes: ["issue", "bug"],
-              },
-              "project-management": {
-                defaultViewLayout: "list",
-                defaultViewGrouping: "status",
-                defaultViewOrdering: "priority",
-                recommendedItemTypes: ["epic", "feature", "task"],
-              },
-            },
-          },
-          features: {
-            issues: true,
-            projects: true,
-            documents: true,
-            chat: true,
-            calls: true,
-          },
-          guestProjectIds: [],
-          guestWorkItemIds: [],
-          guestDocumentIds: [],
-        },
-      },
-    ],
+    teams: [createScopedReadModelTeam()],
     teamMemberships: [
       {
         teamId: "team_1",
@@ -103,29 +72,7 @@ function createSnapshot(): AppSnapshot {
         role: "admin",
       },
     ],
-    users: [
-      {
-        id: "user_1",
-        handle: "alex",
-        email: "alex@example.com",
-        name: "Alex",
-        avatarUrl: "",
-        avatarImageUrl: null,
-        title: "",
-        hasExplicitStatus: false,
-        status: "offline",
-        statusMessage: "",
-        preferences: {
-          emailAssignments: true,
-          emailDigest: true,
-          emailMentions: true,
-          theme: "system",
-        },
-        accountDeletionPendingAt: null,
-        accountDeletedAt: null,
-        workosUserId: null,
-      },
-    ],
+    users: [createScopedReadModelUser()],
     labels: [
       {
         id: "label_1",
@@ -195,51 +142,7 @@ function createSnapshot(): AppSnapshot {
       },
     ],
     projects: [
-      {
-        id: "project_1",
-        scopeType: "team",
-        scopeId: "team_1",
-        name: "Alpha",
-        summary: "",
-        description: "",
-        status: "in-progress",
-        health: "on-track",
-        priority: "high",
-        leadId: "user_1",
-        memberIds: [],
-        labelIds: [],
-        startDate: null,
-        targetDate: null,
-        createdAt: "2026-04-22T00:00:00.000Z",
-        updatedAt: "2026-04-22T00:00:00.000Z",
-        templateType: "software-delivery",
-        presentation: {
-          layout: "list",
-          grouping: "status",
-          ordering: "priority",
-          itemLevel: "story",
-          showChildItems: false,
-          filters: {
-            status: [],
-            priority: [],
-            assigneeIds: [],
-            creatorIds: [],
-            leadIds: [],
-            health: [],
-            milestoneIds: [],
-            relationTypes: [],
-            projectIds: [],
-            parentIds: [],
-            itemTypes: [],
-            labelIds: [],
-            teamIds: [],
-            showCompleted: true,
-          },
-          displayProps: [],
-        },
-        blockingProjectIds: [],
-        blockedByProjectIds: [],
-      },
+      createScopedReadModelProject(),
     ],
     workItems: [
       {
@@ -373,156 +276,54 @@ function createSnapshot(): AppSnapshot {
       },
     ],
     views: [
-      {
+      createScopedReadModelView({
         id: "view_item_1",
         name: "Assigned Work",
-        description: "",
         scopeType: "personal",
         scopeId: "user_1",
-        entityKind: "items",
-        layout: "list",
-        filters: {
-          status: [],
-          priority: [],
-          assigneeIds: [],
-          creatorIds: [],
-          leadIds: [],
-          health: [],
-          milestoneIds: [],
-          relationTypes: [],
-          projectIds: [],
-          parentIds: [],
-          itemTypes: [],
-          labelIds: [],
-          teamIds: [],
-          showCompleted: true,
-        },
-        grouping: "status",
-        subGrouping: null,
         ordering: "updatedAt",
-        displayProps: [],
-        hiddenState: {
-          groups: [],
-          subgroups: [],
-        },
-        isShared: false,
         route: "/assigned",
-        createdAt: "2026-04-22T00:00:00.000Z",
-        updatedAt: "2026-04-22T00:00:00.000Z",
-      },
-      {
+      }),
+      createScopedReadModelView({
         id: "view_project_1",
         name: "Workspace Projects",
-        description: "",
         scopeType: "workspace",
         scopeId: "workspace_1",
         entityKind: "projects",
-        layout: "list",
-        filters: {
-          status: [],
-          priority: [],
-          assigneeIds: [],
-          creatorIds: [],
-          leadIds: [],
-          health: [],
-          milestoneIds: [],
-          relationTypes: [],
-          projectIds: [],
-          parentIds: [],
-          itemTypes: [],
-          labelIds: [],
-          teamIds: [],
-          showCompleted: true,
-        },
-        grouping: "status",
-        subGrouping: null,
-        ordering: "priority",
-        displayProps: [],
-        hiddenState: {
-          groups: [],
-          subgroups: [],
-        },
-        isShared: false,
         route: "/workspace/projects",
-        createdAt: "2026-04-22T00:00:00.000Z",
-        updatedAt: "2026-04-22T00:00:00.000Z",
-      },
-      {
+      }),
+      createScopedReadModelView({
         id: "view_doc_1",
         name: "Team Docs",
-        description: "",
-        scopeType: "team",
-        scopeId: "team_1",
         entityKind: "docs",
-        layout: "list",
-        filters: {
-          status: [],
-          priority: [],
-          assigneeIds: [],
-          creatorIds: [],
-          leadIds: [],
-          health: [],
-          milestoneIds: [],
-          relationTypes: [],
-          projectIds: [],
-          parentIds: [],
-          itemTypes: [],
-          labelIds: [],
-          teamIds: [],
-          showCompleted: true,
-        },
-        grouping: "status",
-        subGrouping: null,
         ordering: "updatedAt",
-        displayProps: [],
-        hiddenState: {
-          groups: [],
-          subgroups: [],
-        },
-        isShared: false,
         route: "/team/team-1/docs",
-        createdAt: "2026-04-22T00:00:00.000Z",
-        updatedAt: "2026-04-22T00:00:00.000Z",
-      },
-      {
+      }),
+      createScopedReadModelView({
         id: "view_doc_2",
         name: "Workspace Docs",
-        description: "",
         scopeType: "workspace",
         scopeId: "workspace_1",
         entityKind: "docs",
-        layout: "list",
-        filters: {
-          status: [],
-          priority: [],
-          assigneeIds: [],
-          creatorIds: [],
-          leadIds: [],
-          health: [],
-          milestoneIds: [],
-          relationTypes: [],
-          projectIds: [],
-          parentIds: [],
-          itemTypes: [],
-          labelIds: [],
-          teamIds: [],
-          showCompleted: true,
-        },
-        grouping: "status",
-        subGrouping: null,
         ordering: "updatedAt",
-        displayProps: [],
-        hiddenState: {
-          groups: [],
-          subgroups: [],
-        },
-        isShared: false,
         route: "/workspace/docs",
-        createdAt: "2026-04-22T00:00:00.000Z",
-        updatedAt: "2026-04-22T00:00:00.000Z",
-      },
+      }),
     ],
   } as unknown as AppSnapshot
+}
+
+function readModelRequest<TParams extends Record<string, string>>(
+  params: TParams
+) {
+  return createRouteHandlerInput("http://localhost", params)
+}
+
+async function expectReadModelData(
+  response: Response,
+  data: Record<string, unknown>
+) {
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toMatchObject({ data })
 }
 
 describe("read model route contracts", () => {
@@ -548,17 +349,10 @@ describe("read model route contracts", () => {
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 
-    const response = await GET(new Request("http://localhost") as never, {
-      params: Promise.resolve({
-        documentId: "doc_1",
-      }),
-    })
+    const response = await GET(...readModelRequest({ documentId: "doc_1" }))
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
-      data: {
-        documents: [{ id: "doc_1" }],
-      },
+    await expectReadModelData(response, {
+      documents: [{ id: "doc_1" }],
     })
   })
 
@@ -579,23 +373,18 @@ describe("read model route contracts", () => {
       users: [{ id: "user_1" }],
     })
 
-    const response = await GET(new Request("http://localhost") as never, {
-      params: Promise.resolve({
-        workspaceId: "workspace_1",
-      }),
-    })
+    const response = await GET(
+      ...readModelRequest({ workspaceId: "workspace_1" })
+    )
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
-      data: {
-        currentWorkspaceId: "workspace_1",
-        workspaces: [{ id: "workspace_1" }],
-        teams: [{ id: "team_1" }],
-        workspaceMemberships: [{ workspaceId: "workspace_1" }],
-        teamMemberships: [{ teamId: "team_1" }],
-        labels: [{ id: "label_1" }],
-        invites: [{ id: "invite_1" }],
-      },
+    await expectReadModelData(response, {
+      currentWorkspaceId: "workspace_1",
+      workspaces: [{ id: "workspace_1" }],
+      teams: [{ id: "team_1" }],
+      workspaceMemberships: [{ workspaceId: "workspace_1" }],
+      teamMemberships: [{ teamId: "team_1" }],
+      labels: [{ id: "label_1" }],
+      invites: [{ id: "invite_1" }],
     })
 
     expect(getSnapshotServerMock).not.toHaveBeenCalled()
@@ -742,12 +531,9 @@ describe("read model route contracts", () => {
 
     const response = await GET()
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
-      data: {
-        notifications: [{ id: "notification_1" }],
-        projects: [{ id: "project_1" }],
-      },
+    await expectReadModelData(response, {
+      notifications: [{ id: "notification_1" }],
+      projects: [{ id: "project_1" }],
     })
   })
 
@@ -760,12 +546,9 @@ describe("read model route contracts", () => {
 
     const response = await GET()
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
-      data: {
-        conversations: [{ id: "chat_1" }, { id: "channel_1" }],
-        chatMessages: [{ id: "message_1" }],
-      },
+    await expectReadModelData(response, {
+      conversations: [{ id: "chat_1" }, { id: "channel_1" }],
+      chatMessages: [{ id: "message_1" }],
     })
   })
 
@@ -822,19 +605,14 @@ describe("read model route contracts", () => {
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 
-    const response = await GET(new Request("http://localhost") as never, {
-      params: Promise.resolve({
-        workspaceId: "workspace_1",
-      }),
-    })
+    const response = await GET(
+      ...readModelRequest({ workspaceId: "workspace_1" })
+    )
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
-      data: {
-        projects: [{ id: "project_1" }],
-        documents: [{ id: "doc_2" }, { id: "doc_3" }],
-        workItems: [{ id: "item_1" }],
-      },
+    await expectReadModelData(response, {
+      projects: [{ id: "project_1" }],
+      documents: [{ id: "doc_2" }, { id: "doc_3" }],
+      workItems: [{ id: "item_1" }],
     })
   })
 
@@ -845,11 +623,7 @@ describe("read model route contracts", () => {
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 
-    const response = await GET(new Request("http://localhost") as never, {
-      params: Promise.resolve({
-        documentId: "doc_missing",
-      }),
-    })
+    const response = await GET(...documentReadModelRequest("doc_missing"))
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toEqual({

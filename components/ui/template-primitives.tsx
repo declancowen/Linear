@@ -148,34 +148,6 @@ export function StatusRing({
   )
 }
 
-export function StatusDot({
-  status,
-  className,
-}: {
-  status: string
-  className?: string
-}) {
-  const color =
-    status === "done"
-      ? "var(--status-done)"
-      : status === "in-progress"
-        ? "var(--status-doing)"
-        : status === "todo"
-          ? "var(--status-todo)"
-          : status === "cancelled"
-            ? "var(--priority-urgent)"
-            : status === "duplicate"
-              ? "var(--status-cancel)"
-            : "var(--status-backlog)"
-  return (
-    <span
-      aria-hidden
-      className={cn("inline-block size-2 shrink-0 rounded-full", className)}
-      style={{ background: color }}
-    />
-  )
-}
-
 export function Topbar({
   className,
   children,

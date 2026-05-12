@@ -470,40 +470,68 @@ function renderInviteEmailHtml(input: {
   })
 }
 
-function renderAssignmentEmail(input: {
+type AssignmentEmailInput = {
   origin: string
   name: string
   itemTitle: string
   itemId: string
   actorName: string
   teamName?: string | null
-}): EmailMessage {
-  const itemUrl = buildAbsoluteUrl(input.origin, `/items/${input.itemId}`)
-  const teamLine = input.teamName?.trim() ? `Team: ${input.teamName}` : null
+}
 
-  const detailRows: Array<{ label: string; value: string }> = [
+function getAssignmentTeamName(input: AssignmentEmailInput) {
+  return input.teamName?.trim() ? input.teamName : null
+}
+
+function getAssignmentSubject(input: AssignmentEmailInput, teamName: string | null) {
+  return teamName
+    ? `${input.actorName} assigned you "${input.itemTitle}" in ${teamName}`
+    : `${input.actorName} assigned you "${input.itemTitle}"`
+}
+
+function getAssignmentText(
+  input: AssignmentEmailInput,
+  itemUrl: string,
+  teamName: string | null
+) {
+  const actionLine = teamName
+    ? `${input.actorName} assigned you "${input.itemTitle}" in ${teamName}.`
+    : `${input.actorName} assigned you "${input.itemTitle}".`
+
+  return [
+    `Hi ${input.name},`,
+    "",
+    actionLine,
+    "",
+    `Work item: ${input.itemTitle}`,
+    ...(teamName ? [`Team: ${teamName}`] : []),
+    `Open work item: ${itemUrl}`,
+  ].join("\n")
+}
+
+function getAssignmentDetailRows(
+  input: AssignmentEmailInput,
+  teamName: string | null
+) {
+  return [
     { label: "Work item", value: input.itemTitle },
+    ...(teamName ? [{ label: "Team", value: teamName }] : []),
   ]
+}
 
-  if (input.teamName?.trim()) {
-    detailRows.push({ label: "Team", value: input.teamName })
-  }
+function getAssignmentSubheading(teamName: string | null) {
+  return teamName
+    ? `In <strong style="color: ${EMAIL_COLORS.textStrong}; font-weight: 600;">${escapeHtml(teamName)}</strong>. It&rsquo;s ready whenever you are.`
+    : "It&rsquo;s ready whenever you are."
+}
+
+function renderAssignmentEmail(input: AssignmentEmailInput): EmailMessage {
+  const itemUrl = buildAbsoluteUrl(input.origin, `/items/${input.itemId}`)
+  const teamName = getAssignmentTeamName(input)
 
   return {
-    subject: input.teamName?.trim()
-      ? `${input.actorName} assigned you "${input.itemTitle}" in ${input.teamName}`
-      : `${input.actorName} assigned you "${input.itemTitle}"`,
-    text: [
-      `Hi ${input.name},`,
-      "",
-      input.teamName?.trim()
-        ? `${input.actorName} assigned you "${input.itemTitle}" in ${input.teamName}.`
-        : `${input.actorName} assigned you "${input.itemTitle}".`,
-      "",
-      `Work item: ${input.itemTitle}`,
-      ...(teamLine ? [teamLine] : []),
-      `Open work item: ${itemUrl}`,
-    ].join("\n"),
+    subject: getAssignmentSubject(input, teamName),
+    text: getAssignmentText(input, itemUrl, teamName),
     html: renderEmailLayout({
       origin: input.origin,
       logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
@@ -511,12 +539,8 @@ function renderAssignmentEmail(input: {
       preheader: `${input.actorName} assigned you ${input.itemTitle}`,
       content: [
         renderHeadline(`${input.actorName} assigned you a work item`),
-        renderSubheading(
-          input.teamName?.trim()
-            ? `In <strong style="color: ${EMAIL_COLORS.textStrong}; font-weight: 600;">${escapeHtml(input.teamName)}</strong>. It&rsquo;s ready whenever you are.`
-            : "It&rsquo;s ready whenever you are."
-        ),
-        renderDetailCard({ rows: detailRows }),
+        renderSubheading(getAssignmentSubheading(teamName)),
+        renderDetailCard({ rows: getAssignmentDetailRows(input, teamName) }),
         `<div style="margin-top: 24px;">${renderEmailButton({
           href: itemUrl,
           label: "Open work item",

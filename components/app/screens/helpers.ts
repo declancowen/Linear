@@ -2,6 +2,12 @@
 
 import type { AppStore } from "@/lib/store/app-store"
 import {
+  createPresenceSessionId,
+  getNextFallbackPresenceSessionState,
+  type PresenceSessionFallbackState,
+} from "@/components/app/screens/presence-session"
+import { getDisplayInitials } from "@/lib/display-initials"
+import {
   canEditWorkspace,
   canEditTeam,
   getProject,
@@ -11,27 +17,27 @@ import {
 } from "@/lib/domain/selectors"
 import {
   canParentWorkItemTypeAcceptChild,
+  cloneViewFilters as cloneDomainViewFilters,
   createDefaultViewFilters,
   type AppData,
+  type DisplayProperty,
   type Document,
   type GroupField,
+  type OrderingField,
   type Project,
   type ViewDefinition,
   type WorkItem,
   type WorkItemType,
 } from "@/lib/domain/types"
+import { escapeHtml } from "@/lib/html"
 
 const DOCUMENT_PRESENCE_SESSION_STORAGE_KEY =
   "linear.document-presence-session-id"
 const DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY =
   "linear.document-presence-session-user-id"
 
-let documentPresenceSessionFallbackState:
-  | {
-      userId: string | null
-      sessionId: string
-    }
-  | null = null
+let documentPresenceSessionFallbackState: PresenceSessionFallbackState | null =
+  null
 
 export type ViewFilterKey = Exclude<
   keyof ViewDefinition["filters"],
@@ -52,6 +58,16 @@ export type PersistedViewFilterKey =
   | "itemTypes"
   | "labelIds"
   | "teamIds"
+
+export type ViewConfigPatchInput = {
+  layout?: ViewDefinition["layout"]
+  grouping?: GroupField
+  subGrouping?: GroupField | null
+  ordering?: OrderingField
+  itemLevel?: WorkItemType | null
+  showChildItems?: boolean
+  showCompleted?: boolean
+}
 
 export function createEmptyViewFilters(): ViewDefinition["filters"] {
   return createDefaultViewFilters()
@@ -80,52 +96,72 @@ export function isPersistedViewFilterKey(
 export function cloneViewFilters(
   filters: ViewDefinition["filters"]
 ): ViewDefinition["filters"] {
+  return cloneDomainViewFilters(filters)
+}
+
+export function toggleViewFilterValue(
+  filters: ViewDefinition["filters"],
+  key: ViewFilterKey,
+  value: string
+) {
+  const nextFilters = { ...filters } as ViewDefinition["filters"]
+  const currentValues = nextFilters[key] as string[]
+  const nextValues = currentValues.includes(value)
+    ? currentValues.filter((entry) => entry !== value)
+    : [...currentValues, value]
+
+  nextFilters[key] = nextValues as never
+  return nextFilters
+}
+
+export function clearViewFiltersPreservingCompletion(
+  filters: ViewDefinition["filters"]
+) {
   return {
-    status: [...filters.status],
-    priority: [...filters.priority],
-    assigneeIds: [...filters.assigneeIds],
-    creatorIds: [...filters.creatorIds],
-    leadIds: [...filters.leadIds],
-    health: [...filters.health],
-    milestoneIds: [...filters.milestoneIds],
-    relationTypes: [...filters.relationTypes],
-    projectIds: [...filters.projectIds],
-    parentIds: [...(filters.parentIds ?? [])],
-    itemTypes: [...filters.itemTypes],
-    labelIds: [...filters.labelIds],
-    teamIds: [...filters.teamIds],
+    ...createEmptyViewFilters(),
     showCompleted: filters.showCompleted,
   }
 }
 
-export function cloneViewCreateConfig(
-  view: Pick<
-    ViewDefinition,
-    | "layout"
-    | "filters"
-    | "grouping"
-    | "subGrouping"
-    | "ordering"
-    | "itemLevel"
-    | "showChildItems"
-    | "displayProps"
-    | "hiddenState"
-  >
-) {
-  return {
-    layout: view.layout,
-    filters: cloneViewFilters(view.filters),
-    grouping: view.grouping,
-    subGrouping: view.subGrouping,
-    ordering: view.ordering,
-    itemLevel: view.itemLevel ?? null,
-    showChildItems: Boolean(view.showChildItems),
-    displayProps: [...view.displayProps],
-    hiddenState: {
-      groups: [...view.hiddenState.groups],
-      subgroups: [...view.hiddenState.subgroups],
-    },
+export function applyViewConfigPatch<
+  TConfig extends {
+    filters?: ViewDefinition["filters"]
+  },
+>(current: TConfig, patch: ViewConfigPatchInput): TConfig {
+  const nextConfig = { ...current } as TConfig & Record<string, unknown>
+  const mutableConfig = nextConfig as Record<string, unknown>
+  const patchEntries = [
+    ["layout", patch.layout],
+    ["grouping", patch.grouping],
+    ["subGrouping", patch.subGrouping],
+    ["ordering", patch.ordering],
+    ["itemLevel", patch.itemLevel],
+    ["showChildItems", patch.showChildItems],
+  ] as const
+
+  for (const [key, value] of patchEntries) {
+    if (value !== undefined) {
+      mutableConfig[key] = value
+    }
   }
+
+  if (patch.showCompleted !== undefined) {
+    mutableConfig.filters = {
+      ...(current.filters ?? createDefaultViewFilters()),
+      showCompleted: patch.showCompleted,
+    }
+  }
+
+  return nextConfig as TConfig
+}
+
+export function toggleDisplayPropertyValue(
+  displayProps: DisplayProperty[],
+  property: DisplayProperty
+) {
+  return displayProps.includes(property)
+    ? displayProps.filter((value) => value !== property)
+    : [...displayProps, property]
 }
 
 export function getContainerItemsForDisplay(
@@ -141,25 +177,6 @@ export function getContainerItemsForDisplay(
 
   return items.filter(
     (item) => !item.parentId || !visibleItemIds.has(item.parentId)
-  )
-}
-
-export function countActiveViewFilters(filters: ViewDefinition["filters"]) {
-  return (
-    filters.status.length +
-    filters.priority.length +
-    filters.assigneeIds.length +
-    filters.creatorIds.length +
-    filters.leadIds.length +
-    filters.health.length +
-    filters.milestoneIds.length +
-    filters.relationTypes.length +
-    filters.projectIds.length +
-    (filters.parentIds?.length ?? 0) +
-    filters.itemTypes.length +
-    filters.labelIds.length +
-    filters.teamIds.length +
-    (filters.showCompleted ? 0 : 1)
   )
 }
 
@@ -211,31 +228,63 @@ export function canEditDocumentInUi(data: AppData, document: Document) {
 }
 
 export function getUserInitials(name: string | null | undefined) {
-  const parts = (name ?? "")
-    .split(" ")
-    .map((part) => part.trim())
-    .filter(Boolean)
-
-  if (parts.length === 0) {
-    return "?"
-  }
-
-  return parts
-    .slice(0, 2)
-    .map((part) => part[0] ?? "")
-    .join("")
-    .toUpperCase()
+  return getDisplayInitials(name ?? "", "?")
 }
 
-function createPresenceSessionId() {
-  if (
-    typeof globalThis.crypto !== "undefined" &&
-    typeof globalThis.crypto.randomUUID === "function"
-  ) {
-    return globalThis.crypto.randomUUID()
+function resolveStoredPresenceSessionId(currentUserId?: string | null) {
+  const existingSessionId = window.sessionStorage.getItem(
+    DOCUMENT_PRESENCE_SESSION_STORAGE_KEY
+  )
+  const existingUserId = window.sessionStorage.getItem(
+    DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY
+  )
+
+  if (!existingSessionId) {
+    return null
   }
 
-  return `presence_${Math.random().toString(36).slice(2, 10)}`
+  if (!currentUserId) {
+    return existingSessionId
+  }
+
+  if (!existingUserId) {
+    window.sessionStorage.setItem(
+      DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY,
+      currentUserId
+    )
+    return existingSessionId
+  }
+
+  return existingUserId === currentUserId ? existingSessionId : null
+}
+
+function createStoredPresenceSessionId(currentUserId?: string | null) {
+  const nextSessionId = createPresenceSessionId()
+
+  window.sessionStorage.setItem(
+    DOCUMENT_PRESENCE_SESSION_STORAGE_KEY,
+    nextSessionId
+  )
+
+  if (currentUserId) {
+    window.sessionStorage.setItem(
+      DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY,
+      currentUserId
+    )
+  } else {
+    window.sessionStorage.removeItem(DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY)
+  }
+
+  return nextSessionId
+}
+
+function getFallbackPresenceSessionId(currentUserId?: string | null) {
+  documentPresenceSessionFallbackState = getNextFallbackPresenceSessionState(
+    documentPresenceSessionFallbackState,
+    currentUserId
+  )
+
+  return documentPresenceSessionFallbackState.sessionId
 }
 
 export function getDocumentPresenceSessionId(currentUserId?: string | null) {
@@ -244,78 +293,16 @@ export function getDocumentPresenceSessionId(currentUserId?: string | null) {
   }
 
   try {
-    const existingSessionId = window.sessionStorage.getItem(
-      DOCUMENT_PRESENCE_SESSION_STORAGE_KEY
+    return (
+      resolveStoredPresenceSessionId(currentUserId) ??
+      createStoredPresenceSessionId(currentUserId)
     )
-    const existingUserId = window.sessionStorage.getItem(
-      DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY
-    )
-
-    if (existingSessionId) {
-      if (!currentUserId) {
-        return existingSessionId
-      }
-
-      if (!existingUserId) {
-        window.sessionStorage.setItem(
-          DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY,
-          currentUserId
-        )
-        return existingSessionId
-      }
-
-      if (existingUserId === currentUserId) {
-        return existingSessionId
-      }
-    }
-
-    const nextSessionId = createPresenceSessionId()
-    window.sessionStorage.setItem(
-      DOCUMENT_PRESENCE_SESSION_STORAGE_KEY,
-      nextSessionId
-    )
-    if (currentUserId) {
-      window.sessionStorage.setItem(
-        DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY,
-        currentUserId
-      )
-    } else {
-      window.sessionStorage.removeItem(
-        DOCUMENT_PRESENCE_SESSION_USER_STORAGE_KEY
-      )
-    }
-
-    return nextSessionId
   } catch (error) {
-    if (!documentPresenceSessionFallbackState) {
-      documentPresenceSessionFallbackState = {
-        userId: currentUserId ?? null,
-        sessionId: createPresenceSessionId(),
-      }
-    } else if (
-      currentUserId &&
-      !documentPresenceSessionFallbackState.userId
-    ) {
-      documentPresenceSessionFallbackState = {
-        ...documentPresenceSessionFallbackState,
-        userId: currentUserId,
-      }
-    } else if (
-      currentUserId &&
-      documentPresenceSessionFallbackState.userId !== currentUserId
-    ) {
-      documentPresenceSessionFallbackState = {
-        userId: currentUserId,
-        sessionId: createPresenceSessionId(),
-      }
-    }
-
     console.warn(
       "Falling back to in-memory document presence session id",
       error
     )
-
-    return documentPresenceSessionFallbackState.sessionId
+    return getFallbackPresenceSessionId(currentUserId)
   }
 }
 
@@ -365,18 +352,6 @@ export function getTeamProjectOptions(
   return [selectedProject, ...projects]
 }
 
-export function getCreateDialogItemTypes(templateType: Project["templateType"]) {
-  if (templateType === "bug-tracking") {
-    return ["issue", "sub-issue"] satisfies WorkItemType[]
-  }
-
-  if (templateType === "project-management") {
-    return ["task", "sub-task"] satisfies WorkItemType[]
-  }
-
-  return ["epic", "feature", "requirement", "story"] satisfies WorkItemType[]
-}
-
 export function getPreferredCreateDialogType(
   templateType: Project["templateType"]
 ) {
@@ -407,27 +382,6 @@ export function getProjectPresentationGroupOptions(
   }
 
   return baseOptions
-}
-
-export function getViewLayoutLabel(layout: ViewDefinition["layout"]) {
-  if (layout === "board") {
-    return "Board"
-  }
-
-  if (layout === "timeline") {
-    return "Timeline"
-  }
-
-  return "List"
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;")
 }
 
 export function formatInlineDescriptionContent(value: string) {

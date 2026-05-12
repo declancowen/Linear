@@ -1,76 +1,62 @@
+import type { MutationCtx } from "../_generated/server"
+import type { MentionEmail } from "../../lib/email/builders"
+
 import { createId, getNow } from "./core"
+import { listUsersByIds } from "./data"
+export {
+  createMentionIds,
+  haveSameIds,
+  normalizeUniqueIds,
+  toggleReactionUsers,
+} from "../../lib/domain/collaboration-utils"
 
-export function normalizeUniqueIds(ids: string[]) {
-  return [...new Set(ids)].sort()
+type MentionNotificationRecipient = {
+  email: string
+  name: string
+  preferences: {
+    emailMentions: boolean
+  }
 }
 
-export function haveSameIds(left: string[], right: string[]) {
-  const normalizedLeft = normalizeUniqueIds(left)
-  const normalizedRight = normalizeUniqueIds(right)
-
-  return (
-    normalizedLeft.length === normalizedRight.length &&
-    normalizedLeft.every((value, index) => value === normalizedRight[index])
-  )
+type MentionNotificationArgs = {
+  actorId: string
+  actorName: string
+  commentText: string
+  ctx: MutationCtx
+  entityId: string
+  entityLabel?: string
+  entityPath?: string
+  entityTitle: string
+  entityType: MentionEmail["entityType"]
+  mentionUserIds: string[]
+  notifiedUserIds?: Set<string>
+  usersById: ReadonlyMap<string, MentionNotificationRecipient>
 }
 
-export function createMentionIds(
-  content: string,
-  users: Array<{ id: string; handle: string }>,
-  allowedUserIds?: Iterable<string>
+export type MentionAudienceUser = Awaited<
+  ReturnType<typeof listUsersByIds>
+>[number]
+
+export async function getMentionAudienceContext(
+  ctx: MutationCtx,
+  input: {
+    actorUserId: string
+    audienceUserIds: Iterable<string>
+  }
 ) {
-  const audience = allowedUserIds ? new Set(allowedUserIds) : null
-  const handles = [...content.matchAll(/@([a-z0-9_-]+)/gi)].map((match) =>
-    match[1]?.toLowerCase()
-  )
+  const audienceUserIds = [...input.audienceUserIds]
+  const users = await listUsersByIds(ctx, [
+    input.actorUserId,
+    ...audienceUserIds,
+  ])
+  const usersById = new Map(users.map((user) => [user.id, user]))
 
-  return [
-    ...new Set(
-      users
-        .filter((user) => handles.includes(user.handle.toLowerCase()))
-        .filter((user) => (audience ? audience.has(user.id) : true))
-        .map((user) => user.id)
-    ),
-  ]
-}
-
-export function toggleReactionUsers(
-  reactions: Array<{ emoji: string; userIds: string[] }> | undefined,
-  emoji: string,
-  userId: string
-) {
-  const nextReactions = [...(reactions ?? [])]
-  const reactionIndex = nextReactions.findIndex(
-    (entry) => entry.emoji === emoji
-  )
-
-  if (reactionIndex === -1) {
-    return [
-      ...nextReactions,
-      {
-        emoji,
-        userIds: [userId],
-      },
-    ]
+  return {
+    actorName: usersById.get(input.actorUserId)?.name ?? "Someone",
+    audienceUserIds,
+    users,
+    usersById,
   }
-
-  const reaction = nextReactions[reactionIndex]
-  const hasReacted = reaction.userIds.includes(userId)
-  const userIds = hasReacted
-    ? reaction.userIds.filter((entry) => entry !== userId)
-    : [...reaction.userIds, userId]
-
-  if (userIds.length === 0) {
-    nextReactions.splice(reactionIndex, 1)
-    return nextReactions
-  }
-
-  nextReactions[reactionIndex] = {
-    ...reaction,
-    userIds,
-  }
-
-  return nextReactions
 }
 
 export function createNotification(
@@ -137,5 +123,63 @@ export function createDeliveredNotification(
   return {
     ...createNotification(userId, actorId, message, entityType, entityId, type),
     emailedAt: getNow(),
+  }
+}
+
+export async function insertMentionNotifications({
+  actorId,
+  actorName,
+  commentText,
+  ctx,
+  entityId,
+  entityLabel,
+  entityPath,
+  entityTitle,
+  entityType,
+  mentionUserIds,
+  notifiedUserIds,
+  usersById,
+}: MentionNotificationArgs) {
+  const mentionEmails: MentionEmail[] = []
+  const deliveredUserIds = notifiedUserIds ?? new Set<string>()
+
+  for (const mentionedUserId of mentionUserIds) {
+    if (mentionedUserId === actorId || deliveredUserIds.has(mentionedUserId)) {
+      continue
+    }
+
+    const mentionedUser = usersById.get(mentionedUserId)
+    const notification = createNotification(
+      mentionedUserId,
+      actorId,
+      `${actorName} mentioned you in ${entityTitle}`,
+      entityType,
+      entityId,
+      "mention"
+    )
+
+    await ctx.db.insert("notifications", notification)
+
+    if (mentionedUser?.preferences.emailMentions) {
+      mentionEmails.push({
+        notificationId: notification.id,
+        email: mentionedUser.email,
+        name: mentionedUser.name,
+        entityTitle,
+        entityType,
+        entityId,
+        entityPath,
+        entityLabel,
+        actorName,
+        commentText,
+      })
+    }
+
+    deliveredUserIds.add(mentionedUserId)
+  }
+
+  return {
+    mentionEmails,
+    notifiedUserIds: deliveredUserIds,
   }
 }

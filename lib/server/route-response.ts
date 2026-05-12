@@ -79,6 +79,12 @@ export function jsonApplicationError(
   })
 }
 
+export function redirectToRoute(request: Request, path: string) {
+  return NextResponse.redirect(new URL(path, request.url), {
+    status: request.method === "POST" ? 303 : 307,
+  })
+}
+
 export function isRouteResponse(value: unknown): value is Response {
   return value instanceof Response
 }

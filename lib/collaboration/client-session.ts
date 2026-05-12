@@ -1,9 +1,6 @@
 "use client"
 
 import type {
-  CollaborationAwarenessState,
-} from "@/lib/collaboration/awareness"
-import type {
   CollaborationTransportAdapter,
   CollaborationTransportSession,
 } from "@/lib/collaboration/transport"
@@ -45,5 +42,3 @@ export async function openDocumentCollaborationSession<
     session,
   }
 }
-
-export type DefaultCollaborationAwarenessState = CollaborationAwarenessState

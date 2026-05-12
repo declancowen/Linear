@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto"
 
 import { ApplicationError } from "@/lib/server/application-errors"
-import { resolveCollaborationServiceUrl } from "@/lib/collaboration/config"
 import { createChatCollaborationRoomId } from "@/lib/collaboration/rooms"
+import { getCollaborationServiceUrlForRequest } from "@/lib/server/collaboration-service-url"
 import { createSignedCollaborationToken } from "@/lib/server/collaboration-token"
 import { getCallJoinContextServer } from "@/lib/server/convex"
 import {
@@ -18,44 +18,6 @@ import {
 } from "@/lib/server/route-response"
 
 const SESSION_TTL_SECONDS = 60 * 5
-
-function isSecureRequest(request: Request) {
-  const requestUrl = new URL(request.url)
-
-  if (requestUrl.protocol === "https:") {
-    return true
-  }
-
-  const forwardedProto = request.headers
-    .get("x-forwarded-proto")
-    ?.split(",")[0]
-    ?.trim()
-    .toLowerCase()
-
-  return forwardedProto === "https"
-}
-
-function getCollaborationServiceUrl(request: Request) {
-  const serviceUrl = resolveCollaborationServiceUrl(process.env)
-
-  if (!serviceUrl) {
-    throw new Error("Collaboration service URL is not configured")
-  }
-
-  const parsedServiceUrl = new URL(serviceUrl)
-
-  if (isSecureRequest(request) && parsedServiceUrl.protocol !== "https:") {
-    throw new ApplicationError(
-      "Collaboration service must use HTTPS/WSS when the app is served over HTTPS",
-      503,
-      {
-        code: "COLLABORATION_UNAVAILABLE",
-      }
-    )
-  }
-
-  return serviceUrl
-}
 
 export async function POST(
   request: Request,
@@ -98,7 +60,7 @@ export async function POST(
       roomId,
       conversationId: joinContext.conversationId,
       token,
-      serviceUrl: getCollaborationServiceUrl(request),
+      serviceUrl: getCollaborationServiceUrlForRequest(request),
       sessionId,
       expiresAt,
     })

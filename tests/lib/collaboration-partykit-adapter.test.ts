@@ -4,6 +4,7 @@ import {
   COLLABORATION_PROTOCOL_VERSION,
   RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
 } from "@/lib/collaboration/protocol"
+import type { CollaborationSessionBootstrap } from "@/lib/collaboration/transport"
 
 type EventListener = (...args: unknown[]) => void
 
@@ -14,6 +15,26 @@ const providerState = vi.hoisted(() => ({
 const yState = vi.hoisted(() => ({
   latestDoc: null as MockDoc | null,
 }))
+
+class MockEventListeners {
+  private listeners = new Map<string, Set<EventListener>>()
+
+  on(event: string, listener: EventListener) {
+    const listeners = this.listeners.get(event) ?? new Set<EventListener>()
+    listeners.add(listener)
+    this.listeners.set(event, listeners)
+  }
+
+  off(event: string, listener: EventListener) {
+    this.listeners.get(event)?.delete(listener)
+  }
+
+  emit(event: string, ...args: unknown[]) {
+    for (const listener of this.listeners.get(event) ?? []) {
+      listener(...args)
+    }
+  }
+}
 
 class MockDoc {
   fragmentLength: number
@@ -38,10 +59,9 @@ class MockDoc {
   }
 }
 
-class MockAwareness {
+class MockAwareness extends MockEventListeners {
   private states = new Map<number, unknown>()
   private localState: unknown = null
-  private listeners = new Map<string, Set<EventListener>>()
 
   getStates() {
     return new Map(this.states)
@@ -49,22 +69,6 @@ class MockAwareness {
 
   getLocalState() {
     return this.localState
-  }
-
-  on(event: string, listener: EventListener) {
-    const listeners = this.listeners.get(event) ?? new Set<EventListener>()
-    listeners.add(listener)
-    this.listeners.set(event, listeners)
-  }
-
-  off(event: string, listener: EventListener) {
-    this.listeners.get(event)?.delete(listener)
-  }
-
-  emit(event: string, ...args: unknown[]) {
-    for (const listener of this.listeners.get(event) ?? []) {
-      listener(...args)
-    }
   }
 
   setLocalState(nextState: unknown) {
@@ -77,12 +81,11 @@ class MockAwareness {
   }
 }
 
-class MockYPartyKitProvider {
+class MockYPartyKitProvider extends MockEventListeners {
   awareness = new MockAwareness()
   synced = false
   wsconnected = false
   options?: Record<string, unknown>
-  private listeners = new Map<string, Set<EventListener>>()
 
   constructor(
     _host: string,
@@ -90,24 +93,9 @@ class MockYPartyKitProvider {
     _doc: unknown,
     options?: Record<string, unknown>
   ) {
+    super()
     this.options = options
     providerState.latest = this
-  }
-
-  on(event: string, listener: EventListener) {
-    const listeners = this.listeners.get(event) ?? new Set<EventListener>()
-    listeners.add(listener)
-    this.listeners.set(event, listeners)
-  }
-
-  off(event: string, listener: EventListener) {
-    this.listeners.get(event)?.delete(listener)
-  }
-
-  emit(event: string, ...args: unknown[]) {
-    for (const listener of this.listeners.get(event) ?? []) {
-      listener(...args)
-    }
   }
 
   connect() {}
@@ -138,6 +126,98 @@ vi.mock("yjs", () => ({
   encodeStateAsUpdate: vi.fn(() => Uint8Array.from([1, 2, 3])),
 }))
 
+function createDocumentSessionBootstrap(
+  overrides: Partial<CollaborationSessionBootstrap> = {}
+): CollaborationSessionBootstrap {
+  return {
+    roomId: "doc:doc_1",
+    documentId: "doc_1",
+    token: "token_1",
+    serviceUrl: "http://127.0.0.1:1999",
+    role: "editor",
+    ...overrides,
+  }
+}
+
+function createFreshBootstrapMock(
+  overrides: Partial<CollaborationSessionBootstrap> = {}
+) {
+  return vi.fn().mockResolvedValue(
+    createDocumentSessionBootstrap({
+      token: "token_2",
+      expiresAt: Math.floor(Date.now() / 1000) + 300,
+      ...overrides,
+    })
+  )
+}
+
+function createOkFlushFetchMock() {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    text: vi.fn().mockResolvedValue(""),
+  })
+  vi.stubGlobal("fetch", fetchMock)
+  return fetchMock
+}
+
+async function createDocumentAdapter() {
+  const { createPartyKitCollaborationAdapter } =
+    await import("@/lib/collaboration/adapters/partykit")
+
+  return createPartyKitCollaborationAdapter()
+}
+
+async function createDocumentSession(
+  overrides: Partial<CollaborationSessionBootstrap> = {}
+) {
+  const adapter = await createDocumentAdapter()
+  const session = adapter.openDocumentSession(
+    createDocumentSessionBootstrap(overrides)
+  )
+
+  return { adapter, session }
+}
+
+function trackSessionConnect(
+  session: Awaited<ReturnType<typeof createDocumentSession>>["session"]
+) {
+  let resolved = false
+  const promise = session.connect().then(() => {
+    resolved = true
+  })
+
+  return {
+    promise,
+    get resolved() {
+      return resolved
+    },
+  }
+}
+
+function collectSessionStatuses(
+  session: Awaited<ReturnType<typeof createDocumentSession>>["session"]
+) {
+  const statuses: unknown[] = []
+
+  session.onStatusChange((change) => {
+    statuses.push(change)
+  })
+
+  return statuses
+}
+
+async function expectConnectionResolvesAfterSync(
+  connection: ReturnType<typeof trackSessionConnect>
+) {
+  await Promise.resolve()
+  expect(connection.resolved).toBe(false)
+
+  providerState.latest?.emit("synced", true)
+  await connection.promise
+
+  expect(connection.resolved).toBe(true)
+}
+
 describe("PartyKit collaboration adapter", () => {
   afterEach(() => {
     providerState.latest = null
@@ -147,107 +227,34 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("waits for the first synced event before resolving the session connection", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
+    const { session } = await createDocumentSession()
+    const connection = trackSessionConnect(session)
 
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
-
-    let resolved = false
-    const connectPromise = session.connect().then(() => {
-      resolved = true
-    })
-
-    await Promise.resolve()
-    expect(resolved).toBe(false)
-
-    providerState.latest?.emit("synced", true)
-    await connectPromise
-
-    expect(resolved).toBe(true)
+    await expectConnectionResolvesAfterSync(connection)
   })
 
   it("does not resolve the session before the first synced event", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
-
-    let resolved = false
-    const connectPromise = session.connect().then(() => {
-      resolved = true
-    })
+    const { session } = await createDocumentSession()
+    const connection = trackSessionConnect(session)
 
     providerState.latest!.wsconnected = true
     providerState.latest?.emit("status", { status: "connected" })
-    await Promise.resolve()
 
-    expect(resolved).toBe(false)
-
-    providerState.latest?.emit("synced", true)
-    await connectPromise
-
-    expect(resolved).toBe(true)
+    await expectConnectionResolvesAfterSync(connection)
   })
 
   it("does not reject the initial connection on a transient connection error before sync", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
-
-    let resolved = false
-    const connectPromise = session.connect().then(() => {
-      resolved = true
-    })
+    const { session } = await createDocumentSession()
+    const connection = trackSessionConnect(session)
 
     providerState.latest?.emit("connection-error", new Error("transient"))
-    await Promise.resolve()
-    expect(resolved).toBe(false)
 
-    providerState.latest?.emit("synced", true)
-    await connectPromise
-
-    expect(resolved).toBe(true)
+    await expectConnectionResolvesAfterSync(connection)
   })
 
   it("maps plain websocket close reasons to structured status changes", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
-    const statuses: unknown[] = []
-
-    session.onStatusChange((change) => {
-      statuses.push(change)
-    })
+    const { session } = await createDocumentSession()
+    const statuses = collectSessionStatuses(session)
 
     providerState.latest?.emit("connection-error", {
       reason: "collaboration_conflict_reload_required",
@@ -263,22 +270,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("maps websocket close codes when provider events omit a reason", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
-    const statuses: unknown[] = []
-
-    session.onStatusChange((change) => {
-      statuses.push(change)
-    })
+    const { session } = await createDocumentSession()
+    const statuses = collectSessionStatuses(session)
 
     providerState.latest?.emit("connection-error", {
       code: 4499,
@@ -295,17 +288,7 @@ describe("PartyKit collaboration adapter", () => {
   it("does not emit an errored status when the initial sync is merely late", async () => {
     vi.useFakeTimers()
 
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
+    const { session } = await createDocumentSession()
     const statuses: string[] = []
 
     session.onStatusChange(({ state }) => {
@@ -323,16 +306,7 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("does not pre-seed the collaboration doc from bootstrap content before sync", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
+    const { session } = await createDocumentSession({
       contentJson: {
         type: "doc",
         content: [
@@ -368,34 +342,15 @@ describe("PartyKit collaboration adapter", () => {
       isSecureContext: true,
     })
 
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const adapter = createPartyKitCollaborationAdapter()
+    const adapter = await createDocumentAdapter()
 
     expect(() =>
-      adapter.openDocumentSession({
-        roomId: "doc:doc_1",
-        documentId: "doc_1",
-        token: "token_1",
-        serviceUrl: "http://127.0.0.1:1999",
-        role: "editor",
-      })
+      adapter.openDocumentSession(createDocumentSessionBootstrap())
     ).not.toThrow()
   })
 
   it("emits current awareness state immediately when subscribing", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
+    const { session } = await createDocumentSession()
 
     const localState = {
       user: {
@@ -449,17 +404,7 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("preserves semantic cursor fields when updating local awareness", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
+    const { session } = await createDocumentSession()
 
     session.updateLocalAwareness({
       userId: "user_local",
@@ -503,25 +448,9 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("refreshes an expiring token before provider auth params are resolved", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
+    const getFreshBootstrap = createFreshBootstrapMock()
 
-    const getFreshBootstrap = vi.fn().mockResolvedValue({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_2",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor" as const,
-      expiresAt: Math.floor(Date.now() / 1000) + 300,
-    })
-
-    const adapter = createPartyKitCollaborationAdapter()
-    adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
+    await createDocumentSession({
       expiresAt: Math.floor(Date.now() / 1000) + 5,
       getFreshBootstrap,
     })
@@ -543,30 +472,9 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("refreshes an expiring token before a manual flush", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const getFreshBootstrap = vi.fn().mockResolvedValue({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_2",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor" as const,
-      expiresAt: Math.floor(Date.now() / 1000) + 300,
-    })
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      text: vi.fn().mockResolvedValue(""),
-    })
-    vi.stubGlobal("fetch", fetchMock)
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
+    const getFreshBootstrap = createFreshBootstrapMock()
+    const fetchMock = createOkFlushFetchMock()
+    const { session } = await createDocumentSession({
       expiresAt: Math.floor(Date.now() / 1000) + 5,
       getFreshBootstrap,
     })
@@ -598,17 +506,7 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("forces a fresh bootstrap and retries manual flush after a room mismatch response", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const getFreshBootstrap = vi.fn().mockResolvedValue({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_2",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor" as const,
-      expiresAt: Math.floor(Date.now() / 1000) + 300,
-    })
+    const getFreshBootstrap = createFreshBootstrapMock()
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
@@ -629,13 +527,7 @@ describe("PartyKit collaboration adapter", () => {
       })
     vi.stubGlobal("fetch", fetchMock)
 
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
+    const { session } = await createDocumentSession({
       expiresAt: Math.floor(Date.now() / 1000) + 300,
       getFreshBootstrap,
     })
@@ -666,9 +558,6 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("surfaces manual flush failures without retrying a room sync fence", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
     const fetchMock = vi.fn().mockResolvedValueOnce({
       ok: false,
       status: 400,
@@ -676,14 +565,7 @@ describe("PartyKit collaboration adapter", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
+    const { session } = await createDocumentSession()
 
     await expect(session.flush()).rejects.toThrow(
       "Failed to flush collaboration state"
@@ -693,23 +575,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("includes optional work-item metadata in the manual flush payload", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      text: vi.fn().mockResolvedValue(""),
-    })
-    vi.stubGlobal("fetch", fetchMock)
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
+    const fetchMock = createOkFlushFetchMock()
+    const { session } = await createDocumentSession()
 
     await session.flush({
       kind: "work-item-main",
@@ -730,23 +597,8 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("omits the room state vector for document-title-only manual flushes", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      text: vi.fn().mockResolvedValue(""),
-    })
-    vi.stubGlobal("fetch", fetchMock)
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
+    const fetchMock = createOkFlushFetchMock()
+    const { session } = await createDocumentSession()
 
     await session.flush({
       kind: "document-title",
@@ -765,9 +617,6 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("disconnects the session when a manual flush reports a missing document", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 404,
@@ -775,14 +624,7 @@ describe("PartyKit collaboration adapter", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
+    const { session } = await createDocumentSession()
     const disconnectSpy = vi.spyOn(providerState.latest!, "disconnect")
 
     await expect(session.flush()).rejects.toThrow("Document not found")
@@ -790,17 +632,7 @@ describe("PartyKit collaboration adapter", () => {
   })
 
   it("destroys the Y.Doc when the session disconnects", async () => {
-    const { createPartyKitCollaborationAdapter } =
-      await import("@/lib/collaboration/adapters/partykit")
-
-    const adapter = createPartyKitCollaborationAdapter()
-    const session = adapter.openDocumentSession({
-      roomId: "doc:doc_1",
-      documentId: "doc_1",
-      token: "token_1",
-      serviceUrl: "http://127.0.0.1:1999",
-      role: "editor",
-    })
+    const { session } = await createDocumentSession()
 
     expect(yState.latestDoc?.destroyed).toBe(false)
 

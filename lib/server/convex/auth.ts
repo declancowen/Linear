@@ -96,6 +96,15 @@ export async function getAuthContextServer(input: {
   )
 }
 
+export async function listWorkspacesForSyncServer() {
+  return runConvexRequestWithRetry("listWorkspacesForSyncServer", () =>
+    getConvexServerClient().query(
+      api.app.listWorkspacesForSync,
+      withServerToken({})
+    )
+  )
+}
+
 export async function getSnapshotServer(input?: {
   workosUserId?: string
   email?: string
@@ -214,19 +223,5 @@ export async function lookupTeamByJoinCodeServer(code: string) {
   return getConvexServerClient().query(
     api.app.lookupTeamByJoinCode,
     withServerToken({ code })
-  )
-}
-
-export async function listWorkspacesForSyncServer() {
-  return getConvexServerClient().query(
-    api.app.listWorkspacesForSync,
-    withServerToken({})
-  )
-}
-
-export async function listPendingNotificationDigestsServer() {
-  return getConvexServerClient().query(
-    api.app.listPendingNotificationDigests,
-    withServerToken({})
   )
 }

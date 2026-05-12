@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ApplicationError } from "@/lib/server/application-errors"
+import {
+  createProviderErrorsMockModule,
+  createRouteHandlerInput,
+  mockCollaborationRouteAuthContext,
+} from "@/tests/lib/fixtures/api-routes"
 
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
@@ -24,11 +29,18 @@ vi.mock("@/lib/server/scoped-read-models", () => ({
     resolveConversationReadModelScopeKeysServerMock,
 }))
 
-vi.mock("@/lib/server/provider-errors", () => ({
-  getConvexErrorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-  logProviderError: logProviderErrorMock,
-}))
+vi.mock("@/lib/server/provider-errors", () =>
+  createProviderErrorsMockModule(logProviderErrorMock)
+)
+
+function chatCallRouteInput() {
+  return createRouteHandlerInput(
+    "http://localhost/api/chats/conversation_1/calls",
+    {
+      chatId: "conversation_1",
+    }
+  )
+}
 
 describe("chat-call route", () => {
   beforeEach(() => {
@@ -42,23 +54,16 @@ describe("chat-call route", () => {
     resolveConversationReadModelScopeKeysServerMock.mockResolvedValue([
       "conversation:conversation_1",
     ])
+    mockCollaborationRouteAuthContext({
+      requireAppContextMock,
+      requireSessionMock,
+      logProviderErrorMock,
+    })
   })
 
   it("returns the structured call payload from the narrow call command", async () => {
     const { POST } = await import("@/app/api/chats/[chatId]/calls/route")
 
-    requireSessionMock.mockResolvedValue({
-      user: {
-        id: "workos_1",
-        email: "alex@example.com",
-      },
-      organizationId: "org_1",
-    })
-    requireAppContextMock.mockResolvedValue({
-      ensuredUser: {
-        userId: "user_1",
-      },
-    })
     startChatCallServerMock.mockResolvedValue({
       call: {
         id: "call_1",
@@ -91,14 +96,7 @@ describe("chat-call route", () => {
       },
     })
 
-    const response = await POST(
-      new Request("http://localhost/api/chats/conversation_1/calls") as never,
-      {
-        params: Promise.resolve({
-          chatId: "conversation_1",
-        }),
-      }
-    )
+    const response = await POST(...chatCallRouteInput())
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
@@ -122,32 +120,13 @@ describe("chat-call route", () => {
   it("maps typed application errors onto stable route responses", async () => {
     const { POST } = await import("@/app/api/chats/[chatId]/calls/route")
 
-    requireSessionMock.mockResolvedValue({
-      user: {
-        id: "workos_1",
-        email: "alex@example.com",
-      },
-      organizationId: "org_1",
-    })
-    requireAppContextMock.mockResolvedValue({
-      ensuredUser: {
-        userId: "user_1",
-      },
-    })
     startChatCallServerMock.mockRejectedValue(
       new ApplicationError("Your current role is read-only", 403, {
         code: "CHAT_READ_ONLY",
       })
     )
 
-    const response = await POST(
-      new Request("http://localhost/api/chats/conversation_1/calls") as never,
-      {
-        params: Promise.resolve({
-          chatId: "conversation_1",
-        }),
-      }
-    )
+    const response = await POST(...chatCallRouteInput())
 
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({

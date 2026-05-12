@@ -1,15 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { RouteMutationError } from "@/lib/convex/client/shared"
+import { createToastMockModule } from "@/tests/lib/fixtures/store"
 
 const fetchSnapshotMock = vi.fn()
 const toastErrorMock = vi.fn()
 
-vi.mock("sonner", () => ({
-  toast: {
-    error: toastErrorMock,
-  },
-}))
+vi.mock("sonner", () => createToastMockModule({ error: toastErrorMock }))
 
 vi.mock("@/lib/browser/snapshot-diagnostics", () => ({
   reportRealtimeFallbackDiagnostic: vi.fn(),
@@ -25,31 +22,57 @@ describe("store runtime rich-text recovery", () => {
     toastErrorMock.mockReset()
   })
 
-  it("does not trigger a snapshot refresh for not-found rich-text failures when refreshStrategy is none", async () => {
+  async function createRuntimeHarness(state: Record<string, unknown> = {}) {
     const { createStoreRuntime } = await import(
       "@/lib/store/app-store-internal/runtime"
     )
-
     const replaceDomainDataMock = vi.fn()
     const runtime = createStoreRuntime(
       () =>
         ({
+          ...state,
           replaceDomainData: replaceDomainDataMock,
         }) as never
     )
 
+    return { replaceDomainDataMock, runtime }
+  }
+
+  function routeMutationError(
+    message: string,
+    status: number,
+    code: string
+  ) {
+    return new RouteMutationError(message, status, { code })
+  }
+
+  function queueRejectedDocumentSync(
+    runtime: {
+      queueRichTextSync: (
+        key: string,
+        task: () => Promise<unknown>,
+        errorMessage: string,
+        options: { refreshStrategy: "none" | "snapshot" }
+      ) => void
+      flushRichTextSync: (key: string) => Promise<void>
+    },
+    error: RouteMutationError,
+    refreshStrategy: "none" | "snapshot" = "none"
+  ) {
     runtime.queueRichTextSync(
       "document:doc_1",
-      () =>
-        Promise.reject(
-          new RouteMutationError("Document not found", 404, {
-            code: "DOCUMENT_NOT_FOUND",
-          })
-        ),
+      () => Promise.reject(error),
       "Failed to update document",
-      {
-        refreshStrategy: "none",
-      }
+      { refreshStrategy }
+    )
+  }
+
+  it("does not trigger a snapshot refresh for not-found rich-text failures when refreshStrategy is none", async () => {
+    const { replaceDomainDataMock, runtime } = await createRuntimeHarness()
+
+    queueRejectedDocumentSync(
+      runtime,
+      routeMutationError("Document not found", 404, "DOCUMENT_NOT_FOUND")
     )
 
     await runtime.flushRichTextSync("document:doc_1")
@@ -60,35 +83,17 @@ describe("store runtime rich-text recovery", () => {
   })
 
   it("still refreshes from the snapshot path for not-found rich-text failures when refreshStrategy is snapshot", async () => {
-    const { createStoreRuntime } = await import(
-      "@/lib/store/app-store-internal/runtime"
-    )
-
-    const replaceDomainDataMock = vi.fn()
     fetchSnapshotMock.mockResolvedValue({
       documents: [],
     })
+    const { replaceDomainDataMock, runtime } = await createRuntimeHarness()
 
-    const runtime = createStoreRuntime(
-      () =>
-        ({
-          replaceDomainData: replaceDomainDataMock,
-        }) as never
+    queueRejectedDocumentSync(
+      runtime,
+      routeMutationError("Document not found", 404, "DOCUMENT_NOT_FOUND"),
+      "snapshot"
     )
 
-    runtime.queueRichTextSync(
-      "document:doc_1",
-      () =>
-        Promise.reject(
-          new RouteMutationError("Document not found", 404, {
-            code: "DOCUMENT_NOT_FOUND",
-          })
-        ),
-      "Failed to update document",
-      {
-        refreshStrategy: "snapshot",
-      }
-    )
 
     await runtime.flushRichTextSync("document:doc_1")
 
@@ -102,32 +107,18 @@ describe("store runtime rich-text recovery", () => {
   })
 
   it("ignores edit conflicts for protected collaboration-owned documents", async () => {
-    const { createStoreRuntime } = await import(
-      "@/lib/store/app-store-internal/runtime"
-    )
+    const { replaceDomainDataMock, runtime } = await createRuntimeHarness({
+      protectedDocumentIds: ["doc_1"],
+      workItems: [],
+    })
 
-    const replaceDomainDataMock = vi.fn()
-    const runtime = createStoreRuntime(
-      () =>
-        ({
-          protectedDocumentIds: ["doc_1"],
-          replaceDomainData: replaceDomainDataMock,
-          workItems: [],
-        }) as never
-    )
-
-    runtime.queueRichTextSync(
-      "document:doc_1",
-      () =>
-        Promise.reject(
-          new RouteMutationError("Document changed while you were editing", 409, {
-            code: "DOCUMENT_EDIT_CONFLICT",
-          })
-        ),
-      "Failed to update document",
-      {
-        refreshStrategy: "none",
-      }
+    queueRejectedDocumentSync(
+      runtime,
+      routeMutationError(
+        "Document changed while you were editing",
+        409,
+        "DOCUMENT_EDIT_CONFLICT"
+      )
     )
 
     await runtime.flushRichTextSync("document:doc_1")

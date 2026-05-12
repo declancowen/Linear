@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto"
 import { pathToFileURL } from "node:url"
 
-import { ConvexHttpClient } from "convex/browser"
-import { Resend } from "resend"
-
 import { api } from "../convex/_generated/api.js"
 import { normalizeResendFrom } from "./resend-from.mjs"
+import { readConvexResendConfig } from "./shared/convex-resend.mjs"
 
 function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error)
@@ -98,27 +96,14 @@ export async function processEmailJobsBatch(input) {
 }
 
 export async function main() {
-  const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL
-  const serverToken = process.env.CONVEX_SERVER_TOKEN
-  const resendApiKey = process.env.RESEND_API_KEY
-  const resendFromEmail = process.env.RESEND_FROM_EMAIL
-  const resendFromName = process.env.RESEND_FROM_NAME
+  const {
+    client,
+    resend,
+    resendFromEmail,
+    resendFromName,
+    serverToken,
+  } = readConvexResendConfig()
   const claimId = randomUUID()
-
-  if (!convexUrl) {
-    throw new Error("CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured")
-  }
-
-  if (!serverToken) {
-    throw new Error("CONVEX_SERVER_TOKEN is not configured")
-  }
-
-  if (!resendApiKey || !resendFromEmail) {
-    throw new Error("Resend is not configured")
-  }
-
-  const client = new ConvexHttpClient(convexUrl)
-  const resend = new Resend(resendApiKey)
   const jobs =
     (await client.mutation(api.app.claimPendingEmailJobs, {
       serverToken,

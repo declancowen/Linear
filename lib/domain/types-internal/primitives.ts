@@ -10,12 +10,10 @@ export type Role = (typeof roles)[number]
 export const scopeTypes = ["team", "workspace"] as const
 export type ScopeType = (typeof scopeTypes)[number]
 
-export const templateTypes = [
-  "software-delivery",
-  "bug-tracking",
-  "project-management",
-] as const
-export type TemplateType = (typeof templateTypes)[number]
+export type TemplateType =
+  | "software-delivery"
+  | "bug-tracking"
+  | "project-management"
 
 export const teamExperienceTypes = [
   "software-development",
@@ -47,8 +45,7 @@ export const workItemTypes = [
 ] as const
 export type WorkItemType = (typeof workItemTypes)[number]
 
-export const legacyWorkItemTypes = ["bug"] as const
-export type LegacyWorkItemType = (typeof legacyWorkItemTypes)[number]
+export type LegacyWorkItemType = "bug"
 export type StoredWorkItemType = WorkItemType | LegacyWorkItemType
 
 export const workStatuses = [
@@ -96,27 +93,23 @@ export const viewFilterStatuses = [
 ] as const
 export type ViewFilterStatus = (typeof viewFilterStatuses)[number]
 
-export const notificationTypes = [
-  "mention",
-  "assignment",
-  "comment",
-  "message",
-  "invite",
-  "status-change",
-] as const
-export type NotificationType = (typeof notificationTypes)[number]
+export type NotificationType =
+  | "mention"
+  | "assignment"
+  | "comment"
+  | "message"
+  | "invite"
+  | "status-change"
 
-export const notificationEntityTypes = [
-  "workItem",
-  "document",
-  "project",
-  "invite",
-  "channelPost",
-  "chat",
-  "team",
-  "workspace",
-] as const
-export type NotificationEntityType = (typeof notificationEntityTypes)[number]
+export type NotificationEntityType =
+  | "workItem"
+  | "document"
+  | "project"
+  | "invite"
+  | "channelPost"
+  | "chat"
+  | "team"
+  | "workspace"
 
 export const entityKinds = ["items", "projects", "docs"] as const
 export type EntityKind = (typeof entityKinds)[number]
@@ -130,8 +123,7 @@ export type ViewContainerType = (typeof viewContainerTypes)[number]
 export const viewLayouts = ["list", "board", "timeline"] as const
 export type ViewLayout = (typeof viewLayouts)[number]
 
-export const viewScopeTypes = ["personal", "team", "workspace"] as const
-export type ViewScopeType = (typeof viewScopeTypes)[number]
+export type ViewScopeType = "personal" | "team" | "workspace"
 
 export const displayProperties = [
   "id",
@@ -233,25 +225,19 @@ export type CommentTargetType = (typeof commentTargetTypes)[number]
 export const attachmentTargetTypes = ["workItem", "document"] as const
 export type AttachmentTargetType = (typeof attachmentTargetTypes)[number]
 
-export const documentKinds = [
-  "team-document",
-  "workspace-document",
-  "private-document",
-  "item-description",
-] as const
-export type DocumentKind = (typeof documentKinds)[number]
+export type DocumentKind =
+  | "team-document"
+  | "workspace-document"
+  | "private-document"
+  | "item-description"
 
-export const conversationKinds = ["chat", "channel"] as const
-export type ConversationKind = (typeof conversationKinds)[number]
+export type ConversationKind = "chat" | "channel"
 
-export const conversationScopeTypes = ["workspace", "team"] as const
-export type ConversationScopeType = (typeof conversationScopeTypes)[number]
+export type ConversationScopeType = "workspace" | "team"
 
-export const conversationVariants = ["direct", "group", "team"] as const
-export type ConversationVariant = (typeof conversationVariants)[number]
+export type ConversationVariant = "direct" | "group" | "team"
 
-export const chatMessageKinds = ["text", "call"] as const
-export type ChatMessageKind = (typeof chatMessageKinds)[number]
+export type ChatMessageKind = "text" | "call"
 
 export interface TeamFeatureSettings {
   issues: boolean
@@ -325,6 +311,48 @@ export function createDefaultViewFilters(): ViewFilters {
     labelIds: [],
     teamIds: [],
     showCompleted: true,
+  }
+}
+
+export function clearViewFilterSelections(filters: ViewFilters): ViewFilters {
+  return {
+    ...filters,
+    status: [],
+    priority: [],
+    assigneeIds: [],
+    creatorIds: [],
+    leadIds: [],
+    health: [],
+    milestoneIds: [],
+    relationTypes: [],
+    projectIds: [],
+    parentIds: [],
+    itemTypes: [],
+    labelIds: [],
+    teamIds: [],
+  }
+}
+
+export function cloneViewFilters(filters: ViewFilters | undefined): ViewFilters {
+  if (!filters) {
+    return createDefaultViewFilters()
+  }
+
+  return {
+    ...filters,
+    status: [...filters.status],
+    priority: [...filters.priority],
+    assigneeIds: [...filters.assigneeIds],
+    creatorIds: [...filters.creatorIds],
+    leadIds: [...filters.leadIds],
+    health: [...filters.health],
+    milestoneIds: [...filters.milestoneIds],
+    relationTypes: [...filters.relationTypes],
+    projectIds: [...filters.projectIds],
+    parentIds: [...(filters.parentIds ?? [])],
+    itemTypes: [...filters.itemTypes],
+    labelIds: [...filters.labelIds],
+    teamIds: [...filters.teamIds],
   }
 }
 

@@ -77,12 +77,14 @@ const CURRENT_ACCOUNT_DELETION_ERROR_MAPPINGS = [
     code: "ACCOUNT_ALREADY_DELETED",
   },
   {
-    match: "Transfer or delete your owned workspace before deleting your account",
+    match:
+      "Transfer or delete your owned workspace before deleting your account",
     status: 409,
     code: "ACCOUNT_DELETE_WORKSPACE_TRANSFER_REQUIRED",
   },
   {
-    match: "Leave or transfer your team admin access before deleting your account",
+    match:
+      "Leave or transfer your team admin access before deleting your account",
     status: 409,
     code: "ACCOUNT_DELETE_TEAM_ADMIN_TRANSFER_REQUIRED",
   },
@@ -236,8 +238,9 @@ export async function updateWorkspaceBrandingServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...UPDATE_WORKSPACE_BRANDING_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...UPDATE_WORKSPACE_BRANDING_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -258,7 +261,8 @@ export async function deleteWorkspaceServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...DELETE_WORKSPACE_ERROR_MAPPINGS]) ?? error
+      coerceApplicationError(error, [...DELETE_WORKSPACE_ERROR_MAPPINGS]) ??
+      error
     )
   }
 }
@@ -280,8 +284,9 @@ export async function removeWorkspaceUserServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...REMOVE_WORKSPACE_USER_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...REMOVE_WORKSPACE_USER_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -302,7 +307,8 @@ export async function leaveWorkspaceServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...LEAVE_WORKSPACE_ERROR_MAPPINGS]) ?? error
+      coerceApplicationError(error, [...LEAVE_WORKSPACE_ERROR_MAPPINGS]) ??
+      error
     )
   }
 }
@@ -324,8 +330,9 @@ export async function deleteCurrentAccountServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...CURRENT_ACCOUNT_DELETION_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...CURRENT_ACCOUNT_DELETION_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -344,8 +351,9 @@ export async function prepareCurrentAccountDeletionServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...CURRENT_ACCOUNT_DELETION_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...CURRENT_ACCOUNT_DELETION_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -375,8 +383,9 @@ export async function validateCurrentAccountDeletionServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...CURRENT_ACCOUNT_DELETION_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...CURRENT_ACCOUNT_DELETION_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }

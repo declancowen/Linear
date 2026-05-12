@@ -26,6 +26,10 @@ type JoinWorkspaceLookupResult = {
     name: string
   }
 }
+type JoinWorkspaceLookupOutcome = {
+  error: string | null
+  result: JoinWorkspaceLookupResult | null
+}
 
 function normalizeJoinCodeInput(value: string) {
   return value
@@ -33,6 +37,165 @@ function normalizeJoinCodeInput(value: string) {
     .toUpperCase()
     .replace(/[^A-Z0-9_-]/g, "")
     .slice(0, FULL_JOIN_CODE_LENGTH)
+}
+
+function getJoinWorkspaceStatusLabel(input: {
+  code: string
+  lookupError: string | null
+  matchedLookupResult: JoinWorkspaceLookupResult | null
+}) {
+  if (input.code.length === 0) {
+    return "Paste or type a 12-character team code."
+  }
+
+  if (input.code.length < FULL_JOIN_CODE_LENGTH) {
+    const remainingCharacters = FULL_JOIN_CODE_LENGTH - input.code.length
+
+    return `${remainingCharacters} more character${
+      remainingCharacters === 1 ? "" : "s"
+    }.`
+  }
+
+  if (input.lookupError) {
+    return null
+  }
+
+  return input.matchedLookupResult ? "Team found." : "Looking up team…"
+}
+
+async function fetchJoinWorkspaceLookup(nextCode: string) {
+  const response = await fetch(
+    `/api/teams/lookup?code=${encodeURIComponent(nextCode)}`
+  )
+  const payload = (await response.json().catch(() => null)) as
+    | (JoinWorkspaceLookupResult & { error?: string })
+    | null
+
+  if (!response.ok || !payload?.team || !payload.workspace) {
+    throw new Error(payload?.error ?? `No team matched ${nextCode}.`)
+  }
+
+  return payload
+}
+
+async function lookupJoinWorkspaceByCode(
+  nextCode: string
+): Promise<JoinWorkspaceLookupOutcome> {
+  try {
+    return {
+      error: null,
+      result: await fetchJoinWorkspaceLookup(nextCode),
+    }
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error ? error.message : "Unable to find that team",
+      result: null,
+    }
+  }
+}
+
+function JoinCodeInput({
+  code,
+  lookupResult,
+  onCodeChange,
+  onLookupErrorChange,
+  onLookupResultChange,
+}: {
+  code: string
+  lookupResult: JoinWorkspaceLookupResult | null
+  onCodeChange: (code: string) => void
+  onLookupErrorChange: (error: string | null) => void
+  onLookupResultChange: (result: JoinWorkspaceLookupResult | null) => void
+}) {
+  return (
+    <Input
+      id="code"
+      autoCapitalize="characters"
+      autoComplete="off"
+      autoCorrect="off"
+      inputMode="text"
+      maxLength={FULL_JOIN_CODE_LENGTH}
+      placeholder="ENTER CODE"
+      spellCheck={false}
+      value={code}
+      className="h-11 text-center text-sm tracking-[0.28em] uppercase"
+      onChange={(event) => {
+        const nextCode = normalizeJoinCodeInput(event.target.value)
+
+        onCodeChange(nextCode)
+        onLookupErrorChange(null)
+
+        if (lookupResult?.team.joinCode !== nextCode) {
+          onLookupResultChange(null)
+        }
+      }}
+    />
+  )
+}
+
+function JoinLookupStatus({
+  code,
+  showSpinner,
+  statusLabel,
+}: {
+  code: string
+  showSpinner: boolean
+  statusLabel: string | null
+}) {
+  return (
+    <div className="flex min-h-5 items-center justify-between gap-3 text-xs text-muted-foreground">
+      <div className="flex min-w-0 items-center gap-2">
+        {showSpinner ? <SpinnerGap className="size-3.5 animate-spin" /> : null}
+        {statusLabel ? <span>{statusLabel}</span> : null}
+      </div>
+      <span className="shrink-0">{code.length}/12</span>
+    </div>
+  )
+}
+
+function JoinLookupError({ lookupError }: { lookupError: string | null }) {
+  if (!lookupError) {
+    return null
+  }
+
+  return (
+    <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+      {lookupError}
+    </div>
+  )
+}
+
+function JoinLookupResultCard({
+  alreadyJoined,
+  authenticated,
+  loginHref,
+  matchedLookupResult,
+  signupHref,
+}: {
+  alreadyJoined: boolean
+  authenticated: boolean
+  loginHref: string
+  matchedLookupResult: JoinWorkspaceLookupResult | null
+  signupHref: string
+}) {
+  if (!matchedLookupResult) {
+    return null
+  }
+
+  return (
+    <OnboardingJoinCard
+      authenticated={authenticated}
+      alreadyJoined={alreadyJoined}
+      joinCode={matchedLookupResult.team.joinCode}
+      loginHref={loginHref}
+      signupHref={signupHref}
+      teamName={matchedLookupResult.team.name}
+      teamSummary={matchedLookupResult.team.summary}
+      workspaceLogo={matchedLookupResult.workspace.logoUrl}
+      workspaceName={matchedLookupResult.workspace.name}
+    />
+  )
 }
 
 export function JoinWorkspacePanel({
@@ -62,37 +225,15 @@ export function JoinWorkspacePanel({
     setLoading(true)
     setLookupError(null)
 
-    try {
-      const response = await fetch(
-        `/api/teams/lookup?code=${encodeURIComponent(nextCode)}`
-      )
-      const payload = (await response.json().catch(() => null)) as
-        | (JoinWorkspaceLookupResult & { error?: string })
-        | null
+    const outcome = await lookupJoinWorkspaceByCode(nextCode)
 
-      if (!response.ok || !payload?.team || !payload.workspace) {
-        throw new Error(payload?.error ?? `No team matched ${nextCode}.`)
-      }
-
-      if (requestIdRef.current !== requestId) {
-        return
-      }
-
-      setLookupResult(payload)
-    } catch (error) {
-      if (requestIdRef.current !== requestId) {
-        return
-      }
-
-      setLookupResult(null)
-      setLookupError(
-        error instanceof Error ? error.message : "Unable to find that team"
-      )
-    } finally {
-      if (requestIdRef.current === requestId) {
-        setLoading(false)
-      }
+    if (requestIdRef.current !== requestId) {
+      return
     }
+
+    setLookupResult(outcome.result)
+    setLookupError(outcome.error)
+    setLoading(false)
   })
 
   useEffect(() => {
@@ -100,10 +241,15 @@ export function JoinWorkspacePanel({
 
     if (normalizedCode.length !== FULL_JOIN_CODE_LENGTH) {
       requestIdRef.current += 1
-      setLoading(false)
-      setLookupResult(null)
-      setLookupError(null)
-      return
+      const resetId = window.setTimeout(() => {
+        setLoading(false)
+        setLookupResult(null)
+        setLookupError(null)
+      }, 0)
+
+      return () => {
+        window.clearTimeout(resetId)
+      }
     }
 
     if (lookupResult?.team.joinCode === normalizedCode) {
@@ -121,19 +267,11 @@ export function JoinWorkspacePanel({
 
   const matchedLookupResult =
     lookupResult?.team.joinCode === code ? lookupResult : null
-  const remainingCharacters = FULL_JOIN_CODE_LENGTH - code.length
-  const statusLabel =
-    code.length === 0
-      ? "Paste or type a 12-character team code."
-      : code.length < FULL_JOIN_CODE_LENGTH
-        ? `${remainingCharacters} more character${
-            remainingCharacters === 1 ? "" : "s"
-          }.`
-        : lookupError
-          ? null
-          : matchedLookupResult
-            ? "Team found."
-            : "Looking up team…"
+  const statusLabel = getJoinWorkspaceStatusLabel({
+    code,
+    lookupError,
+    matchedLookupResult,
+  })
   const showSpinner =
     loading &&
     code.length === FULL_JOIN_CODE_LENGTH &&
@@ -146,58 +284,28 @@ export function JoinWorkspacePanel({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Input
-          id="code"
-          autoCapitalize="characters"
-          autoComplete="off"
-          autoCorrect="off"
-          inputMode="text"
-          maxLength={FULL_JOIN_CODE_LENGTH}
-          placeholder="ENTER CODE"
-          spellCheck={false}
-          value={code}
-          className="h-11 text-center text-sm tracking-[0.28em] uppercase"
-          onChange={(event) => {
-            const nextCode = normalizeJoinCodeInput(event.target.value)
-
-            setCode(nextCode)
-            setLookupError(null)
-
-            if (lookupResult?.team.joinCode !== nextCode) {
-              setLookupResult(null)
-            }
-          }}
+        <JoinCodeInput
+          code={code}
+          lookupResult={lookupResult}
+          onCodeChange={setCode}
+          onLookupErrorChange={setLookupError}
+          onLookupResultChange={setLookupResult}
         />
-        <div className="flex min-h-5 items-center justify-between gap-3 text-xs text-muted-foreground">
-          <div className="flex min-w-0 items-center gap-2">
-            {showSpinner ? (
-              <SpinnerGap className="size-3.5 animate-spin" />
-            ) : null}
-            {statusLabel ? <span>{statusLabel}</span> : null}
-          </div>
-          <span className="shrink-0">{code.length}/12</span>
-        </div>
+        <JoinLookupStatus
+          code={code}
+          showSpinner={showSpinner}
+          statusLabel={statusLabel}
+        />
       </div>
 
-      {lookupError ? (
-        <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-          {lookupError}
-        </div>
-      ) : null}
-
-      {matchedLookupResult ? (
-        <OnboardingJoinCard
-          authenticated={authenticated}
-          alreadyJoined={alreadyJoined}
-          joinCode={matchedLookupResult.team.joinCode}
-          loginHref={loginHref}
-          signupHref={signupHref}
-          teamName={matchedLookupResult.team.name}
-          teamSummary={matchedLookupResult.team.summary}
-          workspaceLogo={matchedLookupResult.workspace.logoUrl}
-          workspaceName={matchedLookupResult.workspace.name}
-        />
-      ) : null}
+      <JoinLookupError lookupError={lookupError} />
+      <JoinLookupResultCard
+        alreadyJoined={alreadyJoined}
+        authenticated={authenticated}
+        loginHref={loginHref}
+        matchedLookupResult={matchedLookupResult}
+        signupHref={signupHref}
+      />
     </div>
   )
 }

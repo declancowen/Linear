@@ -45,6 +45,16 @@ export type WorkspaceSearchOptions = {
 
 const workspaceSearchIndexCache = new WeakMap<AppData, WorkspaceSearchIndex>()
 
+type WorkspaceSearchFilters = {
+  kinds: Set<GlobalSearchResult["kind"]>
+  kindFilter: GlobalSearchResult["kind"] | null
+  teamIdFilter: string | null
+  statusFilter: string | null
+  statusToken: string | null
+  teamToken: string | null
+  textTokens: string[]
+}
+
 const navigationResults: GlobalSearchResult[] = [
   {
     id: "nav-inbox",
@@ -189,6 +199,21 @@ function resolveDocumentContextLabel(
   return accessibleTeamsById.get(document.teamId ?? "")?.name ?? "Team"
 }
 
+const SEARCH_KIND_ALIASES: Record<string, GlobalSearchResult["kind"]> = {
+  doc: "document",
+  docs: "document",
+  document: "document",
+  issue: "item",
+  issues: "item",
+  item: "item",
+  nav: "navigation",
+  navigation: "navigation",
+  project: "project",
+  projects: "project",
+  team: "team",
+  teams: "team",
+}
+
 function parseWorkspaceSearchQuery(query: string) {
   const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
   const textTokens: string[] = []
@@ -198,25 +223,9 @@ function parseWorkspaceSearchQuery(query: string) {
 
   for (const token of tokens) {
     if (token.startsWith("kind:")) {
-      const rawKind = token.slice(5)
-      if (rawKind === "nav" || rawKind === "navigation") {
-        kinds.add("navigation")
-      } else if (rawKind === "team" || rawKind === "teams") {
-        kinds.add("team")
-      } else if (rawKind === "project" || rawKind === "projects") {
-        kinds.add("project")
-      } else if (
-        rawKind === "item" ||
-        rawKind === "issue" ||
-        rawKind === "issues"
-      ) {
-        kinds.add("item")
-      } else if (
-        rawKind === "doc" ||
-        rawKind === "docs" ||
-        rawKind === "document"
-      ) {
-        kinds.add("document")
+      const aliasedKind = SEARCH_KIND_ALIASES[token.slice(5)]
+      if (aliasedKind) {
+        kinds.add(aliasedKind)
       }
       continue
     }
@@ -412,52 +421,23 @@ export function queryWorkspaceSearchIndex(
 ) {
   const { kinds, statusToken, teamToken, textTokens } =
     parseWorkspaceSearchQuery(query)
-  const kindFilter =
-    options.kind && options.kind !== "all" ? options.kind : null
-  const teamIdFilter =
-    options.teamId && options.teamId !== "all" ? options.teamId : null
-  const statusFilter =
-    options.status && options.status !== "all" ? options.status : null
+  const filters: WorkspaceSearchFilters = {
+    kinds,
+    kindFilter: options.kind && options.kind !== "all" ? options.kind : null,
+    teamIdFilter:
+      options.teamId && options.teamId !== "all" ? options.teamId : null,
+    statusFilter:
+      options.status && options.status !== "all" ? options.status : null,
+    statusToken,
+    teamToken,
+    textTokens,
+  }
   const limit = options.limit ?? null
   const results: GlobalSearchResult[] = []
 
   for (const entry of index.results) {
-    if (kindFilter && entry.kind !== kindFilter) {
+    if (!entryMatchesWorkspaceSearch(entry, filters)) {
       continue
-    }
-
-    if (kinds.size > 0 && !kinds.has(entry.kind)) {
-      continue
-    }
-
-    if (teamIdFilter && entry.teamId !== teamIdFilter) {
-      continue
-    }
-
-    if (teamToken && !entry.teamSearchText?.includes(teamToken)) {
-      continue
-    }
-
-    if (statusToken) {
-      if (entry.kind !== "item" || entry.status !== statusToken) {
-        continue
-      }
-    }
-
-    if (statusFilter) {
-      if (entry.kind !== "item" || entry.status !== statusFilter) {
-        continue
-      }
-    }
-
-    if (textTokens.length > 0) {
-      const matchesTextTokens = textTokens.every((token) =>
-        entry.searchableText.includes(token)
-      )
-
-      if (!matchesTextTokens) {
-        continue
-      }
     }
 
     results.push(toSearchResult(entry))
@@ -468,6 +448,51 @@ export function queryWorkspaceSearchIndex(
   }
 
   return results
+}
+
+function entryMatchesWorkspaceSearch(
+  entry: WorkspaceSearchIndexEntry,
+  filters: WorkspaceSearchFilters
+) {
+  return (
+    matchesKindFilter(entry, filters) &&
+    matchesTeamFilter(entry, filters) &&
+    matchesStatusFilter(entry, filters.statusToken) &&
+    matchesStatusFilter(entry, filters.statusFilter) &&
+    filters.textTokens.every((token) => entry.searchableText.includes(token))
+  )
+}
+
+function matchesKindFilter(
+  entry: WorkspaceSearchIndexEntry,
+  filters: WorkspaceSearchFilters
+) {
+  if (filters.kindFilter && entry.kind !== filters.kindFilter) {
+    return false
+  }
+
+  return filters.kinds.size === 0 || filters.kinds.has(entry.kind)
+}
+
+function matchesTeamFilter(
+  entry: WorkspaceSearchIndexEntry,
+  filters: WorkspaceSearchFilters
+) {
+  if (filters.teamIdFilter && entry.teamId !== filters.teamIdFilter) {
+    return false
+  }
+
+  return (
+    !filters.teamToken ||
+    entry.teamSearchText?.includes(filters.teamToken) === true
+  )
+}
+
+function matchesStatusFilter(
+  entry: WorkspaceSearchIndexEntry,
+  status: string | null
+) {
+  return !status || (entry.kind === "item" && entry.status === status)
 }
 
 export function searchWorkspace(

@@ -31,6 +31,7 @@ import type * as app_maintenance from "../app/maintenance.js";
 import type * as app_normalization from "../app/normalization.js";
 import type * as app_notification_handlers from "../app/notification_handlers.js";
 import type * as app_notifications from "../app/notifications.js";
+import type * as app_presence_helpers from "../app/presence_helpers.js";
 import type * as app_project_handlers from "../app/project_handlers.js";
 import type * as app_scoped_sync from "../app/scoped_sync.js";
 import type * as app_server_users from "../app/server_users.js";
@@ -73,6 +74,7 @@ declare const fullApi: ApiFromModules<{
   "app/normalization": typeof app_normalization;
   "app/notification_handlers": typeof app_notification_handlers;
   "app/notifications": typeof app_notifications;
+  "app/presence_helpers": typeof app_presence_helpers;
   "app/project_handlers": typeof app_project_handlers;
   "app/scoped_sync": typeof app_scoped_sync;
   "app/server_users": typeof app_server_users;

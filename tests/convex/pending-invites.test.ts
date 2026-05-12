@@ -1,42 +1,12 @@
 import { describe, expect, it } from "vitest"
 
 import { getPendingInvitesForEmail } from "@/convex/app/data"
+import {
+  createConvexTestQuery,
+  type ConvexTestRecord,
+} from "@/tests/lib/convex/test-db"
 
-type RecordWithId = {
-  _id: string
-  [key: string]: unknown
-}
-
-function createQuery(records: RecordWithId[]) {
-  return {
-    withIndex: (
-      _indexName: string,
-      build?: (query: {
-        eq: (field: string, value: unknown) => unknown
-      }) => unknown
-    ) => {
-      const filters: Array<{ field: string; value: unknown }> = []
-      const queryApi = {
-        eq(field: string, value: unknown) {
-          filters.push({ field, value })
-          return queryApi
-        },
-      }
-
-      build?.(queryApi)
-
-      const applyFilters = () =>
-        records.filter((record) =>
-          filters.every(({ field, value }) => record[field] === value)
-        )
-
-      return {
-        collect: async () => applyFilters(),
-        unique: async () => applyFilters()[0] ?? null,
-      }
-    },
-  }
-}
+type RecordWithId = ConvexTestRecord
 
 function createCtx(input?: {
   invites?: RecordWithId[]
@@ -51,7 +21,8 @@ function createCtx(input?: {
 
   return {
     db: {
-      query: (table: keyof typeof tables) => createQuery(tables[table]),
+      query: (table: keyof typeof tables) =>
+        createConvexTestQuery(tables[table]),
     },
   }
 }

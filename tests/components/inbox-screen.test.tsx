@@ -3,23 +3,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
 
 import { InboxScreen } from "@/components/app/screens/inbox-screen"
+import { getNextActiveInboxNotificationIdAfterMove } from "@/components/app/screens/inbox-navigation"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
 
 const useScopedReadModelRefreshMock = vi.hoisted(() => vi.fn())
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: vi.fn(),
-  }),
-}))
+vi.mock("next/navigation", async () =>
+  (await import("@/tests/lib/fixtures/component-stubs")).createNextNavigationPushStubModule()
+)
 
-vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
-}))
+vi.mock("sonner", async () =>
+  (await import("@/tests/lib/fixtures/component-stubs")).createToastStubModule()
+)
 
 vi.mock("@/hooks/use-scoped-read-model-refresh", () => ({
   useScopedReadModelRefresh: useScopedReadModelRefreshMock,
@@ -46,6 +42,37 @@ vi.mock("@/components/ui/confirm-dialog", () => ({
     children?: ReactNode
   }) => <div>{children}</div>,
 }))
+
+describe("inbox active notification movement", () => {
+  const visibleNotifications = [
+    { id: "notification_1" },
+    { id: "notification_2" },
+  ] as never
+
+  it("returns no update for unrelated moves and selects the next visible item", () => {
+    expect(
+      getNextActiveInboxNotificationIdAfterMove({
+        activeId: "notification_1",
+        movedNotificationId: "notification_2",
+        visibleNotifications,
+      })
+    ).toBeUndefined()
+    expect(
+      getNextActiveInboxNotificationIdAfterMove({
+        activeId: "notification_1",
+        movedNotificationId: "notification_1",
+        visibleNotifications,
+      })
+    ).toBe("notification_2")
+    expect(
+      getNextActiveInboxNotificationIdAfterMove({
+        activeId: "notification_2",
+        movedNotificationId: "notification_2",
+        visibleNotifications: [{ id: "notification_2" }] as never,
+      })
+    ).toBeNull()
+  })
+})
 
 describe("InboxScreen", () => {
   beforeEach(() => {

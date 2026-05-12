@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 
+import { getDisplayInitials } from "@/lib/display-initials"
 import { workspaceSetupSchema } from "@/lib/domain/types"
 import { isApplicationError } from "@/lib/server/application-errors"
 import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
@@ -16,19 +17,6 @@ import {
   jsonError,
   jsonOk,
 } from "@/lib/server/route-response"
-
-function getWorkspaceLogo(name: string) {
-  return (
-    name
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase() ?? "")
-      .join("")
-      .slice(0, 2) || "RR"
-  )
-}
 
 export async function POST(request: NextRequest) {
   const session = await requireSession()
@@ -65,7 +53,7 @@ export async function POST(request: NextRequest) {
     const result = await createWorkspaceServer({
       currentUserId: appContext.ensuredUser.userId,
       name,
-      logoUrl: getWorkspaceLogo(name),
+      logoUrl: getDisplayInitials(name, "RR"),
       accent: "emerald",
       description: parsed.description?.trim() || `${name} workspace`,
     })

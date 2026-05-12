@@ -15,6 +15,7 @@ import {
   resolveUserStatus,
   userStatusMeta,
 } from "@/lib/domain/types"
+import { getDisplayInitials } from "@/lib/display-initials"
 import {
   buildWorkspaceUserPresenceView,
   type WorkspaceUserMembershipState,
@@ -39,23 +40,6 @@ import {
 
 type UserPresenceData = WorkspaceUserPresenceData & {
   handle?: string | null
-}
-
-function getUserInitials(name: string | null | undefined) {
-  const parts = (name ?? "")
-    .split(" ")
-    .map((part) => part.trim())
-    .filter(Boolean)
-
-  if (parts.length === 0) {
-    return "?"
-  }
-
-  return parts
-    .slice(0, 2)
-    .map((part) => part[0] ?? "")
-    .join("")
-    .toUpperCase()
 }
 
 export function UserStatusDot({
@@ -120,7 +104,7 @@ export function UserAvatar({
       className={cn(showStatus && "overflow-visible", className)}
     >
       {imageSrc ? <AvatarImage src={imageSrc} alt={name ?? "User"} /> : null}
-      <AvatarFallback>{getUserInitials(name)}</AvatarFallback>
+      <AvatarFallback>{getDisplayInitials(name ?? "", "?")}</AvatarFallback>
       {showStatus ? (
         <AvatarBadge
           className={cn("overflow-hidden bg-background", badgeClassName)}
@@ -129,6 +113,235 @@ export function UserAvatar({
         </AvatarBadge>
       ) : null}
     </Avatar>
+  )
+}
+
+type UserHoverDisplayState = {
+  canEmail: boolean
+  canMessage: boolean
+  displayUser: NonNullable<ReturnType<typeof buildWorkspaceUserPresenceView>>
+  hasStatusMessage: boolean
+  resolvedStatus: UserStatus
+}
+
+function getUserHoverDisplayState({
+  user,
+  userId,
+  currentUserId,
+  workspaceId,
+  hasActiveWorkspaceAccess,
+}: {
+  user: UserPresenceData | null | undefined
+  userId?: string | null
+  currentUserId?: string | null
+  workspaceId?: string | null
+  hasActiveWorkspaceAccess: boolean
+}): UserHoverDisplayState | null {
+  if (!user?.name) {
+    return null
+  }
+
+  const membershipState: WorkspaceUserMembershipState =
+    !userId || !workspaceId
+      ? "unknown"
+      : hasActiveWorkspaceAccess
+        ? "active"
+        : "former"
+  const displayUser = buildWorkspaceUserPresenceView(user, membershipState)
+
+  if (!displayUser?.name) {
+    return null
+  }
+
+  const resolvedStatus = resolveUserStatus(displayUser.status)
+  const isSelf =
+    userId != null && currentUserId != null && userId === currentUserId
+
+  return {
+    canEmail: Boolean(displayUser.email) && !isSelf,
+    canMessage:
+      userId != null &&
+      currentUserId != null &&
+      workspaceId != null &&
+      userId !== currentUserId &&
+      !displayUser.isDeletedAccount &&
+      hasActiveWorkspaceAccess,
+    displayUser,
+    hasStatusMessage: displayUser.statusMessage.length > 0,
+    resolvedStatus,
+  }
+}
+
+function UserHoverPresenceDetails({
+  displayUser,
+  hasStatusMessage,
+  resolvedStatus,
+}: {
+  displayUser: UserHoverDisplayState["displayUser"]
+  hasStatusMessage: boolean
+  resolvedStatus: UserStatus
+}) {
+  if (!displayUser.showPresenceDetails) {
+    return null
+  }
+
+  if (!displayUser.hasExplicitStatus) {
+    return (
+      <>
+        <div className="mt-2 text-xs text-muted-foreground/60">
+          No status set
+        </div>
+        <div className="mt-3 text-xs text-muted-foreground/60">
+          No status message
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <UserStatusDot status={resolvedStatus} />
+        <span>{userStatusMeta[resolvedStatus].label}</span>
+      </div>
+      {hasStatusMessage ? (
+        <div className="mt-3 border-l-2 border-foreground/15 pl-2.5 text-xs text-foreground">
+          {displayUser.statusMessage}
+        </div>
+      ) : (
+        <div className="mt-3 text-xs text-muted-foreground/60">
+          No status message
+        </div>
+      )}
+    </>
+  )
+}
+
+function UserHoverActions({
+  canEmail,
+  canMessage,
+  email,
+  onMessage,
+}: {
+  canEmail: boolean
+  canMessage: boolean
+  email: string | null | undefined
+  onMessage: () => void
+}) {
+  if (!canEmail && !canMessage) {
+    return null
+  }
+
+  return (
+    <div className="mt-4 flex gap-2">
+      {canEmail ? (
+        <Button
+          asChild
+          variant="outline"
+          size="sm"
+          className={cn(
+            "min-w-0 border-border bg-muted text-foreground hover:bg-accent hover:text-foreground",
+            canMessage ? "flex-1" : "w-full"
+          )}
+        >
+          <a href={`mailto:${email}`}>
+            <EnvelopeSimple className="size-3.5" />
+            Email
+          </a>
+        </Button>
+      ) : null}
+      {canMessage ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            "min-w-0 border-border bg-muted text-foreground hover:bg-accent hover:text-foreground",
+            email ? "flex-1" : "w-full"
+          )}
+          onClick={onMessage}
+        >
+          <ChatCircle className="size-3.5" />
+          Message
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+function UserHoverCardPanel({
+  state,
+  onCopyEmail,
+  onMessage,
+}: {
+  state: UserHoverDisplayState
+  onCopyEmail: () => void
+  onMessage: () => void
+}) {
+  const {
+    canEmail,
+    canMessage,
+    displayUser,
+    hasStatusMessage,
+    resolvedStatus,
+  } = state
+
+  return (
+    <div className="flex items-start gap-3">
+      <UserAvatar
+        name={displayUser.name}
+        avatarImageUrl={displayUser.avatarImageUrl}
+        avatarUrl={displayUser.avatarUrl}
+        status={displayUser.status ?? undefined}
+        size="default"
+        showStatus={
+          displayUser.hasExplicitStatus && !displayUser.isFormerMember
+        }
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="truncate text-sm font-semibold">
+            {displayUser.name}
+          </div>
+          {displayUser.badgeLabel ? (
+            <Badge variant="outline">{displayUser.badgeLabel}</Badge>
+          ) : null}
+        </div>
+        {displayUser.secondaryText && !displayUser.badgeLabel ? (
+          <div className="truncate text-xs text-muted-foreground">
+            {displayUser.secondaryText}
+          </div>
+        ) : null}
+        {displayUser.email ? (
+          <div className="mt-1 flex items-center gap-1.5">
+            <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              {displayUser.email}
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="shrink-0"
+              onClick={onCopyEmail}
+              aria-label="Copy email"
+              title="Copy email"
+            >
+              <CopySimple className="size-3.5" />
+            </Button>
+          </div>
+        ) : null}
+        <UserHoverPresenceDetails
+          displayUser={displayUser}
+          hasStatusMessage={hasStatusMessage}
+          resolvedStatus={resolvedStatus}
+        />
+        <UserHoverActions
+          canEmail={canEmail}
+          canMessage={canMessage}
+          email={displayUser.email}
+          onMessage={onMessage}
+        />
+      </div>
+    </div>
   )
 }
 
@@ -159,44 +372,29 @@ export function UserHoverCard({
 
     return hasWorkspaceAccess(state, workspaceId, userId)
   })
+  const displayState = getUserHoverDisplayState({
+    user,
+    userId,
+    currentUserId,
+    workspaceId,
+    hasActiveWorkspaceAccess,
+  })
 
-  if (!user?.name) {
+  if (!displayState) {
     return <>{children}</>
   }
 
-  const membershipState: WorkspaceUserMembershipState =
-    !userId || !workspaceId
-      ? "unknown"
-      : hasActiveWorkspaceAccess
-        ? "active"
-        : "former"
-  const displayUser = buildWorkspaceUserPresenceView(user, membershipState)
-
-  if (!displayUser?.name) {
-    return <>{children}</>
-  }
-
-  const resolvedDisplayUser = displayUser
-  const resolvedStatus = resolveUserStatus(resolvedDisplayUser.status)
-  const hasStatusMessage = resolvedDisplayUser.statusMessage.length > 0
-  const isSelf =
-    userId != null && currentUserId != null && userId === currentUserId
-  const canMessage =
-    userId != null &&
-    currentUserId != null &&
-    workspaceId != null &&
-    userId !== currentUserId &&
-    !resolvedDisplayUser.isDeletedAccount &&
-    hasActiveWorkspaceAccess
-  const canEmail = Boolean(resolvedDisplayUser.email) && !isSelf
+  const resolvedDisplayState = displayState
 
   async function handleCopyEmail() {
-    if (!resolvedDisplayUser.email) {
+    if (!resolvedDisplayState.displayUser.email) {
       return
     }
 
     try {
-      await navigator.clipboard.writeText(resolvedDisplayUser.email)
+      await navigator.clipboard.writeText(
+        resolvedDisplayState.displayUser.email
+      )
       toast.success("Email copied")
     } catch (error) {
       toast.error(
@@ -206,7 +404,7 @@ export function UserHoverCard({
   }
 
   function handleMessage() {
-    if (!canMessage || !userId || !workspaceId) {
+    if (!resolvedDisplayState.canMessage || !userId || !workspaceId) {
       return
     }
 
@@ -232,117 +430,11 @@ export function UserHoverCard({
         side={side}
         className={cn("w-[22rem]", className)}
       >
-        <div className="flex items-start gap-3">
-          <UserAvatar
-            name={resolvedDisplayUser.name}
-            avatarImageUrl={resolvedDisplayUser.avatarImageUrl}
-            avatarUrl={resolvedDisplayUser.avatarUrl}
-            status={resolvedDisplayUser.status ?? undefined}
-            size="default"
-            showStatus={
-              !resolvedDisplayUser.isFormerMember &&
-              resolvedDisplayUser.hasExplicitStatus
-            }
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="truncate text-sm font-semibold">
-                {resolvedDisplayUser.name}
-              </div>
-              {resolvedDisplayUser.badgeLabel ? (
-                <Badge variant="outline">
-                  {resolvedDisplayUser.badgeLabel}
-                </Badge>
-              ) : null}
-            </div>
-            {resolvedDisplayUser.secondaryText &&
-            !resolvedDisplayUser.badgeLabel ? (
-              <div className="truncate text-xs text-muted-foreground">
-                {resolvedDisplayUser.secondaryText}
-              </div>
-            ) : null}
-            {resolvedDisplayUser.email ? (
-              <div className="mt-1 flex items-center gap-1.5">
-                <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  {resolvedDisplayUser.email}
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  className="shrink-0"
-                  onClick={handleCopyEmail}
-                  aria-label="Copy email"
-                  title="Copy email"
-                >
-                  <CopySimple className="size-3.5" />
-                </Button>
-              </div>
-            ) : null}
-            {resolvedDisplayUser.showPresenceDetails ? (
-              resolvedDisplayUser.hasExplicitStatus ? (
-                <>
-                  <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <UserStatusDot status={resolvedStatus} />
-                    <span>{userStatusMeta[resolvedStatus].label}</span>
-                  </div>
-                  {hasStatusMessage ? (
-                    <div className="mt-3 border-l-2 border-foreground/15 pl-2.5 text-xs text-foreground">
-                      {resolvedDisplayUser.statusMessage}
-                    </div>
-                  ) : (
-                    <div className="mt-3 text-xs text-muted-foreground/60">
-                      No status message
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="mt-2 text-xs text-muted-foreground/60">
-                    No status set
-                  </div>
-                  <div className="mt-3 text-xs text-muted-foreground/60">
-                    No status message
-                  </div>
-                </>
-              )
-            ) : null}
-            {canEmail || canMessage ? (
-              <div className="mt-4 flex gap-2">
-                {canEmail ? (
-                  <Button
-                    asChild
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      "min-w-0 border-border bg-muted text-foreground hover:bg-accent hover:text-foreground",
-                      canMessage ? "flex-1" : "w-full"
-                    )}
-                  >
-                    <a href={`mailto:${resolvedDisplayUser.email}`}>
-                      <EnvelopeSimple className="size-3.5" />
-                      Email
-                    </a>
-                  </Button>
-                ) : null}
-                {canMessage ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      "min-w-0 border-border bg-muted text-foreground hover:bg-accent hover:text-foreground",
-                      resolvedDisplayUser.email ? "flex-1" : "w-full"
-                    )}
-                    onClick={handleMessage}
-                  >
-                    <ChatCircle className="size-3.5" />
-                    Message
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
+        <UserHoverCardPanel
+          state={resolvedDisplayState}
+          onCopyEmail={() => void handleCopyEmail()}
+          onMessage={handleMessage}
+        />
       </HoverCardContent>
     </HoverCard>
   )

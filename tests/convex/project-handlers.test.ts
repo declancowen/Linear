@@ -26,9 +26,15 @@ vi.mock("@/convex/app/access", () => ({
   requireEditableWorkspaceAccess: requireEditableWorkspaceAccessMock,
 }))
 
-vi.mock("@/convex/app/work_helpers", () => ({
-  assertWorkspaceLabelIds: assertWorkspaceLabelIdsMock,
-}))
+vi.mock("@/convex/app/work_helpers", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/convex/app/work_helpers")>()
+
+  return {
+    ...actual,
+    assertWorkspaceLabelIds: assertWorkspaceLabelIdsMock,
+  }
+})
 
 vi.mock("@/convex/app/data", () => ({
   getProjectDoc: getProjectDocMock,
@@ -63,6 +69,39 @@ function createCtx() {
   }
 }
 
+function mockWorkspaceMemberships(userIds: string[]) {
+  listWorkspaceMembershipsByWorkspaceMock.mockResolvedValue(
+    userIds.map((userId, index) => ({
+      workspaceId: "workspace_1",
+      userId,
+      role: index === 0 ? "admin" : "member",
+    }))
+  )
+}
+
+async function expectWorkspaceProjectCreateRejected(
+  ctx: ReturnType<typeof createCtx>,
+  patch: Record<string, unknown>,
+  message: string
+) {
+  const { createProjectHandler } = await import("@/convex/app/project_handlers")
+
+  await expect(
+    createProjectHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      scopeType: "workspace",
+      scopeId: "workspace_1",
+      templateType: "software-delivery",
+      name: "Launch",
+      summary: "Launch summary",
+      priority: "medium",
+      ...patch,
+    })
+  ).rejects.toThrow(message)
+  expect(ctx.db.insert).not.toHaveBeenCalled()
+}
+
 describe("project handlers", () => {
   beforeEach(() => {
     assertServerTokenMock.mockReset()
@@ -91,108 +130,57 @@ describe("project handlers", () => {
   })
 
   it("rejects workspace-scoped project leads that are not workspace members", async () => {
-    const { createProjectHandler } = await import("@/convex/app/project_handlers")
     const ctx = createCtx()
 
-    listWorkspaceMembershipsByWorkspaceMock.mockResolvedValue([
-      {
-        workspaceId: "workspace_1",
-        userId: "user_1",
-        role: "admin",
-      },
-    ])
-
-    await expect(
-      createProjectHandler(ctx as never, {
-        serverToken: "server_token",
-        currentUserId: "user_1",
-        scopeType: "workspace",
-        scopeId: "workspace_1",
-        templateType: "software-delivery",
-        name: "Launch",
-        summary: "Launch summary",
-        priority: "medium",
-        leadId: "user_missing",
-      })
-    ).rejects.toThrow("Lead must belong to the current workspace")
-
-    expect(ctx.db.insert).not.toHaveBeenCalled()
+    mockWorkspaceMemberships(["user_1"])
+    await expectWorkspaceProjectCreateRejected(
+      ctx,
+      { leadId: "user_missing" },
+      "Lead must belong to the current workspace"
+    )
   })
 
   it("rejects workspace-scoped project members that are not workspace members", async () => {
-    const { createProjectHandler } = await import("@/convex/app/project_handlers")
     const ctx = createCtx()
 
-    listWorkspaceMembershipsByWorkspaceMock.mockResolvedValue([
+    mockWorkspaceMemberships(["user_1", "user_2"])
+    await expectWorkspaceProjectCreateRejected(
+      ctx,
       {
-        workspaceId: "workspace_1",
-        userId: "user_1",
-        role: "admin",
-      },
-      {
-        workspaceId: "workspace_1",
-        userId: "user_2",
-        role: "member",
-      },
-    ])
-
-    await expect(
-      createProjectHandler(ctx as never, {
-        serverToken: "server_token",
-        currentUserId: "user_1",
-        scopeType: "workspace",
-        scopeId: "workspace_1",
-        templateType: "software-delivery",
-        name: "Launch",
-        summary: "Launch summary",
-        priority: "medium",
         leadId: "user_1",
         memberIds: ["user_2", "user_missing"],
-      })
-    ).rejects.toThrow("All project members must belong to the current workspace")
-
-    expect(ctx.db.insert).not.toHaveBeenCalled()
+      },
+      "All project members must belong to the current workspace"
+    )
   })
 
   it("rejects overlong project names before inserting", async () => {
-    const { createProjectHandler } = await import("@/convex/app/project_handlers")
     const ctx = createCtx()
 
-    listWorkspaceMembershipsByWorkspaceMock.mockResolvedValue([
-      {
-        workspaceId: "workspace_1",
-        userId: "user_1",
-        role: "admin",
-      },
-    ])
-
-    await expect(
-      createProjectHandler(ctx as never, {
-        serverToken: "server_token",
-        currentUserId: "user_1",
-        scopeType: "workspace",
-        scopeId: "workspace_1",
-        templateType: "software-delivery",
-        name: "x".repeat(65),
-        summary: "Launch summary",
-        priority: "medium",
-      })
-    ).rejects.toThrow("Project name must be at most 64 characters")
-
-    expect(ctx.db.insert).not.toHaveBeenCalled()
+    mockWorkspaceMemberships(["user_1"])
+    await expectWorkspaceProjectCreateRejected(
+      ctx,
+      { name: "x".repeat(65) },
+      "Project name must be at most 64 characters"
+    )
   })
 
   it("rejects invalid project schedule strings before inserting", async () => {
+    const ctx = createCtx()
+
+    mockWorkspaceMemberships(["user_1"])
+    await expectWorkspaceProjectCreateRejected(
+      ctx,
+      { startDate: "not-a-date" },
+      "Start date must be a valid calendar date"
+    )
+  })
+
+  it("creates workspace projects with normalized member and template defaults", async () => {
     const { createProjectHandler } = await import("@/convex/app/project_handlers")
     const ctx = createCtx()
 
-    listWorkspaceMembershipsByWorkspaceMock.mockResolvedValue([
-      {
-        workspaceId: "workspace_1",
-        userId: "user_1",
-        role: "admin",
-      },
-    ])
+    mockWorkspaceMemberships(["user_1", "user_2"])
 
     await expect(
       createProjectHandler(ctx as never, {
@@ -201,13 +189,90 @@ describe("project handlers", () => {
         scopeType: "workspace",
         scopeId: "workspace_1",
         templateType: "software-delivery",
-        name: "Launch",
+        name: "  Launch Plan  ",
         summary: "Launch summary",
         priority: "medium",
-        startDate: "not-a-date",
+        labelIds: ["label_1", "label_1"],
+        leadId: null,
+        memberIds: ["user_2", "user_2"],
       })
-    ).rejects.toThrow("Start date must be a valid calendar date")
+    ).resolves.toEqual({
+      workspaceId: "workspace_1",
+    })
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "projects",
+      expect.objectContaining({
+        id: "project_1",
+        name: "Launch Plan",
+        leadId: "user_1",
+        memberIds: ["user_2", "user_1"],
+        labelIds: ["label_1"],
+        presentation: expect.objectContaining({
+          layout: "board",
+        }),
+      })
+    )
+  })
 
-    expect(ctx.db.insert).not.toHaveBeenCalled()
+  it("deletes project-owned custom views without deleting unrelated scope views", async () => {
+    const { deleteProjectHandler } = await import("@/convex/app/project_handlers")
+    const ctx = createCtx()
+
+    getProjectDocMock.mockResolvedValue({
+      _id: "project_doc_1",
+      id: "project_1",
+      scopeType: "team",
+      scopeId: "team_1",
+    })
+    getTeamDocMock.mockResolvedValue({
+      slug: "platform",
+    })
+    listMilestonesByProjectMock.mockResolvedValue([
+      {
+        _id: "milestone_doc_1",
+        id: "milestone_1",
+      },
+    ])
+    listProjectUpdatesByProjectMock.mockResolvedValue([])
+    listNotificationsByEntityMock.mockResolvedValue([])
+    listViewsByScopeMock.mockResolvedValue([
+      {
+        _id: "view_doc_1",
+        containerType: "project-items",
+        containerId: "project_1",
+      },
+      {
+        _id: "view_doc_2",
+        containerType: null,
+        entityKind: "items",
+        route: "/team/platform/projects/project_1",
+      },
+      {
+        _id: "view_doc_3",
+        containerType: null,
+        entityKind: "items",
+        route: "/team/platform/projects/other",
+      },
+    ])
+    ctx.db.query.mockReturnValue({
+      withIndex: () => ({
+        collect: vi.fn().mockResolvedValue([
+          {
+            _id: "view_doc_2",
+          },
+          {
+            _id: "view_doc_4",
+          },
+        ]),
+      }),
+    })
+
+    await deleteProjectHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      projectId: "project_1",
+    })
+
+    expect(ctx.db.delete).toHaveBeenCalledWith("project_doc_1")
   })
 })

@@ -20,6 +20,93 @@ export class PartyKitCollaborationError extends Error {
   }
 }
 
+const EXACT_COLLABORATION_ERROR_CODES: Array<{
+  messages: readonly string[]
+  code: CollaborationErrorCode
+}> = [
+  {
+    messages: [
+      "Missing collaboration token",
+      "Invalid collaboration token",
+      "Invalid collaboration token signature",
+      "Expired collaboration token",
+    ],
+    code: "collaboration_unauthenticated",
+  },
+  {
+    messages: ["Document not found", "Work item not found"],
+    code: "collaboration_document_deleted",
+  },
+  {
+    messages: [
+      "You do not have permission to edit this document",
+      "Collaboration flush requires editor access",
+    ],
+    code: "collaboration_forbidden",
+  },
+  {
+    messages: ["Private documents do not support collaboration sessions"],
+    code: "collaboration_private_document",
+  },
+  {
+    messages: [
+      "Invalid collaboration flush request",
+      "Invalid collaboration refresh request",
+    ],
+    code: "collaboration_invalid_payload",
+  },
+]
+
+const SUBSTRING_COLLABORATION_ERROR_CODES: Array<{
+  match: string
+  code: CollaborationErrorCode
+}> = [
+  {
+    match: "room mismatch",
+    code: "collaboration_room_mismatch",
+  },
+  {
+    match: "too many active editors",
+    code: "collaboration_too_many_connections",
+  },
+  {
+    match: "too large",
+    code: "collaboration_payload_too_large",
+  },
+  {
+    match: "JSON",
+    code: "collaboration_invalid_payload",
+  },
+]
+
+function getCollaborationErrorCodeForMessage(
+  message: string
+): CollaborationErrorCode {
+  const exactMatch = EXACT_COLLABORATION_ERROR_CODES.find((entry) =>
+    entry.messages.includes(message)
+  )
+
+  if (exactMatch) {
+    return exactMatch.code
+  }
+
+  const substringMatch = SUBSTRING_COLLABORATION_ERROR_CODES.find((entry) =>
+    message.includes(entry.match)
+  )
+
+  if (substringMatch) {
+    return substringMatch.code
+  }
+
+  if (message.includes("schemaVersion") || message.includes("protocolVersion")) {
+    return message.includes("required")
+      ? "collaboration_schema_version_required"
+      : "collaboration_schema_version_unsupported"
+  }
+
+  return "collaboration_unknown"
+}
+
 export function toCollaborationError(error: unknown) {
   if (error instanceof PartyKitCollaborationError) {
     return error
@@ -27,82 +114,8 @@ export function toCollaborationError(error: unknown) {
 
   const message = error instanceof Error ? error.message : String(error)
 
-  if (
-    message === "Missing collaboration token" ||
-    message === "Invalid collaboration token" ||
-    message === "Invalid collaboration token signature" ||
-    message === "Expired collaboration token"
-  ) {
-    return new PartyKitCollaborationError(
-      "collaboration_unauthenticated",
-      message
-    )
-  }
-
-  if (message === "Document not found" || message === "Work item not found") {
-    return new PartyKitCollaborationError(
-      "collaboration_document_deleted",
-      message
-    )
-  }
-
-  if (
-    message === "You do not have permission to edit this document" ||
-    message === "Collaboration flush requires editor access"
-  ) {
-    return new PartyKitCollaborationError("collaboration_forbidden", message)
-  }
-
-  if (message === "Private documents do not support collaboration sessions") {
-    return new PartyKitCollaborationError(
-      "collaboration_private_document",
-      message
-    )
-  }
-
-  if (message.includes("room mismatch")) {
-    return new PartyKitCollaborationError(
-      "collaboration_room_mismatch",
-      message
-    )
-  }
-
-  if (message.includes("too many active editors")) {
-    return new PartyKitCollaborationError(
-      "collaboration_too_many_connections",
-      message
-    )
-  }
-
-  if (message.includes("too large")) {
-    return new PartyKitCollaborationError(
-      "collaboration_payload_too_large",
-      message
-    )
-  }
-
-  if (
-    message === "Invalid collaboration flush request" ||
-    message === "Invalid collaboration refresh request" ||
-    message.includes("JSON")
-  ) {
-    return new PartyKitCollaborationError(
-      "collaboration_invalid_payload",
-      message
-    )
-  }
-
-  if (
-    message.includes("schemaVersion") ||
-    message.includes("protocolVersion")
-  ) {
-    return new PartyKitCollaborationError(
-      message.includes("required")
-        ? "collaboration_schema_version_required"
-        : "collaboration_schema_version_unsupported",
-      message
-    )
-  }
-
-  return new PartyKitCollaborationError("collaboration_unknown", message)
+  return new PartyKitCollaborationError(
+    getCollaborationErrorCodeForMessage(message),
+    message
+  )
 }

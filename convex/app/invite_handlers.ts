@@ -12,7 +12,6 @@ import { createNotification } from "./collaboration_utils"
 import { insertAuditEvent } from "./audit"
 import {
   assertServerToken,
-  createSlug,
   createId,
   getNow,
   mergeMembershipRole,
@@ -24,9 +23,9 @@ import {
   listInvitesByToken,
   getEffectiveRole,
   getInviteDoc,
-  getTeamByJoinCode,
   getTeamDoc,
-  getTeamBySlug,
+  getTeamMembershipDoc,
+  resolveTeamByCodeSlugOrJoinCode,
   getUserByEmail,
   getUserDoc,
   getWorkspaceDoc,
@@ -42,6 +41,15 @@ type ServerAccessArgs = {
 }
 
 type InviteRole = "admin" | "member" | "viewer" | "guest"
+type TokenInvite = Awaited<ReturnType<typeof listInvitesByToken>>[number]
+type InviteTeam = NonNullable<Awaited<ReturnType<typeof getTeamDoc>>>
+type InviteDoc = NonNullable<Awaited<ReturnType<typeof getInviteDoc>>>
+type TeamInvite = Awaited<
+  ReturnType<typeof getActiveInvitesForTeamAndEmail>
+>[number]
+type TeamMembershipDoc = NonNullable<
+  Awaited<ReturnType<typeof getTeamMembershipDoc>>
+>
 
 type CreateInviteArgs = ServerAccessArgs & {
   currentUserId: string
@@ -70,6 +78,13 @@ type InviteActionErrorResult = {
   error: "Invite not found"
   status: 404
   code: "INVITE_NOT_FOUND"
+}
+
+type TokenInviteScope = {
+  representativeInvite: TokenInvite
+  scopedTokenInvites: TokenInvite[]
+  pendingInvites: TokenInvite[]
+  acceptedInvites: TokenInvite[]
 }
 
 function isPendingInvite(invite: {
@@ -117,15 +132,10 @@ function scopeTokenInvitesToRepresentative<
   return invites.filter((invite) => invite.id === representativeInvite.id)
 }
 
-async function deleteInviteAndNotifications(
+async function deleteInviteRecordAndNotifications(
   ctx: MutationCtx,
-  invite: Awaited<ReturnType<typeof getInviteDoc>>,
-  actorUserId: string
+  invite: InviteDoc
 ) {
-  if (!invite) {
-    return
-  }
-
   const inviteNotifications = await ctx.db
     .query("notifications")
     .withIndex("by_entity", (q) =>
@@ -138,6 +148,18 @@ async function deleteInviteAndNotifications(
   }
 
   await ctx.db.delete(invite._id)
+}
+
+async function deleteInviteAndNotifications(
+  ctx: MutationCtx,
+  invite: Awaited<ReturnType<typeof getInviteDoc>>,
+  actorUserId: string
+) {
+  if (!invite) {
+    return
+  }
+
+  await deleteInviteRecordAndNotifications(ctx, invite)
 
   await insertAuditEvent(ctx, {
     type: "invite.cancelled",
@@ -163,18 +185,47 @@ async function deleteInviteArtifacts(
     return
   }
 
-  const inviteNotifications = await ctx.db
-    .query("notifications")
-    .withIndex("by_entity", (q) =>
-      q.eq("entityType", "invite").eq("entityId", invite.id)
-    )
-    .collect()
+  await deleteInviteRecordAndNotifications(ctx, invite)
+}
 
-  for (const notification of inviteNotifications) {
-    await ctx.db.delete(notification._id)
+async function getAcceptedInviteTeam(
+  ctx: MutationCtx,
+  acceptedInvites: Array<{
+    teamId: string
+  }>
+) {
+  return acceptedInvites.length === 1
+    ? await getTeamDoc(ctx, acceptedInvites[0].teamId)
+    : null
+}
+
+function createAcceptedInviteResult(input: {
+  representativeInvite: {
+    workspaceId: string
   }
+  team: Awaited<ReturnType<typeof getAcceptedInviteTeam>>
+  workspace: Awaited<ReturnType<typeof getWorkspaceDoc>>
+}) {
+  return {
+    teamSlug: getOptionalTeamSlug(input.team),
+    workspaceId: input.representativeInvite.workspaceId,
+    workspaceSlug: getOptionalWorkspaceSlug(input.workspace),
+    workosOrganizationId: getOptionalWorkspaceOrganizationId(input.workspace),
+  }
+}
 
-  await ctx.db.delete(invite._id)
+function getOptionalTeamSlug(team: Awaited<ReturnType<typeof getAcceptedInviteTeam>>) {
+  return team?.slug ?? null
+}
+
+function getOptionalWorkspaceSlug(workspace: Awaited<ReturnType<typeof getWorkspaceDoc>>) {
+  return workspace?.slug ?? null
+}
+
+function getOptionalWorkspaceOrganizationId(
+  workspace: Awaited<ReturnType<typeof getWorkspaceDoc>>
+) {
+  return workspace?.workosOrganizationId ?? null
 }
 
 async function buildAcceptedInviteResult(
@@ -186,18 +237,16 @@ async function buildAcceptedInviteResult(
     teamId: string
   }>
 ) {
-  const team =
-    acceptedInvites.length === 1
-      ? await getTeamDoc(ctx, acceptedInvites[0].teamId)
-      : null
-  const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
+  const [team, workspace] = await Promise.all([
+    getAcceptedInviteTeam(ctx, acceptedInvites),
+    getWorkspaceDoc(ctx, representativeInvite.workspaceId),
+  ])
 
-  return {
-    teamSlug: team?.slug ?? null,
-    workspaceId: representativeInvite.workspaceId,
-    workspaceSlug: workspace?.slug ?? null,
-    workosOrganizationId: workspace?.workosOrganizationId ?? null,
-  }
+  return createAcceptedInviteResult({
+    representativeInvite,
+    team,
+    workspace,
+  })
 }
 
 function buildInviteNotFoundResult(): InviteActionErrorResult {
@@ -217,8 +266,9 @@ async function partitionPendingInvitesByExistingTeams<
     pendingInvites.map((invite) => getTeamDoc(ctx, invite.teamId))
   )
   const activePendingInvites: T[] = []
-  const activePendingTeams: Array<NonNullable<(typeof pendingInviteTeams)[number]>> =
-    []
+  const activePendingTeams: Array<
+    NonNullable<(typeof pendingInviteTeams)[number]>
+  > = []
   const stalePendingInvites: T[] = []
 
   for (const [index, invite] of pendingInvites.entries()) {
@@ -237,6 +287,153 @@ async function partitionPendingInvitesByExistingTeams<
     activePendingInvites,
     activePendingTeams,
     stalePendingInvites,
+  }
+}
+
+function resolveTokenInviteScope(
+  tokenInvites: TokenInvite[]
+): TokenInviteScope | null {
+  const firstPendingInvite = tokenInvites.find(isPendingInvite)
+  const firstAcceptedInvite = tokenInvites.find((invite) =>
+    Boolean(invite.acceptedAt)
+  )
+  const representativeInvite = firstPendingInvite ?? firstAcceptedInvite ?? null
+
+  if (!representativeInvite) {
+    return null
+  }
+
+  const scopedTokenInvites = scopeTokenInvitesToRepresentative(
+    tokenInvites,
+    representativeInvite
+  )
+
+  return {
+    representativeInvite,
+    scopedTokenInvites,
+    pendingInvites: scopedTokenInvites.filter(isPendingInvite),
+    acceptedInvites: scopedTokenInvites.filter((invite) =>
+      Boolean(invite.acceptedAt)
+    ),
+  }
+}
+
+async function deleteInviteArtifactsForList(
+  ctx: MutationCtx,
+  invites: TokenInvite[]
+) {
+  for (const invite of invites) {
+    await deleteInviteArtifacts(ctx, invite)
+  }
+}
+
+async function upsertTeamMembershipForInvite(
+  ctx: MutationCtx,
+  invite: TokenInvite,
+  currentUserId: string
+) {
+  const existingMembership = await ctx.db
+    .query("teamMemberships")
+    .withIndex("by_team_and_user", (q) =>
+      q.eq("teamId", invite.teamId).eq("userId", currentUserId)
+    )
+    .unique()
+  const resolvedRole = mergeMembershipRole(
+    existingMembership?.role,
+    invite.role
+  )
+
+  if (existingMembership) {
+    if (existingMembership.role !== resolvedRole) {
+      await ctx.db.patch(existingMembership._id, {
+        role: resolvedRole,
+      })
+    }
+
+    return
+  }
+
+  await ctx.db.insert("teamMemberships", {
+    teamId: invite.teamId,
+    userId: currentUserId,
+    role: resolvedRole,
+  })
+}
+
+async function markInviteAccepted(
+  ctx: MutationCtx,
+  invite: TokenInvite,
+  currentUserId: string
+) {
+  await ctx.db.patch(invite._id, {
+    acceptedAt: getNow(),
+  })
+
+  await insertAuditEvent(ctx, {
+    type: "invite.accepted",
+    actorUserId: currentUserId,
+    subjectUserId: currentUserId,
+    workspaceId: invite.workspaceId,
+    teamId: invite.teamId,
+    entityId: invite.id,
+    summary: `Invite ${invite.id} was accepted.`,
+    details: {
+      inviteRole: invite.role,
+      source: "convex",
+    },
+  })
+}
+
+async function acceptActivePendingInvites(
+  ctx: MutationCtx,
+  invites: TokenInvite[],
+  currentUserId: string
+) {
+  let fallbackRole: InviteRole | null = null
+
+  for (const invite of invites) {
+    await upsertTeamMembershipForInvite(ctx, invite, currentUserId)
+    await syncTeamConversationMemberships(ctx, invite.teamId)
+    await markInviteAccepted(ctx, invite, currentUserId)
+
+    fallbackRole = mergeMembershipRole(fallbackRole, invite.role)
+  }
+
+  return fallbackRole
+}
+
+async function finalizeAcceptedInvites(
+  ctx: MutationCtx,
+  args: TokenActionArgs,
+  representativeInvite: TokenInvite,
+  activePendingInvites: TokenInvite[],
+  activePendingTeams: InviteTeam[],
+  fallbackRole: InviteRole | null
+) {
+  await syncWorkspaceMembershipRoleFromTeams(ctx, {
+    workspaceId: representativeInvite.workspaceId,
+    userId: args.currentUserId,
+    fallbackRole: fallbackRole ?? representativeInvite.role,
+  })
+
+  const team = activePendingInvites.length === 1 ? activePendingTeams[0] : null
+  const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
+  await setCurrentWorkspaceForUser(
+    ctx,
+    args.currentUserId,
+    representativeInvite.workspaceId
+  )
+
+  await archiveInviteNotifications(ctx, {
+    userId: args.currentUserId,
+    inviteIds: activePendingInvites.map((invite) => invite.id),
+  })
+
+  return {
+    teamSlug: team?.slug ?? null,
+    workspaceId: representativeInvite.workspaceId,
+    workspaceSlug: workspace?.slug ?? null,
+    workosOrganizationId: workspace?.workosOrganizationId ?? null,
   }
 }
 
@@ -263,9 +460,7 @@ export async function createInviteHandler(
   }
 
   const teams = loadedTeams.filter(
-    (
-      team
-    ): team is NonNullable<(typeof loadedTeams)[number]> => team !== null
+    (team): team is NonNullable<(typeof loadedTeams)[number]> => team !== null
   )
 
   if (teams.some((team) => team.workspaceId !== primaryTeam.workspaceId)) {
@@ -397,7 +592,11 @@ export async function cancelInviteHandler(
   let canCancelViaWorkspace = true
 
   try {
-    await requireWorkspaceAdminAccess(ctx, invite.workspaceId, args.currentUserId)
+    await requireWorkspaceAdminAccess(
+      ctx,
+      invite.workspaceId,
+      args.currentUserId
+    )
   } catch (error) {
     if (
       !(error instanceof Error) ||
@@ -419,8 +618,9 @@ export async function cancelInviteHandler(
   }
 
   const pendingInvites = canCancelViaWorkspace
-    ? (
-        invite.batchId ? await listInvitesByBatchId(ctx, invite.batchId) : [invite]
+    ? (invite.batchId
+        ? await listInvitesByBatchId(ctx, invite.batchId)
+        : [invite]
       ).filter(
         (entry) =>
           entry.workspaceId === invite.workspaceId && isPendingInvite(entry)
@@ -451,24 +651,18 @@ export async function acceptInviteHandler(
 ) {
   assertServerToken(args.serverToken)
   const tokenInvites = await listInvitesByToken(ctx, args.token)
-  const firstPendingInvite = tokenInvites.find(isPendingInvite)
-  const firstAcceptedInvite = tokenInvites.find((invite) =>
-    Boolean(invite.acceptedAt)
-  )
-  const representativeInvite = firstPendingInvite ?? firstAcceptedInvite ?? null
+  const inviteScope = resolveTokenInviteScope(tokenInvites)
 
-  if (!representativeInvite) {
+  if (!inviteScope) {
     throw new Error("Invite not found")
   }
 
-  const scopedTokenInvites = scopeTokenInvitesToRepresentative(
-    tokenInvites,
-    representativeInvite
-  )
-  const pendingInvites = scopedTokenInvites.filter(isPendingInvite)
-  const acceptedInvites = scopedTokenInvites.filter((invite) =>
-    Boolean(invite.acceptedAt)
-  )
+  const {
+    acceptedInvites,
+    pendingInvites,
+    representativeInvite,
+    scopedTokenInvites,
+  } = inviteScope
 
   if (
     pendingInvites.length === 0 &&
@@ -484,9 +678,7 @@ export async function acceptInviteHandler(
   const { activePendingInvites, activePendingTeams, stalePendingInvites } =
     await partitionPendingInvitesByExistingTeams(ctx, pendingInvites)
 
-  for (const invite of stalePendingInvites) {
-    await deleteInviteArtifacts(ctx, invite)
-  }
+  await deleteInviteArtifactsForList(ctx, stalePendingInvites)
 
   if (activePendingInvites.length === 0) {
     if (acceptedInvites.length > 0) {
@@ -500,82 +692,20 @@ export async function acceptInviteHandler(
     return buildInviteNotFoundResult()
   }
 
-  let fallbackRole: InviteRole | null = null
-
-  for (const invite of activePendingInvites) {
-    const existingMembership = await ctx.db
-      .query("teamMemberships")
-      .withIndex("by_team_and_user", (q) =>
-        q.eq("teamId", invite.teamId).eq("userId", args.currentUserId)
-      )
-      .unique()
-    const resolvedRole = mergeMembershipRole(
-      existingMembership?.role,
-      invite.role
-    )
-
-    if (existingMembership) {
-      if (existingMembership.role !== resolvedRole) {
-        await ctx.db.patch(existingMembership._id, {
-          role: resolvedRole,
-        })
-      }
-    } else {
-      await ctx.db.insert("teamMemberships", {
-        teamId: invite.teamId,
-        userId: args.currentUserId,
-        role: resolvedRole,
-      })
-    }
-
-    await syncTeamConversationMemberships(ctx, invite.teamId)
-
-    await ctx.db.patch(invite._id, {
-      acceptedAt: getNow(),
-    })
-
-    await insertAuditEvent(ctx, {
-      type: "invite.accepted",
-      actorUserId: args.currentUserId,
-      subjectUserId: args.currentUserId,
-      workspaceId: invite.workspaceId,
-      teamId: invite.teamId,
-      entityId: invite.id,
-      summary: `Invite ${invite.id} was accepted.`,
-      details: {
-        inviteRole: invite.role,
-        source: "convex",
-      },
-    })
-
-    fallbackRole = mergeMembershipRole(fallbackRole, invite.role)
-  }
-
-  await syncWorkspaceMembershipRoleFromTeams(ctx, {
-    workspaceId: representativeInvite.workspaceId,
-    userId: args.currentUserId,
-    fallbackRole: fallbackRole ?? representativeInvite.role,
-  })
-
-  const team = activePendingInvites.length === 1 ? activePendingTeams[0] : null
-  const workspace = await getWorkspaceDoc(ctx, representativeInvite.workspaceId)
-  await setCurrentWorkspaceForUser(
+  const fallbackRole = await acceptActivePendingInvites(
     ctx,
-    args.currentUserId,
-    representativeInvite.workspaceId
+    activePendingInvites,
+    args.currentUserId
   )
 
-  await archiveInviteNotifications(ctx, {
-    userId: args.currentUserId,
-    inviteIds: activePendingInvites.map((invite) => invite.id),
-  })
-
-  return {
-    teamSlug: team?.slug ?? null,
-    workspaceId: representativeInvite.workspaceId,
-    workspaceSlug: workspace?.slug ?? null,
-    workosOrganizationId: workspace?.workosOrganizationId ?? null,
-  }
+  return finalizeAcceptedInvites(
+    ctx,
+    args,
+    representativeInvite,
+    activePendingInvites,
+    activePendingTeams,
+    fallbackRole
+  )
 }
 
 export async function declineInviteHandler(
@@ -652,15 +782,89 @@ export async function declineInviteHandler(
   }
 }
 
+function resolveInvitedTeamRole(invites: TeamInvite[]) {
+  return invites.reduce<InviteRole | null>(
+    (role, invite) => mergeMembershipRole(role, invite.role),
+    null
+  )
+}
+
+async function upsertJoinedTeamMembership(
+  ctx: MutationCtx,
+  input: {
+    existingMembership: TeamMembershipDoc | null
+    role: InviteRole
+    teamId: string
+    userId: string
+  }
+) {
+  if (!input.existingMembership) {
+    await ctx.db.insert("teamMemberships", {
+      teamId: input.teamId,
+      userId: input.userId,
+      role: input.role,
+    })
+    return
+  }
+
+  if (input.existingMembership.role !== input.role) {
+    await ctx.db.patch(input.existingMembership._id, {
+      role: input.role,
+    })
+  }
+}
+
+async function acceptTeamJoinInvites(ctx: MutationCtx, invites: TeamInvite[]) {
+  if (invites.length === 0) {
+    return
+  }
+
+  const acceptedAt = getNow()
+
+  await Promise.all(
+    invites.map((invite) =>
+      ctx.db.patch(invite._id, {
+        acceptedAt,
+      })
+    )
+  )
+}
+
+async function archiveTeamJoinInvites(
+  ctx: MutationCtx,
+  userId: string,
+  invites: TeamInvite[]
+) {
+  if (invites.length === 0) {
+    return
+  }
+
+  await archiveInviteNotifications(ctx, {
+    userId,
+    inviteIds: invites.map((invite) => invite.id),
+  })
+}
+
 export async function joinTeamByCodeHandler(
   ctx: MutationCtx,
   args: JoinTeamByCodeArgs
 ) {
   assertServerToken(args.serverToken)
-  const team =
-    (await getTeamDoc(ctx, args.code)) ??
-    (await getTeamBySlug(ctx, createSlug(args.code))) ??
-    (await getTeamByJoinCode(ctx, args.code))
+  const joinContext = await requireJoinTeamByCodeContext(ctx, args)
+
+  await applyJoinTeamByCodeMembership(ctx, {
+    args,
+    ...joinContext,
+  })
+
+  return buildJoinTeamByCodeResult(ctx, joinContext)
+}
+
+export async function requireJoinTeamByCodeContext(
+  ctx: MutationCtx,
+  args: JoinTeamByCodeArgs
+) {
+  const team = await resolveTeamByCodeSlugOrJoinCode(ctx, args.code)
 
   if (!team) {
     throw new Error("Join code not found")
@@ -672,78 +876,89 @@ export async function joinTeamByCodeHandler(
     throw new Error("User not found")
   }
 
-  const existingMembership = await ctx.db
-    .query("teamMemberships")
-    .withIndex("by_team_and_user", (q) =>
-      q.eq("teamId", team.id).eq("userId", args.currentUserId)
-    )
-    .unique()
+  const existingMembership = await getTeamMembershipDoc(
+    ctx,
+    team.id,
+    args.currentUserId
+  )
   const matchingInvites = await getActiveInvitesForTeamAndEmail(ctx, {
     teamId: team.id,
     email: currentUser.email,
   })
-  let invitedRole: InviteRole | null = null
-
-  for (const invite of matchingInvites) {
-    invitedRole = mergeMembershipRole(invitedRole, invite.role)
-  }
-
   const resolvedRole = mergeMembershipRole(
     existingMembership?.role,
-    invitedRole ?? "viewer"
+    resolveInvitedTeamRole(matchingInvites) ?? "viewer"
   )
 
-  if (existingMembership) {
-    if (existingMembership.role !== resolvedRole) {
-      await ctx.db.patch(existingMembership._id, {
-        role: resolvedRole,
-      })
-    }
-  } else {
-    await ctx.db.insert("teamMemberships", {
-      teamId: team.id,
-      userId: args.currentUserId,
-      role: resolvedRole,
-    })
+  return {
+    existingMembership,
+    matchingInvites,
+    resolvedRole,
+    team,
   }
+}
 
-  await syncWorkspaceMembershipRoleFromTeams(ctx, {
-    workspaceId: team.workspaceId,
-    userId: args.currentUserId,
-    fallbackRole: resolvedRole,
+async function applyJoinTeamByCodeMembership(
+  ctx: MutationCtx,
+  input: {
+    args: JoinTeamByCodeArgs
+    existingMembership: TeamMembershipDoc | null
+    matchingInvites: TeamInvite[]
+    resolvedRole: InviteRole
+    team: InviteTeam
+  }
+) {
+  await upsertJoinedTeamMembership(ctx, {
+    existingMembership: input.existingMembership,
+    role: input.resolvedRole,
+    teamId: input.team.id,
+    userId: input.args.currentUserId,
   })
 
-  await syncTeamConversationMemberships(ctx, team.id)
+  await syncWorkspaceMembershipRoleFromTeams(ctx, {
+    workspaceId: input.team.workspaceId,
+    userId: input.args.currentUserId,
+    fallbackRole: input.resolvedRole,
+  })
 
-  if (matchingInvites.length > 0) {
-    const acceptedAt = getNow()
+  await syncTeamConversationMemberships(ctx, input.team.id)
 
-    await Promise.all(
-      matchingInvites.map((invite) =>
-        ctx.db.patch(invite._id, {
-          acceptedAt,
-        })
-      )
-    )
+  await acceptTeamJoinInvites(ctx, input.matchingInvites)
+
+  await setCurrentWorkspaceForUser(
+    ctx,
+    input.args.currentUserId,
+    input.team.workspaceId
+  )
+
+  await archiveTeamJoinInvites(
+    ctx,
+    input.args.currentUserId,
+    input.matchingInvites
+  )
+}
+
+async function buildJoinTeamByCodeResult(
+  ctx: MutationCtx,
+  input: {
+    resolvedRole: InviteRole
+    team: InviteTeam
   }
-
-  await setCurrentWorkspaceForUser(ctx, args.currentUserId, team.workspaceId)
-
-  if (matchingInvites.length > 0) {
-    await archiveInviteNotifications(ctx, {
-      userId: args.currentUserId,
-      inviteIds: matchingInvites.map((invite) => invite.id),
-    })
-  }
-
-  const workspace = await getWorkspaceDoc(ctx, team.workspaceId)
+) {
+  const workspace = await getWorkspaceDoc(ctx, input.team.workspaceId)
 
   return {
-    role: resolvedRole,
-    teamSlug: team.slug,
-    workspaceId: team.workspaceId,
-    workspaceSlug: workspace?.slug ?? null,
-    workspaceName: workspace?.name ?? "Workspace",
-    workosOrganizationId: workspace?.workosOrganizationId ?? null,
+    role: input.resolvedRole,
+    teamSlug: input.team.slug,
+    workspaceId: input.team.workspaceId,
+    workspaceSlug: getOptionalWorkspaceSlug(workspace),
+    workspaceName: getJoinTeamWorkspaceName(workspace),
+    workosOrganizationId: getOptionalWorkspaceOrganizationId(workspace),
   }
+}
+
+function getJoinTeamWorkspaceName(
+  workspace: Awaited<ReturnType<typeof getWorkspaceDoc>>
+) {
+  return workspace?.name ?? "Workspace"
 }

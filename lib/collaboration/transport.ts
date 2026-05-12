@@ -1,5 +1,4 @@
 import {
-  createChatCollaborationRoomId,
   createDocumentCollaborationRoomId,
   isChatCollaborationRoomId,
   isDocumentCollaborationRoomId,
@@ -190,259 +189,349 @@ function parseOptionalNumber(
   return null
 }
 
-export function isCollaborationSessionRole(
+function isCollaborationSessionRole(
   value: unknown
 ): value is CollaborationSessionRole {
   return value === "viewer" || value === "editor"
 }
 
-export function safeParseCollaborationSessionTokenClaims(input: unknown):
-  | { success: true; data: CollaborationSessionTokenClaims }
-  | { success: false; error: string } {
-  if (!isRecord(input)) {
+type CollaborationClaimKind = CollaborationSessionTokenClaims["kind"]
+type ClaimParseFailure = { success: false; error: string }
+type ClaimParseSuccess<T extends CollaborationSessionTokenClaims> = {
+  success: true
+  data: T
+}
+type ClaimParseResult<T extends CollaborationSessionTokenClaims> =
+  | ClaimParseSuccess<T>
+  | ClaimParseFailure
+
+type NormalizedClaimFields = {
+  kind: CollaborationClaimKind
+  strings: Map<string, string>
+  sub: string
+  roomId: string
+  workspaceId: string | null | undefined
+  iat: number | undefined
+  exp: number
+}
+
+function claimFailure(error: string): ClaimParseFailure {
+  return {
+    success: false,
+    error,
+  }
+}
+
+function claimSuccess<T extends CollaborationSessionTokenClaims>(
+  data: T
+): ClaimParseSuccess<T> {
+  return {
+    success: true,
+    data,
+  }
+}
+
+function parseClaimKind(
+  value: unknown
+): { success: true; kind: CollaborationClaimKind } | ClaimParseFailure {
+  if (value === "doc" || value === "chat" || value === "internal-refresh") {
     return {
-      success: false,
-      error: "collaboration token claims must be an object",
+      success: true,
+      kind: value,
     }
   }
 
-  const kind = input.kind
-  const sub = input.sub
-  const roomId = input.roomId
-  const documentId = input.documentId
-  const conversationId = input.conversationId
-  const role = input.role
-  const sessionId = input.sessionId
-  const workspaceId = input.workspaceId
-  const iat = input.iat
-  const exp = input.exp
+  return claimFailure("kind must be doc, chat, or internal-refresh")
+}
 
-  if (kind !== "doc" && kind !== "chat" && kind !== "internal-refresh") {
-    return {
-      success: false,
-      error: "kind must be doc, chat, or internal-refresh",
-    }
+function getRequiredClaimStringFields(
+  input: Record<string, unknown>,
+  kind: CollaborationClaimKind
+) {
+  switch (kind) {
+    case "doc":
+      return [
+        [input.sub, "sub"],
+        [input.roomId, "roomId"],
+        [input.documentId, "documentId"],
+        [input.sessionId, "sessionId"],
+      ] as const
+    case "internal-refresh":
+      return [
+        [input.sub, "sub"],
+        [input.roomId, "roomId"],
+        [input.documentId, "documentId"],
+      ] as const
+    case "chat":
+      return [
+        [input.sub, "sub"],
+        [input.roomId, "roomId"],
+        [input.conversationId, "conversationId"],
+        [input.sessionId, "sessionId"],
+      ] as const
   }
+}
 
-  const parsedStrings = new Map<string, string>()
+function parseRequiredClaimStrings(
+  input: Record<string, unknown>,
+  kind: CollaborationClaimKind
+): { success: true; strings: Map<string, string> } | ClaimParseFailure {
+  const strings = new Map<string, string>()
 
-  const requiredStringFields =
-    kind === "doc"
-      ? ([
-          [sub, "sub"],
-          [roomId, "roomId"],
-          [documentId, "documentId"],
-          [sessionId, "sessionId"],
-        ] as const)
-      : kind === "internal-refresh"
-        ? ([
-            [sub, "sub"],
-            [roomId, "roomId"],
-            [documentId, "documentId"],
-          ] as const)
-      : ([
-          [sub, "sub"],
-          [roomId, "roomId"],
-          [conversationId, "conversationId"],
-          [sessionId, "sessionId"],
-        ] as const)
-
-  for (const [value, label] of requiredStringFields) {
+  for (const [value, label] of getRequiredClaimStringFields(input, kind)) {
     const parsed = parseRequiredString(value, label)
 
     if (!parsed.success) {
-      return {
-        success: false,
-        error: parsed.error,
-      }
+      return claimFailure(parsed.error)
     }
 
-    parsedStrings.set(label, parsed.value)
-  }
-
-  if (
-    typeof workspaceId !== "undefined" &&
-    workspaceId !== null &&
-    typeof workspaceId !== "string"
-  ) {
-    return {
-      success: false,
-      error: "workspaceId must be a string or null",
-    }
-  }
-
-  const iatError = parseOptionalNumber(iat, "iat")
-
-  if (iatError) {
-    return {
-      success: false,
-      error: iatError,
-    }
-  }
-
-  if (typeof exp !== "number" || !Number.isInteger(exp) || exp <= 0) {
-    return {
-      success: false,
-      error: "exp must be a positive integer",
-    }
-  }
-
-  const normalizedExp = exp
-
-  const normalizedSub = parsedStrings.get("sub")!
-  const normalizedRoomId = parsedStrings.get("roomId")!
-
-  if (kind === "doc") {
-    const normalizedSessionId = parsedStrings.get("sessionId")!
-
-    if (!isCollaborationSessionRole(role)) {
-      return {
-        success: false,
-        error: "role must be viewer or editor",
-      }
-    }
-
-    const normalizedRole: CollaborationSessionRole = role
-
-    const normalizedDocumentId = parsedStrings.get("documentId")!
-    const protocolVersion = input.protocolVersion
-    const schemaVersion = input.schemaVersion
-
-    if (typeof protocolVersion !== "number") {
-      return {
-        success: false,
-        error: "protocolVersion is required",
-      }
-    }
-
-    if (typeof schemaVersion !== "number") {
-      return {
-        success: false,
-        error: "schemaVersion is required",
-      }
-    }
-
-    if (!isSupportedCollaborationProtocolVersion(protocolVersion)) {
-      return {
-        success: false,
-        error: "protocolVersion is unsupported",
-      }
-    }
-
-    if (!isSupportedRichTextCollaborationSchemaVersion(schemaVersion)) {
-      return {
-        success: false,
-        error: "schemaVersion is unsupported",
-      }
-    }
-
-    if (
-      !isDocumentCollaborationRoomId(normalizedRoomId, normalizedDocumentId)
-    ) {
-      return {
-        success: false,
-        error: "roomId must match the document collaboration room",
-      }
-    }
-
-    return {
-      success: true,
-      data: {
-        kind,
-        sub: normalizedSub,
-        roomId: normalizedRoomId,
-        documentId: normalizedDocumentId,
-        role: normalizedRole,
-        sessionId: normalizedSessionId,
-        workspaceId,
-        protocolVersion,
-        schemaVersion,
-        iat: typeof iat === "number" ? iat : undefined,
-        exp: normalizedExp,
-      },
-    }
-  }
-
-  if (kind === "internal-refresh") {
-    const normalizedDocumentId = parsedStrings.get("documentId")!
-    const action = input.action
-    const protocolVersion = input.protocolVersion
-
-    if (normalizedSub !== "server") {
-      return {
-        success: false,
-        error: "sub must be server for internal refresh",
-      }
-    }
-
-    if (action !== "refresh") {
-      return {
-        success: false,
-        error: "action must be refresh",
-      }
-    }
-
-    if (typeof protocolVersion !== "number") {
-      return {
-        success: false,
-        error: "protocolVersion is required",
-      }
-    }
-
-    if (!isSupportedCollaborationProtocolVersion(protocolVersion)) {
-      return {
-        success: false,
-        error: "protocolVersion is unsupported",
-      }
-    }
-
-    if (
-      !isDocumentCollaborationRoomId(normalizedRoomId, normalizedDocumentId)
-    ) {
-      return {
-        success: false,
-        error: "roomId must match the document collaboration room",
-      }
-    }
-
-    return {
-      success: true,
-      data: {
-        kind,
-        sub: "server",
-        roomId: normalizedRoomId,
-        documentId: normalizedDocumentId,
-        action,
-        protocolVersion,
-        iat: typeof iat === "number" ? iat : undefined,
-        exp: normalizedExp,
-      },
-    }
-  }
-
-  const normalizedConversationId = parsedStrings.get("conversationId")!
-  const normalizedSessionId = parsedStrings.get("sessionId")!
-
-  if (!isChatCollaborationRoomId(normalizedRoomId, normalizedConversationId)) {
-    return {
-      success: false,
-      error: "roomId must match the chat collaboration room",
-    }
+    strings.set(label, parsed.value)
   }
 
   return {
     success: true,
-    data: {
+    strings,
+  }
+}
+
+function parseOptionalWorkspaceId(
+  value: unknown
+): { success: true; workspaceId: string | null | undefined } | ClaimParseFailure {
+  if (
+    typeof value !== "undefined" &&
+    value !== null &&
+    typeof value !== "string"
+  ) {
+    return claimFailure("workspaceId must be a string or null")
+  }
+
+  return {
+    success: true,
+    workspaceId: value,
+  }
+}
+
+function parseExpiration(
+  value: unknown
+): { success: true; exp: number } | ClaimParseFailure {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    return claimFailure("exp must be a positive integer")
+  }
+
+  return {
+    success: true,
+    exp: value,
+  }
+}
+
+function parseCommonClaimFields(
+  input: Record<string, unknown>,
+  kind: CollaborationClaimKind
+): { success: true; fields: NormalizedClaimFields } | ClaimParseFailure {
+  const parsedStrings = parseRequiredClaimStrings(input, kind)
+
+  if (!parsedStrings.success) {
+    return parsedStrings
+  }
+
+  const workspace = parseOptionalWorkspaceId(input.workspaceId)
+
+  if (!workspace.success) {
+    return workspace
+  }
+
+  const iatError = parseOptionalNumber(input.iat, "iat")
+
+  if (iatError) {
+    return claimFailure(iatError)
+  }
+
+  const parsedExp = parseExpiration(input.exp)
+
+  if (!parsedExp.success) {
+    return parsedExp
+  }
+
+  return {
+    success: true,
+    fields: {
       kind,
-      sub: normalizedSub,
-      roomId: normalizedRoomId,
-      conversationId: normalizedConversationId,
-      sessionId: normalizedSessionId,
-      workspaceId,
-      iat: typeof iat === "number" ? iat : undefined,
-      exp: normalizedExp,
+      strings: parsedStrings.strings,
+      sub: parsedStrings.strings.get("sub")!,
+      roomId: parsedStrings.strings.get("roomId")!,
+      workspaceId: workspace.workspaceId,
+      iat: typeof input.iat === "number" ? input.iat : undefined,
+      exp: parsedExp.exp,
     },
   }
+}
+
+function parseProtocolVersion(
+  value: unknown
+): { success: true; protocolVersion: number } | ClaimParseFailure {
+  if (typeof value !== "number") {
+    return claimFailure("protocolVersion is required")
+  }
+
+  if (!isSupportedCollaborationProtocolVersion(value)) {
+    return claimFailure("protocolVersion is unsupported")
+  }
+
+  return {
+    success: true,
+    protocolVersion: value,
+  }
+}
+
+function parseRichTextSchemaVersion(
+  value: unknown
+): { success: true; schemaVersion: number } | ClaimParseFailure {
+  if (typeof value !== "number") {
+    return claimFailure("schemaVersion is required")
+  }
+
+  if (!isSupportedRichTextCollaborationSchemaVersion(value)) {
+    return claimFailure("schemaVersion is unsupported")
+  }
+
+  return {
+    success: true,
+    schemaVersion: value,
+  }
+}
+
+function parseDocumentClaim(
+  input: Record<string, unknown>,
+  fields: NormalizedClaimFields
+): ClaimParseResult<DocumentCollaborationSessionTokenClaims> {
+  const documentId = fields.strings.get("documentId")!
+
+  if (!isCollaborationSessionRole(input.role)) {
+    return claimFailure("role must be viewer or editor")
+  }
+
+  const protocol = parseProtocolVersion(input.protocolVersion)
+
+  if (!protocol.success) {
+    return protocol
+  }
+
+  const schema = parseRichTextSchemaVersion(input.schemaVersion)
+
+  if (!schema.success) {
+    return schema
+  }
+
+  if (!isDocumentCollaborationRoomId(fields.roomId, documentId)) {
+    return claimFailure("roomId must match the document collaboration room")
+  }
+
+  return claimSuccess({
+    kind: "doc",
+    sub: fields.sub,
+    roomId: fields.roomId,
+    documentId,
+    role: input.role,
+    sessionId: fields.strings.get("sessionId")!,
+    workspaceId: fields.workspaceId,
+    protocolVersion: protocol.protocolVersion,
+    schemaVersion: schema.schemaVersion,
+    iat: fields.iat,
+    exp: fields.exp,
+  })
+}
+
+function parseInternalRefreshClaim(
+  input: Record<string, unknown>,
+  fields: NormalizedClaimFields
+): ClaimParseResult<InternalCollaborationRefreshTokenClaims> {
+  const documentId = fields.strings.get("documentId")!
+
+  if (fields.sub !== "server") {
+    return claimFailure("sub must be server for internal refresh")
+  }
+
+  if (input.action !== "refresh") {
+    return claimFailure("action must be refresh")
+  }
+
+  const protocol = parseProtocolVersion(input.protocolVersion)
+
+  if (!protocol.success) {
+    return protocol
+  }
+
+  if (!isDocumentCollaborationRoomId(fields.roomId, documentId)) {
+    return claimFailure("roomId must match the document collaboration room")
+  }
+
+  return claimSuccess({
+    kind: "internal-refresh",
+    sub: "server",
+    roomId: fields.roomId,
+    documentId,
+    action: "refresh",
+    protocolVersion: protocol.protocolVersion,
+    iat: fields.iat,
+    exp: fields.exp,
+  })
+}
+
+function parseChatClaim(
+  fields: NormalizedClaimFields
+): ClaimParseResult<ChatCollaborationSessionTokenClaims> {
+  const conversationId = fields.strings.get("conversationId")!
+
+  if (!isChatCollaborationRoomId(fields.roomId, conversationId)) {
+    return claimFailure("roomId must match the chat collaboration room")
+  }
+
+  return claimSuccess({
+    kind: "chat",
+    sub: fields.sub,
+    roomId: fields.roomId,
+    conversationId,
+    sessionId: fields.strings.get("sessionId")!,
+    workspaceId: fields.workspaceId,
+    iat: fields.iat,
+    exp: fields.exp,
+  })
+}
+
+function parseTypedClaim(
+  input: Record<string, unknown>,
+  fields: NormalizedClaimFields
+): ClaimParseResult<CollaborationSessionTokenClaims> {
+  switch (fields.kind) {
+    case "doc":
+      return parseDocumentClaim(input, fields)
+    case "internal-refresh":
+      return parseInternalRefreshClaim(input, fields)
+    case "chat":
+      return parseChatClaim(fields)
+  }
+}
+
+export function safeParseCollaborationSessionTokenClaims(
+  input: unknown
+): ClaimParseResult<CollaborationSessionTokenClaims> {
+  if (!isRecord(input)) {
+    return claimFailure("collaboration token claims must be an object")
+  }
+
+  const kind = parseClaimKind(input.kind)
+
+  if (!kind.success) {
+    return kind
+  }
+
+  const common = parseCommonClaimFields(input, kind.kind)
+
+  if (!common.success) {
+    return common
+  }
+
+  return parseTypedClaim(input, common.fields)
 }
 
 export function parseCollaborationSessionTokenClaims(input: unknown) {
@@ -476,8 +565,4 @@ export function createDocumentSessionBootstrap(input: {
     contentJson: input.contentJson,
     contentHtml: input.contentHtml,
   } satisfies CollaborationSessionBootstrap
-}
-
-export function createChatSessionRoomId(conversationId: string) {
-  return createChatCollaborationRoomId(conversationId)
 }

@@ -3,12 +3,7 @@ import { parseHTML } from "linkedom"
 
 import { getPlainTextContent } from "@/lib/utils"
 
-const TEXT_ALIGN_STYLE_VALUES = [
-  /^left$/,
-  /^center$/,
-  /^right$/,
-  /^justify$/,
-]
+const TEXT_ALIGN_STYLE_VALUES = [/^left$/, /^center$/, /^right$/, /^justify$/]
 
 const LENGTH_STYLE_VALUES = [/^\d+(\.\d+)?(px|%)$/]
 
@@ -46,15 +41,11 @@ const RICH_TEXT_ALLOWED_TAGS = [
   "ul",
 ] satisfies string[]
 
-const RICH_TEXT_EMBEDDED_CONTENT_TAGS = new Set([
-  "hr",
-  "img",
-  "input",
-  "table",
-])
+const RICH_TEXT_EMBEDDED_CONTENT_TAGS = new Set(["hr", "img", "input", "table"])
 
 function normalizeAnchorAttributes(attributes: sanitizeHtml.Attributes) {
-  const href = typeof attributes.href === "string" ? attributes.href.trim() : null
+  const href =
+    typeof attributes.href === "string" ? attributes.href.trim() : null
   const target = attributes.target === "_blank" ? "_blank" : null
   const relValues = new Set(
     typeof attributes.rel === "string"
@@ -174,46 +165,56 @@ function hasMeaningfulRichTextNode(node: Node): boolean {
   )
 }
 
+function trimTrailingTextNode(node: ChildNode) {
+  const textContent = node.textContent ?? ""
+  const trimmedTextContent = textContent.replace(/\s+$/u, "")
+
+  if (trimmedTextContent.length === 0) {
+    node.remove()
+    return true
+  }
+
+  if (trimmedTextContent !== textContent) {
+    node.textContent = trimmedTextContent
+  }
+
+  return false
+}
+
+function trimTrailingRichTextNode(node: ChildNode) {
+  if (node.nodeType === 3) {
+    return trimTrailingTextNode(node)
+  }
+
+  if (node.nodeType !== 1) {
+    node.remove()
+    return true
+  }
+
+  const element = node as HTMLElement
+
+  if (element.tagName.toLowerCase() === "br") {
+    element.remove()
+    return true
+  }
+
+  trimTrailingRichTextNodes(element)
+
+  if (!hasMeaningfulRichTextNode(element)) {
+    element.remove()
+    return true
+  }
+
+  return false
+}
+
 function trimTrailingRichTextNodes(container: ParentNode) {
   while (container.lastChild) {
-    const node = container.lastChild
+    const shouldContinue = trimTrailingRichTextNode(container.lastChild)
 
-    if (node.nodeType === 3) {
-      const textContent = node.textContent ?? ""
-      const trimmedTextContent = textContent.replace(/\s+$/u, "")
-
-      if (trimmedTextContent.length === 0) {
-        node.remove()
-        continue
-      }
-
-      if (trimmedTextContent !== textContent) {
-        node.textContent = trimmedTextContent
-      }
-
+    if (!shouldContinue) {
       return
     }
-
-    if (node.nodeType !== 1) {
-      node.remove()
-      continue
-    }
-
-    const element = node as HTMLElement
-
-    if (element.tagName.toLowerCase() === "br") {
-      element.remove()
-      continue
-    }
-
-    trimTrailingRichTextNodes(element)
-
-    if (!hasMeaningfulRichTextNode(element)) {
-      element.remove()
-      continue
-    }
-
-    return
   }
 }
 
@@ -233,7 +234,7 @@ export function trimTrailingRichTextDisplayWhitespace(content: string) {
   return document.body.innerHTML.trim()
 }
 
-export function sanitizeRichTextMessageContent(content: string) {
+function sanitizeRichTextMessageContent(content: string) {
   const sanitized = sanitizeRichTextContent(content)
   const normalized = trimTrailingRichTextDisplayWhitespace(sanitized)
 

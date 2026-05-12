@@ -6,7 +6,6 @@ import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
   type ViewDefinition,
-  type WorkItem,
 } from "@/lib/domain/types"
 import {
   buildItemGroupsWithEmptyGroups,
@@ -15,34 +14,7 @@ import {
   getViewsForScope,
   getVisibleItemsForView,
 } from "@/lib/domain/selectors"
-
-function createItem(id: string, overrides?: Partial<WorkItem>): WorkItem {
-  return {
-    id,
-    key: `ITEM-${id}`,
-    teamId: "team_1",
-    type: "story",
-    title: `Item ${id}`,
-    descriptionDocId: `doc_${id}`,
-    status: "todo",
-    priority: "medium",
-    assigneeId: null,
-    creatorId: "user_1",
-    parentId: null,
-    primaryProjectId: null,
-    linkedProjectIds: [],
-    linkedDocumentIds: [],
-    labelIds: [],
-    milestoneId: null,
-    startDate: null,
-    dueDate: null,
-    targetDate: null,
-    subscriberIds: ["user_1"],
-    createdAt: "2026-04-18T10:00:00.000Z",
-    updatedAt: "2026-04-18T10:00:00.000Z",
-    ...overrides,
-  }
-}
+import { createTestWorkItem } from "@/tests/lib/fixtures/app-data"
 
 function createView(overrides?: Partial<ViewDefinition>): ViewDefinition {
   return {
@@ -90,9 +62,9 @@ describe("view item levels", () => {
   it("filters visible items to the configured item level", () => {
     const state = createEmptyState()
     const items = [
-      createItem("epic", { type: "epic" }),
-      createItem("feature", { type: "feature", parentId: "epic" }),
-      createItem("requirement", {
+      createTestWorkItem("epic", { type: "epic" }),
+      createTestWorkItem("feature", { type: "feature", parentId: "epic" }),
+      createTestWorkItem("requirement", {
         type: "requirement",
         parentId: "feature",
       }),
@@ -112,8 +84,8 @@ describe("view item levels", () => {
   it("filters item levels to entries with an empty under value", () => {
     const state = createEmptyState()
     const items = [
-      createItem("feature-root", { type: "feature" }),
-      createItem("feature-child", { type: "feature", parentId: "epic_1" }),
+      createTestWorkItem("feature-root", { type: "feature" }),
+      createTestWorkItem("feature-child", { type: "feature", parentId: "epic_1" }),
     ]
 
     expect(
@@ -133,7 +105,7 @@ describe("view item levels", () => {
 
   it("does not synthesize empty groups when filtering for empty under values", () => {
     const state = createEmptyState()
-    const filteredItems = [createItem("root-todo", { status: "todo" })]
+    const filteredItems = [createTestWorkItem("root-todo", { status: "todo" })]
 
     expect([
       ...buildItemGroupsWithEmptyGroups(
@@ -152,7 +124,7 @@ describe("view item levels", () => {
 
   it("does not synthesize filtered-out status groups when status filters are active", () => {
     const state = createEmptyState()
-    const filteredItems = [createItem("todo-only", { status: "todo" })]
+    const filteredItems = [createTestWorkItem("todo-only", { status: "todo" })]
 
     expect([
       ...buildItemGroupsWithEmptyGroups(
@@ -171,7 +143,7 @@ describe("view item levels", () => {
 
   it("does not synthesize filtered-out type groups when type filters are active", () => {
     const state = createEmptyState()
-    const filteredItems = [createItem("task-only", { type: "task" })]
+    const filteredItems = [createTestWorkItem("task-only", { type: "task" })]
 
     expect([
       ...buildItemGroupsWithEmptyGroups(
@@ -250,8 +222,8 @@ describe("view item levels", () => {
   it("does not force timeline views back to top-level items when a level is set", () => {
     const state = createEmptyState()
     const items = [
-      createItem("epic", { type: "epic" }),
-      createItem("feature", { type: "feature", parentId: "epic" }),
+      createTestWorkItem("epic", { type: "epic" }),
+      createTestWorkItem("feature", { type: "feature", parentId: "epic" }),
     ]
 
     expect(
@@ -279,14 +251,14 @@ describe("view item levels", () => {
 
   it("returns only the next direct child level for display under a parent", () => {
     const state = createEmptyState()
-    const parent = createItem("feature", { type: "feature" })
+    const parent = createTestWorkItem("feature", { type: "feature" })
     const directChildren = [
-      createItem("requirement-high", {
+      createTestWorkItem("requirement-high", {
         type: "requirement",
         parentId: parent.id,
         priority: "high",
       }),
-      createItem("requirement-low", {
+      createTestWorkItem("requirement-low", {
         type: "requirement",
         parentId: parent.id,
         priority: "low",
@@ -296,7 +268,7 @@ describe("view item levels", () => {
     state.workItems = [
       parent,
       ...directChildren,
-      createItem("story", {
+      createTestWorkItem("story", {
         type: "story",
         parentId: "requirement-high",
       }),
@@ -311,7 +283,7 @@ describe("view item levels", () => {
 
   it("applies active view filters to direct child disclosure rows without reapplying the parent level filter", () => {
     const state = createEmptyState()
-    const parent = createItem("task-parent", { type: "task" })
+    const parent = createTestWorkItem("task-parent", { type: "task" })
     const view = createView({
       itemLevel: "task",
       filters: {
@@ -323,19 +295,19 @@ describe("view item levels", () => {
 
     state.workItems = [
       parent,
-      createItem("subtask-visible", {
+      createTestWorkItem("subtask-visible", {
         type: "sub-task",
         parentId: parent.id,
         assigneeId: "user_1",
         status: "todo",
       }),
-      createItem("subtask-hidden-complete", {
+      createTestWorkItem("subtask-hidden-complete", {
         type: "sub-task",
         parentId: parent.id,
         assigneeId: "user_1",
         status: "done",
       }),
-      createItem("subtask-hidden-assignee", {
+      createTestWorkItem("subtask-hidden-assignee", {
         type: "sub-task",
         parentId: parent.id,
         assigneeId: "user_2",
@@ -352,16 +324,16 @@ describe("view item levels", () => {
 
   it("scopes direct child disclosure to the caller-provided item set", () => {
     const state = createEmptyState()
-    const parent = createItem("feature-parent", {
+    const parent = createTestWorkItem("feature-parent", {
       type: "feature",
       primaryProjectId: "project_1",
     })
-    const scopedChild = createItem("requirement-scoped", {
+    const scopedChild = createTestWorkItem("requirement-scoped", {
       type: "requirement",
       parentId: parent.id,
       primaryProjectId: "project_1",
     })
-    const unscopedChild = createItem("requirement-unscoped", {
+    const unscopedChild = createTestWorkItem("requirement-unscoped", {
       type: "requirement",
       parentId: parent.id,
       primaryProjectId: "project_2",
@@ -413,14 +385,14 @@ describe("view item levels", () => {
       },
     ]
     state.workItems = [
-      createItem("epic", { type: "epic" }),
-      createItem("feature", { type: "feature", parentId: "epic" }),
-      createItem("story", {
+      createTestWorkItem("epic", { type: "epic" }),
+      createTestWorkItem("feature", { type: "feature", parentId: "epic" }),
+      createTestWorkItem("story", {
         type: "story",
         parentId: "feature",
         assigneeId: "user_1",
       }),
-      createItem("unrelated", {
+      createTestWorkItem("unrelated", {
         type: "task",
         assigneeId: "user_2",
       }),
@@ -436,17 +408,17 @@ describe("view item levels", () => {
   it("returns the lowest assigned descendants when compressing personal work hierarchies", () => {
     const state = createEmptyState()
     state.currentUserId = "user_1"
-    const epic = createItem("epic", { type: "epic" })
-    const feature = createItem("feature", {
+    const epic = createTestWorkItem("epic", { type: "epic" })
+    const feature = createTestWorkItem("feature", {
       type: "feature",
       parentId: epic.id,
       assigneeId: "user_1",
     })
-    const requirement = createItem("requirement", {
+    const requirement = createTestWorkItem("requirement", {
       type: "requirement",
       parentId: feature.id,
     })
-    const story = createItem("story", {
+    const story = createTestWorkItem("story", {
       type: "story",
       parentId: requirement.id,
       assigneeId: "user_1",
@@ -473,16 +445,16 @@ describe("view item levels", () => {
 
   it("matches assigned descendant filters against assigned items while rendering the parent level", () => {
     const state = createEmptyState()
-    const epic = createItem("epic", {
+    const epic = createTestWorkItem("epic", {
       type: "epic",
       status: "backlog",
     })
-    const feature = createItem("feature", {
+    const feature = createTestWorkItem("feature", {
       type: "feature",
       parentId: epic.id,
       status: "backlog",
     })
-    const story = createItem("story", {
+    const story = createTestWorkItem("story", {
       type: "story",
       parentId: feature.id,
       assigneeId: "user_1",

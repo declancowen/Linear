@@ -1,5 +1,6 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 
+import { normalizeWorkItemKeyNumberPadding } from "../../lib/domain/work-item-key"
 import {
   assertServerToken,
   mergeMembershipRole,
@@ -9,6 +10,7 @@ import {
 import {
   getUniqueLabelWorkspaceId,
   inferLabelWorkspaceIds,
+  type LabelWorkspaceInferenceInput,
 } from "./label_workspace"
 
 type ServerAccessArgs = {
@@ -77,6 +79,16 @@ type WorkspaceMembershipBackfillStatus = {
     existing: number
     missing: number
     staleRole: number
+    remaining: number
+  }
+  remaining: {
+    total: number
+  }
+}
+
+type WorkItemKeyBackfillStatus = {
+  workItems: {
+    total: number
     remaining: number
   }
   remaining: {
@@ -206,7 +218,10 @@ export function buildWorkspaceMembershipBackfillPlan(
   }
 }
 
-function getNormalizedLookupStatus(input: {
+type NormalizedLookupStatusInput = Pick<
+  LabelWorkspaceInferenceInput,
+  "projects" | "views" | "workItems"
+> & {
   workspaces: Array<{
     id: string
   }>
@@ -230,42 +245,38 @@ function getNormalizedLookupStatus(input: {
     id: string
     workspaceId?: string | null
   }>
-  workItems: Array<{
-    teamId: string
-    labelIds: string[]
-  }>
-  views: Array<{
-    scopeType: "personal" | "team" | "workspace"
-    scopeId: string
-    filters: {
-      labelIds: string[]
-      teamIds: string[]
-    }
-  }>
-  projects: Array<{
-    scopeType: "team" | "workspace"
-    scopeId: string
-    presentation?: {
-      filters: {
-        labelIds: string[]
-      }
-    }
-  }>
-}): LegacyLookupStatus {
-  const remainingTeams = input.teams.filter(
+}
+
+function countTeamsWithOutdatedNormalizedJoinCodes(
+  teams: NormalizedLookupStatusInput["teams"]
+) {
+  return teams.filter(
     (team) =>
       (team.joinCodeNormalized ?? null) !==
       normalizeJoinCode(team.settings.joinCode)
   ).length
-  const remainingUsers = input.users.filter(
+}
+
+function countUsersWithOutdatedNormalizedEmails(
+  users: NormalizedLookupStatusInput["users"]
+) {
+  return users.filter(
     (user) =>
       (user.emailNormalized ?? null) !== normalizeEmailAddress(user.email)
   ).length
-  const remainingInvites = input.invites.filter(
+}
+
+function countInvitesWithOutdatedNormalizedEmails(
+  invites: NormalizedLookupStatusInput["invites"]
+) {
+  return invites.filter(
     (invite) =>
       (invite.normalizedEmail ?? null) !== normalizeEmailAddress(invite.email)
   ).length
-  const inferredLabelWorkspaceIds = inferLabelWorkspaceIds({
+}
+
+function createLabelWorkspaceInferenceInput(input: NormalizedLookupStatusInput) {
+  return {
     teams: input.teams.map((team) => ({
       id: team.id,
       workspaceId: team.workspaceId,
@@ -273,27 +284,85 @@ function getNormalizedLookupStatus(input: {
     workItems: input.workItems,
     views: input.views,
     projects: input.projects,
+  }
+}
+
+function getOnlyWorkspaceId(workspaces: NormalizedLookupStatusInput["workspaces"]) {
+  return workspaces.length === 1 ? (workspaces[0]?.id ?? null) : null
+}
+
+function getInferredLabelWorkspaceId(input: {
+  inferredLabelWorkspaceIds: Map<string, Set<string>>
+  labelId: string
+  onlyWorkspaceId: string | null
+}) {
+  return (
+    getUniqueLabelWorkspaceId(input.inferredLabelWorkspaceIds.get(input.labelId)) ??
+    input.onlyWorkspaceId
+  )
+}
+
+function getLabelWorkspaceNormalizationState(input: {
+  inferredLabelWorkspaceIds: Map<string, Set<string>>
+  label: NormalizedLookupStatusInput["labels"][number]
+  onlyWorkspaceId: string | null
+}) {
+  const inferredWorkspaceId = getInferredLabelWorkspaceId({
+    inferredLabelWorkspaceIds: input.inferredLabelWorkspaceIds,
+    labelId: input.label.id,
+    onlyWorkspaceId: input.onlyWorkspaceId,
   })
-  const onlyWorkspaceId =
-    input.workspaces.length === 1 ? (input.workspaces[0]?.id ?? null) : null
-  let remainingLabels = 0
-  let unresolvedLabels = 0
+
+  return {
+    needsNormalization: (input.label.workspaceId ?? null) !== inferredWorkspaceId,
+    unresolved: !inferredWorkspaceId,
+  }
+}
+
+function countLabelsNeedingWorkspaceNormalization(
+  input: NormalizedLookupStatusInput
+) {
+  const inferredLabelWorkspaceIds = inferLabelWorkspaceIds(
+    createLabelWorkspaceInferenceInput(input)
+  )
+  const onlyWorkspaceId = getOnlyWorkspaceId(input.workspaces)
+  let remaining = 0
+  let unresolved = 0
 
   for (const label of input.labels) {
-    const inferredWorkspaceId =
-      getUniqueLabelWorkspaceId(inferredLabelWorkspaceIds.get(label.id)) ??
-      onlyWorkspaceId
+    const state = getLabelWorkspaceNormalizationState({
+      inferredLabelWorkspaceIds,
+      label,
+      onlyWorkspaceId,
+    })
 
-    if ((label.workspaceId ?? null) === inferredWorkspaceId) {
+    if (!state.needsNormalization) {
       continue
     }
 
-    remainingLabels += 1
+    remaining += 1
 
-    if (!inferredWorkspaceId) {
-      unresolvedLabels += 1
+    if (state.unresolved) {
+      unresolved += 1
     }
   }
+
+  return {
+    remaining,
+    unresolved,
+  }
+}
+
+function getNormalizedLookupStatus(
+  input: NormalizedLookupStatusInput
+): LegacyLookupStatus {
+  const remainingTeams = countTeamsWithOutdatedNormalizedJoinCodes(input.teams)
+  const remainingUsers = countUsersWithOutdatedNormalizedEmails(input.users)
+  const remainingInvites = countInvitesWithOutdatedNormalizedEmails(
+    input.invites
+  )
+  const { remaining: remainingLabels, unresolved: unresolvedLabels } =
+    countLabelsNeedingWorkspaceNormalization(input)
 
   return {
     teams: {
@@ -314,23 +383,53 @@ function getNormalizedLookupStatus(input: {
       unresolved: unresolvedLabels,
     },
     remaining: {
-      total: remainingTeams + remainingUsers + remainingInvites + remainingLabels,
+      total:
+        remainingTeams + remainingUsers + remainingInvites + remainingLabels,
+    },
+  }
+}
+
+function getWorkItemKeyBackfillStatus(
+  workItems: Array<{
+    key: string
+  }>
+): WorkItemKeyBackfillStatus {
+  const remaining = workItems.filter(
+    (workItem) =>
+      normalizeWorkItemKeyNumberPadding(workItem.key) !== workItem.key
+  ).length
+
+  return {
+    workItems: {
+      total: workItems.length,
+      remaining,
+    },
+    remaining: {
+      total: remaining,
     },
   }
 }
 
 async function loadLookupTables(ctx: MutationCtx | QueryCtx) {
-  const [workspaces, teams, users, invites, labels, workItems, views, projects] =
-    await Promise.all([
-      ctx.db.query("workspaces").collect(),
-      ctx.db.query("teams").collect(),
-      ctx.db.query("users").collect(),
-      ctx.db.query("invites").collect(),
-      ctx.db.query("labels").collect(),
-      ctx.db.query("workItems").collect(),
-      ctx.db.query("views").collect(),
-      ctx.db.query("projects").collect(),
-    ])
+  const [
+    workspaces,
+    teams,
+    users,
+    invites,
+    labels,
+    workItems,
+    views,
+    projects,
+  ] = await Promise.all([
+    ctx.db.query("workspaces").collect(),
+    ctx.db.query("teams").collect(),
+    ctx.db.query("users").collect(),
+    ctx.db.query("invites").collect(),
+    ctx.db.query("labels").collect(),
+    ctx.db.query("workItems").collect(),
+    ctx.db.query("views").collect(),
+    ctx.db.query("projects").collect(),
+  ])
 
   return {
     workspaces,
@@ -361,43 +460,32 @@ async function loadWorkspaceMembershipTables(ctx: MutationCtx | QueryCtx) {
   }
 }
 
-export async function getLegacyLookupBackfillStatusHandler(
-  ctx: QueryCtx,
-  args: ServerAccessArgs
-) {
-  assertServerToken(args.serverToken)
-
-  return getNormalizedLookupStatus(await loadLookupTables(ctx))
+async function loadWorkItems(ctx: MutationCtx | QueryCtx) {
+  return ctx.db.query("workItems").collect()
 }
 
-export async function getWorkspaceMembershipBackfillStatusHandler(
-  ctx: QueryCtx,
-  args: ServerAccessArgs
-) {
-  assertServerToken(args.serverToken)
+type LookupTables = Awaited<ReturnType<typeof loadLookupTables>>
+type WorkspaceMembershipTables = Awaited<
+  ReturnType<typeof loadWorkspaceMembershipTables>
+>
 
-  return buildWorkspaceMembershipBackfillPlan(
-    await loadWorkspaceMembershipTables(ctx)
-  ).status
+type BackfillPatchResult = {
+  patched: number
+  remainingCapacity: number
 }
 
-export async function backfillLegacyLookupFieldsHandler(
+function getBackfillBatchLimit(args: BackfillArgs) {
+  return Math.max(1, Math.min(args.limit ?? 250, 1000))
+}
+
+export async function backfillTeamJoinCodes(
   ctx: MutationCtx,
-  args: BackfillArgs
-) {
-  assertServerToken(args.serverToken)
+  teams: LookupTables["teams"],
+  remainingCapacity: number
+): Promise<BackfillPatchResult> {
+  let patched = 0
 
-  const batchLimit = Math.max(1, Math.min(args.limit ?? 250, 1000))
-  const tables = await loadLookupTables(ctx)
-  const patched = {
-    teams: 0,
-    users: 0,
-    invites: 0,
-    labels: 0,
-  }
-  let remainingCapacity = batchLimit
-
-  for (const team of tables.teams) {
+  for (const team of teams) {
     if (remainingCapacity <= 0) {
       break
     }
@@ -411,11 +499,24 @@ export async function backfillLegacyLookupFieldsHandler(
     await ctx.db.patch(team._id, {
       joinCodeNormalized: normalizedJoinCode,
     })
-    patched.teams += 1
+    patched += 1
     remainingCapacity -= 1
   }
 
-  for (const user of tables.users) {
+  return {
+    patched,
+    remainingCapacity,
+  }
+}
+
+export async function backfillUserEmails(
+  ctx: MutationCtx,
+  users: LookupTables["users"],
+  remainingCapacity: number
+): Promise<BackfillPatchResult> {
+  let patched = 0
+
+  for (const user of users) {
     if (remainingCapacity <= 0) {
       break
     }
@@ -429,11 +530,24 @@ export async function backfillLegacyLookupFieldsHandler(
     await ctx.db.patch(user._id, {
       emailNormalized: normalizedEmail,
     })
-    patched.users += 1
+    patched += 1
     remainingCapacity -= 1
   }
 
-  for (const invite of tables.invites) {
+  return {
+    patched,
+    remainingCapacity,
+  }
+}
+
+export async function backfillInviteEmails(
+  ctx: MutationCtx,
+  invites: LookupTables["invites"],
+  remainingCapacity: number
+): Promise<BackfillPatchResult> {
+  let patched = 0
+
+  for (const invite of invites) {
     if (remainingCapacity <= 0) {
       break
     }
@@ -447,11 +561,18 @@ export async function backfillLegacyLookupFieldsHandler(
     await ctx.db.patch(invite._id, {
       normalizedEmail,
     })
-    patched.invites += 1
+    patched += 1
     remainingCapacity -= 1
   }
 
-  const inferredLabelWorkspaceIds = inferLabelWorkspaceIds({
+  return {
+    patched,
+    remainingCapacity,
+  }
+}
+
+function inferLegacyLabelWorkspaceIds(tables: LookupTables) {
+  return inferLabelWorkspaceIds({
     teams: tables.teams.map((team) => ({
       id: team.id,
       workspaceId: team.workspaceId,
@@ -480,43 +601,246 @@ export async function backfillLegacyLookupFieldsHandler(
         : undefined,
     })),
   })
-  const onlyWorkspaceId =
-    tables.workspaces.length === 1 ? (tables.workspaces[0]?.id ?? null) : null
+}
+
+async function backfillLabelWorkspaceIds(
+  ctx: MutationCtx,
+  tables: LookupTables,
+  remainingCapacity: number
+): Promise<BackfillPatchResult> {
+  const inferredLabelWorkspaceIds = inferLegacyLabelWorkspaceIds(tables)
+  const onlyWorkspaceId = getOnlyWorkspaceId(tables.workspaces)
+  let patched = 0
 
   for (const label of tables.labels) {
     if (remainingCapacity <= 0) {
       break
     }
 
-    const inferredWorkspaceId =
-      getUniqueLabelWorkspaceId(inferredLabelWorkspaceIds.get(label.id)) ??
-      onlyWorkspaceId
-
-    if (!inferredWorkspaceId) {
-      continue
-    }
-
-    if ((label.workspaceId ?? null) === inferredWorkspaceId) {
-      continue
-    }
-
-    await ctx.db.patch(label._id, {
-      workspaceId: inferredWorkspaceId,
+    const patch = getBackfillLabelWorkspacePatch({
+      inferredLabelWorkspaceIds,
+      label,
+      onlyWorkspaceId,
     })
-    patched.labels += 1
+
+    if (!patch) {
+      continue
+    }
+
+    await ctx.db.patch(label._id, patch)
+    patched += 1
     remainingCapacity -= 1
   }
 
+  return {
+    patched,
+    remainingCapacity,
+  }
+}
+
+export function getBackfillLabelWorkspacePatch(input: {
+  inferredLabelWorkspaceIds: Map<string, Set<string>>
+  label: LookupTables["labels"][number]
+  onlyWorkspaceId: string | null
+}) {
+  const inferredWorkspaceId =
+    getUniqueLabelWorkspaceId(
+      input.inferredLabelWorkspaceIds.get(input.label.id)
+    ) ?? input.onlyWorkspaceId
+
+  if (!inferredWorkspaceId) {
+    return null
+  }
+
+  if ((input.label.workspaceId ?? null) === inferredWorkspaceId) {
+    return null
+  }
+
+  return {
+    workspaceId: inferredWorkspaceId,
+  }
+}
+
+export async function getLegacyLookupBackfillStatusHandler(
+  ctx: QueryCtx,
+  args: ServerAccessArgs
+) {
+  assertServerToken(args.serverToken)
+
+  return getNormalizedLookupStatus(await loadLookupTables(ctx))
+}
+
+export async function getWorkspaceMembershipBackfillStatusHandler(
+  ctx: QueryCtx,
+  args: ServerAccessArgs
+) {
+  assertServerToken(args.serverToken)
+
+  return buildWorkspaceMembershipBackfillPlan(
+    await loadWorkspaceMembershipTables(ctx)
+  ).status
+}
+
+export async function getWorkItemKeyBackfillStatusHandler(
+  ctx: QueryCtx,
+  args: ServerAccessArgs
+) {
+  assertServerToken(args.serverToken)
+
+  return getWorkItemKeyBackfillStatus(await loadWorkItems(ctx))
+}
+
+export async function backfillLegacyLookupFieldsHandler(
+  ctx: MutationCtx,
+  args: BackfillArgs
+) {
+  assertServerToken(args.serverToken)
+
+  const batchLimit = getBackfillBatchLimit(args)
+  const tables = await loadLookupTables(ctx)
+  const teamPatch = await backfillTeamJoinCodes(ctx, tables.teams, batchLimit)
+  const userPatch = await backfillUserEmails(
+    ctx,
+    tables.users,
+    teamPatch.remainingCapacity
+  )
+  const invitePatch = await backfillInviteEmails(
+    ctx,
+    tables.invites,
+    userPatch.remainingCapacity
+  )
+  const labelPatch = await backfillLabelWorkspaceIds(
+    ctx,
+    tables,
+    invitePatch.remainingCapacity
+  )
+
   const status = getNormalizedLookupStatus(await loadLookupTables(ctx))
+  const patched = {
+    teams: teamPatch.patched,
+    users: userPatch.patched,
+    invites: invitePatch.patched,
+    labels: labelPatch.patched,
+  }
 
   return {
     patched: {
       ...patched,
-      total:
-        patched.teams + patched.users + patched.invites + patched.labels,
+      total: patched.teams + patched.users + patched.invites + patched.labels,
     },
     remaining: status.remaining,
     status,
+  }
+}
+
+export async function backfillWorkItemKeysHandler(
+  ctx: MutationCtx,
+  args: BackfillArgs
+) {
+  assertServerToken(args.serverToken)
+
+  const batchLimit = getBackfillBatchLimit(args)
+  const workItems = await loadWorkItems(ctx)
+  let remainingCapacity = batchLimit
+  let patched = 0
+
+  for (const workItem of workItems) {
+    if (remainingCapacity <= 0) {
+      break
+    }
+
+    const normalizedKey = normalizeWorkItemKeyNumberPadding(workItem.key)
+
+    if (normalizedKey === workItem.key) {
+      continue
+    }
+
+    await ctx.db.patch(workItem._id, {
+      key: normalizedKey,
+    })
+    patched += 1
+    remainingCapacity -= 1
+  }
+
+  const status = getWorkItemKeyBackfillStatus(await loadWorkItems(ctx))
+
+  return {
+    patched: {
+      workItems: patched,
+      total: patched,
+    },
+    remaining: status.remaining,
+    status,
+  }
+}
+
+async function insertMissingWorkspaceMemberships(
+  ctx: MutationCtx,
+  input: {
+    memberships: ReturnType<
+      typeof buildWorkspaceMembershipBackfillPlan
+    >["missingMemberships"]
+    remainingCapacity: number
+  }
+) {
+  let inserted = 0
+  let remainingCapacity = input.remainingCapacity
+
+  for (const membership of input.memberships) {
+    if (remainingCapacity <= 0) {
+      break
+    }
+
+    await ctx.db.insert("workspaceMemberships", membership)
+    inserted += 1
+    remainingCapacity -= 1
+  }
+
+  return {
+    inserted,
+    remainingCapacity,
+  }
+}
+
+async function updateStaleWorkspaceMembershipRoles(
+  ctx: MutationCtx,
+  input: {
+    memberships: ReturnType<
+      typeof buildWorkspaceMembershipBackfillPlan
+    >["staleRoleMemberships"]
+    remainingCapacity: number
+    workspaceMembershipDocsByKey: Map<
+      string,
+      WorkspaceMembershipTables["workspaceMemberships"][number]
+    >
+  }
+) {
+  let updated = 0
+  let remainingCapacity = input.remainingCapacity
+
+  for (const membership of input.memberships) {
+    if (remainingCapacity <= 0) {
+      break
+    }
+
+    const existingMembership = input.workspaceMembershipDocsByKey.get(
+      getWorkspaceMembershipKey(membership.workspaceId, membership.userId)
+    )
+
+    if (!existingMembership) {
+      continue
+    }
+
+    await ctx.db.patch(existingMembership._id, {
+      role: membership.role,
+    })
+    updated += 1
+    remainingCapacity -= 1
+  }
+
+  return {
+    remainingCapacity,
+    updated,
   }
 }
 
@@ -535,40 +859,18 @@ export async function backfillWorkspaceMembershipsHandler(
       membership,
     ])
   )
-  let remainingCapacity = batchLimit
+  const insertResult = await insertMissingWorkspaceMemberships(ctx, {
+    memberships: plan.missingMemberships,
+    remainingCapacity: batchLimit,
+  })
+  const updateResult = await updateStaleWorkspaceMembershipRoles(ctx, {
+    memberships: plan.staleRoleMemberships,
+    remainingCapacity: insertResult.remainingCapacity,
+    workspaceMembershipDocsByKey,
+  })
   const patched = {
-    inserted: 0,
-    updated: 0,
-  }
-
-  for (const membership of plan.missingMemberships) {
-    if (remainingCapacity <= 0) {
-      break
-    }
-
-    await ctx.db.insert("workspaceMemberships", membership)
-    patched.inserted += 1
-    remainingCapacity -= 1
-  }
-
-  for (const membership of plan.staleRoleMemberships) {
-    if (remainingCapacity <= 0) {
-      break
-    }
-
-    const existingMembership = workspaceMembershipDocsByKey.get(
-      getWorkspaceMembershipKey(membership.workspaceId, membership.userId)
-    )
-
-    if (!existingMembership) {
-      continue
-    }
-
-    await ctx.db.patch(existingMembership._id, {
-      role: membership.role,
-    })
-    patched.updated += 1
-    remainingCapacity -= 1
+    inserted: insertResult.inserted,
+    updated: updateResult.updated,
   }
 
   const status = buildWorkspaceMembershipBackfillPlan(

@@ -1,15 +1,7 @@
 "use client"
 
-import type { Call, ChatMessage } from "@/lib/domain/types"
-
 import { normalizeStartConversationCallResult } from "./contracts"
 import { runRouteMutation } from "./shared"
-
-export type StartConversationCallResult = {
-  call: Call | null
-  message: ChatMessage
-  joinHref: string
-}
 
 export function syncCreateWorkspaceChat(input: {
   workspaceId: string

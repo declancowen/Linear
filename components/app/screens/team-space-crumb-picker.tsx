@@ -25,7 +25,7 @@ const TEAM_DOT_COLORS = [
   "var(--label-5)",
 ]
 
-export function getTeamDotColor(teamId: string | null | undefined) {
+function getTeamDotColor(teamId: string | null | undefined) {
   if (!teamId) {
     return TEAM_DOT_COLORS[3]
   }

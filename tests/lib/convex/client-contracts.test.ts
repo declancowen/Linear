@@ -15,6 +15,7 @@ import {
   syncLeaveWorkspace,
   syncRegenerateTeamJoinCode,
   syncStartConversationCall,
+  syncUpdateWorkspaceBranding,
 } from "@/lib/convex/client"
 
 import {
@@ -427,5 +428,43 @@ describe("route client compatibility contracts", () => {
         teamId: "team_1",
       },
     } satisfies Partial<RouteMutationError>)
+  })
+
+  it("sends workspace branding updates with optional logo image actions", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+    )
+
+    await syncUpdateWorkspaceBranding(
+      "workspace_1",
+      "Recipe Room",
+      "https://cdn.example.com/logo.png",
+      "emerald",
+      "Shared work",
+      {
+        logoImageStorageId: "storage_1",
+        clearLogoImage: true,
+      }
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/workspace/current",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          name: "Recipe Room",
+          logoUrl: "https://cdn.example.com/logo.png",
+          logoImageStorageId: "storage_1",
+          clearLogoImage: true,
+          accent: "emerald",
+          description: "Shared work",
+        }),
+      })
+    )
   })
 })

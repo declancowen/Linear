@@ -9,6 +9,10 @@ import {
   runConvexRequestWithRetry,
   withServerToken,
 } from "./core"
+import type {
+  ServerPresenceClearInput,
+  ServerPresenceHeartbeatInput,
+} from "./presence-inputs"
 import { resolveServerOrigin } from "../request-origin"
 
 const DOCUMENT_MUTATION_ERROR_MAPPINGS = [
@@ -383,34 +387,6 @@ export async function updateDocumentServer(input: {
   }
 }
 
-export async function persistCollaborationDocumentServer(input: {
-  currentUserId: string
-  documentId: string
-  title?: string
-  content?: string
-  expectedUpdatedAt?: string
-}) {
-  const preparedContent =
-    input.content !== undefined
-      ? prepareRichTextForStorage(input.content)
-      : null
-
-  try {
-    return await getConvexServerClient().mutation(
-      api.app.persistCollaborationDocument,
-      withServerToken({
-        ...input,
-        ...(preparedContent ? { content: preparedContent.sanitized } : {}),
-      })
-    )
-  } catch (error) {
-    throw (
-      coerceApplicationError(error, [...DOCUMENT_MUTATION_ERROR_MAPPINGS]) ??
-      error
-    )
-  }
-}
-
 export async function sendDocumentMentionNotificationsServer(input: {
   currentUserId: string
   documentId: string
@@ -438,24 +414,6 @@ export async function sendDocumentMentionNotificationsServer(input: {
   }
 }
 
-export async function renameDocumentServer(input: {
-  currentUserId: string
-  documentId: string
-  title: string
-}) {
-  try {
-    return await getConvexServerClient().mutation(
-      api.app.renameDocument,
-      withServerToken(input)
-    )
-  } catch (error) {
-    throw (
-      coerceApplicationError(error, [...DOCUMENT_MUTATION_ERROR_MAPPINGS]) ??
-      error
-    )
-  }
-}
-
 export async function deleteDocumentServer(input: {
   currentUserId: string
   documentId: string
@@ -475,17 +433,9 @@ export async function deleteDocumentServer(input: {
   }
 }
 
-export async function heartbeatDocumentPresenceServer(input: {
-  currentUserId: string
-  documentId: string
-  workosUserId: string
-  email: string
-  name: string
-  avatarUrl: string
-  avatarImageUrl?: string | null
-  activeBlockId?: string | null
-  sessionId: string
-}): Promise<DocumentPresenceViewer[]> {
+export async function heartbeatDocumentPresenceServer(
+  input: ServerPresenceHeartbeatInput<"documentId">
+): Promise<DocumentPresenceViewer[]> {
   try {
     return await getConvexServerClient().mutation(
       api.app.heartbeatDocumentPresence,
@@ -499,12 +449,9 @@ export async function heartbeatDocumentPresenceServer(input: {
   }
 }
 
-export async function clearDocumentPresenceServer(input: {
-  currentUserId: string
-  documentId: string
-  workosUserId: string
-  sessionId: string
-}) {
+export async function clearDocumentPresenceServer(
+  input: ServerPresenceClearInput<"documentId">
+) {
   try {
     return await getConvexServerClient().mutation(
       api.app.clearDocumentPresence,
@@ -537,30 +484,6 @@ export async function updateItemDescriptionServer(input: {
       updatedAt: string
       documentId?: string
     }
-  } catch (error) {
-    throw (
-      coerceApplicationError(error, [...ITEM_DESCRIPTION_ERROR_MAPPINGS]) ??
-      error
-    )
-  }
-}
-
-export async function persistCollaborationItemDescriptionServer(input: {
-  currentUserId: string
-  itemId: string
-  content: string
-  expectedUpdatedAt?: string
-}) {
-  const preparedContent = prepareRichTextForStorage(input.content)
-
-  try {
-    return await getConvexServerClient().mutation(
-      api.app.persistCollaborationItemDescription,
-      withServerToken({
-        ...input,
-        content: preparedContent.sanitized,
-      })
-    )
   } catch (error) {
     throw (
       coerceApplicationError(error, [...ITEM_DESCRIPTION_ERROR_MAPPINGS]) ??

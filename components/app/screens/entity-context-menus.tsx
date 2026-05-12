@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type KeyboardEvent, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 import {
@@ -11,11 +11,9 @@ import {
 
 import { useAppStore } from "@/lib/store/app-store"
 import {
-  getTextInputLimitState,
   projectNameConstraints,
   viewNameConstraints,
 } from "@/lib/domain/input-constraints"
-import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import {
   canMutateProject,
   canMutateView,
@@ -24,8 +22,8 @@ import {
 import { getViewHref, isSystemView } from "@/lib/domain/default-views"
 import type { AppData, Project, ViewDefinition } from "@/lib/domain/types"
 import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
-import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { RenameDialog } from "@/components/app/screens/rename-dialog"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -34,119 +32,58 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-
-function RenameDialog({
-  open,
-  onOpenChange,
-  title,
-  description,
-  initialValue,
-  confirmLabel,
-  minLength,
-  maxLength,
-  onConfirm,
+function EntityActionsContextMenu({
+  canMutate,
+  children,
+  entityName,
+  entityTypeLabel,
+  onDelete,
+  onOpen,
+  onRename,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  description: string
-  initialValue: string
-  confirmLabel: string
-  minLength: number
-  maxLength: number
-  onConfirm: (value: string) => Promise<boolean> | boolean
+  canMutate: boolean
+  children: ReactNode
+  entityName: string
+  entityTypeLabel: string
+  onDelete: () => void
+  onOpen: () => void
+  onRename: () => void
 }) {
-  const [value, setValue] = useState(initialValue)
-  const [submitting, setSubmitting] = useState(false)
-  const limitState = getTextInputLimitState(value, {
-    min: minLength,
-    max: maxLength,
-    trim: true,
-  })
-
-  async function handleConfirm() {
-    const trimmedValue = value.trim()
-
-    if (!trimmedValue || submitting || !limitState.canSubmit) {
-      return
-    }
-
-    setSubmitting(true)
-    const didSucceed = await onConfirm(trimmedValue)
-
-    if (didSucceed) {
-      onOpenChange(false)
-    }
-
-    setSubmitting(false)
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "Enter" || event.defaultPrevented || submitting) {
-      return
-    }
-
-    const target = event.target
-
-    if (
-      target instanceof HTMLElement &&
-      ["BUTTON", "A", "TEXTAREA"].includes(target.tagName)
-    ) {
-      return
-    }
-
-    event.preventDefault()
-    void handleConfirm()
-  }
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-w-sm gap-0 p-0"
-        showCloseButton={false}
-        onKeyDown={handleKeyDown}
-      >
-        <div className="space-y-4 px-5 pt-5 pb-4">
-          <DialogHeader className="p-0">
-            <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              {description}
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            maxLength={maxLength}
-          />
-          <FieldCharacterLimit state={limitState} limit={maxLength} />
-        </div>
-        <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            disabled={submitting || !limitState.canSubmit}
-            onClick={() => void handleConfirm()}
-          >
-            {confirmLabel}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextMenuLabel className="truncate">{entityName}</ContextMenuLabel>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={onOpen}>
+          <ArrowSquareOut className="size-4" />
+          {`Open ${entityTypeLabel}`}
+        </ContextMenuItem>
+        {canMutate ? (
+          <>
+            <ContextMenuItem
+              onSelect={(event) => {
+                event.preventDefault()
+                onRename()
+              }}
+            >
+              <PencilSimple className="size-4" />
+              {`Rename ${entityTypeLabel}`}
+            </ContextMenuItem>
+            <ContextMenuItem
+              variant="destructive"
+              onSelect={(event) => {
+                event.preventDefault()
+                onDelete()
+              }}
+            >
+              <Trash className="size-4" />
+              {`Delete ${entityTypeLabel}`}
+            </ContextMenuItem>
+          </>
+        ) : null}
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
@@ -169,40 +106,16 @@ export function ViewContextMenu({
 
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56">
-          <ContextMenuLabel className="truncate">{view.name}</ContextMenuLabel>
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => router.push(getViewHref(view))}>
-            <ArrowSquareOut className="size-4" />
-            Open view
-          </ContextMenuItem>
-          {canMutate ? (
-            <>
-              <ContextMenuItem
-                onSelect={(event) => {
-                  event.preventDefault()
-                  setRenameOpen(true)
-                }}
-              >
-                <PencilSimple className="size-4" />
-                Rename view
-              </ContextMenuItem>
-              <ContextMenuItem
-                variant="destructive"
-                onSelect={(event) => {
-                  event.preventDefault()
-                  setDeleteOpen(true)
-                }}
-              >
-                <Trash className="size-4" />
-                Delete view
-              </ContextMenuItem>
-            </>
-          ) : null}
-        </ContextMenuContent>
-      </ContextMenu>
+      <EntityActionsContextMenu
+        canMutate={canMutate}
+        entityName={view.name}
+        entityTypeLabel="view"
+        onDelete={() => setDeleteOpen(true)}
+        onOpen={() => router.push(getViewHref(view))}
+        onRename={() => setRenameOpen(true)}
+      >
+        {children}
+      </EntityActionsContextMenu>
       <RenameDialog
         key={`${view.id}:${renameOpen ? "open" : "closed"}:${view.name}`}
         open={renameOpen}
@@ -253,40 +166,16 @@ export function ProjectContextMenu({
 
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56">
-          <ContextMenuLabel className="truncate">{project.name}</ContextMenuLabel>
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => router.push(href)}>
-            <ArrowSquareOut className="size-4" />
-            Open project
-          </ContextMenuItem>
-          {canMutate ? (
-            <>
-              <ContextMenuItem
-                onSelect={(event) => {
-                  event.preventDefault()
-                  setRenameOpen(true)
-                }}
-              >
-                <PencilSimple className="size-4" />
-                Rename project
-              </ContextMenuItem>
-              <ContextMenuItem
-                variant="destructive"
-                onSelect={(event) => {
-                  event.preventDefault()
-                  setDeleteOpen(true)
-                }}
-              >
-                <Trash className="size-4" />
-                Delete project
-              </ContextMenuItem>
-            </>
-          ) : null}
-        </ContextMenuContent>
-      </ContextMenu>
+      <EntityActionsContextMenu
+        canMutate={canMutate}
+        entityName={project.name}
+        entityTypeLabel="project"
+        onDelete={() => setDeleteOpen(true)}
+        onOpen={() => router.push(href)}
+        onRename={() => setRenameOpen(true)}
+      >
+        {children}
+      </EntityActionsContextMenu>
       <RenameDialog
         key={`${project.id}:${renameOpen ? "open" : "closed"}:${project.name}`}
         open={renameOpen}

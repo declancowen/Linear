@@ -63,6 +63,18 @@ describe("WorkspaceLayout", () => {
     isWorkspaceAdmin: false,
   }
 
+  async function renderWorkspaceLayout() {
+    const { default: WorkspaceLayout } = await import(
+      "@/app/(workspace)/layout"
+    )
+
+    render(
+      await WorkspaceLayout({
+        children: <div>Workspace content</div>,
+      })
+    )
+  }
+
   beforeEach(() => {
     withAuthMock.mockReset()
     redirectMock.mockReset()
@@ -102,13 +114,7 @@ describe("WorkspaceLayout", () => {
       invites: [],
     })
 
-    const { default: WorkspaceLayout } = await import("@/app/(workspace)/layout")
-
-    render(
-      await WorkspaceLayout({
-        children: <div>Workspace content</div>,
-      })
-    )
+    await renderWorkspaceLayout()
 
     expect(screen.getByText("Workspace content")).toBeInTheDocument()
     expect(authenticatedWorkspaceClientMock).toHaveBeenCalledWith(
@@ -142,13 +148,7 @@ describe("WorkspaceLayout", () => {
       new Error("boom")
     )
 
-    const { default: WorkspaceLayout } = await import("@/app/(workspace)/layout")
-
-    render(
-      await WorkspaceLayout({
-        children: <div>Workspace content</div>,
-      })
-    )
+    await renderWorkspaceLayout()
 
     expect(screen.getByText("Workspace content")).toBeInTheDocument()
     expect(authenticatedWorkspaceClientMock).toHaveBeenCalledWith(

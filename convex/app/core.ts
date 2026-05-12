@@ -12,6 +12,8 @@ import {
 } from "../../lib/domain/user-defaults"
 import { mergeRole } from "../../lib/domain/roles"
 
+export { toTeamKeyPrefix } from "../../lib/domain/team-key-prefix"
+
 export {
   defaultUserPreferences,
   defaultUserStatus,
@@ -120,23 +122,24 @@ export function mergeMembershipRole(
   return mergeRole(currentRole, requestedRole)
 }
 
-export function createUniqueTeamSlug(
-  teams: Array<{ slug: string }>,
-  name: string,
-  joinCode: string
+export function createUniqueSlug(
+  existingSlugs: Iterable<string>,
+  baseSlug: string,
+  fallbackSlug: string,
+  errorMessage: string
 ) {
-  const baseSlug = createSlug(name) || createSlug(joinCode) || "team"
-  const takenSlugs = new Set(teams.map((team) => team.slug))
+  const resolvedBaseSlug = baseSlug || fallbackSlug
+  const takenSlugs = new Set(existingSlugs)
 
-  if (!takenSlugs.has(baseSlug)) {
-    return baseSlug
+  if (!takenSlugs.has(resolvedBaseSlug)) {
+    return resolvedBaseSlug
   }
 
   let suffix = 2
 
   while (suffix < 1000) {
     const suffixText = `-${suffix}`
-    const candidate = `${baseSlug.slice(0, 48 - suffixText.length)}${suffixText}`
+    const candidate = `${resolvedBaseSlug.slice(0, 48 - suffixText.length)}${suffixText}`
 
     if (!takenSlugs.has(candidate)) {
       return candidate
@@ -145,34 +148,32 @@ export function createUniqueTeamSlug(
     suffix += 1
   }
 
-  throw new Error("Unable to generate a unique team slug")
+  throw new Error(errorMessage)
+}
+
+export function createUniqueTeamSlug(
+  teams: Array<{ slug: string }>,
+  name: string,
+  joinCode: string
+) {
+  return createUniqueSlug(
+    teams.map((team) => team.slug),
+    createSlug(name) || createSlug(joinCode),
+    "team",
+    "Unable to generate a unique team slug"
+  )
 }
 
 export function createUniqueWorkspaceSlug(
   workspaces: Array<{ slug: string }>,
   name: string
 ) {
-  const baseSlug = createSlug(name) || "workspace"
-  const takenSlugs = new Set(workspaces.map((workspace) => workspace.slug))
-
-  if (!takenSlugs.has(baseSlug)) {
-    return baseSlug
-  }
-
-  let suffix = 2
-
-  while (suffix < 1000) {
-    const suffixText = `-${suffix}`
-    const candidate = `${baseSlug.slice(0, 48 - suffixText.length)}${suffixText}`
-
-    if (!takenSlugs.has(candidate)) {
-      return candidate
-    }
-
-    suffix += 1
-  }
-
-  throw new Error("Unable to generate a unique workspace slug")
+  return createUniqueSlug(
+    workspaces.map((workspace) => workspace.slug),
+    createSlug(name),
+    "workspace",
+    "Unable to generate a unique workspace slug"
+  )
 }
 
 export function ensureJoinCodeAvailable(
@@ -187,39 +188,6 @@ export function ensureJoinCodeAvailable(
   if (duplicate) {
     throw new Error("Join code is already in use")
   }
-}
-
-export function toKeyPrefix(teamId: string) {
-  const alphanumeric = teamId.replace(/[^a-z0-9]+/gi, "").toUpperCase()
-  return alphanumeric.slice(0, 3) || "TEA"
-}
-
-export function toTeamKeyPrefix(
-  teamName: string | null | undefined,
-  teamId: string
-) {
-  const words = (teamName ?? "")
-    .split(/[^a-z0-9]+/gi)
-    .map((word) => word.trim())
-    .filter(Boolean)
-
-  if (words.length >= 2) {
-    return words
-      .slice(0, 3)
-      .map((word) => word[0] ?? "")
-      .join("")
-      .toUpperCase()
-  }
-
-  if (words.length === 1) {
-    const compact = words[0].replace(/[^a-z0-9]+/gi, "").toUpperCase()
-
-    if (compact.length > 0) {
-      return compact.slice(0, 3)
-    }
-  }
-
-  return toKeyPrefix(teamId)
 }
 
 export function matchesTeamAccessIdentifier(

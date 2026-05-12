@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server"
+import type { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { documentSchema } from "@/lib/domain/types"
@@ -21,6 +22,95 @@ import {
   jsonError,
   jsonOk,
 } from "@/lib/server/route-response"
+
+type CreateDocumentPayload = z.infer<typeof documentSchema>
+type DocumentRouteAppContext = {
+  authContext?: {
+    currentWorkspace?: {
+      id: string
+    } | null
+  } | null
+  ensuredUser: {
+    userId: string
+  }
+}
+
+function getCreatedDocumentScope(input: {
+  appContext: DocumentRouteAppContext
+  parsed: CreateDocumentPayload
+  result: Awaited<ReturnType<typeof createDocumentServer>>
+}) {
+  const documentScopeType: "team" | "workspace" =
+    input.parsed.kind === "team-document" ? "team" : "workspace"
+  const documentScopeId =
+    input.parsed.kind === "team-document"
+      ? input.parsed.teamId
+      : input.parsed.workspaceId
+  const searchWorkspaceId =
+    input.result?.workspaceId ??
+    (input.parsed.kind === "team-document"
+      ? (input.appContext.authContext?.currentWorkspace?.id ?? null)
+      : input.parsed.workspaceId)
+
+  return {
+    documentScopeId,
+    documentScopeType,
+    isPrivateDocument: input.parsed.kind === "private-document",
+    searchWorkspaceId,
+  }
+}
+
+async function bumpCreatedDocumentReadModels(input: {
+  appContext: DocumentRouteAppContext
+  parsed: CreateDocumentPayload
+  result: Awaited<ReturnType<typeof createDocumentServer>>
+}) {
+  const scope = getCreatedDocumentScope(input)
+
+  if (scope.isPrivateDocument) {
+    await bumpPrivateDocumentIndexReadModelScopesServer(
+      scope.documentScopeId,
+      input.appContext.ensuredUser.userId
+    )
+  } else {
+    await bumpDocumentIndexReadModelScopesServer(
+      scope.documentScopeType,
+      scope.documentScopeId
+    )
+  }
+
+  if (!scope.searchWorkspaceId) {
+    return
+  }
+
+  if (scope.isPrivateDocument) {
+    await bumpPrivateSearchSeedReadModelScopesServer(
+      scope.searchWorkspaceId,
+      input.appContext.ensuredUser.userId
+    )
+    return
+  }
+
+  await bumpSearchSeedReadModelScopesServer(scope.searchWorkspaceId)
+}
+
+async function createDocumentForRoute(
+  parsed: CreateDocumentPayload,
+  appContext: DocumentRouteAppContext
+) {
+  const result = await createDocumentServer({
+    currentUserId: appContext.ensuredUser.userId,
+    ...parsed,
+  })
+
+  await bumpCreatedDocumentReadModels({
+    appContext,
+    parsed,
+    result,
+  })
+
+  return result
+}
 
 export async function POST(request: NextRequest) {
   const session = await requireSession()
@@ -46,40 +136,7 @@ export async function POST(request: NextRequest) {
       return appContext
     }
 
-    const result = await createDocumentServer({
-      currentUserId: appContext.ensuredUser.userId,
-      ...parsed,
-    })
-    const documentScopeType =
-      parsed.kind === "team-document" ? "team" : "workspace"
-    const documentScopeId =
-      parsed.kind === "team-document" ? parsed.teamId : parsed.workspaceId
-    const searchWorkspaceId =
-      result?.workspaceId ??
-      (parsed.kind === "team-document"
-        ? appContext.authContext?.currentWorkspace?.id ?? null
-        : parsed.workspaceId)
-    if (parsed.kind === "private-document") {
-      await bumpPrivateDocumentIndexReadModelScopesServer(
-        documentScopeId,
-        appContext.ensuredUser.userId
-      )
-    } else {
-      await bumpDocumentIndexReadModelScopesServer(
-        documentScopeType,
-        documentScopeId
-      )
-    }
-    if (searchWorkspaceId) {
-      if (parsed.kind === "private-document") {
-        await bumpPrivateSearchSeedReadModelScopesServer(
-          searchWorkspaceId,
-          appContext.ensuredUser.userId
-        )
-      } else {
-        await bumpSearchSeedReadModelScopesServer(searchWorkspaceId)
-      }
-    }
+    const result = await createDocumentForRoute(parsed, appContext)
 
     return jsonOk({
       ok: true,

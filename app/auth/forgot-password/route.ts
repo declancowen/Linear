@@ -1,40 +1,7 @@
-import { NextResponse } from "next/server"
-
+import { buildForgotPasswordPageHref } from "@/lib/auth-routing"
 import { logProviderError } from "@/lib/server/provider-errors"
+import { redirectToRoute } from "@/lib/server/route-response"
 import { requestWorkOSPasswordReset } from "@/lib/server/workos"
-
-function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, request.url), {
-    status: request.method === "POST" ? 303 : 307,
-  })
-}
-
-function buildForgotPasswordPageHref(input: {
-  nextPath: string
-  email: string
-  error?: string | null
-  notice?: string | null
-}) {
-  const url = new URL("/forgot-password", "https://teams.placeholder")
-
-  if (input.nextPath) {
-    url.searchParams.set("next", input.nextPath)
-  }
-
-  if (input.email) {
-    url.searchParams.set("email", input.email)
-  }
-
-  if (input.error) {
-    url.searchParams.set("error", input.error)
-  }
-
-  if (input.notice) {
-    url.searchParams.set("notice", input.notice)
-  }
-
-  return `${url.pathname}${url.search}`
-}
 
 export async function POST(request: Request) {
   const formData = await request.formData()
@@ -42,7 +9,7 @@ export async function POST(request: Request) {
   const nextPath = String(formData.get("next") ?? "")
 
   if (!email) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildForgotPasswordPageHref({
         nextPath,
@@ -58,7 +25,7 @@ export async function POST(request: Request) {
     logProviderError("Failed to request password reset", error)
   }
 
-  return redirectTo(
+  return redirectToRoute(
     request,
     buildForgotPasswordPageHref({
       nextPath,

@@ -1,7 +1,7 @@
 import { withAuth } from "@workos-inc/authkit-nextjs"
 
 import { WorkspaceEntryJoinSection } from "@/components/app/workspace-entry-join-section"
-import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
+import { getWorkspaceEntryJoinState } from "@/lib/server/authenticated-app"
 
 type InvitesPageProps = {
   searchParams: Promise<{
@@ -18,13 +18,10 @@ export default async function InvitesPage({ searchParams }: InvitesPageProps) {
 
   const params = await searchParams
   const joinCode = params.code?.trim()
-  const { authContext } = await ensureAuthenticatedAppContext(
+  const { joinedTeamIds, pendingInvites } = await getWorkspaceEntryJoinState(
     auth.user,
     auth.organizationId
   )
-  const pendingInvites = authContext?.pendingInvites ?? []
-  const joinedTeamIds =
-    authContext?.memberships.map((entry) => entry.teamId) ?? []
 
   return (
     <main className="flex min-h-0 w-full flex-1 flex-col gap-6 overflow-y-auto px-6 py-8">

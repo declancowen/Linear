@@ -5,9 +5,7 @@ import { useRouter } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 
 import {
-  getTextInputLimitState,
   optionalTeamSummaryConstraints,
-  teamNameConstraints,
 } from "@/lib/domain/input-constraints"
 import {
   canAdminTeam,
@@ -43,22 +41,42 @@ import {
 import {
   defaultTeamSurfaceDisableReasons,
   TeamEditorFields,
+  type TeamSurfaceDisableReasons,
 } from "./team-editor-fields"
+import {
+  TeamSettingsFooter,
+  useTeamSettingsDraft,
+  type TeamSettingsTab,
+} from "./team-settings-draft"
+import { cancelSettingsInvite } from "./utils"
 
-export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
-  const router = useRouter()
-  const { liveTeam, team } = useRetainedTeamBySlug(teamSlug)
-  const teamId = team?.id ?? null
-  const canManageTeam = useAppStore((state) => {
-    return teamId ? canAdminTeam(state, teamId) : false
-  })
-  const surfaceDisableReasons = useAppStore(
-    useShallow((state) => {
-      return teamId
+type TeamSettingsTeam = NonNullable<
+  ReturnType<typeof useRetainedTeamBySlug>["team"]
+>
+type TeamMemberRemovalTarget = {
+  id: string
+  name: string
+}
+type InviteCancelTarget = {
+  id: string
+  email: string
+}
+
+function useCanManageTeam(teamId: string | null) {
+  return useAppStore((state) => (teamId ? canAdminTeam(state, teamId) : false))
+}
+
+function useTeamSurfaceDisableReasons(teamId: string | null) {
+  return useAppStore(
+    useShallow((state) =>
+      teamId
         ? getTeamSurfaceDisableReasons(state, teamId)
         : defaultTeamSurfaceDisableReasons
-    })
+    )
   )
+}
+
+function useTeamSettingsLists(team: TeamSettingsTeam | null) {
   const { teamMemberships, users, invites, currentUserId } = useAppStore(
     useShallow((state) => ({
       teamMemberships: state.teamMemberships,
@@ -129,109 +147,331 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
       })
       .sort((left, right) => left.email.localeCompare(right.email))
   }, [invites, team, users])
-  const [saving, setSaving] = useState(false)
+
+  return {
+    pendingInvites,
+    teamMembers,
+  }
+}
+
+function TeamSettingsHeroView({
+  currentTeam,
+  experience,
+  teamMembersCount,
+}: {
+  currentTeam: TeamSettingsTeam
+  experience: TeamExperienceType
+  teamMembersCount: number
+}) {
+  return (
+    <SettingsHero
+      leading={
+        <div className="flex size-14 items-center justify-center rounded-2xl border border-line bg-surface-2 text-fg-2">
+          <TeamIconGlyph icon={currentTeam.icon} className="size-6" />
+        </div>
+      }
+      title={currentTeam.name}
+      description={
+        currentTeam.settings.summary || "No summary for this team yet."
+      }
+      meta={[
+        {
+          key: "members",
+          label: `${teamMembersCount} member${teamMembersCount === 1 ? "" : "s"}`,
+        },
+        {
+          key: "experience",
+          label: teamExperienceMeta[experience].label,
+        },
+      ]}
+    />
+  )
+}
+
+function TeamSettingsTeamTab({
+  canManageTeam,
+  currentTeam,
+  deletingTeam,
+  experience,
+  features,
+  icon,
+  name,
+  savedFeatures,
+  summary,
+  surfaceDisableReasons,
+  onDeleteClick,
+  onFeaturesChange,
+  onIconChange,
+  onNameChange,
+  onRegenerateJoinCode,
+  onSummaryChange,
+}: {
+  canManageTeam: boolean
+  currentTeam: TeamSettingsTeam
+  deletingTeam: boolean
+  experience: TeamExperienceType
+  features: TeamFeatureSettings
+  icon: string
+  name: string
+  savedFeatures: TeamFeatureSettings
+  summary: string
+  surfaceDisableReasons: ReturnType<typeof getTeamSurfaceDisableReasons>
+  onDeleteClick: () => void
+  onFeaturesChange: (
+    value:
+      | TeamFeatureSettings
+      | ((current: TeamFeatureSettings) => TeamFeatureSettings)
+  ) => void
+  onIconChange: (value: string) => void
+  onNameChange: (value: string) => void
+  onRegenerateJoinCode: () => Promise<void>
+  onSummaryChange: (value: string) => void
+}) {
+  return (
+    <>
+      <TeamEditorFields
+        canChangeExperience={false}
+        disabled={!canManageTeam}
+        experience={experience}
+        features={features}
+        icon={icon}
+        joinCode={currentTeam.settings.joinCode}
+        joinCodeReadonlyLabel="This 12-character code is stored on the team and can be regenerated at any time."
+        name={name}
+        onRegenerateJoinCode={onRegenerateJoinCode}
+        savedFeatures={savedFeatures}
+        setFeatures={onFeaturesChange}
+        setIcon={onIconChange}
+        setName={onNameChange}
+        setSummary={onSummaryChange}
+        summary={summary}
+        summaryConstraints={optionalTeamSummaryConstraints}
+        surfaceDisableReasons={surfaceDisableReasons}
+      />
+
+      <SettingsGroupLabel label="Danger zone" />
+      <SettingsDangerRow
+        title="Delete team"
+        description={
+          <>
+            Permanently remove this team and all associated data. This action
+            cannot be undone.
+            {!canManageTeam ? " Only team admins can delete this team." : ""}
+          </>
+        }
+        action={
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={!canManageTeam || deletingTeam}
+            onClick={onDeleteClick}
+          >
+            {deletingTeam ? "Deleting..." : "Delete team"}
+          </Button>
+        }
+      />
+    </>
+  )
+}
+
+function TeamSettingsMembersTab({
+  canManageTeam,
+  cancellingInviteId,
+  pendingAction,
+  pendingInvites,
+  pendingMemberId,
+  teamMembers,
+  onCancelInvite,
+  onRemoveMember,
+  onRoleChange,
+}: {
+  canManageTeam: boolean
+  cancellingInviteId: string | null
+  pendingAction: "role" | "remove" | null
+  pendingInvites: ReturnType<typeof useTeamSettingsLists>["pendingInvites"]
+  pendingMemberId: string | null
+  teamMembers: ReturnType<typeof useTeamSettingsLists>["teamMembers"]
+  onCancelInvite: (invite: InviteCancelTarget) => void
+  onRemoveMember: (member: TeamMemberRemovalTarget) => void
+  onRoleChange: (userId: string, role: Role) => void
+}) {
+  return (
+    <>
+      <SettingsSection
+        title="Members"
+        description="Admins manage roles and membership for this team."
+        variant="plain"
+      >
+        <TeamMembersList
+          members={teamMembers}
+          canManage={canManageTeam}
+          pendingMemberId={pendingMemberId}
+          pendingAction={pendingAction}
+          onRoleChange={(userId, role) => onRoleChange(userId, role)}
+          onRemove={(member) =>
+            onRemoveMember({
+              id: member.id,
+              name: member.name,
+            })
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Pending invites"
+        description="Pending invites still grant access until you cancel them."
+        variant="plain"
+      >
+        <PendingInvitesList
+          invites={pendingInvites}
+          canManage={canManageTeam}
+          pendingInviteId={cancellingInviteId}
+          onCancel={(invite) =>
+            onCancelInvite({
+              id: invite.id,
+              email: invite.email,
+            })
+          }
+        />
+      </SettingsSection>
+    </>
+  )
+}
+
+function TeamSettingsConfirmDialogs({
+  cancellingInviteId,
+  deleteDialogOpen,
+  deletingTeam,
+  inviteToCancel,
+  memberToRemove,
+  pendingMemberAction,
+  onCancelInvite,
+  onDeleteDialogOpenChange,
+  onDeleteTeam,
+  onInviteDialogOpenChange,
+  onMemberDialogOpenChange,
+  onRemoveTeamMember,
+}: {
+  cancellingInviteId: string | null
+  deleteDialogOpen: boolean
+  deletingTeam: boolean
+  inviteToCancel: InviteCancelTarget | null
+  memberToRemove: TeamMemberRemovalTarget | null
+  pendingMemberAction: "role" | "remove" | null
+  onCancelInvite: () => void
+  onDeleteDialogOpenChange: (open: boolean) => void
+  onDeleteTeam: () => void
+  onInviteDialogOpenChange: (open: boolean) => void
+  onMemberDialogOpenChange: (open: boolean) => void
+  onRemoveTeamMember: () => void
+}) {
+  return (
+    <>
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={onDeleteDialogOpenChange}
+        title="Delete team"
+        description="This will permanently remove the team and all associated data. This can't be undone."
+        confirmLabel="Delete team"
+        variant="destructive"
+        loading={deletingTeam}
+        onConfirm={onDeleteTeam}
+      />
+      <ConfirmDialog
+        open={memberToRemove != null}
+        onOpenChange={onMemberDialogOpenChange}
+        title="Remove team member"
+        description={
+          memberToRemove
+            ? `${memberToRemove.name} will lose access to this team and get an inbox notification plus a transactional email.`
+            : "This member will lose access to this team."
+        }
+        confirmLabel="Remove member"
+        variant="destructive"
+        loading={pendingMemberAction === "remove"}
+        onConfirm={onRemoveTeamMember}
+      />
+      <ConfirmDialog
+        open={inviteToCancel != null}
+        onOpenChange={onInviteDialogOpenChange}
+        title="Cancel pending invite"
+        description={
+          inviteToCancel
+            ? `${inviteToCancel.email} will lose access to this invite immediately and the link will stop working.`
+            : "This invite will be deleted immediately."
+        }
+        confirmLabel="Cancel invite"
+        variant="destructive"
+        loading={cancellingInviteId != null}
+        onConfirm={onCancelInvite}
+      />
+    </>
+  )
+}
+
+function TeamSettingsUnavailableState() {
+  return (
+    <SettingsScaffold
+      title="Team settings"
+      breadcrumb="Settings"
+      subtitle="Requested team not found"
+    >
+      <SettingsSection
+        title="Team unavailable"
+        description="The requested team does not exist in the current workspace."
+      >
+        <div />
+      </SettingsSection>
+    </SettingsScaffold>
+  )
+}
+
+function TeamSettingsAccessRequiredState() {
+  return (
+    <SettingsScaffold
+      title="Team settings"
+      breadcrumb="Settings"
+      subtitle="Team admin access required"
+    >
+      <SettingsSection
+        title="Redirecting"
+        description="Only team admins can open team settings."
+      >
+        <div />
+      </SettingsSection>
+    </SettingsScaffold>
+  )
+}
+
+function useTeamSettingsActions({
+  router,
+  team,
+}: {
+  router: ReturnType<typeof useRouter>
+  team: ReturnType<typeof useRetainedTeamBySlug>["team"]
+}) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingTeam, setDeletingTeam] = useState(false)
-  const [activeTab, setActiveTab] = useState<"team" | "users">("team")
   const [pendingMemberId, setPendingMemberId] = useState<string | null>(null)
   const [pendingMemberAction, setPendingMemberAction] = useState<
     "role" | "remove" | null
   >(null)
-  const [memberToRemove, setMemberToRemove] = useState<{
-    id: string
-    name: string
-  } | null>(null)
-  const [inviteToCancel, setInviteToCancel] = useState<{
-    id: string
-    email: string
-  } | null>(null)
+  const [memberToRemove, setMemberToRemove] =
+    useState<TeamMemberRemovalTarget | null>(null)
+  const [inviteToCancel, setInviteToCancel] =
+    useState<InviteCancelTarget | null>(null)
   const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(
     null
   )
-  const experience: TeamExperienceType =
-    team?.settings.experience ?? "software-development"
-  const [name, setName] = useState(team?.name ?? "")
-  const [icon, setIcon] = useState(() =>
-    normalizeTeamIconToken(team?.icon, experience)
-  )
-  const [summary, setSummary] = useState(team?.settings.summary ?? "")
-  const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
-  const summaryLimitState = getTextInputLimitState(
-    summary,
-    optionalTeamSummaryConstraints
-  )
-  const canSaveTeam = nameLimitState.canSubmit && summaryLimitState.canSubmit
-  const [features, setFeatures] = useState<TeamFeatureSettings>(
-    team?.settings.features ?? getTeamFeatureSettings(team)
-  )
 
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setName(team?.name ?? "")
-      setIcon(
-        normalizeTeamIconToken(
-          team?.icon,
-          team?.settings.experience ?? "software-development"
-        )
-      )
-      setSummary(team?.settings.summary ?? "")
-      setFeatures(team?.settings.features ?? getTeamFeatureSettings(team))
-    })
-
-    return () => {
-      window.cancelAnimationFrame(frame)
-    }
-  }, [team])
-
-  useEffect(() => {
-    if (!liveTeam || canManageTeam) {
+  async function handleDeleteTeam() {
+    if (!team) {
       return
     }
 
-    router.replace("/workspace/projects")
-  }, [canManageTeam, liveTeam, router])
-
-  if (!team) {
-    return (
-      <SettingsScaffold
-        title="Team settings"
-        breadcrumb="Settings"
-        subtitle="Requested team not found"
-      >
-        <SettingsSection
-          title="Team unavailable"
-          description="The requested team does not exist in the current workspace."
-        >
-          <div />
-        </SettingsSection>
-      </SettingsScaffold>
-    )
-  }
-
-  if (liveTeam && !canManageTeam) {
-    return (
-      <SettingsScaffold
-        title="Team settings"
-        breadcrumb="Settings"
-        subtitle="Team admin access required"
-      >
-        <SettingsSection
-          title="Redirecting"
-          description="Only team admins can open team settings."
-        >
-          <div />
-        </SettingsSection>
-      </SettingsScaffold>
-    )
-  }
-
-  const currentTeam = team
-  const savedFeatures = getTeamFeatureSettings(team)
-
-  async function handleDeleteTeam() {
     try {
       setDeletingTeam(true)
-      const deleted = await useAppStore.getState().deleteTeam(currentTeam.id)
+      const deleted = await useAppStore.getState().deleteTeam(team.id)
 
       if (!deleted) {
         return
@@ -245,14 +485,16 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
   }
 
   async function handleRoleChange(userId: string, role: Role) {
+    if (!team) {
+      return
+    }
+
     try {
       setPendingMemberId(userId)
       setPendingMemberAction("role")
-      await useAppStore
-        .getState()
-        .updateTeamMemberRole(currentTeam.id, userId, {
-          role,
-        })
+      await useAppStore.getState().updateTeamMemberRole(team.id, userId, {
+        role,
+      })
     } finally {
       setPendingMemberId(null)
       setPendingMemberAction(null)
@@ -260,7 +502,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
   }
 
   async function handleRemoveTeamMember() {
-    if (!memberToRemove) {
+    if (!team || !memberToRemove) {
       return
     }
 
@@ -269,7 +511,7 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
       setPendingMemberAction("remove")
       const removed = await useAppStore
         .getState()
-        .removeTeamMember(currentTeam.id, memberToRemove.id)
+        .removeTeamMember(team.id, memberToRemove.id)
 
       if (removed) {
         setMemberToRemove(null)
@@ -281,74 +523,179 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
   }
 
   async function handleCancelInvite() {
-    if (!inviteToCancel) {
-      return
-    }
+    await cancelSettingsInvite(inviteToCancel, {
+      setCancellingInviteId,
+      setInviteToCancel,
+    })
+  }
 
-    try {
-      setCancellingInviteId(inviteToCancel.id)
-      const cancelled = await useAppStore.getState().cancelInvite(inviteToCancel.id)
-
-      if (cancelled) {
-        setInviteToCancel(null)
-      }
-    } finally {
-      setCancellingInviteId(null)
+  function handleMemberDialogOpenChange(open: boolean) {
+    if (!open && pendingMemberAction !== "remove") {
+      setMemberToRemove(null)
     }
   }
 
+  function handleInviteDialogOpenChange(open: boolean) {
+    if (!open && cancellingInviteId == null) {
+      setInviteToCancel(null)
+    }
+  }
+
+  return {
+    cancellingInviteId,
+    deleteDialogOpen,
+    deletingTeam,
+    handleCancelInvite,
+    handleDeleteTeam,
+    handleInviteDialogOpenChange,
+    handleMemberDialogOpenChange,
+    handleRemoveTeamMember,
+    handleRoleChange,
+    inviteToCancel,
+    memberToRemove,
+    pendingMemberAction,
+    pendingMemberId,
+    setDeleteDialogOpen,
+    setInviteToCancel,
+    setMemberToRemove,
+  }
+}
+
+function useTeamSettingsAccessRedirect(input: {
+  canManageTeam: boolean
+  liveTeam: TeamSettingsTeam | null
+  router: ReturnType<typeof useRouter>
+}) {
+  useEffect(() => {
+    if (!input.liveTeam || input.canManageTeam) {
+      return
+    }
+
+    input.router.replace("/workspace/projects")
+  }, [input.canManageTeam, input.liveTeam, input.router])
+}
+
+function getTeamSettingsAvailability(input: {
+  canManageTeam: boolean
+  liveTeam: TeamSettingsTeam | null
+  team: TeamSettingsTeam | null
+}) {
+  if (!input.team) {
+    return "unavailable"
+  }
+
+  if (input.liveTeam && !input.canManageTeam) {
+    return "access-required"
+  }
+
+  return "ready"
+}
+
+function TeamSettingsActiveTabContent({
+  actions,
+  activeTab,
+  canManageTeam,
+  currentTeam,
+  draft,
+  experience,
+  pendingInvites,
+  surfaceDisableReasons,
+  teamMembers,
+}: {
+  actions: ReturnType<typeof useTeamSettingsActions>
+  activeTab: TeamSettingsTab
+  canManageTeam: boolean
+  currentTeam: TeamSettingsTeam
+  draft: ReturnType<typeof useTeamSettingsDraft>
+  experience: TeamExperienceType
+  pendingInvites: ReturnType<typeof useTeamSettingsLists>["pendingInvites"]
+  surfaceDisableReasons: TeamSurfaceDisableReasons
+  teamMembers: ReturnType<typeof useTeamSettingsLists>["teamMembers"]
+}) {
+  if (activeTab === "team") {
+    return (
+      <TeamSettingsTeamTab
+        canManageTeam={canManageTeam}
+        currentTeam={currentTeam}
+        deletingTeam={actions.deletingTeam}
+        experience={experience}
+        features={draft.features}
+        icon={draft.icon}
+        name={draft.name}
+        savedFeatures={getTeamFeatureSettings(currentTeam)}
+        summary={draft.summary}
+        surfaceDisableReasons={surfaceDisableReasons}
+        onDeleteClick={() => actions.setDeleteDialogOpen(true)}
+        onFeaturesChange={draft.setFeatures}
+        onIconChange={(value) =>
+          draft.setIcon(normalizeTeamIconToken(value, experience))
+        }
+        onNameChange={draft.setName}
+        onRegenerateJoinCode={async () => {
+          await useAppStore.getState().regenerateTeamJoinCode(currentTeam.id)
+        }}
+        onSummaryChange={draft.setSummary}
+      />
+    )
+  }
+
+  return (
+    <TeamSettingsMembersTab
+      canManageTeam={canManageTeam}
+      cancellingInviteId={actions.cancellingInviteId}
+      pendingAction={actions.pendingMemberAction}
+      pendingInvites={pendingInvites}
+      pendingMemberId={actions.pendingMemberId}
+      teamMembers={teamMembers}
+      onCancelInvite={actions.setInviteToCancel}
+      onRemoveMember={actions.setMemberToRemove}
+      onRoleChange={(userId, role) => void actions.handleRoleChange(userId, role)}
+    />
+  )
+}
+
+function TeamSettingsReadyContent({
+  actions,
+  activeTab,
+  canManageTeam,
+  currentTeam,
+  draft,
+  experience,
+  pendingInvites,
+  setActiveTab,
+  surfaceDisableReasons,
+  teamMembers,
+}: {
+  actions: ReturnType<typeof useTeamSettingsActions>
+  activeTab: TeamSettingsTab
+  canManageTeam: boolean
+  currentTeam: TeamSettingsTeam
+  draft: ReturnType<typeof useTeamSettingsDraft>
+  experience: TeamExperienceType
+  pendingInvites: ReturnType<typeof useTeamSettingsLists>["pendingInvites"]
+  setActiveTab: (tab: TeamSettingsTab) => void
+  surfaceDisableReasons: TeamSurfaceDisableReasons
+  teamMembers: ReturnType<typeof useTeamSettingsLists>["teamMembers"]
+}) {
   return (
     <SettingsScaffold
       title="Team settings"
       breadcrumb="Settings"
       hero={
-        <SettingsHero
-          leading={
-            <div className="flex size-14 items-center justify-center rounded-2xl border border-line bg-surface-2 text-fg-2">
-              <TeamIconGlyph icon={currentTeam.icon} className="size-6" />
-            </div>
-          }
-          title={currentTeam.name}
-          description={
-            currentTeam.settings.summary || "No summary for this team yet."
-          }
-          meta={[
-            {
-              key: "members",
-              label: `${teamMembers.length} member${teamMembers.length === 1 ? "" : "s"}`,
-            },
-            {
-              key: "experience",
-              label: teamExperienceMeta[experience].label,
-            },
-          ]}
+        <TeamSettingsHeroView
+          currentTeam={currentTeam}
+          experience={experience}
+          teamMembersCount={teamMembers.length}
         />
       }
       footer={
-        activeTab === "team" ? (
-          <Button
-            disabled={!canManageTeam || saving || !canSaveTeam}
-            onClick={async () => {
-              setSaving(true)
-              const updated = await useAppStore
-                .getState()
-                .updateTeamDetails(currentTeam.id, {
-                  name,
-                  icon,
-                  summary,
-                  experience,
-                  features,
-                })
-              setSaving(false)
-
-              if (updated) {
-                router.refresh()
-              }
-            }}
-          >
-            {saving ? "Saving..." : "Save changes"}
-          </Button>
-        ) : null
+        <TeamSettingsFooter
+          activeTab={activeTab}
+          canManageTeam={canManageTeam}
+          canSaveTeam={draft.canSaveTeam}
+          saving={draft.saving}
+          onSave={() => void draft.handleSaveTeam()}
+        />
       }
     >
       <SettingsNav
@@ -360,148 +707,76 @@ export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
         ]}
       />
 
-      {activeTab === "team" ? (
-        <>
-          <TeamEditorFields
-            canChangeExperience={false}
-            disabled={!canManageTeam}
-            experience={experience}
-            features={features}
-            icon={icon}
-            joinCode={currentTeam.settings.joinCode}
-            joinCodeReadonlyLabel="This 12-character code is stored on the team and can be regenerated at any time."
-            name={name}
-            onRegenerateJoinCode={async () => {
-              await useAppStore
-                .getState()
-                .regenerateTeamJoinCode(currentTeam.id)
-            }}
-            savedFeatures={savedFeatures}
-            setFeatures={setFeatures}
-            setIcon={(value) =>
-              setIcon(normalizeTeamIconToken(value, experience))
-            }
-            setName={setName}
-            setSummary={setSummary}
-            summary={summary}
-            summaryConstraints={optionalTeamSummaryConstraints}
-            surfaceDisableReasons={surfaceDisableReasons}
-          />
-
-          <SettingsGroupLabel label="Danger zone" />
-          <SettingsDangerRow
-            title="Delete team"
-            description={
-              <>
-                Permanently remove this team and all associated data. This
-                action cannot be undone.
-                {!canManageTeam
-                  ? " Only team admins can delete this team."
-                  : ""}
-              </>
-            }
-            action={
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={!canManageTeam || deletingTeam}
-                onClick={() => setDeleteDialogOpen(true)}
-              >
-                {deletingTeam ? "Deleting..." : "Delete team"}
-              </Button>
-            }
-          />
-        </>
-      ) : (
-        <>
-          <SettingsSection
-            title="Members"
-            description="Admins manage roles and membership for this team."
-            variant="plain"
-          >
-            <TeamMembersList
-              members={teamMembers}
-              canManage={canManageTeam}
-              pendingMemberId={pendingMemberId}
-              pendingAction={pendingMemberAction}
-              onRoleChange={(userId, role) =>
-                void handleRoleChange(userId, role)
-              }
-              onRemove={(member) =>
-                setMemberToRemove({
-                  id: member.id,
-                  name: member.name,
-                })
-              }
-            />
-          </SettingsSection>
-
-          <SettingsSection
-            title="Pending invites"
-            description="Pending invites still grant access until you cancel them."
-            variant="plain"
-          >
-            <PendingInvitesList
-              invites={pendingInvites}
-              canManage={canManageTeam}
-              pendingInviteId={cancellingInviteId}
-              onCancel={(invite) =>
-                setInviteToCancel({
-                  id: invite.id,
-                  email: invite.email,
-                })
-              }
-            />
-          </SettingsSection>
-        </>
-      )}
-
-      <ConfirmDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        title="Delete team"
-        description="This will permanently remove the team and all associated data. This can't be undone."
-        confirmLabel="Delete team"
-        variant="destructive"
-        loading={deletingTeam}
-        onConfirm={() => void handleDeleteTeam()}
+      <TeamSettingsActiveTabContent
+        actions={actions}
+        activeTab={activeTab}
+        canManageTeam={canManageTeam}
+        currentTeam={currentTeam}
+        draft={draft}
+        experience={experience}
+        pendingInvites={pendingInvites}
+        surfaceDisableReasons={surfaceDisableReasons}
+        teamMembers={teamMembers}
       />
-      <ConfirmDialog
-        open={memberToRemove != null}
-        onOpenChange={(open) => {
-          if (!open && pendingMemberAction !== "remove") {
-            setMemberToRemove(null)
-          }
-        }}
-        title="Remove team member"
-        description={
-          memberToRemove
-            ? `${memberToRemove.name} will lose access to this team and get an inbox notification plus a transactional email.`
-            : "This member will lose access to this team."
-        }
-        confirmLabel="Remove member"
-        variant="destructive"
-        loading={pendingMemberAction === "remove"}
-        onConfirm={() => void handleRemoveTeamMember()}
-      />
-      <ConfirmDialog
-        open={inviteToCancel != null}
-        onOpenChange={(open) => {
-          if (!open && cancellingInviteId == null) {
-            setInviteToCancel(null)
-          }
-        }}
-        title="Cancel pending invite"
-        description={
-          inviteToCancel
-            ? `${inviteToCancel.email} will lose access to this invite immediately and the link will stop working.`
-            : "This invite will be deleted immediately."
-        }
-        confirmLabel="Cancel invite"
-        variant="destructive"
-        loading={cancellingInviteId != null}
-        onConfirm={() => void handleCancelInvite()}
+
+      <TeamSettingsConfirmDialogs
+        cancellingInviteId={actions.cancellingInviteId}
+        deleteDialogOpen={actions.deleteDialogOpen}
+        deletingTeam={actions.deletingTeam}
+        inviteToCancel={actions.inviteToCancel}
+        memberToRemove={actions.memberToRemove}
+        pendingMemberAction={actions.pendingMemberAction}
+        onCancelInvite={() => void actions.handleCancelInvite()}
+        onDeleteDialogOpenChange={actions.setDeleteDialogOpen}
+        onDeleteTeam={() => void actions.handleDeleteTeam()}
+        onInviteDialogOpenChange={actions.handleInviteDialogOpenChange}
+        onMemberDialogOpenChange={actions.handleMemberDialogOpenChange}
+        onRemoveTeamMember={() => void actions.handleRemoveTeamMember()}
       />
     </SettingsScaffold>
+  )
+}
+
+export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
+  const router = useRouter()
+  const { liveTeam, team } = useRetainedTeamBySlug(teamSlug)
+  const teamId = team?.id ?? null
+  const canManageTeam = useCanManageTeam(teamId)
+  const surfaceDisableReasons = useTeamSurfaceDisableReasons(teamId)
+  const { pendingInvites, teamMembers } = useTeamSettingsLists(team)
+  const [activeTab, setActiveTab] = useState<TeamSettingsTab>("team")
+  const experience: TeamExperienceType =
+    team?.settings.experience ?? "software-development"
+  const draft = useTeamSettingsDraft({ experience, router, team })
+  const actions = useTeamSettingsActions({ router, team })
+  const availability = getTeamSettingsAvailability({
+    canManageTeam,
+    liveTeam,
+    team,
+  })
+
+  useTeamSettingsAccessRedirect({ canManageTeam, liveTeam, router })
+
+  if (availability === "unavailable") {
+    return <TeamSettingsUnavailableState />
+  }
+
+  if (availability === "access-required") {
+    return <TeamSettingsAccessRequiredState />
+  }
+
+  return (
+    <TeamSettingsReadyContent
+      actions={actions}
+      activeTab={activeTab}
+      canManageTeam={canManageTeam}
+      currentTeam={team as TeamSettingsTeam}
+      draft={draft}
+      experience={experience}
+      pendingInvites={pendingInvites}
+      setActiveTab={setActiveTab}
+      surfaceDisableReasons={surfaceDisableReasons}
+      teamMembers={teamMembers}
+    />
   )
 }

@@ -1,5 +1,6 @@
 import { format, isToday, isYesterday } from "date-fns"
 import { trimTrailingRichTextDisplayWhitespace } from "@/lib/content/rich-text-security"
+import { escapeHtml } from "@/lib/html"
 
 export function formatTimestamp(value: string) {
   const d = new Date(value)
@@ -29,15 +30,6 @@ export function getLocalDayKey(value: string) {
 
 const CHAT_MESSAGE_HTML_PATTERN =
   /^\s*<(p|h[1-6]|ul|ol|li|blockquote|pre|table|div|span|a|img)\b/i
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;")
-}
 
 export function getChatMessageMarkup(content: string) {
   if (CHAT_MESSAGE_HTML_PATTERN.test(content)) {

@@ -27,6 +27,43 @@ type NotificationSlice = Pick<
   | "deleteNotification"
 >
 
+function updateNotificationArchiveState(
+  notifications: AppStore["notifications"],
+  notificationIds: string[],
+  archivedAt: string | null
+) {
+  const notificationIdSet = new Set(notificationIds)
+
+  return {
+    notificationIdSet,
+    notifications: notifications.map((notification) =>
+      notificationIdSet.has(notification.id)
+        ? {
+            ...notification,
+            archivedAt:
+              archivedAt === null
+                ? null
+                : (notification.archivedAt ?? archivedAt),
+          }
+        : notification
+    ),
+  }
+}
+
+function clearActiveInboxNotificationSelection(
+  ui: AppStore["ui"],
+  notificationIdSet: ReadonlySet<string>
+) {
+  return {
+    ...ui,
+    activeInboxNotificationId: ui.activeInboxNotificationId
+      ? notificationIdSet.has(ui.activeInboxNotificationId)
+        ? null
+        : ui.activeInboxNotificationId
+      : null,
+  }
+}
+
 export function createNotificationSlice(
   set: AppStoreSet,
   get: AppStoreGet,
@@ -110,27 +147,21 @@ export function createNotificationSlice(
         return
       }
 
-      const notificationIdSet = new Set(notificationIds)
       const archivedAt = getNow()
 
-      set((state) => ({
-        notifications: state.notifications.map((notification) =>
-          notificationIdSet.has(notification.id)
-            ? {
-                ...notification,
-                archivedAt: notification.archivedAt ?? archivedAt,
-              }
-            : notification
-        ),
-        ui: {
-          ...state.ui,
-          activeInboxNotificationId: state.ui.activeInboxNotificationId
-            ? notificationIdSet.has(state.ui.activeInboxNotificationId)
-              ? null
-              : state.ui.activeInboxNotificationId
-            : null,
-        },
-      }))
+      set((state) => {
+        const { notificationIdSet, notifications } =
+          updateNotificationArchiveState(
+            state.notifications,
+            notificationIds,
+            archivedAt
+          )
+
+        return {
+          notifications,
+          ui: clearActiveInboxNotificationSelection(state.ui, notificationIdSet),
+        }
+      })
 
       runtime.syncInBackground(
         syncArchiveNotifications(notificationIds),
@@ -159,26 +190,19 @@ export function createNotificationSlice(
         return
       }
 
-      const notificationIdSet = new Set(notificationIds)
+      set((state) => {
+        const { notificationIdSet, notifications } =
+          updateNotificationArchiveState(
+            state.notifications,
+            notificationIds,
+            null
+          )
 
-      set((state) => ({
-        notifications: state.notifications.map((notification) =>
-          notificationIdSet.has(notification.id)
-            ? {
-                ...notification,
-                archivedAt: null,
-              }
-            : notification
-        ),
-        ui: {
-          ...state.ui,
-          activeInboxNotificationId: state.ui.activeInboxNotificationId
-            ? notificationIdSet.has(state.ui.activeInboxNotificationId)
-              ? null
-              : state.ui.activeInboxNotificationId
-            : null,
-        },
-      }))
+        return {
+          notifications,
+          ui: clearActiveInboxNotificationSelection(state.ui, notificationIdSet),
+        }
+      })
 
       runtime.syncInBackground(
         syncUnarchiveNotifications(notificationIds),

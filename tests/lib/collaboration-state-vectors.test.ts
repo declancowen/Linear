@@ -6,7 +6,7 @@ import {
   doesStateVectorDominate,
   encodeDocumentStateVector,
   getDocumentStateVector,
-} from "@/lib/collaboration/state-vectors"
+} from "./fixtures/collaboration-state-vectors"
 
 describe("collaboration state vectors", () => {
   it("round-trips a document state vector through base64url encoding", () => {
@@ -36,7 +36,10 @@ describe("collaboration state vectors", () => {
       )
     ).toBe(false)
 
-    Y.applyUpdate(roomDoc, Y.encodeStateAsUpdate(clientDoc, Y.encodeStateVector(roomDoc)))
+    Y.applyUpdate(
+      roomDoc,
+      Y.encodeStateAsUpdate(clientDoc, Y.encodeStateVector(roomDoc))
+    )
 
     expect(
       doesStateVectorDominate(

@@ -18,6 +18,15 @@ import {
 } from "./data"
 import { haveSameIds, normalizeUniqueIds } from "./collaboration_utils"
 
+type TeamConversationInput = {
+  teamId: string
+  currentUserId: string
+  teamName: string
+  teamSummary: string
+  title?: string
+  description?: string
+}
+
 export async function getTeamMemberIds(ctx: AppCtx, teamId: string) {
   const memberships = await ctx.db
     .query("teamMemberships")
@@ -149,38 +158,41 @@ export async function findPrimaryWorkspaceChannelConversation(
 
 export async function ensureTeamChatConversation(
   ctx: MutationCtx,
+  input: TeamConversationInput
+) {
+  return ensureTeamConversation(ctx, input, {
+    findExisting: findTeamChatConversation,
+    kind: "chat",
+  })
+}
+
+async function insertScopedConversation(
+  ctx: MutationCtx,
   input: {
-    teamId: string
-    currentUserId: string
-    teamName: string
-    teamSummary: string
-    title?: string
-    description?: string
+    createdBy: string
+    description: string
+    kind: "channel" | "chat"
+    participantIds: string[]
+    scopeId: string
+    scopeType: "team" | "workspace"
+    title: string
   }
 ) {
-  const existing = await findTeamChatConversation(ctx, input.teamId)
-  const participantIds = await getTeamMemberIds(ctx, input.teamId)
-
-  if (existing) {
-    await syncConversationParticipants(ctx, existing, participantIds)
-    return existing.id
-  }
-
   const now = getNow()
   const conversationId = createId("conversation")
 
   await ctx.db.insert("conversations", {
     id: conversationId,
-    kind: "chat",
-    scopeType: "team",
-    scopeId: input.teamId,
+    kind: input.kind,
+    scopeType: input.scopeType,
+    scopeId: input.scopeId,
     variant: "team",
-    title: input.title?.trim() || input.teamName.trim(),
-    description: input.description?.trim() || input.teamSummary.trim(),
-    participantIds: normalizeUniqueIds(participantIds),
+    title: input.title,
+    description: input.description,
+    participantIds: normalizeUniqueIds(input.participantIds),
     roomId: null,
     roomName: null,
-    createdBy: input.currentUserId,
+    createdBy: input.createdBy,
     createdAt: now,
     updatedAt: now,
     lastActivityAt: now,
@@ -189,18 +201,18 @@ export async function ensureTeamChatConversation(
   return conversationId
 }
 
-export async function ensureTeamChannelConversation(
+async function ensureTeamConversation(
   ctx: MutationCtx,
-  input: {
-    teamId: string
-    currentUserId: string
-    teamName: string
-    teamSummary: string
-    title?: string
-    description?: string
+  input: TeamConversationInput,
+  options: {
+    findExisting: (
+      ctx: MutationCtx,
+      teamId: string
+    ) => Promise<Awaited<ReturnType<typeof getConversationDoc>>>
+    kind: "channel" | "chat"
   }
 ) {
-  const existing = await findPrimaryTeamChannelConversation(ctx, input.teamId)
+  const existing = await options.findExisting(ctx, input.teamId)
   const participantIds = await getTeamMemberIds(ctx, input.teamId)
 
   if (existing) {
@@ -208,27 +220,25 @@ export async function ensureTeamChannelConversation(
     return existing.id
   }
 
-  const now = getNow()
-  const conversationId = createId("conversation")
-
-  await ctx.db.insert("conversations", {
-    id: conversationId,
-    kind: "channel",
-    scopeType: "team",
-    scopeId: input.teamId,
-    variant: "team",
-    title: input.title?.trim() || input.teamName.trim(),
-    description: input.description?.trim() || input.teamSummary.trim(),
-    participantIds: normalizeUniqueIds(participantIds),
-    roomId: null,
-    roomName: null,
+  return insertScopedConversation(ctx, {
     createdBy: input.currentUserId,
-    createdAt: now,
-    updatedAt: now,
-    lastActivityAt: now,
+    description: input.description?.trim() || input.teamSummary.trim(),
+    kind: options.kind,
+    participantIds,
+    scopeId: input.teamId,
+    scopeType: "team",
+    title: input.title?.trim() || input.teamName.trim(),
   })
+}
 
-  return conversationId
+export async function ensureTeamChannelConversation(
+  ctx: MutationCtx,
+  input: TeamConversationInput
+) {
+  return ensureTeamConversation(ctx, input, {
+    findExisting: findPrimaryTeamChannelConversation,
+    kind: "channel",
+  })
 }
 
 export async function ensureWorkspaceChannelConversation(
@@ -253,30 +263,18 @@ export async function ensureWorkspaceChannelConversation(
     return existing.id
   }
 
-  const now = getNow()
-  const conversationId = createId("conversation")
-
-  await ctx.db.insert("conversations", {
-    id: conversationId,
-    kind: "channel",
-    scopeType: "workspace",
-    scopeId: input.workspaceId,
-    variant: "team",
-    title: input.title?.trim() || input.workspaceName.trim(),
+  return insertScopedConversation(ctx, {
+    createdBy: input.currentUserId,
     description:
       input.description?.trim() ||
       input.workspaceDescription.trim() ||
       "Shared updates and threaded decisions for the whole workspace.",
-    participantIds: normalizeUniqueIds(participantIds),
-    roomId: null,
-    roomName: null,
-    createdBy: input.currentUserId,
-    createdAt: now,
-    updatedAt: now,
-    lastActivityAt: now,
+    kind: "channel",
+    participantIds,
+    scopeId: input.workspaceId,
+    scopeType: "workspace",
+    title: input.title?.trim() || input.workspaceName.trim(),
   })
-
-  return conversationId
 }
 
 export async function requireConversationAccess(

@@ -70,6 +70,62 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       ? scopeKeySignature
       : ""
 
+  const handleRefreshSuccess = useEffectEvent(
+    (result: ReadModelFetchResult<Partial<AppSnapshot>>, startedAt: number) => {
+      mergeReadModelData(result.data, {
+        replace: result.replace,
+      })
+      reportScopedReadModelDiagnostic({
+        durationMs: window.performance.now() - startedAt,
+        scopeKeys,
+        status: "success",
+      })
+      setError(null)
+    }
+  )
+
+  const handleRefreshFailure = useEffectEvent(
+    (nextError: unknown, startedAt: number) => {
+      reportScopedReadModelDiagnostic({
+        durationMs: window.performance.now() - startedAt,
+        scopeKeys,
+        status: "failure",
+        errorMessage:
+          nextError instanceof Error
+            ? nextError.message
+            : "Failed to refresh scoped read model",
+      })
+
+      if (isExpectedScopedReadModelMiss(nextError)) {
+        if (input.notFoundResult) {
+          const missingResult = normalizeReadModelFetchResult(
+            input.notFoundResult
+          )
+          mergeReadModelData(missingResult.data, {
+            replace: missingResult.replace,
+          })
+        }
+
+        setError(null)
+        return false
+      }
+
+      if (nextError instanceof RouteMutationError && nextError.status === 401) {
+        redirectToExpiredSessionLogin()
+        return true
+      }
+
+      console.error("Failed to refresh scoped read model", nextError)
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Failed to refresh scoped read model"
+      )
+
+      return false
+    }
+  )
+
   const refresh = useEffectEvent(async () => {
     const refreshGeneration = runGenerationRef.current
     let didRedirectToLogin = false
@@ -88,52 +144,12 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       if (runGenerationRef.current !== refreshGeneration) {
         return
       }
-      mergeReadModelData(result.data, {
-        replace: result.replace,
-      })
-      reportScopedReadModelDiagnostic({
-        durationMs: window.performance.now() - startedAt,
-        scopeKeys,
-        status: "success",
-      })
-      setError(null)
+      handleRefreshSuccess(result, startedAt)
     } catch (nextError) {
       if (runGenerationRef.current !== refreshGeneration) {
         return
       }
-      reportScopedReadModelDiagnostic({
-        durationMs: window.performance.now() - startedAt,
-        scopeKeys,
-        status: "failure",
-        errorMessage:
-          nextError instanceof Error
-            ? nextError.message
-            : "Failed to refresh scoped read model",
-      })
-      if (isExpectedScopedReadModelMiss(nextError)) {
-        if (input.notFoundResult) {
-          const missingResult = normalizeReadModelFetchResult(
-            input.notFoundResult
-          )
-          mergeReadModelData(missingResult.data, {
-            replace: missingResult.replace,
-          })
-        }
-        setError(null)
-      } else if (
-        nextError instanceof RouteMutationError &&
-        nextError.status === 401
-      ) {
-        didRedirectToLogin = true
-        redirectToExpiredSessionLogin()
-      } else {
-        console.error("Failed to refresh scoped read model", nextError)
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : "Failed to refresh scoped read model"
-        )
-      }
+      didRedirectToLogin = handleRefreshFailure(nextError, startedAt)
     } finally {
       if (inFlightGenerationRef.current === refreshGeneration) {
         inFlightGenerationRef.current = null

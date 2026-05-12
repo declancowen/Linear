@@ -1,18 +1,21 @@
 import type { MutationCtx } from "../_generated/server"
-import type { ViewFilters } from "../../lib/domain/types"
+import {
+  clearViewFilterSelections,
+  type ViewFilters,
+} from "../../lib/domain/types"
 
 import {
   createViewDefinition,
   isRouteAllowedForViewContext,
   isSystemView,
 } from "../../lib/domain/default-views"
-import {
-  viewNameMaxLength,
-  viewNameMinLength,
-} from "../../lib/domain/types"
+import { viewNameMaxLength, viewNameMinLength } from "../../lib/domain/types"
 import { assertServerToken, createId, getNow } from "./core"
 import { getTeamDoc } from "./data"
-import { requireEditableTeamAccess, requireEditableWorkspaceAccess } from "./access"
+import {
+  requireEditableTeamAccess,
+  requireEditableWorkspaceAccess,
+} from "./access"
 import { normalizeTeam } from "./normalization"
 import {
   assertWorkspaceLabelIds,
@@ -24,49 +27,57 @@ type ServerAccessArgs = {
   serverToken: string
 }
 
+type ViewLayout = "list" | "board" | "timeline"
+type ViewItemLevel =
+  | "epic"
+  | "feature"
+  | "requirement"
+  | "story"
+  | "task"
+  | "issue"
+  | "sub-task"
+  | "sub-issue"
+  | null
+type ViewGrouping =
+  | "project"
+  | "status"
+  | "assignee"
+  | "priority"
+  | "label"
+  | "team"
+  | "type"
+  | "epic"
+  | "feature"
+type ViewOrdering =
+  | "priority"
+  | "updatedAt"
+  | "createdAt"
+  | "dueDate"
+  | "targetDate"
+  | "title"
+type ViewDisplayProperty =
+  | "id"
+  | "type"
+  | "status"
+  | "assignee"
+  | "priority"
+  | "progress"
+  | "project"
+  | "dueDate"
+  | "milestone"
+  | "labels"
+  | "created"
+  | "updated"
+
 type ViewConfigArgs = ServerAccessArgs & {
   currentUserId: string
   viewId: string
-  layout?: "list" | "board" | "timeline"
-  itemLevel?:
-    | "epic"
-    | "feature"
-    | "requirement"
-    | "story"
-    | "task"
-    | "issue"
-    | "sub-task"
-    | "sub-issue"
-    | null
+  layout?: ViewLayout
+  itemLevel?: ViewItemLevel
   showChildItems?: boolean
-  grouping?:
-    | "project"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "label"
-    | "team"
-    | "type"
-    | "epic"
-    | "feature"
-  subGrouping?:
-    | "project"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "label"
-    | "team"
-    | "type"
-    | "epic"
-    | "feature"
-    | null
-  ordering?:
-    | "priority"
-    | "updatedAt"
-    | "createdAt"
-    | "dueDate"
-    | "targetDate"
-    | "title"
+  grouping?: ViewGrouping
+  subGrouping?: ViewGrouping | null
+  ordering?: ViewOrdering
   showCompleted?: boolean
 }
 
@@ -81,61 +92,14 @@ type CreateViewArgs = ServerAccessArgs & {
   route: string
   name: string
   description: string
-  layout?: "list" | "board" | "timeline"
-  itemLevel?:
-    | "epic"
-    | "feature"
-    | "requirement"
-    | "story"
-    | "task"
-    | "issue"
-    | "sub-task"
-    | "sub-issue"
-    | null
+  layout?: ViewLayout
+  itemLevel?: ViewItemLevel
   showChildItems?: boolean
-  grouping?:
-    | "project"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "label"
-    | "team"
-    | "type"
-    | "epic"
-    | "feature"
-  subGrouping?:
-    | "project"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "label"
-    | "team"
-    | "type"
-    | "epic"
-    | "feature"
-    | null
-  ordering?:
-    | "priority"
-    | "updatedAt"
-    | "createdAt"
-    | "dueDate"
-    | "targetDate"
-    | "title"
+  grouping?: ViewGrouping
+  subGrouping?: ViewGrouping | null
+  ordering?: ViewOrdering
   filters?: ViewFilters
-  displayProps?: Array<
-    | "id"
-    | "type"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "progress"
-    | "project"
-    | "dueDate"
-    | "milestone"
-    | "labels"
-    | "created"
-    | "updated"
-  >
+  displayProps?: ViewDisplayProperty[]
   hiddenState?: {
     groups: string[]
     subgroups: string[]
@@ -145,38 +109,13 @@ type CreateViewArgs = ServerAccessArgs & {
 type ViewDisplayPropertyArgs = ServerAccessArgs & {
   currentUserId: string
   viewId: string
-  property:
-    | "id"
-    | "type"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "progress"
-    | "project"
-    | "dueDate"
-    | "milestone"
-    | "labels"
-    | "created"
-    | "updated"
+  property: ViewDisplayProperty
 }
 
 type ReorderViewDisplayPropertiesArgs = ServerAccessArgs & {
   currentUserId: string
   viewId: string
-  displayProps: Array<
-    | "id"
-    | "type"
-    | "status"
-    | "assignee"
-    | "priority"
-    | "progress"
-    | "project"
-    | "dueDate"
-    | "milestone"
-    | "labels"
-    | "created"
-    | "updated"
-  >
+  displayProps: ViewDisplayProperty[]
 }
 
 type ViewHiddenValueArgs = ServerAccessArgs & {
@@ -222,49 +161,72 @@ type DeleteViewArgs = ServerAccessArgs & {
   viewId: string
 }
 
-export async function createViewHandler(ctx: MutationCtx, args: CreateViewArgs) {
-  assertServerToken(args.serverToken)
+type CreateViewAccess = {
+  experience: ReturnType<typeof normalizeTeam>["settings"]["experience"] | null
+  teamSlug: string | null
+  workspaceId: string
+}
 
-  let teamSlug: string | null = null
-  let experience = null
-  let workspaceId = args.scopeId
-
-  if (args.scopeType === "team") {
-    await requireEditableTeamAccess(ctx, args.scopeId, args.currentUserId)
-    const team = await getTeamDoc(ctx, args.scopeId)
-
-    if (!team) {
-      throw new Error("Team not found")
-    }
-
-    const normalizedTeam = normalizeTeam(team)
-
-    if (!normalizedTeam.settings.features.views) {
-      throw new Error("Views are disabled for this team")
-    }
-
-    if (args.entityKind === "items" && !normalizedTeam.settings.features.issues) {
-      throw new Error("Work views are disabled for this team")
-    }
-
-    if (
-      args.entityKind === "projects" &&
-      !normalizedTeam.settings.features.projects
-    ) {
-      throw new Error("Project views are disabled for this team")
-    }
-
-    if (args.entityKind === "docs" && !normalizedTeam.settings.features.docs) {
-      throw new Error("Document views are disabled for this team")
-    }
-
-    teamSlug = normalizedTeam.slug
-    experience = normalizedTeam.settings.experience
-    workspaceId = normalizedTeam.workspaceId
-  } else {
-    await requireEditableWorkspaceAccess(ctx, args.scopeId, args.currentUserId)
+function assertTeamViewFeatures(
+  team: ReturnType<typeof normalizeTeam>,
+  entityKind: CreateViewArgs["entityKind"]
+) {
+  if (!team.settings.features.views) {
+    throw new Error("Views are disabled for this team")
   }
 
+  if (entityKind === "items" && !team.settings.features.issues) {
+    throw new Error("Work views are disabled for this team")
+  }
+
+  if (entityKind === "projects" && !team.settings.features.projects) {
+    throw new Error("Project views are disabled for this team")
+  }
+
+  if (entityKind === "docs" && !team.settings.features.docs) {
+    throw new Error("Document views are disabled for this team")
+  }
+}
+
+async function requireTeamViewCreateAccess(
+  ctx: MutationCtx,
+  args: CreateViewArgs
+): Promise<CreateViewAccess> {
+  await requireEditableTeamAccess(ctx, args.scopeId, args.currentUserId)
+  const team = await getTeamDoc(ctx, args.scopeId)
+
+  if (!team) {
+    throw new Error("Team not found")
+  }
+
+  const normalizedTeam = normalizeTeam(team)
+  assertTeamViewFeatures(normalizedTeam, args.entityKind)
+
+  return {
+    experience: normalizedTeam.settings.experience,
+    teamSlug: normalizedTeam.slug,
+    workspaceId: normalizedTeam.workspaceId,
+  }
+}
+
+async function requireViewCreateAccess(
+  ctx: MutationCtx,
+  args: CreateViewArgs
+): Promise<CreateViewAccess> {
+  if (args.scopeType === "team") {
+    return requireTeamViewCreateAccess(ctx, args)
+  }
+
+  await requireEditableWorkspaceAccess(ctx, args.scopeId, args.currentUserId)
+
+  return {
+    experience: null,
+    teamSlug: null,
+    workspaceId: args.scopeId,
+  }
+}
+
+function assertCreateViewRoute(args: CreateViewArgs, teamSlug: string | null) {
   if (
     !isRouteAllowedForViewContext({
       scopeType: args.scopeType,
@@ -275,7 +237,19 @@ export async function createViewHandler(ctx: MutationCtx, args: CreateViewArgs) 
   ) {
     throw new Error("View route is not valid for the selected scope")
   }
+}
 
+export async function createViewHandler(
+  ctx: MutationCtx,
+  args: CreateViewArgs
+) {
+  assertServerToken(args.serverToken)
+  const { experience, teamSlug, workspaceId } = await requireViewCreateAccess(
+    ctx,
+    args
+  )
+
+  assertCreateViewRoute(args, teamSlug)
   await assertWorkspaceLabelIds(ctx, workspaceId, args.filters?.labelIds)
 
   const view = createViewDefinition({
@@ -313,6 +287,42 @@ export async function createViewHandler(ctx: MutationCtx, args: CreateViewArgs) 
   return view
 }
 
+function createViewConfigPatch(
+  view: Awaited<ReturnType<typeof requireViewMutationAccess>>,
+  args: ViewConfigArgs,
+  now: string
+) {
+  return {
+    layout: args.layout ?? view.layout,
+    itemLevel: getDefinedViewConfigValue(args.itemLevel, view.itemLevel),
+    showChildItems: getDefinedViewConfigValue(
+      args.showChildItems,
+      view.showChildItems
+    ),
+    grouping: args.grouping ?? view.grouping,
+    subGrouping: getDefinedViewConfigValue(args.subGrouping, view.subGrouping),
+    ordering: args.ordering ?? view.ordering,
+    filters: getViewConfigFiltersPatch(view, args),
+    updatedAt: now,
+  }
+}
+
+function getDefinedViewConfigValue<T>(nextValue: T | undefined, currentValue: T) {
+  return nextValue === undefined ? currentValue : nextValue
+}
+
+function getViewConfigFiltersPatch(
+  view: Awaited<ReturnType<typeof requireViewMutationAccess>>,
+  args: ViewConfigArgs
+) {
+  return args.showCompleted === undefined
+    ? view.filters
+    : {
+        ...view.filters,
+        showCompleted: args.showCompleted,
+      }
+}
+
 export async function updateViewConfigHandler(
   ctx: MutationCtx,
   args: ViewConfigArgs
@@ -324,26 +334,7 @@ export async function updateViewConfigHandler(
     args.currentUserId
   )
 
-  await ctx.db.patch(view._id, {
-    layout: args.layout ?? view.layout,
-    itemLevel: args.itemLevel === undefined ? view.itemLevel : args.itemLevel,
-    showChildItems:
-      args.showChildItems === undefined
-        ? view.showChildItems
-        : args.showChildItems,
-    grouping: args.grouping ?? view.grouping,
-    subGrouping:
-      args.subGrouping === undefined ? view.subGrouping : args.subGrouping,
-    ordering: args.ordering ?? view.ordering,
-    filters:
-      args.showCompleted === undefined
-        ? view.filters
-        : {
-            ...view.filters,
-            showCompleted: args.showCompleted,
-          },
-    updatedAt: getNow(),
-  })
+  await ctx.db.patch(view._id, createViewConfigPatch(view, args, getNow()))
 }
 
 export async function toggleViewDisplayPropertyHandler(
@@ -428,7 +419,11 @@ export async function toggleViewFilterValueHandler(
     : [...current, args.value]
 
   if (args.key === "labelIds" && next.length > 0) {
-    const workspaceId = await resolveViewWorkspaceId(ctx, view, args.currentUserId)
+    const workspaceId = await resolveViewWorkspaceId(
+      ctx,
+      view,
+      args.currentUserId
+    )
 
     if (!workspaceId) {
       throw new Error("Workspace not found")
@@ -458,22 +453,7 @@ export async function clearViewFiltersHandler(
   )
 
   await ctx.db.patch(view._id, {
-    filters: {
-      ...view.filters,
-      status: [],
-      priority: [],
-      assigneeIds: [],
-      creatorIds: [],
-      leadIds: [],
-      health: [],
-      milestoneIds: [],
-      relationTypes: [],
-      projectIds: [],
-      parentIds: [],
-      itemTypes: [],
-      labelIds: [],
-      teamIds: [],
-    },
+    filters: clearViewFilterSelections(view.filters as ViewFilters),
     updatedAt: getNow(),
   })
 }
@@ -496,7 +476,9 @@ export async function renameViewHandler(
   const trimmedName = args.name.trim()
 
   if (trimmedName.length < viewNameMinLength) {
-    throw new Error(`View name must be at least ${viewNameMinLength} characters`)
+    throw new Error(
+      `View name must be at least ${viewNameMinLength} characters`
+    )
   }
 
   if (trimmedName.length > viewNameMaxLength) {

@@ -7,30 +7,10 @@ import {
   type TeamFeatureSettings,
 } from "@/lib/domain/types"
 import { mergeRole } from "@/lib/domain/roles"
+import { getNextActiveTeamId } from "./helpers"
 
 function filterDeletedIds(ids: string[], deletedIds: Set<string>) {
   return ids.filter((id) => !deletedIds.has(id))
-}
-
-function getNextActiveTeamId(
-  teams: AppData["teams"],
-  currentWorkspaceId: string,
-  currentActiveTeamId: string
-) {
-  const activeTeamStillVisible = teams.some(
-    (team) =>
-      team.id === currentActiveTeamId && team.workspaceId === currentWorkspaceId
-  )
-
-  if (activeTeamStillVisible) {
-    return currentActiveTeamId
-  }
-
-  return (
-    teams.find((team) => team.workspaceId === currentWorkspaceId)?.id ??
-    teams[0]?.id ??
-    ""
-  )
 }
 
 type RemovalScope = {

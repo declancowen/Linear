@@ -39,132 +39,123 @@ type ScopedArrayDomainKey = keyof Pick<
   | "channelPostComments"
 >
 
+const EMPTY_SCOPED_ARRAY_DOMAINS_BY_REPLACE_KIND = {
+  "document-detail": ["documents", "comments", "attachments", "users"],
+  "missing-document-detail": ["documents"],
+  "document-index": ["documents", "views", "users"],
+  "work-item-detail": [
+    "workItems",
+    "labels",
+    "projects",
+    "milestones",
+    "documents",
+    "comments",
+    "attachments",
+    "teamMemberships",
+    "users",
+  ],
+  "missing-work-item-detail": ["workItems"],
+  "work-index": [
+    "workspaces",
+    "workspaceMemberships",
+    "teams",
+    "teamMemberships",
+    "users",
+    "labels",
+    "projects",
+    "milestones",
+    "workItems",
+    "views",
+  ],
+  "project-detail": [
+    "projects",
+    "milestones",
+    "projectUpdates",
+    "workItems",
+    "documents",
+    "views",
+    "users",
+  ],
+  "missing-project-detail": ["projects"],
+  "project-index": ["projects", "workItems", "teams", "views", "users"],
+  "workspace-membership": [
+    "workspaces",
+    "workspaceMemberships",
+    "teams",
+    "teamMemberships",
+    "labels",
+    "users",
+    "invites",
+  ],
+  "view-catalog": [
+    "workspaces",
+    "workspaceMemberships",
+    "teams",
+    "teamMemberships",
+    "views",
+  ],
+  "notification-inbox": [
+    "workspaces",
+    "teams",
+    "users",
+    "notifications",
+    "invites",
+    "conversations",
+    "channelPosts",
+    "projects",
+  ],
+  "conversation-list": [
+    "workspaces",
+    "workspaceMemberships",
+    "teams",
+    "teamMemberships",
+    "users",
+    "conversations",
+    "chatMessages",
+  ],
+  "conversation-thread": [
+    "workspaces",
+    "workspaceMemberships",
+    "teams",
+    "teamMemberships",
+    "users",
+    "conversations",
+    "calls",
+    "chatMessages",
+  ],
+  "channel-feed": [
+    "workspaces",
+    "workspaceMemberships",
+    "teams",
+    "teamMemberships",
+    "users",
+    "conversations",
+    "channelPosts",
+    "channelPostComments",
+  ],
+  "search-seed": [
+    "workspaces",
+    "workspaceMemberships",
+    "teams",
+    "teamMemberships",
+    "users",
+    "projects",
+    "documents",
+    "workItems",
+  ],
+} satisfies Partial<
+  Record<
+    ScopedReadModelReplaceInstruction["kind"],
+    readonly ScopedArrayDomainKey[]
+  >
+>
+
 function getEmptyScopedArrayDomains(
   instruction: ScopedReadModelReplaceInstruction
 ): ScopedArrayDomainKey[] {
-  switch (instruction.kind) {
-    case "document-detail":
-      return ["documents", "comments", "attachments", "users"]
-    case "missing-document-detail":
-      return ["documents"]
-    case "document-index":
-      return ["documents", "views", "users"]
-    case "work-item-detail":
-      return [
-        "workItems",
-        "labels",
-        "projects",
-        "milestones",
-        "documents",
-        "comments",
-        "attachments",
-        "teamMemberships",
-        "users",
-      ]
-    case "missing-work-item-detail":
-      return ["workItems"]
-    case "work-index":
-      return [
-        "workspaces",
-        "workspaceMemberships",
-        "teams",
-        "teamMemberships",
-        "users",
-        "labels",
-        "projects",
-        "milestones",
-        "workItems",
-        "views",
-      ]
-    case "project-detail":
-      return [
-        "projects",
-        "milestones",
-        "projectUpdates",
-        "workItems",
-        "documents",
-        "views",
-        "users",
-      ]
-    case "missing-project-detail":
-      return ["projects"]
-    case "project-index":
-      return ["projects", "workItems", "teams", "views", "users"]
-    case "workspace-membership":
-      return [
-        "workspaces",
-        "workspaceMemberships",
-        "teams",
-        "teamMemberships",
-        "labels",
-        "users",
-        "invites",
-      ]
-    case "view-catalog":
-      return [
-        "workspaces",
-        "workspaceMemberships",
-        "teams",
-        "teamMemberships",
-        "views",
-      ]
-    case "notification-inbox":
-      return [
-        "workspaces",
-        "teams",
-        "users",
-        "notifications",
-        "invites",
-        "conversations",
-        "channelPosts",
-        "projects",
-      ]
-    case "conversation-list":
-      return [
-        "workspaces",
-        "workspaceMemberships",
-        "teams",
-        "teamMemberships",
-        "users",
-        "conversations",
-        "chatMessages",
-      ]
-    case "conversation-thread":
-      return [
-        "workspaces",
-        "workspaceMemberships",
-        "teams",
-        "teamMemberships",
-        "users",
-        "conversations",
-        "calls",
-        "chatMessages",
-      ]
-    case "channel-feed":
-      return [
-        "workspaces",
-        "workspaceMemberships",
-        "teams",
-        "teamMemberships",
-        "users",
-        "conversations",
-        "channelPosts",
-        "channelPostComments",
-      ]
-    case "search-seed":
-      return [
-        "workspaces",
-        "workspaceMemberships",
-        "teams",
-        "teamMemberships",
-        "users",
-        "projects",
-        "documents",
-        "workItems",
-      ]
-    default:
-      return []
-  }
+  return [
+    ...(EMPTY_SCOPED_ARRAY_DOMAINS_BY_REPLACE_KIND[instruction.kind] ?? []),
+  ]
 }
 
 function createEmptyScopedReadModelData(
@@ -235,11 +226,12 @@ function createMissingScopedReadModelData(
 
 async function fetchReadModel<T extends Partial<AppSnapshot>>(
   url: string,
-  replace?: ScopedReadModelReplaceInstruction[]
-): Promise<ReadModelFetchResult<T>> {
-  const payload = await runRouteMutation<ReadModelRoutePayload>(url, {
+  replace?: ScopedReadModelReplaceInstruction[],
+  init: RequestInit = {
     method: "GET",
-  })
+  }
+): Promise<ReadModelFetchResult<T>> {
+  const payload = await runRouteMutation<ReadModelRoutePayload>(url, init)
 
   return {
     data: payload.data as T,
@@ -298,12 +290,34 @@ export function fetchDocumentIndexReadModel(
 }
 
 export function fetchWorkspaceMembershipReadModel(workspaceId: string) {
-  return fetchReadModel(`/api/read-models/workspaces/${workspaceId}/membership`, [
+  return fetchReadModel(
+    `/api/read-models/workspaces/${workspaceId}/membership`,
+    [
+      {
+        kind: "workspace-membership",
+        workspaceId,
+      },
+    ]
+  )
+}
+
+export function selectCurrentWorkspaceReadModel(workspaceId: string) {
+  return fetchReadModel(
+    `/api/workspace/current/selection`,
+    [
+      {
+        kind: "workspace-membership",
+        workspaceId,
+      },
+    ],
     {
-      kind: "workspace-membership",
-      workspaceId,
-    },
-  ])
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ workspaceId }),
+    }
+  )
 }
 
 export function fetchViewCatalogReadModel(

@@ -8,12 +8,12 @@ export type AuthenticatedAppUser = {
   organizationId: string | null
 }
 
-export function getWorkOSUserName(user: User) {
+function getWorkOSUserName(user: User) {
   const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
   return fullName || user.email.split("@")[0] || "User"
 }
 
-export function getAvatarInitials(name: string, email: string) {
+function getAvatarInitials(name: string, email: string) {
   const source = name.trim() || email
   const words = source
     .split(/\s+/)

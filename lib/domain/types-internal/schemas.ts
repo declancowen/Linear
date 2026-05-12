@@ -233,35 +233,6 @@ export const teamMembershipRoleSchema = z.object({
   role: z.enum(roles),
 })
 
-export const appWorkspaceBootstrapSchema = z.object({
-  workspaceSlug: z.string().trim().min(2).max(64),
-  workspaceName: z.string().trim().min(2).max(64),
-  workspaceLogoUrl: boundedTrimmedStringSchema(
-    workspaceFallbackBadgeConstraints
-  ),
-  workspaceAccent: z.string().trim().min(2).max(24),
-  workspaceDescription: z.string().trim().min(8).max(220),
-  teamSlug: z.string().trim().min(2).max(64),
-  teamName: z.string().trim().min(2).max(64),
-  teamIcon: z.enum(teamIconTokens),
-  teamSummary: z.string().trim().min(8).max(180),
-  teamJoinCode: z
-    .string()
-    .trim()
-    .min(4)
-    .max(24)
-    .regex(
-      /^[a-zA-Z0-9_-]+$/,
-      "Join code can only contain letters, numbers, dashes, and underscores"
-    ),
-  email: z.email(),
-  userName: z.string().trim().min(2).max(80),
-  avatarUrl: boundedTrimmedStringSchema(profileAvatarFallbackConstraints),
-  workosUserId: z.string().trim().min(1),
-  teamExperience: z.enum(teamExperienceTypes).default("software-development"),
-  role: z.enum(roles).default("admin"),
-})
-
 export const profileSchema = z.object({
   name: boundedTrimmedStringSchema(profileNameConstraints),
   title: boundedTrimmedStringSchema(profileTitleConstraints),
@@ -279,6 +250,23 @@ export const profileSchema = z.object({
     emailDigest: z.boolean(),
     theme: z.enum(themePreferences).default("light"),
   }),
+})
+
+const viewFiltersSchema = z.object({
+  status: z.array(z.enum(viewFilterStatuses)),
+  priority: z.array(z.enum(priorities)),
+  assigneeIds: z.array(z.string()),
+  creatorIds: z.array(z.string()),
+  leadIds: z.array(z.string()),
+  health: z.array(z.enum(projectHealths)),
+  milestoneIds: z.array(z.string()),
+  relationTypes: z.array(z.string()),
+  projectIds: z.array(z.string()),
+  parentIds: z.array(z.string()).default([]),
+  itemTypes: z.array(z.enum(workItemTypes)),
+  labelIds: z.array(z.string()),
+  teamIds: z.array(z.string()),
+  showCompleted: z.boolean(),
 })
 
 export const projectSchema = z.object({
@@ -309,41 +297,19 @@ export const projectSchema = z.object({
       grouping: z.enum(groupFields),
       ordering: z.enum(orderingFields),
       displayProps: z.array(z.enum(displayProperties)),
-      filters: z.object({
-        status: z.array(z.enum(viewFilterStatuses)),
-        priority: z.array(z.enum(priorities)),
-        assigneeIds: z.array(z.string()),
-        creatorIds: z.array(z.string()),
-        leadIds: z.array(z.string()),
-        health: z.array(z.enum(projectHealths)),
-        milestoneIds: z.array(z.string()),
-        relationTypes: z.array(z.string()),
-        projectIds: z.array(z.string()),
-        parentIds: z.array(z.string()).default([]),
-        itemTypes: z.array(z.enum(workItemTypes)),
-        labelIds: z.array(z.string()),
-        teamIds: z.array(z.string()),
-        showCompleted: z.boolean(),
-      }),
+      filters: viewFiltersSchema,
     })
     .optional(),
 })
 
-const viewFiltersSchema = z.object({
-  status: z.array(z.enum(viewFilterStatuses)),
-  priority: z.array(z.enum(priorities)),
-  assigneeIds: z.array(z.string()),
-  creatorIds: z.array(z.string()),
-  leadIds: z.array(z.string()),
-  health: z.array(z.enum(projectHealths)),
-  milestoneIds: z.array(z.string()),
-  relationTypes: z.array(z.string()),
-  projectIds: z.array(z.string()),
-  parentIds: z.array(z.string()).default([]),
-  itemTypes: z.array(z.enum(workItemTypes)),
-  labelIds: z.array(z.string()),
-  teamIds: z.array(z.string()),
-  showCompleted: z.boolean(),
+export const viewConfigPatchSchema = z.object({
+  layout: z.enum(viewLayouts).optional(),
+  grouping: z.enum(groupFields).optional(),
+  subGrouping: z.enum(groupFields).nullable().optional(),
+  ordering: z.enum(orderingFields).optional(),
+  itemLevel: z.enum(workItemTypes).nullable().optional(),
+  showChildItems: z.boolean().optional(),
+  showCompleted: z.boolean().optional(),
 })
 
 export const viewSchema = z
@@ -359,12 +325,13 @@ export const viewSchema = z
     description: boundedTrimmedStringSchema(viewDescriptionConstraints).default(
       ""
     ),
-    layout: z.enum(viewLayouts).optional(),
-    grouping: z.enum(groupFields).optional(),
-    subGrouping: z.enum(groupFields).nullable().optional(),
-    ordering: z.enum(orderingFields).optional(),
-    itemLevel: z.enum(workItemTypes).nullable().optional(),
-    showChildItems: z.boolean().optional(),
+    layout: viewConfigPatchSchema.shape.layout,
+    grouping: viewConfigPatchSchema.shape.grouping,
+    subGrouping: viewConfigPatchSchema.shape.subGrouping,
+    ordering: viewConfigPatchSchema.shape.ordering,
+    itemLevel: viewConfigPatchSchema.shape.itemLevel,
+    showChildItems: viewConfigPatchSchema.shape.showChildItems,
+    showCompleted: viewConfigPatchSchema.shape.showCompleted,
     filters: viewFiltersSchema.optional(),
     displayProps: z.array(z.enum(displayProperties)).optional(),
     hiddenState: z
@@ -495,11 +462,10 @@ export const attachmentUploadUrlSchema = z.object({
   targetId: z.string().min(1),
 })
 
-export const settingsImageUploadKinds = [
+const settingsImageUploadKinds = [
   "user-avatar",
   "workspace-logo",
 ] as const
-export type SettingsImageUploadKind = (typeof settingsImageUploadKinds)[number]
 
 export const settingsImageUploadSchema = z.object({
   kind: z.enum(settingsImageUploadKinds),

@@ -1,9 +1,15 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
+import {
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useCallback,
+  useMemo,
+  useState,
+} from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
-  CalendarDots,
   CaretDown,
   Check,
   FolderSimple,
@@ -24,7 +30,6 @@ import {
   projectNameConstraints,
   projectSummaryConstraints,
 } from "@/lib/domain/input-constraints"
-import { formatDateInputLabel as formatDateChipLabel } from "@/lib/date-input"
 import {
   createDefaultProjectPresentationConfig,
   getDefaultTemplateTypeForTeamExperience,
@@ -37,6 +42,8 @@ import {
   type ProjectStatus,
   type ViewDefinition,
 } from "@/lib/domain/types"
+import { sortLabelsByName } from "@/lib/domain/labels"
+import { getUsersForTeamMemberships } from "@/lib/domain/team-members"
 import { useAppStore } from "@/lib/store/app-store"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
@@ -64,6 +71,7 @@ import { PriorityIcon } from "@/components/app/screens/shared"
 import { TeamSpaceCrumbPicker } from "@/components/app/screens/team-space-crumb-picker"
 import { WorkItemAssigneeAvatar } from "@/components/app/screens/work-item-ui"
 import {
+  applyViewConfigPatch,
   cloneViewFilters,
   createEmptyViewFilters,
   getProjectPresentationGroupOptions,
@@ -79,6 +87,13 @@ import {
   SortChipPopover,
   type ViewConfigPatch,
 } from "@/components/app/screens/work-surface-controls"
+import {
+  PropertyDateChip,
+  PropertySelectionPopover,
+  propertyChipTriggerClass as chipTriggerClass,
+  propertyChipTriggerDashedClass as chipTriggerDashedClass,
+  propertyCrumbTriggerClass as crumbTriggerClass,
+} from "@/components/app/screens/property-chips"
 import {
   PROPERTY_POPOVER_CLASS,
   PropertyPopoverFoot,
@@ -130,6 +145,90 @@ function toggleSelection(current: string[], value: string) {
     : [...current, value]
 }
 
+function ProjectMultiSelectPopover({
+  children,
+  disabled,
+  hasSelection,
+  open,
+  popoverWidthClass,
+  query,
+  searchIcon,
+  searchPlaceholder,
+  selectedCount,
+  triggerIcon,
+  triggerText,
+  onClear,
+  onOpenChange,
+  onQueryChange,
+}: {
+  children: ReactNode
+  disabled?: boolean
+  hasSelection: boolean
+  open: boolean
+  popoverWidthClass: string
+  query: string
+  searchIcon: ReactNode
+  searchPlaceholder: string
+  selectedCount: number
+  triggerIcon: ReactNode
+  triggerText: string
+  onClear: () => void
+  onOpenChange: (open: boolean) => void
+  onQueryChange: (query: string) => void
+}) {
+  const trigger = (
+    <button
+      type="button"
+      className={cn(chipTriggerClass, !hasSelection && chipTriggerDashedClass)}
+      disabled={disabled}
+    >
+      {triggerIcon}
+      <span
+        className={cn("truncate", hasSelection && "font-medium text-foreground")}
+      >
+        {triggerText}
+      </span>
+      <CaretDown className="size-3 shrink-0 opacity-60" />
+    </button>
+  )
+
+  return (
+    <PropertySelectionPopover
+      open={open}
+      trigger={trigger}
+      onOpenChange={onOpenChange}
+      onQueryChange={onQueryChange}
+    >
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, popoverWidthClass)}
+      >
+        <PropertyPopoverSearch
+          icon={searchIcon}
+          placeholder={searchPlaceholder}
+          value={query}
+          onChange={onQueryChange}
+          trailing={
+            hasSelection ? (
+              <button
+                type="button"
+                className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+                onClick={onClear}
+              >
+                Clear
+              </button>
+            ) : undefined
+          }
+        />
+        <PropertyPopoverList>{children}</PropertyPopoverList>
+        <PropertyPopoverFoot>
+          <span>{selectedCount} selected</span>
+        </PropertyPopoverFoot>
+      </PopoverContent>
+    </PropertySelectionPopover>
+  )
+}
+
 function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
   return (
     <span className="flex items-center gap-1.5">
@@ -142,15 +241,6 @@ function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
     </span>
   )
 }
-
-const chipTriggerClass =
-  "inline-flex h-7 w-fit max-w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
-
-const chipTriggerDashedClass =
-  "border-dashed bg-transparent text-fg-3 hover:bg-surface-3 hover:text-foreground"
-
-const crumbTriggerClass =
-  "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
 
 function UserOption({
   user,
@@ -180,15 +270,11 @@ function getDialogTeamMembers(
   teamMemberships: AppData["teamMemberships"],
   users: AppData["users"]
 ) {
-  const memberIds = new Set(
-    teamMemberships
-      .filter((membership) => membership.teamId === teamId)
-      .map((membership) => membership.userId)
-  )
-
-  return users
-    .filter((user) => memberIds.has(user.id))
-    .sort((left, right) => left.name.localeCompare(right.name))
+  return getUsersForTeamMemberships({
+    teamId,
+    teamMemberships,
+    users,
+  }).sort((left, right) => left.name.localeCompare(right.name))
 }
 
 function createInitialProjectPresentationConfig(
@@ -220,6 +306,767 @@ export function CreateProjectDialog(props: CreateProjectDialogProps) {
   return <CreateProjectDialogContent key={dialogInstanceKey} {...props} />
 }
 
+type ProjectTextLimitState = ReturnType<typeof getTextInputLimitState>
+type ProjectDialogTeam = AppData["teams"][number]
+type ProjectDialogUser = AppData["users"][number]
+type ProjectDialogLabel = AppData["labels"][number]
+type StringListStateSetter = Dispatch<SetStateAction<string[]>>
+
+function getCollectionTriggerText<T extends { name: string }>(
+  selectedItems: T[],
+  emptyLabel: string,
+  pluralLabel: string
+) {
+  if (selectedItems.length === 0) {
+    return emptyLabel
+  }
+
+  if (selectedItems.length === 1) {
+    return selectedItems[0]?.name ?? emptyLabel
+  }
+
+  return `${selectedItems.length} ${pluralLabel}`
+}
+
+function ProjectDialogHeader({
+  availableTeams,
+  selectedTeamId,
+  onTeamSelect,
+}: {
+  availableTeams: ProjectDialogTeam[]
+  selectedTeamId: string
+  onTeamSelect: (teamId: string) => void
+}) {
+  return (
+    <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
+      <TeamSpaceCrumbPicker
+        options={availableTeams.map((team) => ({
+          id: team.id,
+          label: team.name,
+          teamId: team.id,
+        }))}
+        selectedId={selectedTeamId}
+        onSelect={onTeamSelect}
+        triggerClassName={crumbTriggerClass}
+      />
+      <span className={crumbTriggerClass}>
+        <span className="font-medium text-foreground">Project</span>
+      </span>
+      <div className="ml-auto flex items-center gap-0.5">
+        <DialogClose asChild>
+          <button
+            type="button"
+            className="inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+            aria-label="Close"
+          >
+            <X className="size-[14px]" />
+          </button>
+        </DialogClose>
+      </div>
+    </div>
+  )
+}
+
+function ProjectBasicsFields({
+  name,
+  summary,
+  summaryHint,
+  nameLimitState,
+  summaryLimitState,
+  onNameChange,
+  onSummaryChange,
+}: {
+  name: string
+  summary: string
+  summaryHint: string
+  nameLimitState: ProjectTextLimitState
+  summaryLimitState: ProjectTextLimitState
+  onNameChange: (value: string) => void
+  onSummaryChange: (value: string) => void
+}) {
+  return (
+    <div className="px-[18px] pt-3 pb-0.5">
+      <Input
+        value={name}
+        onChange={(event) => onNameChange(event.target.value)}
+        placeholder="Project name"
+        maxLength={projectNameConstraints.max}
+        className="h-auto border-none bg-transparent px-0 py-1 text-[20px] font-semibold tracking-[-0.01em] shadow-none placeholder:font-medium placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
+        autoFocus
+      />
+      <FieldCharacterLimit
+        state={nameLimitState}
+        limit={projectNameConstraints.max}
+        className="mt-1"
+      />
+      <Textarea
+        value={summary}
+        onChange={(event) => onSummaryChange(event.target.value)}
+        maxLength={projectSummaryConstraints.max}
+        placeholder={summaryHint}
+        rows={4}
+        className="mt-0.5 min-h-[96px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
+      />
+      <FieldCharacterLimit
+        state={summaryLimitState}
+        limit={projectSummaryConstraints.max}
+        className="mt-1"
+      />
+      <div className="pt-1 pb-2 text-[11.5px] text-fg-4">
+        Configure the default project view before the team starts using it.
+      </div>
+    </div>
+  )
+}
+
+function ProjectStatusChip({
+  open,
+  status,
+  onOpenChange,
+  onStatusChange,
+}: {
+  open: boolean
+  status: ProjectStatus
+  onOpenChange: (open: boolean) => void
+  onStatusChange: (status: ProjectStatus) => void
+}) {
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <button type="button" className={chipTriggerClass}>
+          <ProjectStatusBadge status={status} />
+          <CaretDown className="size-3 shrink-0 opacity-60" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
+      >
+        <PropertyPopoverList>
+          {PROJECT_STATUS_ORDER.map((value) => {
+            const selected = value === status
+            return (
+              <PropertyPopoverItem
+                key={value}
+                selected={selected}
+                onClick={() => {
+                  onStatusChange(value)
+                  onOpenChange(false)
+                }}
+                trailing={
+                  selected ? (
+                    <Check className="size-[14px] text-foreground" />
+                  ) : null
+                }
+              >
+                <ProjectStatusBadge status={value} />
+              </PropertyPopoverItem>
+            )
+          })}
+        </PropertyPopoverList>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function ProjectPriorityChip({
+  open,
+  priority,
+  onOpenChange,
+  onPriorityChange,
+}: {
+  open: boolean
+  priority: Priority
+  onOpenChange: (open: boolean) => void
+  onPriorityChange: (priority: Priority) => void
+}) {
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <button type="button" className={chipTriggerClass}>
+          <PriorityIcon priority={priority} />
+          <span className="font-medium text-foreground">
+            {priorityMeta[priority].label}
+          </span>
+          <CaretDown className="size-3 shrink-0 opacity-60" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
+      >
+        <PropertyPopoverList>
+          {Object.keys(priorityMeta).map((value) => {
+            const typedValue = value as Priority
+            const selected = typedValue === priority
+
+            return (
+              <PropertyPopoverItem
+                key={value}
+                selected={selected}
+                onClick={() => {
+                  onPriorityChange(typedValue)
+                  onOpenChange(false)
+                }}
+                trailing={
+                  selected ? (
+                    <Check className="size-[14px] text-foreground" />
+                  ) : null
+                }
+              >
+                <PriorityIcon priority={typedValue} />
+                <span>{priorityMeta[typedValue].label}</span>
+              </PropertyPopoverItem>
+            )
+          })}
+        </PropertyPopoverList>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function ProjectLeadChip({
+  defaultLeadId,
+  leadId,
+  open,
+  query,
+  selectedLead,
+  teamMembers,
+  onLeadChange,
+  onOpenChange,
+  onQueryChange,
+}: {
+  defaultLeadId: string | null
+  leadId: string | null
+  open: boolean
+  query: string
+  selectedLead: ProjectDialogUser | null
+  teamMembers: ProjectDialogUser[]
+  onLeadChange: (leadId: string | null) => void
+  onOpenChange: (open: boolean) => void
+  onQueryChange: (query: string) => void
+}) {
+  const trigger = (
+    <button
+      type="button"
+      className={cn(chipTriggerClass, !selectedLead && chipTriggerDashedClass)}
+      disabled={teamMembers.length === 0}
+    >
+      {selectedLead ? (
+        <UserOption user={selectedLead} />
+      ) : (
+        <>
+          <User className="size-[13px]" />
+          <span>Lead</span>
+        </>
+      )}
+      <CaretDown className="size-3 shrink-0 opacity-60" />
+    </button>
+  )
+
+  return (
+    <PropertySelectionPopover
+      open={open}
+      trigger={trigger}
+      onOpenChange={onOpenChange}
+      onQueryChange={onQueryChange}
+    >
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[300px]")}
+      >
+        <PropertyPopoverSearch
+          icon={<MagnifyingGlass className="size-[14px]" />}
+          placeholder="Choose lead…"
+          value={query}
+          onChange={onQueryChange}
+          trailing={
+            leadId !== defaultLeadId && defaultLeadId ? (
+              <button
+                type="button"
+                className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+                onClick={() => onLeadChange(defaultLeadId)}
+              >
+                Clear
+              </button>
+            ) : undefined
+          }
+        />
+        <PropertyPopoverList>
+          {teamMembers
+            .filter((member) => matchesQuery(member.name, query))
+            .map((member) => {
+              const selected = member.id === leadId
+              return (
+                <PropertyPopoverItem
+                  key={member.id}
+                  selected={selected}
+                  onClick={() => {
+                    onLeadChange(member.id)
+                    onOpenChange(false)
+                  }}
+                  trailing={
+                    selected ? (
+                      <Check className="size-[14px] text-foreground" />
+                    ) : null
+                  }
+                >
+                  <UserOption user={member} />
+                </PropertyPopoverItem>
+              )
+            })}
+        </PropertyPopoverList>
+      </PopoverContent>
+    </PropertySelectionPopover>
+  )
+}
+
+function ProjectMembersChip({
+  memberIds,
+  open,
+  query,
+  selectedMembers,
+  teamMembers,
+  leadId,
+  triggerText,
+  onMemberIdsChange,
+  onOpenChange,
+  onQueryChange,
+}: {
+  memberIds: string[]
+  open: boolean
+  query: string
+  selectedMembers: ProjectDialogUser[]
+  teamMembers: ProjectDialogUser[]
+  leadId: string | null
+  triggerText: string
+  onMemberIdsChange: (updater: (current: string[]) => string[]) => void
+  onOpenChange: (open: boolean) => void
+  onQueryChange: (query: string) => void
+}) {
+  return (
+    <ProjectMultiSelectPopover
+      disabled={teamMembers.length === 0}
+      hasSelection={selectedMembers.length > 0}
+      open={open}
+      popoverWidthClass="w-[300px]"
+      query={query}
+      searchIcon={<MagnifyingGlass className="size-[14px]" />}
+      searchPlaceholder="Add members…"
+      selectedCount={selectedMembers.length}
+      triggerIcon={<UsersThree className="size-[13px]" />}
+      triggerText={triggerText}
+      onClear={() => onMemberIdsChange(() => [])}
+      onOpenChange={onOpenChange}
+      onQueryChange={onQueryChange}
+    >
+      {teamMembers
+        .filter((member) => matchesQuery(member.name, query))
+        .map((member) => {
+          const selected = memberIds.includes(member.id)
+          const isLead = member.id === leadId
+          return (
+            <PropertyPopoverItem
+              key={member.id}
+              selected={selected}
+              onClick={() =>
+                onMemberIdsChange((current) =>
+                  toggleSelection(current, member.id)
+                )
+              }
+              trailing={
+                selected ? (
+                  <Check className="size-[14px] text-foreground" />
+                ) : null
+              }
+            >
+              <UserOption
+                user={member}
+                secondaryLabel={isLead ? "Lead" : undefined}
+              />
+            </PropertyPopoverItem>
+          )
+        })}
+    </ProjectMultiSelectPopover>
+  )
+}
+
+function ProjectLabelsChip({
+  availableLabels,
+  labelQuery,
+  labelsTriggerText,
+  open,
+  selectedLabelIds,
+  selectedLabels,
+  onLabelIdsChange,
+  onOpenChange,
+  onQueryChange,
+}: {
+  availableLabels: ProjectDialogLabel[]
+  labelQuery: string
+  labelsTriggerText: string
+  open: boolean
+  selectedLabelIds: string[]
+  selectedLabels: ProjectDialogLabel[]
+  onLabelIdsChange: (updater: (current: string[]) => string[]) => void
+  onOpenChange: (open: boolean) => void
+  onQueryChange: (query: string) => void
+}) {
+  return (
+    <ProjectMultiSelectPopover
+      hasSelection={selectedLabels.length > 0}
+      open={open}
+      popoverWidthClass="w-[260px]"
+      query={labelQuery}
+      searchIcon={<Tag className="size-[14px]" />}
+      searchPlaceholder="Filter labels…"
+      selectedCount={selectedLabels.length}
+      triggerIcon={<Tag className="size-[13px]" />}
+      triggerText={labelsTriggerText}
+      onClear={() => onLabelIdsChange(() => [])}
+      onOpenChange={onOpenChange}
+      onQueryChange={onQueryChange}
+    >
+      {availableLabels
+        .filter((label) => matchesQuery(label.name, labelQuery))
+        .map((label) => {
+          const selected = selectedLabelIds.includes(label.id)
+          return (
+            <PropertyPopoverItem
+              key={label.id}
+              selected={selected}
+              onClick={() =>
+                onLabelIdsChange((current) => toggleSelection(current, label.id))
+              }
+              trailing={
+                selected ? (
+                  <Check className="size-[14px] text-foreground" />
+                ) : null
+              }
+            >
+              <span
+                aria-hidden
+                className="inline-block size-2 shrink-0 rounded-full"
+                style={{ background: label.color }}
+              />
+              <span className="truncate">{label.name}</span>
+            </PropertyPopoverItem>
+          )
+        })}
+    </ProjectMultiSelectPopover>
+  )
+}
+
+function ProjectPresentationControls({
+  presentationView,
+  scopedTeamItems,
+  presentationGroupOptions,
+  onUpdatePresentationView,
+  onTogglePresentationFilterValue,
+  onClearPresentationFilters,
+  onTogglePresentationDisplayProperty,
+  onReorderPresentationDisplayProperties,
+  onClearPresentationDisplayProperties,
+}: {
+  presentationView: ViewDefinition | null
+  scopedTeamItems: ReturnType<typeof getVisibleWorkItems>
+  presentationGroupOptions: ReturnType<
+    typeof getProjectPresentationGroupOptions
+  >
+  onUpdatePresentationView: (patch: ViewConfigPatch) => void
+  onTogglePresentationFilterValue: (key: ViewFilterKey, value: string) => void
+  onClearPresentationFilters: () => void
+  onTogglePresentationDisplayProperty: (property: DisplayProperty) => void
+  onReorderPresentationDisplayProperties: (
+    displayProps: DisplayProperty[]
+  ) => void
+  onClearPresentationDisplayProperties: () => void
+}) {
+  if (!presentationView) {
+    return null
+  }
+
+  return (
+    <>
+      <LayoutChipPopover
+        view={presentationView}
+        onUpdateView={onUpdatePresentationView}
+      />
+      <FilterPopover
+        view={presentationView}
+        items={scopedTeamItems}
+        onToggleFilterValue={onTogglePresentationFilterValue}
+        onClearFilters={onClearPresentationFilters}
+        variant="chip"
+        chipTone="default"
+        dashedWhenEmpty
+      />
+      <LevelChipPopover
+        view={presentationView}
+        onUpdateView={onUpdatePresentationView}
+      />
+      <GroupChipPopover
+        view={presentationView}
+        groupOptions={presentationGroupOptions}
+        onUpdateView={onUpdatePresentationView}
+        tone="default"
+        showValue={false}
+        showSubGrouping={false}
+      />
+      <SortChipPopover
+        view={presentationView}
+        onUpdateView={onUpdatePresentationView}
+        label="Sort"
+        showValue={false}
+      />
+      <PropertiesChipPopover
+        view={presentationView}
+        onToggleDisplayProperty={onTogglePresentationDisplayProperty}
+        onReorderDisplayProperties={onReorderPresentationDisplayProperties}
+        onClearDisplayProperties={onClearPresentationDisplayProperties}
+        tone="default"
+        dashedWhenEmpty
+        propertyOptions={PROJECT_PRESENTATION_PROPERTY_OPTIONS}
+      />
+    </>
+  )
+}
+
+function ProjectDialogControlStrip({
+  availableLabels,
+  defaultLeadIdForSelectedTeam,
+  labelQuery,
+  labelsPickerOpen,
+  labelsTriggerText,
+  leadId,
+  leadPickerOpen,
+  leadQuery,
+  memberIds,
+  memberQuery,
+  membersPickerOpen,
+  membersTriggerText,
+  presentationGroupOptions,
+  presentationView,
+  priority,
+  priorityPickerOpen,
+  scopedTeamItems,
+  selectedLabelIds,
+  selectedLabels,
+  selectedLead,
+  selectedMembers,
+  startDate,
+  status,
+  statusPickerOpen,
+  targetDate,
+  teamMembers,
+  onClearPresentationDisplayProperties,
+  onClearPresentationFilters,
+  onLabelIdsChange,
+  onLabelsPickerOpenChange,
+  onLabelQueryChange,
+  onLeadChange,
+  onLeadPickerOpenChange,
+  onLeadQueryChange,
+  onMemberIdsChange,
+  onMembersPickerOpenChange,
+  onMemberQueryChange,
+  onPriorityChange,
+  onPriorityPickerOpenChange,
+  onReorderPresentationDisplayProperties,
+  onStartDateChange,
+  onStatusChange,
+  onStatusPickerOpenChange,
+  onTargetDateChange,
+  onTogglePresentationDisplayProperty,
+  onTogglePresentationFilterValue,
+  onUpdatePresentationView,
+}: {
+  availableLabels: ProjectDialogLabel[]
+  defaultLeadIdForSelectedTeam: string | null
+  labelQuery: string
+  labelsPickerOpen: boolean
+  labelsTriggerText: string
+  leadId: string | null
+  leadPickerOpen: boolean
+  leadQuery: string
+  memberIds: string[]
+  memberQuery: string
+  membersPickerOpen: boolean
+  membersTriggerText: string
+  presentationGroupOptions: ReturnType<
+    typeof getProjectPresentationGroupOptions
+  >
+  presentationView: ViewDefinition | null
+  priority: Priority
+  priorityPickerOpen: boolean
+  scopedTeamItems: ReturnType<typeof getVisibleWorkItems>
+  selectedLabelIds: string[]
+  selectedLabels: ProjectDialogLabel[]
+  selectedLead: ProjectDialogUser | null
+  selectedMembers: ProjectDialogUser[]
+  startDate: string | null
+  status: ProjectStatus
+  statusPickerOpen: boolean
+  targetDate: string | null
+  teamMembers: ProjectDialogUser[]
+  onClearPresentationDisplayProperties: () => void
+  onClearPresentationFilters: () => void
+  onLabelIdsChange: StringListStateSetter
+  onLabelsPickerOpenChange: (open: boolean) => void
+  onLabelQueryChange: (query: string) => void
+  onLeadChange: (leadId: string | null) => void
+  onLeadPickerOpenChange: (open: boolean) => void
+  onLeadQueryChange: (query: string) => void
+  onMemberIdsChange: StringListStateSetter
+  onMembersPickerOpenChange: (open: boolean) => void
+  onMemberQueryChange: (query: string) => void
+  onPriorityChange: (priority: Priority) => void
+  onPriorityPickerOpenChange: (open: boolean) => void
+  onReorderPresentationDisplayProperties: (
+    displayProps: DisplayProperty[]
+  ) => void
+  onStartDateChange: (value: string | null) => void
+  onStatusChange: (status: ProjectStatus) => void
+  onStatusPickerOpenChange: (open: boolean) => void
+  onTargetDateChange: (value: string | null) => void
+  onTogglePresentationDisplayProperty: (property: DisplayProperty) => void
+  onTogglePresentationFilterValue: (key: ViewFilterKey, value: string) => void
+  onUpdatePresentationView: (patch: ViewConfigPatch) => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-[18px] py-2.5">
+      <ProjectStatusChip
+        open={statusPickerOpen}
+        status={status}
+        onOpenChange={onStatusPickerOpenChange}
+        onStatusChange={onStatusChange}
+      />
+      <ProjectPriorityChip
+        open={priorityPickerOpen}
+        priority={priority}
+        onOpenChange={onPriorityPickerOpenChange}
+        onPriorityChange={onPriorityChange}
+      />
+      <ProjectLeadChip
+        defaultLeadId={defaultLeadIdForSelectedTeam}
+        leadId={leadId}
+        open={leadPickerOpen}
+        query={leadQuery}
+        selectedLead={selectedLead}
+        teamMembers={teamMembers}
+        onLeadChange={onLeadChange}
+        onOpenChange={onLeadPickerOpenChange}
+        onQueryChange={onLeadQueryChange}
+      />
+      <ProjectMembersChip
+        memberIds={memberIds}
+        open={membersPickerOpen}
+        query={memberQuery}
+        selectedMembers={selectedMembers}
+        teamMembers={teamMembers}
+        leadId={leadId}
+        triggerText={membersTriggerText}
+        onMemberIdsChange={onMemberIdsChange}
+        onOpenChange={onMembersPickerOpenChange}
+        onQueryChange={onMemberQueryChange}
+      />
+      <PropertyDateChip
+        label="Start date"
+        value={startDate}
+        onValueChange={onStartDateChange}
+      />
+      <PropertyDateChip
+        label="Target date"
+        value={targetDate}
+        onValueChange={onTargetDateChange}
+      />
+      <ProjectLabelsChip
+        availableLabels={availableLabels}
+        labelQuery={labelQuery}
+        labelsTriggerText={labelsTriggerText}
+        open={labelsPickerOpen}
+        selectedLabelIds={selectedLabelIds}
+        selectedLabels={selectedLabels}
+        onLabelIdsChange={onLabelIdsChange}
+        onOpenChange={onLabelsPickerOpenChange}
+        onQueryChange={onLabelQueryChange}
+      />
+      <ProjectPresentationControls
+        presentationView={presentationView}
+        scopedTeamItems={scopedTeamItems}
+        presentationGroupOptions={presentationGroupOptions}
+        onUpdatePresentationView={onUpdatePresentationView}
+        onTogglePresentationFilterValue={onTogglePresentationFilterValue}
+        onClearPresentationFilters={onClearPresentationFilters}
+        onTogglePresentationDisplayProperty={
+          onTogglePresentationDisplayProperty
+        }
+        onReorderPresentationDisplayProperties={
+          onReorderPresentationDisplayProperties
+        }
+        onClearPresentationDisplayProperties={
+          onClearPresentationDisplayProperties
+        }
+      />
+    </div>
+  )
+}
+
+function ProjectDialogFooter({
+  canCreate,
+  selectedTeam,
+  shortcutModifierLabel,
+  onCancel,
+  onCreate,
+}: {
+  canCreate: boolean
+  selectedTeam: ProjectDialogTeam | null
+  shortcutModifierLabel: string
+  onCancel: () => void
+  onCreate: () => void
+}) {
+  return (
+    <div className="flex items-center gap-2.5 border-t border-line-soft bg-background px-3.5 py-2">
+      <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-3">
+        <FolderSimple className="size-[13px] shrink-0" />
+        <span className="truncate">
+          {selectedTeam ? (
+            <>
+              Adding to{" "}
+              <b className="font-medium text-foreground">{selectedTeam.name}</b>
+            </>
+          ) : (
+            "Select a team space"
+          )}
+        </span>
+      </div>
+      <div className="ml-auto flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+          <ShortcutKeys
+            keys={["Esc"]}
+            className="ml-1"
+            keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+          />
+        </Button>
+        <Button
+          size="sm"
+          disabled={!canCreate}
+          onClick={onCreate}
+          className="gap-1"
+        >
+          Create project
+          <ShortcutKeys
+            keys={[shortcutModifierLabel, "Enter"]}
+            variant="inline"
+            className="ml-0.5 gap-0.5 text-background/65"
+          />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function CreateProjectDialogContent({
   open,
   onOpenChange,
@@ -229,10 +1076,14 @@ function CreateProjectDialogContent({
   const availableTeams = useAppStore(
     useShallow((state) => getEditableTeamsForFeature(state, "projects"))
   )
-  const allLabels = useAppStore((state) => state.labels)
-  const teamMemberships = useAppStore((state) => state.teamMemberships)
-  const users = useAppStore((state) => state.users)
-  const currentUserId = useAppStore((state) => state.currentUserId)
+  const { allLabels, currentUserId, teamMemberships, users } = useAppStore(
+    useShallow((state) => ({
+      allLabels: state.labels,
+      currentUserId: state.currentUserId,
+      teamMemberships: state.teamMemberships,
+      users: state.users,
+    }))
+  )
   const shortcutModifierLabel = useShortcutModifierLabel()
 
   const initialTeamId =
@@ -272,8 +1123,7 @@ function CreateProjectDialogContent({
     [selectedTeamId, teamMemberships, users]
   )
   const availableLabels = useMemo(
-    () =>
-      [...labels].sort((left, right) => left.name.localeCompare(right.name)),
+    () => sortLabelsByName(labels),
     [labels]
   )
   const templateType = getDefaultTemplateTypeForTeamExperience(
@@ -338,7 +1188,6 @@ function CreateProjectDialogContent({
     summaryLimitState.canSubmit &&
     Boolean(selectedTeamId) &&
     Boolean(leadId)
-  const triggerClassName = chipTriggerClass
   const presentationGroupOptions = useMemo(
     () => getProjectPresentationGroupOptions(templateType),
     [templateType]
@@ -382,24 +1231,7 @@ function CreateProjectDialogContent({
   }, [presentation, selectedTeamId, settingsTeam])
 
   function updatePresentationView(patch: ViewConfigPatch) {
-    setPresentation((current) => ({
-      ...current,
-      ...(patch.layout !== undefined ? { layout: patch.layout } : {}),
-      ...(patch.grouping !== undefined ? { grouping: patch.grouping } : {}),
-      ...(patch.ordering !== undefined ? { ordering: patch.ordering } : {}),
-      ...(patch.itemLevel !== undefined ? { itemLevel: patch.itemLevel } : {}),
-      ...(patch.showChildItems !== undefined
-        ? { showChildItems: patch.showChildItems }
-        : {}),
-      ...(patch.showCompleted !== undefined
-        ? {
-            filters: {
-              ...current.filters,
-              showCompleted: patch.showCompleted,
-            },
-          }
-        : {}),
-    }))
+    setPresentation((current) => applyViewConfigPatch(current, patch))
   }
 
   function togglePresentationFilterValue(key: ViewFilterKey, value: string) {
@@ -526,18 +1358,66 @@ function CreateProjectDialogContent({
 
   useCommandEnterSubmit(open && canCreate, handleCreate)
 
-  const labelsTriggerText =
-    selectedLabels.length === 0
-      ? "Labels"
-      : selectedLabels.length === 1
-        ? (selectedLabels[0]?.name ?? "Labels")
-        : `${selectedLabels.length} labels`
-  const membersTriggerText =
-    selectedMembers.length === 0
-      ? "Members"
-      : selectedMembers.length === 1
-        ? (selectedMembers[0]?.name ?? "Members")
-        : `${selectedMembers.length} members`
+  const labelsTriggerText = getCollectionTriggerText(
+    selectedLabels,
+    "Labels",
+    "labels"
+  )
+  const membersTriggerText = getCollectionTriggerText(
+    selectedMembers,
+    "Members",
+    "members"
+  )
+
+  const controlStripProps = {
+    availableLabels,
+    teamMembers,
+    defaultLeadIdForSelectedTeam,
+    selectedMembers,
+    labelQuery,
+    selectedLead,
+    labelsPickerOpen,
+    selectedLabels,
+    labelsTriggerText,
+    selectedLabelIds,
+    leadId,
+    scopedTeamItems,
+    leadPickerOpen,
+    priorityPickerOpen,
+    leadQuery,
+    priority,
+    memberIds,
+    presentationView,
+    memberQuery,
+    presentationGroupOptions,
+    membersPickerOpen,
+    membersTriggerText,
+    startDate,
+    status,
+    statusPickerOpen,
+    targetDate,
+    onClearPresentationDisplayProperties: clearPresentationDisplayProperties,
+    onClearPresentationFilters: clearPresentationFilters,
+    onLabelIdsChange: setSelectedLabelIds,
+    onLabelsPickerOpenChange: setLabelsPickerOpen,
+    onLabelQueryChange: setLabelQuery,
+    onLeadChange: setLeadId,
+    onLeadPickerOpenChange: setLeadPickerOpen,
+    onLeadQueryChange: setLeadQuery,
+    onMemberIdsChange: setMemberIds,
+    onMembersPickerOpenChange: setMembersPickerOpen,
+    onMemberQueryChange: setMemberQuery,
+    onPriorityChange: setPriority,
+    onPriorityPickerOpenChange: setPriorityPickerOpen,
+    onReorderPresentationDisplayProperties: reorderPresentationDisplayProperties,
+    onStartDateChange: setStartDate,
+    onStatusChange: setStatus,
+    onStatusPickerOpenChange: setStatusPickerOpen,
+    onTargetDateChange: setTargetDate,
+    onTogglePresentationDisplayProperty: togglePresentationDisplayProperty,
+    onTogglePresentationFilterValue: togglePresentationFilterValue,
+    onUpdatePresentationView: updatePresentationView,
+  } satisfies Parameters<typeof ProjectDialogControlStrip>[0]
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -553,530 +1433,23 @@ function CreateProjectDialogContent({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
-          <TeamSpaceCrumbPicker
-            options={availableTeams.map((team) => ({
-              id: team.id,
-              label: team.name,
-              teamId: team.id,
-            }))}
-            selectedId={selectedTeamId}
-            onSelect={syncTeamSelection}
-            triggerClassName={crumbTriggerClass}
-          />
-          <span className={crumbTriggerClass}>
-            <span className="font-medium text-foreground">Project</span>
-          </span>
-          <div className="ml-auto flex items-center gap-0.5">
-            <DialogClose asChild>
-              <button
-                type="button"
-                className="inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
-                aria-label="Close"
-              >
-                <X className="size-[14px]" />
-              </button>
-            </DialogClose>
-          </div>
-        </div>
+        <ProjectDialogHeader
+          availableTeams={availableTeams}
+          selectedTeamId={selectedTeamId}
+          onTeamSelect={syncTeamSelection}
+        />
 
-        <div className="px-[18px] pt-3 pb-0.5">
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Project name"
-            maxLength={projectNameConstraints.max}
-            className="h-auto border-none bg-transparent px-0 py-1 text-[20px] font-semibold tracking-[-0.01em] shadow-none placeholder:font-medium placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
-            autoFocus
-          />
-          <FieldCharacterLimit
-            state={nameLimitState}
-            limit={projectNameConstraints.max}
-            className="mt-1"
-          />
-          <Textarea
-            value={summary}
-            onChange={(event) => setSummary(event.target.value)}
-            maxLength={projectSummaryConstraints.max}
-            placeholder={templateDefaults.summaryHint}
-            rows={4}
-            className="mt-0.5 min-h-[96px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
-          />
-          <FieldCharacterLimit
-            state={summaryLimitState}
-            limit={projectSummaryConstraints.max}
-            className="mt-1"
-          />
-          <div className="pt-1 pb-2 text-[11.5px] text-fg-4">
-            Configure the default project view before the team starts using it.
-          </div>
-        </div>
+        <ProjectBasicsFields
+          name={name}
+          summary={summary}
+          summaryHint={templateDefaults.summaryHint}
+          nameLimitState={nameLimitState}
+          summaryLimitState={summaryLimitState}
+          onNameChange={setName}
+          onSummaryChange={setSummary}
+        />
 
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-[18px] py-2.5">
-          <Popover open={statusPickerOpen} onOpenChange={setStatusPickerOpen}>
-            <PopoverTrigger asChild>
-              <button type="button" className={triggerClassName}>
-                <ProjectStatusBadge status={status} />
-                <CaretDown className="size-3 shrink-0 opacity-60" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
-            >
-              <PropertyPopoverList>
-                {PROJECT_STATUS_ORDER.map((value) => {
-                  const selected = value === status
-                  return (
-                    <PropertyPopoverItem
-                      key={value}
-                      selected={selected}
-                      onClick={() => {
-                        setStatus(value)
-                        setStatusPickerOpen(false)
-                      }}
-                      trailing={
-                        selected ? (
-                          <Check className="size-[14px] text-foreground" />
-                        ) : null
-                      }
-                    >
-                      <ProjectStatusBadge status={value} />
-                    </PropertyPopoverItem>
-                  )
-                })}
-              </PropertyPopoverList>
-            </PopoverContent>
-          </Popover>
-
-          <Popover
-            open={priorityPickerOpen}
-            onOpenChange={setPriorityPickerOpen}
-          >
-            <PopoverTrigger asChild>
-              <button type="button" className={triggerClassName}>
-                <PriorityIcon priority={priority} />
-                <span className="font-medium text-foreground">
-                  {priorityMeta[priority].label}
-                </span>
-                <CaretDown className="size-3 shrink-0 opacity-60" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
-            >
-              <PropertyPopoverList>
-                {Object.keys(priorityMeta).map((value) => {
-                  const typedValue = value as Priority
-                  const selected = typedValue === priority
-
-                  return (
-                    <PropertyPopoverItem
-                      key={value}
-                      selected={selected}
-                      onClick={() => {
-                        setPriority(typedValue)
-                        setPriorityPickerOpen(false)
-                      }}
-                      trailing={
-                        selected ? (
-                          <Check className="size-[14px] text-foreground" />
-                        ) : null
-                      }
-                    >
-                      <PriorityIcon priority={typedValue} />
-                      <span>{priorityMeta[typedValue].label}</span>
-                    </PropertyPopoverItem>
-                  )
-                })}
-              </PropertyPopoverList>
-            </PopoverContent>
-          </Popover>
-
-          <Popover
-            open={leadPickerOpen}
-            onOpenChange={(next) => {
-              setLeadPickerOpen(next)
-              if (!next) setLeadQuery("")
-            }}
-          >
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  triggerClassName,
-                  !selectedLead && "border-dashed text-fg-3"
-                )}
-                disabled={teamMembers.length === 0}
-              >
-                {selectedLead ? (
-                  <UserOption user={selectedLead} />
-                ) : (
-                  <>
-                    <User className="size-[13px]" />
-                    <span>Lead</span>
-                  </>
-                )}
-                <CaretDown className="size-3 shrink-0 opacity-60" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              className={cn(PROPERTY_POPOVER_CLASS, "w-[300px]")}
-            >
-              <PropertyPopoverSearch
-                icon={<MagnifyingGlass className="size-[14px]" />}
-                placeholder="Choose lead…"
-                value={leadQuery}
-                onChange={setLeadQuery}
-                trailing={
-                  leadId !== defaultLeadIdForSelectedTeam &&
-                  defaultLeadIdForSelectedTeam ? (
-                    <button
-                      type="button"
-                      className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-                      onClick={() => setLeadId(defaultLeadIdForSelectedTeam)}
-                    >
-                      Clear
-                    </button>
-                  ) : undefined
-                }
-              />
-              <PropertyPopoverList>
-                {teamMembers
-                  .filter((member) => matchesQuery(member.name, leadQuery))
-                  .map((member) => {
-                    const selected = member.id === leadId
-                    return (
-                      <PropertyPopoverItem
-                        key={member.id}
-                        selected={selected}
-                        onClick={() => {
-                          setLeadId(member.id)
-                          setLeadPickerOpen(false)
-                        }}
-                        trailing={
-                          selected ? (
-                            <Check className="size-[14px] text-foreground" />
-                          ) : null
-                        }
-                      >
-                        <UserOption user={member} />
-                      </PropertyPopoverItem>
-                    )
-                  })}
-              </PropertyPopoverList>
-            </PopoverContent>
-          </Popover>
-
-          <Popover
-            open={membersPickerOpen}
-            onOpenChange={(next) => {
-              setMembersPickerOpen(next)
-              if (!next) setMemberQuery("")
-            }}
-          >
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  triggerClassName,
-                  selectedMembers.length === 0 && "border-dashed text-fg-3"
-                )}
-                disabled={teamMembers.length === 0}
-              >
-                <UsersThree className="size-[13px]" />
-                <span
-                  className={cn(
-                    "truncate",
-                    selectedMembers.length > 0 && "font-medium text-foreground"
-                  )}
-                >
-                  {membersTriggerText}
-                </span>
-                <CaretDown className="size-3 shrink-0 opacity-60" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              className={cn(PROPERTY_POPOVER_CLASS, "w-[300px]")}
-            >
-              <PropertyPopoverSearch
-                icon={<MagnifyingGlass className="size-[14px]" />}
-                placeholder="Add members…"
-                value={memberQuery}
-                onChange={setMemberQuery}
-                trailing={
-                  selectedMembers.length > 0 ? (
-                    <button
-                      type="button"
-                      className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-                      onClick={() => setMemberIds([])}
-                    >
-                      Clear
-                    </button>
-                  ) : undefined
-                }
-              />
-              <PropertyPopoverList>
-                {teamMembers
-                  .filter((member) => matchesQuery(member.name, memberQuery))
-                  .map((member) => {
-                    const selected = memberIds.includes(member.id)
-                    const isLead = member.id === leadId
-                    return (
-                      <PropertyPopoverItem
-                        key={member.id}
-                        selected={selected}
-                        onClick={() => {
-                          setMemberIds((current) =>
-                            toggleSelection(current, member.id)
-                          )
-                        }}
-                        trailing={
-                          selected ? (
-                            <Check className="size-[14px] text-foreground" />
-                          ) : null
-                        }
-                      >
-                        <UserOption
-                          user={member}
-                          secondaryLabel={isLead ? "Lead" : undefined}
-                        />
-                      </PropertyPopoverItem>
-                    )
-                  })}
-              </PropertyPopoverList>
-              <PropertyPopoverFoot>
-                <span>{selectedMembers.length} selected</span>
-              </PropertyPopoverFoot>
-            </PopoverContent>
-          </Popover>
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  triggerClassName,
-                  !startDate && chipTriggerDashedClass
-                )}
-              >
-                <CalendarDots className="size-[13px]" />
-                <span
-                  className={cn(startDate && "font-medium text-foreground")}
-                >
-                  {formatDateChipLabel(startDate, "Start date")}
-                </span>
-                <CaretDown className="size-3 shrink-0 opacity-60" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              className={cn(PROPERTY_POPOVER_CLASS, "w-[240px]")}
-            >
-              <div className="px-3 py-3">
-                <div className="mb-2 text-[11px] font-medium text-fg-3">
-                  Start date
-                </div>
-                <input
-                  type="date"
-                  value={startDate ?? ""}
-                  onChange={(event) => setStartDate(event.target.value || null)}
-                  className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
-                />
-              </div>
-              <PropertyPopoverFoot>
-                <button
-                  type="button"
-                  className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-                  onClick={() => setStartDate(null)}
-                >
-                  Clear
-                </button>
-              </PropertyPopoverFoot>
-            </PopoverContent>
-          </Popover>
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  triggerClassName,
-                  !targetDate && chipTriggerDashedClass
-                )}
-              >
-                <CalendarDots className="size-[13px]" />
-                <span
-                  className={cn(targetDate && "font-medium text-foreground")}
-                >
-                  {formatDateChipLabel(targetDate, "Target date")}
-                </span>
-                <CaretDown className="size-3 shrink-0 opacity-60" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              className={cn(PROPERTY_POPOVER_CLASS, "w-[240px]")}
-            >
-              <div className="px-3 py-3">
-                <div className="mb-2 text-[11px] font-medium text-fg-3">
-                  Target date
-                </div>
-                <input
-                  type="date"
-                  value={targetDate ?? ""}
-                  onChange={(event) =>
-                    setTargetDate(event.target.value || null)
-                  }
-                  className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
-                />
-              </div>
-              <PropertyPopoverFoot>
-                <button
-                  type="button"
-                  className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-                  onClick={() => setTargetDate(null)}
-                >
-                  Clear
-                </button>
-              </PropertyPopoverFoot>
-            </PopoverContent>
-          </Popover>
-
-          <Popover
-            open={labelsPickerOpen}
-            onOpenChange={(next) => {
-              setLabelsPickerOpen(next)
-              if (!next) setLabelQuery("")
-            }}
-          >
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  triggerClassName,
-                  selectedLabels.length === 0 && "border-dashed text-fg-3"
-                )}
-              >
-                <Tag className="size-[13px]" />
-                <span
-                  className={cn(
-                    "truncate",
-                    selectedLabels.length > 0 && "font-medium text-foreground"
-                  )}
-                >
-                  {labelsTriggerText}
-                </span>
-                <CaretDown className="size-3 shrink-0 opacity-60" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              className={cn(PROPERTY_POPOVER_CLASS, "w-[260px]")}
-            >
-              <PropertyPopoverSearch
-                icon={<Tag className="size-[14px]" />}
-                placeholder="Filter labels…"
-                value={labelQuery}
-                onChange={setLabelQuery}
-                trailing={
-                  selectedLabels.length > 0 ? (
-                    <button
-                      type="button"
-                      className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-                      onClick={() => setSelectedLabelIds([])}
-                    >
-                      Clear
-                    </button>
-                  ) : undefined
-                }
-              />
-              <PropertyPopoverList>
-                {availableLabels
-                  .filter((label) => matchesQuery(label.name, labelQuery))
-                  .map((label) => {
-                    const selected = selectedLabelIds.includes(label.id)
-                    return (
-                      <PropertyPopoverItem
-                        key={label.id}
-                        selected={selected}
-                        onClick={() =>
-                          setSelectedLabelIds((current) =>
-                            toggleSelection(current, label.id)
-                          )
-                        }
-                        trailing={
-                          selected ? (
-                            <Check className="size-[14px] text-foreground" />
-                          ) : null
-                        }
-                      >
-                        <span
-                          aria-hidden
-                          className="inline-block size-2 shrink-0 rounded-full"
-                          style={{ background: label.color }}
-                        />
-                        <span className="truncate">{label.name}</span>
-                      </PropertyPopoverItem>
-                    )
-                  })}
-              </PropertyPopoverList>
-              <PropertyPopoverFoot>
-                <span>{selectedLabels.length} selected</span>
-              </PropertyPopoverFoot>
-            </PopoverContent>
-          </Popover>
-
-          {presentationView ? (
-            <>
-              <LayoutChipPopover
-                view={presentationView}
-                onUpdateView={updatePresentationView}
-              />
-              <FilterPopover
-                view={presentationView}
-                items={scopedTeamItems}
-                onToggleFilterValue={togglePresentationFilterValue}
-                onClearFilters={clearPresentationFilters}
-                variant="chip"
-                chipTone="default"
-                dashedWhenEmpty
-              />
-              <LevelChipPopover
-                view={presentationView}
-                onUpdateView={updatePresentationView}
-              />
-              <GroupChipPopover
-                view={presentationView}
-                groupOptions={presentationGroupOptions}
-                onUpdateView={updatePresentationView}
-                tone="default"
-                showValue={false}
-                showSubGrouping={false}
-              />
-              <SortChipPopover
-                view={presentationView}
-                onUpdateView={updatePresentationView}
-                label="Sort"
-                showValue={false}
-              />
-              <PropertiesChipPopover
-                view={presentationView}
-                onToggleDisplayProperty={togglePresentationDisplayProperty}
-                onReorderDisplayProperties={
-                  reorderPresentationDisplayProperties
-                }
-                onClearDisplayProperties={clearPresentationDisplayProperties}
-                tone="default"
-                dashedWhenEmpty
-                propertyOptions={PROJECT_PRESENTATION_PROPERTY_OPTIONS}
-              />
-            </>
-          ) : null}
-        </div>
+        <ProjectDialogControlStrip {...controlStripProps} />
 
         {availableTeams.length === 0 ? (
           <p className="px-[18px] pt-2 text-xs text-destructive">
@@ -1084,50 +1457,13 @@ function CreateProjectDialogContent({
           </p>
         ) : null}
 
-        <div className="flex items-center gap-2.5 border-t border-line-soft bg-background px-3.5 py-2">
-          <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-3">
-            <FolderSimple className="size-[13px] shrink-0" />
-            <span className="truncate">
-              {settingsTeam ? (
-                <>
-                  Adding to{" "}
-                  <b className="font-medium text-foreground">
-                    {settingsTeam.name}
-                  </b>
-                </>
-              ) : (
-                "Select a team space"
-              )}
-            </span>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-              <ShortcutKeys
-                keys={["Esc"]}
-                className="ml-1"
-                keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
-              />
-            </Button>
-            <Button
-              size="sm"
-              disabled={!canCreate}
-              onClick={handleCreate}
-              className="gap-1"
-            >
-              Create project
-              <ShortcutKeys
-                keys={[shortcutModifierLabel, "Enter"]}
-                variant="inline"
-                className="ml-0.5 gap-0.5 text-background/65"
-              />
-            </Button>
-          </div>
-        </div>
+        <ProjectDialogFooter
+          canCreate={canCreate}
+          selectedTeam={settingsTeam}
+          shortcutModifierLabel={shortcutModifierLabel}
+          onCancel={() => onOpenChange(false)}
+          onCreate={handleCreate}
+        />
       </DialogContent>
     </Dialog>
   )

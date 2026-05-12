@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto"
 
 import { Resend } from "resend"
 
-export type ClaimedQueuedEmailJob = {
+import {
+  releaseEmailJobClaimSafely,
+  type ReleaseEmailJobClaim,
+} from "@/lib/email/queued-email-claim-release"
+import { toErrorMessage } from "@/lib/email/errors"
+
+type ClaimedQueuedEmailJob = {
   id: string
   notificationId?: string
   toEmail: string
@@ -20,20 +26,6 @@ type MarkEmailJobsSent = (payload: {
   claimId: string
   jobIds: string[]
 }) => Promise<unknown>
-
-type ReleaseEmailJobClaim = (payload: {
-  claimId: string
-  jobIds: string[]
-  errorMessage?: string
-}) => Promise<
-  | Array<{
-      jobId: string
-      retryBackoffMs: number
-    }>
-  | null
-  | undefined
-  | unknown
->
 
 type ProcessQueuedEmailJobsBatchInput = {
   resendApiKey: string
@@ -63,10 +55,6 @@ export function normalizeResendFrom(fromEmail: string, fromName?: string) {
   return `${trimmedFromName} <${trimmedFromEmail}>`
 }
 
-export function toErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
-}
-
 export function getRequiredEnv(
   name: "CRON_SECRET" | "RESEND_API_KEY" | "RESEND_FROM_EMAIL"
 ) {
@@ -83,40 +71,111 @@ export function isConfigurationErrorMessage(message: string) {
   return message.endsWith("is not configured")
 }
 
-async function releaseEmailJobClaimSafely(input: {
+function getEarlierRetryDelay(
+  currentDelayMs: number | null,
+  retryDelayMs: number | null
+) {
+  if (typeof retryDelayMs !== "number") {
+    return currentDelayMs
+  }
+
+  return currentDelayMs === null
+    ? retryDelayMs
+    : Math.min(currentDelayMs, retryDelayMs)
+}
+
+async function sendQueuedEmailJob(input: {
+  job: ClaimedQueuedEmailJob
+  resend: Resend
+  resendFrom: string
+}) {
+  return input.resend.emails.send(
+    {
+      from: input.resendFrom,
+      to: input.job.toEmail,
+      subject: input.job.subject,
+      text: input.job.text,
+      html: input.job.html,
+    },
+    {
+      idempotencyKey: input.job.id,
+    }
+  )
+}
+
+async function releaseFailedQueuedEmailJob(input: {
   claimId: string
-  jobId: string
-  errorMessage: string
   context: "send" | "mark_sent"
+  errorMessage: string
+  job: ClaimedQueuedEmailJob
   releaseEmailJobClaim: ReleaseEmailJobClaim
 }) {
-  try {
-    const result = await input.releaseEmailJobClaim({
-      claimId: input.claimId,
-      jobIds: [input.jobId],
-      errorMessage: input.errorMessage,
-    })
-    const releasedClaim = Array.isArray(result)
-      ? result.find(
-          (entry) =>
-            typeof entry === "object" &&
-            entry !== null &&
-            "jobId" in entry &&
-            entry.jobId === input.jobId &&
-            "retryBackoffMs" in entry &&
-            typeof entry.retryBackoffMs === "number"
-        )
-      : null
+  return releaseEmailJobClaimSafely({
+    claimId: input.claimId,
+    jobId: input.job.id,
+    errorMessage: input.errorMessage,
+    context: input.context,
+    releaseEmailJobClaim: input.releaseEmailJobClaim,
+  })
+}
 
-    return releasedClaim?.retryBackoffMs ?? null
+async function processQueuedEmailJob(input: {
+  claimId: string
+  job: ClaimedQueuedEmailJob
+  markEmailJobsSent: MarkEmailJobsSent
+  releaseEmailJobClaim: ReleaseEmailJobClaim
+  resend: Resend
+  resendFrom: string
+}) {
+  try {
+    const sendResult = await sendQueuedEmailJob(input)
+
+    if (sendResult.error) {
+      return {
+        sent: false,
+        nextRetryDelayMs: await releaseFailedQueuedEmailJob({
+          ...input,
+          context: "send",
+          errorMessage: sendResult.error.message,
+        }),
+      }
+    }
   } catch (error) {
-    console.error("Failed to release queued email job claim", {
+    return {
+      sent: false,
+      nextRetryDelayMs: await releaseFailedQueuedEmailJob({
+        ...input,
+        context: "send",
+        errorMessage: toErrorMessage(error),
+      }),
+    }
+  }
+
+  try {
+    await input.markEmailJobsSent({
       claimId: input.claimId,
-      jobId: input.jobId,
-      context: input.context,
+      jobIds: [input.job.id],
+    })
+  } catch (error) {
+    console.error("Failed to mark queued email job as sent", {
+      claimId: input.claimId,
+      jobId: input.job.id,
       error: toErrorMessage(error),
     })
-    return null
+
+    return {
+      sent: false,
+      nextRetryDelayMs: await releaseFailedQueuedEmailJob({
+        ...input,
+        context: "mark_sent",
+        errorMessage: toErrorMessage(error),
+      }),
+    }
+  }
+
+  return {
+    sent: true,
+    nextRetryDelayMs: null,
   }
 }
 
@@ -140,86 +199,25 @@ export async function processQueuedEmailJobsBatch(
   let nextRetryDelayMs: number | null = null
 
   for (const job of jobs) {
-    let sendResult
+    const result = await processQueuedEmailJob({
+      claimId,
+      job,
+      markEmailJobsSent: input.markEmailJobsSent,
+      releaseEmailJobClaim: input.releaseEmailJobClaim,
+      resend,
+      resendFrom,
+    })
 
-    try {
-      sendResult = await resend.emails.send(
-        {
-          from: resendFrom,
-          to: job.toEmail,
-          subject: job.subject,
-          text: job.text,
-          html: job.html,
-        },
-        {
-          idempotencyKey: job.id,
-        }
-      )
-    } catch (error) {
-      const retryDelayMs = await releaseEmailJobClaimSafely({
-        claimId,
-        jobId: job.id,
-        errorMessage: toErrorMessage(error),
-        context: "send",
-        releaseEmailJobClaim: input.releaseEmailJobClaim,
-      })
-      if (typeof retryDelayMs === "number") {
-        nextRetryDelayMs =
-          nextRetryDelayMs === null
-            ? retryDelayMs
-            : Math.min(nextRetryDelayMs, retryDelayMs)
-      }
+    nextRetryDelayMs = getEarlierRetryDelay(
+      nextRetryDelayMs,
+      result.nextRetryDelayMs
+    )
+
+    if (result.sent) {
+      sentCount += 1
+    } else {
       failedCount += 1
-      continue
     }
-
-    if (sendResult.error) {
-      const retryDelayMs = await releaseEmailJobClaimSafely({
-        claimId,
-        jobId: job.id,
-        errorMessage: sendResult.error.message,
-        context: "send",
-        releaseEmailJobClaim: input.releaseEmailJobClaim,
-      })
-      if (typeof retryDelayMs === "number") {
-        nextRetryDelayMs =
-          nextRetryDelayMs === null
-            ? retryDelayMs
-            : Math.min(nextRetryDelayMs, retryDelayMs)
-      }
-      failedCount += 1
-      continue
-    }
-
-    try {
-      await input.markEmailJobsSent({
-        claimId,
-        jobIds: [job.id],
-      })
-    } catch (error) {
-      console.error("Failed to mark queued email job as sent", {
-        claimId,
-        jobId: job.id,
-        error: toErrorMessage(error),
-      })
-      const retryDelayMs = await releaseEmailJobClaimSafely({
-        claimId,
-        jobId: job.id,
-        errorMessage: toErrorMessage(error),
-        context: "mark_sent",
-        releaseEmailJobClaim: input.releaseEmailJobClaim,
-      })
-      if (typeof retryDelayMs === "number") {
-        nextRetryDelayMs =
-          nextRetryDelayMs === null
-            ? retryDelayMs
-            : Math.min(nextRetryDelayMs, retryDelayMs)
-      }
-      failedCount += 1
-      continue
-    }
-
-    sentCount += 1
   }
 
   return {

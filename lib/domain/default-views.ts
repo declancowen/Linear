@@ -1,4 +1,5 @@
 import {
+  cloneViewFilters,
   createDefaultViewFilters,
   getDefaultShowChildItemsForItemLevel,
   getDefaultViewItemLevelForTeamExperience,
@@ -23,6 +24,38 @@ type ViewConfigOverrides = Partial<
     | "showChildItems"
   >
 >
+type CreateViewDefinitionInput = {
+  id: string
+  name: string
+  description: string
+  scopeType: "personal" | "team" | "workspace"
+  scopeId: string
+  entityKind: EntityKind
+  containerType?: ViewContainerType | null
+  containerId?: string | null
+  createdAt: string
+  updatedAt?: string
+  route?: string | null
+  teamSlug?: string | null
+  defaultItemLevelExperience?: TeamExperienceType | null
+  isShared?: boolean
+  overrides?: ViewConfigOverrides
+}
+
+type DefaultViewBuildMetadata = {
+  createdAt: string
+  updatedAt?: string
+  experience?: TeamExperienceType | null
+}
+
+const ACTIVE_WORK_ITEM_DISPLAY_PROPS: ViewDefinition["displayProps"] = [
+  "id",
+  "status",
+  "assignee",
+  "priority",
+  "project",
+  "created",
+]
 
 function getCanonicalPrimaryViewName(
   experience: TeamExperienceType | null | undefined
@@ -155,42 +188,19 @@ export function isRouteAllowedForViewContext(input: {
   return input.route === "/workspace/docs"
 }
 
-export function createViewDefinition(input: {
-  id: string
-  name: string
-  description: string
-  scopeType: "personal" | "team" | "workspace"
-  scopeId: string
-  entityKind: EntityKind
-  containerType?: ViewContainerType | null
-  containerId?: string | null
-  createdAt: string
-  updatedAt?: string
-  route?: string | null
-  teamSlug?: string | null
-  defaultItemLevelExperience?: TeamExperienceType | null
-  isShared?: boolean
-  overrides?: ViewConfigOverrides
-}): ViewDefinition | null {
-  const route =
+function getViewDefinitionRoute(input: CreateViewDefinitionInput) {
+  return (
     input.route ??
     getDefaultRouteForViewContext({
       scopeType: input.scopeType,
       entityKind: input.entityKind,
       teamSlug: input.teamSlug,
     })
+  )
+}
 
-  if (!route) {
-    return null
-  }
-
-  const updatedAt = input.updatedAt ?? input.createdAt
-  const baseItemLevel =
-    input.entityKind === "items" && input.defaultItemLevelExperience
-      ? getDefaultViewItemLevelForTeamExperience(
-          input.defaultItemLevelExperience
-        )
-      : null
+function getViewDefinitionItemDisplay(input: CreateViewDefinitionInput) {
+  const baseItemLevel = getDefaultItemLevelForView(input)
   const itemLevel =
     input.overrides?.itemLevel === undefined
       ? baseItemLevel
@@ -202,53 +212,58 @@ export function createViewDefinition(input: {
       : false)
 
   return {
+    itemLevel,
+    showChildItems,
+  }
+}
+
+function getViewDefinitionContainerFields(input: CreateViewDefinitionInput) {
+  return {
+    ...(input.containerType ? { containerType: input.containerType } : {}),
+    ...(input.containerId ? { containerId: input.containerId } : {}),
+  }
+}
+
+function getViewDefinitionConfigFields(input: CreateViewDefinitionInput) {
+  return {
+    layout: input.overrides?.layout ?? "list",
+    filters: cloneViewFilters(input.overrides?.filters),
+    grouping: input.overrides?.grouping ?? "status",
+    subGrouping: input.overrides?.subGrouping ?? null,
+    ordering: input.overrides?.ordering ?? "priority",
+    displayProps: cloneDisplayProps(
+      input.entityKind,
+      input.overrides?.displayProps
+    ),
+    hiddenState: cloneHiddenState(
+      input.entityKind,
+      input.overrides?.hiddenState
+    ),
+  }
+}
+
+export function createViewDefinition(
+  input: CreateViewDefinitionInput
+): ViewDefinition | null {
+  const route = getViewDefinitionRoute(input)
+
+  if (!route) {
+    return null
+  }
+
+  const updatedAt = input.updatedAt ?? input.createdAt
+  const itemDisplay = getViewDefinitionItemDisplay(input)
+
+  return {
     id: input.id,
     name: input.name,
     description: input.description,
     scopeType: input.scopeType,
     scopeId: input.scopeId,
     entityKind: input.entityKind,
-    ...(input.containerType ? { containerType: input.containerType } : {}),
-    ...(input.containerId ? { containerId: input.containerId } : {}),
-    itemLevel,
-    showChildItems,
-    layout: input.overrides?.layout ?? "list",
-    filters: input.overrides?.filters
-      ? {
-          ...input.overrides.filters,
-          status: [...input.overrides.filters.status],
-          priority: [...input.overrides.filters.priority],
-          assigneeIds: [...input.overrides.filters.assigneeIds],
-          creatorIds: [...input.overrides.filters.creatorIds],
-          leadIds: [...input.overrides.filters.leadIds],
-          health: [...input.overrides.filters.health],
-          milestoneIds: [...input.overrides.filters.milestoneIds],
-          relationTypes: [...input.overrides.filters.relationTypes],
-          projectIds: [...input.overrides.filters.projectIds],
-          parentIds: [...(input.overrides.filters.parentIds ?? [])],
-          itemTypes: [...input.overrides.filters.itemTypes],
-          labelIds: [...input.overrides.filters.labelIds],
-          teamIds: [...input.overrides.filters.teamIds],
-        }
-      : createDefaultViewFilters(),
-    grouping: input.overrides?.grouping ?? "status",
-    subGrouping: input.overrides?.subGrouping ?? null,
-    ordering: input.overrides?.ordering ?? "priority",
-    displayProps: input.overrides?.displayProps
-      ? [...input.overrides.displayProps]
-      : input.entityKind === "items"
-        ? ["id", "status", "assignee", "priority", "project", "updated"]
-        : ["id", "status", "assignee", "priority", "updated"],
-    hiddenState: input.overrides?.hiddenState
-      ? {
-          groups: [...input.overrides.hiddenState.groups],
-          subgroups: [...input.overrides.hiddenState.subgroups],
-        }
-      : {
-          groups: [],
-          subgroups:
-            input.entityKind === "items" ? ["cancelled", "duplicate"] : [],
-        },
+    ...getViewDefinitionContainerFields(input),
+    ...itemDisplay,
+    ...getViewDefinitionConfigFields(input),
     isShared: input.isShared ?? true,
     route,
     createdAt: input.createdAt,
@@ -256,12 +271,48 @@ export function createViewDefinition(input: {
   }
 }
 
-export function buildTeamWorkViews(input: {
+function getDefaultItemLevelForView(input: {
+  entityKind: EntityKind
+  defaultItemLevelExperience?: TeamExperienceType | null
+}) {
+  return input.entityKind === "items" && input.defaultItemLevelExperience
+    ? getDefaultViewItemLevelForTeamExperience(input.defaultItemLevelExperience)
+    : null
+}
+
+function cloneDisplayProps(
+  entityKind: EntityKind,
+  displayProps: ViewConfigOverrides["displayProps"] | undefined
+): ViewDefinition["displayProps"] {
+  if (displayProps) {
+    return [...displayProps]
+  }
+
+  return entityKind === "items"
+    ? ["id", "status", "assignee", "priority", "project", "updated"]
+    : ["id", "status", "assignee", "priority", "updated"]
+}
+
+function cloneHiddenState(
+  entityKind: EntityKind,
+  hiddenState: ViewConfigOverrides["hiddenState"] | undefined
+) {
+  if (hiddenState) {
+    return {
+      groups: [...hiddenState.groups],
+      subgroups: [...hiddenState.subgroups],
+    }
+  }
+
+  return {
+    groups: [],
+    subgroups: entityKind === "items" ? ["cancelled", "duplicate"] : [],
+  }
+}
+
+export function buildTeamWorkViews(input: DefaultViewBuildMetadata & {
   teamId: string
   teamSlug: string
-  createdAt: string
-  updatedAt?: string
-  experience?: TeamExperienceType | null
 }): ViewDefinition[] {
   const surfaceLabel = getWorkSurfaceCopy(input.experience).surfaceLabel
   const primaryViewName = getCanonicalPrimaryViewName(input.experience)
@@ -297,14 +348,7 @@ export function buildTeamWorkViews(input: {
           ...createDefaultViewFilters(),
           status: ["todo", "in-progress"],
         },
-        displayProps: [
-          "id",
-          "status",
-          "assignee",
-          "priority",
-          "project",
-          "created",
-        ],
+        displayProps: ACTIVE_WORK_ITEM_DISPLAY_PROPS,
       },
     }),
     createViewDefinition({
@@ -332,11 +376,8 @@ export function buildTeamWorkViews(input: {
   ].filter(Boolean) as ViewDefinition[]
 }
 
-export function buildAssignedWorkViews(input: {
+export function buildAssignedWorkViews(input: DefaultViewBuildMetadata & {
   userId: string
-  createdAt: string
-  updatedAt?: string
-  experience?: TeamExperienceType | null
 }): ViewDefinition[] {
   const surfaceLabel = getWorkSurfaceCopy(input.experience).surfaceLabel
   const primaryViewName = getCanonicalPrimaryViewName(input.experience)
@@ -378,14 +419,7 @@ export function buildAssignedWorkViews(input: {
           ...createDefaultViewFilters(),
           status: ["todo", "in-progress"],
         },
-        displayProps: [
-          "id",
-          "status",
-          "assignee",
-          "priority",
-          "project",
-          "created",
-        ],
+        displayProps: ACTIVE_WORK_ITEM_DISPLAY_PROPS,
       },
     }),
     createViewDefinition({

@@ -31,7 +31,7 @@ export function getWorkOSClient() {
   })
 }
 
-export function getWorkOSAuthErrorPayload(error: unknown) {
+function getWorkOSAuthErrorPayload(error: unknown) {
   if (typeof error !== "object" || error === null) {
     return null
   }

@@ -41,7 +41,7 @@ export function isApplicationError(error: unknown): error is ApplicationError {
   return error instanceof ApplicationError
 }
 
-function getErrorMessage(error: unknown) {
+export function getUnknownErrorMessage(error: unknown) {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message
   }
@@ -109,7 +109,7 @@ function collectErrorMessages(
     return messages
   }
 
-  const message = getErrorMessage(error)
+  const message = getUnknownErrorMessage(error)
 
   if (message) {
     for (const variant of normalizeErrorMessageVariants(message)) {

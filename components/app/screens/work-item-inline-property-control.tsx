@@ -47,6 +47,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 
 import { getTeamProjectOptions } from "./helpers"
+import { matchesPropertyQuery } from "./property-chips"
 import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import {
   buildPropertyStatusOptions,
@@ -61,17 +62,56 @@ const PRIORITY_ORDER: Priority[] = ["none", "urgent", "high", "medium", "low"]
 
 type InlineEditableProperty = "status" | "priority" | "assignee" | "project"
 type InlinePropertyControlVariant = "surface" | "child"
+type StatusOption = ReturnType<typeof buildPropertyStatusOptions>[number]
 
 function stopInteractivePropagation(event: SyntheticEvent) {
   event.stopPropagation()
 }
 
 function matchesQuery(value: string, query: string) {
-  if (!query) {
-    return true
+  return matchesPropertyQuery(value, query)
+}
+
+function InlineStatusOptionGroup({
+  options,
+  selectedStatus,
+  title,
+  onSelect,
+}: {
+  options: StatusOption[]
+  selectedStatus: WorkStatus
+  title: string
+  onSelect: (status: WorkStatus) => void
+}) {
+  if (options.length === 0) {
+    return null
   }
 
-  return value.toLowerCase().includes(query.toLowerCase())
+  return (
+    <>
+      <PropertyPopoverGroup>{title}</PropertyPopoverGroup>
+      {options.map((option) => {
+        const status = option.value as WorkStatus
+        const selected = status === selectedStatus
+
+        return (
+          <PropertyPopoverItem
+            key={option.value}
+            selected={selected}
+            onClick={() => onSelect(status)}
+            trailing={
+              selected ? (
+                <Check className="size-[14px] text-foreground" />
+              ) : null
+            }
+          >
+            <StatusIcon status={status} />
+            <span>{option.label}</span>
+          </PropertyPopoverItem>
+        )
+      })}
+    </>
+  )
 }
 
 function getTriggerClassName(
@@ -129,311 +169,325 @@ function StaticChip({
   )
 }
 
-export function InlineWorkItemPropertyControl({
-  data,
-  item,
-  property,
-  variant = "surface",
-}: {
-  data: AppData
-  item: WorkItem
-  property: InlineEditableProperty
-  variant?: InlinePropertyControlVariant
-}) {
-  const team = getTeam(data, item.teamId)
-  const editable = team ? canEditTeam(data, team.id) : false
-  const currentAssignee = item.assigneeId ? getUser(data, item.assigneeId) : null
-  const teamMembers = team ? getTeamMembers(data, team.id) : []
-  const teamProjects = getTeamProjectOptions(data, team?.id, item.primaryProjectId)
-  const currentProject =
-    item.primaryProjectId === null
-      ? null
-      : (teamProjects.find((project) => project.id === item.primaryProjectId) ??
-        null)
-  const statusOptions = buildPropertyStatusOptions(getStatusOrderForTeam(team))
+function createResettingOpenChange(
+  setOpen: (open: boolean) => void,
+  reset: () => void
+) {
+  return (next: boolean) => {
+    setOpen(next)
+    if (!next) {
+      reset()
+    }
+  }
+}
 
-  const [statusOpen, setStatusOpen] = useState(false)
-  const [statusQuery, setStatusQuery] = useState("")
-  const [priorityOpen, setPriorityOpen] = useState(false)
-  const [assigneeOpen, setAssigneeOpen] = useState(false)
-  const [assigneeQuery, setAssigneeQuery] = useState("")
-  const [projectOpen, setProjectOpen] = useState(false)
-  const [projectQuery, setProjectQuery] = useState("")
+function InlinePropertyPopover({
+  afterContent,
+  children,
+  contentClassName = PROPERTY_POPOVER_CLASS,
+  onOpenChange,
+  open,
+  triggerClassName,
+  triggerContents,
+}: {
+  afterContent?: ReactNode
+  children: ReactNode
+  contentClassName?: string
+  onOpenChange: (open: boolean) => void
+  open: boolean
+  triggerClassName: string
+  triggerContents: ReactNode
+}) {
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <TriggerButton className={triggerClassName}>
+          {triggerContents}
+        </TriggerButton>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={contentClassName}
+        data-no-drag="true"
+        onPointerDown={stopInteractivePropagation}
+      >
+        {children}
+      </PopoverContent>
+      {afterContent}
+    </Popover>
+  )
+}
+
+function InlineStatusPropertyControl({
+  editable,
+  item,
+  statusOptions,
+  variant,
+}: {
+  editable: boolean
+  item: WorkItem
+  statusOptions: ReturnType<typeof buildPropertyStatusOptions>
+  variant: InlinePropertyControlVariant
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const triggerClassName = getTriggerClassName(variant)
+  const triggerContents = (
+    <>
+      <StatusIcon status={item.status} />
+      <span className="truncate">{statusMeta[item.status].label}</span>
+    </>
+  )
+
+  if (!editable) {
+    return (
+      <StaticChip className={triggerClassName}>{triggerContents}</StaticChip>
+    )
+  }
+
+  const activeMatches = statusOptions.filter(
+    (option) =>
+      option.value !== PROPERTY_SELECT_SEPARATOR_VALUE &&
+      OPEN_STATUSES.includes(option.value as WorkStatus) &&
+      matchesQuery(option.label, query)
+  )
+  const closedMatches = statusOptions.filter(
+    (option) =>
+      option.value !== PROPERTY_SELECT_SEPARATOR_VALUE &&
+      CLOSED_STATUSES.includes(option.value as WorkStatus) &&
+      matchesQuery(option.label, query)
+  )
+
+  function selectStatus(status: WorkStatus) {
+    useAppStore.getState().updateWorkItem(item.id, { status })
+    setOpen(false)
+  }
+
+  return (
+    <InlinePropertyPopover
+      open={open}
+      onOpenChange={createResettingOpenChange(setOpen, () => setQuery(""))}
+      triggerClassName={triggerClassName}
+      triggerContents={triggerContents}
+    >
+      <PropertyPopoverSearch
+        icon={<MagnifyingGlass className="size-[14px]" />}
+        placeholder="Change status..."
+        value={query}
+        onChange={setQuery}
+      />
+      <PropertyPopoverList>
+        <InlineStatusOptionGroup
+          options={activeMatches}
+          selectedStatus={item.status}
+          title="Active"
+          onSelect={selectStatus}
+        />
+        <InlineStatusOptionGroup
+          options={closedMatches}
+          selectedStatus={item.status}
+          title="Closed"
+          onSelect={selectStatus}
+        />
+      </PropertyPopoverList>
+    </InlinePropertyPopover>
+  )
+}
+
+function InlinePriorityPropertyControl({
+  editable,
+  item,
+  variant,
+}: {
+  editable: boolean
+  item: WorkItem
+  variant: InlinePropertyControlVariant
+}) {
+  const [open, setOpen] = useState(false)
+  const empty = item.priority === "none"
+
+  if (!editable && empty) {
+    return null
+  }
+
+  const triggerClassName = getTriggerClassName(variant, empty)
+  const triggerContents = (
+    <>
+      <PriorityIcon priority={item.priority} />
+      <span className="truncate">
+        {empty ? "Priority" : priorityMeta[item.priority].label}
+      </span>
+    </>
+  )
+
+  if (!editable) {
+    return (
+      <StaticChip className={triggerClassName}>{triggerContents}</StaticChip>
+    )
+  }
+
+  return (
+    <InlinePropertyPopover
+      open={open}
+      onOpenChange={setOpen}
+      triggerClassName={triggerClassName}
+      triggerContents={triggerContents}
+      contentClassName={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
+    >
+      <PropertyPopoverList>
+        {PRIORITY_ORDER.map((value) => (
+          <PropertyPopoverItem
+            key={value}
+            selected={value === item.priority}
+            onClick={() => {
+              useAppStore.getState().updateWorkItem(item.id, {
+                priority: value,
+              })
+              setOpen(false)
+            }}
+            trailing={
+              value === item.priority ? (
+                <Check className="size-[14px] text-foreground" />
+              ) : null
+            }
+          >
+            <PriorityIcon priority={value} />
+            <span>{priorityMeta[value].label}</span>
+          </PropertyPopoverItem>
+        ))}
+      </PropertyPopoverList>
+    </InlinePropertyPopover>
+  )
+}
+
+function InlineAssigneePropertyControl({
+  currentAssignee,
+  editable,
+  item,
+  teamMembers,
+  variant,
+}: {
+  currentAssignee: ReturnType<typeof getUser> | null
+  editable: boolean
+  item: WorkItem
+  teamMembers: ReturnType<typeof getTeamMembers>
+  variant: InlinePropertyControlVariant
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const empty = !currentAssignee
+
+  if (empty && (!editable || variant === "surface")) {
+    return null
+  }
+
+  const triggerClassName = getTriggerClassName(variant, empty)
+  const triggerContents = currentAssignee ? (
+    <>
+      <WorkItemAssigneeAvatar
+        user={currentAssignee}
+        size="xs"
+        className="data-[size=sm]:size-4"
+      />
+      <span className="max-w-[96px] truncate">{currentAssignee.name}</span>
+    </>
+  ) : (
+    <>
+      <User className="size-3.5 shrink-0" />
+      <span>Assignee</span>
+    </>
+  )
+
+  if (!editable) {
+    return (
+      <StaticChip className={triggerClassName}>{triggerContents}</StaticChip>
+    )
+  }
+
+  const assigneeMatches = teamMembers.filter((member) =>
+    matchesQuery(member.name, query)
+  )
+
+  return (
+    <InlinePropertyPopover
+      open={open}
+      onOpenChange={createResettingOpenChange(setOpen, () => setQuery(""))}
+      triggerClassName={triggerClassName}
+      triggerContents={triggerContents}
+    >
+      <PropertyPopoverSearch
+        icon={<MagnifyingGlass className="size-[14px]" />}
+        placeholder="Assign to..."
+        value={query}
+        onChange={setQuery}
+      />
+      <PropertyPopoverList>
+        <PropertyPopoverGroup>Assignee</PropertyPopoverGroup>
+        <PropertyPopoverItem
+          selected={currentAssignee === null}
+          onClick={() => {
+            useAppStore.getState().updateWorkItem(item.id, {
+              assigneeId: null,
+            })
+            setOpen(false)
+          }}
+          trailing={
+            currentAssignee === null ? (
+              <Check className="size-[14px] text-foreground" />
+            ) : null
+          }
+        >
+          <User className="size-3.5 shrink-0 text-fg-3" />
+          <span>Unassigned</span>
+        </PropertyPopoverItem>
+        {assigneeMatches.map((member) => (
+          <PropertyPopoverItem
+            key={member.id}
+            selected={member.id === item.assigneeId}
+            onClick={() => {
+              useAppStore.getState().updateWorkItem(item.id, {
+                assigneeId: member.id,
+              })
+              setOpen(false)
+            }}
+            trailing={
+              member.id === item.assigneeId ? (
+                <Check className="size-[14px] text-foreground" />
+              ) : null
+            }
+          >
+            <WorkItemAssigneeAvatar
+              user={member}
+              size="xs"
+              className="data-[size=sm]:size-4"
+            />
+            <span>{member.name}</span>
+          </PropertyPopoverItem>
+        ))}
+      </PropertyPopoverList>
+    </InlinePropertyPopover>
+  )
+}
+
+function InlineProjectPropertyControl({
+  currentProject,
+  editable,
+  item,
+  teamProjects,
+  variant,
+}: {
+  currentProject: ReturnType<typeof getTeamProjectOptions>[number] | null
+  editable: boolean
+  item: WorkItem
+  teamProjects: ReturnType<typeof getTeamProjectOptions>
+  variant: InlinePropertyControlVariant
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
   const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
     useWorkItemProjectCascadeConfirmation()
-
-  if (property === "status") {
-    const triggerClassName = getTriggerClassName(variant)
-    const triggerContents = (
-      <>
-        <StatusIcon status={item.status} />
-        <span className="truncate">{statusMeta[item.status].label}</span>
-      </>
-    )
-
-    if (!editable) {
-      return <StaticChip className={triggerClassName}>{triggerContents}</StaticChip>
-    }
-
-    const activeMatches = statusOptions.filter(
-      (option) =>
-        option.value !== PROPERTY_SELECT_SEPARATOR_VALUE &&
-        OPEN_STATUSES.includes(option.value as WorkStatus) &&
-        matchesQuery(option.label, statusQuery)
-    )
-    const closedMatches = statusOptions.filter(
-      (option) =>
-        option.value !== PROPERTY_SELECT_SEPARATOR_VALUE &&
-        CLOSED_STATUSES.includes(option.value as WorkStatus) &&
-        matchesQuery(option.label, statusQuery)
-    )
-
-    return (
-      <Popover
-        open={statusOpen}
-        onOpenChange={(next) => {
-          setStatusOpen(next)
-          if (!next) {
-            setStatusQuery("")
-          }
-        }}
-      >
-        <PopoverTrigger asChild>
-          <TriggerButton className={triggerClassName}>{triggerContents}</TriggerButton>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className={PROPERTY_POPOVER_CLASS}
-          data-no-drag="true"
-          onPointerDown={stopInteractivePropagation}
-        >
-          <PropertyPopoverSearch
-            icon={<MagnifyingGlass className="size-[14px]" />}
-            placeholder="Change status..."
-            value={statusQuery}
-            onChange={setStatusQuery}
-          />
-          <PropertyPopoverList>
-            {activeMatches.length > 0 ? (
-              <>
-                <PropertyPopoverGroup>Active</PropertyPopoverGroup>
-                {activeMatches.map((option) => (
-                  <PropertyPopoverItem
-                    key={option.value}
-                    selected={option.value === item.status}
-                    onClick={() => {
-                      useAppStore.getState().updateWorkItem(item.id, {
-                        status: option.value as WorkStatus,
-                      })
-                      setStatusOpen(false)
-                    }}
-                    trailing={
-                      option.value === item.status ? (
-                        <Check className="size-[14px] text-foreground" />
-                      ) : null
-                    }
-                  >
-                    <StatusIcon status={option.value} />
-                    <span>{option.label}</span>
-                  </PropertyPopoverItem>
-                ))}
-              </>
-            ) : null}
-            {closedMatches.length > 0 ? (
-              <>
-                <PropertyPopoverGroup>Closed</PropertyPopoverGroup>
-                {closedMatches.map((option) => (
-                  <PropertyPopoverItem
-                    key={option.value}
-                    selected={option.value === item.status}
-                    onClick={() => {
-                      useAppStore.getState().updateWorkItem(item.id, {
-                        status: option.value as WorkStatus,
-                      })
-                      setStatusOpen(false)
-                    }}
-                    trailing={
-                      option.value === item.status ? (
-                        <Check className="size-[14px] text-foreground" />
-                      ) : null
-                    }
-                  >
-                    <StatusIcon status={option.value} />
-                    <span>{option.label}</span>
-                  </PropertyPopoverItem>
-                ))}
-              </>
-            ) : null}
-          </PropertyPopoverList>
-        </PopoverContent>
-      </Popover>
-    )
-  }
-
-  if (property === "priority") {
-    const empty = item.priority === "none"
-    if (!editable && empty) {
-      return null
-    }
-
-    const triggerClassName = getTriggerClassName(variant, empty)
-    const triggerContents = (
-      <>
-        <PriorityIcon priority={item.priority} />
-        <span className="truncate">
-          {empty ? "Priority" : priorityMeta[item.priority].label}
-        </span>
-      </>
-    )
-
-    if (!editable) {
-      return <StaticChip className={triggerClassName}>{triggerContents}</StaticChip>
-    }
-
-    return (
-      <Popover open={priorityOpen} onOpenChange={setPriorityOpen}>
-        <PopoverTrigger asChild>
-          <TriggerButton className={triggerClassName}>{triggerContents}</TriggerButton>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
-          data-no-drag="true"
-          onPointerDown={stopInteractivePropagation}
-        >
-          <PropertyPopoverList>
-            {PRIORITY_ORDER.map((value) => (
-              <PropertyPopoverItem
-                key={value}
-                selected={value === item.priority}
-                onClick={() => {
-                  useAppStore.getState().updateWorkItem(item.id, {
-                    priority: value,
-                  })
-                  setPriorityOpen(false)
-                }}
-                trailing={
-                  value === item.priority ? (
-                    <Check className="size-[14px] text-foreground" />
-                  ) : null
-                }
-              >
-                <PriorityIcon priority={value} />
-                <span>{priorityMeta[value].label}</span>
-              </PropertyPopoverItem>
-            ))}
-          </PropertyPopoverList>
-        </PopoverContent>
-      </Popover>
-    )
-  }
-
-  if (property === "assignee") {
-    const empty = !currentAssignee
-    if (empty && (!editable || variant === "surface")) {
-      return null
-    }
-
-    const triggerClassName = getTriggerClassName(variant, empty)
-    const triggerContents = currentAssignee ? (
-      <>
-        <WorkItemAssigneeAvatar
-          user={currentAssignee}
-          size="xs"
-          className="data-[size=sm]:size-4"
-        />
-        <span className="max-w-[96px] truncate">{currentAssignee.name}</span>
-      </>
-    ) : (
-      <>
-        <User className="size-3.5 shrink-0" />
-        <span>Assignee</span>
-      </>
-    )
-
-    if (!editable) {
-      return <StaticChip className={triggerClassName}>{triggerContents}</StaticChip>
-    }
-
-    const assigneeMatches = teamMembers.filter((member) =>
-      matchesQuery(member.name, assigneeQuery)
-    )
-
-    return (
-      <Popover
-        open={assigneeOpen}
-        onOpenChange={(next) => {
-          setAssigneeOpen(next)
-          if (!next) {
-            setAssigneeQuery("")
-          }
-        }}
-      >
-        <PopoverTrigger asChild>
-          <TriggerButton className={triggerClassName}>{triggerContents}</TriggerButton>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className={PROPERTY_POPOVER_CLASS}
-          data-no-drag="true"
-          onPointerDown={stopInteractivePropagation}
-        >
-          <PropertyPopoverSearch
-            icon={<MagnifyingGlass className="size-[14px]" />}
-            placeholder="Assign to..."
-            value={assigneeQuery}
-            onChange={setAssigneeQuery}
-          />
-          <PropertyPopoverList>
-            <PropertyPopoverGroup>Assignee</PropertyPopoverGroup>
-            <PropertyPopoverItem
-              selected={currentAssignee === null}
-              onClick={() => {
-                useAppStore.getState().updateWorkItem(item.id, {
-                  assigneeId: null,
-                })
-                setAssigneeOpen(false)
-              }}
-              trailing={
-                currentAssignee === null ? (
-                  <Check className="size-[14px] text-foreground" />
-                ) : null
-              }
-            >
-              <User className="size-3.5 shrink-0 text-fg-3" />
-              <span>Unassigned</span>
-            </PropertyPopoverItem>
-            {assigneeMatches.map((member) => (
-              <PropertyPopoverItem
-                key={member.id}
-                selected={member.id === item.assigneeId}
-                onClick={() => {
-                  useAppStore.getState().updateWorkItem(item.id, {
-                    assigneeId: member.id,
-                  })
-                  setAssigneeOpen(false)
-                }}
-                trailing={
-                  member.id === item.assigneeId ? (
-                    <Check className="size-[14px] text-foreground" />
-                  ) : null
-                }
-              >
-                <WorkItemAssigneeAvatar
-                  user={member}
-                  size="xs"
-                  className="data-[size=sm]:size-4"
-                />
-                <span>{member.name}</span>
-              </PropertyPopoverItem>
-            ))}
-          </PropertyPopoverList>
-        </PopoverContent>
-      </Popover>
-    )
-  }
-
   const empty = !currentProject
+
   if (empty && (!editable || variant === "surface")) {
     return null
   }
@@ -455,83 +509,145 @@ export function InlineWorkItemPropertyControl({
   )
 
   if (!editable) {
-    return <StaticChip className={triggerClassName}>{triggerContents}</StaticChip>
+    return (
+      <StaticChip className={triggerClassName}>{triggerContents}</StaticChip>
+    )
   }
 
   const projectMatches = teamProjects.filter((project) =>
-    matchesQuery(project.name, projectQuery)
+    matchesQuery(project.name, query)
   )
 
   return (
-    <Popover
-      open={projectOpen}
-      onOpenChange={(next) => {
-        setProjectOpen(next)
-        if (!next) {
-          setProjectQuery("")
-        }
-      }}
+    <InlinePropertyPopover
+      open={open}
+      onOpenChange={createResettingOpenChange(setOpen, () => setQuery(""))}
+      triggerClassName={triggerClassName}
+      triggerContents={triggerContents}
+      afterContent={confirmationDialog}
     >
-      <PopoverTrigger asChild>
-        <TriggerButton className={triggerClassName}>{triggerContents}</TriggerButton>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={PROPERTY_POPOVER_CLASS}
-        data-no-drag="true"
-        onPointerDown={stopInteractivePropagation}
-      >
-        <PropertyPopoverSearch
-          icon={<MagnifyingGlass className="size-[14px]" />}
-          placeholder="Move to project..."
-          value={projectQuery}
-          onChange={setProjectQuery}
-        />
-        <PropertyPopoverList>
-          <PropertyPopoverGroup>Project</PropertyPopoverGroup>
+      <PropertyPopoverSearch
+        icon={<MagnifyingGlass className="size-[14px]" />}
+        placeholder="Move to project..."
+        value={query}
+        onChange={setQuery}
+      />
+      <PropertyPopoverList>
+        <PropertyPopoverGroup>Project</PropertyPopoverGroup>
+        <PropertyPopoverItem
+          selected={currentProject === null}
+          onClick={() => {
+            requestConfirmedWorkItemUpdate(item.id, {
+              primaryProjectId: null,
+            })
+            setOpen(false)
+          }}
+          trailing={
+            currentProject === null ? (
+              <Check className="size-[14px] text-foreground" />
+            ) : null
+          }
+        >
+          <FolderSimple className="size-3.5 shrink-0 text-fg-3" />
+          <span>No project</span>
+        </PropertyPopoverItem>
+        {projectMatches.map((project) => (
           <PropertyPopoverItem
-            selected={currentProject === null}
+            key={project.id}
+            selected={project.id === item.primaryProjectId}
             onClick={() => {
               requestConfirmedWorkItemUpdate(item.id, {
-                primaryProjectId: null,
+                primaryProjectId: project.id,
               })
-              setProjectOpen(false)
+              setOpen(false)
             }}
             trailing={
-              currentProject === null ? (
+              project.id === item.primaryProjectId ? (
                 <Check className="size-[14px] text-foreground" />
               ) : null
             }
           >
-            <FolderSimple className="size-3.5 shrink-0 text-fg-3" />
-            <span>No project</span>
+            <ProjectTemplateGlyph
+              templateType={project.templateType}
+              className="size-4 shrink-0 text-fg-3"
+            />
+            <span>{project.name}</span>
           </PropertyPopoverItem>
-          {projectMatches.map((project) => (
-            <PropertyPopoverItem
-              key={project.id}
-              selected={project.id === item.primaryProjectId}
-              onClick={() => {
-                requestConfirmedWorkItemUpdate(item.id, {
-                  primaryProjectId: project.id,
-                })
-                setProjectOpen(false)
-              }}
-              trailing={
-                project.id === item.primaryProjectId ? (
-                  <Check className="size-[14px] text-foreground" />
-                ) : null
-              }
-            >
-              <ProjectTemplateGlyph
-                templateType={project.templateType}
-                className="size-4 shrink-0 text-fg-3"
-              />
-              <span>{project.name}</span>
-            </PropertyPopoverItem>
-          ))}
-        </PropertyPopoverList>
-      </PopoverContent>
-      {confirmationDialog}
-    </Popover>
+        ))}
+      </PropertyPopoverList>
+    </InlinePropertyPopover>
+  )
+}
+
+export function InlineWorkItemPropertyControl({
+  data,
+  item,
+  property,
+  variant = "surface",
+}: {
+  data: AppData
+  item: WorkItem
+  property: InlineEditableProperty
+  variant?: InlinePropertyControlVariant
+}) {
+  const team = getTeam(data, item.teamId)
+  const editable = team ? canEditTeam(data, team.id) : false
+  const currentAssignee = item.assigneeId
+    ? getUser(data, item.assigneeId)
+    : null
+  const teamMembers = team ? getTeamMembers(data, team.id) : []
+  const teamProjects = getTeamProjectOptions(
+    data,
+    team?.id,
+    item.primaryProjectId
+  )
+  const currentProject =
+    item.primaryProjectId === null
+      ? null
+      : (teamProjects.find((project) => project.id === item.primaryProjectId) ??
+        null)
+  const statusOptions = buildPropertyStatusOptions(getStatusOrderForTeam(team))
+
+  if (property === "status") {
+    return (
+      <InlineStatusPropertyControl
+        editable={editable}
+        item={item}
+        statusOptions={statusOptions}
+        variant={variant}
+      />
+    )
+  }
+
+  if (property === "priority") {
+    return (
+      <InlinePriorityPropertyControl
+        editable={editable}
+        item={item}
+        variant={variant}
+      />
+    )
+  }
+
+  if (property === "assignee") {
+    return (
+      <InlineAssigneePropertyControl
+        currentAssignee={currentAssignee}
+        editable={editable}
+        item={item}
+        teamMembers={teamMembers}
+        variant={variant}
+      />
+    )
+  }
+
+  return (
+    <InlineProjectPropertyControl
+      currentProject={currentProject}
+      editable={editable}
+      item={item}
+      teamProjects={teamProjects}
+      variant={variant}
+    />
   )
 }

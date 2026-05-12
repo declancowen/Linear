@@ -4,10 +4,12 @@ const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
 const getDocumentDocMock = vi.fn()
 const getTeamDocMock = vi.fn()
+const getUserDocMock = vi.fn()
 const getWorkItemDocMock = vi.fn()
 const normalizeTeamMock = vi.fn()
 const validateWorkItemParentMock = vi.fn()
 const getClampedNotifiedMentionCountsMock = vi.fn()
+const createNotificationMock = vi.fn()
 
 vi.mock("@/convex/app/core", () => ({
   assertServerToken: assertServerTokenMock,
@@ -23,6 +25,7 @@ vi.mock("@/convex/app/access", () => ({
 vi.mock("@/convex/app/data", () => ({
   getDocumentDoc: getDocumentDocMock,
   getTeamDoc: getTeamDocMock,
+  getUserDoc: getUserDocMock,
   getWorkItemDoc: getWorkItemDocMock,
 }))
 
@@ -31,16 +34,22 @@ vi.mock("@/convex/app/normalization", () => ({
   normalizeTeam: normalizeTeamMock,
 }))
 
-vi.mock("@/convex/app/work_helpers", () => ({
-  assertWorkspaceLabelIds: vi.fn(),
-  collectWorkItemCascadeIds: vi.fn(),
-  getResolvedProjectLinkForWorkItemUpdate: vi.fn(),
-  projectBelongsToTeamScope: vi.fn(),
-  validateWorkItemParent: validateWorkItemParentMock,
-}))
+vi.mock("@/convex/app/work_helpers", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/convex/app/work_helpers")>()
+
+  return {
+    ...actual,
+    assertWorkspaceLabelIds: vi.fn(),
+    collectWorkItemCascadeIds: vi.fn(),
+    getResolvedProjectLinkForWorkItemUpdate: vi.fn(),
+    projectBelongsToTeamScope: vi.fn(),
+    validateWorkItemParent: validateWorkItemParentMock,
+  }
+})
 
 vi.mock("@/convex/app/collaboration_utils", () => ({
-  createNotification: vi.fn(),
+  createNotification: createNotificationMock,
 }))
 
 vi.mock("@/convex/app/document_handlers", () => ({
@@ -67,10 +76,12 @@ describe("work item handlers", () => {
     requireEditableTeamAccessMock.mockReset()
     getDocumentDocMock.mockReset()
     getTeamDocMock.mockReset()
+    getUserDocMock.mockReset()
     getWorkItemDocMock.mockReset()
     normalizeTeamMock.mockReset()
     validateWorkItemParentMock.mockReset()
     getClampedNotifiedMentionCountsMock.mockReset()
+    createNotificationMock.mockReset()
 
     getDocumentDocMock.mockResolvedValue({
       _id: "db_doc_1",
@@ -109,6 +120,14 @@ describe("work item handlers", () => {
       },
     })
     getClampedNotifiedMentionCountsMock.mockReturnValue({})
+    createNotificationMock.mockReturnValue({
+      id: "notification_1",
+      userId: "user_2",
+      actorId: "user_1",
+      entityType: "workItem",
+      entityId: "item_1",
+      type: "assignment",
+    })
   })
 
   it("rejects invalid schedule strings on create before inserting", async () => {
@@ -315,5 +334,159 @@ describe("work item handlers", () => {
       targetDate: "2026-03-11",
       updatedAt: "2026-04-20T22:20:00.000Z",
     })
+  })
+
+  it("patches description documents only when title or content changes", async () => {
+    const { patchWorkItemDescriptionDocument } = await import(
+      "@/convex/app/work_item_handlers"
+    )
+    const ctx = createCtx()
+    const existing = {
+      descriptionDocId: "doc_1",
+    }
+
+    await patchWorkItemDescriptionDocument(ctx as never, {
+      existing: existing as never,
+      nextTitle: "Launch task",
+      nextDescription: undefined,
+      currentUserId: "user_1",
+      now: "2026-04-20T22:20:00.000Z",
+      titleChanged: false,
+    })
+    expect(getDocumentDocMock).not.toHaveBeenCalled()
+
+    await patchWorkItemDescriptionDocument(ctx as never, {
+      existing: existing as never,
+      nextTitle: "Updated title",
+      nextDescription: "<p>Updated</p>",
+      currentUserId: "user_1",
+      now: "2026-04-20T22:20:00.000Z",
+      titleChanged: true,
+    })
+
+    expect(ctx.db.patch).toHaveBeenCalledWith("db_doc_1", {
+      content: "<p>Updated</p>",
+      notifiedMentionCounts: {},
+      title: "Updated title description",
+      updatedAt: "2026-04-20T22:20:00.000Z",
+      updatedBy: "user_1",
+    })
+  })
+
+  it("creates assignment emails only for changed assignees with email preferences", async () => {
+    const { createAssignmentNotificationForWorkItemUpdate } = await import(
+      "@/convex/app/work_item_handlers"
+    )
+    const ctx = createCtx()
+    const existing = {
+      id: "item_1",
+      assigneeId: null,
+    }
+    const args = {
+      currentUserId: "user_1",
+      patch: {
+        assigneeId: "user_2",
+      },
+    }
+
+    getUserDocMock.mockResolvedValue({
+      id: "user_2",
+      email: "sam@example.com",
+      name: "Sam",
+      preferences: {
+        emailAssignments: true,
+      },
+    })
+
+    await expect(
+      createAssignmentNotificationForWorkItemUpdate(ctx as never, {
+        args: args as never,
+        existing: existing as never,
+        actorName: "Alex",
+        teamName: "Launch",
+        nextTitle: "Launch task",
+      })
+    ).resolves.toEqual({
+      notificationId: "notification_1",
+      email: "sam@example.com",
+      name: "Sam",
+      itemTitle: "Launch task",
+      itemId: "item_1",
+      actorName: "Alex",
+      teamName: "Launch",
+    })
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "notifications",
+      expect.objectContaining({
+        id: "notification_1",
+      })
+    )
+
+    await expect(
+      createAssignmentNotificationForWorkItemUpdate(ctx as never, {
+        args: {
+          currentUserId: "user_1",
+          patch: {
+            assigneeId: "user_2",
+          },
+        } as never,
+        existing: {
+          id: "item_1",
+          assigneeId: "user_2",
+        } as never,
+        actorName: "Alex",
+        teamName: "Launch",
+        nextTitle: "Launch task",
+      })
+    ).resolves.toBeNull()
+  })
+
+  it("creates status notifications for the resolved assignee only on status changes", async () => {
+    const { createStatusChangeNotificationForWorkItemUpdate } = await import(
+      "@/convex/app/work_item_handlers"
+    )
+    const ctx = createCtx()
+
+    await createStatusChangeNotificationForWorkItemUpdate(ctx as never, {
+      args: {
+        currentUserId: "user_1",
+        patch: {
+          status: "done",
+        },
+      } as never,
+      existing: {
+        id: "item_1",
+        assigneeId: "user_2",
+        status: "todo",
+      } as never,
+      actorName: "Alex",
+      teamName: "Launch",
+      nextTitle: "Launch task",
+    })
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "notifications",
+      expect.objectContaining({
+        id: "notification_1",
+      })
+    )
+
+    ctx.db.insert.mockClear()
+    await createStatusChangeNotificationForWorkItemUpdate(ctx as never, {
+      args: {
+        currentUserId: "user_1",
+        patch: {
+          status: "todo",
+        },
+      } as never,
+      existing: {
+        id: "item_1",
+        assigneeId: "user_2",
+        status: "todo",
+      } as never,
+      actorName: "Alex",
+      teamName: "Launch",
+      nextTitle: "Launch task",
+    })
+    expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 })

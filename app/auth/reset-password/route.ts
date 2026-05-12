@@ -1,46 +1,13 @@
-import { NextResponse } from "next/server"
-
 import {
   buildAuthPageHref,
+  buildResetPasswordPageHref,
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
+import { redirectToRoute } from "@/lib/server/route-response"
 import {
   mapWorkOSAccountError,
   resetWorkOSPassword,
 } from "@/lib/server/workos"
-
-function redirectTo(request: Request, path: string) {
-  return NextResponse.redirect(new URL(path, request.url), {
-    status: request.method === "POST" ? 303 : 307,
-  })
-}
-
-function buildResetPasswordPageHref(input: {
-  token: string
-  nextPath?: string | null
-  error?: string | null
-  notice?: string | null
-}) {
-  const url = new URL("/reset-password", "https://teams.placeholder")
-
-  if (input.token) {
-    url.searchParams.set("token", input.token)
-  }
-
-  if (input.nextPath) {
-    url.searchParams.set("next", input.nextPath)
-  }
-
-  if (input.error) {
-    url.searchParams.set("error", input.error)
-  }
-
-  if (input.notice) {
-    url.searchParams.set("notice", input.notice)
-  }
-
-  return `${url.pathname}${url.search}`
-}
 
 export async function POST(request: Request) {
   const formData = await request.formData()
@@ -50,7 +17,7 @@ export async function POST(request: Request) {
   const nextPath = normalizeAuthNextPath(String(formData.get("next") ?? ""))
 
   if (!token) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildResetPasswordPageHref({
         token,
@@ -61,7 +28,7 @@ export async function POST(request: Request) {
   }
 
   if (!newPassword) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildResetPasswordPageHref({
         token,
@@ -72,7 +39,7 @@ export async function POST(request: Request) {
   }
 
   if (newPassword !== confirmPassword) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildResetPasswordPageHref({
         token,
@@ -88,7 +55,7 @@ export async function POST(request: Request) {
       newPassword,
     })
 
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildAuthPageHref("login", {
         nextPath,
@@ -96,7 +63,7 @@ export async function POST(request: Request) {
       })
     )
   } catch (error) {
-    return redirectTo(
+    return redirectToRoute(
       request,
       buildResetPasswordPageHref({
         token,

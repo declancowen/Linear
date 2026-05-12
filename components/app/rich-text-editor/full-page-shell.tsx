@@ -15,18 +15,18 @@ import {
   type FullPageCanvasWidth,
 } from "./toolbar"
 
-export const DEFAULT_FULL_PAGE_CANVAS_WIDTH: FullPageCanvasWidth = "narrow"
-export const FULL_PAGE_CANVAS_WIDTH_STORAGE_KEY = "linear.document-canvas-width"
+const DEFAULT_FULL_PAGE_CANVAS_WIDTH: FullPageCanvasWidth = "narrow"
+const FULL_PAGE_CANVAS_WIDTH_STORAGE_KEY = "linear.document-canvas-width"
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect
 
-export function normalizeFullPageCanvasWidth(
+function normalizeFullPageCanvasWidth(
   value: string | null | undefined
 ): FullPageCanvasWidth {
   return value === "medium" || value === "wide" ? value : "narrow"
 }
 
-export function readStoredFullPageCanvasWidth(): FullPageCanvasWidth {
+function readStoredFullPageCanvasWidth(): FullPageCanvasWidth {
   if (typeof window === "undefined") {
     return DEFAULT_FULL_PAGE_CANVAS_WIDTH
   }
