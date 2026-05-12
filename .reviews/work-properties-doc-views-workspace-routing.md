@@ -6,7 +6,7 @@
 | -------------- | ------------------------------------------- |
 | **Repository** | `Linear`                                    |
 | **Remote**     | `https://github.com/declancowen/Linear.git` |
-| **Branch**     | `codex/work-properties-doc-views-routing`  |
+| **Branch**     | `codex/work-properties-doc-views-routing`   |
 | **Stack**      | Next.js, React, Convex, PartyKit, Zustand   |
 
 ## Scope
@@ -28,11 +28,91 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-12 18:28 BST |
-| **Total turns**       | 2                    |
+| **Last reviewed**     | 2026-05-12 18:39 BST |
+| **Total turns**       | 3                    |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 10                   |
+| **Resolved findings** | 11                   |
 | **Accepted findings** | 0                    |
+
+## Turn 3 — 2026-05-12 18:39 BST
+
+| Field           | Value      |
+| --------------- | ---------- |
+| **Commit**      | `b8e90c3a` |
+| **IDE / Agent** | Codex      |
+
+### Automation context
+
+| Field                          | Value                                                                        |
+| ------------------------------ | ---------------------------------------------------------------------------- |
+| **Trigger**                    | `pull_request.opened` / CI check                                             |
+| **PR**                         | `declancowen/Linear#34`                                                      |
+| **Base ref**                   | `main`                                                                       |
+| **Base SHA**                   | `19e92e2dd82e447ff65af210892937c5aa589ab9`                                   |
+| **Head SHA**                   | `b8e90c3acff541d6246ba21e00911c71e368dd2a`                                   |
+| **Previous reviewed head SHA** | none                                                                         |
+| **Diff reviewed**              | `19e92e2d...b8e90c3a` plus dependency fix delta                              |
+| **Workflow run**               | `25751359758`                                                                |
+| **Review comment/check**       | CI `check` failed at `pnpm audit:deps`                                       |
+| **Trusted state source**       | GitHub check run                                                             |
+| **Verification policy**        | Fix live CI dependency audit failure and rerun local audit/static/test/build |
+
+**Summary:** Imported GitHub CI feedback for PR #34. CI failed before Convex generation and `pnpm check` because `pnpm audit:deps` found high-severity advisories in `next@16.2.4` and transitive `fast-uri@3.1.0`. The branch now upgrades Next and its ESLint config to `16.2.6` and pins `fast-uri` to patched `3.1.2` via pnpm override.
+**Outcome:** local fix complete; waiting for new PR check run
+**Risk score:** high — framework/security dependency update on top of a broad feature branch.
+**Change archetypes:** external CI finding, dependency security, framework patch update, lockfile update.
+**Intended change:** Clear the PR CI security audit failure without widening dependency changes beyond the vulnerable packages.
+**Intent vs actual:** The fix is narrow: no unrelated dependencies changed, `pnpm audit:deps` now passes the high threshold, and framework validation still passes locally.
+**Confidence:** medium-high — local validation is clean; GitHub CI still needs to rerun on the pushed fix.
+**Coverage note:** Full test and build passed on Next `16.2.6`.
+**Finding triage:** Live CI finding. Not stale: current branch had vulnerable versions in `package.json`/`pnpm-lock.yaml`.
+**Static/analyzer evidence:** `pnpm fallow:gate` still passes after the dependency update with dead-code `0`, health findings `0`, duplication `0/0`.
+**Architecture impact:** Dependency patch only; no application boundary moved. The `fast-uri` override is narrow and records an explicit security floor for the transitive dependency.
+**Bug classes / invariants checked:** dependency security gate, framework compatibility, lockfile/package consistency, CI parity.
+**Branch totality:** Rechecked current PR head and local diff after importing the CI finding.
+**Sibling closure:** Checked both vulnerable dependency families reported by audit: direct `next` and transitive `fast-uri`.
+**Remediation impact surface:** `package.json` and `pnpm-lock.yaml`.
+**Residual risk / unknowns:** GitHub CI and any Codex/Convex review comments are still pending after push.
+
+### Validation
+
+- `pnpm audit:deps` — passed; high advisories cleared
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed
+- `pnpm test` — passed, 174 files / 956 tests
+- `pnpm build` — passed on Next `16.2.6`
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** CI check log, `package.json`, `pnpm-lock.yaml`, PR check rollup.
+- **Prior open findings rechecked:** none in the local review file.
+- **Prior resolved/adjacent areas revalidated:** full validation from Turn 2 still passes after the dependency update.
+- **Hotspots or sibling paths revisited:** direct Next runtime package and matching `eslint-config-next`; transitive `fast-uri` through `shadcn>@modelcontextprotocol/sdk>ajv`.
+- **Dependency/adjacent surfaces revalidated:** install lockfile, audit gate, typecheck/lint/test/build.
+- **Why this is enough:** the CI failure was solely the dependency audit step, and the exact vulnerable packages now resolve to patched versions with local audit proof.
+
+### Challenger pass
+
+- done — Checked whether the fix should be a broad dependency upgrade. It should not: the audit only required `next >=16.2.6` and `fast-uri >=3.1.2`, so the patch stays narrow.
+
+### Resolved / Carried / New findings
+
+#### WPDV-11 — resolved locally — CI dependency audit failed on high-severity advisories
+
+- **Severity:** high
+- **Evidence:** GitHub CI run `25751359758` failed at `pnpm audit:deps`, reporting `next@16.2.4` and `fast-uri@3.1.0` high-severity advisories.
+- **Fix:** Upgraded `next` and `eslint-config-next` to `16.2.6`; added `pnpm.overrides.fast-uri = 3.1.2`; regenerated `pnpm-lock.yaml`.
+- **Prevention:** `pnpm audit:deps` now passes locally and remains part of CI.
+
+### Recommendations
+
+1. **Fix first:** Commit and push this dependency audit fix.
+2. **Then address:** Wait for the new GitHub CI/Codex/Convex feedback and import any live findings into the next turn.
+3. **Patterns noticed:** CI has a stricter dependency-audit step than the first local loop ran; keep `pnpm audit:deps` in the publish validation set.
+4. **Suggested approach:** Keep dependency overrides narrow and remove `fast-uri` override later only when the upstream chain resolves to `>=3.1.2`.
+5. **Architecture transition:** None.
+6. **Defer on purpose:** Low/moderate audit advisories remain below this repo's configured `--audit-level high` gate.
 
 ## Turn 2 — 2026-05-12 18:28 BST
 
