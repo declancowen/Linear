@@ -1,6 +1,7 @@
 import type { MutationCtx } from "../_generated/server"
 import {
   clearViewFilterSelections,
+  type ViewDefinition,
   type ViewFilters,
 } from "../../lib/domain/types"
 
@@ -11,7 +12,7 @@ import {
 } from "../../lib/domain/default-views"
 import { viewNameMaxLength, viewNameMinLength } from "../../lib/domain/types"
 import { assertServerToken, createId, getNow } from "./core"
-import { getTeamDoc } from "./data"
+import { getCustomPropertyDefinitionDoc, getTeamDoc } from "./data"
 import {
   requireEditableTeamAccess,
   requireEditableWorkspaceAccess,
@@ -48,6 +49,9 @@ type ViewGrouping =
   | "type"
   | "epic"
   | "feature"
+  | "kind"
+  | "createdBy"
+  | "updatedBy"
 type ViewOrdering =
   | "priority"
   | "updatedAt"
@@ -55,19 +59,7 @@ type ViewOrdering =
   | "dueDate"
   | "targetDate"
   | "title"
-type ViewDisplayProperty =
-  | "id"
-  | "type"
-  | "status"
-  | "assignee"
-  | "priority"
-  | "progress"
-  | "project"
-  | "dueDate"
-  | "milestone"
-  | "labels"
-  | "created"
-  | "updated"
+type ViewDisplayProperty = string
 
 type ViewConfigArgs = ServerAccessArgs & {
   currentUserId: string
@@ -133,6 +125,9 @@ type ViewFilterValueArgs = ServerAccessArgs & {
     | "priority"
     | "assigneeIds"
     | "creatorIds"
+    | "updatedByIds"
+    | "documentKinds"
+    | "linkedWorkItemIds"
     | "leadIds"
     | "health"
     | "milestoneIds"
@@ -239,6 +234,52 @@ function assertCreateViewRoute(args: CreateViewArgs, teamSlug: string | null) {
   }
 }
 
+async function assertCustomDisplayPropertyAllowed(
+  ctx: MutationCtx,
+  view: {
+    scopeType: "personal" | "team" | "workspace"
+    scopeId: string
+    entityKind: "items" | "projects" | "docs"
+  },
+  property: ViewDisplayProperty
+) {
+  if (!property.startsWith("custom:")) {
+    return
+  }
+
+  if (view.entityKind !== "items" || view.scopeType !== "team") {
+    throw new Error("Custom properties are only available on team work views")
+  }
+
+  const propertyId = property.slice("custom:".length)
+  const definition = await getCustomPropertyDefinitionDoc(ctx, propertyId)
+
+  if (
+    !definition ||
+    definition.isArchived ||
+    definition.targetType !== "workItem" ||
+    definition.teamId !== view.scopeId
+  ) {
+    throw new Error("Custom property is not available in this view scope")
+  }
+}
+
+async function assertDisplayPropertiesAllowed(
+  ctx: MutationCtx,
+  view: {
+    scopeType: "personal" | "team" | "workspace"
+    scopeId: string
+    entityKind: "items" | "projects" | "docs"
+  },
+  displayProps: ViewDisplayProperty[]
+) {
+  await Promise.all(
+    displayProps.map((property) =>
+      assertCustomDisplayPropertyAllowed(ctx, view, property)
+    )
+  )
+}
+
 export async function createViewHandler(
   ctx: MutationCtx,
   args: CreateViewArgs
@@ -273,7 +314,9 @@ export async function createViewHandler(
       subGrouping: args.subGrouping,
       ordering: args.ordering,
       filters: args.filters,
-      displayProps: args.displayProps,
+      displayProps: args.displayProps as
+        | ViewDefinition["displayProps"]
+        | undefined,
       hiddenState: args.hiddenState,
     },
   })
@@ -281,6 +324,8 @@ export async function createViewHandler(
   if (!view) {
     throw new Error("View route is not valid for the selected scope")
   }
+
+  await assertDisplayPropertiesAllowed(ctx, view, view.displayProps)
 
   await ctx.db.insert("views", view)
 
@@ -307,7 +352,10 @@ function createViewConfigPatch(
   }
 }
 
-function getDefinedViewConfigValue<T>(nextValue: T | undefined, currentValue: T) {
+function getDefinedViewConfigValue<T>(
+  nextValue: T | undefined,
+  currentValue: T
+) {
   return nextValue === undefined ? currentValue : nextValue
 }
 
@@ -352,6 +400,8 @@ export async function toggleViewDisplayPropertyHandler(
     ? view.displayProps.filter((value: string) => value !== args.property)
     : [...view.displayProps, args.property]
 
+  await assertDisplayPropertiesAllowed(ctx, view, nextDisplayProps)
+
   await ctx.db.patch(view._id, {
     displayProps: nextDisplayProps,
     updatedAt: getNow(),
@@ -370,6 +420,8 @@ export async function reorderViewDisplayPropertiesHandler(
   )
 
   const nextDisplayProps = Array.from(new Set(args.displayProps))
+
+  await assertDisplayPropertiesAllowed(ctx, view, nextDisplayProps)
 
   await ctx.db.patch(view._id, {
     displayProps: nextDisplayProps,

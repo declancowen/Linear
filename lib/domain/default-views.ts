@@ -228,9 +228,13 @@ function getViewDefinitionConfigFields(input: CreateViewDefinitionInput) {
   return {
     layout: input.overrides?.layout ?? "list",
     filters: cloneViewFilters(input.overrides?.filters),
-    grouping: input.overrides?.grouping ?? "status",
+    grouping:
+      input.overrides?.grouping ??
+      (input.entityKind === "docs" ? "kind" : "status"),
     subGrouping: input.overrides?.subGrouping ?? null,
-    ordering: input.overrides?.ordering ?? "priority",
+    ordering:
+      input.overrides?.ordering ??
+      (input.entityKind === "docs" ? "updatedAt" : "priority"),
     displayProps: cloneDisplayProps(
       input.entityKind,
       input.overrides?.displayProps
@@ -288,6 +292,10 @@ function cloneDisplayProps(
     return [...displayProps]
   }
 
+  if (entityKind === "docs") {
+    return ["kind", "updatedBy", "updated", "linkedProjects", "linkedItems"]
+  }
+
   return entityKind === "items"
     ? ["id", "status", "assignee", "priority", "project", "updated"]
     : ["id", "status", "assignee", "priority", "updated"]
@@ -310,10 +318,12 @@ function cloneHiddenState(
   }
 }
 
-export function buildTeamWorkViews(input: DefaultViewBuildMetadata & {
-  teamId: string
-  teamSlug: string
-}): ViewDefinition[] {
+export function buildTeamWorkViews(
+  input: DefaultViewBuildMetadata & {
+    teamId: string
+    teamSlug: string
+  }
+): ViewDefinition[] {
   const surfaceLabel = getWorkSurfaceCopy(input.experience).surfaceLabel
   const primaryViewName = getCanonicalPrimaryViewName(input.experience)
   const lowercaseSurfaceLabel = surfaceLabel.toLowerCase()
@@ -376,9 +386,11 @@ export function buildTeamWorkViews(input: DefaultViewBuildMetadata & {
   ].filter(Boolean) as ViewDefinition[]
 }
 
-export function buildAssignedWorkViews(input: DefaultViewBuildMetadata & {
-  userId: string
-}): ViewDefinition[] {
+export function buildAssignedWorkViews(
+  input: DefaultViewBuildMetadata & {
+    userId: string
+  }
+): ViewDefinition[] {
   const surfaceLabel = getWorkSurfaceCopy(input.experience).surfaceLabel
   const primaryViewName = getCanonicalPrimaryViewName(input.experience)
   const lowercaseSurfaceLabel = surfaceLabel.toLowerCase()
@@ -489,6 +501,77 @@ export function buildWorkspaceProjectViews(input: {
   ].filter(Boolean) as ViewDefinition[]
 }
 
+export function buildWorkspaceDocumentViews(input: {
+  workspaceId: string
+  userId: string
+  createdAt: string
+  updatedAt?: string
+}): ViewDefinition[] {
+  return [
+    createViewDefinition({
+      id: `view_${input.workspaceId}_private_docs`,
+      name: "Work private",
+      description: "Your private documents in this workspace.",
+      scopeType: "personal",
+      scopeId: input.userId,
+      entityKind: "docs",
+      route: "/workspace/docs",
+      isShared: false,
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+      overrides: {
+        filters: {
+          ...createDefaultViewFilters(),
+          documentKinds: ["private-document"],
+        },
+      },
+    }),
+    createViewDefinition({
+      id: `view_${input.workspaceId}_workspace_docs`,
+      name: "Workspace docs",
+      description: "Workspace-level documents.",
+      scopeType: "workspace",
+      scopeId: input.workspaceId,
+      entityKind: "docs",
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+      overrides: {
+        filters: {
+          ...createDefaultViewFilters(),
+          documentKinds: ["workspace-document"],
+        },
+      },
+    }),
+  ].filter(Boolean) as ViewDefinition[]
+}
+
+export function buildTeamDocumentViews(input: {
+  teamId: string
+  teamSlug: string
+  createdAt: string
+  updatedAt?: string
+}): ViewDefinition[] {
+  return [
+    createViewDefinition({
+      id: `view_${input.teamId}_team_docs`,
+      name: "Team space docs",
+      description: "Documents in this team space.",
+      scopeType: "team",
+      scopeId: input.teamId,
+      entityKind: "docs",
+      teamSlug: input.teamSlug,
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+      overrides: {
+        filters: {
+          ...createDefaultViewFilters(),
+          documentKinds: ["team-document"],
+        },
+      },
+    }),
+  ].filter(Boolean) as ViewDefinition[]
+}
+
 export function sortViewsForDisplay(views: ViewDefinition[]) {
   return [...views].sort((left, right) => {
     const canonicalOrderDiff =
@@ -517,6 +600,10 @@ function isCanonicalSystemViewId(
 
   if (entityKind === "items") {
     return /^view_.+_(all|active|backlog)_items$/.test(id)
+  }
+
+  if (entityKind === "docs") {
+    return /^view_.+_(private|workspace|team)_docs$/.test(id)
   }
 
   return false

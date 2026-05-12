@@ -90,6 +90,8 @@ function isSnapshotRecord(value: unknown): value is AppSnapshot {
       "projects",
       "milestones",
       "workItems",
+      "customPropertyDefinitions",
+      "customPropertyValues",
       "documents",
       "views",
       "comments",
@@ -117,7 +119,9 @@ function isChatMessageRecord(value: unknown): value is ChatMessage {
     (value.reactions === undefined || isReactionArray(value.reactions)) &&
     isString(value.createdBy) &&
     isString(value.createdAt) &&
-    (value.callId === undefined || value.callId === null || isString(value.callId))
+    (value.callId === undefined ||
+      value.callId === null ||
+      isString(value.callId))
   )
 }
 
@@ -213,7 +217,10 @@ export function normalizeDeleteCurrentAccountResult(payload: unknown): {
     payload.logoutRequired === true,
     "Invalid delete-account payload"
   )
-  assertRouteContract(isString(payload.notice), "Invalid delete-account payload")
+  assertRouteContract(
+    isString(payload.notice),
+    "Invalid delete-account payload"
+  )
 
   return {
     ok: true,
@@ -249,7 +256,10 @@ export function normalizeCreateLabelResult(payload: unknown): {
   label: Label
 } {
   assertRouteContract(isRecord(payload), "Invalid create-label payload")
-  assertRouteContract(isLabelRecord(payload.label), "Invalid create-label payload")
+  assertRouteContract(
+    isLabelRecord(payload.label),
+    "Invalid create-label payload"
+  )
 
   return payload as {
     ok?: true

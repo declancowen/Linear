@@ -1,8 +1,9 @@
 import { api } from "@/convex/_generated/api"
-import type { AuthenticatedCreateProjectInput } from "@/lib/domain/project-inputs"
 import type {
-  Priority,
-  ProjectStatus,
+  AuthenticatedCreateProjectInput,
+  ProjectUpdatePatchInput,
+} from "@/lib/domain/project-inputs"
+import type {
   Role,
   TeamExperienceType,
   TeamWorkflowSettings,
@@ -12,7 +13,8 @@ import { coerceApplicationError } from "@/lib/server/application-errors"
 import { getConvexServerClient, withServerToken } from "./core"
 import { resolveServerOrigin } from "../request-origin"
 
-const TEAM_JOIN_CODE_CONFLICT_MATCH = /join code (already exists|is already in use)/i
+const TEAM_JOIN_CODE_CONFLICT_MATCH =
+  /join code (already exists|is already in use)/i
 
 type TeamFeatureSettingsInput = {
   issues: boolean
@@ -159,7 +161,8 @@ const TEAM_FEATURE_VALIDATION_ERROR_MAPPINGS = [
     code: "TEAM_FEATURES_INVALID",
   },
   {
-    match: "Non-community teams must include the work surface, projects, and views.",
+    match:
+      "Non-community teams must include the work surface, projects, and views.",
     status: 400,
     code: "TEAM_FEATURES_INVALID",
   },
@@ -330,7 +333,8 @@ export async function createProjectServer(
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ?? error
+      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ??
+      error
     )
   }
 }
@@ -338,11 +342,7 @@ export async function createProjectServer(
 export async function updateProjectServer(input: {
   currentUserId: string
   projectId: string
-  patch: {
-    name?: string
-    status?: ProjectStatus
-    priority?: Priority
-  }
+  patch: ProjectUpdatePatchInput
 }) {
   try {
     return await getConvexServerClient().mutation(
@@ -351,7 +351,8 @@ export async function updateProjectServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ?? error
+      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ??
+      error
     )
   }
 }
@@ -368,7 +369,8 @@ export async function renameProjectServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ?? error
+      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ??
+      error
     )
   }
 }
@@ -384,7 +386,8 @@ export async function deleteProjectServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ?? error
+      coerceApplicationError(error, [...PROJECT_MUTATION_ERROR_MAPPINGS]) ??
+      error
     )
   }
 }
@@ -456,7 +459,9 @@ export async function createTeamServer(
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...TEAM_CREATE_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...TEAM_CREATE_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -475,7 +480,9 @@ export async function deleteTeamServer(input: {
       })
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...DELETE_TEAM_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...DELETE_TEAM_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -533,8 +540,9 @@ export async function regenerateTeamJoinCodeServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...REGENERATE_TEAM_JOIN_CODE_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...REGENERATE_TEAM_JOIN_CODE_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }

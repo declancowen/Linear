@@ -55,6 +55,9 @@ const FILTER_KEYS: ViewFilterValueKey[] = [
   "priority",
   "assigneeIds",
   "creatorIds",
+  "updatedByIds",
+  "documentKinds",
+  "linkedWorkItemIds",
   "leadIds",
   "health",
   "milestoneIds",
@@ -277,6 +280,8 @@ type ArrayDomainKey =
   | "projects"
   | "milestones"
   | "workItems"
+  | "customPropertyDefinitions"
+  | "customPropertyValues"
   | "documents"
   | "views"
   | "comments"
@@ -329,6 +334,8 @@ type ArrayDomainEntry =
   | AppData["projects"][number]
   | AppData["milestones"][number]
   | AppData["workItems"][number]
+  | AppData["customPropertyDefinitions"][number]
+  | AppData["customPropertyValues"][number]
   | AppData["documents"][number]
   | AppData["views"][number]
   | AppData["comments"][number]
@@ -354,6 +361,11 @@ const domainKeyResolvers: {
   projects: (value: AppData["projects"][number]) => value.id,
   milestones: (value: AppData["milestones"][number]) => value.id,
   workItems: (value: AppData["workItems"][number]) => value.id,
+  customPropertyDefinitions: (
+    value: AppData["customPropertyDefinitions"][number]
+  ) => value.id,
+  customPropertyValues: (value: AppData["customPropertyValues"][number]) =>
+    value.id,
   documents: (value: AppData["documents"][number]) => value.id,
   views: (value: AppData["views"][number]) => value.id,
   comments: (value: AppData["comments"][number]) => value.id,

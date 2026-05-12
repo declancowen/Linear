@@ -183,6 +183,8 @@ function createBootstrapCtx() {
     projects: [],
     milestones: [],
     workItems: [],
+    customPropertyDefinitions: [],
+    customPropertyValues: [],
     documents: [],
     views: [],
     comments: [],
@@ -342,9 +344,9 @@ describe("auth bootstrap handlers", () => {
       })
     )
 
-    expect(resolveBootstrapTeamExperience(args, ctx.tables.teams[1] as never)).toBe(
-      "project-management"
-    )
+    expect(
+      resolveBootstrapTeamExperience(args, ctx.tables.teams[1] as never)
+    ).toBe("project-management")
     expect(
       resolveBootstrapTeamExperience(
         { ...args, teamExperience: undefined },
@@ -691,7 +693,9 @@ describe("auth bootstrap handlers", () => {
         },
         normalizedEmail: "alex@example.com",
       })
-    ).rejects.toThrow("A different Convex user already matches this WorkOS identity")
+    ).rejects.toThrow(
+      "A different Convex user already matches this WorkOS identity"
+    )
   })
 
   it("bootstraps the app workspace through the public mutation owner", async () => {

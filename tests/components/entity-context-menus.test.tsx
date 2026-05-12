@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react"
+import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
@@ -9,31 +9,20 @@ vi.mock("next/navigation", () => ({
 }))
 
 vi.mock("@/components/ui/button", async () =>
-  (await import("@/tests/lib/fixtures/component-stubs")).createButtonStubModule()
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createButtonStubModule()
 )
 
 vi.mock("@/components/ui/confirm-dialog", () => ({
   ConfirmDialog: () => null,
 }))
 
-vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({
-    children,
-    open,
-  }: {
-    children: ReactNode
-    open?: boolean
-  }) => <>{open ? children : null}</>,
-  DialogContent: ({
-    children,
-    ...props
-  }: {
-    children: ReactNode
-  } & HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
-  DialogDescription: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DialogHeader: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DialogTitle: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}))
+vi.mock("@/components/ui/dialog", async () =>
+  (await import("@/tests/lib/fixtures/component-stubs")).createDialogStubModule(
+    { rootAsFragment: true }
+  )
+)
 
 vi.mock("@/components/ui/input", async () =>
   (await import("@/tests/lib/fixtures/component-stubs")).createInputStubModule()
@@ -41,9 +30,15 @@ vi.mock("@/components/ui/input", async () =>
 
 vi.mock("@/components/ui/context-menu", () => ({
   ContextMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  ContextMenuTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
-  ContextMenuContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  ContextMenuLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ContextMenuTrigger: ({ children }: { children: ReactNode }) => (
+    <>{children}</>
+  ),
+  ContextMenuContent: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  ContextMenuLabel: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
   ContextMenuSeparator: () => null,
   ContextMenuItem: ({
     children,
@@ -52,10 +47,7 @@ vi.mock("@/components/ui/context-menu", () => ({
     children: ReactNode
     onSelect?: (event: Event) => void
   }) => (
-    <button
-      type="button"
-      onClick={() => onSelect?.(new Event("select"))}
-    >
+    <button type="button" onClick={() => onSelect?.(new Event("select"))}>
       {children}
     </button>
   ),
@@ -63,8 +55,23 @@ vi.mock("@/components/ui/context-menu", () => ({
 
 vi.mock("@phosphor-icons/react", () => ({
   ArrowSquareOut: () => null,
+  CalendarDots: () => null,
+  CaretDown: () => null,
+  Check: () => null,
+  DotsSixVertical: () => null,
+  Eye: () => null,
+  FadersHorizontal: () => null,
+  FunnelSimple: () => null,
+  GearSix: () => null,
+  Kanban: () => null,
+  MagnifyingGlass: () => null,
   PencilSimple: () => null,
+  Rows: () => null,
+  SortAscending: () => null,
+  SquaresFour: () => null,
+  Stack: () => null,
   Trash: () => null,
+  TreeStructure: () => null,
 }))
 
 import {

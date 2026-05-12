@@ -3,6 +3,9 @@
 import type {
   AttachmentTargetType,
   CreateViewInput,
+  CustomPropertyOption,
+  CustomPropertyType,
+  CustomPropertyValue,
   DocumentPresenceViewer,
   DisplayProperty,
   GroupField,
@@ -47,6 +50,7 @@ type UpdateViewConfigPatch = Partial<{
 export function syncMarkNotificationRead(notificationId: string) {
   return runRouteMutation(`/api/notifications/${notificationId}`, {
     method: "PATCH",
+    keepalive: true,
     headers: {
       "Content-Type": "application/json",
     },
@@ -59,6 +63,7 @@ export function syncMarkNotificationRead(notificationId: string) {
 export function syncToggleNotificationRead(notificationId: string) {
   return runRouteMutation(`/api/notifications/${notificationId}`, {
     method: "PATCH",
+    keepalive: true,
     headers: {
       "Content-Type": "application/json",
     },
@@ -71,6 +76,7 @@ export function syncToggleNotificationRead(notificationId: string) {
 export function syncArchiveNotification(notificationId: string) {
   return runRouteMutation(`/api/notifications/${notificationId}`, {
     method: "PATCH",
+    keepalive: true,
     headers: {
       "Content-Type": "application/json",
     },
@@ -83,6 +89,7 @@ export function syncArchiveNotification(notificationId: string) {
 export function syncUnarchiveNotification(notificationId: string) {
   return runRouteMutation(`/api/notifications/${notificationId}`, {
     method: "PATCH",
+    keepalive: true,
     headers: {
       "Content-Type": "application/json",
     },
@@ -95,6 +102,7 @@ export function syncUnarchiveNotification(notificationId: string) {
 export function syncArchiveNotifications(notificationIds: string[]) {
   return runRouteMutation("/api/notifications", {
     method: "PATCH",
+    keepalive: true,
     headers: {
       "Content-Type": "application/json",
     },
@@ -108,6 +116,7 @@ export function syncArchiveNotifications(notificationIds: string[]) {
 export function syncMarkNotificationsRead(notificationIds: string[]) {
   return runRouteMutation("/api/notifications", {
     method: "PATCH",
+    keepalive: true,
     headers: {
       "Content-Type": "application/json",
     },
@@ -121,6 +130,7 @@ export function syncMarkNotificationsRead(notificationIds: string[]) {
 export function syncUnarchiveNotifications(notificationIds: string[]) {
   return runRouteMutation("/api/notifications", {
     method: "PATCH",
+    keepalive: true,
     headers: {
       "Content-Type": "application/json",
     },
@@ -134,6 +144,7 @@ export function syncUnarchiveNotifications(notificationIds: string[]) {
 export function syncDeleteNotification(notificationId: string) {
   return runRouteMutation(`/api/notifications/${notificationId}`, {
     method: "DELETE",
+    keepalive: true,
   })
 }
 
@@ -245,6 +256,9 @@ export function syncToggleViewFilterValue(
     | "priority"
     | "assigneeIds"
     | "creatorIds"
+    | "updatedByIds"
+    | "documentKinds"
+    | "linkedWorkItemIds"
     | "leadIds"
     | "health"
     | "milestoneIds"
@@ -279,6 +293,67 @@ export function syncClearViewFilters(viewId: string) {
       action: "clearFilters",
     }),
   })
+}
+
+export function syncCreateCustomPropertyDefinition(input: {
+  teamId: string
+  targetType?: "workItem"
+  name: string
+  icon: string
+  type: CustomPropertyType
+  options?: CustomPropertyOption[]
+}) {
+  return runRouteMutation<{
+    ok: true
+    property: unknown
+  }>("/api/custom-properties", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  })
+}
+
+export function syncUpdateCustomPropertyDefinition(
+  propertyId: string,
+  patch: Partial<{
+    name: string
+    icon: string
+    type: CustomPropertyType
+    options: CustomPropertyOption[]
+  }>
+) {
+  return runRouteMutation(`/api/custom-properties/${propertyId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(patch),
+  })
+}
+
+export function syncArchiveCustomPropertyDefinition(propertyId: string) {
+  return runRouteMutation(`/api/custom-properties/${propertyId}`, {
+    method: "DELETE",
+  })
+}
+
+export function syncSetCustomPropertyValue(
+  workItemId: string,
+  propertyId: string,
+  value: CustomPropertyValue
+) {
+  return runRouteMutation(
+    `/api/work-items/${workItemId}/custom-properties/${propertyId}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ value }),
+    }
+  )
 }
 
 export function syncUpdateWorkItem(
@@ -650,8 +725,15 @@ export function syncUpdateProject(
   projectId: string,
   patch: {
     name?: string
+    icon?: string
+    summary?: string
     status?: ProjectStatus
     priority?: Priority
+    leadId?: string | null
+    memberIds?: string[]
+    startDate?: string | null
+    targetDate?: string | null
+    labelIds?: string[]
   }
 ) {
   return runRouteMutation(`/api/projects/${projectId}`, {

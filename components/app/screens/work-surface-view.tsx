@@ -44,9 +44,11 @@ import {
   getDisplayLabelForWorkItemType,
   getDisplayPluralLabelForWorkItemType,
   type AppData,
+  type BuiltinDisplayProperty,
   type DisplayProperty,
   type ViewDefinition,
   type WorkItem,
+  getCustomPropertyIdFromDisplayReference,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
@@ -59,11 +61,9 @@ import {
   stopDragPropagation,
 } from "./work-item-menus"
 import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
-import {
-  getCreateDefaultsForField,
-  LabelColorDot,
-} from "./shared"
+import { getCreateDefaultsForField, LabelColorDot } from "./shared"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
+import { CustomPropertyValueControl } from "./custom-property-controls"
 import { getContainerItemsForDisplay } from "./helpers"
 import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import {
@@ -442,24 +442,29 @@ function useWorkSurfaceDragController({
     onDragStart?.(event)
   }
 
-  function handleDragCancel() {
+  function completeDrag() {
     setActiveItemId(null)
     onDragCancel?.()
   }
 
-  function handleDragEnd(event: DragEndEvent) {
-    setActiveItemId(null)
-    onDragCancel?.()
+  function handleDragCancel() {
+    completeDrag()
+  }
 
-    requestWorkSurfaceDragUpdate({
-      data,
-      editable,
-      event,
-      itemPool,
-      requestUpdate,
-      scope,
-      view,
-    })
+  function handleDragEnd(event: DragEndEvent) {
+    try {
+      requestWorkSurfaceDragUpdate({
+        data,
+        editable,
+        event,
+        itemPool,
+        requestUpdate,
+        scope,
+        view,
+      })
+    } finally {
+      completeDrag()
+    }
   }
 
   return {
@@ -784,9 +789,8 @@ function renderWorkItemUpdatedProperty({
   return updatedAt ? <span className={META_TEXT_CLASS}>{updatedAt}</span> : null
 }
 
-const workItemDisplayPropertyRenderers: Record<
-  DisplayProperty,
-  WorkItemDisplayPropertyRenderer
+const workItemDisplayPropertyRenderers: Partial<
+  Record<BuiltinDisplayProperty, WorkItemDisplayPropertyRenderer>
 > = {
   id: renderWorkItemIdProperty,
   status: (context) => renderInlineWorkItemProperty(context, "status"),
@@ -805,7 +809,50 @@ const workItemDisplayPropertyRenderers: Record<
 function renderWorkItemDisplayProperty(
   context: WorkItemDisplayPropertyContext
 ) {
-  return workItemDisplayPropertyRenderers[context.property]?.(context) ?? null
+  const customPropertyId = getCustomPropertyIdFromDisplayReference(
+    context.property
+  )
+
+  if (customPropertyId) {
+    const definition = context.data.customPropertyDefinitions.find(
+      (entry) =>
+        entry.id === customPropertyId &&
+        !entry.isArchived &&
+        entry.teamId === context.item.teamId
+    )
+
+    if (!definition) {
+      return null
+    }
+
+    const value =
+      context.data.customPropertyValues.find(
+        (entry) =>
+          entry.workItemId === context.item.id &&
+          entry.propertyId === definition.id
+      ) ?? null
+
+    if (!value) {
+      return null
+    }
+
+    return (
+      <CustomPropertyValueControl
+        data={context.data}
+        definition={definition}
+        item={context.item}
+        value={value}
+        editable
+        variant="chip"
+      />
+    )
+  }
+
+  return (
+    workItemDisplayPropertyRenderers[
+      context.property as BuiltinDisplayProperty
+    ]?.(context) ?? null
+  )
 }
 
 function renderWorkItemDisplayProperties({
@@ -883,17 +930,17 @@ export function BoardView({
     sensors,
     setExpandedItemIds,
   } = useWorkSurfaceInteractionState({
-      data,
-      editable,
-      onDragCancel: () => setActiveDragPreviewKind(null),
-      onDragStart: (event) =>
-        setActiveDragPreviewKind(
-          event.active.data.current?.previewKind === "child" ? "child" : "card"
-        ),
-      scopedItems,
-      scope: "board",
-      view,
-    })
+    data,
+    editable,
+    onDragCancel: () => setActiveDragPreviewKind(null),
+    onDragStart: (event) =>
+      setActiveDragPreviewKind(
+        event.active.data.current?.previewKind === "child" ? "child" : "card"
+      ),
+    scopedItems,
+    scope: "board",
+    view,
+  })
   const hiddenGroups = groups.filter(([groupName]) =>
     view.hiddenState.groups.includes(groupName)
   )
@@ -981,6 +1028,7 @@ export function BoardView({
                                     view,
                                     scopedItems,
                                     {
+                                      filterChildren: false,
                                       mode: childDisplayMode,
                                     }
                                   )
@@ -1153,12 +1201,12 @@ export function ListView({
     sensors,
     setExpandedItemIds,
   } = useWorkSurfaceInteractionState({
-      data,
-      editable,
-      scopedItems,
-      scope: "list",
-      view,
-    })
+    data,
+    editable,
+    scopedItems,
+    scope: "list",
+    view,
+  })
   const showChildItems = Boolean(view.showChildItems)
 
   function toggleGroup(groupName: string) {
@@ -1255,6 +1303,7 @@ export function ListView({
                                     view,
                                     scopedItems,
                                     {
+                                      filterChildren: false,
                                       mode: childDisplayMode,
                                     }
                                   )
@@ -1875,10 +1924,7 @@ function DraggableListRow(props: ListRowProps) {
   const { item } = props
 
   return (
-    <DraggableWorkSurfaceItem
-      itemId={item.id}
-      dropId={`list-item::${item.id}`}
-    >
+    <DraggableWorkSurfaceItem itemId={item.id} dropId={`list-item::${item.id}`}>
       {({ attributes, isDropTarget, listeners }) => (
         <ListRowBody
           {...props}

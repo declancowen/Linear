@@ -46,6 +46,7 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
   ),
   SortChipPopover: () => null,
   getAvailableGroupOptions: () => [],
+  getGroupFieldOptionLabel: (value: string) => value,
   ViewConfigPopover: ({
     onUpdateView,
   }: {
@@ -70,6 +71,7 @@ vi.mock("@phosphor-icons/react", () => ({
   Plus: () => null,
   SidebarSimple: () => null,
   Trash: () => null,
+  XIcon: () => null,
 }))
 
 function seedState() {

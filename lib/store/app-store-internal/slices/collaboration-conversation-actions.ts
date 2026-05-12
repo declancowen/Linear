@@ -54,6 +54,9 @@ type ChannelScopeType = Extract<
   ChatConversationRecord["scopeType"],
   "team" | "workspace"
 >
+type StartConversationCallResult = Awaited<
+  ReturnType<typeof syncStartConversationCall>
+>
 
 function getChatConversationForSend(
   state: AppStore,
@@ -72,7 +75,9 @@ function getChatConversationForMessage(
 ): ChatConversationRecord | null {
   const message = state.chatMessages.find((entry) => entry.id === messageId)
 
-  return message ? getChatConversationForSend(state, message.conversationId) : null
+  return message
+    ? getChatConversationForSend(state, message.conversationId)
+    : null
 }
 
 function canSendOptimisticChatMessage(
@@ -96,6 +101,76 @@ function canSendOptimisticChatMessage(
   const role = effectiveRole(state, conversation.scopeId)
   if (role === "viewer" || role === "guest" || !role) {
     toast.error("Your current role is read-only")
+    return false
+  }
+
+  return true
+}
+
+function applyStartedConversationCallState(
+  state: AppStore,
+  conversationId: string,
+  result: StartConversationCallResult,
+  message: AppStore["chatMessages"][number]
+) {
+  const conversation = state.conversations.find(
+    (entry) => entry.id === conversationId
+  )
+
+  if (!conversation || conversation.kind !== "chat") {
+    return state
+  }
+
+  return {
+    ...state,
+    calls: result.call
+      ? [
+          ...state.calls.filter((entry) => entry.id !== result.call?.id),
+          result.call,
+        ]
+      : state.calls,
+    chatMessages: [
+      ...state.chatMessages.filter((entry) => entry.id !== message.id),
+      message,
+    ],
+    conversations: state.conversations.map((entry) =>
+      entry.id === conversationId
+        ? {
+            ...entry,
+            updatedAt: message.createdAt,
+            lastActivityAt: message.createdAt,
+          }
+        : entry
+    ),
+  }
+}
+
+function canReactOptimisticChatMessage(
+  state: AppStore,
+  conversation: ChatConversationRecord
+) {
+  if (conversation.scopeType === "workspace") {
+    if (!conversation.participantIds.includes(state.currentUserId)) {
+      toast.error("You do not have access to this chat")
+      return false
+    }
+
+    if (
+      !getWorkspaceMemberIds(state, conversation.scopeId).includes(
+        state.currentUserId
+      )
+    ) {
+      toast.error("You do not have access to this workspace")
+      return false
+    }
+
+    return true
+  }
+
+  if (
+    !getTeamMemberIds(state, conversation.scopeId).includes(state.currentUserId)
+  ) {
+    toast.error("You do not have access to this team")
     return false
   }
 
@@ -898,40 +973,14 @@ export function createCollaborationConversationActions({
 
         const [message] = normalizeChatMessages([result.message])
 
-        set((state) => {
-          const conversation = state.conversations.find(
-            (entry) => entry.id === conversationId
+        set((state) =>
+          applyStartedConversationCallState(
+            state,
+            conversationId,
+            result,
+            message
           )
-
-          if (!conversation || conversation.kind !== "chat") {
-            return state
-          }
-
-          return {
-            ...state,
-            calls: result.call
-              ? [
-                  ...state.calls.filter(
-                    (entry) => entry.id !== result.call?.id
-                  ),
-                  result.call,
-                ]
-              : state.calls,
-            chatMessages: [
-              ...state.chatMessages.filter((entry) => entry.id !== message.id),
-              message,
-            ],
-            conversations: state.conversations.map((entry) =>
-              entry.id === conversationId
-                ? {
-                    ...entry,
-                    updatedAt: message.createdAt,
-                    lastActivityAt: message.createdAt,
-                  }
-                : entry
-            ),
-          }
-        })
+        )
 
         return result.joinHref
       } catch (error) {
@@ -997,7 +1046,7 @@ export function createCollaborationConversationActions({
         return
       }
 
-      if (!canSendOptimisticChatMessage(state, conversation)) {
+      if (!canReactOptimisticChatMessage(state, conversation)) {
         return
       }
 

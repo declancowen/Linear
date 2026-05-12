@@ -1,29 +1,37 @@
-import type { ComponentType } from "react"
-import {
-  BugBeetle,
-  Briefcase,
-  CodesandboxLogo,
-  Kanban,
-  Robot,
-  UsersThree,
-  type IconProps,
-} from "@phosphor-icons/react"
+import { createElement, type ComponentType } from "react"
+import * as PhosphorIcons from "@phosphor-icons/react"
+import type { IconProps } from "@phosphor-icons/react"
 
 import {
   isTeamIconToken,
   templateMeta,
+  type Project,
   type TeamIconToken,
   type TemplateType,
 } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
+import { PhosphorIconGlyph } from "./phosphor-icon-picker"
 
-const teamIconComponents: Record<TeamIconToken, ComponentType<IconProps>> = {
-  robot: Robot,
-  code: CodesandboxLogo,
-  qa: BugBeetle,
-  kanban: Kanban,
-  briefcase: Briefcase,
-  users: UsersThree,
+type IconComponent = ComponentType<IconProps>
+
+const MissingIcon: IconComponent = ({ className }) => (
+  <span aria-hidden className={className} />
+)
+
+const teamIconNames: Record<TeamIconToken, string> = {
+  robot: "Robot",
+  code: "CodesandboxLogo",
+  qa: "BugBeetle",
+  kanban: "Kanban",
+  briefcase: "Briefcase",
+  users: "UsersThree",
+}
+
+function getPhosphorIcon(name: string): IconComponent {
+  return (
+    (PhosphorIcons as unknown as Record<string, IconComponent>)[name] ??
+    MissingIcon
+  )
 }
 
 function resolveTeamIcon(icon: string | TeamIconToken): TeamIconToken {
@@ -37,8 +45,8 @@ export function TeamIconGlyph({
   icon: string | TeamIconToken
   className?: string
 }) {
-  const Icon = teamIconComponents[resolveTeamIcon(icon)]
-  return <Icon className={cn("size-4", className)} />
+  const Icon = getPhosphorIcon(teamIconNames[resolveTeamIcon(icon)])
+  return createElement(Icon, { className: cn("size-4", className) })
 }
 
 export function ProjectTemplateGlyph({
@@ -51,6 +59,25 @@ export function ProjectTemplateGlyph({
   return (
     <TeamIconGlyph
       icon={templateMeta[templateType].icon}
+      className={className}
+    />
+  )
+}
+
+export function ProjectIconGlyph({
+  project,
+  className,
+}: {
+  project: Pick<Project, "icon" | "templateType">
+  className?: string
+}) {
+  if (project.icon) {
+    return <PhosphorIconGlyph icon={project.icon} className={className} />
+  }
+
+  return (
+    <ProjectTemplateGlyph
+      templateType={project.templateType}
       className={className}
     />
   )

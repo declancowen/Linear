@@ -9,6 +9,8 @@ import {
   channelPostFields,
   chatMessageFields,
   commentFields,
+  customPropertyDefinitionFields,
+  customPropertyValueFields,
   conversationFields,
   documentFields,
   documentPresenceFields,
@@ -80,6 +82,22 @@ export default defineSchema({
     .index("by_domain_id", ["id"])
     .index("by_team_id", ["teamId"])
     .index("by_description_doc", ["descriptionDocId"]),
+  customPropertyDefinitions: defineTable(customPropertyDefinitionFields)
+    .index("by_domain_id", ["id"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_team", ["teamId"])
+    .index("by_workspace_team", ["workspaceId", "teamId"])
+    .index("by_team_target_archived", ["teamId", "targetType", "isArchived"]),
+  customPropertyValues: defineTable(customPropertyValueFields)
+    .index("by_domain_id", ["id"])
+    .index("by_work_item", ["workItemId"])
+    .index("by_property", ["propertyId"])
+    .index("by_team_work_item", ["teamId", "workItemId"])
+    .index("by_workspace_team_property", [
+      "workspaceId",
+      "teamId",
+      "propertyId",
+    ]),
   readModelVersions: defineTable(readModelVersionFields).index("by_scope_key", [
     "scopeKey",
   ]),

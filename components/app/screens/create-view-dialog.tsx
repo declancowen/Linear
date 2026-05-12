@@ -153,6 +153,17 @@ function getInitialScopeKey(input: {
 function createFreshDraftConfig(
   entityKind: CreateViewDialogState["defaultEntityKind"] = "items"
 ): DraftViewConfig {
+  if (entityKind === "docs") {
+    return {
+      layout: "list",
+      filters: createEmptyViewFilters(),
+      grouping: "kind",
+      subGrouping: null,
+      ordering: "updatedAt",
+      displayProps: ["kind", "updatedBy", "updated"],
+    }
+  }
+
   return {
     layout: "list",
     filters: createEmptyViewFilters(),

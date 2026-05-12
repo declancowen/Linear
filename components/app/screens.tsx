@@ -7,14 +7,17 @@ import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
 import {
   CalendarDots,
+  Check,
   CodesandboxLogo,
+  FileText,
+  FunnelSimple,
   Kanban,
-  NotePencil,
   Plus,
   Rows,
   SquaresFour,
   Stack,
   Tag,
+  SortAscending,
 } from "@phosphor-icons/react"
 
 import {
@@ -22,6 +25,7 @@ import {
   canEditWorkspace,
   getAccessibleTeams,
   getPrivateDocuments,
+  getProject,
   getProjectHref,
   getProjectProgress,
   getProjectsForScope,
@@ -32,6 +36,7 @@ import {
   getVisibleProjectsForView,
   getViewsForScope,
   getVisibleWorkItems,
+  getWorkItem,
   getWorkspaceDocuments,
   getWorkspaceDirectoryViews,
   teamHasFeature,
@@ -44,7 +49,10 @@ import {
   templateMeta,
   type AppData,
   type DisplayProperty,
+  type Document,
+  type DocumentKind,
   type GroupField,
+  type OrderingField,
   type Project,
   type ScopeType,
   type Team,
@@ -53,6 +61,8 @@ import {
 } from "@/lib/domain/types"
 import {
   buildAssignedWorkViews,
+  buildTeamDocumentViews,
+  buildWorkspaceDocumentViews,
   createViewDefinition,
   getSharedTeamExperience,
   isSystemView,
@@ -64,6 +74,7 @@ import {
   getViewerScopedViewKey,
 } from "@/lib/domain/viewer-view-config"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
+import { ProjectIconGlyph } from "@/components/app/entity-icons"
 import {
   fetchDocumentIndexReadModel,
   fetchProjectIndexReadModel,
@@ -81,11 +92,8 @@ import {
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
 import {
-  CollectionDisplaySettingsPopover,
   HeaderTitle,
   MissingState,
-  SCREEN_HEADER_CLASS_NAME,
-  ScreenHeader,
   formatEntityKind,
 } from "@/components/app/screens/shared"
 export { InboxScreen } from "@/components/app/screens/inbox-screen"
@@ -107,9 +115,7 @@ import {
   getDocsDialogInput,
   type DocsTab,
 } from "@/components/app/screens/docs-dialog-input"
-import {
-  DocsContent,
-} from "@/components/app/screens/docs-content"
+import { DocsContent } from "@/components/app/screens/docs-content"
 import {
   buildGroupedSections,
   type GroupedSection,
@@ -142,9 +148,19 @@ import {
 } from "@/components/app/screens/directory-controls"
 import {
   IconButton,
+  PROPERTY_POPOVER_CLASS,
+  PropertyPopoverFoot,
+  PropertyPopoverGroup,
+  PropertyPopoverItem,
+  PropertyPopoverList,
   Topbar,
   Viewbar,
 } from "@/components/ui/template-primitives"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 export { DocumentDetailScreen } from "@/components/app/screens/document-detail-screen"
 export { WorkItemDetailScreen } from "@/components/app/screens/work-item-detail-screen"
@@ -361,8 +377,6 @@ type ViewDirectoryDisplayState = {
   showScope: boolean
   showUpdated: boolean
 }
-
-type CollectionLayoutState = ReturnType<typeof useCollectionLayout>
 
 const DEFAULT_VIEWS_DIRECTORY_CONFIG: ResolvedViewsDirectoryConfig = {
   layout: "list",
@@ -819,26 +833,6 @@ function toggleArrayValue<T>(values: T[], value: T) {
     : [...values, value]
 }
 
-function getDocsLayoutState({
-  activeTab,
-  isWorkspaceDocs,
-  privateLayoutState,
-  teamLayoutState,
-  workspaceLayoutState,
-}: {
-  activeTab: DocsTab
-  isWorkspaceDocs: boolean
-  privateLayoutState: CollectionLayoutState
-  teamLayoutState: CollectionLayoutState
-  workspaceLayoutState: CollectionLayoutState
-}) {
-  if (!isWorkspaceDocs) {
-    return teamLayoutState
-  }
-
-  return activeTab === "workspace" ? workspaceLayoutState : privateLayoutState
-}
-
 function getDocsEmptyTitle(isWorkspaceDocs: boolean, activeTab: DocsTab) {
   if (!isWorkspaceDocs) {
     return "No documents yet"
@@ -847,6 +841,378 @@ function getDocsEmptyTitle(isWorkspaceDocs: boolean, activeTab: DocsTab) {
   return activeTab === "workspace"
     ? "No workspace documents yet"
     : "No private documents yet"
+}
+
+const DOCS_DISPLAY_PROPERTY_OPTIONS: DisplayProperty[] = [
+  "kind",
+  "team",
+  "createdBy",
+  "updatedBy",
+  "created",
+  "updated",
+  "linkedProjects",
+  "linkedItems",
+]
+
+const DOCS_GROUP_OPTIONS: GroupField[] = [
+  "kind",
+  "team",
+  "createdBy",
+  "updatedBy",
+]
+
+const DOCS_ORDERING_OPTIONS: OrderingField[] = [
+  "title",
+  "createdAt",
+  "updatedAt",
+]
+
+const DOC_KIND_LABEL: Record<DocumentKind, string> = {
+  "private-document": "Private",
+  "workspace-document": "Workspace docs",
+  "team-document": "Team docs",
+  "item-description": "Work item description",
+}
+
+const DOCS_ORDERING_LABEL: Record<OrderingField, string> = {
+  priority: "Priority",
+  updatedAt: "Updated",
+  createdAt: "Created",
+  dueDate: "Due date",
+  targetDate: "Target date",
+  title: "Title",
+}
+
+const DOCS_DISPLAY_PROPERTY_LABEL: Partial<Record<DisplayProperty, string>> = {
+  kind: "Kind",
+  team: "Team",
+  createdBy: "Created by",
+  updatedBy: "Updated by",
+  created: "Created",
+  updated: "Updated",
+  linkedProjects: "Linked projects",
+  linkedItems: "Linked work items",
+}
+
+type DocsFilterKey =
+  | "documentKinds"
+  | "teamIds"
+  | "creatorIds"
+  | "updatedByIds"
+  | "projectIds"
+  | "linkedWorkItemIds"
+
+type DocsFilterOption = {
+  key: DocsFilterKey
+  value: string
+  label: string
+}
+
+function getDocsRouteKey(scopeType: "team" | "workspace", team?: Team | null) {
+  return team ? `/team/${team.slug}/docs` : "/workspace/docs"
+}
+
+function getDocsSystemViews(input: {
+  currentUserId: string
+  scopeId: string
+  scopeType: "team" | "workspace"
+  team?: Team | null
+}) {
+  const createdAt = "1970-01-01T00:00:00.000Z"
+
+  if (input.scopeType === "team" && input.team) {
+    return buildTeamDocumentViews({
+      teamId: input.scopeId,
+      teamSlug: input.team.slug,
+      createdAt,
+    })
+  }
+
+  return buildWorkspaceDocumentViews({
+    workspaceId: input.scopeId,
+    userId: input.currentUserId,
+    createdAt,
+  })
+}
+
+function mergeDocsViews(
+  systemViews: ViewDefinition[],
+  persistedViews: ViewDefinition[]
+) {
+  const seen = new Set(systemViews.map((view) => view.id))
+
+  return [
+    ...systemViews,
+    ...persistedViews.filter((view) => {
+      if (seen.has(view.id)) {
+        return false
+      }
+
+      seen.add(view.id)
+      return true
+    }),
+  ]
+}
+
+function getActiveDocsTab(view: ViewDefinition | null): DocsTab {
+  return view?.filters.documentKinds?.includes("private-document")
+    ? "private"
+    : "workspace"
+}
+
+function getDocsBaseDocuments(input: {
+  data: AppData
+  scopeId: string
+  scopeType: "team" | "workspace"
+  isWorkspaceDocs: boolean
+}) {
+  if (!input.isWorkspaceDocs) {
+    return getTeamDocuments(input.data, input.scopeId)
+  }
+
+  return [
+    ...getPrivateDocuments(input.data, input.scopeId),
+    ...getWorkspaceDocuments(input.data, input.scopeId),
+  ]
+}
+
+function matchesDocsViewFilters(document: Document, view: ViewDefinition) {
+  const filters = view.filters
+
+  if (
+    filters.documentKinds?.length &&
+    !filters.documentKinds.includes(document.kind)
+  ) {
+    return false
+  }
+
+  if (
+    filters.teamIds.length &&
+    (!document.teamId || !filters.teamIds.includes(document.teamId))
+  ) {
+    return false
+  }
+
+  if (
+    filters.creatorIds.length &&
+    !filters.creatorIds.includes(document.createdBy)
+  ) {
+    return false
+  }
+
+  if (
+    filters.updatedByIds?.length &&
+    !filters.updatedByIds.includes(document.updatedBy)
+  ) {
+    return false
+  }
+
+  if (
+    filters.projectIds.length &&
+    !document.linkedProjectIds.some((projectId) =>
+      filters.projectIds.includes(projectId)
+    )
+  ) {
+    return false
+  }
+
+  if (
+    filters.linkedWorkItemIds?.length &&
+    !document.linkedWorkItemIds.some((itemId) =>
+      filters.linkedWorkItemIds?.includes(itemId)
+    )
+  ) {
+    return false
+  }
+
+  return true
+}
+
+function compareDocumentsByOrdering(
+  ordering: OrderingField,
+  left: Document,
+  right: Document
+) {
+  if (ordering === "title") {
+    return left.title.localeCompare(right.title)
+  }
+
+  if (ordering === "createdAt") {
+    return right.createdAt.localeCompare(left.createdAt)
+  }
+
+  return right.updatedAt.localeCompare(left.updatedAt)
+}
+
+function getDocumentsForView(
+  documents: Document[],
+  view: ViewDefinition | null
+) {
+  if (!view) {
+    return [...documents].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt)
+    )
+  }
+
+  return documents
+    .filter((document) => matchesDocsViewFilters(document, view))
+    .sort((left, right) =>
+      compareDocumentsByOrdering(view.ordering, left, right)
+    )
+}
+
+function getDocumentGroupKey(data: AppData, document: Document, field: string) {
+  if (field === "kind") {
+    return document.kind
+  }
+
+  if (field === "team") {
+    return document.teamId ?? "workspace"
+  }
+
+  if (field === "createdBy") {
+    return document.createdBy
+  }
+
+  if (field === "updatedBy") {
+    return document.updatedBy
+  }
+
+  return getDocsBaseGroupKey(data, document)
+}
+
+function getDocsBaseGroupKey(_data: AppData, document: Document) {
+  return document.kind
+}
+
+function getDocumentGroupLabel(data: AppData, field: string, key: string) {
+  if (field === "kind") {
+    return DOC_KIND_LABEL[key as DocumentKind] ?? "Documents"
+  }
+
+  if (field === "team") {
+    if (key === "workspace") {
+      return "Workspace"
+    }
+
+    return getTeam(data, key)?.name ?? "Team"
+  }
+
+  if (field === "createdBy" || field === "updatedBy") {
+    return getUser(data, key)?.name ?? "Unknown"
+  }
+
+  return "Documents"
+}
+
+function compareDocumentGroupKeys(
+  data: AppData,
+  field: string,
+  left: string,
+  right: string
+) {
+  return getDocumentGroupLabel(data, field, left).localeCompare(
+    getDocumentGroupLabel(data, field, right)
+  )
+}
+
+function buildDocsSections(
+  data: AppData,
+  documents: Document[],
+  view: ViewDefinition | null
+) {
+  return buildGroupedSections({
+    items: documents,
+    grouping: view?.grouping ?? null,
+    subGrouping: null,
+    getGroupKey: (document, field) =>
+      getDocumentGroupKey(data, document, field),
+    getGroupLabel: (field, key) => getDocumentGroupLabel(data, field, key),
+    compareGroupKeys: (field, left, right) =>
+      compareDocumentGroupKeys(data, field, left, right),
+  })
+}
+
+function getUniqueDocsFilterOptions(
+  options: DocsFilterOption[]
+): DocsFilterOption[] {
+  const seen = new Set<string>()
+
+  return options.filter((option) => {
+    const key = `${option.key}:${option.value}`
+
+    if (seen.has(key)) {
+      return false
+    }
+
+    seen.add(key)
+    return true
+  })
+}
+
+function buildDocsFilterOptions(
+  data: AppData,
+  documents: Document[]
+): DocsFilterOption[] {
+  return getUniqueDocsFilterOptions([
+    ...documents.map((document) => ({
+      key: "documentKinds" as const,
+      value: document.kind,
+      label: DOC_KIND_LABEL[document.kind],
+    })),
+    ...documents.flatMap((document) =>
+      document.teamId
+        ? [
+            {
+              key: "teamIds" as const,
+              value: document.teamId,
+              label: getTeam(data, document.teamId)?.name ?? "Team",
+            },
+          ]
+        : []
+    ),
+    ...documents.map((document) => ({
+      key: "creatorIds" as const,
+      value: document.createdBy,
+      label: getUser(data, document.createdBy)?.name ?? "Unknown",
+    })),
+    ...documents.map((document) => ({
+      key: "updatedByIds" as const,
+      value: document.updatedBy,
+      label: getUser(data, document.updatedBy)?.name ?? "Unknown",
+    })),
+    ...documents.flatMap((document) =>
+      document.linkedProjectIds.map((projectId) => ({
+        key: "projectIds" as const,
+        value: projectId,
+        label: getProject(data, projectId)?.name ?? "Project",
+      }))
+    ),
+    ...documents.flatMap((document) =>
+      document.linkedWorkItemIds.map((itemId) => ({
+        key: "linkedWorkItemIds" as const,
+        value: itemId,
+        label: getWorkItem(data, itemId)?.title ?? "Work item",
+      }))
+    ),
+  ])
+}
+
+function getDocsFilterValues(view: ViewDefinition, key: DocsFilterKey) {
+  return (view.filters[key] ?? []) as string[]
+}
+
+function getDocsFilterCount(view: ViewDefinition) {
+  const filters = view.filters
+
+  return [
+    filters.documentKinds?.length ?? 0,
+    filters.teamIds.length,
+    filters.creatorIds.length,
+    filters.updatedByIds?.length ?? 0,
+    filters.projectIds.length,
+    filters.linkedWorkItemIds?.length ?? 0,
+  ].reduce((total, count) => total + count, 0)
 }
 
 const PROJECT_HEALTH_PILL_CLASS: Record<Project["health"], string> = {
@@ -912,9 +1278,13 @@ function ProjectIconTile({ project }: { project: Project }) {
         color: accent,
       }}
     >
-      <span className="text-[13px] font-semibold">
-        {project.name.charAt(0).toUpperCase()}
-      </span>
+      {project.icon ? (
+        <ProjectIconGlyph project={project} className="size-4" />
+      ) : (
+        <span className="text-[13px] font-semibold">
+          {project.name.charAt(0).toUpperCase()}
+        </span>
+      )}
     </span>
   )
 }
@@ -1158,7 +1528,11 @@ function ProjectCard({ data, project, displayProps }: ProjectPreviewProps) {
                 border: `1px solid color-mix(in oklch, ${preview.accent} 35%, transparent)`,
               }}
             >
-              {project.name.charAt(0).toUpperCase()}
+              {project.icon ? (
+                <ProjectIconGlyph project={project} className="size-4" />
+              ) : (
+                project.name.charAt(0).toUpperCase()
+              )}
             </span>
             <h2 className="min-w-0 flex-1 truncate text-[15px] leading-[1.25] font-semibold tracking-[-0.005em] text-foreground group-hover:underline">
               {project.name}
@@ -1243,7 +1617,7 @@ function getEntityKindIconNode(
   if (entityKind === "projects") {
     return <Kanban className={className} />
   }
-  return <NotePencil className={className} />
+  return <FileText className={className} />
 }
 
 function ViewConfigurationBadges({
@@ -1990,101 +2364,404 @@ function ViewsDirectoryViewbar({
   )
 }
 
-const DOCS_TABS = ["workspace", "private"] as const
-
-function getDocsTabLabel(tab: DocsTab) {
-  return tab === "workspace" ? "Workspace" : "Private"
-}
-
-function DocsHeaderActions({
+function DocsLayoutToggle({
   layout,
-  onCreateDocument,
   onLayoutChange,
 }: {
   layout: "list" | "board"
-  onCreateDocument: () => void
   onLayoutChange: (layout: "list" | "board") => void
 }) {
   return (
-    <div className="flex items-center gap-1">
-      <CollectionDisplaySettingsPopover
-        layout={layout}
-        onLayoutChange={onLayoutChange}
-      />
-      <Button size="icon-xs" variant="ghost" onClick={onCreateDocument}>
-        <Plus className="size-3.5" />
-      </Button>
+    <div className="flex items-center rounded-md border border-line bg-surface p-0.5">
+      {[
+        { value: "list" as const, label: "List", icon: Rows },
+        { value: "board" as const, label: "Board", icon: SquaresFour },
+      ].map((option) => {
+        const Icon = option.icon
+
+        return (
+          <button
+            key={option.value}
+            type="button"
+            className={cn(
+              "inline-flex h-6 items-center gap-1.5 rounded px-2 text-[12px] transition-colors",
+              layout === option.value
+                ? "bg-background text-foreground shadow-sm"
+                : "text-fg-3 hover:text-foreground"
+            )}
+            onClick={() => onLayoutChange(option.value)}
+          >
+            <Icon className="size-3.5" />
+            {option.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
 
-function WorkspaceDocsTabs({
-  activeTab,
-  onActiveTabChange,
+function DocsFilterPopover({
+  data,
+  documents,
+  routeKey,
+  view,
 }: {
-  activeTab: DocsTab
-  onActiveTabChange: (tab: DocsTab) => void
+  data: AppData
+  documents: Document[]
+  routeKey: string
+  view: ViewDefinition
 }) {
-  return (
-    <div className="flex items-center gap-1">
-      {DOCS_TABS.map((tab) => (
-        <button
-          key={tab}
-          className={cn(
-            "h-6 rounded-sm px-2 text-xs transition-colors",
-            tab === activeTab
-              ? "bg-accent font-medium"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-          onClick={() => onActiveTabChange(tab)}
-        >
-          {getDocsTabLabel(tab)}
-        </button>
-      ))}
-    </div>
-  )
-}
+  const options = buildDocsFilterOptions(data, documents)
+  const count = getDocsFilterCount(view)
 
-function DocsHeader({
-  activeTab,
-  isWorkspaceDocs,
-  layout,
-  onActiveTabChange,
-  onCreateDocument,
-  onLayoutChange,
-  title,
-}: {
-  activeTab: DocsTab
-  isWorkspaceDocs: boolean
-  layout: "list" | "board"
-  onActiveTabChange: (tab: DocsTab) => void
-  onCreateDocument: () => void
-  onLayoutChange: (layout: "list" | "board") => void
-  title: string
-}) {
-  const actions = (
-    <DocsHeaderActions
-      layout={layout}
-      onCreateDocument={onCreateDocument}
-      onLayoutChange={onLayoutChange}
-    />
-  )
+  function toggleFilter(option: DocsFilterOption) {
+    useAppStore
+      .getState()
+      .toggleViewerViewFilterValue(
+        routeKey,
+        view.id,
+        option.key as ViewFilterKey,
+        option.value
+      )
+  }
 
-  if (!isWorkspaceDocs) {
-    return <ScreenHeader title={title} actions={actions} />
+  function clearFilters() {
+    useAppStore.getState().clearViewerViewFilters(routeKey, view.id)
   }
 
   return (
-    <div className={SCREEN_HEADER_CLASS_NAME}>
-      <div className="flex min-w-0 items-center gap-2">
-        <HeaderTitle title={title} />
-        <WorkspaceDocsTabs
-          activeTab={activeTab}
-          onActiveTabChange={onActiveTabChange}
-        />
-      </div>
-      {actions}
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors",
+            count > 0
+              ? "border-accent-fg/25 bg-accent-bg text-accent-fg"
+              : "border-line bg-surface text-fg-2 hover:bg-surface-3 hover:text-foreground"
+          )}
+        >
+          <FunnelSimple className="size-3.5" />
+          Filters
+          {count > 0 ? (
+            <span className="rounded-full bg-background/60 px-1 text-[10px]">
+              {count}
+            </span>
+          ) : null}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
+      >
+        <PropertyPopoverList>
+          {options.length > 0 ? (
+            <>
+              <PropertyPopoverGroup>Document fields</PropertyPopoverGroup>
+              {options.map((option) => {
+                const selected = getDocsFilterValues(view, option.key).includes(
+                  option.value
+                )
+
+                return (
+                  <PropertyPopoverItem
+                    key={`${option.key}:${option.value}`}
+                    selected={selected}
+                    onClick={() => toggleFilter(option)}
+                    trailing={
+                      selected ? (
+                        <Check className="size-3.5 text-accent-fg" />
+                      ) : null
+                    }
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {option.label}
+                    </span>
+                  </PropertyPopoverItem>
+                )
+              })}
+            </>
+          ) : (
+            <PropertyPopoverItem muted className="pointer-events-none">
+              No document fields yet
+            </PropertyPopoverItem>
+          )}
+        </PropertyPopoverList>
+        <PropertyPopoverFoot>
+          <span>{count} active</span>
+          {count > 0 ? (
+            <button
+              type="button"
+              className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+              onClick={clearFilters}
+            >
+              Clear all
+            </button>
+          ) : null}
+        </PropertyPopoverFoot>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function DocsGroupPopover({
+  routeKey,
+  view,
+}: {
+  routeKey: string
+  view: ViewDefinition
+}) {
+  function updateGrouping(grouping: GroupField) {
+    useAppStore.getState().patchViewerViewConfig(routeKey, view.id, {
+      grouping,
+    })
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-[12px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
+        >
+          <Stack className="size-3.5" />
+          Group
+          <span className="font-medium text-foreground">
+            {getGroupFieldOptionLabel(view.grouping)}
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
+      >
+        <PropertyPopoverList>
+          <PropertyPopoverGroup>Group by</PropertyPopoverGroup>
+          {DOCS_GROUP_OPTIONS.map((option) => {
+            const selected = view.grouping === option
+
+            return (
+              <PropertyPopoverItem
+                key={option}
+                selected={selected}
+                onClick={() => updateGrouping(option)}
+                trailing={
+                  selected ? (
+                    <Check className="size-3.5 text-accent-fg" />
+                  ) : null
+                }
+              >
+                {getGroupFieldOptionLabel(option)}
+              </PropertyPopoverItem>
+            )
+          })}
+        </PropertyPopoverList>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function DocsSortPopover({
+  routeKey,
+  view,
+}: {
+  routeKey: string
+  view: ViewDefinition
+}) {
+  function updateOrdering(ordering: OrderingField) {
+    useAppStore.getState().patchViewerViewConfig(routeKey, view.id, {
+      ordering,
+    })
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-[12px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
+        >
+          <SortAscending className="size-3.5" />
+          Sort
+          <span className="font-medium text-foreground">
+            {DOCS_ORDERING_LABEL[view.ordering]}
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[200px]")}
+      >
+        <PropertyPopoverList>
+          <PropertyPopoverGroup>Order by</PropertyPopoverGroup>
+          {DOCS_ORDERING_OPTIONS.map((option) => {
+            const selected = view.ordering === option
+
+            return (
+              <PropertyPopoverItem
+                key={option}
+                selected={selected}
+                onClick={() => updateOrdering(option)}
+                trailing={
+                  selected ? (
+                    <Check className="size-3.5 text-accent-fg" />
+                  ) : null
+                }
+              >
+                {DOCS_ORDERING_LABEL[option]}
+              </PropertyPopoverItem>
+            )
+          })}
+        </PropertyPopoverList>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function DocsViewTabs({
+  activeView,
+  editable,
+  routeKey,
+  scopeId,
+  scopeType,
+  views,
+}: {
+  activeView: ViewDefinition | null
+  editable: boolean
+  routeKey: string
+  scopeId: string
+  scopeType: "team" | "workspace"
+  views: ViewDefinition[]
+}) {
+  function selectView(viewId: string) {
+    useAppStore.getState().setSelectedView(routeKey, viewId)
+  }
+
+  function createDocumentView() {
+    openManagedCreateDialog({
+      kind: "view",
+      defaultScopeType: scopeType,
+      defaultScopeId: scopeId,
+      defaultEntityKind: "docs",
+      defaultRoute: routeKey,
+      lockScope: true,
+      lockEntityKind: true,
+      initialConfig: {
+        layout: activeView?.layout ?? "list",
+        grouping: activeView?.grouping ?? "kind",
+        subGrouping: null,
+        ordering: activeView?.ordering ?? "updatedAt",
+        filters: createEmptyViewFilters(),
+        displayProps: activeView?.displayProps ?? DOCS_DISPLAY_PROPERTY_OPTIONS,
+        hiddenState: { groups: [], subgroups: [] },
+      },
+    })
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+      {views.map((view) => (
+        <ViewContextMenu key={view.id} view={view}>
+          <button
+            type="button"
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs leading-[1.15] transition-colors",
+              activeView?.id === view.id
+                ? "border border-line bg-surface text-foreground shadow-[0_1px_0_0_oklch(0.18_0_0/0.04)]"
+                : "text-fg-2 hover:bg-surface-3 hover:text-foreground"
+            )}
+            onClick={() => selectView(view.id)}
+          >
+            <FileText className="size-3.5" />
+            <span className="truncate">{view.name}</span>
+          </button>
+        </ViewContextMenu>
+      ))}
+      {editable ? (
+        <IconButton
+          aria-label="Create document view"
+          className="size-7 shrink-0"
+          onClick={createDocumentView}
+        >
+          <Plus className="size-3.5" />
+        </IconButton>
+      ) : null}
     </div>
+  )
+}
+
+function DocsTaskbar({
+  activeView,
+  data,
+  documents,
+  editable,
+  layout,
+  onCreateDocument,
+  onLayoutChange,
+  routeKey,
+}: {
+  activeView: ViewDefinition | null
+  data: AppData
+  documents: Document[]
+  editable: boolean
+  layout: "list" | "board"
+  onCreateDocument: () => void
+  onLayoutChange: (layout: "list" | "board") => void
+  routeKey: string
+}) {
+  if (!activeView) {
+    return null
+  }
+
+  return (
+    <Viewbar className="gap-2 overflow-x-auto">
+      <DocsLayoutToggle layout={layout} onLayoutChange={onLayoutChange} />
+      <DocsFilterPopover
+        data={data}
+        documents={documents}
+        routeKey={routeKey}
+        view={activeView}
+      />
+      <DocsGroupPopover routeKey={routeKey} view={activeView} />
+      <DocsSortPopover routeKey={routeKey} view={activeView} />
+      <PropertiesChipPopover
+        view={activeView}
+        tone="default"
+        propertyOptions={DOCS_DISPLAY_PROPERTY_OPTIONS}
+        getPropertyLabel={(property) =>
+          DOCS_DISPLAY_PROPERTY_LABEL[property] ?? "Property"
+        }
+        onToggleDisplayProperty={(property) =>
+          useAppStore
+            .getState()
+            .toggleViewerViewDisplayProperty(routeKey, activeView.id, property)
+        }
+        onReorderDisplayProperties={(displayProps) =>
+          useAppStore
+            .getState()
+            .reorderViewerViewDisplayProperties(
+              routeKey,
+              activeView.id,
+              displayProps
+            )
+        }
+        onClearDisplayProperties={() =>
+          useAppStore
+            .getState()
+            .reorderViewerViewDisplayProperties(routeKey, activeView.id, [])
+        }
+      />
+      {editable ? (
+        <Button
+          size="sm"
+          className="ml-auto h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
+          onClick={onCreateDocument}
+        >
+          <Plus className="size-3.5" />
+          New document
+        </Button>
+      ) : null}
+    </Viewbar>
   )
 }
 
@@ -3406,12 +4083,12 @@ export function DocsScreen({
     fetchLatest: () => fetchDocumentIndexReadModel(scopeType, scopeId),
   })
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
-  const teamDocViews = useAppStore(
+  const persistedTeamDocViews = useAppStore(
     useShallow((state) =>
       team ? getViewsForScope(state, "team", scopeId, "docs") : []
     )
   )
-  const workspaceDocViews = useAppStore(
+  const persistedWorkspaceDocViews = useAppStore(
     useShallow((state) =>
       scopeType === "workspace" && !team
         ? getViewsForScope(state, "workspace", scopeId, "docs")
@@ -3419,31 +4096,52 @@ export function DocsScreen({
     )
   )
   const isWorkspaceDocs = scopeType === "workspace" && !team
-  const [activeTab, setActiveTab] = useState<DocsTab>("workspace")
   const [dialogOpen, setDialogOpen] = useState(false)
-  const teamRouteKey = team ? `/team/${team.slug}/docs` : "/workspace/docs/team"
-  const teamLayoutState = useCollectionLayout(teamRouteKey, teamDocViews)
-  const workspaceLayoutState = useCollectionLayout(
-    "/workspace/docs",
-    workspaceDocViews
+  const routeKey = getDocsRouteKey(scopeType, team)
+  const systemDocViews = useMemo(
+    () =>
+      getDocsSystemViews({
+        currentUserId,
+        scopeId,
+        scopeType,
+        team,
+      }),
+    [currentUserId, scopeId, scopeType, team]
   )
-  const privateLayoutState = useCollectionLayout("/workspace/docs/private", [])
-  const documents = useAppStore(
-    useShallow((state) =>
-      isWorkspaceDocs
-        ? activeTab === "workspace"
-          ? getWorkspaceDocuments(state, scopeId)
-          : getPrivateDocuments(state, scopeId)
-        : getTeamDocuments(state, scopeId)
-    )
+  const docViews = useMemo(
+    () =>
+      mergeDocsViews(
+        systemDocViews,
+        isWorkspaceDocs ? persistedWorkspaceDocViews : persistedTeamDocViews
+      ),
+    [
+      isWorkspaceDocs,
+      persistedTeamDocViews,
+      persistedWorkspaceDocViews,
+      systemDocViews,
+    ]
   )
-  const { layout, setLayout } = getDocsLayoutState({
-    activeTab,
-    isWorkspaceDocs,
-    privateLayoutState,
-    teamLayoutState,
-    workspaceLayoutState,
-  })
+  const docLayoutState = useCollectionLayout(routeKey, docViews)
+  const activeView = docLayoutState.activeView
+  const activeTab = getActiveDocsTab(activeView)
+  const baseDocuments = useMemo(
+    () =>
+      getDocsBaseDocuments({
+        data,
+        scopeId,
+        scopeType,
+        isWorkspaceDocs,
+      }),
+    [data, isWorkspaceDocs, scopeId, scopeType]
+  )
+  const documents = useMemo(
+    () => getDocumentsForView(baseDocuments, activeView),
+    [activeView, baseDocuments]
+  )
+  const docSections = useMemo(
+    () => buildDocsSections(data, documents, activeView),
+    [activeView, data, documents]
+  )
   const dialogInput = getDocsDialogInput({
     activeTab,
     activeTeamId,
@@ -3462,14 +4160,26 @@ export function DocsScreen({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <DocsHeader
-        activeTab={activeTab}
-        isWorkspaceDocs={isWorkspaceDocs}
-        layout={layout}
-        onActiveTabChange={setActiveTab}
+      <Topbar>
+        <HeaderTitle title={title} />
+        <DocsViewTabs
+          activeView={activeView}
+          editable={editable}
+          routeKey={routeKey}
+          scopeId={scopeId}
+          scopeType={scopeType}
+          views={docViews}
+        />
+      </Topbar>
+      <DocsTaskbar
+        activeView={activeView}
+        data={data}
+        documents={baseDocuments}
+        editable={editable}
+        layout={docLayoutState.layout}
         onCreateDocument={() => setDialogOpen(true)}
-        onLayoutChange={setLayout}
-        title={title}
+        onLayoutChange={docLayoutState.setLayout}
+        routeKey={routeKey}
       />
       <CreateDocumentDialog
         open={dialogOpen}
@@ -3481,9 +4191,11 @@ export function DocsScreen({
         <DocsContent
           data={data}
           documents={documents}
+          displayProps={activeView?.displayProps}
           emptyTitle={emptyTitle}
           hasLoadedOnce={hasLoadedOnce}
-          layout={layout}
+          layout={docLayoutState.layout}
+          sections={docSections}
         />
       </div>
     </div>

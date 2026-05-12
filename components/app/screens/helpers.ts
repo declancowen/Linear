@@ -49,6 +49,9 @@ export type PersistedViewFilterKey =
   | "priority"
   | "assigneeIds"
   | "creatorIds"
+  | "updatedByIds"
+  | "documentKinds"
+  | "linkedWorkItemIds"
   | "leadIds"
   | "health"
   | "milestoneIds"
@@ -81,6 +84,9 @@ export function isPersistedViewFilterKey(
     "priority",
     "assigneeIds",
     "creatorIds",
+    "updatedByIds",
+    "documentKinds",
+    "linkedWorkItemIds",
     "leadIds",
     "health",
     "milestoneIds",
@@ -193,6 +199,8 @@ export function selectAppDataSnapshot(state: AppStore): AppData {
     projects: state.projects,
     milestones: state.milestones,
     workItems: state.workItems,
+    customPropertyDefinitions: state.customPropertyDefinitions,
+    customPropertyValues: state.customPropertyValues,
     documents: state.documents,
     views: state.views,
     comments: state.comments,

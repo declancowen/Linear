@@ -45,10 +45,7 @@ import {
   TreeStructure,
 } from "@phosphor-icons/react"
 
-import {
-  ProjectTemplateGlyph,
-  TeamIconGlyph,
-} from "@/components/app/entity-icons"
+import { ProjectIconGlyph, TeamIconGlyph } from "@/components/app/entity-icons"
 import {
   getProjectStatusIconStatus,
   getReorderedDisplayPropertiesAfterDrag,
@@ -56,6 +53,7 @@ import {
 import { getStatusOrderForTeam, getTeam } from "@/lib/domain/selectors"
 import {
   EMPTY_PARENT_FILTER_VALUE,
+  getCustomPropertyIdFromDisplayReference,
   getChildWorkItemCopy,
   getDefaultShowChildItemsForItemLevel,
   getDefaultWorkItemTypesForTeamExperience,
@@ -66,6 +64,7 @@ import {
   priorityMeta,
   statusMeta,
   workItemTypes,
+  type BuiltinDisplayProperty,
   type DisplayProperty,
   type GroupField,
   type Label,
@@ -225,15 +224,18 @@ function createViewConfigUpdater(
   }
 }
 
-const ViewChipTrigger = forwardRef<HTMLButtonElement, {
-  icon: ReactNode
-  label: string
-  showLabel?: boolean
-  showValue?: boolean
-  tone: ChipTone
-  value: string
-  valuePrefix?: string
-} & ComponentPropsWithoutRef<"button">>(function ViewChipTrigger(
+const ViewChipTrigger = forwardRef<
+  HTMLButtonElement,
+  {
+    icon: ReactNode
+    label: string
+    showLabel?: boolean
+    showValue?: boolean
+    tone: ChipTone
+    value: string
+    valuePrefix?: string
+  } & ComponentPropsWithoutRef<"button">
+>(function ViewChipTrigger(
   {
     className,
     icon,
@@ -282,7 +284,7 @@ const displayPropertyOptions: DisplayProperty[] = [
   "updated",
 ]
 
-const DISPLAY_PROPERTY_LABELS: Record<DisplayProperty, string> = {
+const DISPLAY_PROPERTY_LABELS: Record<BuiltinDisplayProperty, string> = {
   id: "ID",
   type: "Type",
   status: "Status",
@@ -290,11 +292,17 @@ const DISPLAY_PROPERTY_LABELS: Record<DisplayProperty, string> = {
   priority: "Priority",
   progress: "Progress",
   project: "Project",
+  team: "Team",
   dueDate: "Due date",
   milestone: "Milestone",
   labels: "Labels",
   created: "Created",
+  createdBy: "Created by",
   updated: "Updated",
+  updatedBy: "Updated by",
+  kind: "Kind",
+  linkedProjects: "Linked projects",
+  linkedItems: "Linked items",
 }
 
 const DEFAULT_GROUP_OPTIONS: GroupField[] = [
@@ -376,7 +384,19 @@ export function getGroupFieldOptionLabel(field: GroupField) {
     return "Epic"
   }
 
-  return "Feature"
+  if (field === "feature") {
+    return "Feature"
+  }
+
+  if (field === "kind") {
+    return "Kind"
+  }
+
+  if (field === "createdBy") {
+    return "Created by"
+  }
+
+  return "Updated by"
 }
 
 function matchesQuery(label: string, query: string) {
@@ -603,20 +623,16 @@ function clearFiltersOrDelegate({
   useAppStore.getState().clearViewFilters(viewId)
 }
 
-const FilterTriggerButton = forwardRef<HTMLButtonElement, {
-  activeCount: number
-  className?: string
-  label: string
-  variant: "icon" | "chip"
-} & ComponentPropsWithoutRef<"button">>(function FilterTriggerButton(
+const FilterTriggerButton = forwardRef<
+  HTMLButtonElement,
   {
-    activeCount,
-    className,
-    label,
-    type = "button",
-    variant,
-    ...props
-  },
+    activeCount: number
+    className?: string
+    label: string
+    variant: "icon" | "chip"
+  } & ComponentPropsWithoutRef<"button">
+>(function FilterTriggerButton(
+  { activeCount, className, label, type = "button", variant, ...props },
   ref
 ) {
   if (variant === "chip") {
@@ -851,8 +867,8 @@ function ProjectFilterSection({
           <FilterRow
             key={project.id}
             icon={
-              <ProjectTemplateGlyph
-                templateType={project.templateType}
+              <ProjectIconGlyph
+                project={project}
                 className="size-[13px] text-fg-3"
               />
             }
@@ -2117,16 +2133,47 @@ export function PropertiesChipPopover({
   getPropertyLabel?: (property: DisplayProperty) => string
 }) {
   const [query, setQuery] = useState("")
+  const allCustomDefinitions = useAppStore(
+    (state) => state.customPropertyDefinitions
+  )
+  const customDefinitions = useMemo(
+    () =>
+      view.entityKind === "items" && view.scopeType === "team"
+        ? allCustomDefinitions.filter(
+            (definition) =>
+              !definition.isArchived && definition.teamId === view.scopeId
+          )
+        : [],
+    [allCustomDefinitions, view.entityKind, view.scopeId, view.scopeType]
+  )
   const skipTogglePropertyRef = useRef<DisplayProperty | null>(null)
   const skipToggleResetTimeoutRef = useRef<number | null>(null)
   const resolvePropertyLabel =
     getPropertyLabel ??
-    ((property: DisplayProperty) => DISPLAY_PROPERTY_LABELS[property])
-  const propertyOptionSet = new Set(propertyOptions)
+    ((property: DisplayProperty) => {
+      const customPropertyId = getCustomPropertyIdFromDisplayReference(property)
+
+      if (customPropertyId) {
+        return (
+          customDefinitions.find(
+            (definition) => definition.id === customPropertyId
+          )?.name ?? "Custom property"
+        )
+      }
+
+      return DISPLAY_PROPERTY_LABELS[property as BuiltinDisplayProperty]
+    })
+  const resolvedPropertyOptions = [
+    ...propertyOptions,
+    ...customDefinitions.map(
+      (definition) => `custom:${definition.id}` as DisplayProperty
+    ),
+  ]
+  const propertyOptionSet = new Set(resolvedPropertyOptions)
   const visibleProperties = view.displayProps.filter((property) =>
     propertyOptionSet.has(property)
   )
-  const hiddenProperties = propertyOptions.filter(
+  const hiddenProperties = resolvedPropertyOptions.filter(
     (property) => !view.displayProps.includes(property)
   )
   const count = visibleProperties.length

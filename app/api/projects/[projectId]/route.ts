@@ -5,13 +5,12 @@ import { ApplicationError } from "@/lib/server/application-errors"
 import { bumpScopedReadModelVersionsServer } from "@/lib/server/convex"
 import { resolveProjectReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
+  nullableCalendarDateSchema,
   projectNameMaxLength,
   projectNameMinLength,
 } from "@/lib/domain/types"
-import {
-  deleteProjectServer,
-  updateProjectServer,
-} from "@/lib/server/convex"
+import { projectSummaryConstraints } from "@/lib/domain/input-constraints"
+import { deleteProjectServer, updateProjectServer } from "@/lib/server/convex"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -33,10 +32,17 @@ const projectPatchSchema = z
       .min(projectNameMinLength)
       .max(projectNameMaxLength)
       .optional(),
+    icon: z.string().trim().min(1).max(80).optional(),
+    summary: z.string().trim().max(projectSummaryConstraints.max).optional(),
     status: z
       .enum(["backlog", "planned", "in-progress", "completed", "cancelled"])
       .optional(),
     priority: z.enum(["none", "low", "medium", "high", "urgent"]).optional(),
+    leadId: z.string().nullable().optional(),
+    memberIds: z.array(z.string()).optional(),
+    startDate: nullableCalendarDateSchema.optional(),
+    targetDate: nullableCalendarDateSchema.optional(),
+    labelIds: z.array(z.string()).optional(),
   })
   .refine(
     (value) => Object.values(value).some((entry) => entry !== undefined),

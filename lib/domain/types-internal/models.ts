@@ -5,6 +5,10 @@ import type {
   ConversationKind,
   ConversationScopeType,
   ConversationVariant,
+  CustomPropertyOption,
+  CustomPropertyTargetType,
+  CustomPropertyType,
+  CustomPropertyValue,
   DisplayProperty,
   DocumentKind,
   EntityKind,
@@ -112,6 +116,7 @@ export interface Project {
   scopeId: string
   templateType: TemplateType
   name: string
+  icon?: string
   summary: string
   description: string
   leadId: string
@@ -125,6 +130,34 @@ export interface Project {
   startDate: string | null
   targetDate: string | null
   labelIds?: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CustomPropertyDefinition {
+  id: string
+  workspaceId: string
+  teamId: string
+  targetType: CustomPropertyTargetType
+  name: string
+  icon: string
+  type: CustomPropertyType
+  options: CustomPropertyOption[]
+  isArchived: boolean
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CustomPropertyValueRecord {
+  id: string
+  workspaceId: string
+  teamId: string
+  workItemId: string
+  propertyId: string
+  value: CustomPropertyValue
+  createdBy: string
+  updatedBy: string
   createdAt: string
   updatedAt: string
 }
@@ -465,6 +498,8 @@ export interface AppData {
   projects: Project[]
   milestones: Milestone[]
   workItems: WorkItem[]
+  customPropertyDefinitions: CustomPropertyDefinition[]
+  customPropertyValues: CustomPropertyValueRecord[]
   documents: Document[]
   views: ViewDefinition[]
   comments: Comment[]

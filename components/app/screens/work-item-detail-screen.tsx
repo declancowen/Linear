@@ -112,6 +112,11 @@ import { Button } from "@/components/ui/button"
 import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
+  CustomPropertyDefinitionDialog,
+  CustomPropertyValueControl,
+} from "@/components/app/screens/custom-property-controls"
+import { PhosphorIconGlyph } from "@/components/app/phosphor-icon-picker"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -411,6 +416,17 @@ function DetailChildWorkItemRow({
   const showMainAssignee = item.assigneeId !== null
   const showMainProject = item.primaryProjectId !== null
   const showProperties = variant !== "sidebar"
+  const childCustomProperties = data.customPropertyDefinitions
+    .filter(
+      (definition) =>
+        !definition.isArchived && definition.teamId === item.teamId
+    )
+    .filter((definition) =>
+      data.customPropertyValues.some(
+        (value) =>
+          value.workItemId === item.id && value.propertyId === definition.id
+      )
+    )
 
   return (
     <div
@@ -465,6 +481,23 @@ function DetailChildWorkItemRow({
               variant="child"
             />
           ) : null}
+          {childCustomProperties.map((definition) => (
+            <CustomPropertyValueControl
+              key={definition.id}
+              data={data}
+              definition={definition}
+              item={item}
+              value={
+                data.customPropertyValues.find(
+                  (entry) =>
+                    entry.workItemId === item.id &&
+                    entry.propertyId === definition.id
+                ) ?? null
+              }
+              editable={false}
+              variant="chip"
+            />
+          ))}
         </div>
       ) : null}
     </div>
@@ -1746,21 +1779,19 @@ function useLegacyWorkItemPresence({
   )
   const legacyActiveBlockIdRef = useRef<string | null>(null)
   const hasLiveDescriptionPresence = collaborationLifecycle === "attached"
-  const {
-    presenceViewers: workItemPresenceViewers,
-    sendLegacyPresenceRef,
-  } = useLegacyPresenceHeartbeat({
-    activeId: activeItemId,
-    activeBlockIdRef: legacyActiveBlockIdRef,
-    clearErrorMessage: "Failed to clear work item presence",
-    clearPresence: syncClearWorkItemPresence,
-    collaborationLifecycle,
-    currentUserId,
-    heartbeatErrorMessage: "Failed to sync work item presence",
-    heartbeatIntervalMs: WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS,
-    heartbeatPresence: syncHeartbeatWorkItemPresence,
-    getSessionId: getWorkItemPresenceSessionId,
-  })
+  const { presenceViewers: workItemPresenceViewers, sendLegacyPresenceRef } =
+    useLegacyPresenceHeartbeat({
+      activeId: activeItemId,
+      activeBlockIdRef: legacyActiveBlockIdRef,
+      clearErrorMessage: "Failed to clear work item presence",
+      clearPresence: syncClearWorkItemPresence,
+      collaborationLifecycle,
+      currentUserId,
+      heartbeatErrorMessage: "Failed to sync work item presence",
+      heartbeatIntervalMs: WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS,
+      heartbeatPresence: syncHeartbeatWorkItemPresence,
+      getSessionId: getWorkItemPresenceSessionId,
+    })
 
   useEffect(() => {
     if (!activeItemId) {
@@ -3114,6 +3145,7 @@ function WorkItemMainArticle({
 }
 
 function WorkItemSidebarProperties({
+  data,
   currentItem,
   team,
   teamMembers,
@@ -3132,6 +3164,7 @@ function WorkItemSidebarProperties({
   onProjectChange,
   onParentChange,
 }: {
+  data: AppData
   currentItem: WorkItem
   team: Team | null
   teamMembers: UserProfile[]
@@ -3143,184 +3176,247 @@ function WorkItemSidebarProperties({
   sidebarEditable: boolean
   statusOptions: DetailSelectOption[]
 } & DetailPropertyChangeHandlers) {
+  const [customPropertyDialogOpen, setCustomPropertyDialogOpen] =
+    useState(false)
+  const customPropertyDefinitions = data.customPropertyDefinitions
+    .filter(
+      (definition) =>
+        !definition.isArchived && definition.teamId === currentItem.teamId
+    )
+    .sort((left, right) => left.name.localeCompare(right.name))
+
   return (
-    <dl className="mt-5 grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12.5px]">
-      <DetailSidebarSelectRow
-        label="Status"
-        icon={<StatusIcon status={currentItem.status} />}
-        value={currentItem.status}
-        disabled={!sidebarEditable}
-        options={statusOptions}
-        renderValue={(value, optionLabel) => (
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="inline-grid size-3.5 shrink-0 place-items-center">
-              <StatusIcon status={value} />
-            </span>
-            <span className="truncate">{optionLabel}</span>
-          </div>
-        )}
-        renderOption={(value, optionLabel) => (
-          <div className="flex items-center gap-2">
-            <span className="inline-grid size-3.5 shrink-0 place-items-center">
-              <StatusIcon status={value} />
-            </span>
-            <span>{optionLabel}</span>
-          </div>
-        )}
-        onValueChange={onStatusChange}
-      />
-      <DetailSidebarSelectRow
-        label="Priority"
-        icon={<Flag className="size-[13px]" />}
-        value={currentItem.priority}
-        disabled={!sidebarEditable}
-        options={Object.entries(priorityMeta).map(([value, meta]) => ({
-          value,
-          label: meta.label,
-        }))}
-        renderValue={(value, optionLabel) => (
-          <div className="flex min-w-0 items-center gap-2">
-            <PriorityIcon priority={value as Priority} />
-            <span className="truncate">{optionLabel}</span>
-          </div>
-        )}
-        renderOption={(value, optionLabel) => (
-          <div className="flex items-center gap-2">
-            <PriorityIcon priority={value as Priority} />
-            <span>{optionLabel}</span>
-          </div>
-        )}
-        onValueChange={onPriorityChange}
-      />
-      <DetailSidebarSelectRow
-        label="Assignee"
-        icon={<Plus className="size-[13px]" />}
-        value={currentItem.assigneeId ?? "unassigned"}
-        disabled={!sidebarEditable}
-        options={[
-          { value: "unassigned", label: "Assign" },
-          ...teamMembers.map((user) => ({
-            value: user.id,
-            label: user.name,
-          })),
-        ]}
-        renderValue={(value, optionLabel) => {
-          if (value === "unassigned") {
-            return <span className="truncate">{optionLabel}</span>
-          }
-
-          const selectedUser =
-            teamMembers.find((user) => user.id === value) ?? null
-
-          return selectedUser ? (
+    <>
+      <dl className="mt-5 grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12.5px]">
+        <DetailSidebarSelectRow
+          label="Status"
+          icon={<StatusIcon status={currentItem.status} />}
+          value={currentItem.status}
+          disabled={!sidebarEditable}
+          options={statusOptions}
+          renderValue={(value, optionLabel) => (
             <div className="flex min-w-0 items-center gap-2">
-              <WorkItemAssigneeAvatar
-                user={selectedUser}
-                className="data-[size=sm]:size-4"
-              />
-              <span className="truncate">{selectedUser.name}</span>
-            </div>
-          ) : (
-            <span className="truncate">{optionLabel}</span>
-          )
-        }}
-        renderOption={(value, optionLabel) => {
-          if (value === "unassigned") {
-            return <span>{optionLabel}</span>
-          }
-
-          const optionUser =
-            teamMembers.find((user) => user.id === value) ?? null
-
-          return optionUser ? (
-            <div className="flex items-center gap-2">
-              <WorkItemAssigneeAvatar
-                user={optionUser}
-                className="data-[size=sm]:size-4"
-              />
-              <span>{optionUser.name}</span>
-            </div>
-          ) : (
-            <span>{optionLabel}</span>
-          )
-        }}
-        onValueChange={onAssigneeChange}
-      />
-      <DetailSidebarDateRow
-        label="Start"
-        icon={<Clock className="size-[13px]" />}
-        value={currentItem.startDate}
-        disabled={!sidebarEditable}
-        onValueChange={onStartDateChange}
-      />
-      <DetailSidebarDateRow
-        label="Due"
-        icon={<CalendarBlank className="size-[13px]" />}
-        value={displayedEndDate}
-        disabled={!sidebarEditable}
-        onValueChange={onEndDateChange}
-      />
-      <DetailSidebarLabelsRow
-        item={currentItem}
-        workspaceId={team?.workspaceId}
-        labels={availableLabels}
-        editable={sidebarEditable}
-      />
-      <DetailSidebarSelectRow
-        label="Project"
-        icon={<FolderSimple className="size-[13px]" />}
-        value={currentItem.primaryProjectId ?? "none"}
-        disabled={!sidebarEditable}
-        options={[
-          { value: "none", label: "No project" },
-          ...teamProjects.map((project) => ({
-            value: project.id,
-            label: project.name,
-          })),
-        ]}
-        renderValue={(value, optionLabel) =>
-          value === "none" ? (
-            <span className="truncate text-fg-4">{optionLabel}</span>
-          ) : (
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="inline-block size-1.5 rounded-full bg-fg-3" />
+              <span className="inline-grid size-3.5 shrink-0 place-items-center">
+                <StatusIcon status={value} />
+              </span>
               <span className="truncate">{optionLabel}</span>
             </div>
-          )
-        }
-        onValueChange={onProjectChange}
-      />
-      {selectedMilestone ? (
-        <DetailSidebarStaticRow
-          label="Milestone"
-          icon={<Flag className="size-[13px]" />}
-        >
-          <span className="truncate">{selectedMilestone.name}</span>
-          {selectedMilestone.targetDate ? (
-            <span className="text-fg-4">
-              · {format(new Date(selectedMilestone.targetDate), "MMM d")}
-            </span>
-          ) : null}
-        </DetailSidebarStaticRow>
-      ) : null}
-      {currentItem.parentId || parentOptions.length > 1 ? (
+          )}
+          renderOption={(value, optionLabel) => (
+            <div className="flex items-center gap-2">
+              <span className="inline-grid size-3.5 shrink-0 place-items-center">
+                <StatusIcon status={value} />
+              </span>
+              <span>{optionLabel}</span>
+            </div>
+          )}
+          onValueChange={onStatusChange}
+        />
         <DetailSidebarSelectRow
-          label="Parent"
-          icon={<FolderSimple className="size-[13px]" />}
-          value={currentItem.parentId ?? "none"}
+          label="Priority"
+          icon={<Flag className="size-[13px]" />}
+          value={currentItem.priority}
           disabled={!sidebarEditable}
-          options={parentOptions}
+          options={Object.entries(priorityMeta).map(([value, meta]) => ({
+            value,
+            label: meta.label,
+          }))}
+          renderValue={(value, optionLabel) => (
+            <div className="flex min-w-0 items-center gap-2">
+              <PriorityIcon priority={value as Priority} />
+              <span className="truncate">{optionLabel}</span>
+            </div>
+          )}
+          renderOption={(value, optionLabel) => (
+            <div className="flex items-center gap-2">
+              <PriorityIcon priority={value as Priority} />
+              <span>{optionLabel}</span>
+            </div>
+          )}
+          onValueChange={onPriorityChange}
+        />
+        <DetailSidebarSelectRow
+          label="Assignee"
+          icon={<Plus className="size-[13px]" />}
+          value={currentItem.assigneeId ?? "unassigned"}
+          disabled={!sidebarEditable}
+          options={[
+            { value: "unassigned", label: "Assign" },
+            ...teamMembers.map((user) => ({
+              value: user.id,
+              label: user.name,
+            })),
+          ]}
+          renderValue={(value, optionLabel) => {
+            if (value === "unassigned") {
+              return <span className="truncate">{optionLabel}</span>
+            }
+
+            const selectedUser =
+              teamMembers.find((user) => user.id === value) ?? null
+
+            return selectedUser ? (
+              <div className="flex min-w-0 items-center gap-2">
+                <WorkItemAssigneeAvatar
+                  user={selectedUser}
+                  className="data-[size=sm]:size-4"
+                />
+                <span className="truncate">{selectedUser.name}</span>
+              </div>
+            ) : (
+              <span className="truncate">{optionLabel}</span>
+            )
+          }}
+          renderOption={(value, optionLabel) => {
+            if (value === "unassigned") {
+              return <span>{optionLabel}</span>
+            }
+
+            const optionUser =
+              teamMembers.find((user) => user.id === value) ?? null
+
+            return optionUser ? (
+              <div className="flex items-center gap-2">
+                <WorkItemAssigneeAvatar
+                  user={optionUser}
+                  className="data-[size=sm]:size-4"
+                />
+                <span>{optionUser.name}</span>
+              </div>
+            ) : (
+              <span>{optionLabel}</span>
+            )
+          }}
+          onValueChange={onAssigneeChange}
+        />
+        <DetailSidebarDateRow
+          label="Start"
+          icon={<Clock className="size-[13px]" />}
+          value={currentItem.startDate}
+          disabled={!sidebarEditable}
+          onValueChange={onStartDateChange}
+        />
+        <DetailSidebarDateRow
+          label="Due"
+          icon={<CalendarBlank className="size-[13px]" />}
+          value={displayedEndDate}
+          disabled={!sidebarEditable}
+          onValueChange={onEndDateChange}
+        />
+        <DetailSidebarLabelsRow
+          item={currentItem}
+          workspaceId={team?.workspaceId}
+          labels={availableLabels}
+          editable={sidebarEditable}
+        />
+        <DetailSidebarSelectRow
+          label="Project"
+          icon={<FolderSimple className="size-[13px]" />}
+          value={currentItem.primaryProjectId ?? "none"}
+          disabled={!sidebarEditable}
+          options={[
+            { value: "none", label: "No project" },
+            ...teamProjects.map((project) => ({
+              value: project.id,
+              label: project.name,
+            })),
+          ]}
           renderValue={(value, optionLabel) =>
             value === "none" ? (
               <span className="truncate text-fg-4">{optionLabel}</span>
             ) : (
-              <span className="truncate">{optionLabel}</span>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="inline-block size-1.5 rounded-full bg-fg-3" />
+                <span className="truncate">{optionLabel}</span>
+              </div>
             )
           }
-          onValueChange={onParentChange}
+          onValueChange={onProjectChange}
+        />
+        {selectedMilestone ? (
+          <DetailSidebarStaticRow
+            label="Milestone"
+            icon={<Flag className="size-[13px]" />}
+          >
+            <span className="truncate">{selectedMilestone.name}</span>
+            {selectedMilestone.targetDate ? (
+              <span className="text-fg-4">
+                · {format(new Date(selectedMilestone.targetDate), "MMM d")}
+              </span>
+            ) : null}
+          </DetailSidebarStaticRow>
+        ) : null}
+        {currentItem.parentId || parentOptions.length > 1 ? (
+          <DetailSidebarSelectRow
+            label="Parent"
+            icon={<FolderSimple className="size-[13px]" />}
+            value={currentItem.parentId ?? "none"}
+            disabled={!sidebarEditable}
+            options={parentOptions}
+            renderValue={(value, optionLabel) =>
+              value === "none" ? (
+                <span className="truncate text-fg-4">{optionLabel}</span>
+              ) : (
+                <span className="truncate">{optionLabel}</span>
+              )
+            }
+            onValueChange={onParentChange}
+          />
+        ) : null}
+        {customPropertyDefinitions.map((definition) => (
+          <div key={definition.id} className="contents">
+            {renderDetailSidebarTerm(
+              definition.name,
+              <PhosphorIconGlyph
+                icon={definition.icon}
+                className="size-[13px]"
+              />
+            )}
+            <dd className="flex min-w-0 items-center">
+              <CustomPropertyValueControl
+                data={data}
+                definition={definition}
+                item={currentItem}
+                value={
+                  data.customPropertyValues.find(
+                    (entry) =>
+                      entry.workItemId === currentItem.id &&
+                      entry.propertyId === definition.id
+                  ) ?? null
+                }
+                editable={sidebarEditable}
+              />
+            </dd>
+          </div>
+        ))}
+        {team ? (
+          <div className="contents">
+            {renderDetailSidebarTerm(
+              "Properties",
+              <Plus className="size-[13px]" />
+            )}
+            <dd>
+              <button
+                type="button"
+                disabled={!sidebarEditable}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-dashed border-line px-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:opacity-60"
+                onClick={() => setCustomPropertyDialogOpen(true)}
+              >
+                <Plus className="size-3.5" />
+                Add property
+              </button>
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+      {team ? (
+        <CustomPropertyDefinitionDialog
+          open={customPropertyDialogOpen}
+          teamId={team.id}
+          onOpenChange={setCustomPropertyDialogOpen}
         />
       ) : null}
-    </dl>
+    </>
   )
 }
 
@@ -3567,6 +3663,7 @@ function WorkItemDetailSidebar({
         </h2>
 
         <WorkItemSidebarProperties
+          data={data}
           currentItem={currentItem}
           team={team}
           teamMembers={teamMembers}

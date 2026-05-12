@@ -15,12 +15,11 @@ type TeamWorkspaceScope = {
   scopeId: string
 }
 
-function uniqueValuesByKey<T>(
-  values: Iterable<T>,
-  key: (value: T) => string
-) {
+function uniqueValuesByKey<T>(values: Iterable<T>, key: (value: T) => string) {
   return [
-    ...new Map([...values].map((value) => [key(value), value] as const)).values(),
+    ...new Map(
+      [...values].map((value) => [key(value), value] as const)
+    ).values(),
   ]
 }
 
@@ -125,7 +124,10 @@ export async function getTeamByJoinCode(ctx: AppCtx, code: string) {
     .unique()
 }
 
-export async function resolveTeamByCodeSlugOrJoinCode(ctx: AppCtx, code: string) {
+export async function resolveTeamByCodeSlugOrJoinCode(
+  ctx: AppCtx,
+  code: string
+) {
   return (
     (await getTeamDoc(ctx, code)) ??
     (await getTeamBySlug(ctx, createSlug(code))) ??
@@ -149,7 +151,9 @@ export async function getUserDoc(ctx: AppCtx, id: string) {
 
 export async function listUsersByIds(ctx: AppCtx, userIds: Iterable<string>) {
   return (
-    await mapInBatches([...new Set(userIds)], (userId) => getUserDoc(ctx, userId))
+    await mapInBatches([...new Set(userIds)], (userId) =>
+      getUserDoc(ctx, userId)
+    )
   ).filter((user) => user != null)
 }
 
@@ -162,14 +166,18 @@ function isActiveUser(
     | null
     | undefined
 ) {
-  return Boolean(user && !user.accountDeletedAt && !user.accountDeletionPendingAt)
+  return Boolean(
+    user && !user.accountDeletedAt && !user.accountDeletionPendingAt
+  )
 }
 
 export async function listActiveUsersByIds(
   ctx: AppCtx,
   userIds: Iterable<string>
 ) {
-  return (await listUsersByIds(ctx, userIds)).filter((user) => isActiveUser(user))
+  return (await listUsersByIds(ctx, userIds)).filter((user) =>
+    isActiveUser(user)
+  )
 }
 
 export async function getTeamMembershipDoc(
@@ -403,7 +411,10 @@ export async function listActiveTeamUsers(ctx: AppCtx, teamId: string) {
   )
 }
 
-export async function listActiveWorkspaceUsers(ctx: AppCtx, workspaceId: string) {
+export async function listActiveWorkspaceUsers(
+  ctx: AppCtx,
+  workspaceId: string
+) {
   const [workspace, workspaceTeams] = await Promise.all([
     getWorkspaceDoc(ctx, workspaceId),
     listWorkspaceTeams(ctx, workspaceId),
@@ -429,7 +440,9 @@ export async function listActiveWorkspaceUsers(ctx: AppCtx, workspaceId: string)
 
 export async function listTeamsByIds(ctx: AppCtx, teamIds: Iterable<string>) {
   return (
-    await mapInBatches([...new Set(teamIds)], (teamId) => getTeamDoc(ctx, teamId))
+    await mapInBatches([...new Set(teamIds)], (teamId) =>
+      getTeamDoc(ctx, teamId)
+    )
   ).filter((team) => team != null)
 }
 
@@ -472,6 +485,74 @@ export async function getWorkItemDoc(ctx: AppCtx, id: string) {
     .query("workItems")
     .withIndex("by_domain_id", (q) => q.eq("id", id))
     .unique()
+}
+
+export async function getCustomPropertyDefinitionDoc(ctx: AppCtx, id: string) {
+  return ctx.db
+    .query("customPropertyDefinitions")
+    .withIndex("by_domain_id", (q) => q.eq("id", id))
+    .unique()
+}
+
+export async function getCustomPropertyValueDoc(
+  ctx: AppCtx,
+  workItemId: string,
+  propertyId: string
+) {
+  const values = await ctx.db
+    .query("customPropertyValues")
+    .withIndex("by_work_item", (q) => q.eq("workItemId", workItemId))
+    .collect()
+
+  return values.find((value) => value.propertyId === propertyId) ?? null
+}
+
+export async function listCustomPropertyDefinitionsByTeam(
+  ctx: AppCtx,
+  teamId: string
+) {
+  return ctx.db
+    .query("customPropertyDefinitions")
+    .withIndex("by_team", (q) => q.eq("teamId", teamId))
+    .collect()
+}
+
+export async function listCustomPropertyDefinitionsByTeams(
+  ctx: AppCtx,
+  teamIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(teamIds)], (teamId) =>
+    listCustomPropertyDefinitionsByTeam(ctx, teamId)
+  )
+}
+
+export async function listCustomPropertyValuesByWorkItem(
+  ctx: AppCtx,
+  workItemId: string
+) {
+  return ctx.db
+    .query("customPropertyValues")
+    .withIndex("by_work_item", (q) => q.eq("workItemId", workItemId))
+    .collect()
+}
+
+export async function listCustomPropertyValuesByProperty(
+  ctx: AppCtx,
+  propertyId: string
+) {
+  return ctx.db
+    .query("customPropertyValues")
+    .withIndex("by_property", (q) => q.eq("propertyId", propertyId))
+    .collect()
+}
+
+export async function listCustomPropertyValuesByWorkItems(
+  ctx: AppCtx,
+  workItemIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(workItemIds)], (workItemId) =>
+    listCustomPropertyValuesByWorkItem(ctx, workItemId)
+  )
 }
 
 export async function getWorkItemByDescriptionDocId(
@@ -1022,7 +1103,7 @@ export async function getPendingInvitesForEmail(ctx: AppCtx, email: string) {
         Boolean(teams[index])
       )
       const mergedRole =
-        survivingInvites.reduce<(typeof primaryInvite.role) | null>(
+        survivingInvites.reduce<typeof primaryInvite.role | null>(
           (currentRole, invite) =>
             mergeMembershipRole(currentRole, invite.role),
           null
@@ -1178,7 +1259,9 @@ export function resolvePreferredWorkspaceId(input: {
 }) {
   const accessibleWorkspaceIds = new Set(input.accessibleWorkspaceIds)
 
-  if (isAccessibleWorkspaceId(input.selectedWorkspaceId, accessibleWorkspaceIds)) {
+  if (
+    isAccessibleWorkspaceId(input.selectedWorkspaceId, accessibleWorkspaceIds)
+  ) {
     return input.selectedWorkspaceId
   }
 
@@ -1462,16 +1545,15 @@ export async function syncWorkspaceMembershipRoleFromTeams(
             team.workspaceId === input.workspaceId
         )
       )
-      .reduce<(typeof memberships)[number]["role"] | null>(
-        (currentRole, membership) =>
-          mergeMembershipRole(currentRole, membership.role),
-        null
-      ) ?? null
+      .reduce<
+        (typeof memberships)[number]["role"] | null
+      >((currentRole, membership) => mergeMembershipRole(currentRole, membership.role), null) ??
+    null
 
   return ensureWorkspaceMembership(ctx, {
     workspaceId: input.workspaceId,
     userId: input.userId,
-    role: highestTeamRole ?? (input.fallbackRole ?? "viewer"),
+    role: highestTeamRole ?? input.fallbackRole ?? "viewer",
   })
 }
 

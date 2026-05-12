@@ -77,7 +77,10 @@ export function createProjectSlice(
         return
       }
 
-      const workflowSettings = getTeamWorkflowSettings(get(), parsed.data.scopeId)
+      const workflowSettings = getTeamWorkflowSettings(
+        get(),
+        parsed.data.scopeId
+      )
       const templateDefaults =
         workflowSettings.templateDefaults[parsed.data.templateType]
       const resolvedStartDate =
@@ -101,6 +104,7 @@ export function createProjectSlice(
           scopeId: parsed.data.scopeId,
           templateType: parsed.data.templateType,
           name: parsed.data.name,
+          ...(parsed.data.icon ? { icon: parsed.data.icon } : {}),
           summary: parsed.data.summary,
           description: "",
           leadId: resolvedLeadId,

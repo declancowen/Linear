@@ -133,13 +133,37 @@ export const displayProperties = [
   "priority",
   "progress",
   "project",
+  "team",
   "dueDate",
   "milestone",
   "labels",
   "created",
+  "createdBy",
   "updated",
+  "updatedBy",
+  "kind",
+  "linkedProjects",
+  "linkedItems",
 ] as const
-export type DisplayProperty = (typeof displayProperties)[number]
+export type BuiltinDisplayProperty = (typeof displayProperties)[number]
+export type CustomPropertyDisplayReference = `custom:${string}`
+export type DisplayProperty =
+  | BuiltinDisplayProperty
+  | CustomPropertyDisplayReference
+
+function isCustomPropertyDisplayReference(
+  property: DisplayProperty | string
+): property is CustomPropertyDisplayReference {
+  return property.startsWith("custom:")
+}
+
+export function getCustomPropertyIdFromDisplayReference(
+  property: DisplayProperty | string
+) {
+  return isCustomPropertyDisplayReference(property)
+    ? property.slice("custom:".length)
+    : null
+}
 
 export const groupFields = [
   "project",
@@ -151,6 +175,9 @@ export const groupFields = [
   "type",
   "epic",
   "feature",
+  "kind",
+  "createdBy",
+  "updatedBy",
 ] as const
 export type GroupField = (typeof groupFields)[number]
 
@@ -239,6 +266,32 @@ export type ConversationVariant = "direct" | "group" | "team"
 
 export type ChatMessageKind = "text" | "call"
 
+export const customPropertyTargetTypes = ["workItem"] as const
+export type CustomPropertyTargetType =
+  (typeof customPropertyTargetTypes)[number]
+
+export const customPropertyTypes = [
+  "text",
+  "integer",
+  "date",
+  "checkbox",
+  "url",
+  "email",
+  "phone",
+  "person",
+  "select",
+  "multiSelect",
+] as const
+export type CustomPropertyType = (typeof customPropertyTypes)[number]
+
+export type CustomPropertyOption = {
+  id: string
+  label: string
+  color: string
+}
+
+export type CustomPropertyValue = string | number | boolean | string[] | null
+
 export interface TeamFeatureSettings {
   issues: boolean
   projects: boolean
@@ -273,6 +326,9 @@ export type ViewFilters = {
   priority: Priority[]
   assigneeIds: string[]
   creatorIds: string[]
+  updatedByIds?: string[]
+  documentKinds?: DocumentKind[]
+  linkedWorkItemIds?: string[]
   leadIds: string[]
   health: ProjectHealth[]
   milestoneIds: string[]
@@ -301,6 +357,9 @@ export function createDefaultViewFilters(): ViewFilters {
     priority: [],
     assigneeIds: [],
     creatorIds: [],
+    updatedByIds: [],
+    documentKinds: [],
+    linkedWorkItemIds: [],
     leadIds: [],
     health: [],
     milestoneIds: [],
@@ -321,6 +380,9 @@ export function clearViewFilterSelections(filters: ViewFilters): ViewFilters {
     priority: [],
     assigneeIds: [],
     creatorIds: [],
+    updatedByIds: [],
+    documentKinds: [],
+    linkedWorkItemIds: [],
     leadIds: [],
     health: [],
     milestoneIds: [],
@@ -333,7 +395,9 @@ export function clearViewFilterSelections(filters: ViewFilters): ViewFilters {
   }
 }
 
-export function cloneViewFilters(filters: ViewFilters | undefined): ViewFilters {
+export function cloneViewFilters(
+  filters: ViewFilters | undefined
+): ViewFilters {
   if (!filters) {
     return createDefaultViewFilters()
   }
@@ -344,6 +408,9 @@ export function cloneViewFilters(filters: ViewFilters | undefined): ViewFilters 
     priority: [...filters.priority],
     assigneeIds: [...filters.assigneeIds],
     creatorIds: [...filters.creatorIds],
+    updatedByIds: [...(filters.updatedByIds ?? [])],
+    documentKinds: [...(filters.documentKinds ?? [])],
+    linkedWorkItemIds: [...(filters.linkedWorkItemIds ?? [])],
     leadIds: [...filters.leadIds],
     health: [...filters.health],
     milestoneIds: [...filters.milestoneIds],

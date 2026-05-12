@@ -14,6 +14,9 @@ import {
   emailJobKindValidator,
   displayPropertyValidator,
   entityKindValidator,
+  customPropertyOptionValidator,
+  customPropertyTypeValidator,
+  customPropertyValueValidator,
   groupFieldValidator,
   nullableStringValidator,
   orderingFieldValidator,
@@ -118,6 +121,12 @@ import {
   toggleCommentReactionHandler,
 } from "./app/comment_handlers"
 import {
+  archiveCustomPropertyDefinitionHandler,
+  createCustomPropertyDefinitionHandler,
+  setCustomPropertyValueHandler,
+  updateCustomPropertyDefinitionHandler,
+} from "./app/custom_property_handlers"
+import {
   acceptInviteHandler,
   cancelInviteHandler,
   createInviteHandler,
@@ -186,6 +195,14 @@ const viewConfigMutationArgs = {
 const viewConfigPatchMutationArgs = {
   ...viewConfigMutationArgs,
   showCompleted: v.optional(v.boolean()),
+}
+
+const projectPeopleAndScheduleMutationArgs = {
+  leadId: v.optional(nullableStringValidator),
+  memberIds: v.optional(v.array(v.string())),
+  startDate: v.optional(nullableStringValidator),
+  targetDate: v.optional(nullableStringValidator),
+  labelIds: v.optional(v.array(v.string())),
 }
 
 const presenceActorArgs = {
@@ -839,6 +856,55 @@ export const updateViewConfig = mutation({
   handler: updateViewConfigHandler,
 })
 
+export const createCustomPropertyDefinition = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    teamId: v.string(),
+    targetType: v.optional(v.literal("workItem")),
+    name: v.string(),
+    icon: v.string(),
+    type: customPropertyTypeValidator,
+    options: v.optional(v.array(customPropertyOptionValidator)),
+  },
+  handler: createCustomPropertyDefinitionHandler,
+})
+
+export const updateCustomPropertyDefinition = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    propertyId: v.string(),
+    patch: v.object({
+      name: v.optional(v.string()),
+      icon: v.optional(v.string()),
+      type: v.optional(customPropertyTypeValidator),
+      options: v.optional(v.array(customPropertyOptionValidator)),
+    }),
+  },
+  handler: updateCustomPropertyDefinitionHandler,
+})
+
+export const archiveCustomPropertyDefinition = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    propertyId: v.string(),
+  },
+  handler: archiveCustomPropertyDefinitionHandler,
+})
+
+export const setCustomPropertyValue = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    workItemId: v.string(),
+    propertyId: v.string(),
+    value: customPropertyValueValidator,
+  },
+  handler: setCustomPropertyValueHandler,
+})
+
 export const createView = mutation({
   args: {
     ...serverAccessArgs,
@@ -925,6 +991,9 @@ export const toggleViewFilterValue = mutation({
       v.literal("priority"),
       v.literal("assigneeIds"),
       v.literal("creatorIds"),
+      v.literal("updatedByIds"),
+      v.literal("documentKinds"),
+      v.literal("linkedWorkItemIds"),
       v.literal("leadIds"),
       v.literal("health"),
       v.literal("milestoneIds"),
@@ -1272,14 +1341,11 @@ export const createProject = mutation({
     scopeId: v.string(),
     templateType: templateTypeValidator,
     name: v.string(),
+    icon: v.optional(v.string()),
     summary: v.string(),
     status: v.optional(projectStatusValidator),
     priority: priorityValidator,
-    leadId: v.optional(nullableStringValidator),
-    memberIds: v.optional(v.array(v.string())),
-    startDate: v.optional(nullableStringValidator),
-    targetDate: v.optional(nullableStringValidator),
-    labelIds: v.optional(v.array(v.string())),
+    ...projectPeopleAndScheduleMutationArgs,
     settingsTeamId: v.optional(nullableStringValidator),
     presentation: v.optional(
       v.object({
@@ -1303,8 +1369,11 @@ export const updateProject = mutation({
     projectId: v.string(),
     patch: v.object({
       name: v.optional(v.string()),
+      icon: v.optional(v.string()),
+      summary: v.optional(v.string()),
       status: v.optional(projectStatusValidator),
       priority: v.optional(priorityValidator),
+      ...projectPeopleAndScheduleMutationArgs,
     }),
   },
   handler: updateProjectHandler,

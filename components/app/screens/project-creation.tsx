@@ -46,6 +46,7 @@ import { sortLabelsByName } from "@/lib/domain/labels"
 import { getUsersForTeamMemberships } from "@/lib/domain/team-members"
 import { useAppStore } from "@/lib/store/app-store"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import { PhosphorIconPicker } from "@/components/app/phosphor-icon-picker"
 import { Button } from "@/components/ui/button"
 import {
   ShortcutKeys,
@@ -184,7 +185,10 @@ function ProjectMultiSelectPopover({
     >
       {triggerIcon}
       <span
-        className={cn("truncate", hasSelection && "font-medium text-foreground")}
+        className={cn(
+          "truncate",
+          hasSelection && "font-medium text-foreground"
+        )}
       >
         {triggerText}
       </span>
@@ -736,7 +740,9 @@ function ProjectLabelsChip({
               key={label.id}
               selected={selected}
               onClick={() =>
-                onLabelIdsChange((current) => toggleSelection(current, label.id))
+                onLabelIdsChange((current) =>
+                  toggleSelection(current, label.id)
+                )
               }
               trailing={
                 selected ? (
@@ -833,6 +839,7 @@ function ProjectPresentationControls({
 }
 
 function ProjectDialogControlStrip({
+  icon,
   availableLabels,
   defaultLeadIdForSelectedTeam,
   labelQuery,
@@ -880,7 +887,9 @@ function ProjectDialogControlStrip({
   onTogglePresentationDisplayProperty,
   onTogglePresentationFilterValue,
   onUpdatePresentationView,
+  onIconChange,
 }: {
+  icon: string
   availableLabels: ProjectDialogLabel[]
   defaultLeadIdForSelectedTeam: string | null
   labelQuery: string
@@ -932,9 +941,11 @@ function ProjectDialogControlStrip({
   onTogglePresentationDisplayProperty: (property: DisplayProperty) => void
   onTogglePresentationFilterValue: (key: ViewFilterKey, value: string) => void
   onUpdatePresentationView: (patch: ViewConfigPatch) => void
+  onIconChange: (icon: string) => void
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-[18px] py-2.5">
+      <PhosphorIconPicker value={icon} onValueChange={onIconChange} />
       <ProjectStatusChip
         open={statusPickerOpen}
         status={status}
@@ -1122,10 +1133,7 @@ function CreateProjectDialogContent({
     () => getDialogTeamMembers(selectedTeamId, teamMemberships, users),
     [selectedTeamId, teamMemberships, users]
   )
-  const availableLabels = useMemo(
-    () => sortLabelsByName(labels),
-    [labels]
-  )
+  const availableLabels = useMemo(() => sortLabelsByName(labels), [labels])
   const templateType = getDefaultTemplateTypeForTeamExperience(
     settingsTeam?.settings.experience
   )
@@ -1134,6 +1142,7 @@ function CreateProjectDialogContent({
     templateType
   )
   const [name, setName] = useState("")
+  const [icon, setIcon] = useState("FolderSimple")
   const [summary, setSummary] = useState("")
   const [status, setStatus] = useState<ProjectStatus>("backlog")
   const [priority, setPriority] = useState<Priority>("none")
@@ -1311,6 +1320,7 @@ function CreateProjectDialogContent({
     setStartDate(null)
     setTargetDate(null)
     setSelectedLabelIds([])
+    setIcon("FolderSimple")
     setPresentation(createInitialProjectPresentationConfig(nextTemplateType))
   }
 
@@ -1324,6 +1334,7 @@ function CreateProjectDialogContent({
       scopeId: selectedTeamId,
       templateType,
       name: normalizedName,
+      icon,
       summary: resolvedSummary,
       status,
       priority,
@@ -1342,6 +1353,7 @@ function CreateProjectDialogContent({
     onOpenChange(false)
   }, [
     leadId,
+    icon,
     normalizedName,
     onOpenChange,
     presentation,
@@ -1371,6 +1383,7 @@ function CreateProjectDialogContent({
 
   const controlStripProps = {
     availableLabels,
+    icon,
     teamMembers,
     defaultLeadIdForSelectedTeam,
     selectedMembers,
@@ -1398,6 +1411,7 @@ function CreateProjectDialogContent({
     targetDate,
     onClearPresentationDisplayProperties: clearPresentationDisplayProperties,
     onClearPresentationFilters: clearPresentationFilters,
+    onIconChange: setIcon,
     onLabelIdsChange: setSelectedLabelIds,
     onLabelsPickerOpenChange: setLabelsPickerOpen,
     onLabelQueryChange: setLabelQuery,
@@ -1409,7 +1423,8 @@ function CreateProjectDialogContent({
     onMemberQueryChange: setMemberQuery,
     onPriorityChange: setPriority,
     onPriorityPickerOpenChange: setPriorityPickerOpen,
-    onReorderPresentationDisplayProperties: reorderPresentationDisplayProperties,
+    onReorderPresentationDisplayProperties:
+      reorderPresentationDisplayProperties,
     onStartDateChange: setStartDate,
     onStatusChange: setStatus,
     onStatusPickerOpenChange: setStatusPickerOpen,

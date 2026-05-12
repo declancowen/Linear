@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Check } from "@phosphor-icons/react"
 import { toast } from "sonner"
 import { useShallow } from "zustand/react/shallow"
 
@@ -16,7 +15,6 @@ import {
 } from "@/lib/domain/input-constraints"
 import { getCurrentWorkspace, isWorkspaceOwner } from "@/lib/domain/selectors"
 import { useAppStore } from "@/lib/store/app-store"
-import { cn } from "@/lib/utils"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -51,42 +49,8 @@ import {
   type WorkspaceBrandingSnapshot,
 } from "./workspace-settings-state"
 
-const workspaceAccentOptions = [
-  {
-    value: "emerald",
-    label: "Emerald",
-    swatchClassName: "bg-emerald-500",
-  },
-  {
-    value: "blue",
-    label: "Blue",
-    swatchClassName: "bg-blue-500",
-  },
-  {
-    value: "violet",
-    label: "Violet",
-    swatchClassName: "bg-violet-500",
-  },
-  {
-    value: "amber",
-    label: "Amber",
-    swatchClassName: "bg-amber-500",
-  },
-  {
-    value: "rose",
-    label: "Rose",
-    swatchClassName: "bg-rose-500",
-  },
-  {
-    value: "slate",
-    label: "Slate",
-    swatchClassName: "bg-slate-500",
-  },
-] as const
-
 type WorkspaceSettingsWorkspace = ReturnType<typeof getCurrentWorkspace>
 type WorkspaceTextLimitState = ReturnType<typeof getTextInputLimitState>
-type WorkspaceAccentValue = (typeof workspaceAccentOptions)[number]["value"]
 type WorkspaceUserRemovalTarget = {
   id: string
   name: string
@@ -133,7 +97,9 @@ function isPendingWorkspaceInvite(
   workspaceId: string
 ) {
   return (
-    invite.workspaceId === workspaceId && !invite.acceptedAt && !invite.declinedAt
+    invite.workspaceId === workspaceId &&
+    !invite.acceptedAt &&
+    !invite.declinedAt
   )
 }
 
@@ -306,13 +272,11 @@ function useWorkspaceAccessLists(workspace: WorkspaceSettingsWorkspace) {
 function WorkspaceSettingsHero({
   workspace,
   logoImageSrc,
-  savedAccentLabel,
   workspaceTeamsCount,
   workspaceUsersCount,
 }: {
   workspace: NonNullable<WorkspaceSettingsWorkspace>
   logoImageSrc?: string | null
-  savedAccentLabel: string
   workspaceTeamsCount: number
   workspaceUsersCount: number
 }) {
@@ -345,7 +309,6 @@ function WorkspaceSettingsHero({
           key: "teams",
           label: `${workspaceTeamsCount} team${workspaceTeamsCount === 1 ? "" : "s"}`,
         },
-        { key: "accent", label: `${savedAccentLabel} accent` },
       ]}
     />
   )
@@ -473,60 +436,6 @@ function WorkspaceBrandingSection({
           }
         />
       </SettingsRowGroup>
-    </SettingsSection>
-  )
-}
-
-function WorkspaceAccentSection({
-  accent,
-  canManageWorkspace,
-  onAccentChange,
-}: {
-  accent: string
-  canManageWorkspace: boolean
-  onAccentChange: (accent: WorkspaceAccentValue) => void
-}) {
-  return (
-    <SettingsSection
-      title="Accent color"
-      description="Used on badges, highlights, and workspace surfaces."
-      variant="plain"
-    >
-      <div className="flex flex-wrap gap-2 rounded-xl border border-line bg-surface px-5 py-4">
-        {workspaceAccentOptions.map((option) => {
-          const selected = accent === option.value
-
-          return (
-            <button
-              key={option.value}
-              type="button"
-              aria-pressed={selected}
-              aria-label={option.label}
-              title={option.label}
-              className={cn(
-                "group inline-flex items-center gap-2 rounded-full border bg-background py-1 pr-3 pl-1 text-[12.5px] font-medium transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
-                selected
-                  ? "border-line text-foreground shadow-sm"
-                  : "border-transparent text-muted-foreground hover:border-line-soft hover:text-foreground"
-              )}
-              disabled={!canManageWorkspace}
-              onClick={() => onAccentChange(option.value)}
-            >
-              <span
-                className={cn(
-                  "flex size-6 items-center justify-center rounded-full ring-1 ring-foreground/10 ring-inset",
-                  option.swatchClassName
-                )}
-              >
-                {selected ? (
-                  <Check className="size-3 text-white" weight="bold" />
-                ) : null}
-              </span>
-              {option.label}
-            </button>
-          )
-        })}
-      </div>
     </SettingsSection>
   )
 }
@@ -686,10 +595,6 @@ function WorkspaceConfirmDialogs({
       />
     </>
   )
-}
-
-function getWorkspaceAccentLabel(accent: string) {
-  return accent.charAt(0).toUpperCase() + accent.slice(1)
 }
 
 function canSaveWorkspaceBrandingDraft(limitStates: WorkspaceTextLimitState[]) {
@@ -898,7 +803,6 @@ function useWorkspaceBrandingDraft(workspace: WorkspaceSettingsWorkspace) {
     currentLogoImageSrc: snapshot.logoImageSrc,
     fallbackBadge:
       fields.logoUrl.trim() || getUserInitials(fields.name || snapshot.name),
-    savedAccentLabel: getWorkspaceAccentLabel(snapshot.accent),
   }
 }
 
@@ -1190,11 +1094,6 @@ function WorkspaceSettingsTabContent({
         onNameChange={brandingDraft.onNameChange}
         onUploadLogo={brandingDraft.onUploadLogo}
       />
-      <WorkspaceAccentSection
-        accent={brandingDraft.accent}
-        canManageWorkspace={canManageWorkspace}
-        onAccentChange={brandingDraft.onAccentChange}
-      />
       <WorkspaceDangerSection
         canDeleteWorkspace={canDeleteWorkspace}
         deletingWorkspace={actions.deletingWorkspace}
@@ -1248,7 +1147,6 @@ export function WorkspaceSettingsScreen() {
         <WorkspaceSettingsHero
           workspace={workspace}
           logoImageSrc={brandingDraft.currentLogoImageSrc}
-          savedAccentLabel={brandingDraft.savedAccentLabel}
           workspaceTeamsCount={workspaceTeamsCount}
           workspaceUsersCount={workspaceUsersCount}
         />

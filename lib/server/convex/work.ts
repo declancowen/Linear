@@ -1,6 +1,9 @@
 import { api } from "@/convex/_generated/api"
 import type {
   CreateViewInput,
+  CustomPropertyOption,
+  CustomPropertyType,
+  CustomPropertyValue,
   DocumentPresenceViewer,
   DisplayProperty,
   GroupField,
@@ -148,7 +151,8 @@ const WORK_ITEM_PRESENCE_ERROR_MAPPINGS = [
     code: "WORK_ITEM_NOT_FOUND",
   },
   {
-    match: /Could not find public function for 'app:(heartbeatWorkItemPresence|clearWorkItemPresence)'/i,
+    match:
+      /Could not find public function for 'app:(heartbeatWorkItemPresence|clearWorkItemPresence)'/i,
     status: 503,
     code: "WORK_ITEM_PRESENCE_UNAVAILABLE",
     message: "Work item presence is unavailable",
@@ -207,6 +211,36 @@ const VIEW_MUTATION_ERROR_MAPPINGS = [
       message === "You do not have access to this workspace",
     status: 403,
     code: "VIEW_ACCESS_DENIED",
+  },
+] as const
+
+const CUSTOM_PROPERTY_MUTATION_ERROR_MAPPINGS = [
+  {
+    match: "Team not found",
+    status: 404,
+    code: "TEAM_NOT_FOUND",
+  },
+  {
+    match: "Work item not found",
+    status: 404,
+    code: "WORK_ITEM_NOT_FOUND",
+  },
+  {
+    match: "Custom property not found",
+    status: 404,
+    code: "CUSTOM_PROPERTY_NOT_FOUND",
+  },
+  {
+    match: "A property with this name already exists",
+    status: 409,
+    code: "CUSTOM_PROPERTY_NAME_CONFLICT",
+  },
+  {
+    match: (message: string) =>
+      message === "Your current role is read-only" ||
+      message === "You do not have access to this team",
+    status: 403,
+    code: "CUSTOM_PROPERTY_ACCESS_DENIED",
   },
 ] as const
 
@@ -270,7 +304,9 @@ export async function createLabelServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...LABEL_MUTATION_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...LABEL_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -311,7 +347,9 @@ export async function updateViewConfigServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -326,7 +364,9 @@ export async function renameViewServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -340,20 +380,111 @@ export async function deleteViewServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
-export async function createViewServer(input: CreateViewInput & {
-  currentUserId: string
-}) {
+export async function createViewServer(
+  input: CreateViewInput & {
+    currentUserId: string
+  }
+) {
   try {
     return await getConvexServerClient().mutation(
       api.app.createView,
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
+  }
+}
+
+export async function createCustomPropertyDefinitionServer(input: {
+  currentUserId: string
+  teamId: string
+  targetType?: "workItem"
+  name: string
+  icon: string
+  type: CustomPropertyType
+  options?: CustomPropertyOption[]
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.createCustomPropertyDefinition,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [
+        ...CUSTOM_PROPERTY_MUTATION_ERROR_MAPPINGS,
+      ]) ?? error
+    )
+  }
+}
+
+export async function updateCustomPropertyDefinitionServer(input: {
+  currentUserId: string
+  propertyId: string
+  patch: Partial<{
+    name: string
+    icon: string
+    type: CustomPropertyType
+    options: CustomPropertyOption[]
+  }>
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateCustomPropertyDefinition,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [
+        ...CUSTOM_PROPERTY_MUTATION_ERROR_MAPPINGS,
+      ]) ?? error
+    )
+  }
+}
+
+export async function archiveCustomPropertyDefinitionServer(input: {
+  currentUserId: string
+  propertyId: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.archiveCustomPropertyDefinition,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [
+        ...CUSTOM_PROPERTY_MUTATION_ERROR_MAPPINGS,
+      ]) ?? error
+    )
+  }
+}
+
+export async function setCustomPropertyValueServer(input: {
+  currentUserId: string
+  workItemId: string
+  propertyId: string
+  value: CustomPropertyValue
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.setCustomPropertyValue,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [
+        ...CUSTOM_PROPERTY_MUTATION_ERROR_MAPPINGS,
+      ]) ?? error
+    )
   }
 }
 
@@ -368,7 +499,9 @@ export async function toggleViewDisplayPropertyServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -383,7 +516,9 @@ export async function reorderViewDisplayPropertiesServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -399,7 +534,9 @@ export async function toggleViewHiddenValueServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -411,6 +548,9 @@ export async function toggleViewFilterValueServer(input: {
     | "priority"
     | "assigneeIds"
     | "creatorIds"
+    | "updatedByIds"
+    | "documentKinds"
+    | "linkedWorkItemIds"
     | "leadIds"
     | "health"
     | "milestoneIds"
@@ -428,7 +568,9 @@ export async function toggleViewFilterValueServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -442,7 +584,9 @@ export async function clearViewFiltersServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...VIEW_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -496,9 +640,11 @@ export async function clearWorkItemPresenceServer(
   }
 }
 
-export async function createWorkItemServer(input: {
-  currentUserId: string
-} & CreateWorkItemMutationInput) {
+export async function createWorkItemServer(
+  input: {
+    currentUserId: string
+  } & CreateWorkItemMutationInput
+) {
   try {
     const origin = await resolveServerOrigin()
 

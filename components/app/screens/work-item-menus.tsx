@@ -86,7 +86,11 @@ function IssueActionMenuContent({
   const assigneeMenuMembers = teamMembers.filter(
     (member) => member.id !== data.currentUserId
   )
-  const teamProjects = getTeamProjectOptions(data, team?.id, item.primaryProjectId)
+  const teamProjects = getTeamProjectOptions(
+    data,
+    team?.id,
+    item.primaryProjectId
+  )
   const statusOptions = getStatusOrderForTeam(team)
   const MenuLabel: ElementType =
     kind === "dropdown" ? DropdownMenuLabel : ContextMenuLabel

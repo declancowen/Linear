@@ -4,17 +4,20 @@ import {
   addLocalCalendarDays,
   formatLocalCalendarDate,
 } from "../../lib/calendar-date"
+import { isAllowedPhosphorIconName } from "../../lib/domain/phosphor-icon-options"
 import {
-  type Priority,
   type ProjectPresentationConfig,
-  type ProjectStatus,
   type TemplateType,
   createDefaultProjectPresentationConfig,
   getAllowedTemplateTypesForTeamExperience,
   projectNameMaxLength,
   projectNameMinLength,
 } from "../../lib/domain/types"
-import type { AuthenticatedCreateProjectInput } from "../../lib/domain/project-inputs"
+import { projectSummaryConstraints } from "../../lib/domain/input-constraints"
+import type {
+  AuthenticatedCreateProjectInput,
+  ProjectUpdatePatchInput,
+} from "../../lib/domain/project-inputs"
 import { assertServerToken, createId, getNow } from "./core"
 import {
   getProjectDoc,
@@ -51,11 +54,7 @@ type CreateProjectArgs = ServerAccessArgs & AuthenticatedCreateProjectInput
 type UpdateProjectArgs = ServerAccessArgs & {
   currentUserId: string
   projectId: string
-  patch: {
-    name?: string
-    status?: ProjectStatus
-    priority?: Priority
-  }
+  patch: ProjectUpdatePatchInput
 }
 
 type RenameProjectArgs = ServerAccessArgs & {
@@ -93,6 +92,12 @@ function assertProjectNameLength(name: string) {
     throw new Error(
       `Project name must be at most ${projectNameMaxLength} characters`
     )
+  }
+}
+
+function assertProjectIcon(icon: string | undefined) {
+  if (icon !== undefined && !isAllowedPhosphorIconName(icon)) {
+    throw new Error("Project icon is not available")
   }
 }
 
@@ -291,6 +296,81 @@ function assertProjectSchedule(args: CreateProjectArgs) {
   assertTargetDateOnOrAfterStartDate(args)
 }
 
+function assertProjectPatchSummary(summary: string | undefined) {
+  if (summary === undefined) {
+    return
+  }
+
+  if (summary.length > projectSummaryConstraints.max) {
+    throw new Error(
+      `Project summary must be at most ${projectSummaryConstraints.max} characters`
+    )
+  }
+}
+
+function assertProjectPatchSchedule(
+  patch: UpdateProjectArgs["patch"],
+  project: ProjectDoc
+) {
+  const nextStartDate =
+    patch.startDate !== undefined ? patch.startDate : project.startDate
+  const nextTargetDate =
+    patch.targetDate !== undefined ? patch.targetDate : project.targetDate
+
+  assertScheduleDate(nextStartDate, "Start date")
+  assertScheduleDate(nextTargetDate, "Target date")
+  assertTargetDateOnOrAfterStartDate({
+    startDate: nextStartDate,
+    targetDate: nextTargetDate,
+  })
+}
+
+async function assertProjectPatchLabels(
+  ctx: MutationCtx,
+  patch: UpdateProjectArgs["patch"],
+  project: ProjectDoc
+) {
+  if (!patch.labelIds) {
+    return
+  }
+
+  const workspaceId =
+    project.scopeType === "workspace"
+      ? project.scopeId
+      : (await getTeamDoc(ctx, project.scopeId))?.workspaceId
+
+  if (!workspaceId) {
+    throw new Error("Project workspace not found")
+  }
+
+  await assertWorkspaceLabelIds(ctx, workspaceId, patch.labelIds)
+}
+
+async function assertProjectPatchMembers(
+  ctx: MutationCtx,
+  patch: UpdateProjectArgs["patch"],
+  project: ProjectDoc
+) {
+  const nextLeadId = patch.leadId !== undefined ? patch.leadId : project.leadId
+  const nextMemberIds =
+    patch.memberIds !== undefined ? patch.memberIds : project.memberIds
+  const resolvedMembers: ProjectCreationMembers = {
+    resolvedLeadId: nextLeadId ?? project.leadId,
+    resolvedMemberIds: [
+      ...new Set(
+        [...nextMemberIds, nextLeadId ?? project.leadId].filter(Boolean)
+      ),
+    ],
+  }
+
+  if (project.scopeType === "team") {
+    await assertTeamProjectMembers(ctx, project.scopeId, resolvedMembers)
+    return
+  }
+
+  await assertWorkspaceProjectMembers(ctx, project.scopeId, resolvedMembers)
+}
+
 function getSettingsTeamExperience(settingsTeam: ProjectSettingsTeam | null) {
   return (
     (
@@ -358,6 +438,7 @@ function buildCreatedProject({
     scopeId: args.scopeId,
     templateType: args.templateType,
     name: trimmedName,
+    ...(args.icon ? { icon: args.icon } : {}),
     summary: args.summary,
     description: `${trimmedName} was created from the ${args.templateType} template.`,
     leadId: members.resolvedLeadId,
@@ -387,6 +468,7 @@ export async function createProjectHandler(
 
   await assertCreateProjectLabels(ctx, scope.workspaceId, args)
   assertProjectNameLength(trimmedName)
+  assertProjectIcon(args.icon)
 
   const members = resolveCreateProjectMembers(args)
   await assertCreateProjectMembers(ctx, args, scope, members)
@@ -429,7 +511,11 @@ export async function updateProjectHandler(
     args.currentUserId
   )
 
-  const nextPatch = { ...args.patch }
+  const { leadId, ...patchWithoutLead } = args.patch
+  const nextPatch = {
+    ...patchWithoutLead,
+    ...(typeof leadId === "string" ? { leadId } : {}),
+  }
 
   if (typeof nextPatch.name === "string") {
     const trimmedName = nextPatch.name.trim()
@@ -437,6 +523,17 @@ export async function updateProjectHandler(
     assertProjectNameLength(trimmedName)
     nextPatch.name = trimmedName
   }
+
+  assertProjectIcon(nextPatch.icon)
+
+  if (typeof nextPatch.summary === "string") {
+    nextPatch.summary = nextPatch.summary.trim()
+  }
+
+  assertProjectPatchSummary(nextPatch.summary)
+  assertProjectPatchSchedule(nextPatch, project)
+  await assertProjectPatchLabels(ctx, nextPatch, project)
+  await assertProjectPatchMembers(ctx, nextPatch, project)
 
   await ctx.db.patch(project._id, {
     ...nextPatch,

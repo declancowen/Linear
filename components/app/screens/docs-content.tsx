@@ -1,18 +1,27 @@
 import Link from "next/link"
 import { FileText } from "@phosphor-icons/react"
+import { format } from "date-fns"
 
-import type { AppData, Document as AppDocument } from "@/lib/domain/types"
+import {
+  getProject,
+  getTeam,
+  getUser,
+  getWorkItem,
+} from "@/lib/domain/selectors"
+import type {
+  AppData,
+  DisplayProperty,
+  Document as AppDocument,
+} from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
 
 import { DocumentBoard } from "./collection-boards"
+import type { GroupedSection } from "./grouped-sections"
 import {
   getDocumentListRowMeta,
   type DocumentListRowMeta,
 } from "./document-list-row-meta"
-import {
-  DocumentAuthorAvatar,
-  DocumentContextMenu,
-} from "./document-ui"
+import { DocumentAuthorAvatar, DocumentContextMenu } from "./document-ui"
 import { MissingState } from "./shared"
 import { ScopedScreenLoading } from "./scoped-screen-loading"
 
@@ -38,9 +47,11 @@ function DocumentIconTile({ size = "md" }: { size?: "md" | "lg" }) {
 
 function DocumentListRow({
   data,
+  displayProps,
   document,
 }: {
   data: AppData
+  displayProps: DisplayProperty[]
   document: AppDocument
 }) {
   const meta = getDocumentListRowMeta(data, document)
@@ -59,6 +70,11 @@ function DocumentListRow({
                 {document.title}
               </span>
               <DocumentListPreview preview={meta.preview} />
+              <DocumentDisplayProperties
+                data={data}
+                displayProps={displayProps}
+                document={document}
+              />
             </div>
             <DocumentListDesktopMeta meta={meta} />
           </div>
@@ -66,6 +82,104 @@ function DocumentListRow({
         </div>
       </Link>
     </DocumentContextMenu>
+  )
+}
+
+function getDocumentKindLabel(kind: AppDocument["kind"]) {
+  if (kind === "private-document") {
+    return "Private"
+  }
+
+  if (kind === "team-document") {
+    return "Team"
+  }
+
+  return "Workspace"
+}
+
+type DocumentPropertyLabelGetter = (
+  data: AppData,
+  document: AppDocument
+) => string | null
+
+function getLinkedProjectsLabel(data: AppData, document: AppDocument) {
+  if (document.linkedProjectIds.length === 0) {
+    return null
+  }
+
+  const [firstProjectId] = document.linkedProjectIds
+  const firstProject = getProject(data, firstProjectId ?? null)
+  return document.linkedProjectIds.length === 1
+    ? (firstProject?.name ?? "1 project")
+    : `${document.linkedProjectIds.length} projects`
+}
+
+function getLinkedItemsLabel(data: AppData, document: AppDocument) {
+  if (document.linkedWorkItemIds.length === 0) {
+    return null
+  }
+
+  const [firstItemId] = document.linkedWorkItemIds
+  const firstItem = firstItemId ? getWorkItem(data, firstItemId) : null
+  return document.linkedWorkItemIds.length === 1
+    ? (firstItem?.title ?? "1 item")
+    : `${document.linkedWorkItemIds.length} items`
+}
+
+const documentPropertyLabelGetters: Partial<
+  Record<DisplayProperty, DocumentPropertyLabelGetter>
+> = {
+  kind: (_data, document) => getDocumentKindLabel(document.kind),
+  team: (data, document) =>
+    document.teamId
+      ? (getTeam(data, document.teamId)?.name ?? "Team")
+      : "Workspace",
+  createdBy: (data, document) =>
+    getUser(data, document.createdBy)?.name ?? "Unknown",
+  updatedBy: (data, document) =>
+    getUser(data, document.updatedBy)?.name ?? "Unknown",
+  created: (_data, document) => format(new Date(document.createdAt), "MMM d"),
+  updated: (_data, document) => format(new Date(document.updatedAt), "MMM d"),
+  linkedProjects: getLinkedProjectsLabel,
+  linkedItems: getLinkedItemsLabel,
+}
+
+function getDocumentPropertyLabel(
+  data: AppData,
+  document: AppDocument,
+  property: DisplayProperty
+) {
+  return documentPropertyLabelGetters[property]?.(data, document) ?? null
+}
+
+function DocumentDisplayProperties({
+  data,
+  displayProps,
+  document,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  document: AppDocument
+}) {
+  const labels = displayProps
+    .map((property) => getDocumentPropertyLabel(data, document, property))
+    .filter((label): label is string => Boolean(label))
+
+  if (labels.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      {labels.map((label, index) => (
+        <span
+          key={`${label}:${index}`}
+          className="rounded border border-line-soft bg-surface-2 px-1.5 py-0.5 text-[10.5px] leading-none text-fg-3"
+        >
+          {label}
+        </span>
+      ))}
+    </div>
   )
 }
 
@@ -109,15 +223,92 @@ function DocumentListMobileMeta({ meta }: { meta: DocumentListRowMeta }) {
 
 function DocumentList({
   data,
+  displayProps,
   documents,
 }: {
   data: AppData
+  displayProps: DisplayProperty[]
   documents: AppDocument[]
 }) {
   return (
     <div className="flex flex-col pb-6">
       {documents.map((document) => (
-        <DocumentListRow key={document.id} data={data} document={document} />
+        <DocumentListRow
+          key={document.id}
+          data={data}
+          displayProps={displayProps}
+          document={document}
+        />
+      ))}
+    </div>
+  )
+}
+
+function DocumentSectionHeader({
+  count,
+  label,
+}: {
+  count: number
+  label: string
+}) {
+  return (
+    <div className="sticky top-0 z-10 flex h-8 items-center gap-2 border-b border-line-soft bg-muted/60 px-7 text-[11px] font-medium text-fg-3 uppercase dark:bg-surface-2/80">
+      <span>{label}</span>
+      <span className="rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] leading-none">
+        {count}
+      </span>
+    </div>
+  )
+}
+
+function DocumentListSections({
+  data,
+  displayProps,
+  sections,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  sections: GroupedSection<AppDocument>[]
+}) {
+  return (
+    <div className="flex flex-col pb-6">
+      {sections.map((section) => (
+        <section key={section.key}>
+          <DocumentSectionHeader
+            count={section.items.length}
+            label={section.label}
+          />
+          {section.items.map((document) => (
+            <DocumentListRow
+              key={document.id}
+              data={data}
+              displayProps={displayProps}
+              document={document}
+            />
+          ))}
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function DocumentBoardSections({
+  data,
+  sections,
+}: {
+  data: AppData
+  sections: GroupedSection<AppDocument>[]
+}) {
+  return (
+    <div className="flex flex-col pb-6">
+      {sections.map((section) => (
+        <section key={section.key}>
+          <DocumentSectionHeader
+            count={section.items.length}
+            label={section.label}
+          />
+          <DocumentBoard data={data} documents={section.items} />
+        </section>
       ))}
     </div>
   )
@@ -125,16 +316,20 @@ function DocumentList({
 
 export function DocsContent({
   data,
+  displayProps,
   documents,
   emptyTitle,
   hasLoadedOnce,
   layout,
+  sections,
 }: {
   data: AppData
+  displayProps?: DisplayProperty[]
   documents: AppDocument[]
   emptyTitle: string
   hasLoadedOnce: boolean
   layout: "list" | "board"
+  sections?: GroupedSection<AppDocument>[]
 }) {
   if (!hasLoadedOnce && documents.length === 0) {
     return <ScopedScreenLoading label="Loading documents..." />
@@ -150,9 +345,35 @@ export function DocsContent({
     )
   }
 
+  const effectiveDisplayProps = displayProps ?? ["kind", "updatedBy", "updated"]
+  const visibleSections =
+    sections?.filter(
+      (section) => section.items.length > 0 || sections.length > 1
+    ) ?? null
+
   if (layout === "board") {
+    if (visibleSections && visibleSections.length > 1) {
+      return <DocumentBoardSections data={data} sections={visibleSections} />
+    }
+
     return <DocumentBoard data={data} documents={documents} />
   }
 
-  return <DocumentList data={data} documents={documents} />
+  if (visibleSections && visibleSections.length > 1) {
+    return (
+      <DocumentListSections
+        data={data}
+        displayProps={effectiveDisplayProps}
+        sections={visibleSections}
+      />
+    )
+  }
+
+  return (
+    <DocumentList
+      data={data}
+      displayProps={effectiveDisplayProps}
+      documents={documents}
+    />
+  )
 }

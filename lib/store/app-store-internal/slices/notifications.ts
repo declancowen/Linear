@@ -81,7 +81,11 @@ export function createNotificationSlice(
 
       runtime.syncInBackground(
         syncMarkNotificationRead(notificationId),
-        "Failed to update notification"
+        "Failed to update notification",
+        {
+          refreshStrategy: "none",
+          showToast: false,
+        }
       )
     },
     markNotificationsRead(notificationIds) {
@@ -159,7 +163,10 @@ export function createNotificationSlice(
 
         return {
           notifications,
-          ui: clearActiveInboxNotificationSelection(state.ui, notificationIdSet),
+          ui: clearActiveInboxNotificationSelection(
+            state.ui,
+            notificationIdSet
+          ),
         }
       })
 
@@ -200,7 +207,10 @@ export function createNotificationSlice(
 
         return {
           notifications,
-          ui: clearActiveInboxNotificationSelection(state.ui, notificationIdSet),
+          ui: clearActiveInboxNotificationSelection(
+            state.ui,
+            notificationIdSet
+          ),
         }
       })
 

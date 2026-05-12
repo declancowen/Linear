@@ -26,6 +26,7 @@ import {
   ProjectProgressMeter,
   ViewCardHeader,
 } from "@/components/app/screens/project-card-primitives"
+import { ProjectIconGlyph } from "@/components/app/entity-icons"
 import { getViewHref } from "@/lib/domain/default-views"
 import {
   getProjectHref,
@@ -210,7 +211,11 @@ function ProjectBoardCardHeader({
           color: tint,
         }}
       >
-        {project.name.charAt(0).toUpperCase()}
+        {project.icon ? (
+          <ProjectIconGlyph project={project} className="size-4" />
+        ) : (
+          project.name.charAt(0).toUpperCase()
+        )}
       </span>
       <div className="min-w-0 flex-1">
         <h2 className="truncate text-[14px] leading-[1.3] font-semibold tracking-[-0.005em] text-foreground group-hover:underline">
@@ -420,7 +425,7 @@ function DocumentPreviewArt({ seed }: { seed: number }) {
       </div>
       <span
         aria-hidden
-        className="absolute right-3 top-3 grid size-7 place-items-center rounded-md border"
+        className="absolute top-3 right-3 grid size-7 place-items-center rounded-md border"
         style={{
           background: `color-mix(in oklch, ${DOC_ACCENT} 18%, var(--surface))`,
           borderColor: `color-mix(in oklch, ${DOC_ACCENT} 32%, transparent)`,
@@ -475,7 +480,7 @@ export function DocumentBoard({
                     {preview}
                   </p>
                 ) : (
-                  <p className="text-[12.5px] italic text-fg-4">
+                  <p className="text-[12.5px] text-fg-4 italic">
                     No content yet
                   </p>
                 )}

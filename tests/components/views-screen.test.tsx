@@ -9,12 +9,8 @@ import {
   TeamWorkScreen,
   ViewsScreen,
 } from "@/components/app/screens"
-import {
-  getDocsDialogInput,
-} from "@/components/app/screens/docs-dialog-input"
-import {
-  DocsContent,
-} from "@/components/app/screens/docs-content"
+import { getDocsDialogInput } from "@/components/app/screens/docs-dialog-input"
+import { DocsContent } from "@/components/app/screens/docs-content"
 import { getDocumentListRowMeta } from "@/components/app/screens/document-list-row-meta"
 import { buildGroupedSections } from "@/components/app/screens/grouped-sections"
 import { createEmptyState } from "@/lib/domain/empty-state"
@@ -188,10 +184,7 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
     onToggleDisplayProperty?: (property: "dueDate") => void
     view: ViewDefinition
   }) => (
-    <button
-      type="button"
-      onClick={() => onToggleDisplayProperty?.("dueDate")}
-    >
+    <button type="button" onClick={() => onToggleDisplayProperty?.("dueDate")}>
       {`Props:${view.displayProps.join(",")}`}
     </button>
   ),
@@ -246,6 +239,7 @@ vi.mock("@phosphor-icons/react", () => ({
   Target: () => null,
   Trash: () => null,
   UsersThree: () => null,
+  XIcon: () => null,
 }))
 
 function seedState() {
@@ -412,9 +406,7 @@ describe("ViewsScreen", () => {
       screen.getByRole("button", { name: "Group:priority" })
     ).toBeInTheDocument()
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Status filters:none" })
-    )
+    fireEvent.click(screen.getByRole("button", { name: "Status filters:none" }))
     expect(
       screen.getByRole("button", {
         name: "Status filters:in-progress",
@@ -454,13 +446,17 @@ describe("ViewsScreen", () => {
 
     renderTeamProjectsScreen()
 
-    expect(screen.getByRole("button", { name: "Layout:board" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Layout:board" })
+    ).toBeInTheDocument()
 
     act(() => {
       fireEvent.click(screen.getByRole("button", { name: "Layout:board" }))
     })
 
-    expect(screen.getByRole("button", { name: "Layout:list" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Layout:list" })
+    ).toBeInTheDocument()
   })
 
   it("builds grouped sections with owned subgroup boundaries", () => {
@@ -470,10 +466,8 @@ describe("ViewsScreen", () => {
       { id: "todo-backend", status: "todo", area: "backend" },
     ]
     const groupingConfig = {
-      getGroupKey: (
-        item: (typeof items)[number],
-        field: string
-      ) => item[field as "status" | "area"],
+      getGroupKey: (item: (typeof items)[number], field: string) =>
+        item[field as "status" | "area"],
       getGroupLabel: (field: string, key: string) => `${field}:${key}`,
       compareGroupKeys: (_field: string, left: string, right: string) =>
         left.localeCompare(right),

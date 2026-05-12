@@ -31,6 +31,8 @@ import {
   listChatMessagesByConversations,
   listCommentsByTargets,
   listConversationsByScopes,
+  listCustomPropertyDefinitionsByTeams,
+  listCustomPropertyValuesByWorkItems,
   getTeamDoc,
   getUserAppState,
   getUserByEmail,
@@ -1431,6 +1433,11 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   const visibleWorkItemIds = new Set(
     visibleWorkItems.map((workItem) => workItem.id)
   )
+  const [visibleCustomPropertyDefinitions, visibleCustomPropertyValues] =
+    await Promise.all([
+      listCustomPropertyDefinitionsByTeams(ctx, accessibleTeamIdList),
+      listCustomPropertyValuesByWorkItems(ctx, visibleWorkItemIds),
+    ])
   const visibleDocuments = await loadVisibleBootstrapDocuments(ctx, {
     accessibleTeamIdList,
     accessibleTeamIds,
@@ -1558,6 +1565,12 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     milestones: await listMilestonesByProjects(ctx, visibleProjectIds),
     workItems: visibleWorkItems.map((item) =>
       normalizeWorkItem(item, normalizedVisibleTeams)
+    ),
+    customPropertyDefinitions: visibleCustomPropertyDefinitions.filter(
+      (definition) => !definition.isArchived
+    ),
+    customPropertyValues: visibleCustomPropertyValues.filter((value) =>
+      visibleWorkItemIds.has(value.workItemId)
     ),
     documents: visibleDocuments,
     views: visibleViews.map((view) =>

@@ -100,11 +100,13 @@ export function getDirectChildWorkItemsForDisplay(
   view?: ViewDefinition,
   sourceItems?: WorkItem[],
   options?: {
+    filterChildren?: boolean
     mode?: "direct" | "assigned-descendants"
   }
 ) {
   const sourcePool = sourceItems ?? data.workItems
   const mode = options?.mode ?? "direct"
+  const filterChildren = options?.filterChildren ?? true
 
   if (mode === "assigned-descendants") {
     const sourceItemsById = new Map(
@@ -180,7 +182,8 @@ export function getDirectChildWorkItemsForDisplay(
       (candidate) =>
         candidate.parentId === item.id &&
         allowedChildTypes.includes(candidate.type) &&
-        (!view ||
+        (!filterChildren ||
+          !view ||
           itemMatchesView(data, candidate, view, { ignoreItemLevel: true }))
     ),
     ordering
@@ -322,13 +325,24 @@ function getAssignedDescendantContainerId(
   item: WorkItem,
   view: ViewDefinition
 ) {
-  if (!itemMatchesView(data, item, view, { ignoreItemLevel: true })) {
+  const containerId = view.itemLevel
+    ? getAncestorIdByItemLevel(itemsById, item, view.itemLevel)
+    : getRootAncestorId(itemsById, item)
+
+  if (!containerId) {
     return null
   }
 
-  return view.itemLevel
-    ? getAncestorIdByItemLevel(itemsById, item, view.itemLevel)
-    : getRootAncestorId(itemsById, item)
+  const container = itemsById.get(containerId)
+
+  if (
+    !container ||
+    !itemMatchesView(data, container, view, { ignoreItemLevel: false })
+  ) {
+    return null
+  }
+
+  return containerId
 }
 
 function getAssignedDescendantContainerIds(
@@ -418,6 +432,37 @@ export function sortItems(items: WorkItem[], ordering: OrderingField) {
   )
 }
 
+type GroupValueGetter = (data: AppData, item: WorkItem) => string
+
+function getLabelGroupValue(data: AppData, item: WorkItem) {
+  const primaryLabelId = item.labelIds[0]
+
+  return (
+    data.labels.find((label) => label.id === primaryLabelId)?.name ?? "No label"
+  )
+}
+
+function getCreatorGroupValue(data: AppData, item: WorkItem) {
+  return getUser(data, item.creatorId)?.name ?? "Unknown"
+}
+
+const groupValueGetters: Partial<Record<GroupField, GroupValueGetter>> = {
+  project: (data, item) =>
+    getProject(data, item.primaryProjectId)?.name ?? "No project",
+  assignee: (data, item) =>
+    getUser(data, item.assigneeId)?.name ?? "No assignee",
+  label: getLabelGroupValue,
+  team: (data, item) => getTeam(data, item.teamId)?.name ?? "Unknown team",
+  epic: (data, item) => getAncestorGroupValue(data, item, "epic"),
+  feature: (data, item) => getAncestorGroupValue(data, item, "feature"),
+  type: (_data, item) => item.type,
+  kind: (_data, item) => item.type,
+  createdBy: getCreatorGroupValue,
+  updatedBy: getCreatorGroupValue,
+  status: (_data, item) => item.status,
+  priority: (_data, item) => item.priority,
+}
+
 export function getGroupValue(
   data: AppData,
   item: WorkItem,
@@ -427,35 +472,7 @@ export function getGroupValue(
     return "all"
   }
 
-  if (field === "project") {
-    return getProject(data, item.primaryProjectId)?.name ?? "No project"
-  }
-
-  if (field === "assignee") {
-    return getUser(data, item.assigneeId)?.name ?? "No assignee"
-  }
-
-  if (field === "label") {
-    const primaryLabelId = item.labelIds[0]
-    return (
-      data.labels.find((label) => label.id === primaryLabelId)?.name ??
-      "No label"
-    )
-  }
-
-  if (field === "team") {
-    return getTeam(data, item.teamId)?.name ?? "Unknown team"
-  }
-
-  if (field === "epic" || field === "feature") {
-    return getAncestorGroupValue(data, item, field)
-  }
-
-  if (field === "type") {
-    return item.type
-  }
-
-  return item[field]
+  return groupValueGetters[field]?.(data, item) ?? item.priority
 }
 
 function getAncestorGroupValue(
@@ -719,6 +736,12 @@ export function buildItemGroupsWithEmptyGroups(
         }
       }
     )
+  } else {
+    getSelectedGroupFilterKeys(data, view).forEach((groupKey) => {
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, new Map())
+      }
+    })
   }
 
   return new Map(
@@ -726,6 +749,47 @@ export function buildItemGroupsWithEmptyGroups(
       compareGroupKeys(view.grouping, left[0], right[0], statusOrder)
     )
   )
+}
+
+function getSelectedGroupFilterKeys(data: AppData, view: ViewDefinition) {
+  if (view.grouping === "status") {
+    return view.filters.status
+  }
+
+  if (view.grouping === "priority") {
+    return view.filters.priority
+  }
+
+  if (view.grouping === "assignee") {
+    return view.filters.assigneeIds.map(
+      (userId) => getUser(data, userId)?.name ?? "No assignee"
+    )
+  }
+
+  if (view.grouping === "project") {
+    return view.filters.projectIds.map(
+      (projectId) => getProject(data, projectId)?.name ?? "No project"
+    )
+  }
+
+  if (view.grouping === "team") {
+    return view.filters.teamIds.map(
+      (teamId) => getTeam(data, teamId)?.name ?? "Unknown team"
+    )
+  }
+
+  if (view.grouping === "type") {
+    return view.filters.itemTypes
+  }
+
+  if (view.grouping === "label") {
+    return view.filters.labelIds.map(
+      (labelId) =>
+        data.labels.find((label) => label.id === labelId)?.name ?? "No label"
+    )
+  }
+
+  return []
 }
 
 function hasActiveViewFilters(view: ViewDefinition) {

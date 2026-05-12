@@ -1,6 +1,7 @@
 import {
   getDocumentDoc,
   getEffectiveRole,
+  getTeamDoc,
   getWorkspaceMembershipDoc,
   getWorkspaceEditRole,
   getWorkspaceRoleMapForUser,
@@ -27,6 +28,21 @@ export async function requireEditableTeamAccess(
   }
 
   return role
+}
+
+export async function requireEditableTeamDoc(
+  ctx: AppCtx,
+  teamId: string,
+  userId: string
+) {
+  await requireEditableTeamAccess(ctx, teamId, userId)
+  const team = await getTeamDoc(ctx, teamId)
+
+  if (!team) {
+    throw new Error("Team not found")
+  }
+
+  return team
 }
 
 export async function requireReadableTeamAccess(

@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { isApplicationError } from "@/lib/server/application-errors"
 import {
-  displayProperties,
+  displayPropertySchema,
   viewConfigPatchSchema,
   viewNameMaxLength,
   viewNameMinLength,
@@ -40,11 +40,11 @@ const viewMutationSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("toggleDisplayProperty"),
-    property: z.enum(displayProperties),
+    property: displayPropertySchema,
   }),
   z.object({
     action: z.literal("reorderDisplayProperties"),
-    displayProps: z.array(z.enum(displayProperties)),
+    displayProps: z.array(displayPropertySchema),
   }),
   z.object({
     action: z.literal("toggleHiddenValue"),
@@ -58,6 +58,9 @@ const viewMutationSchema = z.discriminatedUnion("action", [
       "priority",
       "assigneeIds",
       "creatorIds",
+      "updatedByIds",
+      "documentKinds",
+      "linkedWorkItemIds",
       "leadIds",
       "health",
       "milestoneIds",

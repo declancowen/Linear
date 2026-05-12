@@ -456,7 +456,10 @@ function getDefaultDirectWorkspaceChatTitle(input: {
   otherParticipantIds: string[]
   usersById: Map<string, WorkspaceChatUser>
 }) {
-  return input.usersById.get(input.otherParticipantIds[0] ?? "")?.name ?? "Direct chat"
+  return (
+    input.usersById.get(input.otherParticipantIds[0] ?? "")?.name ??
+    "Direct chat"
+  )
 }
 
 function getDefaultGroupWorkspaceChatTitle(input: {
@@ -507,18 +510,18 @@ export async function ensureTeamChatHandler(
   }
 }
 
-function assertChannelTarget(args: Pick<CreateChannelArgs, "teamId" | "workspaceId">) {
-  const targets = Number(Boolean(args.teamId)) + Number(Boolean(args.workspaceId))
+function assertChannelTarget(
+  args: Pick<CreateChannelArgs, "teamId" | "workspaceId">
+) {
+  const targets =
+    Number(Boolean(args.teamId)) + Number(Boolean(args.workspaceId))
 
   if (targets !== 1) {
     throw new Error("Channel must target exactly one team or workspace")
   }
 }
 
-async function createTeamChannel(
-  ctx: MutationCtx,
-  args: CreateChannelArgs
-) {
+async function createTeamChannel(ctx: MutationCtx, args: CreateChannelArgs) {
   const teamId = args.teamId
 
   if (!teamId) {
@@ -605,7 +608,9 @@ export async function createChannelHandler(
   assertServerToken(args.serverToken)
   assertChannelTarget(args)
 
-  return (await createTeamChannel(ctx, args)) ?? createWorkspaceChannel(ctx, args)
+  return (
+    (await createTeamChannel(ctx, args)) ?? createWorkspaceChannel(ctx, args)
+  )
 }
 
 export async function startChatCallHandler(
@@ -1255,8 +1260,7 @@ export async function toggleChatMessageReactionHandler(
   await requireConversationAccess(
     ctx,
     await getConversationDoc(ctx, message.conversationId),
-    args.currentUserId,
-    "write"
+    args.currentUserId
   )
 
   await ctx.db.patch(message._id, {

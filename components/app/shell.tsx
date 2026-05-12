@@ -19,6 +19,7 @@ import {
   CheckCircle,
   CodesandboxLogo,
   DotsThree,
+  FileText,
   Gear,
   HashStraight,
   Kanban,
@@ -1294,7 +1295,8 @@ function WorkspaceLogoMark({
   return (
     <span
       className={cn(
-        "flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-primary text-[10px] leading-none font-bold",
+        "flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-[5px] text-[10px] leading-none font-bold",
+        workspaceLogoImageSrc ? "bg-transparent" : "bg-primary",
         className
       )}
       style={{ color: "var(--primary-foreground)" }}
@@ -1523,7 +1525,7 @@ function ShellWorkspaceSection({
             />
             <SidebarLink
               href="/workspace/docs"
-              icon={<NotePencil />}
+              icon={<FileText />}
               label="Docs"
               active={pathname.startsWith("/workspace/docs")}
             />
@@ -1714,7 +1716,7 @@ function TeamSidebarSubLinks({
             isActive={pathname.startsWith(`/team/${team.slug}/docs`)}
           >
             <Link href={`/team/${team.slug}/docs`}>
-              <NotePencil className="size-4" />
+              <FileText className="size-4" />
               <span>Docs</span>
             </Link>
           </SidebarMenuSubButton>

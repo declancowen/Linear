@@ -58,7 +58,7 @@ import {
   projectBelongsToTeamScope,
   validateWorkItemParent,
 } from "./work_helpers"
-import { requireEditableTeamAccess } from "./access"
+import { requireEditableTeamAccess, requireEditableTeamDoc } from "./access"
 import { queueEmailJobs } from "./email_job_handlers"
 
 type ServerAccessArgs = {
@@ -262,7 +262,9 @@ function hasUnsupportedCascadeProjectItem(input: {
   teamItems: WorkItemDoc[]
   existing: WorkItemDoc
   project: ProjectDoc
-  normalizedExperience: ReturnType<typeof normalizeTeam>["settings"]["experience"]
+  normalizedExperience: ReturnType<
+    typeof normalizeTeam
+  >["settings"]["experience"]
   cascadeItemIds: Set<string>
   shouldCascadeProjectLink: boolean
 }) {
@@ -286,7 +288,9 @@ function assertCascadeProjectTemplateAllowsHierarchy(input: {
   teamItems: WorkItemDoc[]
   existing: WorkItemDoc
   project: ProjectDoc
-  normalizedExperience: ReturnType<typeof normalizeTeam>["settings"]["experience"]
+  normalizedExperience: ReturnType<
+    typeof normalizeTeam
+  >["settings"]["experience"]
   cascadeItemIds: Set<string>
   shouldCascadeProjectLink: boolean
 }) {
@@ -1395,13 +1399,11 @@ export async function createWorkItemHandler(
   args: CreateWorkItemArgs
 ) {
   assertServerToken(args.serverToken)
-  await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
-  const team = await getTeamDoc(ctx, args.teamId)
-
-  if (!team) {
-    throw new Error("Team not found")
-  }
-
+  const team = await requireEditableTeamDoc(
+    ctx,
+    args.teamId,
+    args.currentUserId
+  )
   const normalizedTeam = normalizeTeam(team)
 
   assertCreateWorkItemSchedule(args)
