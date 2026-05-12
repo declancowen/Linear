@@ -8,6 +8,7 @@ import {
   getDocumentDetailScopeKeys,
   getConversationRelatedScopeKeys,
   getProjectDetailScopeKeys,
+  getProjectRelatedScopeKeys,
   getWorkItemDetailScopeKeys,
   selectDocumentDetailReadModel,
   selectDocumentIndexReadModel,
@@ -255,6 +256,7 @@ describe("scoped read model selectors", () => {
       labels: [{ id: "label_1" }],
     })
     expect(getWorkItemDetailScopeKeys(snapshot, "item_1").sort()).toEqual([
+      "document-index:team_team_1",
       "project-detail:project_1",
       "project-index:team_team_1",
       "search-seed:workspace_1",
@@ -263,6 +265,20 @@ describe("scoped read model selectors", () => {
       "work-index:team_team_1",
       "work-item-detail:item_1",
     ])
+  })
+
+  it("invalidates document indexes for linked project and work item labels", () => {
+    const snapshot = createSnapshotFixture()
+
+    expect(getProjectRelatedScopeKeys(snapshot, "project_1").sort()).toEqual([
+      "document-index:team_team_1",
+      "project-detail:project_1",
+      "project-index:team_team_1",
+      "search-seed:workspace_1",
+    ])
+    expect(getWorkItemDetailScopeKeys(snapshot, "item_1")).toContain(
+      "document-index:team_team_1"
+    )
   })
 
   it("resolves custom property definition invalidations for indexes, details, and view catalogs", () => {

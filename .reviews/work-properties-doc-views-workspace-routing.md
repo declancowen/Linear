@@ -28,11 +28,63 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-12 20:04 BST |
-| **Total turns**       | 6                    |
+| **Last reviewed**     | 2026-05-12 20:38 BST |
+| **Total turns**       | 7                    |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 19                   |
+| **Resolved findings** | 20                   |
 | **Accepted findings** | 0                    |
+
+## Turn 7 — 2026-05-12 20:38 BST
+
+| Field           | Value                      |
+| --------------- | -------------------------- |
+| **Commit**      | `59398d56` plus local diff |
+| **IDE / Agent** | Codex                      |
+
+### Automation context
+
+| Field                          | Value                                      |
+| ------------------------------ | ------------------------------------------ |
+| **Trigger**                    | PR feedback import after pushed `59398d56` |
+| **PR**                         | `declancowen/Linear#34`                    |
+| **Base ref**                   | `main`                                     |
+| **Base SHA**                   | `19e92e2dd82e447ff65af210892937c5aa589ab9` |
+| **Head SHA**                   | `59398d56c0639437cc7f8b4c3480d9f0bba604e5` |
+| **Previous reviewed head SHA** | `25f64b891d2b09bd61c9393109661524109ff60f` |
+| **Diff reviewed**              | `19e92e2d...59398d56` plus local PR-feedback fix |
+| **Review comment/check**       | Codex inline review on linked document index invalidation |
+| **Trusted state source**       | GitHub checks, GraphQL review thread fetch |
+| **Verification policy**        | Fix live PR finding, rerun diff-review/static/test/build gates |
+
+**Summary:** Imported the latest Codex review on `59398d56` and reran the diff-review loop with architecture standards. The new live finding was valid: document indexes now include linked projects and work items for labels/filter display, so project and work-item updates also need to invalidate document index scopes for documents that link to those entities.
+**Outcome:** local fix complete; ready for one batched commit/push and new PR automation run.
+**Risk score:** medium — stale linked entity labels are user-visible but contained to scoped read-model invalidation.
+**Change archetypes:** external PR feedback, read-model invalidation, document index dependency closure.
+**Architecture impact:** Scoped invalidation now follows the read-model dependency graph: when document indexes depend on linked project/item records, project/item updates bump the relevant team/workspace/private document indexes.
+**Branch totality:** Rechecked latest PR threads, patched the invalidation helper, added regression coverage, reran Fallow, type/lint, dependency audit, full tests, build, diff whitespace check, and duplicate-file sweep.
+**Residual risk / unknowns:** GitHub CI and Codex review must rerun after this batch is pushed.
+
+### Validation
+
+- `pnpm exec vitest run tests/lib/scoped-read-models.test.ts` — passed, 1 file / 8 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` — passed with `node_modules` advisory warning
+- `pnpm audit:deps` — passed high-severity gate; reported 1 low and 9 moderate vulnerabilities
+- `pnpm fallow:gate` — passed
+- `pnpm test` — passed, 176 files / 965 tests
+- `pnpm build` — passed
+- `git diff --check` — passed
+- duplicate numeric-suffix file sweep — passed
+
+### Resolved / Carried / New findings
+
+#### WPDV-20 — resolved locally — document indexes were not invalidated when linked project/item labels changed
+
+- **Severity:** medium
+- **Evidence:** Codex review on `59398d56` noted `selectDocumentIndexReadModel` now includes linked `projects` and `workItems`, but `getProjectRelatedScopeKeys` and `getWorkItemDetailScopeKeys` did not bump document indexes for documents that reference those entities.
+- **Fix:** Added linked-document index invalidation helpers in `lib/scoped-sync/read-models.ts`; project updates now bump document indexes for documents with matching `linkedProjectIds`, and work item updates now bump document indexes for documents with matching `linkedWorkItemIds`.
+- **Prevention:** Added regression coverage in `tests/lib/scoped-read-models.test.ts`.
 
 ## Turn 6 — 2026-05-12 20:04 BST
 

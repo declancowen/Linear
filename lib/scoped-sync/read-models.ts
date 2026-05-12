@@ -1822,6 +1822,51 @@ export function getPrivateDocumentIndexScopeKeys(
   return [createPrivateDocumentIndexScopeKey(workspaceId, userId)]
 }
 
+function addDocumentIndexScopeKeyForDocument(
+  scopeKeys: Set<string>,
+  document: Document
+) {
+  if (document.kind === "item-description") {
+    return
+  }
+
+  if (document.kind === "private-document") {
+    scopeKeys.add(
+      createPrivateDocumentIndexScopeKey(
+        document.workspaceId,
+        document.createdBy
+      )
+    )
+    return
+  }
+
+  const scopeType = document.kind === "team-document" ? "team" : "workspace"
+  const scopeId =
+    document.kind === "team-document" ? document.teamId : document.workspaceId
+
+  if (!scopeId) {
+    return
+  }
+
+  scopeKeys.add(
+    createDocumentIndexScopeKey(
+      createScopedCollectionScopeId(scopeType, scopeId)
+    )
+  )
+}
+
+function addLinkedDocumentIndexScopeKeys(
+  snapshot: AppSnapshot,
+  scopeKeys: Set<string>,
+  isLinkedDocument: (document: Document) => boolean
+) {
+  for (const document of snapshot.documents) {
+    if (isLinkedDocument(document)) {
+      addDocumentIndexScopeKeyForDocument(scopeKeys, document)
+    }
+  }
+}
+
 export function getDocumentRelatedScopeKeys(
   snapshot: AppSnapshot,
   documentId: string
@@ -1898,6 +1943,10 @@ export function getProjectRelatedScopeKeys(
   const project =
     snapshot.projects.find((entry) => entry.id === projectId) ?? null
   const scopeKeys = new Set<string>([createProjectDetailScopeKey(projectId)])
+
+  addLinkedDocumentIndexScopeKeys(snapshot, scopeKeys, (document) =>
+    document.linkedProjectIds.includes(projectId)
+  )
 
   if (
     !project ||
@@ -2091,6 +2140,10 @@ export function getWorkItemDetailScopeKeys(
 ) {
   const item = snapshot.workItems.find((entry) => entry.id === itemId) ?? null
   const scopeKeys = new Set<string>([createWorkItemDetailScopeKey(itemId)])
+
+  addLinkedDocumentIndexScopeKeys(snapshot, scopeKeys, (document) =>
+    document.linkedWorkItemIds.includes(itemId)
+  )
 
   if (!item) {
     return [...scopeKeys]
