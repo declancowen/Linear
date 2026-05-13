@@ -62,6 +62,26 @@ Verification rerun:
 - `pnpm exec tsc --noEmit --pretty false`
 - `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx tests/components/work-surface-view.test.tsx tests/components/create-dialogs.test.tsx tests/app/api/workspace-profile-route-contracts.test.ts tests/app/api/team-collaboration-route-contracts.test.ts tests/lib/store/workspace-slice.test.ts`
 
+### Turn 5
+
+Re-reviewed the private-task create dialog destination fix with architecture standards.
+
+Resolved:
+
+- private-task create dialogs now expose `Private tasks` as the selected destination instead of showing the backing team-space name
+- selecting `Private tasks` clears team-only project, parent, and label state and submits with `visibility: "private"`
+- switching from a private-task dialog back to a team-space destination submits with `visibility: "team"` and lets the destination team choose its own valid work-item type defaults
+- switching from a private-task dialog to a team destination no longer treats the private-only `primaryProjectId: null` as a team-mode project override, so parent project inheritance is restored
+- the shared team-space crumb picker keeps its original defaults while allowing destination-specific copy for the work-item create dialog
+
+Verification rerun:
+
+- `pnpm test tests/components/create-dialogs.test.tsx`
+- `pnpm exec eslint components/app/screens/create-work-item-dialog.tsx components/app/screens/team-space-crumb-picker.tsx tests/components/create-dialogs.test.tsx --max-warnings 0`
+- `pnpm typecheck`
+- `git diff --check`
+- `pnpm fallow:gate` partially passed: dead-code and health passed; duplication failed on 8 existing clone groups that do not touch changed files. The branch-introduced create-dialog test duplicate was removed before this rerun.
+
 ## Verification
 
 - `pnpm exec tsc --noEmit --pretty false`
