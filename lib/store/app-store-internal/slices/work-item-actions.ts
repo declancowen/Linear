@@ -45,6 +45,11 @@ import type { AppStore } from "../types"
 import type { WorkSlice, WorkSliceFactoryArgs } from "./work-shared"
 
 type CreateWorkItemInput = Parameters<AppStore["createWorkItem"]>[0]
+type UpdateWorkItemPatch = Parameters<AppStore["updateWorkItem"]>[1]
+type LocalWorkItemPatch = Omit<UpdateWorkItemPatch, "expectedUpdatedAt">
+type WorkItem = AppStore["workItems"][number]
+type WorkItemDocument = AppStore["documents"][number]
+type WorkItemNotification = AppStore["notifications"][number]
 type CreateWorkItemDates = {
   dueDate: string
   startDate: string
@@ -334,6 +339,410 @@ function reconcileCreatedWorkItem(input: {
   })
 }
 
+function isPrivateWorkItem(item: WorkItem) {
+  return (item.visibility ?? "team") === "private"
+}
+
+function getEffectiveLocalWorkItemPatch(
+  existing: WorkItem,
+  patch: UpdateWorkItemPatch
+): LocalWorkItemPatch {
+  const rawLocalPatch = { ...patch }
+  delete rawLocalPatch.expectedUpdatedAt
+
+  if (!isPrivateWorkItem(existing)) {
+    return rawLocalPatch
+  }
+
+  const privatePatch = { ...rawLocalPatch }
+  delete privatePatch.assigneeId
+  delete privatePatch.primaryProjectId
+
+  return privatePatch
+}
+
+function getProjectTemplateValidationMessageForWorkItemUpdate(
+  state: AppStore,
+  existing: WorkItem,
+  input: {
+    cascadeItemIds: Set<string>
+    resolvedPrimaryProjectId: string | null
+    shouldCascadeProjectLink: boolean
+  }
+) {
+  if (
+    isPrivateWorkItem(existing) ||
+    !input.resolvedPrimaryProjectId ||
+    !input.shouldCascadeProjectLink
+  ) {
+    return null
+  }
+
+  const project = getProjectsForTeamScope(state, existing.teamId).find(
+    (entry) => entry.id === input.resolvedPrimaryProjectId
+  )
+
+  if (!project) {
+    return null
+  }
+
+  return state.workItems
+    .filter((item) => input.cascadeItemIds.has(item.id))
+    .some(
+      (item) =>
+        !getAllowedWorkItemTypesForTemplate(project.templateType).includes(
+          item.type
+        )
+    )
+    ? "A work item type in this hierarchy is not allowed for the selected project template"
+    : null
+}
+
+function getWorkItemUpdateProjectCascadeConfirmation(
+  state: AppStore,
+  existing: WorkItem,
+  localPatch: LocalWorkItemPatch
+) {
+  return isPrivateWorkItem(existing)
+    ? {
+        cascadeItemIds: new Set<string>(),
+        cascadeItemCount: 0,
+        resolvedPrimaryProjectId: null,
+        requiresConfirmation: false,
+      }
+    : getProjectCascadeConfirmationForWorkItemUpdate(
+        state,
+        existing,
+        localPatch
+      )
+}
+
+function getEffectivePrimaryProjectIdForWorkItemUpdate(
+  item: WorkItem,
+  resolvedPrimaryProjectId: string | null
+) {
+  return isPrivateWorkItem(item) ? null : resolvedPrimaryProjectId
+}
+
+function applyOptimisticProjectLinkToWorkItems(
+  workItems: WorkItem[],
+  input: {
+    cascadeItemIds: Set<string>
+    effectivePrimaryProjectId: string | null
+    itemId: string
+    localPatch: LocalWorkItemPatch
+    now: string
+    shouldCascadeProjectLink: boolean
+  }
+) {
+  return workItems.map((item) => {
+    if (item.id === input.itemId) {
+      return {
+        ...item,
+        ...input.localPatch,
+        primaryProjectId: input.effectivePrimaryProjectId,
+        updatedAt: input.now,
+      }
+    }
+
+    if (!input.shouldCascadeProjectLink || !input.cascadeItemIds.has(item.id)) {
+      return item
+    }
+
+    return {
+      ...item,
+      primaryProjectId: input.effectivePrimaryProjectId,
+      updatedAt: input.now,
+    }
+  })
+}
+
+function getCascadeDescriptionDocIds(
+  workItems: WorkItem[],
+  cascadeItemIds: Set<string>,
+  shouldCascadeProjectLink: boolean
+) {
+  return shouldCascadeProjectLink
+    ? new Set(
+        workItems
+          .filter((item) => cascadeItemIds.has(item.id))
+          .map((item) => item.descriptionDocId)
+      )
+    : null
+}
+
+function applyOptimisticProjectLinkToDocuments(
+  documents: WorkItemDocument[],
+  input: {
+    cascadeDescriptionDocIds: Set<string> | null
+    currentUserId: string
+    effectivePrimaryProjectId: string | null
+    now: string
+  }
+) {
+  if (!input.cascadeDescriptionDocIds) {
+    return documents
+  }
+
+  return documents.map((document) => {
+    if (!input.cascadeDescriptionDocIds?.has(document.id)) {
+      return document
+    }
+
+    return {
+      ...document,
+      linkedProjectIds: input.effectivePrimaryProjectId
+        ? [input.effectivePrimaryProjectId]
+        : [],
+      updatedBy: input.currentUserId,
+      updatedAt: input.now,
+    }
+  })
+}
+
+function applyOptimisticTitleToDescriptionDocument(
+  documents: WorkItemDocument[],
+  input: {
+    currentItem: WorkItem
+    currentUserId: string
+    localPatch: LocalWorkItemPatch
+    nextTitle: string
+    now: string
+  }
+) {
+  if (input.localPatch.title === undefined) {
+    return documents
+  }
+
+  return documents.map((document) =>
+    document.id === input.currentItem.descriptionDocId
+      ? {
+          ...document,
+          title: `${input.nextTitle} description`,
+          updatedBy: input.currentUserId,
+          updatedAt: input.now,
+        }
+      : document
+  )
+}
+
+function getChangedAssigneeIdForWorkItemUpdate(
+  currentItem: WorkItem,
+  localPatch: LocalWorkItemPatch
+) {
+  return localPatch.assigneeId &&
+    localPatch.assigneeId !== currentItem.assigneeId
+    ? localPatch.assigneeId
+    : null
+}
+
+function getResolvedAssigneeIdForWorkItemUpdate(
+  currentItem: WorkItem,
+  localPatch: LocalWorkItemPatch
+) {
+  return localPatch.assigneeId === undefined
+    ? currentItem.assigneeId
+    : localPatch.assigneeId
+}
+
+function createOptimisticWorkItemNotification(
+  state: AppStore,
+  input: {
+    currentItem: WorkItem
+    recipientId: string
+    message: (actorName: string, teamName: string | undefined) => string
+    type: "assignment" | "status-change"
+  }
+) {
+  const actor = state.users.find((user) => user.id === state.currentUserId)
+  const team = state.teams.find(
+    (entry) => entry.id === input.currentItem.teamId
+  )
+
+  return createNotification(
+    input.recipientId,
+    state.currentUserId,
+    input.message(actor?.name ?? "Someone", team?.name),
+    "workItem",
+    input.currentItem.id,
+    input.type
+  )
+}
+
+function createOptimisticAssignmentNotification(
+  state: AppStore,
+  input: {
+    currentItem: WorkItem
+    localPatch: LocalWorkItemPatch
+    nextTitle: string
+  }
+): WorkItemNotification | null {
+  const assigneeId = getChangedAssigneeIdForWorkItemUpdate(
+    input.currentItem,
+    input.localPatch
+  )
+
+  if (!assigneeId) {
+    return null
+  }
+
+  return createOptimisticWorkItemNotification(state, {
+    currentItem: input.currentItem,
+    recipientId: assigneeId,
+    type: "assignment",
+    message: (actorName, teamName) =>
+      buildWorkItemAssignmentNotificationMessage(
+        actorName,
+        input.nextTitle,
+        teamName
+      ),
+  })
+}
+
+function createOptimisticStatusNotification(
+  state: AppStore,
+  input: {
+    currentItem: WorkItem
+    localPatch: LocalWorkItemPatch
+    nextTitle: string
+  }
+): WorkItemNotification | null {
+  const resolvedAssigneeId = getResolvedAssigneeIdForWorkItemUpdate(
+    input.currentItem,
+    input.localPatch
+  )
+  const status = input.localPatch.status
+
+  if (!status || status === input.currentItem.status || !resolvedAssigneeId) {
+    return null
+  }
+
+  return createOptimisticWorkItemNotification(state, {
+    currentItem: input.currentItem,
+    recipientId: resolvedAssigneeId,
+    type: "status-change",
+    message: (actorName, teamName) =>
+      buildWorkItemStatusChangeNotificationMessage(
+        actorName,
+        input.nextTitle,
+        statusMeta[status].label,
+        teamName
+      ),
+  })
+}
+
+function buildOptimisticWorkItemUpdateNotifications(
+  state: AppStore,
+  input: {
+    currentItem: WorkItem
+    localPatch: LocalWorkItemPatch
+    nextTitle: string
+  }
+) {
+  if (isPrivateWorkItem(input.currentItem)) {
+    return state.notifications
+  }
+
+  const nextNotifications = [...state.notifications]
+  const assignmentNotification = createOptimisticAssignmentNotification(state, {
+    currentItem: input.currentItem,
+    localPatch: input.localPatch,
+    nextTitle: input.nextTitle,
+  })
+  const statusNotification = createOptimisticStatusNotification(state, {
+    currentItem: input.currentItem,
+    localPatch: input.localPatch,
+    nextTitle: input.nextTitle,
+  })
+
+  if (assignmentNotification) {
+    nextNotifications.unshift(assignmentNotification)
+  }
+
+  if (statusNotification) {
+    nextNotifications.unshift(statusNotification)
+  }
+
+  return nextNotifications
+}
+
+function applyOptimisticWorkItemUpdate(
+  currentState: AppStore,
+  input: {
+    itemId: string
+    localPatch: LocalWorkItemPatch
+    patch: UpdateWorkItemPatch
+  }
+) {
+  const currentItem = currentState.workItems.find(
+    (item) => item.id === input.itemId
+  )
+
+  if (!currentItem) {
+    return currentState
+  }
+
+  const now = getNow()
+  const nextTitle = input.patch.title?.trim() || currentItem.title
+  const { cascadeItemIds, resolvedPrimaryProjectId, shouldCascadeProjectLink } =
+    getResolvedProjectLinkForWorkItemUpdate(
+      currentState,
+      currentItem,
+      input.localPatch
+    )
+  const effectivePrimaryProjectId =
+    getEffectivePrimaryProjectIdForWorkItemUpdate(
+      currentItem,
+      resolvedPrimaryProjectId
+    )
+  const nextItems = applyOptimisticProjectLinkToWorkItems(
+    currentState.workItems,
+    {
+      cascadeItemIds,
+      effectivePrimaryProjectId,
+      itemId: input.itemId,
+      localPatch: input.localPatch,
+      now,
+      shouldCascadeProjectLink,
+    }
+  )
+  const cascadeDescriptionDocIds = getCascadeDescriptionDocIds(
+    currentState.workItems,
+    cascadeItemIds,
+    shouldCascadeProjectLink
+  )
+  const linkedDocuments = applyOptimisticProjectLinkToDocuments(
+    currentState.documents,
+    {
+      cascadeDescriptionDocIds,
+      currentUserId: currentState.currentUserId,
+      effectivePrimaryProjectId,
+      now,
+    }
+  )
+  const finalDocuments = applyOptimisticTitleToDescriptionDocument(
+    linkedDocuments,
+    {
+      currentItem,
+      currentUserId: currentState.currentUserId,
+      localPatch: input.localPatch,
+      nextTitle,
+      now,
+    }
+  )
+
+  return {
+    ...currentState,
+    documents: finalDocuments,
+    workItems: nextItems,
+    notifications: buildOptimisticWorkItemUpdateNotifications(currentState, {
+      currentItem,
+      localPatch: input.localPatch,
+      nextTitle,
+    }),
+  }
+}
+
 export function createWorkItemActions({
   get,
   runtime,
@@ -410,7 +819,8 @@ export function createWorkItemActions({
         }
       }
 
-      const { expectedUpdatedAt, ...localPatch } = patch
+      const { expectedUpdatedAt } = patch
+      const localPatch = getEffectiveLocalWorkItemPatch(existing, patch)
 
       const {
         cascadeItemIds,
@@ -431,7 +841,10 @@ export function createWorkItemActions({
           localPatch.parentId === undefined
             ? existing.parentId
             : localPatch.parentId,
-        primaryProjectId: resolvedPrimaryProjectId,
+        primaryProjectId: getEffectivePrimaryProjectIdForWorkItemUpdate(
+          existing,
+          resolvedPrimaryProjectId
+        ),
         labelIds:
           localPatch.labelIds === undefined
             ? existing.labelIds
@@ -447,39 +860,23 @@ export function createWorkItemActions({
         }
       }
 
-      if (resolvedPrimaryProjectId && shouldCascadeProjectLink) {
-        const project = getProjectsForTeamScope(state, existing.teamId).find(
-          (entry) => entry.id === resolvedPrimaryProjectId
-        )
+      const projectTemplateValidationMessage =
+        getProjectTemplateValidationMessageForWorkItemUpdate(state, existing, {
+          cascadeItemIds,
+          resolvedPrimaryProjectId,
+          shouldCascadeProjectLink,
+        })
 
-        if (
-          project &&
-          state.workItems
-            .filter((item) => cascadeItemIds.has(item.id))
-            .some(
-              (item) =>
-                !getAllowedWorkItemTypesForTemplate(
-                  project.templateType
-                ).includes(item.type)
-            )
-        ) {
-          toast.error(
-            "A work item type in this hierarchy is not allowed for the selected project template"
-          )
-          return {
-            status: "validation-error",
-            message:
-              "A work item type in this hierarchy is not allowed for the selected project template",
-          }
+      if (projectTemplateValidationMessage) {
+        toast.error(projectTemplateValidationMessage)
+        return {
+          status: "validation-error",
+          message: projectTemplateValidationMessage,
         }
       }
 
       const projectCascadeConfirmation =
-        getProjectCascadeConfirmationForWorkItemUpdate(
-          state,
-          existing,
-          localPatch
-        )
+        getWorkItemUpdateProjectCascadeConfirmation(state, existing, localPatch)
 
       if (
         projectCascadeConfirmation.requiresConfirmation &&
@@ -491,145 +888,13 @@ export function createWorkItemActions({
         }
       }
 
-      set((currentState) => {
-        const currentItem = currentState.workItems.find(
-          (item) => item.id === itemId
-        )
-        if (!currentItem) {
-          return currentState
-        }
-
-        const now = getNow()
-        const nextTitle = patch.title?.trim() || currentItem.title
-        const {
-          cascadeItemIds,
-          resolvedPrimaryProjectId,
-          shouldCascadeProjectLink,
-        } = getResolvedProjectLinkForWorkItemUpdate(
-          currentState,
-          currentItem,
-          localPatch
-        )
-        const nextItems = currentState.workItems.map((item) => {
-          if (item.id === itemId) {
-            return {
-              ...item,
-              ...localPatch,
-              primaryProjectId: resolvedPrimaryProjectId,
-              updatedAt: now,
-            }
-          }
-
-          if (!shouldCascadeProjectLink || !cascadeItemIds.has(item.id)) {
-            return item
-          }
-
-          return {
-            ...item,
-            primaryProjectId: resolvedPrimaryProjectId,
-            updatedAt: now,
-          }
+      set((currentState) =>
+        applyOptimisticWorkItemUpdate(currentState, {
+          itemId,
+          localPatch,
+          patch,
         })
-        const cascadeDescriptionDocIds = shouldCascadeProjectLink
-          ? new Set(
-              currentState.workItems
-                .filter((item) => cascadeItemIds.has(item.id))
-                .map((item) => item.descriptionDocId)
-            )
-          : null
-        const nextDocuments = cascadeDescriptionDocIds
-          ? currentState.documents.map((document) => {
-              if (!cascadeDescriptionDocIds.has(document.id)) {
-                return document
-              }
-
-              return {
-                ...document,
-                linkedProjectIds: resolvedPrimaryProjectId
-                  ? [resolvedPrimaryProjectId]
-                  : [],
-                updatedBy: currentState.currentUserId,
-                updatedAt: now,
-              }
-            })
-          : currentState.documents
-        const finalDocuments =
-          localPatch.title !== undefined
-            ? nextDocuments.map((document) =>
-                document.id === currentItem.descriptionDocId
-                  ? {
-                      ...document,
-                      title: `${nextTitle} description`,
-                      updatedBy: currentState.currentUserId,
-                      updatedAt: now,
-                    }
-                  : document
-              )
-            : nextDocuments
-
-        const notifications = [...currentState.notifications]
-        const actor = currentState.users.find(
-          (user) => user.id === currentState.currentUserId
-        )
-        const team = currentState.teams.find(
-          (entry) => entry.id === currentItem.teamId
-        )
-
-        if (
-          localPatch.assigneeId !== undefined &&
-          localPatch.assigneeId &&
-          localPatch.assigneeId !== currentItem.assigneeId
-        ) {
-          notifications.unshift(
-            createNotification(
-              localPatch.assigneeId,
-              currentState.currentUserId,
-              buildWorkItemAssignmentNotificationMessage(
-                actor?.name ?? "Someone",
-                nextTitle,
-                team?.name
-              ),
-              "workItem",
-              currentItem.id,
-              "assignment"
-            )
-          )
-        }
-
-        const resolvedAssigneeId =
-          localPatch.assigneeId === undefined
-            ? currentItem.assigneeId
-            : localPatch.assigneeId
-
-        if (
-          localPatch.status &&
-          localPatch.status !== currentItem.status &&
-          resolvedAssigneeId
-        ) {
-          notifications.unshift(
-            createNotification(
-              resolvedAssigneeId,
-              currentState.currentUserId,
-              buildWorkItemStatusChangeNotificationMessage(
-                actor?.name ?? "Someone",
-                nextTitle,
-                statusMeta[localPatch.status].label,
-                team?.name
-              ),
-              "workItem",
-              currentItem.id,
-              "status-change"
-            )
-          )
-        }
-
-        return {
-          ...currentState,
-          documents: finalDocuments,
-          workItems: nextItems,
-          notifications,
-        }
-      })
+      )
 
       runtime.syncInBackground(
         syncUpdateWorkItem(get().currentUserId, itemId, {

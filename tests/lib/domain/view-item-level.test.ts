@@ -407,6 +407,65 @@ describe("view item levels", () => {
     ).toEqual(["epic", "feature", "story"])
   })
 
+  it("treats private work created by the current user as personal work without assignee state", () => {
+    const state = createEmptyState()
+    state.currentUserId = "user_1"
+    state.currentWorkspaceId = "workspace_1"
+    state.teams = [
+      {
+        id: "team_1",
+        workspaceId: "workspace_1",
+        slug: "platform",
+        name: "Platform",
+        icon: "rocket",
+        settings: {
+          joinCode: "JOIN1234",
+          summary: "",
+          guestProjectIds: [],
+          guestDocumentIds: [],
+          guestWorkItemIds: [],
+          experience: "project-management",
+          features: createDefaultTeamFeatureSettings("project-management"),
+          workflow: createDefaultTeamWorkflowSettings("project-management"),
+        },
+      },
+    ]
+    state.teamMemberships = [
+      {
+        teamId: "team_1",
+        userId: "user_1",
+        role: "member",
+      },
+    ]
+    state.workItems = [
+      createTestWorkItem("private-owned", {
+        creatorId: "user_1",
+        assigneeId: null,
+        visibility: "private",
+      }),
+      createTestWorkItem("private-legacy-assigned", {
+        creatorId: "user_2",
+        assigneeId: "user_1",
+        visibility: "private",
+      }),
+      createTestWorkItem("team-assigned", {
+        assigneeId: "user_1",
+        visibility: "team",
+      }),
+      createTestWorkItem("private-other", {
+        creatorId: "user_2",
+        assigneeId: null,
+        visibility: "private",
+      }),
+    ]
+
+    expect(
+      getVisibleWorkItems(state, {
+        assignedToCurrentUser: true,
+      }).map((item) => item.id)
+    ).toEqual(["private-owned", "private-legacy-assigned", "team-assigned"])
+  })
+
   it("returns the lowest assigned descendants when compressing personal work hierarchies", () => {
     const state = createEmptyState()
     state.currentUserId = "user_1"

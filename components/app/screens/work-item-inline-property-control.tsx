@@ -42,6 +42,7 @@ import {
   type AppData,
   type CustomPropertyDisplayReference,
   type Priority,
+  type UserProfile,
   type WorkItem,
   type WorkStatus,
 } from "@/lib/domain/types"
@@ -608,11 +609,7 @@ export function InlineWorkItemPropertyControl({
       data.customPropertyDefinitions.find(
         (entry) =>
           entry.id === customPropertyId &&
-          isCustomPropertyDefinitionForWorkItem(
-            entry,
-            item,
-            data.currentUserId
-          )
+          isCustomPropertyDefinitionForWorkItem(entry, item, data.currentUserId)
       ) ?? null
 
     if (!definition) {
@@ -674,15 +671,13 @@ export function InlineWorkItemPropertyControl({
   }
 
   if (property === "assignee") {
-    return (
-      <InlineAssigneePropertyControl
-        currentAssignee={currentAssignee}
-        editable={editable}
-        item={item}
-        teamMembers={teamMembers}
-        variant={variant}
-      />
-    )
+    return renderInlineAssigneePropertyControl({
+      currentAssignee,
+      editable,
+      item,
+      teamMembers,
+      variant,
+    })
   }
 
   return (
@@ -691,6 +686,34 @@ export function InlineWorkItemPropertyControl({
       editable={editable}
       item={item}
       teamProjects={teamProjects}
+      variant={variant}
+    />
+  )
+}
+
+function renderInlineAssigneePropertyControl({
+  currentAssignee,
+  editable,
+  item,
+  teamMembers,
+  variant,
+}: {
+  currentAssignee: UserProfile | null
+  editable: boolean
+  item: WorkItem
+  teamMembers: UserProfile[]
+  variant: InlinePropertyControlVariant
+}) {
+  if ((item.visibility ?? "team") === "private") {
+    return null
+  }
+
+  return (
+    <InlineAssigneePropertyControl
+      currentAssignee={currentAssignee}
+      editable={editable}
+      item={item}
+      teamMembers={teamMembers}
       variant={variant}
     />
   )

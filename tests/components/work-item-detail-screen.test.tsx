@@ -43,7 +43,9 @@ const {
 }))
 
 vi.mock("next/link", async () =>
-  (await import("@/tests/lib/fixtures/component-stubs")).createNextLinkStubModule()
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createNextLinkStubModule()
 )
 
 vi.mock("next/navigation", () => ({
@@ -116,9 +118,8 @@ vi.mock("@/components/app/rich-text-editor", () => ({
 }))
 
 vi.mock("@/components/app/rich-text-content", async () => {
-  const { createRichTextContentStub } = await import(
-    "@/tests/lib/fixtures/component-stubs"
-  )
+  const { createRichTextContentStub } =
+    await import("@/tests/lib/fixtures/component-stubs")
 
   return {
     RichTextContent: createRichTextContentStub(richTextContentRenderMock),
@@ -126,9 +127,8 @@ vi.mock("@/components/app/rich-text-content", async () => {
 })
 
 vi.mock("@/components/app/screens/document-ui", async () => {
-  const { DocumentPresenceAvatarGroupStub } = await import(
-    "@/tests/lib/fixtures/component-stubs"
-  )
+  const { DocumentPresenceAvatarGroupStub } =
+    await import("@/tests/lib/fixtures/component-stubs")
 
   return {
     DocumentPresenceAvatarGroup: DocumentPresenceAvatarGroupStub,
@@ -249,7 +249,9 @@ vi.mock("@/components/app/screens/work-item-ui", () => ({
 }))
 
 vi.mock("@/components/ui/button", async () =>
-  (await import("@/tests/lib/fixtures/component-stubs")).createButtonStubModule()
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createButtonStubModule()
 )
 
 vi.mock("@/components/ui/input", async () =>
@@ -428,7 +430,9 @@ function clickSaveButton() {
 }
 
 async function expectWorkItemEditorClosed() {
-  expect(await screen.findByRole("button", { name: "Edit" })).toBeInTheDocument()
+  expect(
+    await screen.findByRole("button", { name: "Edit" })
+  ).toBeInTheDocument()
 }
 
 function setSaveWorkItemMainSectionMock(saveMock: ReturnType<typeof vi.fn>) {
@@ -442,46 +446,48 @@ function createStateUpdatingSaveMock(input?: {
 }) {
   let saveCount = 0
 
-  return vi.fn().mockImplementation(
-    async ({
-      itemId = "item_1",
-      description,
-      title,
-    }: {
-      itemId?: string
-      description: string
-      title: string
-    }) => {
-      saveCount += 1
-      const documentId = input?.getDocumentId?.(itemId) ?? "document_1"
-      const updatedAt = `2026-04-18T10:00:${saveCount
-        .toString()
-        .padStart(2, "0")}.000Z`
+  return vi
+    .fn()
+    .mockImplementation(
+      async ({
+        itemId = "item_1",
+        description,
+        title,
+      }: {
+        itemId?: string
+        description: string
+        title: string
+      }) => {
+        saveCount += 1
+        const documentId = input?.getDocumentId?.(itemId) ?? "document_1"
+        const updatedAt = `2026-04-18T10:00:${saveCount
+          .toString()
+          .padStart(2, "0")}.000Z`
 
-      useAppStore.setState((state) => ({
-        workItems: state.workItems.map((item) =>
-          item.id === itemId
-            ? {
-                ...item,
-                title,
-                updatedAt,
-              }
-            : item
-        ),
-        documents: state.documents.map((document) =>
-          document.id === documentId
-            ? {
-                ...document,
-                content: description,
-                updatedAt,
-              }
-            : document
-        ),
-      }))
+        useAppStore.setState((state) => ({
+          workItems: state.workItems.map((item) =>
+            item.id === itemId
+              ? {
+                  ...item,
+                  title,
+                  updatedAt,
+                }
+              : item
+          ),
+          documents: state.documents.map((document) =>
+            document.id === documentId
+              ? {
+                  ...document,
+                  content: description,
+                  updatedAt,
+                }
+              : document
+          ),
+        }))
 
-      return true
-    }
-  )
+        return true
+      }
+    )
 }
 
 function mockRetryingMentionDelivery() {
@@ -497,16 +503,14 @@ function mockRetryingMentionDelivery() {
 
 async function expectTaylorMentionDeliveryRetry() {
   await waitFor(() =>
-    expect(syncSendItemDescriptionMentionNotificationsMock).toHaveBeenNthCalledWith(
-      2,
-      "item_1",
-      [
-        {
-          userId: "user_2",
-          count: 1,
-        },
-      ]
-    )
+    expect(
+      syncSendItemDescriptionMentionNotificationsMock
+    ).toHaveBeenNthCalledWith(2, "item_1", [
+      {
+        userId: "user_2",
+        count: 1,
+      },
+    ])
   )
 }
 
@@ -915,6 +919,31 @@ describe("work item detail screen", () => {
     expect(screen.getAllByText("PLA-3").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Child item").length).toBeGreaterThan(0)
     expect(screen.queryByText("19 December 2030")).not.toBeInTheDocument()
+  })
+
+  it("hides assignee configuration for private tasks", () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        workItems: state.workItems.map((item) =>
+          item.id === "item_1"
+            ? {
+                ...item,
+                visibility: "private",
+                creatorId: state.currentUserId,
+                assigneeId: "user_1",
+              }
+            : item
+        ),
+      }))
+    })
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    expect(screen.getByRole("button", { name: "Status" })).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Assignee" })
+    ).not.toBeInTheDocument()
   })
 
   it("hides empty child-row assignee and project controls", () => {

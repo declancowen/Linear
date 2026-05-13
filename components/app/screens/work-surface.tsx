@@ -113,10 +113,13 @@ function getCompatibleActiveView(
     view.subGrouping !== grouping
       ? view.subGrouping
       : null
+  const displayProps = getCompatibleWorkSurfaceDisplayProps(view)
+  const displayPropsChanged = displayProps.length !== view.displayProps.length
 
   if (
     grouping === view.grouping &&
-    subGrouping === (view.subGrouping ?? null)
+    subGrouping === (view.subGrouping ?? null) &&
+    !displayPropsChanged
   ) {
     return view
   }
@@ -125,7 +128,29 @@ function getCompatibleActiveView(
     ...view,
     grouping,
     subGrouping,
+    displayProps,
   }
+}
+
+function isPrivateTaskView(view: ViewDefinition | null) {
+  return (
+    view?.entityKind === "items" && view.filters.visibility?.includes("private")
+  )
+}
+
+function getCompatibleGroupOptions(
+  view: ViewDefinition | null,
+  groupOptions: ViewDefinition["grouping"][]
+) {
+  return isPrivateTaskView(view)
+    ? groupOptions.filter((option) => option !== "assignee")
+    : groupOptions
+}
+
+function getCompatibleWorkSurfaceDisplayProps(view: ViewDefinition) {
+  return isPrivateTaskView(view)
+    ? view.displayProps.filter((property) => property !== "assignee")
+    : view.displayProps
 }
 
 function getActiveBaseWorkSurfaceView({
@@ -956,6 +981,10 @@ export function WorkSurface({
       ),
     [effectiveGroupingExperience]
   )
+  const compatibleGroupOptions = useMemo(
+    () => getCompatibleGroupOptions(activeView, groupOptions),
+    [activeView, groupOptions]
+  )
 
   useEffect(() => {
     setLocalFallbackViews(fallbackViews.map(cloneFallbackView))
@@ -999,8 +1028,8 @@ export function WorkSurface({
   }, [fallbackViews, requestedViewId, routeKey, usingFallbackViews, views])
 
   const compatibleActiveView = useMemo(
-    () => getCompatibleActiveView(activeView, groupOptions),
-    [activeView, groupOptions]
+    () => getCompatibleActiveView(activeView, compatibleGroupOptions),
+    [activeView, compatibleGroupOptions]
   )
   const displayedViews = usingFallbackViews ? localFallbackViews : views
   const filterScopeItems = filterItems ?? items
@@ -1080,7 +1109,7 @@ export function WorkSurface({
           usingFallbackViews={usingFallbackViews}
           filterPopoverItems={filterPopoverItems}
           hiddenFilters={hiddenFilters}
-          groupOptions={groupOptions}
+          groupOptions={compatibleGroupOptions}
           onUpdateLocalView={localViewActions.updateLocalActiveView}
           onUpdateViewerView={viewerViewActions.updateViewerActiveView}
           onToggleLocalFilterValue={

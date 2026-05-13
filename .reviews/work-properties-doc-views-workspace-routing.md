@@ -28,20 +28,68 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-13 13:59 BST |
-| **Total turns**       | 15                   |
+| **Last reviewed**     | 2026-05-13 17:00 BST |
+| **Total turns**       | 16                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 34                   |
+| **Resolved findings** | 35                   |
 | **Accepted findings** | 0                    |
+
+## Turn 16 — 2026-05-13 17:00 BST
+
+| Field           | Value                                                                           |
+| --------------- | ------------------------------------------------------------------------------- |
+| **Scope**       | Private task ownership, assignee visibility, and private task notification flow |
+| **Review type** | Targeted diff-review + architecture state/persistence boundary check            |
+| **Reviewer**    | Codex CLI                                                                       |
+| **Outcome**     | 1 user-reported issue family fixed locally; no local open findings              |
+
+### Commands run
+
+- `pnpm test tests/lib/domain/view-item-level.test.ts tests/lib/domain/default-views.test.ts tests/components/properties-chip-popover.test.tsx tests/components/work-item-detail-screen.test.tsx tests/lib/store/work-item-actions.test.ts tests/convex/work-item-handlers.test.ts tests/components/create-dialogs.test.tsx tests/components/work-surface-view.test.tsx` — passed, 8 files / 127 tests
+- `pnpm test tests/lib/store/work-item-actions.test.ts` — passed after the final notification-order preservation tweak, 1 file / 14 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm build` — passed
+- `git diff --check` — passed
+- `pnpm fallow:gate` — dead-code and production health passed; full duplication still fails on the known full-repo baseline (`12` clone groups), with `0` clone groups touching changed files after rerun
+- `pnpm exec fallow dupes --ignore-imports --format json --quiet --explain` — rerun confirmed `0` changed-file clone groups
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; changed-file audit passed with dead code `0`, complexity `0`, clone groups `0`
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; no branch-specific architecture blocker
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** personal work index read-model selection, private work item create dialog defaults, work surface grouped create context, work item detail sidebar, inline property controls, optimistic store update flow, and Convex work item update/notification handlers.
+- **Prior open findings rechecked:** no open findings were recorded from Turn 15; the current user-reported issue mapped to private tasks still using visible assignee semantics in My Items and update paths.
+- **Prior resolved/adjacent areas revalidated:** private create dialogs still submit `visibility: "private"`, `assigneeId: null`, and `primaryProjectId: null`; grouped Add item flows still inherit the private create context; personal read models already include private items by creator or legacy assignee.
+- **Hotspots or sibling paths revisited:** default personal views, persisted display props, properties popover, group options, inline row/card controls, child rows, detail sidebar, optimistic notifications, Convex persistence, assignment emails, and status notifications.
+- **Dependency/adjacent surfaces revalidated:** team/workspace My Items views still use assignee for team-visible work; private work uses `visibility: "private"` plus creator/legacy assignee association and does not expose assignee as a configurable private-board property.
+- **Why this is enough:** ownership is now enforced at the selector/read layer, hidden at every edited UI surface, and protected at both optimistic store and Convex mutation boundaries so client bypasses cannot persist private-task assignee/project changes or emit assignment/status notifications.
+
+### Challenger pass
+
+- done — Checked the tempting alternative of keeping private tasks assigned to the current user. That would keep the board working but preserve the exact notification/configuration coupling the user wants removed. The implemented owner is private visibility plus creator id, with legacy assignee support only for old records.
+
+### Resolved / Carried / New findings
+
+#### WPDV-35 — resolved — private task boards depended on visible assignee state and still exposed assignee controls
+
+- **Severity:** medium
+- **Evidence:** user reported private tasks disappeared after assignee was removed, while My Items properties still showed assignee. Current code selected My Items by `assigneeId` and allowed assignee display/update paths to survive on private tasks.
+- **Fix:** Personal work selectors now include private work created by the current user, private task views remove assignee from default/persisted display props and grouping options, private inline/detail/child surfaces hide assignee controls, and store/Convex update paths strip private assignee/project patches.
+- **Prevention:** Added domain, component, store, and Convex regression tests for private creator selection, no assignee properties, hidden detail assignee controls, stripped optimistic updates, and server-side notification suppression.
+
+### Residual risk
+
+- Full-repo Fallow duplication remains at the known baseline (`12` groups). Changed-file audit and changed-file duplicate inspection are clean, production health is clean, and no branch-specific Fallow blocker remains.
 
 ## Turn 15 — 2026-05-13 13:59 BST
 
-| Field           | Value                              |
-| --------------- | ---------------------------------- |
+| Field           | Value                                                                          |
+| --------------- | ------------------------------------------------------------------------------ |
 | **Scope**       | GitHub Codex review follow-up for private labels in personal item view filters |
-| **Review type** | Targeted diff-review + architecture validation-boundary check |
-| **Reviewer**    | Codex CLI                          |
-| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings |
+| **Review type** | Targeted diff-review + architecture validation-boundary check                  |
+| **Reviewer**    | Codex CLI                                                                      |
+| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings             |
 
 ### Commands run
 
@@ -84,12 +132,12 @@
 
 ## Turn 14 — 2026-05-13 13:42 BST
 
-| Field           | Value                              |
-| --------------- | ---------------------------------- |
+| Field           | Value                                                                                              |
+| --------------- | -------------------------------------------------------------------------------------------------- |
 | **Scope**       | GitHub Codex review follow-up for `/workspaces`, plus local team-icon and live-doc awareness fixes |
-| **Review type** | Targeted diff-review + architecture routing/state boundary check |
-| **Reviewer**    | Codex CLI                          |
-| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings |
+| **Review type** | Targeted diff-review + architecture routing/state boundary check                                   |
+| **Reviewer**    | Codex CLI                                                                                          |
+| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings                                 |
 
 ### Commands run
 
@@ -132,12 +180,12 @@
 
 ## Turn 13 — 2026-05-13 13:30 BST
 
-| Field           | Value                              |
-| --------------- | ---------------------------------- |
+| Field           | Value                                                                      |
+| --------------- | -------------------------------------------------------------------------- |
 | **Scope**       | GitHub Codex review follow-up for private custom property value visibility |
-| **Review type** | Targeted diff-review + architecture read-model boundary check |
-| **Reviewer**    | Codex CLI                          |
-| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings |
+| **Review type** | Targeted diff-review + architecture read-model boundary check              |
+| **Reviewer**    | Codex CLI                                                                  |
+| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings         |
 
 ### Commands run
 
@@ -176,12 +224,12 @@
 
 ## Turn 12 — 2026-05-13 13:16 BST
 
-| Field           | Value                              |
-| --------------- | ---------------------------------- |
+| Field           | Value                                                                    |
+| --------------- | ------------------------------------------------------------------------ |
 | **Scope**       | GitHub Codex review follow-up for private work item collaboration routes |
-| **Review type** | Targeted diff-review + architecture authorization boundary check |
-| **Reviewer**    | Codex CLI                          |
-| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings |
+| **Review type** | Targeted diff-review + architecture authorization boundary check         |
+| **Reviewer**    | Codex CLI                                                                |
+| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings       |
 
 ### Commands run
 
@@ -220,12 +268,12 @@
 
 ## Turn 11 — 2026-05-13 12:50 BST
 
-| Field           | Value                              |
-| --------------- | ---------------------------------- |
+| Field           | Value                                                               |
+| --------------- | ------------------------------------------------------------------- |
 | **Scope**       | GitHub Codex review follow-up for private work item mutation access |
-| **Review type** | Targeted diff-review + architecture boundary check |
-| **Reviewer**    | Codex CLI                          |
-| **Outcome**     | 1 live finding fixed locally; no local open findings |
+| **Review type** | Targeted diff-review + architecture boundary check                  |
+| **Reviewer**    | Codex CLI                                                           |
+| **Outcome**     | 1 live finding fixed locally; no local open findings                |
 
 ### Commands run
 

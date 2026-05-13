@@ -1,16 +1,19 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
-import {
-  PropertiesChipPopover,
-} from "@/components/app/screens/work-surface-controls"
+import { PropertiesChipPopover } from "@/components/app/screens/work-surface-controls"
 import {
   getProjectStatusIconStatus,
   getReorderedDisplayPropertiesAfterDrag,
 } from "@/components/app/screens/work-surface-control-state"
-import { createDefaultViewFilters, type ViewDefinition } from "@/lib/domain/types"
+import {
+  createDefaultViewFilters,
+  type ViewDefinition,
+} from "@/lib/domain/types"
 
-function createView(displayProps: ViewDefinition["displayProps"]): ViewDefinition {
+function createView(
+  displayProps: ViewDefinition["displayProps"]
+): ViewDefinition {
   return {
     id: "view_1",
     name: "All work",
@@ -36,6 +39,20 @@ function createView(displayProps: ViewDefinition["displayProps"]): ViewDefinitio
     route: "/team/platform/work",
     createdAt: "2026-04-20T12:00:00.000Z",
     updatedAt: "2026-04-20T12:00:00.000Z",
+  }
+}
+
+function createPrivateTaskView(
+  displayProps: ViewDefinition["displayProps"]
+): ViewDefinition {
+  return {
+    ...createView(displayProps),
+    scopeType: "personal",
+    scopeId: "user_1",
+    filters: {
+      ...createDefaultViewFilters(),
+      visibility: ["private"],
+    },
   }
 }
 
@@ -88,5 +105,14 @@ describe("PropertiesChipPopover", () => {
     fireEvent.click(screen.getByRole("button", { name: "Due date" }))
 
     expect(onToggleDisplayProperty).toHaveBeenCalledWith("dueDate")
+  })
+
+  it("does not expose assignee as a private task display property", () => {
+    render(<PropertiesChipPopover view={createPrivateTaskView(["assignee"])} />)
+
+    fireEvent.click(screen.getByRole("button", { name: /properties/i }))
+
+    expect(screen.queryByText("Assignee")).not.toBeInTheDocument()
+    expect(screen.getByText("Visible · 0")).toBeInTheDocument()
   })
 })

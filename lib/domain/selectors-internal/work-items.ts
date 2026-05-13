@@ -44,10 +44,8 @@ export function getVisibleWorkItems(
     "assignedToCurrentUserWithAncestors" in params
   ) {
     const teamIds = new Set(getAccessibleTeams(data).map((team) => team.id))
-    const assignedItems = data.workItems.filter(
-      (item) =>
-        item.assigneeId === data.currentUserId &&
-        (getWorkItemVisibility(item) === "private" || teamIds.has(item.teamId))
+    const assignedItems = data.workItems.filter((item) =>
+      isMyItemsWorkItem(data, item, teamIds)
     )
 
     if ("assignedToCurrentUser" in params) {
@@ -104,6 +102,37 @@ function getWorkItemVisibility(item: WorkItem) {
   return item.visibility ?? "team"
 }
 
+function isPrivateWorkItemAssociatedWithCurrentUser(
+  data: AppData,
+  item: WorkItem
+) {
+  return (
+    getWorkItemVisibility(item) === "private" &&
+    (item.creatorId === data.currentUserId ||
+      item.assigneeId === data.currentUserId)
+  )
+}
+
+function isMyItemsWorkItem(
+  data: AppData,
+  item: WorkItem,
+  teamIds: Set<string>
+) {
+  if (getWorkItemVisibility(item) === "private") {
+    return isPrivateWorkItemAssociatedWithCurrentUser(data, item)
+  }
+
+  return item.assigneeId === data.currentUserId && teamIds.has(item.teamId)
+}
+
+function isAssignedDescendantWorkItem(data: AppData, item: WorkItem) {
+  if (getWorkItemVisibility(item) === "private") {
+    return isPrivateWorkItemAssociatedWithCurrentUser(data, item)
+  }
+
+  return item.assigneeId === data.currentUserId
+}
+
 export function getDirectChildWorkItems(data: AppData, itemId: string) {
   return data.workItems.filter((item) => item.parentId === itemId)
 }
@@ -130,7 +159,7 @@ export function getDirectChildWorkItemsForDisplay(
     const assignedDescendants = sourcePool.filter((candidate) => {
       if (
         candidate.id === item.id ||
-        candidate.assigneeId !== data.currentUserId
+        !isAssignedDescendantWorkItem(data, candidate)
       ) {
         return false
       }

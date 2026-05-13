@@ -289,6 +289,23 @@ const displayPropertyOptions: DisplayProperty[] = [
   "updated",
 ]
 
+function isPrivateTaskView(view: ViewDefinition) {
+  return (
+    view.entityKind === "items" && view.filters.visibility?.includes("private")
+  )
+}
+
+function getDisplayPropertyOptionsForView(
+  view: ViewDefinition,
+  propertyOptions: DisplayProperty[]
+) {
+  if (!isPrivateTaskView(view)) {
+    return propertyOptions
+  }
+
+  return propertyOptions.filter((property) => property !== "assignee")
+}
+
 const DISPLAY_PROPERTY_LABELS: Record<BuiltinDisplayProperty, string> = {
   id: "ID",
   type: "Type",
@@ -2241,7 +2258,7 @@ export function PropertiesChipPopover({
       return DISPLAY_PROPERTY_LABELS[property as BuiltinDisplayProperty]
     })
   const resolvedPropertyOptions = [
-    ...propertyOptions,
+    ...getDisplayPropertyOptionsForView(view, propertyOptions),
     ...customDefinitions.map(
       (definition) => `custom:${definition.id}` as DisplayProperty
     ),

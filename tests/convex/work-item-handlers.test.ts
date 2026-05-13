@@ -10,6 +10,7 @@ const getUserDocMock = vi.fn()
 const getWorkItemDocMock = vi.fn()
 const normalizeTeamMock = vi.fn()
 const validateWorkItemParentMock = vi.fn()
+const getResolvedProjectLinkForWorkItemUpdateMock = vi.fn()
 const getClampedNotifiedMentionCountsMock = vi.fn()
 const createNotificationMock = vi.fn()
 
@@ -46,7 +47,8 @@ vi.mock("@/convex/app/work_helpers", async (importOriginal) => {
     ...actual,
     assertWorkspaceLabelIds: vi.fn(),
     collectWorkItemCascadeIds: vi.fn(),
-    getResolvedProjectLinkForWorkItemUpdate: vi.fn(),
+    getResolvedProjectLinkForWorkItemUpdate:
+      getResolvedProjectLinkForWorkItemUpdateMock,
     projectBelongsToTeamScope: vi.fn(),
     validateWorkItemParent: validateWorkItemParentMock,
   }
@@ -86,6 +88,7 @@ describe("work item handlers", () => {
     getWorkItemDocMock.mockReset()
     normalizeTeamMock.mockReset()
     validateWorkItemParentMock.mockReset()
+    getResolvedProjectLinkForWorkItemUpdateMock.mockReset()
     getClampedNotifiedMentionCountsMock.mockReset()
     createNotificationMock.mockReset()
 
@@ -131,6 +134,11 @@ describe("work item handlers", () => {
           issues: true,
         },
       },
+    })
+    getResolvedProjectLinkForWorkItemUpdateMock.mockReturnValue({
+      cascadeItemIds: [],
+      resolvedPrimaryProjectId: null,
+      shouldCascadeProjectLink: false,
     })
     getClampedNotifiedMentionCountsMock.mockReturnValue({})
     createNotificationMock.mockReturnValue({
@@ -362,6 +370,59 @@ describe("work item handlers", () => {
     expect(ctx.db.patch).not.toHaveBeenCalled()
   })
 
+  it("ignores private work item assignee and project patches on update", async () => {
+    const { updateWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    const privateItem = {
+      _id: "db_item_1",
+      id: "item_1",
+      teamId: "team_1",
+      type: "task",
+      title: "Private task",
+      updatedAt: "2026-04-20T22:00:00.000Z",
+      parentId: null,
+      primaryProjectId: "project_1",
+      startDate: null,
+      targetDate: null,
+      descriptionDocId: "doc_1",
+      assigneeId: "user_1",
+      creatorId: "user_1",
+      status: "todo",
+      visibility: "private",
+    }
+    getWorkItemDocMock.mockResolvedValue(privateItem)
+    ctx.db.query.mockReturnValue({
+      withIndex: vi.fn(() => ({
+        collect: vi.fn().mockResolvedValue([privateItem]),
+      })),
+    })
+    validateWorkItemParentMock.mockResolvedValue(null)
+
+    await updateWorkItemHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+      itemId: "item_1",
+      patch: {
+        assigneeId: "user_2",
+        primaryProjectId: "project_2",
+        status: "done",
+      },
+    })
+
+    expect(ctx.db.patch).toHaveBeenCalledWith(
+      "db_item_1",
+      expect.objectContaining({
+        primaryProjectId: null,
+        status: "done",
+        title: "Private task",
+      })
+    )
+    expect(ctx.db.patch.mock.calls[0][1]).not.toHaveProperty("assigneeId")
+    expect(createNotificationMock).not.toHaveBeenCalled()
+  })
+
   it("treats any provided expectedUpdatedAt value as a CAS guard", async () => {
     const { updateWorkItemHandler } =
       await import("@/convex/app/work_item_handlers")
@@ -546,6 +607,32 @@ describe("work item handlers", () => {
     ).resolves.toBeNull()
   })
 
+  it("does not create assignment notifications for private work item updates", async () => {
+    const { createAssignmentNotificationForWorkItemUpdate } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      createAssignmentNotificationForWorkItemUpdate(ctx as never, {
+        args: {
+          currentUserId: "user_1",
+          patch: {
+            assigneeId: "user_2",
+          },
+        } as never,
+        existing: {
+          id: "item_1",
+          assigneeId: null,
+          visibility: "private",
+        } as never,
+        actorName: "Alex",
+        teamName: "Launch",
+        nextTitle: "Private task",
+      })
+    ).resolves.toBeNull()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
   it("creates status notifications for the resolved assignee only on status changes", async () => {
     const { createStatusChangeNotificationForWorkItemUpdate } =
       await import("@/convex/app/work_item_handlers")
@@ -591,6 +678,32 @@ describe("work item handlers", () => {
       teamName: "Launch",
       nextTitle: "Launch task",
     })
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
+  it("does not create status notifications for private work item updates", async () => {
+    const { createStatusChangeNotificationForWorkItemUpdate } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await createStatusChangeNotificationForWorkItemUpdate(ctx as never, {
+      args: {
+        currentUserId: "user_1",
+        patch: {
+          status: "done",
+        },
+      } as never,
+      existing: {
+        id: "item_1",
+        assigneeId: "user_1",
+        status: "todo",
+        visibility: "private",
+      } as never,
+      actorName: "Alex",
+      teamName: "Launch",
+      nextTitle: "Private task",
+    })
+
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 })

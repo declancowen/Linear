@@ -414,12 +414,17 @@ function DetailChildWorkItemRow({
 }) {
   const childDone = item.status === "done"
   const showMainPriority = item.priority !== "none"
-  const showMainAssignee = item.assigneeId !== null
+  const showMainAssignee =
+    (item.visibility ?? "team") !== "private" && item.assigneeId !== null
   const showMainProject = item.primaryProjectId !== null
   const showProperties = variant !== "sidebar"
   const childCustomProperties = data.customPropertyDefinitions
     .filter((definition) =>
-      isCustomPropertyDefinitionForWorkItem(definition, item, data.currentUserId)
+      isCustomPropertyDefinitionForWorkItem(
+        definition,
+        item,
+        data.currentUserId
+      )
     )
     .filter((definition) =>
       data.customPropertyValues.some(
@@ -3178,6 +3183,7 @@ function WorkItemSidebarProperties({
 } & DetailPropertyChangeHandlers) {
   const [customPropertyDialogOpen, setCustomPropertyDialogOpen] =
     useState(false)
+  const isPrivateTask = (currentItem.visibility ?? "team") === "private"
   const customPropertyDefinitions = data.customPropertyDefinitions
     .filter((definition) =>
       isCustomPropertyDefinitionForWorkItem(
@@ -3238,60 +3244,62 @@ function WorkItemSidebarProperties({
           )}
           onValueChange={onPriorityChange}
         />
-        <DetailSidebarSelectRow
-          label="Assignee"
-          icon={<Plus className="size-[13px]" />}
-          value={currentItem.assigneeId ?? "unassigned"}
-          disabled={!sidebarEditable}
-          options={[
-            { value: "unassigned", label: "Assign" },
-            ...teamMembers.map((user) => ({
-              value: user.id,
-              label: user.name,
-            })),
-          ]}
-          renderValue={(value, optionLabel) => {
-            if (value === "unassigned") {
-              return <span className="truncate">{optionLabel}</span>
-            }
+        {!isPrivateTask ? (
+          <DetailSidebarSelectRow
+            label="Assignee"
+            icon={<Plus className="size-[13px]" />}
+            value={currentItem.assigneeId ?? "unassigned"}
+            disabled={!sidebarEditable}
+            options={[
+              { value: "unassigned", label: "Assign" },
+              ...teamMembers.map((user) => ({
+                value: user.id,
+                label: user.name,
+              })),
+            ]}
+            renderValue={(value, optionLabel) => {
+              if (value === "unassigned") {
+                return <span className="truncate">{optionLabel}</span>
+              }
 
-            const selectedUser =
-              teamMembers.find((user) => user.id === value) ?? null
+              const selectedUser =
+                teamMembers.find((user) => user.id === value) ?? null
 
-            return selectedUser ? (
-              <div className="flex min-w-0 items-center gap-2">
-                <WorkItemAssigneeAvatar
-                  user={selectedUser}
-                  className="data-[size=sm]:size-4"
-                />
-                <span className="truncate">{selectedUser.name}</span>
-              </div>
-            ) : (
-              <span className="truncate">{optionLabel}</span>
-            )
-          }}
-          renderOption={(value, optionLabel) => {
-            if (value === "unassigned") {
-              return <span>{optionLabel}</span>
-            }
+              return selectedUser ? (
+                <div className="flex min-w-0 items-center gap-2">
+                  <WorkItemAssigneeAvatar
+                    user={selectedUser}
+                    className="data-[size=sm]:size-4"
+                  />
+                  <span className="truncate">{selectedUser.name}</span>
+                </div>
+              ) : (
+                <span className="truncate">{optionLabel}</span>
+              )
+            }}
+            renderOption={(value, optionLabel) => {
+              if (value === "unassigned") {
+                return <span>{optionLabel}</span>
+              }
 
-            const optionUser =
-              teamMembers.find((user) => user.id === value) ?? null
+              const optionUser =
+                teamMembers.find((user) => user.id === value) ?? null
 
-            return optionUser ? (
-              <div className="flex items-center gap-2">
-                <WorkItemAssigneeAvatar
-                  user={optionUser}
-                  className="data-[size=sm]:size-4"
-                />
-                <span>{optionUser.name}</span>
-              </div>
-            ) : (
-              <span>{optionLabel}</span>
-            )
-          }}
-          onValueChange={onAssigneeChange}
-        />
+              return optionUser ? (
+                <div className="flex items-center gap-2">
+                  <WorkItemAssigneeAvatar
+                    user={optionUser}
+                    className="data-[size=sm]:size-4"
+                  />
+                  <span>{optionUser.name}</span>
+                </div>
+              ) : (
+                <span>{optionLabel}</span>
+              )
+            }}
+            onValueChange={onAssigneeChange}
+          />
+        ) : null}
         <DetailSidebarDateRow
           label="Start"
           icon={<Clock className="size-[13px]" />}

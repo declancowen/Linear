@@ -502,6 +502,10 @@ async function assertWorkItemAssigneePatchAllowed(
   existing: WorkItemDoc,
   patch: WorkItemPatch
 ) {
+  if ((existing.visibility ?? "team") === "private") {
+    return
+  }
+
   if (
     patch.assigneeId !== undefined &&
     patch.assigneeId &&
@@ -531,6 +535,7 @@ async function assertWorkItemLabelPatchAllowed(
 function buildPersistedWorkItemPatch(
   patch: WorkItemPatch,
   input: {
+    existing: WorkItemDoc
     nextTitle: string
     resolvedPrimaryProjectId: string | null
     now: string
@@ -540,11 +545,18 @@ function buildPersistedWorkItemPatch(
 
   delete persistedPatch.description
   delete persistedPatch.expectedUpdatedAt
+  if ((input.existing.visibility ?? "team") === "private") {
+    delete persistedPatch.assigneeId
+    delete persistedPatch.primaryProjectId
+  }
 
   return {
     ...persistedPatch,
     title: input.nextTitle,
-    primaryProjectId: input.resolvedPrimaryProjectId,
+    primaryProjectId:
+      (input.existing.visibility ?? "team") === "private"
+        ? null
+        : input.resolvedPrimaryProjectId,
     updatedAt: input.now,
   }
 }
@@ -560,6 +572,7 @@ export async function createAssignmentNotificationForWorkItemUpdate(
   }
 ): Promise<AssignmentEmail | null> {
   if (
+    (input.existing.visibility ?? "team") === "private" ||
     input.args.patch.assigneeId === undefined ||
     !input.args.patch.assigneeId ||
     input.args.patch.assigneeId === input.existing.assigneeId
@@ -608,6 +621,10 @@ export async function createStatusChangeNotificationForWorkItemUpdate(
     nextTitle: string
   }
 ) {
+  if ((input.existing.visibility ?? "team") === "private") {
+    return
+  }
+
   const resolvedAssigneeId =
     input.args.patch.assigneeId === undefined
       ? input.existing.assigneeId
@@ -639,6 +656,20 @@ export async function createStatusChangeNotificationForWorkItemUpdate(
   )
 }
 
+function getEffectiveWorkItemPatch(
+  existing: WorkItemDoc,
+  patch: WorkItemPatch
+) {
+  if ((existing.visibility ?? "team") !== "private") {
+    return patch
+  }
+
+  const effectivePatch = { ...patch }
+  delete effectivePatch.assigneeId
+  delete effectivePatch.primaryProjectId
+  return effectivePatch
+}
+
 export async function updateWorkItemHandler(
   ctx: MutationCtx,
   args: UpdateWorkItemArgs
@@ -651,13 +682,15 @@ export async function updateWorkItemHandler(
     normalizedExistingType,
     nextTitle,
   } = await loadWorkItemUpdateTarget(ctx, args)
+  const patch = getEffectiveWorkItemPatch(existing, args.patch)
+  const effectiveArgs = { ...args, patch }
 
   assertExpectedWorkItemVersion(existing, args.patch)
-  assertWorkItemSchedulePatch(existing, args.patch)
+  assertWorkItemSchedulePatch(existing, patch)
   await validateWorkItemParentPatch(
     ctx,
     existing,
-    args.patch,
+    patch,
     normalizedExistingType
   )
 
@@ -668,16 +701,16 @@ export async function updateWorkItemHandler(
     shouldCascadeProjectLink,
   } = await resolveWorkItemProjectPatch(ctx, {
     existing,
-    patch: args.patch,
+    patch,
   })
 
-  await assertWorkItemAssigneePatchAllowed(ctx, existing, args.patch)
+  await assertWorkItemAssigneePatchAllowed(ctx, existing, patch)
   await assertWorkItemLabelPatchAllowed(
     ctx,
     args.currentUserId,
     existing,
     team,
-    args.patch
+    patch
   )
   await assertProjectLinkPatchAllowed(ctx, {
     team,
@@ -693,10 +726,11 @@ export async function updateWorkItemHandler(
   const actor = await getUserDoc(ctx, args.currentUserId)
   const actorName = actor?.name ?? "Someone"
   const now = getNow()
-  const nextDescription = args.patch.description
+  const nextDescription = patch.description
 
   await ctx.db.patch(existing._id, {
-    ...buildPersistedWorkItemPatch(args.patch, {
+    ...buildPersistedWorkItemPatch(patch, {
+      existing,
       nextTitle,
       resolvedPrimaryProjectId,
       now,
@@ -709,7 +743,7 @@ export async function updateWorkItemHandler(
     nextDescription,
     currentUserId: args.currentUserId,
     now,
-    titleChanged: args.patch.title !== undefined,
+    titleChanged: patch.title !== undefined,
   })
 
   if (shouldCascadeProjectLink) {
@@ -726,7 +760,7 @@ export async function updateWorkItemHandler(
   const assignmentEmail = await createAssignmentNotificationForWorkItemUpdate(
     ctx,
     {
-      args,
+      args: effectiveArgs,
       existing,
       actorName,
       teamName: team.name,
@@ -736,7 +770,7 @@ export async function updateWorkItemHandler(
   const assignmentEmails = assignmentEmail ? [assignmentEmail] : []
 
   await createStatusChangeNotificationForWorkItemUpdate(ctx, {
-    args,
+    args: effectiveArgs,
     existing,
     actorName,
     teamName: team.name,

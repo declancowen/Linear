@@ -417,7 +417,7 @@ export function buildAssignedWorkViews(
           ...createDefaultViewFilters(),
           visibility: ["private"],
         },
-        displayProps: ["id", "status", "assignee", "priority", "dueDate"],
+        displayProps: ["id", "status", "priority", "dueDate"],
       },
     }),
     createViewDefinition({

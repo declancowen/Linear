@@ -154,6 +154,7 @@ describe("buildAssignedWorkViews", () => {
     ])
     expect(views[0]?.itemLevel).toBe("task")
     expect(views[0]?.filters.visibility).toEqual(["private"])
+    expect(views[0]?.displayProps).not.toContain("assignee")
     expect(views.slice(1).every((view) => view.itemLevel === null)).toBe(true)
     expect(views.every((view) => view.showChildItems === true)).toBe(true)
   })

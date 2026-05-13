@@ -1160,6 +1160,7 @@ export function BoardView({
               <BoardChildItemRow
                 item={activeItem}
                 assignee={
+                  (activeItem.visibility ?? "team") !== "private" &&
                   activeItem.assigneeId
                     ? getUser(data, activeItem.assigneeId)
                     : null
@@ -2180,9 +2181,10 @@ function WorkItemChildDisclosure({
       {expanded ? (
         <div className="mt-1.5 flex flex-col gap-1">
           {childItems.map((child) => {
-            const childAssignee = child.assigneeId
-              ? getUser(data, child.assigneeId)
-              : null
+            const childAssignee =
+              (child.visibility ?? "team") !== "private" && child.assigneeId
+                ? getUser(data, child.assigneeId)
+                : null
 
             return editable ? (
               <DraggableBoardChildItem
