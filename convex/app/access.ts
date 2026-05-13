@@ -59,6 +59,50 @@ export async function requireReadableTeamAccess(
   return role
 }
 
+type WorkItemAccessTarget = {
+  assigneeId?: string | null
+  creatorId?: string | null
+  teamId: string
+  visibility?: "team" | "private" | null
+}
+
+function canUserAccessPrivateWorkItem(
+  item: WorkItemAccessTarget,
+  userId: string
+) {
+  return item.creatorId === userId || item.assigneeId === userId
+}
+
+function assertPrivateWorkItemAccess(
+  item: WorkItemAccessTarget,
+  userId: string
+) {
+  if (
+    (item.visibility ?? "team") === "private" &&
+    !canUserAccessPrivateWorkItem(item, userId)
+  ) {
+    throw new Error("Work item not found")
+  }
+}
+
+export async function requireReadableWorkItemAccess(
+  ctx: AppCtx,
+  item: WorkItemAccessTarget,
+  userId: string
+) {
+  await requireReadableTeamAccess(ctx, item.teamId, userId)
+  assertPrivateWorkItemAccess(item, userId)
+}
+
+export async function requireEditableWorkItemAccess(
+  ctx: AppCtx,
+  item: WorkItemAccessTarget,
+  userId: string
+) {
+  await requireEditableTeamAccess(ctx, item.teamId, userId)
+  assertPrivateWorkItemAccess(item, userId)
+}
+
 export async function requireTeamAdminAccess(
   ctx: AppCtx,
   teamId: string,

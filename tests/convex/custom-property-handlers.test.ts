@@ -4,6 +4,7 @@ const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
 const requireEditableTeamDocMock = vi.fn()
 const requireReadableTeamAccessMock = vi.fn()
+const requireEditableWorkItemAccessMock = vi.fn()
 const getCustomPropertyDefinitionDocMock = vi.fn()
 const getCustomPropertyValueDocMock = vi.fn()
 const getTeamMembershipDocMock = vi.fn()
@@ -22,6 +23,7 @@ vi.mock("@/convex/app/access", () => ({
   requireEditableTeamAccess: requireEditableTeamAccessMock,
   requireEditableTeamDoc: requireEditableTeamDocMock,
   requireReadableTeamAccess: requireReadableTeamAccessMock,
+  requireEditableWorkItemAccess: requireEditableWorkItemAccessMock,
 }))
 
 vi.mock("@/convex/app/data", () => ({
@@ -72,6 +74,7 @@ describe("custom property handlers", () => {
     requireEditableTeamAccessMock.mockReset()
     requireEditableTeamDocMock.mockReset()
     requireReadableTeamAccessMock.mockReset()
+    requireEditableWorkItemAccessMock.mockReset()
     getCustomPropertyDefinitionDocMock.mockReset()
     getCustomPropertyValueDocMock.mockReset()
     getTeamMembershipDocMock.mockReset()
@@ -85,6 +88,15 @@ describe("custom property handlers", () => {
       workspaceId: "workspace_1",
     })
     getCustomPropertyDefinitionDocMock.mockResolvedValue(createDefinition())
+    getWorkItemDocMock.mockResolvedValue({
+      _id: "db_item_1",
+      id: "item_1",
+      teamId: "team_1",
+      visibility: "private",
+      creatorId: "user_1",
+      assigneeId: null,
+    })
+    requireEditableWorkItemAccessMock.mockResolvedValue("member")
     listCustomPropertyDefinitionsByTeamMock.mockResolvedValue([])
     listCustomPropertyValuesByPropertyMock.mockResolvedValue([])
   })
@@ -126,5 +138,36 @@ describe("custom property handlers", () => {
     ).rejects.toThrow("Property option ids must be unique")
 
     expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("uses item-level private access before setting work item property values", async () => {
+    const { setCustomPropertyValueHandler } =
+      await import("@/convex/app/custom_property_handlers")
+    const ctx = createCtx()
+
+    requireEditableWorkItemAccessMock.mockRejectedValueOnce(
+      new Error("Work item not found")
+    )
+
+    await expect(
+      setCustomPropertyValueHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_2",
+        workItemId: "item_1",
+        propertyId: "property_1",
+        value: "option_1",
+      })
+    ).rejects.toThrow("Work item not found")
+
+    expect(requireEditableWorkItemAccessMock).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({
+        id: "item_1",
+      }),
+      "user_2"
+    )
+    expect(getCustomPropertyDefinitionDocMock).not.toHaveBeenCalled()
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 })

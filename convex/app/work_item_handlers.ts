@@ -58,7 +58,10 @@ import {
   projectBelongsToTeamScope,
   validateWorkItemParent,
 } from "./work_helpers"
-import { requireEditableTeamAccess, requireEditableTeamDoc } from "./access"
+import {
+  requireEditableTeamDoc,
+  requireEditableWorkItemAccess,
+} from "./access"
 import { queueEmailJobs } from "./email_job_handlers"
 
 type ServerAccessArgs = {
@@ -462,7 +465,7 @@ async function loadWorkItemUpdateTarget(
     throw new Error("Work item not found")
   }
 
-  await requireEditableTeamAccess(ctx, existing.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, existing, args.currentUserId)
   const team = await getTeamDoc(ctx, existing.teamId)
 
   if (!team) {
@@ -766,7 +769,7 @@ async function requireCollaborationWorkItem(
     throw new Error("Work item not found")
   }
 
-  await requireEditableTeamAccess(ctx, existing.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, existing, args.currentUserId)
 
   if (
     args.patch.expectedUpdatedAt !== undefined &&
@@ -788,7 +791,7 @@ async function requireEditableWorkItem(
     throw new Error("Work item not found")
   }
 
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
 
   return item
 }
@@ -920,7 +923,7 @@ async function requireWorkItemDeleteTarget(
     throw new Error("Work item not found")
   }
 
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
   const team = await getTeamDoc(ctx, item.teamId)
 
   if (!team) {
@@ -1136,7 +1139,7 @@ export async function shiftTimelineItemHandler(
     throw new Error("Work item is not scheduled")
   }
 
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
 
   const delta = differenceInCalendarDays(
     new Date(args.nextStartDate),

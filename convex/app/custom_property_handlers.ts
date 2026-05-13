@@ -24,7 +24,7 @@ import {
 import {
   requireEditableTeamAccess,
   requireEditableTeamDoc,
-  requireReadableTeamAccess,
+  requireEditableWorkItemAccess,
 } from "./access"
 
 type ServerAccessArgs = {
@@ -693,8 +693,7 @@ async function requireCustomPropertyValueTarget(
     throw new Error("Work item not found")
   }
 
-  await requireReadableTeamAccess(ctx, item.teamId, args.currentUserId)
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
   const definition = await getCustomPropertyDefinitionDoc(ctx, args.propertyId)
 
   if (!canUsePropertyDefinitionForItem(definition, item, args.currentUserId)) {

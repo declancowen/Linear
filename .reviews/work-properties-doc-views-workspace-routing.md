@@ -28,11 +28,55 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-13 12:35 BST |
-| **Total turns**       | 10                   |
+| **Last reviewed**     | 2026-05-13 12:50 BST |
+| **Total turns**       | 11                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 28                   |
+| **Resolved findings** | 29                   |
 | **Accepted findings** | 0                    |
+
+## Turn 11 — 2026-05-13 12:50 BST
+
+| Field           | Value                              |
+| --------------- | ---------------------------------- |
+| **Scope**       | GitHub Codex review follow-up for private work item mutation access |
+| **Review type** | Targeted diff-review + architecture boundary check |
+| **Reviewer**    | Codex CLI                          |
+| **Outcome**     | 1 live finding fixed locally; no local open findings |
+
+### Commands run
+
+- `gh pr view 34 --json headRefOid,latestReviews,reviewDecision,statusCheckRollup,url` — confirmed visible Codex review body was still for `7f6af440`, while PR head was `800beafe`
+- `gh api graphql ... reviewThreads` — enumerated unresolved review threads and confirmed the private work-item mutation thread was still relevant to current tree
+- `pnpm test tests/convex/access.test.ts tests/convex/work-item-handlers.test.ts tests/convex/custom-property-handlers.test.ts tests/convex/view-handlers.test.ts` — passed
+- `pnpm typecheck` — passed
+- `pnpm exec eslint convex/app/access.ts convex/app/work_item_handlers.ts convex/app/custom_property_handlers.ts tests/convex/access.test.ts tests/convex/work-item-handlers.test.ts tests/convex/custom-property-handlers.test.ts --max-warnings 0` — passed
+- `pnpm build` — passed
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; changed-file audit passed with dead code `0`, complexity `0`, clone groups `0`
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; production analyzer signals clean, no new branch-specific architecture blocker
+- `pnpm exec convex dev --once` — passed, Convex functions ready
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** `auth_bootstrap` private visibility filter, `work_item_handlers` mutation authorization, `custom_property_handlers` value mutation path, and access helpers.
+- **Prior open findings rechecked:** The latest visible Codex review was stale by reviewed commit, but its review threads still mapped onto current lines. Previously documented threads remain code-fixed; the private mutation thread was a true remaining issue.
+- **Prior resolved/adjacent areas revalidated:** Personal-view team property validation tests still pass after the access change.
+- **Hotspots or sibling paths revisited:** Work item update, collaboration persistence, presence, delete, timeline shift, and custom property value mutations now share the same item-level access helper.
+- **Dependency/adjacent surfaces revalidated:** The authoritative read rule from `auth_bootstrap` is now mirrored at the Convex mutation boundary.
+- **Why this is enough:** Private work items are hidden from non-creator/non-assignee users in snapshots, and the same predicate now protects all touched item mutation surfaces.
+
+### Challenger pass
+
+- done — Rechecked whether team edit access was sufficient; it was not, because hidden private item ids could still be retained and submitted to mutation routes.
+
+### Resolved / Carried / New findings
+
+#### WPDV-29 — resolved — private work item mutations were authorized by team edit access only
+
+- **Severity:** high
+- **Evidence:** `auth_bootstrap` filters private work items to creator/assignee, but `updateWorkItemHandler`, delete, collaboration persistence, presence, schedule shift, and custom-property value writes authorized with team edit access only.
+- **Fix:** Added `requireEditableWorkItemAccess`/`requireReadableWorkItemAccess` helpers that enforce team access plus creator/assignee access for private items, then routed item mutation handlers through the editable helper.
+- **Prevention:** Added access and handler tests for private item creator/assignee access and rejection before writes.
 
 ## Turn 10 — 2026-05-13 12:26 BST
 

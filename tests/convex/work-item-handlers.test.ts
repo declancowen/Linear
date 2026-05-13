@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
 const requireEditableTeamDocMock = vi.fn()
+const requireEditableWorkItemAccessMock = vi.fn()
 const getDocumentDocMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const getUserDocMock = vi.fn()
@@ -22,6 +23,7 @@ vi.mock("@/convex/app/core", () => ({
 vi.mock("@/convex/app/access", () => ({
   requireEditableTeamAccess: requireEditableTeamAccessMock,
   requireEditableTeamDoc: requireEditableTeamDocMock,
+  requireEditableWorkItemAccess: requireEditableWorkItemAccessMock,
 }))
 
 vi.mock("@/convex/app/data", () => ({
@@ -77,6 +79,7 @@ describe("work item handlers", () => {
     assertServerTokenMock.mockReset()
     requireEditableTeamAccessMock.mockReset()
     requireEditableTeamDocMock.mockReset()
+    requireEditableWorkItemAccessMock.mockReset()
     getDocumentDocMock.mockReset()
     getTeamDocMock.mockReset()
     getUserDocMock.mockReset()
@@ -105,6 +108,7 @@ describe("work item handlers", () => {
       workspaceId: "workspace_1",
       settings: {},
     })
+    requireEditableWorkItemAccessMock.mockResolvedValue("member")
     getWorkItemDocMock.mockResolvedValue({
       _id: "db_item_1",
       id: "item_1",
@@ -289,6 +293,37 @@ describe("work item handlers", () => {
     ).rejects.toThrow("Start date must be a valid calendar date")
 
     expect(validateWorkItemParentMock).not.toHaveBeenCalled()
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("uses item-level private access before updating work items", async () => {
+    const { updateWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    requireEditableWorkItemAccessMock.mockRejectedValueOnce(
+      new Error("Work item not found")
+    )
+
+    await expect(
+      updateWorkItemHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_2",
+        origin: "https://app.example.com",
+        itemId: "item_1",
+        patch: {
+          title: "Updated title",
+        },
+      })
+    ).rejects.toThrow("Work item not found")
+
+    expect(requireEditableWorkItemAccessMock).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({
+        id: "item_1",
+      }),
+      "user_2"
+    )
     expect(ctx.db.patch).not.toHaveBeenCalled()
   })
 
