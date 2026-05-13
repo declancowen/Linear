@@ -28,10 +28,10 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-13 12:26 BST |
+| **Last reviewed**     | 2026-05-13 12:35 BST |
 | **Total turns**       | 10                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 27                   |
+| **Resolved findings** | 28                   |
 | **Accepted findings** | 0                    |
 
 ## Turn 10 — 2026-05-13 12:26 BST
@@ -42,20 +42,21 @@
 | **IDE / Agent** | Codex                              |
 | **Review type** | Local fix review + regression pass |
 
-**Summary:** Re-reviewed the chat reaction and chat creation race fixes after the user-reported workspace/team chat failures. Two live issues were fixed: the chat-message reaction route was missing from the AuthKit proxy matcher even though channel reactions were covered, and the optimistic team/workspace chat flow could send the first message against a temporary client conversation id before the server returned the canonical id.
+**Summary:** Re-reviewed the chat reaction and chat creation race fixes after the user-reported workspace/team chat failures, then imported the latest Codex PR comment on personal work view custom properties. Three live issues were fixed: the chat-message reaction route was missing from the AuthKit proxy matcher even though channel reactions were covered, the optimistic team/workspace chat flow could send the first message against a temporary client conversation id before the server returned the canonical id, and personal/My Items views rejected readable team-scoped custom properties even though the UI exposes them.
 **Outcome:** local review clean for the touched chat/auth proxy scope. No open Critical/High/Medium findings remain in this local delta.
 **Risk score:** high — this touches an auth boundary and optimistic collaboration persistence.
-**Change archetypes:** route/auth contract, optimistic state reconciliation, async race, regression coverage.
-**Architecture impact:** The route auth matcher remains a static inline Next proxy config so Next can compile it, with source-level contract coverage that avoids loading AuthKit in Vitest. Conversation id reconciliation stays inside the collaboration store slice, where optimistic chat creation and first-message sync are already owned.
-**Branch totality:** Rechecked the channel reaction route pattern, chat-message reaction route, proxy matcher, chat creation routes, client sync wrappers, collaboration store send/create paths, and current review hotspots.
+**Change archetypes:** route/auth contract, optimistic state reconciliation, async race, view/custom-property authorization, regression coverage.
+**Architecture impact:** The route auth matcher remains a static inline Next proxy config so Next can compile it, with source-level contract coverage that avoids loading AuthKit in Vitest. Conversation id reconciliation stays inside the collaboration store slice, where optimistic chat creation and first-message sync are already owned. Personal-view custom-property validation now mirrors the read model/UI visibility rule while still enforcing readable team access at the Convex mutation boundary.
+**Branch totality:** Rechecked the channel reaction route pattern, chat-message reaction route, proxy matcher, chat creation routes, client sync wrappers, collaboration store send/create paths, personal view display-property validation, and current review hotspots.
 **Residual risk / unknowns:** Browser/manual verification should be rerun after restarting the dev server because Next proxy matcher changes require a server restart to take effect.
 
 ### Validation
 
-- `pnpm test tests/lib/store/collaboration-conversation-actions.test.ts tests/app/proxy-config.test.ts tests/app/api/platform-route-contracts.test.ts` — passed, 3 files / 12 tests
+- `pnpm test tests/convex/view-handlers.test.ts tests/lib/store/collaboration-conversation-actions.test.ts tests/app/proxy-config.test.ts tests/app/api/platform-route-contracts.test.ts` — passed, 4 files / 16 tests
 - `pnpm typecheck` — passed
-- `pnpm exec eslint proxy.ts lib/store/app-store-internal/slices/collaboration-conversation-actions.ts tests/lib/store/collaboration-conversation-actions.test.ts tests/app/proxy-config.test.ts --max-warnings 0` — passed
+- `pnpm exec eslint convex/app/view_handlers.ts tests/convex/view-handlers.test.ts proxy.ts lib/store/app-store-internal/slices/collaboration-conversation-actions.ts tests/lib/store/collaboration-conversation-actions.test.ts tests/app/proxy-config.test.ts --max-warnings 0` — passed
 - `pnpm build` — passed after preserving Next's static inline proxy matcher contract
+- `pnpm exec convex dev --once` — passed; Convex functions ready on dev
 - `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; changed-file Fallow audit passed with dead code `0`, complexity `0`, clone groups `0`
 
 ### Resolved / Carried / New findings
@@ -73,6 +74,13 @@
 - **Evidence:** User-reported `Conversation not found` on first message after opening a team/workspace chat whose backing conversation had just been recreated. Current store sent `/api/chats/<optimistic-id>/messages` immediately after `ensureTeamChat()`/`createWorkspaceChat()`.
 - **Fix:** Added pending conversation sync tracking and canonical id remapping for conversations, chat messages, calls, and chat notifications. First-message sync now waits for the server conversation id when creation is pending, and stale optimistic ids are resolved before later sends.
 - **Prevention:** Added store coverage proving an immediate first team-chat message waits for the canonical id and remaps local state before syncing.
+
+#### WPDV-28 — resolved locally — personal work views rejected team-scoped custom properties
+
+- **Severity:** medium
+- **Evidence:** Codex PR comment on `convex/app/view_handlers.ts`; current-tree inspection confirmed personal views only accepted private owner properties, while the My Items UI/read model exposes readable team properties for team work items.
+- **Fix:** Personal view custom display-property validation now allows team-scoped properties only after `requireReadableTeamAccess()` succeeds, while private-scoped properties remain owner-only.
+- **Prevention:** Added `tests/convex/view-handlers.test.ts` coverage for allowing readable team properties in personal views and rejecting another user's private property.
 
 ## Turn 9 — 2026-05-13 11:49 BST
 

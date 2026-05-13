@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
+const requireReadableTeamAccessMock = vi.fn()
 const requireEditableWorkspaceAccessMock = vi.fn()
 const getCustomPropertyDefinitionDocMock = vi.fn()
 const getTeamDocMock = vi.fn()
@@ -18,6 +19,7 @@ vi.mock("@/convex/app/core", () => ({
 
 vi.mock("@/convex/app/access", () => ({
   requireEditableTeamAccess: requireEditableTeamAccessMock,
+  requireReadableTeamAccess: requireReadableTeamAccessMock,
   requireEditableWorkspaceAccess: requireEditableWorkspaceAccessMock,
 }))
 
@@ -51,6 +53,7 @@ describe("view handlers", () => {
   beforeEach(() => {
     assertServerTokenMock.mockReset()
     requireEditableTeamAccessMock.mockReset()
+    requireReadableTeamAccessMock.mockReset()
     requireEditableWorkspaceAccessMock.mockReset()
     getCustomPropertyDefinitionDocMock.mockReset()
     getTeamDocMock.mockReset()
@@ -149,5 +152,79 @@ describe("view handlers", () => {
       },
       updatedAt: "2026-04-21T09:00:00.000Z",
     })
+  })
+
+  it("allows readable team custom properties in personal work views", async () => {
+    const { toggleViewDisplayPropertyHandler } =
+      await import("@/convex/app/view_handlers")
+    const ctx = createCtx()
+
+    requireViewMutationAccessMock.mockResolvedValue({
+      _id: "view_doc_1",
+      scopeType: "personal",
+      scopeId: "user_1",
+      entityKind: "items",
+      displayProps: ["status"],
+    })
+    getCustomPropertyDefinitionDocMock.mockResolvedValue({
+      id: "property_1",
+      teamId: "team_1",
+      targetType: "workItem",
+      scopeType: "team",
+      isArchived: false,
+      ownerId: null,
+      createdBy: "user_2",
+    })
+    requireReadableTeamAccessMock.mockResolvedValue("member")
+
+    await toggleViewDisplayPropertyHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      viewId: "view_1",
+      property: "custom:property_1",
+    })
+
+    expect(requireReadableTeamAccessMock).toHaveBeenCalledWith(
+      ctx,
+      "team_1",
+      "user_1"
+    )
+    expect(ctx.db.patch).toHaveBeenCalledWith("view_doc_1", {
+      displayProps: ["status", "custom:property_1"],
+      updatedAt: "2026-04-21T09:00:00.000Z",
+    })
+  })
+
+  it("rejects private custom properties owned by another user in personal work views", async () => {
+    const { toggleViewDisplayPropertyHandler } =
+      await import("@/convex/app/view_handlers")
+    const ctx = createCtx()
+
+    requireViewMutationAccessMock.mockResolvedValue({
+      _id: "view_doc_1",
+      scopeType: "personal",
+      scopeId: "user_1",
+      entityKind: "items",
+      displayProps: ["status"],
+    })
+    getCustomPropertyDefinitionDocMock.mockResolvedValue({
+      id: "property_1",
+      teamId: "team_1",
+      targetType: "workItem",
+      scopeType: "private",
+      isArchived: false,
+      ownerId: "user_2",
+      createdBy: "user_2",
+    })
+
+    await expect(
+      toggleViewDisplayPropertyHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        viewId: "view_1",
+        property: "custom:property_1",
+      })
+    ).rejects.toThrow("Custom property is not available in this view scope")
+    expect(ctx.db.patch).not.toHaveBeenCalled()
   })
 })

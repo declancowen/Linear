@@ -17,6 +17,7 @@ import { getCustomPropertyDefinitionDoc, getTeamDoc } from "./data"
 import {
   requireEditableTeamAccess,
   requireEditableWorkspaceAccess,
+  requireReadableTeamAccess,
 } from "./access"
 import { normalizeTeam } from "./normalization"
 import {
@@ -275,10 +276,17 @@ async function assertCustomDisplayPropertyAllowed(
 
   if (
     view.scopeType === "personal" &&
-    (getCustomPropertyScopeType(definition) !== "private" ||
-      (definition.ownerId ?? definition.createdBy) !== currentUserId)
+    getCustomPropertyScopeType(definition) === "private" &&
+    (definition.ownerId ?? definition.createdBy) !== currentUserId
   ) {
     throw new Error("Custom property is not available in this view scope")
+  }
+
+  if (
+    view.scopeType === "personal" &&
+    getCustomPropertyScopeType(definition) === "team"
+  ) {
+    await requireReadableTeamAccess(ctx, definition.teamId, currentUserId)
   }
 }
 
