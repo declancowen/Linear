@@ -28,11 +28,50 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-13 11:49 BST |
-| **Total turns**       | 9                    |
+| **Last reviewed**     | 2026-05-13 12:26 BST |
+| **Total turns**       | 10                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 25                   |
+| **Resolved findings** | 27                   |
 | **Accepted findings** | 0                    |
+
+## Turn 10 — 2026-05-13 12:26 BST
+
+| Field           | Value                             |
+| --------------- | --------------------------------- |
+| **Commit**      | `6ccb84ff` plus local diff        |
+| **IDE / Agent** | Codex                             |
+| **Review type** | Local fix review + regression pass |
+
+**Summary:** Re-reviewed the chat reaction and chat creation race fixes after the user-reported workspace/team chat failures. Two live issues were fixed: the chat-message reaction route was missing from the AuthKit proxy matcher even though channel reactions were covered, and the optimistic team/workspace chat flow could send the first message against a temporary client conversation id before the server returned the canonical id.
+**Outcome:** local review clean for the touched chat/auth proxy scope. No open Critical/High/Medium findings remain in this local delta.
+**Risk score:** high — this touches an auth boundary and optimistic collaboration persistence.
+**Change archetypes:** route/auth contract, optimistic state reconciliation, async race, regression coverage.
+**Architecture impact:** The route auth matcher is now owned by a small server config module that can be tested without loading AuthKit. Conversation id reconciliation stays inside the collaboration store slice, where optimistic chat creation and first-message sync are already owned.
+**Branch totality:** Rechecked the channel reaction route pattern, chat-message reaction route, proxy matcher, chat creation routes, client sync wrappers, collaboration store send/create paths, and current review hotspots.
+**Residual risk / unknowns:** Browser/manual verification should be rerun after restarting the dev server because Next proxy matcher changes require a server restart to take effect.
+
+### Validation
+
+- `pnpm test tests/lib/store/collaboration-conversation-actions.test.ts tests/app/proxy-config.test.ts tests/app/api/platform-route-contracts.test.ts` — passed, 3 files / 12 tests
+- `pnpm typecheck` — passed
+- `pnpm exec eslint proxy.ts lib/server/proxy-config.ts lib/store/app-store-internal/slices/collaboration-conversation-actions.ts tests/lib/store/collaboration-conversation-actions.test.ts tests/app/proxy-config.test.ts --max-warnings 0` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; changed-file Fallow audit passed with dead code `0`, complexity `0`, clone groups `0`
+
+### Resolved / Carried / New findings
+
+#### WPDV-26 — resolved locally — chat-message reaction route was outside the AuthKit proxy matcher
+
+- **Severity:** high
+- **Evidence:** Local dev logs showed `withAuth` failing because `/api/chat-messages/[messageId]/reactions` was not covered by middleware. Channel reactions worked because `/api/channel-posts/:path*` was already matched.
+- **Fix:** Added `/api/chat-messages/:path*` to the same AuthKit proxy matcher set and moved matchers into `lib/server/proxy-config.ts` for direct contract coverage.
+- **Prevention:** Added `tests/app/proxy-config.test.ts` to assert chat-message reactions stay covered alongside channel-post reactions.
+
+#### WPDV-27 — resolved locally — first chat message could sync before optimistic chat creation resolved to the server id
+
+- **Severity:** high
+- **Evidence:** User-reported `Conversation not found` on first message after opening a team/workspace chat whose backing conversation had just been recreated. Current store sent `/api/chats/<optimistic-id>/messages` immediately after `ensureTeamChat()`/`createWorkspaceChat()`.
+- **Fix:** Added pending conversation sync tracking and canonical id remapping for conversations, chat messages, calls, and chat notifications. First-message sync now waits for the server conversation id when creation is pending, and stale optimistic ids are resolved before later sends.
+- **Prevention:** Added store coverage proving an immediate first team-chat message waits for the canonical id and remaps local state before syncing.
 
 ## Turn 9 — 2026-05-13 11:49 BST
 
