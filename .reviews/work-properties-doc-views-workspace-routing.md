@@ -36,17 +36,17 @@
 
 ## Turn 10 — 2026-05-13 12:26 BST
 
-| Field           | Value                             |
-| --------------- | --------------------------------- |
-| **Commit**      | `6ccb84ff` plus local diff        |
-| **IDE / Agent** | Codex                             |
+| Field           | Value                              |
+| --------------- | ---------------------------------- |
+| **Commit**      | `6ccb84ff` plus local diff         |
+| **IDE / Agent** | Codex                              |
 | **Review type** | Local fix review + regression pass |
 
 **Summary:** Re-reviewed the chat reaction and chat creation race fixes after the user-reported workspace/team chat failures. Two live issues were fixed: the chat-message reaction route was missing from the AuthKit proxy matcher even though channel reactions were covered, and the optimistic team/workspace chat flow could send the first message against a temporary client conversation id before the server returned the canonical id.
 **Outcome:** local review clean for the touched chat/auth proxy scope. No open Critical/High/Medium findings remain in this local delta.
 **Risk score:** high — this touches an auth boundary and optimistic collaboration persistence.
 **Change archetypes:** route/auth contract, optimistic state reconciliation, async race, regression coverage.
-**Architecture impact:** The route auth matcher is now owned by a small server config module that can be tested without loading AuthKit. Conversation id reconciliation stays inside the collaboration store slice, where optimistic chat creation and first-message sync are already owned.
+**Architecture impact:** The route auth matcher remains a static inline Next proxy config so Next can compile it, with source-level contract coverage that avoids loading AuthKit in Vitest. Conversation id reconciliation stays inside the collaboration store slice, where optimistic chat creation and first-message sync are already owned.
 **Branch totality:** Rechecked the channel reaction route pattern, chat-message reaction route, proxy matcher, chat creation routes, client sync wrappers, collaboration store send/create paths, and current review hotspots.
 **Residual risk / unknowns:** Browser/manual verification should be rerun after restarting the dev server because Next proxy matcher changes require a server restart to take effect.
 
@@ -54,7 +54,8 @@
 
 - `pnpm test tests/lib/store/collaboration-conversation-actions.test.ts tests/app/proxy-config.test.ts tests/app/api/platform-route-contracts.test.ts` — passed, 3 files / 12 tests
 - `pnpm typecheck` — passed
-- `pnpm exec eslint proxy.ts lib/server/proxy-config.ts lib/store/app-store-internal/slices/collaboration-conversation-actions.ts tests/lib/store/collaboration-conversation-actions.test.ts tests/app/proxy-config.test.ts --max-warnings 0` — passed
+- `pnpm exec eslint proxy.ts lib/store/app-store-internal/slices/collaboration-conversation-actions.ts tests/lib/store/collaboration-conversation-actions.test.ts tests/app/proxy-config.test.ts --max-warnings 0` — passed
+- `pnpm build` — passed after preserving Next's static inline proxy matcher contract
 - `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; changed-file Fallow audit passed with dead code `0`, complexity `0`, clone groups `0`
 
 ### Resolved / Carried / New findings
@@ -63,8 +64,8 @@
 
 - **Severity:** high
 - **Evidence:** Local dev logs showed `withAuth` failing because `/api/chat-messages/[messageId]/reactions` was not covered by middleware. Channel reactions worked because `/api/channel-posts/:path*` was already matched.
-- **Fix:** Added `/api/chat-messages/:path*` to the same AuthKit proxy matcher set and moved matchers into `lib/server/proxy-config.ts` for direct contract coverage.
-- **Prevention:** Added `tests/app/proxy-config.test.ts` to assert chat-message reactions stay covered alongside channel-post reactions.
+- **Fix:** Added `/api/chat-messages/:path*` to the same AuthKit proxy matcher set while preserving Next's required static inline matcher shape.
+- **Prevention:** Added `tests/app/proxy-config.test.ts` to assert chat-message reactions stay covered alongside channel-post reactions without importing the proxy module.
 
 #### WPDV-27 — resolved locally — first chat message could sync before optimistic chat creation resolved to the server id
 
@@ -75,11 +76,11 @@
 
 ## Turn 9 — 2026-05-13 11:49 BST
 
-| Field           | Value                              |
-| --------------- | ---------------------------------- |
-| **Commit**      | `79c0c536` plus local diff         |
-| **IDE / Agent** | Codex                              |
-| **Review type** | PR feedback import + local review  |
+| Field           | Value                             |
+| --------------- | --------------------------------- |
+| **Commit**      | `79c0c536` plus local diff        |
+| **IDE / Agent** | Codex                             |
+| **Review type** | PR feedback import + local review |
 
 **Summary:** Imported the latest Codex PR feedback on `79c0c536`, triaged the user-reported navigation console logs, and reran the local diff-review loop with architecture standards. The live P1 finding was valid: the full bootstrap snapshot still returned other users' private work items. That is fixed locally before the next push, including dependent comments, attachments, custom property values, and item-description documents. The repeated WorkOS CDN 404s were traced to stale external avatar/logo URLs and are now handled by app-owned fallbacks instead of repeatedly rendering broken images.
 **Outcome:** local review clean; ready for one batched commit/push and PR automation rerun. No open Critical/High/Medium findings remain in the current local diff.
@@ -101,14 +102,14 @@
 
 ### External finding import
 
-| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
-| ------ | ------- | -------------- | --------- | ------------------------ | ------ |
-| Codex inline review | Full bootstrap returns other users' private tasks | Resolved locally | tenancy / payload privacy | private work visibility must filter before derived collections and returned snapshot data | Filtered `visibleWorkItems` before IDs, comments, attachments, custom property values, item-description docs, and return payload; added regression coverage |
-| Codex inline review | Property definition changes only invalidate team work index | Already fixed in current tree | read-model invalidation | custom property definitions are consumed by item details, project details/indexes, view catalogs, workspace/personal work indexes | Current `getCustomPropertyDefinitionScopeKeys` includes those scopes and selector tests assert them |
-| Codex inline review | Custom property changes omit project read models | Already fixed in current tree | read-model invalidation | project pages depend on custom property definitions/values | Current helper adds project detail and project index scopes for affected item projects |
-| Codex / DR-001 | Duplicate select option IDs allowed | Already fixed in current tree | identity / persistence contract | option IDs must be unique independent of labels | Route schema and Convex handler both reject duplicate normalized IDs; contract tests cover create |
-| Codex inline review | Document index linked project/item/team payloads and invalidation | Already fixed in current tree | payload completeness / stale index | docs display properties must carry and invalidate referenced entities | Current selectors and invalidation tests cover linked entities |
-| User console logs | Repeated 404s for stale WorkOS/avatar/logo image URLs | Resolved locally | fallback / legacy data compatibility | broken external media must fall back without corrupting stored data | Shared avatar image failure cache and workspace logo `onError` fallbacks added |
+| Source              | Finding                                                           | Current status                | Bug class                            | Missed invariant/variant                                                                                                          | Action                                                                                                                                                      |
+| ------------------- | ----------------------------------------------------------------- | ----------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex inline review | Full bootstrap returns other users' private tasks                 | Resolved locally              | tenancy / payload privacy            | private work visibility must filter before derived collections and returned snapshot data                                         | Filtered `visibleWorkItems` before IDs, comments, attachments, custom property values, item-description docs, and return payload; added regression coverage |
+| Codex inline review | Property definition changes only invalidate team work index       | Already fixed in current tree | read-model invalidation              | custom property definitions are consumed by item details, project details/indexes, view catalogs, workspace/personal work indexes | Current `getCustomPropertyDefinitionScopeKeys` includes those scopes and selector tests assert them                                                         |
+| Codex inline review | Custom property changes omit project read models                  | Already fixed in current tree | read-model invalidation              | project pages depend on custom property definitions/values                                                                        | Current helper adds project detail and project index scopes for affected item projects                                                                      |
+| Codex / DR-001      | Duplicate select option IDs allowed                               | Already fixed in current tree | identity / persistence contract      | option IDs must be unique independent of labels                                                                                   | Route schema and Convex handler both reject duplicate normalized IDs; contract tests cover create                                                           |
+| Codex inline review | Document index linked project/item/team payloads and invalidation | Already fixed in current tree | payload completeness / stale index   | docs display properties must carry and invalidate referenced entities                                                             | Current selectors and invalidation tests cover linked entities                                                                                              |
+| User console logs   | Repeated 404s for stale WorkOS/avatar/logo image URLs             | Resolved locally              | fallback / legacy data compatibility | broken external media must fall back without corrupting stored data                                                               | Shared avatar image failure cache and workspace logo `onError` fallbacks added                                                                              |
 
 ### Resolved / Carried / New findings
 
