@@ -21,6 +21,7 @@ import {
 } from "./access"
 import { normalizeTeam } from "./normalization"
 import {
+  assertViewLabelIds,
   assertWorkspaceLabelIds,
   requireViewMutationAccess,
   resolveViewWorkspaceId,
@@ -523,7 +524,12 @@ export async function toggleViewFilterValueHandler(
       throw new Error("Workspace not found")
     }
 
-    await assertWorkspaceLabelIds(ctx, workspaceId, next)
+    await assertViewLabelIds(ctx, {
+      currentUserId: args.currentUserId,
+      labelIds: next,
+      view,
+      workspaceId,
+    })
   }
 
   await ctx.db.patch(view._id, {

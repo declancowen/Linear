@@ -17,6 +17,7 @@ import {
 import {
   isLabelAssignableToWorkItem,
   getLabelScopeType,
+  isLabelVisibleToUser,
 } from "../../lib/domain/labels"
 import { resolveWorkItemProjectLinkUpdate } from "../../lib/domain/work-item-project-links"
 import type { MutationCtx } from "../_generated/server"
@@ -615,6 +616,47 @@ export async function assertWorkspaceLabelIds(
   )
 
   if (uniqueLabelIds.some((labelId) => !workspaceLabelIds.has(labelId))) {
+    throw new Error("One or more labels are invalid")
+  }
+}
+
+export async function assertViewLabelIds(
+  ctx: AppCtx,
+  input: {
+    currentUserId: string
+    labelIds: Iterable<string> | null | undefined
+    view: Pick<ViewDefinition, "entityKind" | "scopeId" | "scopeType">
+    workspaceId: string
+  }
+) {
+  const uniqueLabelIds = [...new Set(input.labelIds ?? [])]
+
+  if (uniqueLabelIds.length === 0) {
+    return
+  }
+
+  const workspaceLabels = await listLabelsByWorkspace(ctx, input.workspaceId)
+  const labelsById = new Map(workspaceLabels.map((label) => [label.id, label]))
+  const canUsePrivateLabels =
+    input.view.scopeType === "personal" &&
+    input.view.scopeId === input.currentUserId &&
+    input.view.entityKind === "items"
+
+  const invalid = uniqueLabelIds.some((labelId) => {
+    const label = labelsById.get(labelId)
+
+    if (!label || label.workspaceId !== input.workspaceId) {
+      return true
+    }
+
+    if (canUsePrivateLabels) {
+      return !isLabelVisibleToUser(label, input.currentUserId)
+    }
+
+    return getLabelScopeType(label) !== "workspace"
+  })
+
+  if (invalid) {
     throw new Error("One or more labels are invalid")
   }
 }

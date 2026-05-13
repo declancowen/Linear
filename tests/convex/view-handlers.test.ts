@@ -7,6 +7,7 @@ const requireEditableWorkspaceAccessMock = vi.fn()
 const getCustomPropertyDefinitionDocMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const normalizeTeamMock = vi.fn()
+const assertViewLabelIdsMock = vi.fn()
 const assertWorkspaceLabelIdsMock = vi.fn()
 const requireViewMutationAccessMock = vi.fn()
 const resolveViewWorkspaceIdMock = vi.fn()
@@ -33,6 +34,7 @@ vi.mock("@/convex/app/normalization", () => ({
 }))
 
 vi.mock("@/convex/app/work_helpers", () => ({
+  assertViewLabelIds: assertViewLabelIdsMock,
   assertWorkspaceLabelIds: assertWorkspaceLabelIdsMock,
   requireViewMutationAccess: requireViewMutationAccessMock,
   resolveViewWorkspaceId: resolveViewWorkspaceIdMock,
@@ -58,6 +60,7 @@ describe("view handlers", () => {
     getCustomPropertyDefinitionDocMock.mockReset()
     getTeamDocMock.mockReset()
     normalizeTeamMock.mockReset()
+    assertViewLabelIdsMock.mockReset()
     assertWorkspaceLabelIdsMock.mockReset()
     requireViewMutationAccessMock.mockReset()
     resolveViewWorkspaceIdMock.mockReset()
@@ -110,6 +113,9 @@ describe("view handlers", () => {
 
     requireViewMutationAccessMock.mockResolvedValue({
       _id: "view_doc_1",
+      scopeType: "personal",
+      scopeId: "user_1",
+      entityKind: "items",
       filters: {
         labelIds: ["label_1", "label_2"],
         status: ["todo"],
@@ -151,6 +157,21 @@ describe("view handlers", () => {
         status: ["todo"],
       },
       updatedAt: "2026-04-21T09:00:00.000Z",
+    })
+    expect(assertViewLabelIdsMock).toHaveBeenCalledWith(ctx, {
+      currentUserId: "user_1",
+      labelIds: ["label_1", "label_2", "label_3"],
+      view: {
+        _id: "view_doc_1",
+        scopeType: "personal",
+        scopeId: "user_1",
+        entityKind: "items",
+        filters: {
+          labelIds: ["label_1", "label_2"],
+          status: ["todo"],
+        },
+      },
+      workspaceId: "workspace_1",
     })
   })
 

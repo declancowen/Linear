@@ -28,11 +28,59 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-13 13:42 BST |
-| **Total turns**       | 14                   |
+| **Last reviewed**     | 2026-05-13 13:59 BST |
+| **Total turns**       | 15                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 33                   |
+| **Resolved findings** | 34                   |
 | **Accepted findings** | 0                    |
+
+## Turn 15 — 2026-05-13 13:59 BST
+
+| Field           | Value                              |
+| --------------- | ---------------------------------- |
+| **Scope**       | GitHub Codex review follow-up for private labels in personal item view filters |
+| **Review type** | Targeted diff-review + architecture validation-boundary check |
+| **Reviewer**    | Codex CLI                          |
+| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings |
+
+### Commands run
+
+- `gh pr view 34 --json headRefOid,latestReviews,reviewDecision,statusCheckRollup,url` — confirmed current PR context before triage
+- `gh api graphql ... reviewThreads` — found current-head P2 thread `PRRT_kwDOR_9-1s6BwWR5` for private labels being offered by personal item views but rejected by workspace-only label validation
+- `pnpm install --frozen-lockfile` — restored the package/toolchain state after removing accidental local runtime/package changes
+- `pnpm test tests/convex/work-helpers.test.ts tests/convex/view-handlers.test.ts` — passed, 2 files / 11 tests
+- `pnpm exec eslint convex/app/work_helpers.ts convex/app/view_handlers.ts tests/convex/work-helpers.test.ts tests/convex/view-handlers.test.ts --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm build` — passed
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; no dead code or health finding, with one low-risk duplicate test-setup clone group
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; no branch-specific architecture blocker, with the same limited test duplication signal
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** label domain helpers, workspace label validation, work-item label assignment validation, view filter mutation handling, and create-view scope limits.
+- **Prior open findings rechecked:** The current-head Codex thread was live and mapped to `toggleViewFilterValueHandler` using `assertWorkspaceLabelIds` for every label filter mutation.
+- **Prior resolved/adjacent areas revalidated:** Team/workspace view creation still uses workspace-only labels because the create-view handler only supports team and workspace scopes.
+- **Hotspots or sibling paths revisited:** Private task label assignment remains owned by the work-item label validator, while personal item view filters now validate visible labels through the view-aware validator.
+- **Dependency/adjacent surfaces revalidated:** Team/workspace and non-item views still reject private labels; owned personal item views can use workspace labels and the current user's private labels but reject another user's private labels.
+- **Why this is enough:** The authoritative Convex mutation boundary now matches the UI/read-model behavior that can surface private labels inside personal item views without weakening shared view validation.
+
+### Challenger pass
+
+- done — Rechecked whether changing `assertWorkspaceLabelIds` globally would be simpler. That would allow private labels in shared project/workspace contexts, so the fix is a narrower view-aware validator used only by label filter toggles.
+
+### Resolved / Carried / New findings
+
+#### WPDV-34 — resolved — private labels in personal item view filters were rejected by workspace-only validation
+
+- **Severity:** medium
+- **Evidence:** current-head Codex review thread `PRRT_kwDOR_9-1s6BwWR5` flagged that personal item views can display private label filter options from visible items, but saving/toggling the filter rejected every non-workspace label.
+- **Fix:** Added `assertViewLabelIds`, which permits visible labels for the current user's owned personal item views and preserves workspace-only validation everywhere else; `toggleViewFilterValueHandler` now uses that view-aware validator.
+- **Prevention:** Added Convex helper coverage for allowed/rejected private labels and a view-handler test proving label filter toggles call the view-aware validator with the full view scope.
+
+### Residual risk
+
+- Diff-review and architecture preflight both reported one duplicate clone group from focused test setup/branch variants. This is accepted for this turn because the duplication is confined to tests and no production dead-code, health, or architecture blocker was found.
 
 ## Turn 14 — 2026-05-13 13:42 BST
 
