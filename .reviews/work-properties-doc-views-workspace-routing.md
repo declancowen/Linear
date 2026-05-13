@@ -28,11 +28,59 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-13 13:30 BST |
-| **Total turns**       | 13                   |
+| **Last reviewed**     | 2026-05-13 13:42 BST |
+| **Total turns**       | 14                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 32                   |
+| **Resolved findings** | 33                   |
 | **Accepted findings** | 0                    |
+
+## Turn 14 — 2026-05-13 13:42 BST
+
+| Field           | Value                              |
+| --------------- | ---------------------------------- |
+| **Scope**       | GitHub Codex review follow-up for `/workspaces`, plus local team-icon and live-doc awareness fixes |
+| **Review type** | Targeted diff-review + architecture routing/state boundary check |
+| **Reviewer**    | Codex CLI                          |
+| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings |
+
+### Commands run
+
+- `gh pr view 34 --json headRefOid,latestReviews,reviewDecision,statusCheckRollup,url` — confirmed latest pushed head `d1aed497` had green CI and a new Codex review
+- `gh api graphql ... reviewThreads` — found one current-head P2 thread for `/workspaces` redirecting away when a valid selected-workspace cookie exists
+- `pnpm test tests/app/root-pages.test.tsx tests/hooks/use-document-collaboration.test.tsx tests/components/settings-screen-helpers.test.ts tests/lib/store/workspace-slice.test.ts` — passed, 4 files / 36 tests
+- `pnpm typecheck` — passed
+- `pnpm exec eslint app/workspaces/page.tsx components/app/settings-screens/team-settings-draft.tsx hooks/use-document-collaboration.ts tests/app/root-pages.test.tsx tests/hooks/use-document-collaboration.test.tsx tests/components/settings-screen-helpers.test.ts tests/lib/store/workspace-slice.test.ts --max-warnings 0` — passed
+- `git diff --check` — passed
+- `pnpm build` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; changed-file audit passed with dead code `0`, complexity `0`, clone groups `0`
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; production health and production duplication clean, no branch-specific architecture blocker
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** workspace entry routing, `/workspaces` route rendering, workspace selector component contract, team settings save path, app-store team detail update path, and document collaboration awareness event handling.
+- **Prior open findings rechecked:** The latest current-head Codex thread was live and mapped to the current `/workspaces` route. It is fixed locally in this turn.
+- **Prior resolved/adjacent areas revalidated:** Team icon persistence remains covered by store tests, and the team settings helper now avoids a stale server refresh that could overwrite the optimistic sidebar update.
+- **Hotspots or sibling paths revisited:** Single/zero workspace entry behavior still redirects through the existing navigation resolver; multiple workspace users can manually open the selector route even when their selected cookie is valid.
+- **Dependency/adjacent surfaces revalidated:** Live document awareness updates now no-op when duplicate same-user sessions emit unchanged presence heartbeats, avoiding a React update loop while preserving real position changes.
+- **Why this is enough:** The selector-route decision now depends on available workspace count rather than only the resolver navigation kind, so manual workspace switching remains reachable without weakening first-entry routing.
+
+### Challenger pass
+
+- done — Rechecked whether `navigation.kind === "selector"` alone was the correct render gate. It was not, because the same resolver also returns `target` for multi-workspace users with a valid cookie, even when they explicitly navigate to `/workspaces`.
+
+### Resolved / Carried / New findings
+
+#### WPDV-33 — resolved — workspace selector route redirected away for multi-workspace users with a valid cookie
+
+- **Severity:** medium
+- **Evidence:** current-head Codex review thread `PRRT_kwDOR_9-1s6BwEz5` flagged `/workspaces` as unusable for manual switching when `resolveWorkspaceEntryNavigation` returned `kind: "target"` due to an already-selected workspace.
+- **Fix:** `/workspaces` now renders the selector whenever at least two workspaces are available, while zero/one workspace users still follow the existing redirect path.
+- **Prevention:** Added root-page coverage proving the selector route renders for two workspaces even when the resolver reports a valid selected workspace target.
+
+### Additional local fixes
+
+- Team settings no longer calls `router.refresh()` after `updateTeamDetails()`, so the sidebar uses the optimistic store update immediately instead of being clobbered by a stale server seed.
+- Document collaboration viewer state now ignores unchanged awareness heartbeats, which prevents duplicate same-user browser sessions from causing maximum-update-depth loops while still updating when active block presence changes.
 
 ## Turn 13 — 2026-05-13 13:30 BST
 

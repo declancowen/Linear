@@ -156,6 +156,27 @@ function captureSessionStatusChanges(
   }
 }
 
+function captureSessionAwarenessChanges(
+  session: ReturnType<typeof createSession>
+) {
+  let awarenessListener:
+    | Parameters<typeof session.onAwarenessChange>[0]
+    | null = null
+
+  session.onAwarenessChange = vi.fn((listener) => {
+    awarenessListener = listener
+    return vi.fn()
+  })
+
+  return {
+    emit(change: Parameters<NonNullable<typeof awarenessListener>>[0]) {
+      act(() => {
+        awarenessListener?.(change)
+      })
+    },
+  }
+}
+
 async function expectBootstrappingCollaboration(
   result: CollaborationHookResult,
   options: {
@@ -456,6 +477,114 @@ describe("useDocumentCollaboration", () => {
     })
 
     await expectAttachedCollaboration(result)
+  })
+
+  it("ignores unchanged awareness heartbeats from duplicate same-user sessions", async () => {
+    const session = createSession()
+    const awarenessChanges = captureSessionAwarenessChanges(session)
+
+    mockOpenSession(session)
+    const { result } = await renderCollaborationHook()
+
+    await expectAttachedCollaboration(result)
+
+    awarenessChanges.emit({
+      local: {
+        userId: "user_1",
+        sessionId: "session_1",
+        name: "Alex",
+        avatarUrl: "https://example.com/avatar.png",
+        color: "#123456",
+        typing: false,
+        activeBlockId: "paragraph:1",
+        cursor: null,
+        selection: null,
+        cursorSide: null,
+      },
+      remote: [
+        {
+          userId: "user_1",
+          sessionId: "session_2",
+          name: "Alex",
+          avatarUrl: "https://example.com/avatar.png",
+          color: "#123456",
+          typing: false,
+          activeBlockId: "paragraph:1",
+          cursor: null,
+          selection: null,
+          cursorSide: null,
+        },
+      ],
+    })
+
+    await waitFor(() => {
+      expect(result.current.viewers).toHaveLength(2)
+    })
+
+    const firstViewers = result.current.viewers
+
+    awarenessChanges.emit({
+      local: {
+        userId: "user_1",
+        sessionId: "session_1",
+        name: "Alex",
+        avatarUrl: "https://example.com/avatar.png",
+        color: "#123456",
+        typing: false,
+        activeBlockId: "paragraph:1",
+        cursor: null,
+        selection: null,
+        cursorSide: null,
+      },
+      remote: [
+        {
+          userId: "user_1",
+          sessionId: "session_2",
+          name: "Alex",
+          avatarUrl: "https://example.com/avatar.png",
+          color: "#123456",
+          typing: false,
+          activeBlockId: "paragraph:1",
+          cursor: null,
+          selection: null,
+          cursorSide: null,
+        },
+      ],
+    })
+
+    expect(result.current.viewers).toBe(firstViewers)
+
+    awarenessChanges.emit({
+      local: {
+        userId: "user_1",
+        sessionId: "session_1",
+        name: "Alex",
+        avatarUrl: "https://example.com/avatar.png",
+        color: "#123456",
+        typing: false,
+        activeBlockId: "paragraph:1",
+        cursor: null,
+        selection: null,
+        cursorSide: null,
+      },
+      remote: [
+        {
+          userId: "user_1",
+          sessionId: "session_2",
+          name: "Alex",
+          avatarUrl: "https://example.com/avatar.png",
+          color: "#123456",
+          typing: false,
+          activeBlockId: "paragraph:2",
+          cursor: null,
+          selection: null,
+          cursorSide: null,
+        },
+      ],
+    })
+
+    expect(result.current.viewers).not.toBe(firstViewers)
+    expect(result.current.viewers[1]?.activeBlockId).toBe("paragraph:2")
   })
 
   it("does not attach collaboration early when initial sync times out", async () => {

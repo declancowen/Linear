@@ -61,6 +61,31 @@ function mapAwarenessViewer(
   }
 }
 
+function arePresenceViewersSemanticallyEqual(
+  left: DocumentPresenceViewer,
+  right: DocumentPresenceViewer
+) {
+  return (
+    left.userId === right.userId &&
+    left.name === right.name &&
+    left.avatarImageUrl === right.avatarImageUrl &&
+    left.avatarUrl === right.avatarUrl &&
+    left.activeBlockId === right.activeBlockId
+  )
+}
+
+function arePresenceViewerListsSemanticallyEqual(
+  left: DocumentPresenceViewer[],
+  right: DocumentPresenceViewer[]
+) {
+  return (
+    left.length === right.length &&
+    left.every((viewer, index) =>
+      arePresenceViewersSemanticallyEqual(viewer, right[index])
+    )
+  )
+}
+
 type CollaborationLifecycleState =
   | "legacy"
   | "bootstrapping"
@@ -835,13 +860,22 @@ function useCollaborationStateEvents(
       local: CollaborationAwarenessState | null,
       remote: CollaborationAwarenessState[]
     ) => {
-      setState((current) => ({
-        ...current,
-        viewers: [
+      setState((current) => {
+        const viewers = [
           ...(local ? [mapAwarenessViewer(local)] : []),
           ...remote.map(mapAwarenessViewer),
-        ],
-      }))
+        ]
+
+        return arePresenceViewerListsSemanticallyEqual(
+          current.viewers,
+          viewers
+        )
+          ? current
+          : {
+              ...current,
+              viewers,
+            }
+      })
     },
     [setState]
   )

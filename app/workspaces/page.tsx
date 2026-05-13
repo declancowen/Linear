@@ -64,7 +64,7 @@ export default async function WorkspacesPage({
     workspaceId: currentWorkspace.id,
   })
 
-  if (navigation.kind !== "selector") {
+  if (navigation.kind !== "selector" && data.workspaces.length < 2) {
     redirect(navigation.path)
   }
 
