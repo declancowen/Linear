@@ -191,6 +191,41 @@ describe("work item handlers", () => {
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 
+  it("drops assignees from private creates before storing or notifying", async () => {
+    const { createWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    ctx.db.query.mockReturnValue({
+      withIndex: vi.fn(() => ({
+        collect: vi.fn().mockResolvedValue([]),
+      })),
+    })
+
+    const result = await createWorkItemHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+      teamId: "team_1",
+      type: "task",
+      title: "Private task",
+      primaryProjectId: "project_1",
+      assigneeId: "user_2",
+      priority: "medium",
+      visibility: "private",
+    })
+
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "workItems",
+      expect.objectContaining({
+        assigneeId: null,
+        primaryProjectId: null,
+        visibility: "private",
+      })
+    )
+    expect(createNotificationMock).not.toHaveBeenCalled()
+    expect(result.assignmentEmails).toEqual([])
+  })
+
   it("creates work items with empty description documents", async () => {
     const { createWorkItemHandler } =
       await import("@/convex/app/work_item_handlers")

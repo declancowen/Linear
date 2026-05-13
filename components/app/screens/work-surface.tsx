@@ -21,6 +21,7 @@ import {
   type TeamExperienceType,
   type ViewDefinition,
   type WorkItem,
+  type WorkItemVisibility,
 } from "@/lib/domain/types"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
@@ -59,6 +60,7 @@ type WorkSurfaceChildDisplayMode = "direct" | "assigned-descendants"
 type WorkSurfaceCreateContext = {
   defaultTeamId?: string | null
   defaultProjectId?: string | null
+  defaultVisibility?: WorkItemVisibility
 }
 
 const EMPTY_FALLBACK_VIEWS: ViewDefinition[] = []
@@ -564,11 +566,17 @@ function getWorkSurfaceContentClassName(view: ViewDefinition | null) {
 
 function getResolvedWorkSurfaceCreateContext(
   createContext: WorkSurfaceCreateContext | undefined,
-  resolvedCreateTeamId: string | null
+  resolvedCreateTeamId: string | null,
+  view: ViewDefinition
 ): WorkSurfaceCreateContext {
+  const createsPrivateWorkItem = view.filters.visibility?.includes("private")
+
   return {
     defaultTeamId: createContext?.defaultTeamId ?? resolvedCreateTeamId,
     defaultProjectId: createContext?.defaultProjectId ?? null,
+    defaultVisibility:
+      createContext?.defaultVisibility ??
+      (createsPrivateWorkItem ? "private" : undefined),
   }
 }
 
@@ -632,7 +640,8 @@ function WorkSurfaceActiveContent({
 }) {
   const resolvedCreateContext = getResolvedWorkSurfaceCreateContext(
     createContext,
-    resolvedCreateTeamId
+    resolvedCreateTeamId,
+    view
   )
   const hiddenValueHandler = usingFallbackViews
     ? undefined
@@ -1040,7 +1049,6 @@ export function WorkSurface({
         ? {
             initialType: "task" as const,
             defaultValues: {
-              assigneeId: data.currentUserId,
               primaryProjectId: null,
               visibility: "private" as const,
             },

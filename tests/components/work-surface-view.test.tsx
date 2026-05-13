@@ -3,7 +3,9 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("next/link", async () =>
-  (await import("@/tests/lib/fixtures/component-stubs")).createNextLinkStubModule()
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createNextLinkStubModule()
 )
 
 vi.mock("next/navigation", () => ({
@@ -44,9 +46,8 @@ vi.mock("@/components/app/screens/work-item-ui", () => ({
 }))
 
 vi.mock("@/components/ui/template-primitives", async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import("@/components/ui/template-primitives")
-  >()
+  const actual =
+    await importOriginal<typeof import("@/components/ui/template-primitives")>()
 
   return {
     ...actual,
@@ -58,10 +59,7 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
   openManagedCreateDialog: vi.fn(),
 }))
 
-import {
-  BoardView,
-  ListView,
-} from "@/components/app/screens/work-surface-view"
+import { BoardView, ListView } from "@/components/app/screens/work-surface-view"
 import { BoardChildItemRow } from "@/components/app/screens/work-surface-view/board-child-item-row"
 import { requestWorkSurfaceDragUpdate } from "@/components/app/screens/work-surface-view/drag-state"
 import {
@@ -667,6 +665,80 @@ describe("ListView", () => {
     )
   })
 
+  it("opens grouped creates in the private tasks destination for private views", () => {
+    const data = {
+      ...createEditableData(),
+      workItems: [],
+    }
+
+    const view = createView("board", [], {
+      filters: {
+        ...createDefaultViewFilters(),
+        visibility: ["private"],
+      },
+      grouping: "status",
+    })
+    const createContext = {
+      defaultTeamId: "team_1",
+      defaultProjectId: null,
+      defaultVisibility: "private" as const,
+    }
+
+    const { rerender } = render(
+      <BoardView
+        data={data}
+        items={[]}
+        scopedItems={[]}
+        view={view}
+        editable
+        createContext={createContext}
+      />
+    )
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Add item" })[0])
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultProjectId: null,
+        defaultValues: expect.objectContaining({
+          assigneeId: null,
+          primaryProjectId: null,
+          status: "backlog",
+          visibility: "private",
+        }),
+      })
+    )
+
+    vi.mocked(openManagedCreateDialog).mockClear()
+
+    rerender(
+      <ListView
+        data={data}
+        items={[]}
+        scopedItems={[]}
+        view={{ ...view, layout: "list" }}
+        editable
+        createContext={createContext}
+      />
+    )
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Add item" })[0])
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultProjectId: null,
+        defaultValues: expect.objectContaining({
+          assigneeId: null,
+          primaryProjectId: null,
+          status: "backlog",
+          visibility: "private",
+        }),
+      })
+    )
+  })
+
   it("does not synthesize create-context groups for read-only empty surfaces", () => {
     const data = {
       ...createEditableData(),
@@ -870,9 +942,7 @@ describe("ListView", () => {
 
     expect(screen.queryByLabelText("Drag Ship it")).not.toBeInTheDocument()
     expect(
-      screen
-        .getByText("Ship it")
-        .closest('[aria-roledescription="draggable"]')
+      screen.getByText("Ship it").closest('[aria-roledescription="draggable"]')
     ).toBeTruthy()
   })
 
@@ -905,7 +975,9 @@ describe("ListView", () => {
 
   it("preserves grouped parent defaults when adding an item from epic lanes", () => {
     const data = createEpicGroupedCreateData()
-    const groupedItems = data.workItems.filter((item) => item.id === "feature-child")
+    const groupedItems = data.workItems.filter(
+      (item) => item.id === "feature-child"
+    )
     const view = createView("board", [], {
       grouping: "epic",
       hiddenState: {
@@ -1039,7 +1111,9 @@ describe("ListView", () => {
 
   it("does not show fallback child counts when assigned-descendant containers have no visible descendants", () => {
     const data = createAssignedHierarchyWithoutVisibleDescendantsData()
-    const items = data.workItems.filter((item) => item.id === "epic-parent-empty")
+    const items = data.workItems.filter(
+      (item) => item.id === "epic-parent-empty"
+    )
 
     const { rerender } = render(
       <ListView

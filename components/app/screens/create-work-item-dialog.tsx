@@ -695,6 +695,7 @@ function LabelsPicker({
 }
 
 function CreateWorkItemPropertiesRow({
+  showAssignee,
   team,
   status,
   teamStatuses,
@@ -751,6 +752,7 @@ function CreateWorkItemPropertiesRow({
   onClearLabels,
   onCreateLabel,
 }: {
+  showAssignee: boolean
   team: Team | null
   status: WorkStatus
   teamStatuses: WorkStatus[]
@@ -828,17 +830,19 @@ function CreateWorkItemPropertiesRow({
         onSelect={onPriorityChange}
       />
 
-      <AssigneePicker
-        open={assigneePickerOpen}
-        onOpenChange={setAssigneePickerOpen}
-        query={assigneeQuery}
-        onQueryChange={setAssigneeQuery}
-        team={team}
-        teamMembers={teamMembers}
-        selectedAssignee={selectedAssignee}
-        effectiveAssigneeId={effectiveAssigneeId}
-        onAssigneeChange={onAssigneeChange}
-      />
+      {showAssignee ? (
+        <AssigneePicker
+          open={assigneePickerOpen}
+          onOpenChange={setAssigneePickerOpen}
+          query={assigneeQuery}
+          onQueryChange={setAssigneeQuery}
+          team={team}
+          teamMembers={teamMembers}
+          selectedAssignee={selectedAssignee}
+          effectiveAssigneeId={effectiveAssigneeId}
+          onAssigneeChange={onAssigneeChange}
+        />
+      ) : null}
 
       <ProjectPicker
         open={projectPickerOpen}
@@ -951,9 +955,7 @@ function CreateWorkItemFooter({
           {destinationLabel ? (
             <>
               Adding to{" "}
-              <b className="font-medium text-foreground">
-                {destinationLabel}
-              </b>
+              <b className="font-medium text-foreground">{destinationLabel}</b>
             </>
           ) : selectedProject ? (
             <>
@@ -1263,7 +1265,9 @@ function getInitialCreateWorkItemState({
     type: privateTaskMode ? "task" : getInitialWorkItemType(initialType, team),
     status: getInitialStatus(defaultValues, statuses),
     priority: defaultValues?.priority ?? "none",
-    assigneeId: getInitialAssigneeId(defaultValues, teamMemberships, teamId),
+    assigneeId: privateTaskMode
+      ? "none"
+      : getInitialAssigneeId(defaultValues, teamMemberships, teamId),
     projectId: getInitialProjectId({
       defaultValues,
       defaultProjectId,
@@ -1627,7 +1631,6 @@ function applyTeamSelection({
 }
 
 function applyPrivateDestination({
-  currentUserId,
   setDestination,
   setType,
   setAssigneeId,
@@ -1637,7 +1640,6 @@ function applyPrivateDestination({
   setNewLabelName,
   setCreatingLabel,
 }: {
-  currentUserId: string
   setDestination: Dispatch<SetStateAction<CreateWorkItemDestination>>
   setType: Dispatch<SetStateAction<WorkItemType>>
   setAssigneeId: Dispatch<SetStateAction<string>>
@@ -1649,7 +1651,7 @@ function applyPrivateDestination({
 }) {
   setDestination("private")
   setType("task")
-  setAssigneeId(currentUserId)
+  setAssigneeId("none")
   setProjectId("none")
   setSelectedParentId("none")
   setSelectedLabelIds([])
@@ -1776,7 +1778,10 @@ function createWorkItemFromDialogState({
     status,
     labelIds: selectedLabelIds,
     visibility,
-    assigneeId: effectiveAssigneeId === "none" ? null : effectiveAssigneeId,
+    assigneeId:
+      visibility === "private" || effectiveAssigneeId === "none"
+        ? null
+        : effectiveAssigneeId,
     primaryProjectId: effectiveProjectId === "none" ? null : effectiveProjectId,
     startDate,
     dueDate,
@@ -1834,8 +1839,8 @@ export function CreateWorkItemDialog({
       workItems: state.workItems,
     }))
   )
-  const [destination, setDestination] = useState<CreateWorkItemDestination>(() =>
-    getInitialDestination(defaultValues)
+  const [destination, setDestination] = useState<CreateWorkItemDestination>(
+    () => getInitialDestination(defaultValues)
   )
   const privateLaunchMode = defaultValues?.visibility === "private"
   const privateTaskMode = destination === "private"
@@ -2061,7 +2066,6 @@ export function CreateWorkItemDialog({
   function handleSelectDestination(destinationId: string) {
     if (destinationId === PRIVATE_TASK_DESTINATION_ID) {
       applyPrivateDestination({
-        currentUserId,
         setDestination,
         setType,
         setAssigneeId,
@@ -2182,6 +2186,7 @@ export function CreateWorkItemDialog({
         />
 
         <CreateWorkItemPropertiesRow
+          showAssignee={!privateTaskMode}
           team={team}
           status={status}
           teamStatuses={teamStatuses}

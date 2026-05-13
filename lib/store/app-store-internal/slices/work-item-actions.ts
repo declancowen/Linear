@@ -733,7 +733,16 @@ export function createWorkItemActions({
         return null
       }
 
-      const validationMessage = getWorkItemValidationMessage(get(), parsed.data)
+      const parsedInput =
+        parsed.data.visibility === "private"
+          ? {
+              ...parsed.data,
+              assigneeId: null,
+              primaryProjectId: null,
+            }
+          : parsed.data
+
+      const validationMessage = getWorkItemValidationMessage(get(), parsedInput)
 
       if (validationMessage) {
         toast.error(validationMessage)
@@ -742,12 +751,12 @@ export function createWorkItemActions({
 
       let createdItemId: string | null = null
       let createdDescriptionDocId: string | null = null
-      const dates = resolveCreateWorkItemDates(parsed.data)
+      const dates = resolveCreateWorkItemDates(parsedInput)
 
       set((state) => {
         const optimisticCreation = buildOptimisticWorkItemCreationState(state, {
           dates,
-          parsedInput: parsed.data,
+          parsedInput,
         })
 
         if (!optimisticCreation) {
@@ -764,7 +773,7 @@ export function createWorkItemActions({
       }
 
       const createTask = syncCreateWorkItem(get().currentUserId, {
-        ...parsed.data,
+        ...parsedInput,
         id: createdItemId,
         descriptionDocId: createdDescriptionDocId ?? undefined,
         startDate: dates.startDate,

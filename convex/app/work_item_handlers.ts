@@ -58,10 +58,7 @@ import {
   projectBelongsToTeamScope,
   validateWorkItemParent,
 } from "./work_helpers"
-import {
-  requireEditableTeamDoc,
-  requireEditableWorkItemAccess,
-} from "./access"
+import { requireEditableTeamDoc, requireEditableWorkItemAccess } from "./access"
 import { queueEmailJobs } from "./email_job_handlers"
 
 type ServerAccessArgs = {
@@ -1175,12 +1172,20 @@ async function assertCreateWorkItemAssignee(
   ctx: MutationCtx,
   args: CreateWorkItemArgs
 ) {
+  if (args.visibility === "private") {
+    return
+  }
+
   if (
     args.assigneeId &&
     !(await isTeamMember(ctx, args.teamId, args.assigneeId))
   ) {
     throw new Error("Assignee must belong to the selected team")
   }
+}
+
+function getCreateWorkItemAssigneeId(args: CreateWorkItemArgs) {
+  return args.visibility === "private" ? null : args.assigneeId
 }
 
 async function assertCreateWorkItemLabels(
@@ -1226,6 +1231,10 @@ function getCreateWorkItemProjectId({
   args: CreateWorkItemArgs
   parent: Awaited<ReturnType<typeof validateWorkItemParent>>
 }) {
+  if (args.visibility === "private") {
+    return null
+  }
+
   return parent ? (parent.primaryProjectId ?? null) : args.primaryProjectId
 }
 
@@ -1359,7 +1368,7 @@ function buildCreatedWorkItem({
     descriptionDocId,
     status: args.status ?? ("backlog" as const),
     priority: args.priority,
-    assigneeId: args.assigneeId,
+    assigneeId: getCreateWorkItemAssigneeId(args),
     creatorId: args.currentUserId,
     parentId: parent?.id ?? null,
     primaryProjectId: resolvedPrimaryProjectId,
@@ -1389,15 +1398,16 @@ async function notifyCreatedWorkItemAssignee({
   workItemId: string
 }) {
   const assignmentEmails: AssignmentEmail[] = []
+  const assigneeId = getCreateWorkItemAssigneeId(args)
 
-  if (!args.assigneeId) {
+  if (!assigneeId) {
     return assignmentEmails
   }
 
   const actor = await getUserDoc(ctx, args.currentUserId)
-  const assignee = await getUserDoc(ctx, args.assigneeId)
+  const assignee = await getUserDoc(ctx, assigneeId)
   const notification = createNotification(
-    args.assigneeId,
+    assigneeId,
     args.currentUserId,
     buildWorkItemAssignmentNotificationMessage(
       actor?.name ?? "Someone",

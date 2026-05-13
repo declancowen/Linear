@@ -259,7 +259,9 @@ function seedParentFeatureProject(includeLaneProject = false) {
 }
 
 function spyOnCreateView() {
-  return vi.spyOn(useAppStore.getState(), "createView").mockReturnValue("view_1")
+  return vi
+    .spyOn(useAppStore.getState(), "createView")
+    .mockReturnValue("view_1")
 }
 
 function spyOnCreateWorkItem() {
@@ -290,9 +292,7 @@ async function selectCreateDialogDestination(destinationName: string) {
 }
 
 function renderCreateViewDialog(dialog: CreateViewDialogConfig) {
-  render(
-    <CreateViewDialog open onOpenChange={vi.fn()} dialog={dialog} />
-  )
+  render(<CreateViewDialog open onOpenChange={vi.fn()} dialog={dialog} />)
 }
 
 function renderTeamItemsCreateViewDialog(
@@ -474,6 +474,9 @@ describe("create dialogs", () => {
 
       expect(screen.getAllByText("Private tasks").length).toBeGreaterThan(0)
       expect(screen.getByText(/Adding to/)).toHaveTextContent("Private tasks")
+      expect(
+        screen.queryByRole("button", { name: /Assignee/i })
+      ).not.toBeInTheDocument()
 
       fireEvent.change(screen.getByPlaceholderText("Task title"), {
         target: { value: "Private follow-up" },
@@ -484,7 +487,7 @@ describe("create dialogs", () => {
       await waitFor(() =>
         expect(createWorkItemSpy).toHaveBeenCalledWith(
           expect.objectContaining({
-            assigneeId: "user_1",
+            assigneeId: null,
             primaryProjectId: null,
             teamId: "team_1",
             type: "task",

@@ -48,6 +48,7 @@ import {
   type DisplayProperty,
   type ViewDefinition,
   type WorkItem,
+  type WorkItemVisibility,
   getCustomPropertyIdFromDisplayReference,
 } from "@/lib/domain/types"
 import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
@@ -261,16 +262,20 @@ function getCreateDefaultValues({
   createContext?: WorkSurfaceCreateContext
   groupedPatch: CreateDefaultsForFieldResult["patch"]
 }) {
+  const createsPrivateWorkItem = createContext?.defaultVisibility === "private"
+
   return {
     status: groupedPatch.status,
     priority: groupedPatch.priority,
-    assigneeId: groupedPatch.assigneeId,
-    primaryProjectId:
-      groupedPatch.primaryProjectId !== undefined
+    assigneeId: createsPrivateWorkItem ? null : groupedPatch.assigneeId,
+    primaryProjectId: createsPrivateWorkItem
+      ? null
+      : groupedPatch.primaryProjectId !== undefined
         ? groupedPatch.primaryProjectId
         : (createContext?.defaultProjectId ?? null),
     labelIds: groupedPatch.labelIds,
     parentId: groupedPatch.parentId ?? null,
+    visibility: createContext?.defaultVisibility,
   }
 }
 
@@ -372,6 +377,7 @@ function openCreateDialogForWorkSurfaceGroup({
 type WorkSurfaceCreateContext = {
   defaultTeamId?: string | null
   defaultProjectId?: string | null
+  defaultVisibility?: WorkItemVisibility
 }
 
 type WorkSurfaceViewProps = {
