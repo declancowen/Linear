@@ -1,4 +1,3 @@
-import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
@@ -61,7 +60,8 @@ vi.mock("@/lib/convex/client", () => ({
   fetchSnapshot: fetchSnapshotMock,
   syncClearDocumentPresence: syncClearDocumentPresenceMock,
   syncHeartbeatDocumentPresence: syncHeartbeatDocumentPresenceMock,
-  syncSendDocumentMentionNotifications: syncSendDocumentMentionNotificationsMock,
+  syncSendDocumentMentionNotifications:
+    syncSendDocumentMentionNotificationsMock,
   syncUpdateDocument: syncUpdateDocumentMock,
 }))
 
@@ -216,9 +216,8 @@ vi.mock("@/components/app/rich-text-editor", () => ({
 }))
 
 vi.mock("@/components/app/rich-text-content", async () => {
-  const { createRichTextContentStub } = await import(
-    "@/tests/lib/fixtures/component-stubs"
-  )
+  const { createRichTextContentStub } =
+    await import("@/tests/lib/fixtures/component-stubs")
 
   return {
     RichTextContent: createRichTextContentStub(richTextContentRenderMock),
@@ -266,9 +265,8 @@ async function dispatchVisibilityChange() {
 }
 
 vi.mock("@/components/app/screens/document-ui", async () => {
-  const { DocumentPresenceAvatarGroupStub } = await import(
-    "@/tests/lib/fixtures/component-stubs"
-  )
+  const { DocumentPresenceAvatarGroupStub } =
+    await import("@/tests/lib/fixtures/component-stubs")
 
   return {
     DocumentPresenceAvatarGroup: DocumentPresenceAvatarGroupStub,
@@ -276,9 +274,8 @@ vi.mock("@/components/app/screens/document-ui", async () => {
 })
 
 vi.mock("@/components/app/screens/shared", async () => {
-  const { MissingStateStub } = await import(
-    "@/tests/lib/fixtures/component-stubs"
-  )
+  const { MissingStateStub } =
+    await import("@/tests/lib/fixtures/component-stubs")
 
   return {
     MissingState: MissingStateStub,
@@ -302,30 +299,19 @@ vi.mock("@/components/ui/input", async () => {
 })
 
 vi.mock("@/components/ui/sidebar", async () => {
-  const { SidebarTriggerStub } = await import(
-    "@/tests/lib/fixtures/component-stubs"
-  )
+  const { SidebarTriggerStub } =
+    await import("@/tests/lib/fixtures/component-stubs")
 
   return {
     SidebarTrigger: SidebarTriggerStub,
   }
 })
 
-vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({
-    open,
-    children,
-  }: {
-    open: boolean
-    children: ReactNode
-  }) => (open ? <div>{children}</div> : null),
-  DialogContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DialogHeader: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DialogTitle: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DialogDescription: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-}))
+vi.mock("@/components/ui/dialog", async () =>
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createDialogStubModule()
+)
 
 vi.mock("@/components/ui/confirm-dialog", () => ({
   ConfirmDialog: () => null,
@@ -633,7 +619,7 @@ describe("DocumentDetailScreen", () => {
     expect(richTextContentRenderMock).toHaveBeenCalledWith(
       expect.objectContaining({
         content:
-          "<p><span class=\"editor-mention\" data-type=\"mention\" data-id=\"user_2\">@sam</span></p>",
+          '<p><span class="editor-mention" data-type="mention" data-id="user_2">@sam</span></p>',
       })
     )
   })
@@ -775,13 +761,18 @@ describe("DocumentDetailScreen", () => {
     expect(screen.getByText("Loading document...")).toBeInTheDocument()
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Async Doc" })).toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Async Doc" })
+      ).toBeInTheDocument()
     })
 
     expect(
-      consoleErrorSpy.mock.calls.some(([message]) =>
-        typeof message === "string" &&
-        message.includes("change in the order of Hooks called by DocumentDetailScreen")
+      consoleErrorSpy.mock.calls.some(
+        ([message]) =>
+          typeof message === "string" &&
+          message.includes(
+            "change in the order of Hooks called by DocumentDetailScreen"
+          )
       )
     ).toBe(false)
 
@@ -876,7 +867,14 @@ describe("DocumentDetailScreen", () => {
 
   it("does not show stale viewers when a hidden in-flight heartbeat resolves", async () => {
     let resolveHeartbeat:
-      | ((viewers: Array<{ name: string; userId: string; avatarUrl: string; lastSeenAt: string }>) => void)
+      | ((
+          viewers: Array<{
+            name: string
+            userId: string
+            avatarUrl: string
+            lastSeenAt: string
+          }>
+        ) => void)
       | null = null
     syncHeartbeatDocumentPresenceMock.mockImplementationOnce(
       () =>
@@ -1003,7 +1001,11 @@ describe("DocumentDetailScreen", () => {
 
   it("keeps later mentions queued when an earlier send completes", async () => {
     let resolveSend:
-      | ((value: { ok: boolean; recipientCount: number; mentionCount: number }) => void)
+      | ((value: {
+          ok: boolean
+          recipientCount: number
+          mentionCount: number
+        }) => void)
       | null = null
 
     syncSendDocumentMentionNotificationsMock.mockImplementationOnce(

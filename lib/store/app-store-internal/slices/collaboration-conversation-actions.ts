@@ -44,6 +44,8 @@ import type {
 } from "./collaboration-shared"
 
 const pendingChatMessageSyncs = new Map<string, Promise<unknown>>()
+const pendingConversationSyncs = new Map<string, Promise<string | null>>()
+const resolvedConversationIds = new Map<string, string>()
 
 type PreparedChatMessageContent = ReturnType<
   typeof prepareRichTextMessageForStorage
@@ -54,6 +56,12 @@ type ChannelScopeType = Extract<
   ChatConversationRecord["scopeType"],
   "team" | "workspace"
 >
+type StartConversationCallResult = Awaited<
+  ReturnType<typeof syncStartConversationCall>
+>
+type ConversationCreationResult = {
+  conversationId?: string | null
+} | null
 
 function getChatConversationForSend(
   state: AppStore,
@@ -72,7 +80,146 @@ function getChatConversationForMessage(
 ): ChatConversationRecord | null {
   const message = state.chatMessages.find((entry) => entry.id === messageId)
 
-  return message ? getChatConversationForSend(state, message.conversationId) : null
+  return message
+    ? getChatConversationForSend(state, message.conversationId)
+    : null
+}
+
+function remapConversationIdInState(
+  state: AppStore,
+  optimisticConversationId: string,
+  canonicalConversationId: string
+): AppStore | Partial<AppStore> {
+  if (optimisticConversationId === canonicalConversationId) {
+    return state
+  }
+
+  const hasCanonicalConversation = state.conversations.some(
+    (entry) => entry.id === canonicalConversationId
+  )
+
+  return {
+    ...state,
+    calls: state.calls.map((call) =>
+      call.conversationId === optimisticConversationId
+        ? {
+            ...call,
+            conversationId: canonicalConversationId,
+          }
+        : call
+    ),
+    chatMessages: state.chatMessages.map((message) =>
+      message.conversationId === optimisticConversationId
+        ? {
+            ...message,
+            conversationId: canonicalConversationId,
+          }
+        : message
+    ),
+    notifications: state.notifications.map((notification) =>
+      notification.entityType === "chat" &&
+      notification.entityId === optimisticConversationId
+        ? {
+            ...notification,
+            entityId: canonicalConversationId,
+          }
+        : notification
+    ),
+    conversations: state.conversations
+      .filter(
+        (conversation) =>
+          !(
+            hasCanonicalConversation &&
+            conversation.id === optimisticConversationId
+          )
+      )
+      .map((conversation) =>
+        conversation.id === optimisticConversationId
+          ? {
+              ...conversation,
+              id: canonicalConversationId,
+            }
+          : conversation
+      ),
+  }
+}
+
+function registerPendingConversationSync({
+  optimisticConversationId,
+  set,
+  task,
+}: {
+  optimisticConversationId: string
+  set: CollaborationSliceFactoryArgs["set"]
+  task: Promise<ConversationCreationResult>
+}) {
+  const canonicalTask = task
+    .then((result) => {
+      const canonicalConversationId =
+        result?.conversationId ?? optimisticConversationId
+
+      if (canonicalConversationId !== optimisticConversationId) {
+        resolvedConversationIds.set(
+          optimisticConversationId,
+          canonicalConversationId
+        )
+        set((state) =>
+          remapConversationIdInState(
+            state,
+            optimisticConversationId,
+            canonicalConversationId
+          )
+        )
+      }
+
+      return canonicalConversationId
+    })
+    .finally(() => {
+      pendingConversationSyncs.delete(optimisticConversationId)
+    })
+
+  pendingConversationSyncs.set(optimisticConversationId, canonicalTask)
+
+  return canonicalTask
+}
+
+function createSyncedChatMessageTask({
+  content,
+  conversationId,
+  messageId,
+  set,
+}: {
+  content: string
+  conversationId: string
+  messageId: string
+  set: CollaborationSliceFactoryArgs["set"]
+}) {
+  const pendingConversationSync = pendingConversationSyncs.get(conversationId)
+  const resolvedConversationId = resolvedConversationIds.get(conversationId)
+
+  if (!pendingConversationSync) {
+    return syncSendChatMessage(
+      resolvedConversationId ?? conversationId,
+      content,
+      messageId
+    )
+  }
+
+  return pendingConversationSync.then((canonicalConversationId) => {
+    const resolvedConversationId = canonicalConversationId ?? conversationId
+
+    if (resolvedConversationId !== conversationId) {
+      set((state) =>
+        remapConversationIdInState(
+          state,
+          conversationId,
+          resolvedConversationId
+        )
+      )
+    }
+
+    return syncSendChatMessage(resolvedConversationId, content, messageId)
+  })
 }
 
 function canSendOptimisticChatMessage(
@@ -96,6 +243,76 @@ function canSendOptimisticChatMessage(
   const role = effectiveRole(state, conversation.scopeId)
   if (role === "viewer" || role === "guest" || !role) {
     toast.error("Your current role is read-only")
+    return false
+  }
+
+  return true
+}
+
+function applyStartedConversationCallState(
+  state: AppStore,
+  conversationId: string,
+  result: StartConversationCallResult,
+  message: AppStore["chatMessages"][number]
+) {
+  const conversation = state.conversations.find(
+    (entry) => entry.id === conversationId
+  )
+
+  if (!conversation || conversation.kind !== "chat") {
+    return state
+  }
+
+  return {
+    ...state,
+    calls: result.call
+      ? [
+          ...state.calls.filter((entry) => entry.id !== result.call?.id),
+          result.call,
+        ]
+      : state.calls,
+    chatMessages: [
+      ...state.chatMessages.filter((entry) => entry.id !== message.id),
+      message,
+    ],
+    conversations: state.conversations.map((entry) =>
+      entry.id === conversationId
+        ? {
+            ...entry,
+            updatedAt: message.createdAt,
+            lastActivityAt: message.createdAt,
+          }
+        : entry
+    ),
+  }
+}
+
+function canReactOptimisticChatMessage(
+  state: AppStore,
+  conversation: ChatConversationRecord
+) {
+  if (conversation.scopeType === "workspace") {
+    if (!conversation.participantIds.includes(state.currentUserId)) {
+      toast.error("You do not have access to this chat")
+      return false
+    }
+
+    if (
+      !getWorkspaceMemberIds(state, conversation.scopeId).includes(
+        state.currentUserId
+      )
+    ) {
+      toast.error("You do not have access to this workspace")
+      return false
+    }
+
+    return true
+  }
+
+  if (
+    !getTeamMemberIds(state, conversation.scopeId).includes(state.currentUserId)
+  ) {
+    toast.error("You do not have access to this team")
     return false
   }
 
@@ -812,15 +1029,18 @@ export function createCollaborationConversationActions({
         return conversationId
       }
 
-      runtime.syncInBackground(
-        syncCreateWorkspaceChat({
+      const workspaceChatSync = registerPendingConversationSync({
+        optimisticConversationId: conversationId,
+        set,
+        task: syncCreateWorkspaceChat({
           workspaceId: parsed.data.workspaceId,
           participantIds: participantIdsForSync,
           title: parsed.data.title,
           description: parsed.data.description,
         }),
-        "Failed to create chat"
-      )
+      })
+
+      runtime.syncInBackground(workspaceChatSync, "Failed to create chat")
 
       toast.success("Chat created")
       return conversationId
@@ -849,10 +1069,13 @@ export function createCollaborationConversationActions({
       }
 
       if (shouldSync) {
-        runtime.syncInBackground(
-          syncEnsureTeamChat(parsed.data),
-          "Failed to create team chat"
-        )
+        const teamChatSync = registerPendingConversationSync({
+          optimisticConversationId: conversationId,
+          set,
+          task: syncEnsureTeamChat(parsed.data),
+        })
+
+        runtime.syncInBackground(teamChatSync, "Failed to create team chat")
         toast.success("Team chat ready")
       }
 
@@ -898,40 +1121,14 @@ export function createCollaborationConversationActions({
 
         const [message] = normalizeChatMessages([result.message])
 
-        set((state) => {
-          const conversation = state.conversations.find(
-            (entry) => entry.id === conversationId
+        set((state) =>
+          applyStartedConversationCallState(
+            state,
+            conversationId,
+            result,
+            message
           )
-
-          if (!conversation || conversation.kind !== "chat") {
-            return state
-          }
-
-          return {
-            ...state,
-            calls: result.call
-              ? [
-                  ...state.calls.filter(
-                    (entry) => entry.id !== result.call?.id
-                  ),
-                  result.call,
-                ]
-              : state.calls,
-            chatMessages: [
-              ...state.chatMessages.filter((entry) => entry.id !== message.id),
-              message,
-            ],
-            conversations: state.conversations.map((entry) =>
-              entry.id === conversationId
-                ? {
-                    ...entry,
-                    updatedAt: message.createdAt,
-                    lastActivityAt: message.createdAt,
-                  }
-                : entry
-            ),
-          }
-        })
+        )
 
         return result.joinHref
       } catch (error) {
@@ -961,21 +1158,25 @@ export function createCollaborationConversationActions({
       }
 
       const optimisticMessageId = createId("chat_message")
+      const conversationId =
+        resolvedConversationIds.get(parsed.data.conversationId) ??
+        parsed.data.conversationId
 
       set((state) => {
         return addOptimisticChatMessageToState(
           state,
-          parsed.data.conversationId,
+          conversationId,
           preparedContent,
           optimisticMessageId
         )
       })
 
-      const sendTask = syncSendChatMessage(
-        parsed.data.conversationId,
-        preparedContent.sanitized,
-        optimisticMessageId
-      ).finally(() => {
+      const sendTask = createSyncedChatMessageTask({
+        conversationId,
+        content: preparedContent.sanitized,
+        messageId: optimisticMessageId,
+        set,
+      }).finally(() => {
         pendingChatMessageSyncs.delete(optimisticMessageId)
       })
 
@@ -997,7 +1198,7 @@ export function createCollaborationConversationActions({
         return
       }
 
-      if (!canSendOptimisticChatMessage(state, conversation)) {
+      if (!canReactOptimisticChatMessage(state, conversation)) {
         return
       }
 

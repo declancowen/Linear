@@ -24,7 +24,8 @@ vi.mock("@/lib/server/route-auth", () => ({
 
 vi.mock("@/lib/server/convex", () => ({
   getSnapshotServer: getSnapshotServerMock,
-  getWorkspaceMembershipBootstrapServer: getWorkspaceMembershipBootstrapServerMock,
+  getWorkspaceMembershipBootstrapServer:
+    getWorkspaceMembershipBootstrapServerMock,
 }))
 
 vi.mock("@/lib/server/provider-errors", () =>
@@ -141,9 +142,7 @@ function createSnapshot(): AppSnapshot {
         updatedAt: "2026-04-22T00:00:00.000Z",
       },
     ],
-    projects: [
-      createScopedReadModelProject(),
-    ],
+    projects: [createScopedReadModelProject()],
     workItems: [
       {
         id: "item_1",
@@ -343,9 +342,8 @@ describe("read model route contracts", () => {
   })
 
   it("returns a document detail read model", async () => {
-    const { GET } = await import(
-      "@/app/api/read-models/documents/[documentId]/route"
-    )
+    const { GET } =
+      await import("@/app/api/read-models/documents/[documentId]/route")
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 
@@ -357,9 +355,8 @@ describe("read model route contracts", () => {
   })
 
   it("returns a workspace membership read model", async () => {
-    const { GET } = await import(
-      "@/app/api/read-models/workspaces/[workspaceId]/membership/route"
-    )
+    const { GET } =
+      await import("@/app/api/read-models/workspaces/[workspaceId]/membership/route")
 
     getWorkspaceMembershipBootstrapServerMock.mockResolvedValue({
       currentUserId: "user_1",
@@ -436,10 +433,39 @@ describe("read model route contracts", () => {
     })
   })
 
-  it("returns a work item detail read model", async () => {
-    const { GET } = await import(
-      "@/app/api/read-models/items/[itemId]/route"
+  it("returns a document index read model when optional collections are missing from the snapshot", async () => {
+    const { GET } = await import("@/app/api/read-models/documents/index/route")
+    const baseSnapshot = createSnapshot()
+
+    getSnapshotServerMock.mockResolvedValue({
+      currentUserId: baseSnapshot.currentUserId,
+      currentWorkspaceId: baseSnapshot.currentWorkspaceId,
+      workspaces: baseSnapshot.workspaces,
+      workspaceMemberships: baseSnapshot.workspaceMemberships,
+      documents: [baseSnapshot.documents[1]],
+      views: [],
+    } as Partial<AppSnapshot>)
+
+    const response = await GET(
+      new Request(
+        "http://localhost/api/read-models/documents/index?scopeType=workspace&scopeId=workspace_1"
+      ) as never
     )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        documents: [{ id: "doc_2" }],
+        projects: [],
+        workItems: [],
+        teams: [],
+        users: [],
+      },
+    })
+  })
+
+  it("returns a work item detail read model", async () => {
+    const { GET } = await import("@/app/api/read-models/items/[itemId]/route")
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 
@@ -458,9 +484,8 @@ describe("read model route contracts", () => {
   })
 
   it("returns a project detail read model", async () => {
-    const { GET } = await import(
-      "@/app/api/read-models/projects/[projectId]/route"
-    )
+    const { GET } =
+      await import("@/app/api/read-models/projects/[projectId]/route")
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 
@@ -523,9 +548,8 @@ describe("read model route contracts", () => {
   })
 
   it("returns a notification inbox read model", async () => {
-    const { GET } = await import(
-      "@/app/api/read-models/notifications/inbox/route"
-    )
+    const { GET } =
+      await import("@/app/api/read-models/notifications/inbox/route")
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 
@@ -538,9 +562,8 @@ describe("read model route contracts", () => {
   })
 
   it("returns a conversation list read model", async () => {
-    const { GET } = await import(
-      "@/app/api/read-models/conversations/list/route"
-    )
+    const { GET } =
+      await import("@/app/api/read-models/conversations/list/route")
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 
@@ -553,9 +576,8 @@ describe("read model route contracts", () => {
   })
 
   it("returns a conversation thread read model", async () => {
-    const { GET } = await import(
-      "@/app/api/read-models/conversations/[conversationId]/route"
-    )
+    const { GET } =
+      await import("@/app/api/read-models/conversations/[conversationId]/route")
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 
@@ -576,9 +598,8 @@ describe("read model route contracts", () => {
   })
 
   it("returns a channel feed read model", async () => {
-    const { GET } = await import(
-      "@/app/api/read-models/channels/[channelId]/feed/route"
-    )
+    const { GET } =
+      await import("@/app/api/read-models/channels/[channelId]/feed/route")
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 
@@ -599,9 +620,8 @@ describe("read model route contracts", () => {
   })
 
   it("returns a search seed read model", async () => {
-    const { GET } = await import(
-      "@/app/api/read-models/workspaces/[workspaceId]/search-seed/route"
-    )
+    const { GET } =
+      await import("@/app/api/read-models/workspaces/[workspaceId]/search-seed/route")
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 
@@ -617,9 +637,8 @@ describe("read model route contracts", () => {
   })
 
   it("returns 404 when a requested read model target is missing", async () => {
-    const { GET } = await import(
-      "@/app/api/read-models/documents/[documentId]/route"
-    )
+    const { GET } =
+      await import("@/app/api/read-models/documents/[documentId]/route")
 
     getSnapshotServerMock.mockResolvedValue(createSnapshot())
 

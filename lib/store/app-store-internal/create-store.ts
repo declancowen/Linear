@@ -4,6 +4,7 @@ import type { StateCreator } from "zustand"
 
 import { createStoreRuntime } from "./runtime"
 import { createCollaborationSlice } from "./slices/collaboration"
+import { createCustomPropertySlice } from "./slices/custom-properties"
 import { createNotificationSlice } from "./slices/notifications"
 import { createProjectSlice } from "./slices/projects"
 import { createUiSlice } from "./slices/ui"
@@ -23,6 +24,7 @@ export const createAppStore: StateCreator<AppStore, [], [], AppStore> = (
     ...createNotificationSlice(set, get, runtime),
     ...createWorkspaceSlice(set, get, runtime),
     ...createViewSlice(set, get, runtime),
+    ...createCustomPropertySlice(set, get, runtime),
     ...createWorkSlice(set, get, runtime),
     ...createCollaborationSlice(set, get, runtime),
     ...createProjectSlice(set, get, runtime),

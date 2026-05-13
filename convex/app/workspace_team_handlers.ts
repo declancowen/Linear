@@ -852,31 +852,27 @@ export async function deleteWorkspaceHandler(
     "workspace",
     workspace.id
   )
-  const [
-    attachments,
-    comments,
-    documentPresence,
-    notifications,
-  ] = await Promise.all([
-    listAttachmentsByTargets(ctx, {
-      targetType: "document",
-      targetIds: deletedDocumentIds,
-    }),
-    listCommentsByTargets(ctx, {
-      targetType: "document",
-      targetIds: deletedDocumentIds,
-    }),
-    listDocumentPresenceByDocuments(ctx, deletedDocumentIds),
-    listNotificationsByEntities(
-      ctx,
-      createDeletedEntityNotificationTargets({
-        deletedChannelPostIds,
-        deletedChatMessageIds,
-        deletedDocumentIds,
-        deletedProjectIds,
-      })
-    ),
-  ])
+  const [attachments, comments, documentPresence, notifications] =
+    await Promise.all([
+      listAttachmentsByTargets(ctx, {
+        targetType: "document",
+        targetIds: deletedDocumentIds,
+      }),
+      listCommentsByTargets(ctx, {
+        targetType: "document",
+        targetIds: deletedDocumentIds,
+      }),
+      listDocumentPresenceByDocuments(ctx, deletedDocumentIds),
+      listNotificationsByEntities(
+        ctx,
+        createDeletedEntityNotificationTargets({
+          deletedChannelPostIds,
+          deletedChatMessageIds,
+          deletedDocumentIds,
+          deletedProjectIds,
+        })
+      ),
+    ])
 
   await cleanupRemainingLinksAfterDelete(ctx, {
     currentUserId: args.currentUserId,
@@ -1193,10 +1189,7 @@ export async function createTeamHandler(
   }
 }
 
-async function loadCreateTeamWorkspace(
-  ctx: MutationCtx,
-  workspaceId: string
-) {
+async function loadCreateTeamWorkspace(ctx: MutationCtx, workspaceId: string) {
   const workspace = await getWorkspaceDoc(ctx, workspaceId)
 
   if (!workspace) {
@@ -1365,10 +1358,7 @@ export async function leaveTeamHandler(ctx: MutationCtx, args: LeaveTeamArgs) {
   }
 }
 
-async function requireLeaveTeamContext(
-  ctx: MutationCtx,
-  args: LeaveTeamArgs
-) {
+async function requireLeaveTeamContext(ctx: MutationCtx, args: LeaveTeamArgs) {
   const team = await getTeamDoc(ctx, args.teamId)
 
   if (!team) {
@@ -1478,6 +1468,7 @@ export async function createLabelHandler(
     workspaceId: string
     name: string
     color?: string
+    scopeType?: "workspace" | "private"
   }
 ) {
   assertServerToken(args.serverToken)
@@ -1501,9 +1492,17 @@ export async function createLabelHandler(
   )
 
   const normalizedName = normalizeLabelNameInput(args.name)
+  const scopeType: "workspace" | "private" =
+    args.scopeType === "private" ? "private" : "workspace"
+  const ownerId = scopeType === "private" ? args.currentUserId : null
 
   const existingLabels = await listLabelsByWorkspace(ctx, args.workspaceId)
-  const existingLabel = findExistingWorkspaceLabel(existingLabels, normalizedName)
+  const existingLabel = findExistingWorkspaceLabel(
+    existingLabels,
+    normalizedName,
+    scopeType,
+    ownerId
+  )
 
   if (existingLabel) {
     return existingLabel
@@ -1512,6 +1511,8 @@ export async function createLabelHandler(
   const label = {
     id: createId("label"),
     workspaceId: workspace.id,
+    scopeType,
+    ownerId,
     name: normalizedName,
     color: args.color?.trim() || getDefaultLabelColor(normalizedName),
   }
@@ -1533,11 +1534,16 @@ function normalizeLabelNameInput(name: string) {
 
 function findExistingWorkspaceLabel(
   labels: Awaited<ReturnType<typeof listLabelsByWorkspace>>,
-  normalizedName: string
+  normalizedName: string,
+  scopeType: "workspace" | "private",
+  ownerId: string | null
 ) {
   return (
     labels.find(
-      (label) => label.name.toLowerCase() === normalizedName.toLowerCase()
+      (label) =>
+        (label.scopeType ?? "workspace") === scopeType &&
+        (label.ownerId ?? null) === ownerId &&
+        label.name.toLowerCase() === normalizedName.toLowerCase()
     ) ?? null
   )
 }
@@ -1652,12 +1658,15 @@ export async function updateTeamDetailsHandler(
     throw new Error(disableMessage)
   }
 
-  await ctx.db.patch(team._id, buildTeamDetailsPatch(team, args, {
-    features: normalizedFeatures,
-    icon: normalizedIcon,
-    joinCode: normalizedJoinCode,
-    workflow: normalizedWorkflow,
-  }))
+  await ctx.db.patch(
+    team._id,
+    buildTeamDetailsPatch(team, args, {
+      features: normalizedFeatures,
+      icon: normalizedIcon,
+      joinCode: normalizedJoinCode,
+      workflow: normalizedWorkflow,
+    })
+  )
 
   await ensureEnabledTeamCollaborationSurfaces(ctx, {
     currentUserId: args.currentUserId,
@@ -1671,6 +1680,7 @@ export async function updateTeamDetailsHandler(
   return {
     teamId: team.id,
     workspaceId: team.workspaceId,
+    icon: normalizedIcon,
     joinCode: normalizedJoinCode,
     experience: args.experience,
     features: normalizedFeatures,
@@ -2225,8 +2235,7 @@ async function recordWorkspaceUserRemovalAuditEvent(
     details: {
       removedTeamIds: getWorkspaceRemovalTeamIds(input.scope.teamMemberships),
       source: "convex",
-      workosUserId:
-        input.removalContext.removedUser?.workosUserId ?? undefined,
+      workosUserId: input.removalContext.removedUser?.workosUserId ?? undefined,
     },
   })
 }

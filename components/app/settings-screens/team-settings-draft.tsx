@@ -86,7 +86,6 @@ export function TeamSettingsFooter({
 
 export function useTeamSettingsDraft({
   experience,
-  router,
   team,
 }: {
   experience: TeamExperienceType
@@ -130,7 +129,7 @@ export function useTeamSettingsDraft({
     }
 
     setSaving(true)
-    const updated = await useAppStore.getState().updateTeamDetails(team.id, {
+    await useAppStore.getState().updateTeamDetails(team.id, {
       name,
       icon,
       summary,
@@ -138,10 +137,6 @@ export function useTeamSettingsDraft({
       features,
     })
     setSaving(false)
-
-    if (updated) {
-      router.refresh()
-    }
   }
 
   return {

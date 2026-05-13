@@ -6,8 +6,21 @@ import {
   type ChatMessage,
   type Label,
 } from "@/lib/domain/types"
+import { createEmptyState } from "@/lib/domain/empty-state"
+
+function createEmptySnapshotFixture() {
+  const emptyState = createEmptyState()
+  const { ui: _ignoredUi, ...snapshot } = emptyState
+
+  void _ignoredUi
+
+  return snapshot
+}
+
+const emptySnapshotFixture = createEmptySnapshotFixture()
 
 export const snapshotFixture: AppSnapshot = {
+  ...emptySnapshotFixture,
   currentUserId: "user_1",
   currentWorkspaceId: "workspace_1",
   workspaces: [
@@ -81,29 +94,14 @@ export const snapshotFixture: AppSnapshot = {
       },
     },
   ],
-  labels: [],
-  projects: [],
-  milestones: [],
-  workItems: [],
-  documents: [],
-  views: [],
-  comments: [],
-  attachments: [],
-  notifications: [],
-  invites: [],
-  projectUpdates: [],
-  conversations: [],
-  calls: [],
-  chatMessages: [],
-  channelPosts: [],
-  channelPostComments: [],
 }
 
 const currentCallInviteMessageFixture: ChatMessage = {
   id: "message_1",
   conversationId: "conversation_1",
   kind: "text",
-  content: "Started a call\nJoin call: /api/calls/join?conversationId=conversation_1",
+  content:
+    "Started a call\nJoin call: /api/calls/join?conversationId=conversation_1",
   callId: null,
   mentionUserIds: [],
   reactions: [],

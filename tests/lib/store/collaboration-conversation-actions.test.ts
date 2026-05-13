@@ -113,16 +113,12 @@ function createConversationTestState(): AppData {
 }
 
 async function createConversationActionsHarness() {
-  const { createCollaborationConversationActions } = await import(
-    "@/lib/store/app-store-internal/slices/collaboration-conversation-actions"
-  )
+  const { createCollaborationConversationActions } =
+    await import("@/lib/store/app-store-internal/slices/collaboration-conversation-actions")
   const state = createConversationTestState()
   const backgroundTasks: Array<Promise<unknown> | null> = []
   const setState = vi.fn((update: unknown) => {
-    const patch =
-      typeof update === "function"
-        ? update(state as never)
-        : update
+    const patch = typeof update === "function" ? update(state as never) : update
 
     Object.assign(state, patch)
   })
@@ -225,9 +221,9 @@ describe("collaboration conversation actions", () => {
         type: "message",
       }),
     ])
-    expect(state.notifications.map((notification) => notification.userId)).not.toContain(
-      "user_1"
-    )
+    expect(
+      state.notifications.map((notification) => notification.userId)
+    ).not.toContain("user_1")
     await expect(backgroundTasks[0]).resolves.toBeNull()
   })
 
@@ -273,12 +269,13 @@ describe("collaboration conversation actions", () => {
     })
 
     expect(workspaceChatId).toBeTruthy()
-    expect(state.conversations.find((entry) => entry.id === workspaceChatId))
-      .toMatchObject({
-        kind: "chat",
-        participantIds: ["user_1", "user_2"],
-        scopeType: "workspace",
-      })
+    expect(
+      state.conversations.find((entry) => entry.id === workspaceChatId)
+    ).toMatchObject({
+      kind: "chat",
+      participantIds: ["user_1", "user_2"],
+      scopeType: "workspace",
+    })
 
     const channelId = slice.createChannel({
       teamId: "team_1",
@@ -288,16 +285,77 @@ describe("collaboration conversation actions", () => {
     })
 
     expect(channelId).toBeTruthy()
-    expect(state.conversations.find((entry) => entry.id === channelId))
-      .toMatchObject({
-        kind: "channel",
-        participantIds: ["user_1", "user_2"],
-        scopeType: "team",
-        title: "Platform",
-      })
+    expect(
+      state.conversations.find((entry) => entry.id === channelId)
+    ).toMatchObject({
+      kind: "channel",
+      participantIds: ["user_1", "user_2"],
+      scopeType: "team",
+      title: "Platform",
+    })
     expect(toastSuccessMock).not.toHaveBeenCalledWith("Channel ready")
-    await expect(backgroundTasks[0]).resolves.toBeNull()
+    await expect(backgroundTasks[0]).resolves.toBe(workspaceChatId)
     await expect(backgroundTasks[1]).resolves.toBeNull()
+  })
+
+  it("waits for a canonical team chat id before syncing the first message", async () => {
+    let resolveTeamChat!: (result: { conversationId: string }) => void
+    syncEnsureTeamChatMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveTeamChat = resolve
+      })
+    )
+    syncSendChatMessageMock.mockResolvedValueOnce({
+      messageId: "chat_message_server",
+    })
+
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
+    state.conversations = []
+
+    const optimisticConversationId = slice.ensureTeamChat({
+      teamId: "team_1",
+      title: "",
+      description: "",
+    })
+
+    expect(optimisticConversationId).toBeTruthy()
+
+    slice.sendChatMessage({
+      conversationId: optimisticConversationId ?? "",
+      content: "<p>Hello</p>",
+    })
+
+    expect(syncSendChatMessageMock).not.toHaveBeenCalled()
+
+    resolveTeamChat({
+      conversationId: "conversation_server",
+    })
+
+    await expect(backgroundTasks[0]).resolves.toBe("conversation_server")
+    await expect(backgroundTasks[1]).resolves.toEqual({
+      messageId: "chat_message_server",
+    })
+
+    expect(syncSendChatMessageMock).toHaveBeenCalledWith(
+      "conversation_server",
+      "<p>Hello</p>",
+      state.chatMessages[0]?.id
+    )
+    expect(
+      state.conversations.some(
+        (conversation) => conversation.id === optimisticConversationId
+      )
+    ).toBe(false)
+    expect(state.conversations[0]?.id).toBe("conversation_server")
+    expect(state.chatMessages[0]?.conversationId).toBe("conversation_server")
+    expect(
+      state.notifications.every(
+        (notification) =>
+          notification.entityType !== "chat" ||
+          notification.entityId === "conversation_server"
+      )
+    ).toBe(true)
   })
 
   it("stores structured call activity when a conversation call starts", async () => {

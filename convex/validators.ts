@@ -38,6 +38,11 @@ const workItemTypeLiterals = [
 
 const legacyWorkItemTypeLiterals = [v.literal("bug")] as const
 
+const workItemVisibilityLiterals = [
+  v.literal("team"),
+  v.literal("private"),
+] as const
+
 const workStatusLiterals = [
   v.literal("backlog"),
   v.literal("todo"),
@@ -115,21 +120,6 @@ const entityKindLiterals = [
   v.literal("docs"),
 ] as const
 
-const displayPropertyLiterals = [
-  v.literal("id"),
-  v.literal("type"),
-  v.literal("status"),
-  v.literal("assignee"),
-  v.literal("priority"),
-  v.literal("progress"),
-  v.literal("project"),
-  v.literal("dueDate"),
-  v.literal("milestone"),
-  v.literal("labels"),
-  v.literal("created"),
-  v.literal("updated"),
-] as const
-
 const groupFieldLiterals = [
   v.literal("project"),
   v.literal("status"),
@@ -140,6 +130,9 @@ const groupFieldLiterals = [
   v.literal("type"),
   v.literal("epic"),
   v.literal("feature"),
+  v.literal("kind"),
+  v.literal("createdBy"),
+  v.literal("updatedBy"),
 ] as const
 
 const orderingFieldLiterals = [
@@ -180,6 +173,19 @@ const documentKindLiterals = [
   v.literal("workspace-document"),
   v.literal("private-document"),
   v.literal("item-description"),
+] as const
+
+const customPropertyTypeLiterals = [
+  v.literal("text"),
+  v.literal("integer"),
+  v.literal("date"),
+  v.literal("checkbox"),
+  v.literal("url"),
+  v.literal("email"),
+  v.literal("phone"),
+  v.literal("person"),
+  v.literal("select"),
+  v.literal("multiSelect"),
 ] as const
 
 const conversationKindLiterals = [
@@ -244,6 +250,9 @@ export const teamExperienceTypeValidator = v.union(
   ...teamExperienceTypeLiterals
 )
 export const workItemTypeValidator = v.union(...workItemTypeLiterals)
+export const workItemVisibilityValidator = v.union(
+  ...workItemVisibilityLiterals
+)
 export const storedWorkItemTypeValidator = v.union(
   ...workItemTypeLiterals,
   ...legacyWorkItemTypeLiterals
@@ -258,7 +267,7 @@ export const emailJobKindValidator = v.union(...emailJobKindLiterals)
 export const viewLayoutValidator = v.union(...viewLayoutLiterals)
 export const viewScopeTypeValidator = v.union(...viewScopeTypeLiterals)
 export const entityKindValidator = v.union(...entityKindLiterals)
-export const displayPropertyValidator = v.union(...displayPropertyLiterals)
+export const displayPropertyValidator = v.string()
 export const groupFieldValidator = v.union(...groupFieldLiterals)
 export const orderingFieldValidator = v.union(...orderingFieldLiterals)
 export const themePreferenceValidator = v.union(...themePreferenceLiterals)
@@ -268,6 +277,9 @@ export const attachmentTargetTypeValidator = v.union(
   ...attachmentTargetTypeLiterals
 )
 export const documentKindValidator = v.union(...documentKindLiterals)
+export const customPropertyTypeValidator = v.union(
+  ...customPropertyTypeLiterals
+)
 export const conversationKindValidator = v.union(...conversationKindLiterals)
 export const conversationScopeTypeValidator = v.union(
   ...conversationScopeTypeLiterals
@@ -413,6 +425,8 @@ export const userFields = {
 export const labelFields = {
   id: v.string(),
   workspaceId: v.string(),
+  scopeType: v.optional(v.union(v.literal("workspace"), v.literal("private"))),
+  ownerId: v.optional(nullableString),
   name: v.string(),
   color: v.string(),
 }
@@ -422,6 +436,9 @@ const baseViewFilterFields = {
   priority: v.array(priorityValidator),
   assigneeIds: v.array(v.string()),
   creatorIds: v.array(v.string()),
+  updatedByIds: v.optional(v.array(v.string())),
+  documentKinds: v.optional(v.array(documentKindValidator)),
+  linkedWorkItemIds: v.optional(v.array(v.string())),
   leadIds: v.array(v.string()),
   health: v.array(projectHealthValidator),
   milestoneIds: v.array(v.string()),
@@ -430,6 +447,7 @@ const baseViewFilterFields = {
   parentIds: v.optional(v.array(v.string())),
   labelIds: v.array(v.string()),
   teamIds: v.array(v.string()),
+  visibility: v.optional(v.array(workItemVisibilityValidator)),
   showCompleted: v.boolean(),
 }
 
@@ -448,6 +466,7 @@ export const projectFields = {
   scopeId: v.string(),
   templateType: templateTypeValidator,
   name: v.string(),
+  icon: v.optional(v.string()),
   summary: v.string(),
   description: v.string(),
   leadId: v.string(),
@@ -499,11 +518,56 @@ export const workItemFields = {
   linkedProjectIds: v.array(v.string()),
   linkedDocumentIds: v.array(v.string()),
   labelIds: v.array(v.string()),
+  visibility: v.optional(workItemVisibilityValidator),
   milestoneId: nullableString,
   startDate: nullableString,
   dueDate: nullableString,
   targetDate: nullableString,
   subscriberIds: v.array(v.string()),
+  createdAt: v.string(),
+  updatedAt: v.string(),
+}
+
+export const customPropertyOptionValidator = v.object({
+  id: v.string(),
+  label: v.string(),
+  color: v.string(),
+})
+
+export const customPropertyValueValidator = v.union(
+  v.string(),
+  v.number(),
+  v.boolean(),
+  v.array(v.string()),
+  v.null()
+)
+
+export const customPropertyDefinitionFields = {
+  id: v.string(),
+  workspaceId: v.string(),
+  teamId: v.string(),
+  scopeType: v.optional(v.union(v.literal("team"), v.literal("private"))),
+  ownerId: v.optional(nullableString),
+  targetType: v.literal("workItem"),
+  name: v.string(),
+  icon: v.string(),
+  type: customPropertyTypeValidator,
+  options: v.array(customPropertyOptionValidator),
+  isArchived: v.boolean(),
+  createdBy: v.string(),
+  createdAt: v.string(),
+  updatedAt: v.string(),
+}
+
+export const customPropertyValueFields = {
+  id: v.string(),
+  workspaceId: v.string(),
+  teamId: v.string(),
+  workItemId: v.string(),
+  propertyId: v.string(),
+  value: customPropertyValueValidator,
+  createdBy: v.string(),
+  updatedBy: v.string(),
   createdAt: v.string(),
   updatedAt: v.string(),
 }

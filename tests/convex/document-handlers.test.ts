@@ -4,10 +4,14 @@ import { createTestNotificationRecord } from "@/tests/lib/fixtures/convex"
 
 const buildMentionEmailJobsMock = vi.fn()
 const assertServerTokenMock = vi.fn()
+const getAttachmentDocMock = vi.fn()
 const getDocumentDocMock = vi.fn()
 const listActiveUsersByIdsMock = vi.fn()
 const requireEditableDocumentAccessMock = vi.fn()
+const requireEditableWorkItemAccessMock = vi.fn()
 const requireReadableDocumentAccessMock = vi.fn()
+const getWorkItemByDescriptionDocIdMock = vi.fn()
+const getWorkItemDocMock = vi.fn()
 const getTeamMemberIdsMock = vi.fn()
 const getWorkspaceUserIdsMock = vi.fn()
 const queueEmailJobsMock = vi.fn()
@@ -32,18 +36,39 @@ vi.mock("@/convex/app/core", () => ({
 }))
 
 vi.mock("@/convex/app/data", () => ({
-  getAttachmentDoc: vi.fn(),
+  getAttachmentDoc: getAttachmentDocMock,
   getDocumentDoc: getDocumentDocMock,
   getTeamDoc: vi.fn(),
   getUserDoc: vi.fn(),
-  getWorkItemDoc: vi.fn(),
+  getWorkItemByDescriptionDocId: getWorkItemByDescriptionDocIdMock,
+  getWorkItemDoc: getWorkItemDocMock,
   listActiveUsersByIds: listActiveUsersByIdsMock,
 }))
 
 vi.mock("@/convex/app/access", () => ({
   requireEditableDocumentAccess: requireEditableDocumentAccessMock,
   requireEditableTeamAccess: vi.fn(),
+  requireEditableWorkItemAccess: requireEditableWorkItemAccessMock,
   requireEditableWorkspaceAccess: vi.fn(),
+  getWorkItemAudienceUserIds: vi.fn(
+    (
+      item: {
+        assigneeId?: string | null
+        creatorId?: string | null
+        visibility?: "team" | "private" | null
+      },
+      teamMemberIds: string[]
+    ) =>
+    (item.visibility ?? "team") === "private"
+      ? [
+          ...new Set(
+            [item.creatorId, item.assigneeId].filter(
+              (userId): userId is string => Boolean(userId)
+            )
+          ),
+        ].filter((userId) => teamMemberIds.includes(userId))
+      : teamMemberIds
+  ),
   requireReadableDocumentAccess: requireReadableDocumentAccessMock,
   requireWorkspaceAdminAccess: vi.fn(),
 }))
@@ -89,6 +114,15 @@ function createCtx() {
       delete: vi.fn(),
       query: vi.fn(),
     },
+    storage: {
+      delete: vi.fn(),
+      generateUploadUrl: vi.fn(async () => "https://upload.example.com"),
+      getMetadata: vi.fn(async () => ({
+        contentType: "text/plain",
+        size: 12,
+      })),
+      getUrl: vi.fn(async () => "https://files.example.com/file.txt"),
+    },
   }
 }
 
@@ -96,10 +130,14 @@ describe("document mention notifications", () => {
   beforeEach(() => {
     buildMentionEmailJobsMock.mockReset()
     assertServerTokenMock.mockReset()
+    getAttachmentDocMock.mockReset()
     getDocumentDocMock.mockReset()
     listActiveUsersByIdsMock.mockReset()
     requireEditableDocumentAccessMock.mockReset()
+    requireEditableWorkItemAccessMock.mockReset()
     requireReadableDocumentAccessMock.mockReset()
+    getWorkItemByDescriptionDocIdMock.mockReset()
+    getWorkItemDocMock.mockReset()
     getTeamMemberIdsMock.mockReset()
     getWorkspaceUserIdsMock.mockReset()
     queueEmailJobsMock.mockReset()
@@ -123,6 +161,7 @@ describe("document mention notifications", () => {
     }
     getDocumentDocMock.mockImplementation(async () => documentRecord)
     getWorkspaceUserIdsMock.mockResolvedValue(["user_1", "user_2", "user_3"])
+    requireEditableWorkItemAccessMock.mockResolvedValue("member")
     listActiveUsersByIdsMock.mockResolvedValue([
       {
         id: "user_1",
@@ -336,7 +375,6 @@ describe("document mention notifications", () => {
   it("sends work-item self-mentions through notifications and email jobs", async () => {
     const { sendItemDescriptionMentionNotificationsHandler } =
       await import("@/convex/app/document_handlers")
-    const access = await import("@/convex/app/access")
     const data = await import("@/convex/app/data")
     const normalization = await import("@/convex/app/normalization")
     const ctx = createCtx()
@@ -354,7 +392,6 @@ describe("document mention notifications", () => {
       updatedBy: "user_1",
     }
 
-    vi.mocked(access.requireEditableTeamAccess).mockResolvedValue("member")
     vi.mocked(data.getWorkItemDoc).mockResolvedValue({
       _id: "item_1_db",
       id: "item_1",
@@ -420,6 +457,218 @@ describe("document mention notifications", () => {
     expect(documentRecord.notifiedMentionCounts).toEqual({
       user_1: 1,
     })
+  })
+
+  it("rejects private item description mentions outside the work item audience", async () => {
+    const { sendItemDescriptionMentionNotificationsHandler } =
+      await import("@/convex/app/document_handlers")
+    const data = await import("@/convex/app/data")
+    const ctx = createCtx()
+
+    documentRecord = {
+      _id: "item_description_db",
+      id: "document_1",
+      kind: "item-description",
+      workspaceId: "workspace_1",
+      teamId: "team_1",
+      title: "Test description",
+      content:
+        '<p><span class="editor-mention" data-type="mention" data-id="user_3">@taylor</span></p>',
+      createdBy: "user_1",
+      updatedBy: "user_1",
+    }
+
+    vi.mocked(data.getWorkItemDoc).mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: "team_1",
+      title: "Test item",
+      descriptionDocId: "document_1",
+      visibility: "private",
+      creatorId: "user_1",
+      assigneeId: "user_2",
+    } as never)
+    getTeamMemberIdsMock.mockResolvedValue(["user_1", "user_2", "user_3"])
+
+    await expect(
+      sendItemDescriptionMentionNotificationsHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        itemId: "item_1",
+        mentions: [
+          {
+            userId: "user_3",
+            count: 1,
+          },
+        ],
+      })
+    ).rejects.toThrow("One or more mentioned users are invalid for this work item")
+
+    expect(createNotificationMock).not.toHaveBeenCalled()
+    expect(queueEmailJobsMock).not.toHaveBeenCalled()
+  })
+
+  it("uses item-level private access before updating item descriptions", async () => {
+    const { updateItemDescriptionHandler } = await import(
+      "@/convex/app/document_handlers"
+    )
+    const data = await import("@/convex/app/data")
+    const ctx = createCtx()
+
+    vi.mocked(data.getWorkItemDoc).mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: "team_1",
+      title: "Test item",
+      descriptionDocId: "document_1",
+      visibility: "private",
+      creatorId: "user_1",
+      assigneeId: null,
+    } as never)
+    requireEditableWorkItemAccessMock.mockRejectedValueOnce(
+      new Error("Work item not found")
+    )
+
+    await expect(
+      updateItemDescriptionHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_2",
+        itemId: "item_1",
+        content: "<p>Updated</p>",
+      })
+    ).rejects.toThrow("Work item not found")
+
+    expect(requireEditableWorkItemAccessMock).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({ id: "item_1" }),
+      "user_2"
+    )
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("uses item-level private access before creating work item attachments", async () => {
+    const { createAttachmentHandler } = await import(
+      "@/convex/app/document_handlers"
+    )
+    const assets = await import("@/convex/app/assets")
+    const data = await import("@/convex/app/data")
+    const ctx = createCtx()
+
+    vi.mocked(assets.resolveAttachmentTarget).mockResolvedValue({
+      teamId: "team_1",
+      entityType: "workItem",
+      recordId: "item_1_db" as never,
+    })
+    vi.mocked(data.getWorkItemDoc).mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: "team_1",
+      visibility: "private",
+      creatorId: "user_1",
+      assigneeId: null,
+    } as never)
+    requireEditableWorkItemAccessMock.mockRejectedValueOnce(
+      new Error("Work item not found")
+    )
+
+    await expect(
+      createAttachmentHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_2",
+        targetType: "workItem",
+        targetId: "item_1",
+        storageId: "storage_1" as never,
+        fileName: "notes.txt",
+        contentType: "text/plain",
+        size: 12,
+      })
+    ).rejects.toThrow("Work item not found")
+
+    expect(ctx.storage.getMetadata).not.toHaveBeenCalled()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
+  it("uses item-level private access before issuing work item attachment upload URLs", async () => {
+    const { generateAttachmentUploadUrlHandler } = await import(
+      "@/convex/app/document_handlers"
+    )
+    const assets = await import("@/convex/app/assets")
+    const data = await import("@/convex/app/data")
+    const ctx = createCtx()
+
+    vi.mocked(assets.resolveAttachmentTarget).mockResolvedValue({
+      teamId: "team_1",
+      entityType: "workItem",
+      recordId: "item_1_db" as never,
+    })
+    vi.mocked(data.getWorkItemDoc).mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: "team_1",
+      visibility: "private",
+      creatorId: "user_1",
+      assigneeId: null,
+    } as never)
+    requireEditableWorkItemAccessMock.mockRejectedValueOnce(
+      new Error("Work item not found")
+    )
+
+    await expect(
+      generateAttachmentUploadUrlHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_2",
+        targetType: "workItem",
+        targetId: "item_1",
+      })
+    ).rejects.toThrow("Work item not found")
+
+    expect(ctx.storage.generateUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it("uses item-level private access before deleting work item attachments", async () => {
+    const { deleteAttachmentHandler } = await import(
+      "@/convex/app/document_handlers"
+    )
+    const assets = await import("@/convex/app/assets")
+    const data = await import("@/convex/app/data")
+    const ctx = createCtx()
+
+    getAttachmentDocMock.mockResolvedValue({
+      _id: "attachment_1_db",
+      id: "attachment_1",
+      targetType: "workItem",
+      targetId: "item_1",
+      teamId: "team_1",
+      storageId: "storage_1",
+    })
+    vi.mocked(assets.resolveAttachmentTarget).mockResolvedValue({
+      teamId: "team_1",
+      entityType: "workItem",
+      recordId: "item_1_db" as never,
+    })
+    vi.mocked(data.getWorkItemDoc).mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: "team_1",
+      visibility: "private",
+      creatorId: "user_1",
+      assigneeId: null,
+    } as never)
+    requireEditableWorkItemAccessMock.mockRejectedValueOnce(
+      new Error("Work item not found")
+    )
+
+    await expect(
+      deleteAttachmentHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_2",
+        attachmentId: "attachment_1",
+      })
+    ).rejects.toThrow("Work item not found")
+
+    expect(ctx.storage.delete).not.toHaveBeenCalled()
+    expect(ctx.db.delete).not.toHaveBeenCalled()
   })
 
   it("updates document title and content while preserving mention notification caps", async () => {

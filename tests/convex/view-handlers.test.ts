@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
+const requireReadableTeamAccessMock = vi.fn()
 const requireEditableWorkspaceAccessMock = vi.fn()
+const getCustomPropertyDefinitionDocMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const normalizeTeamMock = vi.fn()
+const assertViewLabelIdsMock = vi.fn()
 const assertWorkspaceLabelIdsMock = vi.fn()
 const requireViewMutationAccessMock = vi.fn()
 const resolveViewWorkspaceIdMock = vi.fn()
@@ -17,10 +20,12 @@ vi.mock("@/convex/app/core", () => ({
 
 vi.mock("@/convex/app/access", () => ({
   requireEditableTeamAccess: requireEditableTeamAccessMock,
+  requireReadableTeamAccess: requireReadableTeamAccessMock,
   requireEditableWorkspaceAccess: requireEditableWorkspaceAccessMock,
 }))
 
 vi.mock("@/convex/app/data", () => ({
+  getCustomPropertyDefinitionDoc: getCustomPropertyDefinitionDocMock,
   getTeamDoc: getTeamDocMock,
 }))
 
@@ -29,6 +34,7 @@ vi.mock("@/convex/app/normalization", () => ({
 }))
 
 vi.mock("@/convex/app/work_helpers", () => ({
+  assertViewLabelIds: assertViewLabelIdsMock,
   assertWorkspaceLabelIds: assertWorkspaceLabelIdsMock,
   requireViewMutationAccess: requireViewMutationAccessMock,
   resolveViewWorkspaceId: resolveViewWorkspaceIdMock,
@@ -49,9 +55,12 @@ describe("view handlers", () => {
   beforeEach(() => {
     assertServerTokenMock.mockReset()
     requireEditableTeamAccessMock.mockReset()
+    requireReadableTeamAccessMock.mockReset()
     requireEditableWorkspaceAccessMock.mockReset()
+    getCustomPropertyDefinitionDocMock.mockReset()
     getTeamDocMock.mockReset()
     normalizeTeamMock.mockReset()
+    assertViewLabelIdsMock.mockReset()
     assertWorkspaceLabelIdsMock.mockReset()
     requireViewMutationAccessMock.mockReset()
     resolveViewWorkspaceIdMock.mockReset()
@@ -98,13 +107,15 @@ describe("view handlers", () => {
   })
 
   it("toggles view filter values while preserving other filters", async () => {
-    const { toggleViewFilterValueHandler } = await import(
-      "@/convex/app/view_handlers"
-    )
+    const { toggleViewFilterValueHandler } =
+      await import("@/convex/app/view_handlers")
     const ctx = createCtx()
 
     requireViewMutationAccessMock.mockResolvedValue({
       _id: "view_doc_1",
+      scopeType: "personal",
+      scopeId: "user_1",
+      entityKind: "items",
       filters: {
         labelIds: ["label_1", "label_2"],
         status: ["todo"],
@@ -112,20 +123,26 @@ describe("view handlers", () => {
     })
     resolveViewWorkspaceIdMock.mockResolvedValue("workspace_1")
 
-    await toggleViewFilterValueHandler(ctx as never, {
-      serverToken: "server_token",
-      currentUserId: "user_1",
-      viewId: "view_1",
-      key: "labelIds",
-      value: "label_2",
-    } as never)
-    await toggleViewFilterValueHandler(ctx as never, {
-      serverToken: "server_token",
-      currentUserId: "user_1",
-      viewId: "view_1",
-      key: "labelIds",
-      value: "label_3",
-    } as never)
+    await toggleViewFilterValueHandler(
+      ctx as never,
+      {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        viewId: "view_1",
+        key: "labelIds",
+        value: "label_2",
+      } as never
+    )
+    await toggleViewFilterValueHandler(
+      ctx as never,
+      {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        viewId: "view_1",
+        key: "labelIds",
+        value: "label_3",
+      } as never
+    )
 
     expect(ctx.db.patch).toHaveBeenNthCalledWith(1, "view_doc_1", {
       filters: {
@@ -141,5 +158,94 @@ describe("view handlers", () => {
       },
       updatedAt: "2026-04-21T09:00:00.000Z",
     })
+    expect(assertViewLabelIdsMock).toHaveBeenCalledWith(ctx, {
+      currentUserId: "user_1",
+      labelIds: ["label_1", "label_2", "label_3"],
+      view: {
+        _id: "view_doc_1",
+        scopeType: "personal",
+        scopeId: "user_1",
+        entityKind: "items",
+        filters: {
+          labelIds: ["label_1", "label_2"],
+          status: ["todo"],
+        },
+      },
+      workspaceId: "workspace_1",
+    })
+  })
+
+  it("allows readable team custom properties in personal work views", async () => {
+    const { toggleViewDisplayPropertyHandler } =
+      await import("@/convex/app/view_handlers")
+    const ctx = createCtx()
+
+    requireViewMutationAccessMock.mockResolvedValue({
+      _id: "view_doc_1",
+      scopeType: "personal",
+      scopeId: "user_1",
+      entityKind: "items",
+      displayProps: ["status"],
+    })
+    getCustomPropertyDefinitionDocMock.mockResolvedValue({
+      id: "property_1",
+      teamId: "team_1",
+      targetType: "workItem",
+      scopeType: "team",
+      isArchived: false,
+      ownerId: null,
+      createdBy: "user_2",
+    })
+    requireReadableTeamAccessMock.mockResolvedValue("member")
+
+    await toggleViewDisplayPropertyHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      viewId: "view_1",
+      property: "custom:property_1",
+    })
+
+    expect(requireReadableTeamAccessMock).toHaveBeenCalledWith(
+      ctx,
+      "team_1",
+      "user_1"
+    )
+    expect(ctx.db.patch).toHaveBeenCalledWith("view_doc_1", {
+      displayProps: ["status", "custom:property_1"],
+      updatedAt: "2026-04-21T09:00:00.000Z",
+    })
+  })
+
+  it("rejects private custom properties owned by another user in personal work views", async () => {
+    const { toggleViewDisplayPropertyHandler } =
+      await import("@/convex/app/view_handlers")
+    const ctx = createCtx()
+
+    requireViewMutationAccessMock.mockResolvedValue({
+      _id: "view_doc_1",
+      scopeType: "personal",
+      scopeId: "user_1",
+      entityKind: "items",
+      displayProps: ["status"],
+    })
+    getCustomPropertyDefinitionDocMock.mockResolvedValue({
+      id: "property_1",
+      teamId: "team_1",
+      targetType: "workItem",
+      scopeType: "private",
+      isArchived: false,
+      ownerId: "user_2",
+      createdBy: "user_2",
+    })
+
+    await expect(
+      toggleViewDisplayPropertyHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        viewId: "view_1",
+        property: "custom:property_1",
+      })
+    ).rejects.toThrow("Custom property is not available in this view scope")
+    expect(ctx.db.patch).not.toHaveBeenCalled()
   })
 })

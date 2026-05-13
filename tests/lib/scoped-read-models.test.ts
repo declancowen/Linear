@@ -4,13 +4,17 @@ import { createEmptyState } from "@/lib/domain/empty-state"
 import type { AppSnapshot } from "@/lib/domain/types"
 import { isWorkspaceMembershipInvite } from "@/lib/scoped-sync/invite-selection"
 import {
+  getCustomPropertyDefinitionScopeKeys,
   getDocumentDetailScopeKeys,
   getConversationRelatedScopeKeys,
   getProjectDetailScopeKeys,
+  getProjectRelatedScopeKeys,
   getWorkItemDetailScopeKeys,
   selectDocumentDetailReadModel,
+  selectDocumentIndexReadModel,
   selectProjectDetailReadModel,
   selectWorkItemDetailReadModel,
+  selectWorkIndexReadModel,
 } from "@/lib/scoped-sync/read-models"
 import {
   createScopedReadModelProject,
@@ -227,6 +231,18 @@ describe("scoped read model selectors", () => {
     ])
   })
 
+  it("selects the document index subset with linked entity label dependencies", () => {
+    const snapshot = createSnapshotFixture()
+    const patch = selectDocumentIndexReadModel(snapshot, "team", "team_1")
+
+    expect(patch).toMatchObject({
+      documents: [{ id: "doc_1" }, { id: "doc_linked" }],
+      projects: [{ id: "project_1" }],
+      workItems: [{ id: "item_1" }],
+      teams: [{ id: "team_1" }],
+    })
+  })
+
   it("selects the work item detail subset and related project scopes", () => {
     const snapshot = createSnapshotFixture()
     const patch = selectWorkItemDetailReadModel(snapshot, "item_1")
@@ -241,12 +257,155 @@ describe("scoped read model selectors", () => {
       labels: [{ id: "label_1" }],
     })
     expect(getWorkItemDetailScopeKeys(snapshot, "item_1").sort()).toEqual([
+      "document-index:team_team_1",
       "project-detail:project_1",
       "project-index:team_team_1",
       "search-seed:workspace_1",
       "work-index:personal_user_1",
       "work-index:personal_user_2",
       "work-index:team_team_1",
+      "work-item-detail:item_1",
+    ])
+  })
+
+  it("filters custom property values to definitions visible in the read model", () => {
+    const snapshot = createSnapshotFixture()
+
+    snapshot.customPropertyDefinitions = [
+      {
+        id: "property_team",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        scopeType: "team",
+        targetType: "workItem",
+        name: "Team field",
+        icon: "Tag",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
+        id: "property_private_own",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        scopeType: "private",
+        ownerId: "user_1",
+        targetType: "workItem",
+        name: "My field",
+        icon: "Lock",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
+        id: "property_private_other",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        scopeType: "private",
+        ownerId: "user_2",
+        targetType: "workItem",
+        name: "Other field",
+        icon: "Lock",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "user_2",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+    ] as never
+    snapshot.customPropertyValues = [
+      {
+        id: "value_team",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        workItemId: "item_1",
+        propertyId: "property_team",
+        value: "team",
+        createdBy: "user_1",
+        updatedBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
+        id: "value_private_own",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        workItemId: "item_1",
+        propertyId: "property_private_own",
+        value: "mine",
+        createdBy: "user_1",
+        updatedBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
+        id: "value_private_other",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        workItemId: "item_1",
+        propertyId: "property_private_other",
+        value: "hidden",
+        createdBy: "user_2",
+        updatedBy: "user_2",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+    ] as never
+
+    const personalWorkIndex = selectWorkIndexReadModel(
+      snapshot,
+      "personal",
+      "user_1"
+    )
+    const workItemDetail = selectWorkItemDetailReadModel(snapshot, "item_1")
+
+    expect(
+      personalWorkIndex.customPropertyDefinitions?.map((entry) => entry.id)
+    ).toEqual(["property_team", "property_private_own"])
+    expect(
+      personalWorkIndex.customPropertyValues?.map((entry) => entry.id)
+    ).toEqual(["value_team", "value_private_own"])
+    expect(workItemDetail?.customPropertyValues?.map((entry) => entry.id)).toEqual(
+      ["value_team"]
+    )
+  })
+
+  it("invalidates document indexes for linked project and work item labels", () => {
+    const snapshot = createSnapshotFixture()
+
+    expect(getProjectRelatedScopeKeys(snapshot, "project_1").sort()).toEqual([
+      "document-index:team_team_1",
+      "project-detail:project_1",
+      "project-index:team_team_1",
+      "search-seed:workspace_1",
+    ])
+    expect(getWorkItemDetailScopeKeys(snapshot, "item_1")).toContain(
+      "document-index:team_team_1"
+    )
+  })
+
+  it("resolves custom property definition invalidations for indexes, details, and view catalogs", () => {
+    const snapshot = createSnapshotFixture()
+
+    expect(
+      getCustomPropertyDefinitionScopeKeys(snapshot, "team_1").sort()
+    ).toEqual([
+      "project-detail:project_1",
+      "project-index:team_team_1",
+      "project-index:workspace_workspace_1",
+      "view-catalog:team_team_1",
+      "view-catalog:workspace_workspace_1",
+      "work-index:personal_user_1",
+      "work-index:personal_user_2",
+      "work-index:team_team_1",
+      "work-index:workspace_workspace_1",
       "work-item-detail:item_1",
     ])
   })
@@ -262,6 +421,10 @@ describe("scoped read model selectors", () => {
       projectUpdates: [{ id: "update_1" }],
       documents: [{ id: "doc_1" }],
       views: [{ id: "view_1" }],
+      teamMemberships: [
+        { teamId: "team_1", userId: "user_1" },
+        { teamId: "team_1", userId: "user_2" },
+      ],
     })
     expect(getProjectDetailScopeKeys("project_1")).toEqual([
       "project-detail:project_1",

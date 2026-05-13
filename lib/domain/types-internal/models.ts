@@ -5,11 +5,17 @@ import type {
   ConversationKind,
   ConversationScopeType,
   ConversationVariant,
+  CustomPropertyOption,
+  CustomPropertyScopeType,
+  CustomPropertyTargetType,
+  CustomPropertyType,
+  CustomPropertyValue,
   DisplayProperty,
   DocumentKind,
   EntityKind,
   GroupField,
   HiddenState,
+  LabelScopeType,
   NotificationEntityType,
   NotificationType,
   OrderingField,
@@ -30,6 +36,7 @@ import type {
   ViewLayout,
   ViewScopeType,
   WorkItemType,
+  WorkItemVisibility,
   WorkStatus,
 } from "./primitives"
 
@@ -102,6 +109,8 @@ export interface UserProfile {
 export interface Label {
   id: string
   workspaceId: string
+  scopeType?: LabelScopeType
+  ownerId?: string | null
   name: string
   color: string
 }
@@ -112,6 +121,7 @@ export interface Project {
   scopeId: string
   templateType: TemplateType
   name: string
+  icon?: string
   summary: string
   description: string
   leadId: string
@@ -125,6 +135,36 @@ export interface Project {
   startDate: string | null
   targetDate: string | null
   labelIds?: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CustomPropertyDefinition {
+  id: string
+  workspaceId: string
+  teamId: string
+  scopeType?: CustomPropertyScopeType
+  ownerId?: string | null
+  targetType: CustomPropertyTargetType
+  name: string
+  icon: string
+  type: CustomPropertyType
+  options: CustomPropertyOption[]
+  isArchived: boolean
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CustomPropertyValueRecord {
+  id: string
+  workspaceId: string
+  teamId: string
+  workItemId: string
+  propertyId: string
+  value: CustomPropertyValue
+  createdBy: string
+  updatedBy: string
   createdAt: string
   updatedAt: string
 }
@@ -153,6 +193,7 @@ export interface WorkItem {
   linkedProjectIds: string[]
   linkedDocumentIds: string[]
   labelIds: string[]
+  visibility?: WorkItemVisibility
   milestoneId: string | null
   startDate: string | null
   dueDate: string | null
@@ -411,6 +452,7 @@ export type CreateDialogState =
           | "primaryProjectId"
           | "parentId"
           | "labelIds"
+          | "visibility"
           | "startDate"
           | "dueDate"
           | "targetDate"
@@ -465,6 +507,8 @@ export interface AppData {
   projects: Project[]
   milestones: Milestone[]
   workItems: WorkItem[]
+  customPropertyDefinitions: CustomPropertyDefinition[]
+  customPropertyValues: CustomPropertyValueRecord[]
   documents: Document[]
   views: ViewDefinition[]
   comments: Comment[]

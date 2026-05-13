@@ -188,7 +188,9 @@ describe("team and collaboration route contracts", () => {
     enqueueEmailJobsServerMock.mockResolvedValue({
       queued: 0,
     })
-    bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(
+      undefined
+    )
   })
 
   it("maps team creation failures to typed error responses", async () => {
@@ -462,10 +464,9 @@ describe("team and collaboration route contracts", () => {
     )
 
     expect(patchResponse.status).toBe(200)
-    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenNthCalledWith(
-      1,
-      "workspace_2"
-    )
+    expect(
+      bumpWorkspaceMembershipReadModelScopesServerMock
+    ).toHaveBeenNthCalledWith(1, "workspace_2")
 
     const deleteResponse = await route.DELETE(
       new Request("http://localhost/api/teams/team_1/details", {
@@ -475,10 +476,9 @@ describe("team and collaboration route contracts", () => {
     )
 
     expect(deleteResponse.status).toBe(200)
-    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenNthCalledWith(
-      2,
-      "workspace_2"
-    )
+    expect(
+      bumpWorkspaceMembershipReadModelScopesServerMock
+    ).toHaveBeenNthCalledWith(2, "workspace_2")
   })
 
   it("accepts an empty team summary for detail updates", async () => {
@@ -490,10 +490,10 @@ describe("team and collaboration route contracts", () => {
     })
 
     const patchResponse = await route.PATCH(
-      createJsonPatchRequest(
-        "http://localhost/api/teams/team_1/details",
-        createTeamDetailsRequestBody("")
-      ),
+      createJsonPatchRequest("http://localhost/api/teams/team_1/details", {
+        ...createTeamDetailsRequestBody(""),
+        icon: "RocketLaunch",
+      }),
       createRouteParams({ teamId: "team_1" })
     )
 
@@ -501,12 +501,13 @@ describe("team and collaboration route contracts", () => {
     await expect(patchResponse.json()).resolves.toEqual({
       ok: true,
       teamId: "team_1",
+      icon: "RocketLaunch",
     })
     expect(updateTeamDetailsServerMock).toHaveBeenCalledWith({
       currentUserId: "user_1",
       teamId: "team_1",
       name: "Launch",
-      icon: "robot",
+      icon: "RocketLaunch",
       summary: "",
       experience: "software-development",
       features: {
@@ -521,10 +522,10 @@ describe("team and collaboration route contracts", () => {
   })
 
   it("invalidates the mutated team's workspace for settings and member mutations", async () => {
-    const settingsRoute = await import("@/app/api/teams/[teamId]/settings/route")
-    const membersRoute = await import(
-      "@/app/api/teams/[teamId]/members/[userId]/route"
-    )
+    const settingsRoute =
+      await import("@/app/api/teams/[teamId]/settings/route")
+    const membersRoute =
+      await import("@/app/api/teams/[teamId]/members/[userId]/route")
 
     updateTeamWorkflowSettingsServerMock.mockResolvedValue({
       teamId: "team_1",
@@ -548,42 +549,43 @@ describe("team and collaboration route contracts", () => {
     )
 
     expect(settingsResponse.status).toBe(200)
-    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenNthCalledWith(
-      1,
-      "workspace_2"
-    )
+    expect(
+      bumpWorkspaceMembershipReadModelScopesServerMock
+    ).toHaveBeenNthCalledWith(1, "workspace_2")
 
     const patchMemberResponse = await membersRoute.PATCH(
       ...createTeamMemberPatchInput()
     )
 
     expect(patchMemberResponse.status).toBe(200)
-    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenNthCalledWith(
-      2,
-      "workspace_2"
-    )
+    expect(
+      bumpWorkspaceMembershipReadModelScopesServerMock
+    ).toHaveBeenNthCalledWith(2, "workspace_2")
 
     const deleteMemberResponse = await membersRoute.DELETE(
       ...createTeamMemberDeleteInput()
     )
 
     expect(deleteMemberResponse.status).toBe(200)
-    expect(bumpWorkspaceMembershipReadModelScopesServerMock).toHaveBeenNthCalledWith(
-      3,
-      "workspace_2"
-    )
+    expect(
+      bumpWorkspaceMembershipReadModelScopesServerMock
+    ).toHaveBeenNthCalledWith(3, "workspace_2")
   })
 
   it("maps team workflow and member failures to typed error responses", async () => {
-    const settingsRoute = await import("@/app/api/teams/[teamId]/settings/route")
-    const membersRoute = await import(
-      "@/app/api/teams/[teamId]/members/[userId]/route"
-    )
+    const settingsRoute =
+      await import("@/app/api/teams/[teamId]/settings/route")
+    const membersRoute =
+      await import("@/app/api/teams/[teamId]/members/[userId]/route")
 
     updateTeamWorkflowSettingsServerMock.mockRejectedValue(
-      new ApplicationError("Only team admins can update workflow settings", 403, {
-        code: "TEAM_ADMIN_REQUIRED",
-      })
+      new ApplicationError(
+        "Only team admins can update workflow settings",
+        403,
+        {
+          code: "TEAM_ADMIN_REQUIRED",
+        }
+      )
     )
     updateTeamMemberRoleServerMock.mockRejectedValue(
       new ApplicationError("Team member not found", 404, {
@@ -721,9 +723,13 @@ describe("team and collaboration route contracts", () => {
       })
     )
     createChannelServerMock.mockRejectedValue(
-      new ApplicationError("Channel must target exactly one team or workspace", 400, {
-        code: "CHANNEL_TARGET_INVALID",
-      })
+      new ApplicationError(
+        "Channel must target exactly one team or workspace",
+        400,
+        {
+          code: "CHANNEL_TARGET_INVALID",
+        }
+      )
     )
 
     const chatsResponse = await chatsRoute.POST(

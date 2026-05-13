@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { NextRequest } from "next/server"
 
 import { SELECTED_WORKSPACE_COOKIE } from "@/lib/server/workspace-selection"
 import {
@@ -12,6 +13,20 @@ const workspaceSelectionMocks = vi.hoisted(() => ({
   logProviderError: vi.fn(),
   requireSession: vi.fn(),
 }))
+
+function expectSelectedWorkspaceCookie(response: Response) {
+  expect(response.headers.get("set-cookie")).toContain(
+    `${SELECTED_WORKSPACE_COOKIE}=workspace_1`
+  )
+}
+
+function expectWorkspaceSelectionBootstrap() {
+  expect(workspaceSelectionMocks.bootstrap).toHaveBeenCalledWith({
+    workosUserId: "workos_user_1",
+    email: "alex@example.com",
+    workspaceId: "workspace_1",
+  })
+}
 
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: workspaceSelectionMocks.requireSession,
@@ -41,9 +56,7 @@ describe("workspace selection route", () => {
   it("returns the auth response when no session is available", async () => {
     const authResponse = new Response("Unauthorized", { status: 401 })
     workspaceSelectionMocks.requireSession.mockResolvedValue(authResponse)
-    const { POST } = await import(
-      "@/app/api/workspace/current/selection/route"
-    )
+    const { POST } = await import("@/app/api/workspace/current/selection/route")
 
     await expect(
       POST(
@@ -59,9 +72,7 @@ describe("workspace selection route", () => {
   })
 
   it("rejects invalid selection payloads", async () => {
-    const { POST } = await import(
-      "@/app/api/workspace/current/selection/route"
-    )
+    const { POST } = await import("@/app/api/workspace/current/selection/route")
     const response = await POST(
       createJsonRouteRequest(
         "http://localhost/api/workspace/current/selection",
@@ -86,9 +97,7 @@ describe("workspace selection route", () => {
       currentWorkspaceId: "workspace_1",
       workspaces: [],
     })
-    const { POST } = await import(
-      "@/app/api/workspace/current/selection/route"
-    )
+    const { POST } = await import("@/app/api/workspace/current/selection/route")
     const response = await POST(
       createJsonRouteRequest(
         "http://localhost/api/workspace/current/selection",
@@ -105,23 +114,35 @@ describe("workspace selection route", () => {
         workspaces: [],
       },
     })
-    expect(response.headers.get("set-cookie")).toContain(
-      `${SELECTED_WORKSPACE_COOKIE}=workspace_1`
-    )
-    expect(workspaceSelectionMocks.bootstrap).toHaveBeenCalledWith({
-      workosUserId: "workos_user_1",
-      email: "alex@example.com",
-      workspaceId: "workspace_1",
+    expectSelectedWorkspaceCookie(response)
+    expectWorkspaceSelectionBootstrap()
+  })
+
+  it("sets the selected workspace cookie and redirects from the GET selector bridge", async () => {
+    workspaceSelectionMocks.bootstrap.mockResolvedValue({
+      currentWorkspaceId: "workspace_1",
+      workspaces: [{ id: "workspace_1" }],
     })
+    const { GET } = await import("@/app/api/workspace/current/selection/route")
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/workspace/current/selection?workspaceId=workspace_1&next=/workspace/projects"
+      )
+    )
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get("location")).toBe(
+      "http://localhost/workspace/projects"
+    )
+    expectSelectedWorkspaceCookie(response)
+    expectWorkspaceSelectionBootstrap()
   })
 
   it("rejects bootstrap data for a different workspace", async () => {
     workspaceSelectionMocks.bootstrap.mockResolvedValue({
       currentWorkspaceId: "workspace_2",
     })
-    const { POST } = await import(
-      "@/app/api/workspace/current/selection/route"
-    )
+    const { POST } = await import("@/app/api/workspace/current/selection/route")
     const response = await POST(
       createJsonRouteRequest(
         "http://localhost/api/workspace/current/selection",
@@ -144,9 +165,7 @@ describe("workspace selection route", () => {
     workspaceSelectionMocks.bootstrap.mockRejectedValue(
       new Error("Convex unavailable")
     )
-    const { POST } = await import(
-      "@/app/api/workspace/current/selection/route"
-    )
+    const { POST } = await import("@/app/api/workspace/current/selection/route")
     const response = await POST(
       createJsonRouteRequest(
         "http://localhost/api/workspace/current/selection",

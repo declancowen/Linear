@@ -49,6 +49,9 @@ export type PersistedViewFilterKey =
   | "priority"
   | "assigneeIds"
   | "creatorIds"
+  | "updatedByIds"
+  | "documentKinds"
+  | "linkedWorkItemIds"
   | "leadIds"
   | "health"
   | "milestoneIds"
@@ -58,6 +61,7 @@ export type PersistedViewFilterKey =
   | "itemTypes"
   | "labelIds"
   | "teamIds"
+  | "visibility"
 
 export type ViewConfigPatchInput = {
   layout?: ViewDefinition["layout"]
@@ -81,6 +85,9 @@ export function isPersistedViewFilterKey(
     "priority",
     "assigneeIds",
     "creatorIds",
+    "updatedByIds",
+    "documentKinds",
+    "linkedWorkItemIds",
     "leadIds",
     "health",
     "milestoneIds",
@@ -90,6 +97,7 @@ export function isPersistedViewFilterKey(
     "itemTypes",
     "labelIds",
     "teamIds",
+    "visibility",
   ].includes(key)
 }
 
@@ -105,7 +113,7 @@ export function toggleViewFilterValue(
   value: string
 ) {
   const nextFilters = { ...filters } as ViewDefinition["filters"]
-  const currentValues = nextFilters[key] as string[]
+  const currentValues = (nextFilters[key] ?? []) as string[]
   const nextValues = currentValues.includes(value)
     ? currentValues.filter((entry) => entry !== value)
     : [...currentValues, value]
@@ -193,6 +201,8 @@ export function selectAppDataSnapshot(state: AppStore): AppData {
     projects: state.projects,
     milestones: state.milestones,
     workItems: state.workItems,
+    customPropertyDefinitions: state.customPropertyDefinitions,
+    customPropertyValues: state.customPropertyValues,
     documents: state.documents,
     views: state.views,
     comments: state.comments,

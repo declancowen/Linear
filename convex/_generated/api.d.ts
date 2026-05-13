@@ -21,6 +21,7 @@ import type * as app_collaboration_utils from "../app/collaboration_utils.js";
 import type * as app_comment_handlers from "../app/comment_handlers.js";
 import type * as app_conversations from "../app/conversations.js";
 import type * as app_core from "../app/core.js";
+import type * as app_custom_property_handlers from "../app/custom_property_handlers.js";
 import type * as app_data from "../app/data.js";
 import type * as app_document_handlers from "../app/document_handlers.js";
 import type * as app_email_job_handlers from "../app/email_job_handlers.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   "app/comment_handlers": typeof app_comment_handlers;
   "app/conversations": typeof app_conversations;
   "app/core": typeof app_core;
+  "app/custom_property_handlers": typeof app_custom_property_handlers;
   "app/data": typeof app_data;
   "app/document_handlers": typeof app_document_handlers;
   "app/email_job_handlers": typeof app_email_job_handlers;

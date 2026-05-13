@@ -1,5 +1,6 @@
 import type {
   ButtonHTMLAttributes,
+  HTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
 } from "react"
@@ -162,7 +163,37 @@ export function createDropdownMenuStubModule({
   }
 }
 
-export function createSelectableMenuStubModule(prefix: "ContextMenu" | "DropdownMenu") {
+export function createDialogStubModule({
+  rootAsFragment = false,
+}: {
+  rootAsFragment?: boolean
+} = {}) {
+  const DialogRoot = rootAsFragment ? ChildrenFragmentStub : ChildrenDivStub
+
+  return {
+    Dialog: ({ children, open }: { children: ReactNode; open?: boolean }) =>
+      open === false ? null : <DialogRoot>{children}</DialogRoot>,
+    DialogContent: function DialogContentStub({
+      children,
+      showCloseButton,
+      ...props
+    }: {
+      children: ReactNode
+      showCloseButton?: boolean
+    } & HTMLAttributes<HTMLDivElement>) {
+      void showCloseButton
+
+      return <div {...props}>{children}</div>
+    },
+    DialogDescription: ChildrenDivStub,
+    DialogHeader: ChildrenDivStub,
+    DialogTitle: ChildrenDivStub,
+  }
+}
+
+export function createSelectableMenuStubModule(
+  prefix: "ContextMenu" | "DropdownMenu"
+) {
   const MenuContext = createContext<{
     close: () => void
     open: boolean
@@ -246,7 +277,28 @@ export function createSidebarTriggerStubModule() {
 export function createTemplatePrimitivesStubModule() {
   return {
     IconButton: ButtonStub,
+    PROPERTY_POPOVER_CLASS: "property-popover",
+    PropertyPopoverFoot: ChildrenDivStub,
+    PropertyPopoverGroup: ChildrenDivStub,
+    PropertyPopoverItem: ({
+      children,
+      onClick,
+      trailing,
+    }: {
+      children?: ReactNode
+      onClick?: () => void
+      selected?: boolean
+      trailing?: ReactNode
+    }) => (
+      <button type="button" onClick={onClick}>
+        {children}
+        {trailing}
+      </button>
+    ),
+    PropertyPopoverList: ChildrenDivStub,
+    PropertyPopoverSearch: InputStub,
     Topbar: ChildrenDivStub,
+    ViewTab: ButtonStub,
     Viewbar: ChildrenDivStub,
   }
 }

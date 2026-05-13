@@ -45,9 +45,8 @@ describe("script shared helpers", () => {
   })
 
   it("reads WorkOS Convex config from explicit env fallbacks", async () => {
-    const { readWorkosConvexConfig } = await import(
-      "../../scripts/shared/workos-convex.mjs"
-    )
+    const { readWorkosConvexConfig } =
+      await import("../../scripts/shared/workos-convex.mjs")
     const config = readWorkosConvexConfig({
       NEXT_PUBLIC_CONVEX_URL: "https://convex.example.com",
       CONVEX_SERVER_TOKEN: "server-token",
@@ -71,9 +70,8 @@ describe("script shared helpers", () => {
   })
 
   it("rejects incomplete WorkOS Convex config", async () => {
-    const { readWorkosConvexConfig } = await import(
-      "../../scripts/shared/workos-convex.mjs"
-    )
+    const { readWorkosConvexConfig } =
+      await import("../../scripts/shared/workos-convex.mjs")
 
     expect(() => readWorkosConvexConfig({})).toThrow(
       "CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured"
@@ -92,9 +90,8 @@ describe("script shared helpers", () => {
   })
 
   it("reads Convex Resend config and requires provider settings", async () => {
-    const { readConvexResendConfig } = await import(
-      "../../scripts/shared/convex-resend.mjs"
-    )
+    const { readConvexResendConfig } =
+      await import("../../scripts/shared/convex-resend.mjs")
 
     expect(() => readConvexResendConfig({})).toThrow(
       "CONVEX_URL or NEXT_PUBLIC_CONVEX_URL is not configured"
@@ -132,20 +129,21 @@ describe("script shared helpers", () => {
   })
 
   it("runs backfill batches until no remaining or patched items remain", async () => {
-    const { runBackfillLoop } = await import("../../scripts/shared/backfill.mjs")
+    const { runBackfillLoop } =
+      await import("../../scripts/shared/backfill.mjs")
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined)
     const originalExitCode = process.exitCode
-    const statuses = [
-      { remaining: { total: 2 } },
-      { remaining: { total: 0 } },
-    ]
+    const statuses = [{ remaining: { total: 2 } }, { remaining: { total: 0 } }]
 
     process.exitCode = undefined
     await runBackfillLoop({
       beforeLabel: "Before",
       afterLabel: "After",
       totalLabel: "Patched",
-      getStatus: vi.fn().mockResolvedValueOnce(statuses[0]).mockResolvedValueOnce(statuses[1]),
+      getStatus: vi
+        .fn()
+        .mockResolvedValueOnce(statuses[0])
+        .mockResolvedValueOnce(statuses[1]),
       backfill: vi.fn().mockResolvedValueOnce({
         patched: {
           total: 2,
@@ -166,10 +164,8 @@ describe("script shared helpers", () => {
   })
 
   it("parses bootstrap arguments and treats missing WorkOS organizations as absent", async () => {
-    const {
-      getOrganizationByExternalId,
-      parseBootstrapAppWorkspaceArgs,
-    } = await import("../../scripts/shared/bootstrap-app-workspace.mjs")
+    const { getOrganizationByExternalId, parseBootstrapAppWorkspaceArgs } =
+      await import("../../scripts/shared/bootstrap-app-workspace.mjs")
     const workos = {
       organizations: {
         getOrganizationByExternalId: vi
@@ -203,9 +199,8 @@ describe("script shared helpers", () => {
   })
 
   it("parses generated Convex API map entries", async () => {
-    const { parseGeneratedApiMap } = await import(
-      "../../scripts/shared/convex-generated-api.mjs"
-    )
+    const { parseGeneratedApiMap } =
+      await import("../../scripts/shared/convex-generated-api.mjs")
 
     expect(
       parseGeneratedApiMap(
@@ -217,15 +212,26 @@ describe("script shared helpers", () => {
         ].join("\n")
       )
     ).toEqual(new Set(["convex/app/work_items", "convex/app"]))
+    expect(
+      parseGeneratedApiMap(
+        [
+          "declare const fullApi: ApiFromModules<{",
+          '  "app/custom_property_handlers": typeof app_custom_property_handlers',
+          "  validators: typeof validators",
+          "}>",
+        ].join("\n")
+      )
+    ).toEqual(
+      new Set(["convex/app/custom_property_handlers", "convex/validators"])
+    )
     expect(() => parseGeneratedApiMap("declare const fullApi = {}")).toThrow(
       "Could not parse fullApi module map from generated API file."
     )
   })
 
   it("finds packaged Electron app bundles under mac output directories", async () => {
-    const { findBuiltApp } = await import(
-      "../../scripts/shared/electron-package.mjs"
-    )
+    const { findBuiltApp } =
+      await import("../../scripts/shared/electron-package.mjs")
     const tempDir = await fs.mkdtemp(
       path.join(os.tmpdir(), "linear-electron-package-test-")
     )

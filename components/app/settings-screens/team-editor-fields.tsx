@@ -19,7 +19,7 @@ import {
   type TextInputConstraint,
 } from "@/lib/domain/input-constraints"
 import {
-  getDefaultTeamIconForExperience,
+  getLegacyTeamIconName,
   getDefaultWorkItemTypesForTeamExperience,
   getDisplayLabelForWorkItemType,
   getWorkSurfaceCopy,
@@ -27,23 +27,14 @@ import {
   teamExperienceMeta,
   teamExperienceTypes,
   teamFeatureMeta,
-  teamIconMeta,
-  teamIconTokens,
   type TeamExperienceType,
   type TeamFeatureSettings,
 } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
-import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import { PhosphorIconPicker } from "@/components/app/phosphor-icon-picker"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 import {
@@ -210,7 +201,6 @@ function useJoinCodeCopy(joinCode: string) {
 function TeamIdentitySection({
   copiedJoinCode,
   disabled,
-  experience,
   joinCode,
   joinCodeReadonlyLabel,
   name,
@@ -227,7 +217,6 @@ function TeamIdentitySection({
 }: Pick<
   TeamEditorFieldsProps,
   | "disabled"
-  | "experience"
   | "joinCode"
   | "joinCodeReadonlyLabel"
   | "name"
@@ -266,42 +255,15 @@ function TeamIdentitySection({
         />
         <SettingsRow
           label="Icon"
-          description={`Defaults to ${
-            teamIconMeta[getDefaultTeamIconForExperience(experience)].label
-          } for ${teamExperienceMeta[experience].label.toLowerCase()} teams.`}
+          description="Choose any Phosphor icon for this team."
           alignment="center"
           control={
-            <Select
+            <PhosphorIconPicker
               disabled={disabled}
               value={selectedIcon}
               onValueChange={setIcon}
-            >
-              <SelectTrigger id="team-icon" className="w-full justify-between">
-                <div className="flex items-center gap-2 text-sm">
-                  <TeamIconGlyph icon={selectedIcon} className="size-4" />
-                  <span>{teamIconMeta[selectedIcon].label}</span>
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {teamIconTokens.map((token) => (
-                    <SelectItem key={token} value={token}>
-                      <div className="flex items-center gap-2">
-                        <TeamIconGlyph icon={token} className="size-4" />
-                        <div className="flex min-w-0 flex-col">
-                          <span className="text-sm">
-                            {teamIconMeta[token].label}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {teamIconMeta[token].description}
-                          </span>
-                        </div>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+              triggerClassName="w-full justify-between"
+            />
           }
         />
         <SettingsRow
@@ -486,7 +448,8 @@ function OptionalSurfaceRows({
           : null
         const featureDisabled =
           disabled ||
-          (savedFeatures[feature.key] && Boolean(surfaceDisableReasons[feature.key]))
+          (savedFeatures[feature.key] &&
+            Boolean(surfaceDisableReasons[feature.key]))
 
         return (
           <SettingsToggleRow
@@ -534,8 +497,7 @@ function CoreSurfaceModelSummary({
 
   return (
     <p className="pt-2 text-[12.5px] leading-relaxed text-muted-foreground">
-      <span className="font-medium text-fg-2">Core model:</span>{" "}
-      {coreWorkModel}
+      <span className="font-medium text-fg-2">Core model:</span> {coreWorkModel}
     </p>
   )
 }
@@ -647,7 +609,8 @@ export function TeamEditorFields({
   onRegenerateJoinCode,
   joinCodeReadonlyLabel = "Generated automatically after creation.",
 }: TeamEditorFieldsProps) {
-  const selectedIcon = normalizeTeamIconToken(icon, experience)
+  const selectedIcon =
+    getLegacyTeamIconName(icon) ?? normalizeTeamIconToken(icon, experience)
   const summaryLimitState = getTextInputLimitState(summary, summaryConstraints)
   const workCopy = getWorkSurfaceCopy(experience)
   const coreSurfaceItems: CoreSurfaceItem[] = [
@@ -694,7 +657,6 @@ export function TeamEditorFields({
       <TeamIdentitySection
         copiedJoinCode={copiedJoinCode}
         disabled={disabled}
-        experience={experience}
         joinCode={joinCode}
         joinCodeReadonlyLabel={joinCodeReadonlyLabel}
         name={name}

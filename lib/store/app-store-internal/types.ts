@@ -10,6 +10,9 @@ import type {
   CreateViewInput as DomainCreateViewInput,
   CreateDialogState,
   DisplayProperty,
+  CustomPropertyOption,
+  CustomPropertyType,
+  CustomPropertyValue,
   GroupField,
   Label,
   OrderingField,
@@ -56,6 +59,8 @@ export type CreateViewInput = DomainCreateViewInput
 
 export type ProjectPatch = {
   name?: string
+  icon?: string
+  summary?: string
   status?: ProjectStatus
   priority?: Priority
   leadId?: string | null
@@ -66,6 +71,22 @@ export type ProjectPatch = {
 }
 
 export type CreateWorkItemInput = CreateStoreWorkItemInput
+
+export type CreateCustomPropertyInput = {
+  teamId: string
+  scopeType?: "team" | "private"
+  name: string
+  icon: string
+  type: CustomPropertyType
+  options?: CustomPropertyOption[]
+}
+
+export type UpdateCustomPropertyInput = Partial<{
+  name: string
+  icon: string
+  type: CustomPropertyType
+  options: CustomPropertyOption[]
+}>
 
 export type CreateDocumentInput =
   | {
@@ -198,6 +219,9 @@ export type ViewFilterValueKey =
   | "priority"
   | "assigneeIds"
   | "creatorIds"
+  | "updatedByIds"
+  | "documentKinds"
+  | "linkedWorkItemIds"
   | "leadIds"
   | "health"
   | "milestoneIds"
@@ -207,6 +231,7 @@ export type ViewFilterValueKey =
   | "itemTypes"
   | "labelIds"
   | "teamIds"
+  | "visibility"
 
 export type PendingViewConfig = {
   token: string
@@ -223,7 +248,10 @@ export type AppStore = AppData & {
       replace?: ScopedReadModelReplaceInstruction[]
     }
   ) => void
-  setDocumentBodyProtection: (documentId: string, protectedState: boolean) => void
+  setDocumentBodyProtection: (
+    documentId: string,
+    protectedState: boolean
+  ) => void
   setActiveTeam: (teamId: string) => void
   openCreateDialog: (dialog: CreateDialogState) => void
   closeCreateDialog: () => void
@@ -250,10 +278,7 @@ export type AppStore = AppData & {
     viewId: string,
     displayProps: DisplayProperty[]
   ) => void
-  clearViewerViewDisplayProperties: (
-    surfaceKey: string,
-    viewId: string
-  ) => void
+  clearViewerViewDisplayProperties: (surfaceKey: string, viewId: string) => void
   toggleViewerViewHiddenValue: (
     surfaceKey: string,
     viewId: string,
@@ -298,10 +323,7 @@ export type AppStore = AppData & {
   updateCurrentUserProfile: (input: UpdateProfileInput) => void
   updateCurrentUserStatus: (input: UpdateUserStatusInput) => void
   clearCurrentUserStatus: () => void
-  updateViewConfig: (
-    viewId: string,
-    patch: ViewConfigPatch
-  ) => void
+  updateViewConfig: (viewId: string, patch: ViewConfigPatch) => void
   renameView: (viewId: string, name: string) => Promise<boolean>
   deleteView: (viewId: string) => Promise<boolean>
   toggleViewDisplayProperty: (viewId: string, property: DisplayProperty) => void
@@ -322,13 +344,27 @@ export type AppStore = AppData & {
   clearViewFilters: (viewId: string) => void
   createLabel: (
     name: string,
-    workspaceId?: string | null
+    workspaceId?: string | null,
+    options?: { scopeType?: "workspace" | "private" }
   ) => Promise<Label | null>
   updateWorkItem: (
     itemId: string,
     patch: WorkItemPatch,
     options?: WorkItemUpdateOptions
   ) => WorkItemUpdateResult
+  createCustomPropertyDefinition: (
+    input: CreateCustomPropertyInput
+  ) => Promise<AppData["customPropertyDefinitions"][number] | null>
+  updateCustomPropertyDefinition: (
+    propertyId: string,
+    patch: UpdateCustomPropertyInput
+  ) => Promise<boolean>
+  archiveCustomPropertyDefinition: (propertyId: string) => Promise<boolean>
+  setCustomPropertyValue: (
+    workItemId: string,
+    propertyId: string,
+    value: CustomPropertyValue
+  ) => void
   deleteWorkItem: (itemId: string) => Promise<boolean>
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void
   updateDocumentContent: (documentId: string, content: string) => void
@@ -337,10 +373,7 @@ export type AppStore = AppData & {
     documentId: string,
     content: string
   ) => void
-  applyDocumentCollaborationTitle: (
-    documentId: string,
-    title: string
-  ) => void
+  applyDocumentCollaborationTitle: (documentId: string, title: string) => void
   flushDocumentSync: (documentId: string) => Promise<void>
   renameDocument: (documentId: string, title: string) => void
   deleteDocument: (documentId: string) => Promise<void>

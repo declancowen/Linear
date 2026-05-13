@@ -1,4 +1,9 @@
-import type { Priority, WorkItemType, WorkStatus } from "@/lib/domain/types"
+import type {
+  Priority,
+  WorkItemType,
+  WorkItemVisibility,
+  WorkStatus,
+} from "@/lib/domain/types"
 
 export type WorkItemMutationPatch = {
   title?: string
@@ -29,6 +34,7 @@ export type CreateWorkItemMutationInput = {
   status?: WorkStatus
   priority: Priority
   labelIds?: string[]
+  visibility?: WorkItemVisibility
   startDate?: string | null
   dueDate?: string | null
   targetDate?: string | null
@@ -39,8 +45,7 @@ export type CreateStoreWorkItemInput = Omit<
   "descriptionDocId" | "id"
 >
 
-export type AuthenticatedCreateWorkItemInput =
-  CreateWorkItemMutationInput & {
-    currentUserId: string
-    origin: string
-  }
+export type AuthenticatedCreateWorkItemInput = CreateWorkItemMutationInput & {
+  currentUserId: string
+  origin: string
+}

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
+const requireEditableTeamDocMock = vi.fn()
+const requireEditableWorkItemAccessMock = vi.fn()
 const getDocumentDocMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const getUserDocMock = vi.fn()
@@ -20,6 +22,8 @@ vi.mock("@/convex/app/core", () => ({
 
 vi.mock("@/convex/app/access", () => ({
   requireEditableTeamAccess: requireEditableTeamAccessMock,
+  requireEditableTeamDoc: requireEditableTeamDocMock,
+  requireEditableWorkItemAccess: requireEditableWorkItemAccessMock,
 }))
 
 vi.mock("@/convex/app/data", () => ({
@@ -74,6 +78,8 @@ describe("work item handlers", () => {
   beforeEach(() => {
     assertServerTokenMock.mockReset()
     requireEditableTeamAccessMock.mockReset()
+    requireEditableTeamDocMock.mockReset()
+    requireEditableWorkItemAccessMock.mockReset()
     getDocumentDocMock.mockReset()
     getTeamDocMock.mockReset()
     getUserDocMock.mockReset()
@@ -96,6 +102,13 @@ describe("work item handlers", () => {
       workspaceId: "workspace_1",
       settings: {},
     })
+    requireEditableTeamDocMock.mockResolvedValue({
+      id: "team_1",
+      name: "Launch",
+      workspaceId: "workspace_1",
+      settings: {},
+    })
+    requireEditableWorkItemAccessMock.mockResolvedValue("member")
     getWorkItemDocMock.mockResolvedValue({
       _id: "db_item_1",
       id: "item_1",
@@ -131,7 +144,8 @@ describe("work item handlers", () => {
   })
 
   it("rejects invalid schedule strings on create before inserting", async () => {
-    const { createWorkItemHandler } = await import("@/convex/app/work_item_handlers")
+    const { createWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
 
     await expect(
@@ -153,8 +167,33 @@ describe("work item handlers", () => {
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 
+  it("rejects non task types for private work items", async () => {
+    const { createWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      createWorkItemHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        teamId: "team_1",
+        type: "epic",
+        title: "Private epic",
+        primaryProjectId: null,
+        assigneeId: null,
+        priority: "medium",
+        visibility: "private",
+      })
+    ).rejects.toThrow("Private tasks can only use task and sub-task types")
+
+    expect(validateWorkItemParentMock).not.toHaveBeenCalled()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
   it("creates work items with empty description documents", async () => {
-    const { createWorkItemHandler } = await import("@/convex/app/work_item_handlers")
+    const { createWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
     ctx.db.query.mockReturnValue({
       withIndex: vi.fn(() => ({
@@ -191,7 +230,8 @@ describe("work item handlers", () => {
   })
 
   it("rejects duplicate client-supplied work item ids before inserting", async () => {
-    const { createWorkItemHandler } = await import("@/convex/app/work_item_handlers")
+    const { createWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
 
     await expect(
@@ -213,7 +253,8 @@ describe("work item handlers", () => {
   })
 
   it("rejects duplicate client-supplied description document ids before inserting", async () => {
-    const { createWorkItemHandler } = await import("@/convex/app/work_item_handlers")
+    const { createWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
 
     await expect(
@@ -235,7 +276,8 @@ describe("work item handlers", () => {
   })
 
   it("rejects invalid schedule strings on update before patching", async () => {
-    const { updateWorkItemHandler } = await import("@/convex/app/work_item_handlers")
+    const { updateWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
 
     await expect(
@@ -254,8 +296,40 @@ describe("work item handlers", () => {
     expect(ctx.db.patch).not.toHaveBeenCalled()
   })
 
+  it("uses item-level private access before updating work items", async () => {
+    const { updateWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    requireEditableWorkItemAccessMock.mockRejectedValueOnce(
+      new Error("Work item not found")
+    )
+
+    await expect(
+      updateWorkItemHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_2",
+        origin: "https://app.example.com",
+        itemId: "item_1",
+        patch: {
+          title: "Updated title",
+        },
+      })
+    ).rejects.toThrow("Work item not found")
+
+    expect(requireEditableWorkItemAccessMock).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({
+        id: "item_1",
+      }),
+      "user_2"
+    )
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
   it("treats any provided expectedUpdatedAt value as a CAS guard", async () => {
-    const { updateWorkItemHandler } = await import("@/convex/app/work_item_handlers")
+    const { updateWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
 
     await expect(
@@ -275,9 +349,8 @@ describe("work item handlers", () => {
   })
 
   it("persists collaboration title and description updates without origin-driven side effects", async () => {
-    const { persistCollaborationWorkItemHandler } = await import(
-      "@/convex/app/work_item_handlers"
-    )
+    const { persistCollaborationWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
 
     await persistCollaborationWorkItemHandler(ctx as never, {
@@ -306,9 +379,8 @@ describe("work item handlers", () => {
   })
 
   it("shifts timeline dates in calendar-day space when moving a scheduled item", async () => {
-    const { shiftTimelineItemHandler } = await import(
-      "@/convex/app/work_item_handlers"
-    )
+    const { shiftTimelineItemHandler } =
+      await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
 
     getWorkItemDocMock.mockResolvedValue({
@@ -337,9 +409,8 @@ describe("work item handlers", () => {
   })
 
   it("patches description documents only when title or content changes", async () => {
-    const { patchWorkItemDescriptionDocument } = await import(
-      "@/convex/app/work_item_handlers"
-    )
+    const { patchWorkItemDescriptionDocument } =
+      await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
     const existing = {
       descriptionDocId: "doc_1",
@@ -374,9 +445,8 @@ describe("work item handlers", () => {
   })
 
   it("creates assignment emails only for changed assignees with email preferences", async () => {
-    const { createAssignmentNotificationForWorkItemUpdate } = await import(
-      "@/convex/app/work_item_handlers"
-    )
+    const { createAssignmentNotificationForWorkItemUpdate } =
+      await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
     const existing = {
       id: "item_1",
@@ -442,9 +512,8 @@ describe("work item handlers", () => {
   })
 
   it("creates status notifications for the resolved assignee only on status changes", async () => {
-    const { createStatusChangeNotificationForWorkItemUpdate } = await import(
-      "@/convex/app/work_item_handlers"
-    )
+    const { createStatusChangeNotificationForWorkItemUpdate } =
+      await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
 
     await createStatusChangeNotificationForWorkItemUpdate(ctx as never, {

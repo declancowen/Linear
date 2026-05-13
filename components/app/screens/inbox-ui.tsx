@@ -50,6 +50,7 @@ const BUCKET_LABEL: Record<BucketKey, string> = {
   yesterday: "Yesterday",
   earlier: "Earlier",
 }
+const INBOX_TOOLBAR_CLASS = "h-11 min-h-11"
 
 function bucketForDate(iso: string): BucketKey {
   const date = new Date(iso)
@@ -292,7 +293,12 @@ function InboxListHeader({
   onTabChange: (tab: InboxTab) => void
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 border-b bg-background px-3 py-2">
+    <div
+      className={cn(
+        INBOX_TOOLBAR_CLASS,
+        "flex items-center justify-between gap-2 border-b bg-background px-3"
+      )}
+    >
       <InboxListTabSwitch
         inboxTab={inboxTab}
         tabs={tabs}
@@ -329,7 +335,7 @@ function InboxListEntries({
     <div className="isolate flex flex-col">
       {grouped.map((bucket) => (
         <section key={bucket.key} className="flex flex-col">
-          <div className="sticky top-0 z-10 flex items-center border-b border-line-soft bg-background/95 px-4 py-1.5 text-[10.5px] font-semibold tracking-[0.08em] text-muted-foreground uppercase backdrop-blur">
+          <div className="sticky top-0 z-10 flex items-center border-b border-line-soft bg-muted/60 px-4 py-1.5 text-[10.5px] font-semibold tracking-[0.08em] text-muted-foreground uppercase backdrop-blur dark:bg-surface-2/85">
             {bucket.label}
             <span className="ml-2 text-muted-foreground/60">
               {bucket.items.length}
@@ -562,7 +568,12 @@ function InboxDetailToolbar({
   const relativeCreatedAt = getShortRelativeTimestamp(notification.createdAt)
 
   return (
-    <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-3 border-b bg-background/95 px-6 py-2 backdrop-blur">
+    <div
+      className={cn(
+        INBOX_TOOLBAR_CLASS,
+        "sticky top-0 z-10 flex shrink-0 items-center justify-between gap-3 border-b bg-background/95 px-6 backdrop-blur"
+      )}
+    >
       <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
         {renderEntityIcon(
           notification.entityType,

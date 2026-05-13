@@ -144,7 +144,7 @@ function SurfaceSidebarHeader({
   label?: string
 }) {
   return (
-    <div className="border-b border-line-soft px-4 py-3.5">
+    <div className="flex h-10 shrink-0 items-center border-b border-line-soft px-4">
       <h3 className="text-[11px] font-semibold tracking-[0.06em] text-fg-3 uppercase">
         {label ?? (heroMember ? "Details" : "About")}
       </h3>

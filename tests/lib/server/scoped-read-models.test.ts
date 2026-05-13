@@ -49,9 +49,8 @@ describe("authorizeScopedReadModelScopeKeysServer", () => {
   })
 
   it("allows current-user and accessible entity scope keys", async () => {
-    const { authorizeScopedReadModelScopeKeysServer } = await import(
-      "@/lib/server/scoped-read-models"
-    )
+    const { authorizeScopedReadModelScopeKeysServer } =
+      await import("@/lib/server/scoped-read-models")
 
     await expect(
       authorizeScopedReadModelScopeKeysServer(
@@ -82,10 +81,33 @@ describe("authorizeScopedReadModelScopeKeysServer", () => {
     ).resolves.toBeUndefined()
   })
 
+  it("normalizes partial snapshots before authorizing collection scope keys", async () => {
+    getSnapshotServerMock.mockResolvedValue({
+      currentUserId: "user_1",
+      currentWorkspaceId: "workspace_1",
+      workspaces: [{ id: "workspace_1" }],
+    } as Partial<AppSnapshot>)
+
+    const { authorizeScopedReadModelScopeKeysServer } =
+      await import("@/lib/server/scoped-read-models")
+
+    await expect(
+      authorizeScopedReadModelScopeKeysServer(
+        {
+          user: {
+            id: "workos_1",
+            email: "alex@example.com",
+          },
+          organizationId: "org_1",
+        } as never,
+        ["document-index:workspace_workspace_1"]
+      )
+    ).resolves.toBeUndefined()
+  })
+
   it("rejects inaccessible scope keys", async () => {
-    const { authorizeScopedReadModelScopeKeysServer } = await import(
-      "@/lib/server/scoped-read-models"
-    )
+    const { authorizeScopedReadModelScopeKeysServer } =
+      await import("@/lib/server/scoped-read-models")
 
     await expect(
       authorizeScopedReadModelScopeKeysServer(
@@ -98,13 +120,14 @@ describe("authorizeScopedReadModelScopeKeysServer", () => {
         } as never,
         ["notification-inbox:user_2"]
       )
-    ).rejects.toThrow("Unauthorized scoped read model key: notification-inbox:user_2")
+    ).rejects.toThrow(
+      "Unauthorized scoped read model key: notification-inbox:user_2"
+    )
   })
 
   it("rejects private scope keys for a different user", async () => {
-    const { authorizeScopedReadModelScopeKeysServer } = await import(
-      "@/lib/server/scoped-read-models"
-    )
+    const { authorizeScopedReadModelScopeKeysServer } =
+      await import("@/lib/server/scoped-read-models")
 
     await expect(
       authorizeScopedReadModelScopeKeysServer(
@@ -123,9 +146,8 @@ describe("authorizeScopedReadModelScopeKeysServer", () => {
   })
 
   it("resolves private document invalidations to owner-scoped keys", async () => {
-    const { resolveDocumentReadModelScopeKeysServer } = await import(
-      "@/lib/server/scoped-read-models"
-    )
+    const { resolveDocumentReadModelScopeKeysServer } =
+      await import("@/lib/server/scoped-read-models")
 
     await expect(
       resolveDocumentReadModelScopeKeysServer(
@@ -163,9 +185,8 @@ describe("authorizeScopedReadModelScopeKeysServer", () => {
   })
 
   it("does not bump the global shell-context scope for workspace membership invalidations", async () => {
-    const { bumpWorkspaceMembershipReadModelScopesServer } = await import(
-      "@/lib/server/scoped-read-models"
-    )
+    const { bumpWorkspaceMembershipReadModelScopesServer } =
+      await import("@/lib/server/scoped-read-models")
 
     await bumpWorkspaceMembershipReadModelScopesServer("workspace_1")
 

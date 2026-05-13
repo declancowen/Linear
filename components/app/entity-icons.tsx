@@ -1,34 +1,12 @@
-import type { ComponentType } from "react"
 import {
-  BugBeetle,
-  Briefcase,
-  CodesandboxLogo,
-  Kanban,
-  Robot,
-  UsersThree,
-  type IconProps,
-} from "@phosphor-icons/react"
-
-import {
-  isTeamIconToken,
+  getLegacyTeamIconName,
   templateMeta,
+  type Project,
   type TeamIconToken,
   type TemplateType,
 } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
-
-const teamIconComponents: Record<TeamIconToken, ComponentType<IconProps>> = {
-  robot: Robot,
-  code: CodesandboxLogo,
-  qa: BugBeetle,
-  kanban: Kanban,
-  briefcase: Briefcase,
-  users: UsersThree,
-}
-
-function resolveTeamIcon(icon: string | TeamIconToken): TeamIconToken {
-  return isTeamIconToken(icon) ? icon : "code"
-}
+import { PhosphorIconGlyph } from "./phosphor-icon-picker"
 
 export function TeamIconGlyph({
   icon,
@@ -37,8 +15,13 @@ export function TeamIconGlyph({
   icon: string | TeamIconToken
   className?: string
 }) {
-  const Icon = teamIconComponents[resolveTeamIcon(icon)]
-  return <Icon className={cn("size-4", className)} />
+  return (
+    <PhosphorIconGlyph
+      icon={getLegacyTeamIconName(icon) ?? icon}
+      fallback="RocketLaunch"
+      className={cn("size-4", className)}
+    />
+  )
 }
 
 export function ProjectTemplateGlyph({
@@ -51,6 +34,25 @@ export function ProjectTemplateGlyph({
   return (
     <TeamIconGlyph
       icon={templateMeta[templateType].icon}
+      className={className}
+    />
+  )
+}
+
+export function ProjectIconGlyph({
+  project,
+  className,
+}: {
+  project: Pick<Project, "icon" | "templateType">
+  className?: string
+}) {
+  if (project.icon) {
+    return <PhosphorIconGlyph icon={project.icon} className={className} />
+  }
+
+  return (
+    <ProjectTemplateGlyph
+      templateType={project.templateType}
       className={className}
     />
   )

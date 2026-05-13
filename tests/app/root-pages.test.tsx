@@ -8,10 +8,12 @@ const pageRouteMocks = vi.hoisted(() => ({
   cookies: vi.fn(),
   emailVerificationScreen: vi.fn(),
   ensureAppContext: vi.fn(),
+  resolveWorkspaceEntryNavigation: vi.fn(),
   redirect: vi.fn(),
   workspaceEntryJoinState: vi.fn(),
   workspaceEntryJoinSection: vi.fn(),
   workspaceForm: vi.fn(),
+  workspaceSelectorPage: vi.fn(),
 }))
 
 vi.mock("@workos-inc/authkit-nextjs", () => ({
@@ -29,6 +31,10 @@ vi.mock("next/headers", () => ({
 vi.mock("@/lib/server/authenticated-app", () => ({
   ensureAuthenticatedAppContext: pageRouteMocks.ensureAppContext,
   getWorkspaceEntryJoinState: pageRouteMocks.workspaceEntryJoinState,
+}))
+
+vi.mock("@/lib/server/workspace-entry-navigation", () => ({
+  resolveWorkspaceEntryNavigation: pageRouteMocks.resolveWorkspaceEntryNavigation,
 }))
 
 vi.mock("@/components/app/auth-email-verification-screen", () => ({
@@ -49,6 +55,13 @@ vi.mock("@/components/app/workspace-entry-join-section", () => ({
   WorkspaceEntryJoinSection: (props: Record<string, unknown>) => {
     pageRouteMocks.workspaceEntryJoinSection(props)
     return <div>Workspace entry join section</div>
+  },
+}))
+
+vi.mock("@/components/app/workspace-selector-page", () => ({
+  WorkspaceSelectorPage: (props: Record<string, unknown>) => {
+    pageRouteMocks.workspaceSelectorPage(props)
+    return <div>Workspace selector page</div>
   },
 }))
 
@@ -80,6 +93,22 @@ describe("root app pages", () => {
         currentWorkspace: {
           id: "workspace_1",
         },
+      },
+    })
+    pageRouteMocks.resolveWorkspaceEntryNavigation.mockResolvedValue({
+      data: {
+        workspaces: [
+          {
+            id: "workspace_1",
+            name: "Recipe Room",
+            logoUrl: "RR",
+            logoImageUrl: null,
+          },
+        ],
+      },
+      navigation: {
+        kind: "target",
+        path: "/workspace/projects",
       },
     })
     pageRouteMocks.workspaceEntryJoinState.mockResolvedValue({
@@ -223,5 +252,58 @@ describe("root app pages", () => {
         }),
       })
     ).rejects.toThrow("redirect:/workspace/projects")
+  })
+
+  it("renders the workspace selector route even when a selected workspace is valid", async () => {
+    const { default: WorkspacesPage } = await import("@/app/workspaces/page")
+
+    pageRouteMocks.resolveWorkspaceEntryNavigation.mockResolvedValueOnce({
+      data: {
+        workspaces: [
+          {
+            id: "workspace_1",
+            name: "Recipe Room",
+            logoUrl: "RR",
+            logoImageUrl: null,
+          },
+          {
+            id: "workspace_2",
+            name: "Acme",
+            logoUrl: "A",
+            logoImageUrl: null,
+          },
+        ],
+      },
+      navigation: {
+        kind: "target",
+        path: "/workspace/projects",
+      },
+    })
+
+    render(
+      await WorkspacesPage({
+        searchParams: Promise.resolve({
+          validated: "1",
+        }),
+      })
+    )
+
+    expect(screen.getByText("Workspace selector page")).toBeInTheDocument()
+    expect(pageRouteMocks.workspaceSelectorPage).toHaveBeenCalledWith({
+      workspaces: [
+        {
+          id: "workspace_1",
+          name: "Recipe Room",
+          logoUrl: "RR",
+          logoImageUrl: null,
+        },
+        {
+          id: "workspace_2",
+          name: "Acme",
+          logoUrl: "A",
+          logoImageUrl: null,
+        },
+      ],
+    })
   })
 })

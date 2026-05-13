@@ -1208,7 +1208,62 @@ async function persistTeardownFlushRequest(
     return
   }
 
-  applyFlushContentJson(yDoc, flushRequest.contentJson)
+  const incomingContentJson = normalizeCollaborationDocumentJson(
+    flushRequest.contentJson
+  )
+  const persistedDocument = await getEditableCollaborationDocument(room, claims)
+  const persistedContentJson = createCanonicalContentJson(
+    persistedDocument.content
+  )
+  const roomMeta = getRoomStateMeta(yDoc)
+  const incomingHash = getDocumentJsonHash(incomingContentJson)
+  const persistedHash = getDocumentJsonHash(persistedContentJson)
+
+  const skipTeardownFlush = (code: string, message: string) => {
+    console.warn("[collaboration] skipped destructive teardown flush", {
+      roomId: room.id,
+      documentId: claims.documentId,
+      sessionId: claims.sessionId,
+      userId: claims.sub,
+      code,
+      message,
+    })
+    recordCollaborationEvent({
+      event: "teardown_flush_skipped",
+      level: "warn",
+      roomId: room.id,
+      documentId: claims.documentId,
+      sessionId: claims.sessionId,
+      userId: claims.sub,
+      code,
+      message,
+    })
+  }
+
+  if (
+    isEmptyDocumentJson(incomingContentJson) &&
+    !isEmptyDocumentJson(persistedContentJson)
+  ) {
+    skipTeardownFlush(
+      "empty_incoming_content",
+      "Incoming teardown content was empty while persisted content was not empty"
+    )
+    return
+  }
+
+  if (
+    roomMeta.lastCanonicalHash &&
+    persistedHash !== roomMeta.lastCanonicalHash &&
+    incomingHash === roomMeta.lastCanonicalHash
+  ) {
+    skipTeardownFlush(
+      "stale_persisted_content",
+      "Persisted content changed after this room snapshot was loaded"
+    )
+    return
+  }
+
+  applyFlushContentJson(yDoc, incomingContentJson)
   await persistCanonicalDocument(room, yDoc, "manual")
 }
 

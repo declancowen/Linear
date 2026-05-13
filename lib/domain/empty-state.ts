@@ -13,6 +13,8 @@ export function createEmptyState(): AppData {
     projects: [],
     milestones: [],
     workItems: [],
+    customPropertyDefinitions: [],
+    customPropertyValues: [],
     documents: [],
     views: [],
     comments: [],

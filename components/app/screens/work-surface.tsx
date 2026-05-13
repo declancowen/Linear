@@ -1029,9 +1029,23 @@ export function WorkSurface({
       return
     }
 
+    const createsPrivateWorkItem = Boolean(
+      compatibleActiveView?.filters.visibility?.includes("private")
+    )
+
     openManagedCreateDialog({
       kind: "workItem",
       defaultTeamId: resolvedCreateTeamId,
+      ...(createsPrivateWorkItem
+        ? {
+            initialType: "task" as const,
+            defaultValues: {
+              assigneeId: data.currentUserId,
+              primaryProjectId: null,
+              visibility: "private" as const,
+            },
+          }
+        : {}),
     })
   }
 

@@ -183,6 +183,8 @@ function createBootstrapCtx() {
     projects: [],
     milestones: [],
     workItems: [],
+    customPropertyDefinitions: [],
+    customPropertyValues: [],
     documents: [],
     views: [],
     comments: [],
@@ -201,6 +203,63 @@ function createBootstrapCtx() {
     storage: {
       getUrl: vi.fn(async (storageId: string) => `https://assets/${storageId}`),
     },
+  }
+}
+
+function createBootstrapWorkItem(
+  overrides: Record<string, unknown>
+): Record<string, unknown> {
+  const id = String(overrides.id)
+
+  return {
+    _id: `${id}_doc`,
+    id,
+    key: `${id.toUpperCase()}-1`,
+    teamId: "team_2",
+    type: "task",
+    title: id,
+    descriptionDocId: `${id}_description`,
+    status: "todo",
+    priority: "medium",
+    assigneeId: null,
+    creatorId: "user_1",
+    parentId: null,
+    primaryProjectId: null,
+    linkedProjectIds: [],
+    linkedDocumentIds: [],
+    labelIds: [],
+    milestoneId: null,
+    startDate: null,
+    dueDate: null,
+    targetDate: null,
+    subscriberIds: [],
+    visibility: "team",
+    createdAt: "2026-05-01T00:00:00.000Z",
+    updatedAt: "2026-05-01T00:00:00.000Z",
+    ...overrides,
+  }
+}
+
+function createBootstrapItemDescriptionDocument(
+  overrides: Record<string, unknown>
+): Record<string, unknown> {
+  const id = String(overrides.id)
+
+  return {
+    _id: `${id}_doc`,
+    id,
+    kind: "item-description",
+    workspaceId: "workspace_2",
+    teamId: "team_2",
+    title: id,
+    content: `<p>${id}</p>`,
+    linkedProjectIds: [],
+    linkedWorkItemIds: [],
+    createdBy: "user_1",
+    updatedBy: "user_1",
+    createdAt: "2026-05-01T00:00:00.000Z",
+    updatedAt: "2026-05-01T00:00:00.000Z",
+    ...overrides,
   }
 }
 
@@ -342,9 +401,9 @@ describe("auth bootstrap handlers", () => {
       })
     )
 
-    expect(resolveBootstrapTeamExperience(args, ctx.tables.teams[1] as never)).toBe(
-      "project-management"
-    )
+    expect(
+      resolveBootstrapTeamExperience(args, ctx.tables.teams[1] as never)
+    ).toBe("project-management")
     expect(
       resolveBootstrapTeamExperience(
         { ...args, teamExperience: undefined },
@@ -619,6 +678,193 @@ describe("auth bootstrap handlers", () => {
     })
   })
 
+  it("omits other users' private work item data from full snapshots", async () => {
+    const ctx = createBootstrapCtx()
+
+    ctx.tables.workItems.push(
+      createBootstrapWorkItem({
+        id: "item_team",
+        descriptionDocId: "doc_team_item",
+      }) as never,
+      createBootstrapWorkItem({
+        id: "item_private_own",
+        creatorId: "owner_1",
+        assigneeId: "user_1",
+        descriptionDocId: "doc_private_own",
+        visibility: "private",
+      }) as never,
+      createBootstrapWorkItem({
+        id: "item_private_other",
+        creatorId: "owner_1",
+        assigneeId: "owner_1",
+        descriptionDocId: "doc_private_other",
+        visibility: "private",
+      }) as never
+    )
+    ctx.tables.documents.push(
+      createBootstrapItemDescriptionDocument({
+        id: "doc_team_item",
+      }) as never,
+      createBootstrapItemDescriptionDocument({
+        id: "doc_private_own",
+        createdBy: "owner_1",
+        updatedBy: "owner_1",
+      }) as never,
+      createBootstrapItemDescriptionDocument({
+        id: "doc_private_other",
+        createdBy: "owner_1",
+        updatedBy: "owner_1",
+      }) as never
+    )
+    ctx.tables.comments.push(
+      {
+        _id: "comment_team_doc",
+        id: "comment_team",
+        targetType: "workItem",
+        targetId: "item_team",
+        parentCommentId: null,
+        content: "<p>Team</p>",
+        createdBy: "user_1",
+        createdAt: "2026-05-01T00:00:00.000Z",
+      } as never,
+      {
+        _id: "comment_private_other_doc",
+        id: "comment_private_other",
+        targetType: "workItem",
+        targetId: "item_private_other",
+        parentCommentId: null,
+        content: "<p>Hidden</p>",
+        createdBy: "owner_1",
+        createdAt: "2026-05-01T00:00:00.000Z",
+      } as never
+    )
+    ctx.tables.attachments.push(
+      {
+        _id: "attachment_team_doc",
+        id: "attachment_team",
+        targetType: "workItem",
+        targetId: "item_team",
+        teamId: "team_2",
+        storageId: "storage_team",
+        uploadedBy: "user_1",
+        fileName: "team.txt",
+        contentType: "text/plain",
+        size: 10,
+        createdAt: "2026-05-01T00:00:00.000Z",
+      } as never,
+      {
+        _id: "attachment_private_other_doc",
+        id: "attachment_private_other",
+        targetType: "workItem",
+        targetId: "item_private_other",
+        teamId: "team_2",
+        storageId: "storage_hidden",
+        uploadedBy: "owner_1",
+        fileName: "hidden.txt",
+        contentType: "text/plain",
+        size: 10,
+        createdAt: "2026-05-01T00:00:00.000Z",
+      } as never
+    )
+    ctx.tables.customPropertyDefinitions.push(
+      {
+        _id: "custom_property_definition_team_doc",
+        id: "property_1",
+        workspaceId: "workspace_2",
+        teamId: "team_2",
+        scopeType: "team",
+        targetType: "workItem",
+        name: "Visible property",
+        icon: "Tag",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "user_1",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      } as never,
+      {
+        _id: "custom_property_definition_private_other_doc",
+        id: "property_private_other",
+        workspaceId: "workspace_2",
+        teamId: "team_2",
+        scopeType: "private",
+        ownerId: "owner_1",
+        targetType: "workItem",
+        name: "Hidden property",
+        icon: "Lock",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "owner_1",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      } as never
+    )
+    ctx.tables.customPropertyValues.push(
+      {
+        _id: "custom_property_value_team_doc",
+        id: "custom_property_value_team",
+        workspaceId: "workspace_2",
+        teamId: "team_2",
+        workItemId: "item_team",
+        propertyId: "property_1",
+        value: "visible",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      } as never,
+      {
+        _id: "custom_property_value_private_other_visible_item_doc",
+        id: "custom_property_value_private_other_visible_item",
+        workspaceId: "workspace_2",
+        teamId: "team_2",
+        workItemId: "item_team",
+        propertyId: "property_private_other",
+        value: "hidden",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      } as never,
+      {
+        _id: "custom_property_value_private_other_doc",
+        id: "custom_property_value_private_other",
+        workspaceId: "workspace_2",
+        teamId: "team_2",
+        workItemId: "item_private_other",
+        propertyId: "property_1",
+        value: "hidden",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      } as never
+    )
+
+    const snapshot = await getSnapshotHandler(ctx as never, {
+      serverToken: "server_token",
+      workosUserId: "workos_1",
+      email: "alex@example.com",
+    })
+
+    expect(snapshot.workItems.map((item) => item.id).sort()).toEqual([
+      "item_private_own",
+      "item_team",
+    ])
+    expect(snapshot.documents.map((document) => document.id).sort()).toEqual([
+      "doc_private_own",
+      "doc_team_item",
+    ])
+    expect(snapshot.comments.map((comment) => comment.id)).toEqual([
+      "comment_team",
+    ])
+    expect(snapshot.attachments.map((attachment) => attachment.id)).toEqual([
+      "attachment_team",
+    ])
+    expect(
+      snapshot.customPropertyDefinitions.map((definition) => definition.id)
+    ).toEqual(["property_1"])
+    expect(
+      snapshot.customPropertyValues.map((value) => value.id)
+    ).toEqual(["custom_property_value_team"])
+  })
+
   it("resolves and bootstraps workspace users by preferred identity", async () => {
     const ctx = createBootstrapCtx()
     const args = {
@@ -691,7 +937,9 @@ describe("auth bootstrap handlers", () => {
         },
         normalizedEmail: "alex@example.com",
       })
-    ).rejects.toThrow("A different Convex user already matches this WorkOS identity")
+    ).rejects.toThrow(
+      "A different Convex user already matches this WorkOS identity"
+    )
   })
 
   it("bootstraps the app workspace through the public mutation owner", async () => {

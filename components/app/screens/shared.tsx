@@ -28,6 +28,7 @@ import {
 import { useShallow } from "zustand/react/shallow"
 
 import { getLabelsForTeamScope } from "@/lib/domain/selectors"
+import { isLabelAssignableToWorkItem } from "@/lib/domain/labels"
 import {
   getTextInputLimitState,
   labelNameConstraints,
@@ -62,7 +63,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { StatusRing } from "@/components/ui/template-primitives"
 import { cn } from "@/lib/utils"
@@ -87,10 +87,7 @@ function isListboxSelectKey(key: string) {
 
 function isTypeaheadKeyEvent(event: KeyboardEvent<HTMLDivElement>) {
   return (
-    event.key.length === 1 &&
-    !event.altKey &&
-    !event.ctrlKey &&
-    !event.metaKey
+    event.key.length === 1 && !event.altKey && !event.ctrlKey && !event.metaKey
   )
 }
 
@@ -100,12 +97,14 @@ export function getSelectedPropertySelectOption(
 ) {
   return (
     options.find((option) => option.value === value) ??
-    options.find((option) => option.value !== PROPERTY_SELECT_SEPARATOR_VALUE) ??
+    options.find(
+      (option) => option.value !== PROPERTY_SELECT_SEPARATOR_VALUE
+    ) ??
     null
   )
 }
 
-export const SCREEN_HEADER_CLASS_NAME =
+const SCREEN_HEADER_CLASS_NAME =
   "flex min-h-10 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 py-2"
 
 const LABEL_COLOR_TOKENS: Record<string, string> = {
@@ -257,41 +256,6 @@ export function ViewsDisplaySettingsPopover({
             }
           />
         </div>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-export function CollectionDisplaySettingsPopover({
-  layout,
-  onLayoutChange,
-  extraAction,
-}: {
-  layout: "list" | "board"
-  onLayoutChange: (layout: "list" | "board") => void
-  extraAction?: ReactNode
-}) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button size="icon-xs" variant="ghost">
-          <GearSix className="size-3.5" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-52 p-0">
-        <div className="px-3 py-2.5">
-          <LayoutSegmentedControl
-            boardLabel="Grid"
-            layout={layout}
-            onLayoutChange={onLayoutChange}
-          />
-        </div>
-        {extraAction ? (
-          <>
-            <Separator />
-            <div className="px-3 py-2">{extraAction}</div>
-          </>
-        ) : null}
       </PopoverContent>
     </Popover>
   )
@@ -828,7 +792,11 @@ function PropertySelectListbox({
     >
       {options.map((option, index) => (
         <PropertySelectOptionEntry
-          key={option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? index : option.value}
+          key={
+            option.value === PROPERTY_SELECT_SEPARATOR_VALUE
+              ? index
+              : option.value
+          }
           controller={controller}
           index={index}
           option={option}
@@ -851,9 +819,7 @@ function PropertySelectOptionEntry({
   renderOption?: PropertySelectRender
 }) {
   if (option.value === PROPERTY_SELECT_SEPARATOR_VALUE) {
-    return (
-      <div key={`separator-${index}`} className="my-1 h-px bg-line-soft" />
-    )
+    return <div key={`separator-${index}`} className="my-1 h-px bg-line-soft" />
   }
 
   return (
@@ -868,7 +834,8 @@ function PropertySelectOptionEntry({
       tabIndex={option.value === controller.activeValue ? 0 : -1}
       className={cn(
         "flex min-h-8 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground",
-        option.value === controller.activeValue && "bg-surface-3 text-foreground"
+        option.value === controller.activeValue &&
+          "bg-surface-3 text-foreground"
       )}
       onFocus={() => controller.setActiveValue(option.value)}
       onClick={() => {
@@ -879,7 +846,10 @@ function PropertySelectOptionEntry({
         {renderOption ? renderOption(option.value, option.label) : option.label}
       </span>
       {option.value === controller.selectedValue ? (
-        <CheckCircle className="size-3.5 shrink-0 text-accent-fg" weight="fill" />
+        <CheckCircle
+          className="size-3.5 shrink-0 text-accent-fg"
+          weight="fill"
+        />
       ) : null}
     </button>
   )
@@ -920,7 +890,15 @@ export function useWorkItemLabelEditorState({
     newLabelName,
     labelNameConstraints
   )
-  const selectedLabels = labels.filter((label) => item.labelIds.includes(label.id))
+  const currentUserId = useAppStore.getState().currentUserId
+  const availableLabels = labels.filter((label) =>
+    workspaceId
+      ? isLabelAssignableToWorkItem(label, item, workspaceId, currentUserId)
+      : false
+  )
+  const selectedLabels = availableLabels.filter((label) =>
+    item.labelIds.includes(label.id)
+  )
 
   function toggleLabel(labelId: string) {
     const nextLabelIds = item.labelIds.includes(labelId)
@@ -947,7 +925,10 @@ export function useWorkItemLabelEditorState({
 
     const created = await useAppStore
       .getState()
-      .createLabel(newLabelName, workspaceId ?? null)
+      .createLabel(newLabelName, workspaceId ?? null, {
+        scopeType:
+          (item.visibility ?? "team") === "private" ? "private" : "workspace",
+      })
 
     if (!created) {
       return
@@ -969,6 +950,7 @@ export function useWorkItemLabelEditorState({
   }
 
   return {
+    availableLabels,
     handleCreateLabel,
     labelNameLimitState,
     newLabelName,
@@ -1013,7 +995,7 @@ export function WorkItemLabelsEditor({
     (state) =>
       state.teams.find((team) => team.id === item.teamId)?.workspaceId ?? null
   )
-  const availableLabels = useAppStore(
+  const labelPool = useAppStore(
     useShallow((state) =>
       [...getLabelsForTeamScope(state, item.teamId)].sort((left, right) =>
         left.name.localeCompare(right.name)
@@ -1021,6 +1003,7 @@ export function WorkItemLabelsEditor({
     )
   )
   const {
+    availableLabels,
     handleCreateLabel,
     labelNameLimitState: newLabelNameLimitState,
     newLabelName,
@@ -1029,7 +1012,7 @@ export function WorkItemLabelsEditor({
     toggleLabel,
   } = useWorkItemLabelEditorState({
     item,
-    labels: availableLabels,
+    labels: labelPool,
     workspaceId: itemWorkspaceId,
   })
 
@@ -1355,19 +1338,40 @@ function getHierarchyParentPatch(
   field: "epic" | "feature",
   value: string
 ) {
-  if (!item || value === `No ${field}`) {
+  if (!item || isNoHierarchyParentValue(field, value)) {
     return {}
   }
 
-  const parent = data.workItems.find(
-    (entry) => entry.type === field && `${entry.key} · ${entry.title}` === value
-  )
+  const parent = findHierarchyParent(data, field, value)
 
-  if (!parent || !canParentWorkItemTypeAcceptChild(parent.type, item.type)) {
+  if (!canUseHierarchyParent(parent, item)) {
     return {}
   }
 
   return { parentId: parent.id }
+}
+
+function isNoHierarchyParentValue(field: "epic" | "feature", value: string) {
+  return value === `No ${field}`
+}
+
+function findHierarchyParent(
+  data: AppData,
+  field: "epic" | "feature",
+  value: string
+) {
+  return data.workItems.find(
+    (entry) => entry.type === field && `${entry.key} · ${entry.title}` === value
+  )
+}
+
+function canUseHierarchyParent(
+  parent: WorkItem | undefined,
+  item: WorkItem
+): parent is WorkItem {
+  return Boolean(
+    parent && canParentWorkItemTypeAcceptChild(parent.type, item.type)
+  )
 }
 
 type FieldPatchResolverInput = {
@@ -1388,20 +1392,30 @@ const FIELD_PATCH_RESOLVERS: Partial<
     getHierarchyParentPatch(data, item, "feature", value),
 }
 
+function isPatchableField(
+  field: GroupField | null,
+  value: string
+): field is GroupField {
+  return Boolean(field && value !== "all")
+}
+
+function getResolverPatchForField(
+  field: GroupField,
+  input: FieldPatchResolverInput
+) {
+  return FIELD_PATCH_RESOLVERS[field]?.(input) ?? {}
+}
+
 export function getPatchForField(
   data: AppData,
   item: WorkItem | null,
   field: GroupField | null,
   value: string
 ) {
-  if (!field || value === "all") return {}
+  if (!isPatchableField(field, value)) return {}
 
   const scalarPatch = getScalarPatchForField(field, value)
-  if (scalarPatch) {
-    return scalarPatch
-  }
-
-  return FIELD_PATCH_RESOLVERS[field]?.({ data, item, value }) ?? {}
+  return scalarPatch ?? getResolverPatchForField(field, { data, item, value })
 }
 
 function getHierarchyCreateDefaults({
@@ -1419,7 +1433,13 @@ function getHierarchyCreateDefaults({
   }
   value: string
 }): ReturnType<typeof getCreateDefaultsForField> {
-  const parent = findHierarchyCreateParent({ data, field, item, options, value })
+  const parent = findHierarchyCreateParent({
+    data,
+    field,
+    item,
+    options,
+    value,
+  })
 
   if (!parent) {
     return { patch: {} }

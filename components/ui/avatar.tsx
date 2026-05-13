@@ -5,6 +5,8 @@ import { Avatar as AvatarPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
+const failedAvatarImageSources = new Set<string>()
+
 function Avatar({
   className,
   size = "default",
@@ -27,8 +29,17 @@ function Avatar({
 
 function AvatarImage({
   className,
+  onLoadingStatusChange,
+  src,
   ...props
 }: React.ComponentProps<typeof AvatarPrimitive.Image>) {
+  const [, forceRender] = React.useReducer((value: number) => value + 1, 0)
+  const stringSrc = typeof src === "string" ? src : null
+
+  if (stringSrc && failedAvatarImageSources.has(stringSrc)) {
+    return null
+  }
+
   return (
     <AvatarPrimitive.Image
       data-slot="avatar-image"
@@ -36,6 +47,15 @@ function AvatarImage({
         "block aspect-square size-full rounded-full object-cover",
         className
       )}
+      src={src}
+      onLoadingStatusChange={(status) => {
+        if (status === "error" && stringSrc) {
+          failedAvatarImageSources.add(stringSrc)
+          forceRender()
+        }
+
+        onLoadingStatusChange?.(status)
+      }}
       {...props}
     />
   )

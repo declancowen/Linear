@@ -1,3 +1,4 @@
+import { createEmptyState } from "@/lib/domain/empty-state"
 import type { AppSnapshot } from "@/lib/domain/types"
 import type { AuthenticatedSession } from "@/lib/server/route-auth"
 import {
@@ -12,6 +13,7 @@ import {
   getChannelPostRelatedScopeKeys,
   getChatMessageRelatedScopeKeys,
   getConversationRelatedScopeKeys,
+  getCustomPropertyDefinitionScopeKeys,
   getDocumentIndexScopeKeys,
   getDocumentRelatedScopeKeys,
   getDocumentDetailScopeKeys,
@@ -34,13 +36,27 @@ import {
 export async function loadScopedReadModelSnapshotForSession(
   session: AuthenticatedSession
 ) {
-  const snapshot = (await getSnapshotServer({
-    workosUserId: session.user.id,
-    email: session.user.email ?? undefined,
-  })) as AppSnapshot
+  const snapshot = normalizeScopedReadModelSnapshot(
+    (await getSnapshotServer({
+      workosUserId: session.user.id,
+      email: session.user.email ?? undefined,
+    })) as Partial<AppSnapshot> | null | undefined
+  )
   const selectedWorkspaceId = await getSelectedWorkspaceIdFromCookies()
 
   return applySelectedWorkspaceIdToSnapshot(snapshot, selectedWorkspaceId)
+}
+
+function normalizeScopedReadModelSnapshot(
+  snapshot: Partial<AppSnapshot> | null | undefined
+): AppSnapshot {
+  const { ui: discardedUi, ...emptySnapshot } = createEmptyState()
+  void discardedUi
+
+  return {
+    ...emptySnapshot,
+    ...(snapshot ?? {}),
+  } as AppSnapshot
 }
 
 function parseScopedCollectionScopeId(value: string) {
@@ -276,6 +292,15 @@ export async function resolveWorkItemReadModelScopeKeysServer(
   const snapshot = await loadScopedReadModelSnapshotForSession(session)
 
   return getWorkItemDetailScopeKeys(snapshot, itemId)
+}
+
+export async function resolveCustomPropertyDefinitionReadModelScopeKeysServer(
+  session: AuthenticatedSession,
+  teamId: string
+) {
+  const snapshot = await loadScopedReadModelSnapshotForSession(session)
+
+  return getCustomPropertyDefinitionScopeKeys(snapshot, teamId)
 }
 
 export async function resolveProjectReadModelScopeKeysServer(

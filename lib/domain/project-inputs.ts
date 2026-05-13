@@ -11,6 +11,7 @@ export type CreateProjectInput = {
   scopeId: string
   templateType: TemplateType
   name: string
+  icon?: string
   summary: string
   status?: ProjectStatus
   priority: Priority
@@ -26,3 +27,19 @@ export type CreateProjectInput = {
 export type AuthenticatedCreateProjectInput = CreateProjectInput & {
   currentUserId: string
 }
+
+export type ProjectUpdatePatchInput = Partial<
+  Pick<
+    CreateProjectInput,
+    | "icon"
+    | "labelIds"
+    | "leadId"
+    | "memberIds"
+    | "name"
+    | "priority"
+    | "startDate"
+    | "status"
+    | "summary"
+    | "targetDate"
+  >
+>

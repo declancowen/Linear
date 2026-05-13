@@ -52,13 +52,16 @@ import {
 import {
   assertScheduleDate,
   assertTargetDateOnOrAfterStartDate,
-  assertWorkspaceLabelIds,
+  assertWorkItemLabelIds,
   collectWorkItemCascadeIds,
   getResolvedProjectLinkForWorkItemUpdate,
   projectBelongsToTeamScope,
   validateWorkItemParent,
 } from "./work_helpers"
-import { requireEditableTeamAccess } from "./access"
+import {
+  requireEditableTeamDoc,
+  requireEditableWorkItemAccess,
+} from "./access"
 import { queueEmailJobs } from "./email_job_handlers"
 
 type ServerAccessArgs = {
@@ -262,7 +265,9 @@ function hasUnsupportedCascadeProjectItem(input: {
   teamItems: WorkItemDoc[]
   existing: WorkItemDoc
   project: ProjectDoc
-  normalizedExperience: ReturnType<typeof normalizeTeam>["settings"]["experience"]
+  normalizedExperience: ReturnType<
+    typeof normalizeTeam
+  >["settings"]["experience"]
   cascadeItemIds: Set<string>
   shouldCascadeProjectLink: boolean
 }) {
@@ -286,7 +291,9 @@ function assertCascadeProjectTemplateAllowsHierarchy(input: {
   teamItems: WorkItemDoc[]
   existing: WorkItemDoc
   project: ProjectDoc
-  normalizedExperience: ReturnType<typeof normalizeTeam>["settings"]["experience"]
+  normalizedExperience: ReturnType<
+    typeof normalizeTeam
+  >["settings"]["experience"]
   cascadeItemIds: Set<string>
   shouldCascadeProjectLink: boolean
 }) {
@@ -458,7 +465,7 @@ async function loadWorkItemUpdateTarget(
     throw new Error("Work item not found")
   }
 
-  await requireEditableTeamAccess(ctx, existing.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, existing, args.currentUserId)
   const team = await getTeamDoc(ctx, existing.teamId)
 
   if (!team) {
@@ -509,11 +516,18 @@ async function assertWorkItemAssigneePatchAllowed(
 
 async function assertWorkItemLabelPatchAllowed(
   ctx: MutationCtx,
+  currentUserId: string,
+  existing: WorkItemDoc,
   team: TeamDoc,
   patch: WorkItemPatch
 ) {
   if (patch.labelIds !== undefined) {
-    await assertWorkspaceLabelIds(ctx, team.workspaceId, patch.labelIds)
+    await assertWorkItemLabelIds(ctx, {
+      currentUserId,
+      labelIds: patch.labelIds,
+      visibility: existing.visibility,
+      workspaceId: team.workspaceId,
+    })
   }
 }
 
@@ -661,7 +675,13 @@ export async function updateWorkItemHandler(
   })
 
   await assertWorkItemAssigneePatchAllowed(ctx, existing, args.patch)
-  await assertWorkItemLabelPatchAllowed(ctx, team, args.patch)
+  await assertWorkItemLabelPatchAllowed(
+    ctx,
+    args.currentUserId,
+    existing,
+    team,
+    args.patch
+  )
   await assertProjectLinkPatchAllowed(ctx, {
     team,
     teamItems,
@@ -749,7 +769,7 @@ async function requireCollaborationWorkItem(
     throw new Error("Work item not found")
   }
 
-  await requireEditableTeamAccess(ctx, existing.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, existing, args.currentUserId)
 
   if (
     args.patch.expectedUpdatedAt !== undefined &&
@@ -771,7 +791,7 @@ async function requireEditableWorkItem(
     throw new Error("Work item not found")
   }
 
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
 
   return item
 }
@@ -903,7 +923,7 @@ async function requireWorkItemDeleteTarget(
     throw new Error("Work item not found")
   }
 
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
   const team = await getTeamDoc(ctx, item.teamId)
 
   if (!team) {
@@ -1119,7 +1139,7 @@ export async function shiftTimelineItemHandler(
     throw new Error("Work item is not scheduled")
   }
 
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
 
   const delta = differenceInCalendarDays(
     new Date(args.nextStartDate),
@@ -1169,7 +1189,22 @@ async function assertCreateWorkItemLabels(
   args: CreateWorkItemArgs
 ) {
   if (args.labelIds !== undefined) {
-    await assertWorkspaceLabelIds(ctx, team.workspaceId, args.labelIds)
+    await assertWorkItemLabelIds(ctx, {
+      currentUserId: args.currentUserId,
+      labelIds: args.labelIds,
+      visibility: args.visibility,
+      workspaceId: team.workspaceId,
+    })
+  }
+}
+
+function assertCreateWorkItemVisibility(args: CreateWorkItemArgs) {
+  if (
+    args.visibility === "private" &&
+    args.type !== "task" &&
+    args.type !== "sub-task"
+  ) {
+    throw new Error("Private tasks can only use task and sub-task types")
   }
 }
 
@@ -1331,6 +1366,7 @@ function buildCreatedWorkItem({
     linkedProjectIds: [],
     linkedDocumentIds: [],
     labelIds: args.labelIds ?? [],
+    visibility: args.visibility ?? "team",
     milestoneId: null,
     startDate: args.startDate ?? formatLocalCalendarDate(),
     dueDate: args.dueDate ?? addLocalCalendarDays(7),
@@ -1395,17 +1431,16 @@ export async function createWorkItemHandler(
   args: CreateWorkItemArgs
 ) {
   assertServerToken(args.serverToken)
-  await requireEditableTeamAccess(ctx, args.teamId, args.currentUserId)
-  const team = await getTeamDoc(ctx, args.teamId)
-
-  if (!team) {
-    throw new Error("Team not found")
-  }
-
+  const team = await requireEditableTeamDoc(
+    ctx,
+    args.teamId,
+    args.currentUserId
+  )
   const normalizedTeam = normalizeTeam(team)
 
   assertCreateWorkItemSchedule(args)
   assertTeamSupportsWorkItems(normalizedTeam)
+  assertCreateWorkItemVisibility(args)
   await assertCreateWorkItemAssignee(ctx, args)
   await assertCreateWorkItemLabels(ctx, team, args)
   const parent = await resolveCreateWorkItemParent(ctx, args)

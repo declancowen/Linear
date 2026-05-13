@@ -85,7 +85,10 @@ describe("view item levels", () => {
     const state = createEmptyState()
     const items = [
       createTestWorkItem("feature-root", { type: "feature" }),
-      createTestWorkItem("feature-child", { type: "feature", parentId: "epic_1" }),
+      createTestWorkItem("feature-child", {
+        type: "feature",
+        parentId: "epic_1",
+      }),
     ]
 
     expect(
@@ -122,23 +125,22 @@ describe("view item levels", () => {
     ]).toEqual(["todo"])
   })
 
-  it("does not synthesize filtered-out status groups when status filters are active", () => {
+  it("synthesizes selected empty status groups when status filters are active", () => {
     const state = createEmptyState()
-    const filteredItems = [createTestWorkItem("todo-only", { status: "todo" })]
 
     expect([
       ...buildItemGroupsWithEmptyGroups(
         state,
-        filteredItems,
+        [],
         createView({
           grouping: "status",
           filters: {
             ...createView().filters,
-            status: ["todo"],
+            status: ["cancelled"],
           },
         })
       ).keys(),
-    ]).toEqual(["todo"])
+    ]).toEqual(["cancelled"])
   })
 
   it("does not synthesize filtered-out type groups when type filters are active", () => {
@@ -443,7 +445,7 @@ describe("view item levels", () => {
     ).toEqual(["story"])
   })
 
-  it("matches assigned descendant filters against assigned items while rendering the parent level", () => {
+  it("does not let assigned descendant filters pull in filtered-out parent items", () => {
     const state = createEmptyState()
     const epic = createTestWorkItem("epic", {
       type: "epic",
@@ -477,7 +479,7 @@ describe("view item levels", () => {
           childDisplayMode: "assigned-descendants",
         }
       ).map((item) => item.id)
-    ).toEqual(["epic"])
+    ).toEqual([])
   })
 
   it("includes workspace-scoped views when listing workspace views", () => {

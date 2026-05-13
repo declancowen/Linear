@@ -209,6 +209,7 @@ function buildOptimisticWorkItem(input: {
     linkedProjectIds: [],
     linkedDocumentIds: [],
     labelIds: input.parsedInput.labelIds ?? [],
+    visibility: input.parsedInput.visibility ?? "team",
     milestoneId: null,
     startDate: input.dates.startDate,
     dueDate: input.dates.dueDate,
@@ -346,9 +347,10 @@ export function createWorkItemActions({
   | "createWorkItem"
 > {
   return {
-    async createLabel(name, workspaceId) {
+    async createLabel(name, workspaceId, options) {
       const normalizedName = name.trim()
       const resolvedWorkspaceId = workspaceId ?? get().currentWorkspaceId
+      const scopeType = options?.scopeType ?? "workspace"
 
       if (normalizedName.length === 0) {
         toast.error("Label name is required")
@@ -361,7 +363,11 @@ export function createWorkItemActions({
       }
 
       const existing = getLabelsForWorkspace(get(), resolvedWorkspaceId).find(
-        (label) => label.name.toLowerCase() === normalizedName.toLowerCase()
+        (label) =>
+          (label.scopeType ?? "workspace") === scopeType &&
+          (label.ownerId ?? null) ===
+            (scopeType === "private" ? get().currentUserId : null) &&
+          label.name.toLowerCase() === normalizedName.toLowerCase()
       )
 
       if (existing) {
@@ -371,6 +377,7 @@ export function createWorkItemActions({
       try {
         const result = await syncCreateLabel({
           workspaceId: resolvedWorkspaceId,
+          scopeType,
           name: normalizedName,
         })
 

@@ -274,4 +274,96 @@ describe("work helpers", () => {
       "user_1"
     )
   })
+
+  it("allows owned private labels in personal item view filters", async () => {
+    const { assertViewLabelIds } = await import("@/convex/app/work_helpers")
+    const ctx = createCtx()
+
+    listLabelsByWorkspaceMock.mockResolvedValue([
+      {
+        id: "label_workspace",
+        workspaceId: "workspace_1",
+        scopeType: "workspace",
+        ownerId: null,
+      },
+      {
+        id: "label_private",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_1",
+      },
+      {
+        id: "label_other_private",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_2",
+      },
+    ])
+
+    await expect(
+      assertViewLabelIds(ctx as never, {
+        currentUserId: "user_1",
+        labelIds: ["label_workspace", "label_private"],
+        view: {
+          scopeType: "personal",
+          scopeId: "user_1",
+          entityKind: "items",
+        },
+        workspaceId: "workspace_1",
+      })
+    ).resolves.toBeUndefined()
+
+    await expect(
+      assertViewLabelIds(ctx as never, {
+        currentUserId: "user_1",
+        labelIds: ["label_other_private"],
+        view: {
+          scopeType: "personal",
+          scopeId: "user_1",
+          entityKind: "items",
+        },
+        workspaceId: "workspace_1",
+      })
+    ).rejects.toThrow("One or more labels are invalid")
+  })
+
+  it("keeps private labels out of shared and non-item view filters", async () => {
+    const { assertViewLabelIds } = await import("@/convex/app/work_helpers")
+    const ctx = createCtx()
+
+    listLabelsByWorkspaceMock.mockResolvedValue([
+      {
+        id: "label_private",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_1",
+      },
+    ])
+
+    await expect(
+      assertViewLabelIds(ctx as never, {
+        currentUserId: "user_1",
+        labelIds: ["label_private"],
+        view: {
+          scopeType: "team",
+          scopeId: "team_1",
+          entityKind: "items",
+        },
+        workspaceId: "workspace_1",
+      })
+    ).rejects.toThrow("One or more labels are invalid")
+
+    await expect(
+      assertViewLabelIds(ctx as never, {
+        currentUserId: "user_1",
+        labelIds: ["label_private"],
+        view: {
+          scopeType: "personal",
+          scopeId: "user_1",
+          entityKind: "projects",
+        },
+        workspaceId: "workspace_1",
+      })
+    ).rejects.toThrow("One or more labels are invalid")
+  })
 })

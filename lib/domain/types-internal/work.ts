@@ -1,4 +1,8 @@
 import type { WorkItem } from "./models"
+import {
+  isAllowedPhosphorIconName,
+  type PhosphorIconName,
+} from "../phosphor-icon-options"
 import type {
   Priority,
   ProjectHealth,
@@ -13,6 +17,8 @@ import type {
   WorkStatus,
 } from "./primitives"
 import { workStatuses, teamIconTokens } from "./primitives"
+
+export type TeamIconName = TeamIconToken | PhosphorIconName
 
 export const templateMeta: Record<
   TemplateType,
@@ -180,74 +186,22 @@ export function getAllowedTemplateTypesForTeamExperience(
   return [...ALLOWED_TEMPLATES_BY_EXPERIENCE[resolveTeamExperience(experience)]]
 }
 
-export const teamIconMeta: Record<
-  TeamIconToken,
-  {
-    label: string
-    description: string
-  }
-> = {
-  robot: {
-    label: "Product",
-    description: "Broad product delivery and cross-functional software work.",
-  },
-  code: {
-    label: "Engineering",
-    description: "Platform, implementation, and code-centric delivery.",
-  },
-  qa: {
-    label: "Issue Tracking",
-    description: "Issue triage, regression tracking, and follow-up work.",
-  },
-  kanban: {
-    label: "Project Management",
-    description: "Planning, coordination, milestones, and follow-through.",
-  },
-  briefcase: {
-    label: "Operations",
-    description:
-      "Business operations, launch readiness, and execution support.",
-  },
-  users: {
-    label: "Community",
-    description: "People, communication, and community-facing collaboration.",
-  },
-}
-
-export function isTeamIconToken(value: string): value is TeamIconToken {
+function isTeamIconToken(value: string): value is TeamIconToken {
   return (teamIconTokens as readonly string[]).includes(value)
 }
 
-export function getDefaultTeamIconForExperience(
-  experience: TeamExperienceType | null | undefined
-): TeamIconToken {
-  const resolvedExperience = experience ?? "software-development"
-
-  if (resolvedExperience === "issue-analysis") {
-    return "qa"
-  }
-
-  if (resolvedExperience === "project-management") {
-    return "kanban"
-  }
-
-  if (resolvedExperience === "community") {
-    return "users"
-  }
-
-  return "code"
+const legacyTeamIconNames: Record<TeamIconToken, PhosphorIconName> = {
+  robot: "Robot",
+  code: "CodesandboxLogo",
+  qa: "BugBeetle",
+  kanban: "Kanban",
+  briefcase: "Briefcase",
+  users: "UsersThree",
 }
 
-export function normalizeTeamIconToken(
-  value: string | null | undefined,
-  experience: TeamExperienceType | null | undefined
-): TeamIconToken {
-  const normalized = value?.trim().toLowerCase()
-
-  if (normalized && isTeamIconToken(normalized)) {
-    return normalized
-  }
-
+function resolveLegacyTeamIconAlias(
+  normalized: string | undefined
+): TeamIconToken | null {
   switch (normalized) {
     case "issue-analysis":
     case "quality-assurance":
@@ -259,8 +213,58 @@ export function normalizeTeamIconToken(
     case "community":
       return "users"
     default:
-      return getDefaultTeamIconForExperience(experience)
+      return normalized && isTeamIconToken(normalized) ? normalized : null
   }
+}
+
+export function getLegacyTeamIconName(
+  value: string | null | undefined
+): PhosphorIconName | null {
+  const legacyIcon = resolveLegacyTeamIconAlias(value?.trim().toLowerCase())
+
+  return legacyIcon ? legacyTeamIconNames[legacyIcon] : null
+}
+
+export function getDefaultTeamIconForExperience(
+  experience: TeamExperienceType | null | undefined
+): PhosphorIconName {
+  void experience
+
+  return "RocketLaunch"
+}
+
+export function normalizeTeamIconToken(
+  value: string | null | undefined,
+  experience: TeamExperienceType | null | undefined
+): TeamIconName {
+  const trimmed = value?.trim()
+
+  if (trimmed && isAllowedPhosphorIconName(trimmed)) {
+    return trimmed
+  }
+
+  const normalized = trimmed?.toLowerCase()
+
+  if (normalized && isTeamIconToken(normalized)) {
+    return normalized
+  }
+
+  const legacyAlias = resolveLegacyTeamIconAlias(normalized)
+
+  if (legacyAlias) {
+    return legacyAlias
+  }
+
+  return getDefaultTeamIconForExperience(experience)
+}
+
+export function isValidTeamIconInputValue(value: string) {
+  const trimmed = value.trim()
+
+  return (
+    isAllowedPhosphorIconName(trimmed) ||
+    Boolean(resolveLegacyTeamIconAlias(trimmed.toLowerCase()))
+  )
 }
 
 export const teamExperienceMeta: Record<

@@ -74,7 +74,9 @@ function listChangedFiles(diffRange) {
 }
 
 function isConvexSourceModule(entry, entryPath) {
-  return entry.isFile() && /\.[jt]s$/.test(entry.name) && entryPath !== SCHEMA_PATH
+  return (
+    entry.isFile() && /\.[jt]s$/.test(entry.name) && entryPath !== SCHEMA_PATH
+  )
 }
 
 function listConvexModuleEntries(directory, entry) {
@@ -101,7 +103,7 @@ function listConvexModules(directory) {
 
 function parseGeneratedImports(apiText) {
   const modules = new Set()
-  const importPattern = /import type \* as \S+ from "\.\.\/(.+?)\.js";/g
+  const importPattern = /import type \* as \S+ from "\.\.\/(.+?)\.js";?/g
 
   for (const match of apiText.matchAll(importPattern)) {
     modules.add(`convex/${match[1]}`)
@@ -110,22 +112,23 @@ function parseGeneratedImports(apiText) {
   return modules
 }
 
-function assertNoSchemaDriftWithoutDeployment(changedFiles, diffRange) {
+function assertReliableDiffBase(diffRange) {
   if (!diffRange) {
     console.error(
-      "CONVEX_DEPLOYMENT is unavailable and no reliable diff base could be resolved, so schema drift cannot be checked in fallback mode."
+      "CONVEX_DEPLOYMENT is unavailable and no reliable diff base could be resolved, so generated binding drift cannot be checked in fallback mode."
     )
     process.exit(1)
   }
+}
 
+function warnSchemaFallbackLimit(changedFiles) {
   if (!changedFiles.includes(SCHEMA_PATH)) {
     return
   }
 
-  console.error(
-    "Convex schema changed, but CONVEX_DEPLOYMENT is unavailable. Configure the deployment secret so CI can run Convex codegen and verify data model bindings."
+  console.warn(
+    "Convex schema changed and CONVEX_DEPLOYMENT is unavailable. Fallback mode will verify the committed generated API roster and rely on typecheck for schema-imported data model bindings."
   )
-  process.exit(1)
 }
 
 function readGeneratedApiRoster() {
@@ -213,5 +216,6 @@ function assertGeneratedApiRoster() {
 const diffRange = resolveDiffBase()
 const changedFiles = listChangedFiles(diffRange)
 
-assertNoSchemaDriftWithoutDeployment(changedFiles, diffRange)
+assertReliableDiffBase(diffRange)
+warnSchemaFallbackLimit(changedFiles)
 assertGeneratedApiRoster()

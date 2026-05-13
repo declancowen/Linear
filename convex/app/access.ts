@@ -1,6 +1,8 @@
 import {
   getDocumentDoc,
   getEffectiveRole,
+  getTeamDoc,
+  getWorkItemByDescriptionDocId,
   getWorkspaceMembershipDoc,
   getWorkspaceEditRole,
   getWorkspaceRoleMapForUser,
@@ -29,6 +31,21 @@ export async function requireEditableTeamAccess(
   return role
 }
 
+export async function requireEditableTeamDoc(
+  ctx: AppCtx,
+  teamId: string,
+  userId: string
+) {
+  await requireEditableTeamAccess(ctx, teamId, userId)
+  const team = await getTeamDoc(ctx, teamId)
+
+  if (!team) {
+    throw new Error("Team not found")
+  }
+
+  return team
+}
+
 export async function requireReadableTeamAccess(
   ctx: AppCtx,
   teamId: string,
@@ -41,6 +58,71 @@ export async function requireReadableTeamAccess(
   }
 
   return role
+}
+
+export type WorkItemAccessTarget = {
+  assigneeId?: string | null
+  creatorId?: string | null
+  teamId: string
+  visibility?: "team" | "private" | null
+}
+
+function getPrivateWorkItemAccessUserIds(item: WorkItemAccessTarget) {
+  return [item.creatorId, item.assigneeId].filter((userId): userId is string =>
+    Boolean(userId)
+  )
+}
+
+export function getWorkItemAudienceUserIds(
+  item: WorkItemAccessTarget,
+  teamMemberIds: Iterable<string>
+) {
+  const teamMemberIdSet = new Set(teamMemberIds)
+
+  if ((item.visibility ?? "team") !== "private") {
+    return [...teamMemberIdSet]
+  }
+
+  return getPrivateWorkItemAccessUserIds(item).filter((userId) =>
+    teamMemberIdSet.has(userId)
+  )
+}
+
+function canUserAccessPrivateWorkItem(
+  item: WorkItemAccessTarget,
+  userId: string
+) {
+  return item.creatorId === userId || item.assigneeId === userId
+}
+
+function assertPrivateWorkItemAccess(
+  item: WorkItemAccessTarget,
+  userId: string
+) {
+  if (
+    (item.visibility ?? "team") === "private" &&
+    !canUserAccessPrivateWorkItem(item, userId)
+  ) {
+    throw new Error("Work item not found")
+  }
+}
+
+export async function requireReadableWorkItemAccess(
+  ctx: AppCtx,
+  item: WorkItemAccessTarget,
+  userId: string
+) {
+  await requireReadableTeamAccess(ctx, item.teamId, userId)
+  assertPrivateWorkItemAccess(item, userId)
+}
+
+export async function requireEditableWorkItemAccess(
+  ctx: AppCtx,
+  item: WorkItemAccessTarget,
+  userId: string
+) {
+  await requireEditableTeamAccess(ctx, item.teamId, userId)
+  assertPrivateWorkItemAccess(item, userId)
 }
 
 export async function requireTeamAdminAccess(
@@ -116,10 +198,20 @@ async function requireDocumentAccess(
       workspaceId: string,
       userId: string
     ) => Promise<unknown>
+    requireWorkItemAccess: (
+      ctx: AppCtx,
+      item: WorkItemAccessTarget,
+      userId: string
+    ) => Promise<unknown>
   }
 ) {
   if (!document) {
     throw new Error("Document not found")
+  }
+
+  if (document.kind === "item-description") {
+    await requireItemDescriptionDocumentAccess(ctx, document, userId, options)
+    return
   }
 
   if (isTeamScopedDocument(document)) {
@@ -141,9 +233,7 @@ type DocumentAccessOptions = Parameters<typeof requireDocumentAccess>[3]
 type DocumentDoc = NonNullable<Awaited<ReturnType<typeof getDocumentDoc>>>
 
 function isTeamScopedDocument(document: DocumentDoc) {
-  return (
-    document.kind === "team-document" || document.kind === "item-description"
-  )
+  return document.kind === "team-document"
 }
 
 function requireDocumentWorkspaceId(document: DocumentDoc) {
@@ -171,6 +261,21 @@ async function requireTeamScopedDocumentAccess(
   await options.requireTeamAccess(ctx, requireDocumentTeamId(document), userId)
 }
 
+async function requireItemDescriptionDocumentAccess(
+  ctx: AppCtx,
+  document: DocumentDoc,
+  userId: string,
+  options: DocumentAccessOptions
+) {
+  const item = await getWorkItemByDescriptionDocId(ctx, document.id)
+
+  if (!item) {
+    throw new Error("Work item not found")
+  }
+
+  await options.requireWorkItemAccess(ctx, item, userId)
+}
+
 async function requirePrivateDocumentAccess(
   ctx: AppCtx,
   document: DocumentDoc,
@@ -195,6 +300,7 @@ export async function requireReadableDocumentAccess(
     privateDocumentError: "You do not have access to this document",
     requireTeamAccess: requireReadableTeamAccess,
     requireWorkspaceAccess: requireReadableWorkspaceAccess,
+    requireWorkItemAccess: requireReadableWorkItemAccess,
   })
 }
 
@@ -207,6 +313,7 @@ export async function requireEditableDocumentAccess(
     privateDocumentError: "You can only edit your own private documents",
     requireTeamAccess: requireEditableTeamAccess,
     requireWorkspaceAccess: requireEditableWorkspaceAccess,
+    requireWorkItemAccess: requireEditableWorkItemAccess,
   })
 }
 

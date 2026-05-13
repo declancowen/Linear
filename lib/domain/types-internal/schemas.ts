@@ -36,10 +36,14 @@ import {
 import {
   attachmentTargetTypes,
   commentTargetTypes,
+  customPropertyScopeTypes,
+  customPropertyTargetTypes,
+  customPropertyTypes,
   displayProperties,
   entityKinds,
   viewContainerTypes,
   groupFields,
+  labelScopeTypes,
   orderingFields,
   priorities,
   projectNameMaxLength,
@@ -49,7 +53,6 @@ import {
   roles,
   scopeTypes,
   teamExperienceTypes,
-  teamIconTokens,
   themePreferences,
   userStatuses,
   viewLayouts,
@@ -57,9 +60,14 @@ import {
   viewNameMaxLength,
   viewNameMinLength,
   workItemTypes,
+  workItemVisibilities,
   workStatuses,
+  type DisplayProperty,
 } from "./primitives"
-import { getTeamFeatureValidationMessage } from "./work"
+import {
+  getTeamFeatureValidationMessage,
+  isValidTeamIconInputValue,
+} from "./work"
 
 function boundedTrimmedStringSchema(constraint: {
   min?: number
@@ -98,6 +106,15 @@ function boundedTrimmedStringSchema(constraint: {
   return schema
 }
 
+const teamIconSchema = z
+  .string()
+  .trim()
+  .min(1, "Select an icon")
+  .max(80, "Select an icon")
+  .refine(isValidTeamIconInputValue, {
+    message: "Select a supported icon",
+  })
+
 function boundedRichTextPlainTextSchema(constraint: {
   min?: number
   max: number
@@ -135,6 +152,7 @@ export const nullableCalendarDateSchema = z
 
 export const labelCreateSchema = z.object({
   workspaceId: z.string().trim().min(1).optional(),
+  scopeType: z.enum(labelScopeTypes).optional(),
   name: boundedTrimmedStringSchema(labelNameConstraints),
   color: z.string().trim().min(1).max(24).optional(),
 })
@@ -170,7 +188,7 @@ export const workspaceSetupSchema = z.object({
 export const teamDetailsSchema = z
   .object({
     name: boundedTrimmedStringSchema(teamNameConstraints),
-    icon: z.enum(teamIconTokens),
+    icon: teamIconSchema,
     summary: boundedTrimmedStringSchema(teamSummaryConstraints),
     joinCode: boundedTrimmedStringSchema(teamJoinCodeConstraints).optional(),
     experience: z.enum(teamExperienceTypes),
@@ -201,7 +219,7 @@ export const teamDetailsSchema = z
 export const teamDetailsUpdateSchema = z
   .object({
     name: boundedTrimmedStringSchema(teamNameConstraints),
-    icon: z.enum(teamIconTokens),
+    icon: teamIconSchema,
     summary: boundedTrimmedStringSchema(optionalTeamSummaryConstraints),
     joinCode: boundedTrimmedStringSchema(teamJoinCodeConstraints).optional(),
     experience: z.enum(teamExperienceTypes),
@@ -257,6 +275,18 @@ const viewFiltersSchema = z.object({
   priority: z.array(z.enum(priorities)),
   assigneeIds: z.array(z.string()),
   creatorIds: z.array(z.string()),
+  updatedByIds: z.array(z.string()).default([]),
+  documentKinds: z
+    .array(
+      z.enum([
+        "team-document",
+        "workspace-document",
+        "private-document",
+        "item-description",
+      ])
+    )
+    .default([]),
+  linkedWorkItemIds: z.array(z.string()).default([]),
   leadIds: z.array(z.string()),
   health: z.array(z.enum(projectHealths)),
   milestoneIds: z.array(z.string()),
@@ -266,8 +296,19 @@ const viewFiltersSchema = z.object({
   itemTypes: z.array(z.enum(workItemTypes)),
   labelIds: z.array(z.string()),
   teamIds: z.array(z.string()),
+  visibility: z.array(z.enum(workItemVisibilities)).default([]),
   showCompleted: z.boolean(),
 })
+
+export const displayPropertySchema = z.custom<DisplayProperty>(
+  (value) =>
+    typeof value === "string" &&
+    (displayProperties.includes(value as (typeof displayProperties)[number]) ||
+      /^custom:[A-Za-z0-9_-]+$/.test(value)),
+  {
+    message: "Display property is not valid",
+  }
+)
 
 export const projectSchema = z.object({
   scopeType: z.enum(scopeTypes),
@@ -278,6 +319,7 @@ export const projectSchema = z.object({
     "project-management",
   ]),
   name: z.string().trim().min(projectNameMinLength).max(projectNameMaxLength),
+  icon: z.string().trim().min(1).max(80).optional(),
   summary: boundedTrimmedStringSchema(projectSummaryConstraints),
   status: z.enum(projectStatuses).optional(),
   priority: z.enum(priorities),
@@ -296,7 +338,7 @@ export const projectSchema = z.object({
       layout: z.enum(viewLayouts),
       grouping: z.enum(groupFields),
       ordering: z.enum(orderingFields),
-      displayProps: z.array(z.enum(displayProperties)),
+      displayProps: z.array(displayPropertySchema),
       filters: viewFiltersSchema,
     })
     .optional(),
@@ -333,7 +375,7 @@ export const viewSchema = z
     showChildItems: viewConfigPatchSchema.shape.showChildItems,
     showCompleted: viewConfigPatchSchema.shape.showCompleted,
     filters: viewFiltersSchema.optional(),
-    displayProps: z.array(z.enum(displayProperties)).optional(),
+    displayProps: z.array(displayPropertySchema).optional(),
     hiddenState: z
       .object({
         groups: z.array(z.string()),
@@ -368,9 +410,105 @@ export const workItemSchema = z.object({
   status: z.enum(workStatuses).optional(),
   priority: z.enum(priorities),
   labelIds: z.array(z.string()).optional(),
+  visibility: z.enum(workItemVisibilities).optional(),
   startDate: nullableCalendarDateSchema.optional(),
   dueDate: nullableCalendarDateSchema.optional(),
   targetDate: nullableCalendarDateSchema.optional(),
+})
+
+const customPropertyOptionSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(80),
+  color: z.string().trim().min(1).max(32),
+})
+
+const customPropertyDefinitionBaseSchema = z.object({
+  teamId: z.string().trim().min(1),
+  scopeType: z.enum(customPropertyScopeTypes).optional(),
+  targetType: z.enum(customPropertyTargetTypes).default("workItem"),
+  name: z.string().trim().min(1).max(64),
+  icon: z.string().trim().min(1).max(80),
+  type: z.enum(customPropertyTypes),
+  options: z.array(customPropertyOptionSchema).default([]),
+})
+
+function addCustomPropertyOptionValidationIssues(
+  value: {
+    options?: Array<z.infer<typeof customPropertyOptionSchema>>
+    type?: (typeof customPropertyTypes)[number]
+  },
+  ctx: z.RefinementCtx
+) {
+  const options = value.options ?? []
+  const isChoiceType = value.type === "select" || value.type === "multiSelect"
+
+  if (value.type && !isChoiceType && options.length > 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["options"],
+      message: "Only select properties can define options",
+    })
+  }
+
+  if (isChoiceType && options.length === 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["options"],
+      message: "Add at least one option",
+    })
+  }
+
+  const normalizedIds = options.map((option) => option.id.trim())
+  if (new Set(normalizedIds).size !== normalizedIds.length) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["options"],
+      message: "Option ids must be unique",
+    })
+  }
+
+  const normalizedLabels = options.map((option) =>
+    option.label.trim().toLowerCase()
+  )
+  if (new Set(normalizedLabels).size !== normalizedLabels.length) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["options"],
+      message: "Option labels must be unique",
+    })
+  }
+}
+
+const customPropertyDefinitionPatchBaseSchema = z.object({
+  name: z.string().trim().min(1).max(64),
+  icon: z.string().trim().min(1).max(80),
+  type: z.enum(customPropertyTypes),
+  options: z.array(customPropertyOptionSchema),
+})
+
+export const customPropertyDefinitionSchema =
+  customPropertyDefinitionBaseSchema.superRefine((value, ctx) => {
+    addCustomPropertyOptionValidationIssues(value, ctx)
+  })
+
+export const customPropertyDefinitionPatchSchema =
+  customPropertyDefinitionPatchBaseSchema
+    .partial()
+    .superRefine((value, ctx) => {
+      addCustomPropertyOptionValidationIssues(value, ctx)
+    })
+    .refine((value) => Object.keys(value).length > 0, {
+      message: "At least one property field is required",
+    })
+
+export const customPropertyValueSchema = z.object({
+  value: z.union([
+    z.string(),
+    z.number().int(),
+    z.boolean(),
+    z.array(z.string()),
+    z.null(),
+  ]),
 })
 
 const createDocumentBaseSchema = {
@@ -462,10 +600,7 @@ export const attachmentUploadUrlSchema = z.object({
   targetId: z.string().min(1),
 })
 
-const settingsImageUploadKinds = [
-  "user-avatar",
-  "workspace-logo",
-] as const
+const settingsImageUploadKinds = ["user-avatar", "workspace-logo"] as const
 
 export const settingsImageUploadSchema = z.object({
   kind: z.enum(settingsImageUploadKinds),

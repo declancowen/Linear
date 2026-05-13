@@ -38,6 +38,7 @@ export async function PATCH(
       return jsonOk({
         ok: true,
         teamId,
+        icon: result?.icon ?? parsed.icon,
       })
     },
   })

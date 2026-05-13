@@ -14,6 +14,9 @@ import {
   emailJobKindValidator,
   displayPropertyValidator,
   entityKindValidator,
+  customPropertyOptionValidator,
+  customPropertyTypeValidator,
+  customPropertyValueValidator,
   groupFieldValidator,
   nullableStringValidator,
   orderingFieldValidator,
@@ -30,6 +33,7 @@ import {
   viewFiltersValidator,
   viewLayoutValidator,
   workItemTypeValidator,
+  workItemVisibilityValidator,
   workStatusValidator,
 } from "./validators"
 import { serverAccessArgs } from "./app/core"
@@ -118,6 +122,12 @@ import {
   toggleCommentReactionHandler,
 } from "./app/comment_handlers"
 import {
+  archiveCustomPropertyDefinitionHandler,
+  createCustomPropertyDefinitionHandler,
+  setCustomPropertyValueHandler,
+  updateCustomPropertyDefinitionHandler,
+} from "./app/custom_property_handlers"
+import {
   acceptInviteHandler,
   cancelInviteHandler,
   createInviteHandler,
@@ -186,6 +196,14 @@ const viewConfigMutationArgs = {
 const viewConfigPatchMutationArgs = {
   ...viewConfigMutationArgs,
   showCompleted: v.optional(v.boolean()),
+}
+
+const projectPeopleAndScheduleMutationArgs = {
+  leadId: v.optional(nullableStringValidator),
+  memberIds: v.optional(v.array(v.string())),
+  startDate: v.optional(nullableStringValidator),
+  targetDate: v.optional(nullableStringValidator),
+  labelIds: v.optional(v.array(v.string())),
 }
 
 const presenceActorArgs = {
@@ -779,6 +797,7 @@ export const createLabel = mutation({
     workspaceId: v.string(),
     name: v.string(),
     color: v.optional(v.string()),
+    scopeType: v.optional(v.union(v.literal("workspace"), v.literal("private"))),
   },
   handler: createLabelHandler,
 })
@@ -837,6 +856,56 @@ export const updateViewConfig = mutation({
     ...viewConfigPatchMutationArgs,
   },
   handler: updateViewConfigHandler,
+})
+
+export const createCustomPropertyDefinition = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    teamId: v.string(),
+    scopeType: v.optional(v.union(v.literal("team"), v.literal("private"))),
+    targetType: v.optional(v.literal("workItem")),
+    name: v.string(),
+    icon: v.string(),
+    type: customPropertyTypeValidator,
+    options: v.optional(v.array(customPropertyOptionValidator)),
+  },
+  handler: createCustomPropertyDefinitionHandler,
+})
+
+export const updateCustomPropertyDefinition = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    propertyId: v.string(),
+    patch: v.object({
+      name: v.optional(v.string()),
+      icon: v.optional(v.string()),
+      type: v.optional(customPropertyTypeValidator),
+      options: v.optional(v.array(customPropertyOptionValidator)),
+    }),
+  },
+  handler: updateCustomPropertyDefinitionHandler,
+})
+
+export const archiveCustomPropertyDefinition = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    propertyId: v.string(),
+  },
+  handler: archiveCustomPropertyDefinitionHandler,
+})
+
+export const setCustomPropertyValue = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    workItemId: v.string(),
+    propertyId: v.string(),
+    value: customPropertyValueValidator,
+  },
+  handler: setCustomPropertyValueHandler,
 })
 
 export const createView = mutation({
@@ -925,6 +994,9 @@ export const toggleViewFilterValue = mutation({
       v.literal("priority"),
       v.literal("assigneeIds"),
       v.literal("creatorIds"),
+      v.literal("updatedByIds"),
+      v.literal("documentKinds"),
+      v.literal("linkedWorkItemIds"),
       v.literal("leadIds"),
       v.literal("health"),
       v.literal("milestoneIds"),
@@ -933,7 +1005,8 @@ export const toggleViewFilterValue = mutation({
       v.literal("parentIds"),
       v.literal("itemTypes"),
       v.literal("labelIds"),
-      v.literal("teamIds")
+      v.literal("teamIds"),
+      v.literal("visibility")
     ),
     value: v.string(),
   },
@@ -1272,14 +1345,11 @@ export const createProject = mutation({
     scopeId: v.string(),
     templateType: templateTypeValidator,
     name: v.string(),
+    icon: v.optional(v.string()),
     summary: v.string(),
     status: v.optional(projectStatusValidator),
     priority: priorityValidator,
-    leadId: v.optional(nullableStringValidator),
-    memberIds: v.optional(v.array(v.string())),
-    startDate: v.optional(nullableStringValidator),
-    targetDate: v.optional(nullableStringValidator),
-    labelIds: v.optional(v.array(v.string())),
+    ...projectPeopleAndScheduleMutationArgs,
     settingsTeamId: v.optional(nullableStringValidator),
     presentation: v.optional(
       v.object({
@@ -1303,8 +1373,11 @@ export const updateProject = mutation({
     projectId: v.string(),
     patch: v.object({
       name: v.optional(v.string()),
+      icon: v.optional(v.string()),
+      summary: v.optional(v.string()),
       status: v.optional(projectStatusValidator),
       priority: v.optional(priorityValidator),
+      ...projectPeopleAndScheduleMutationArgs,
     }),
   },
   handler: updateProjectHandler,
@@ -1362,6 +1435,7 @@ export const createWorkItem = mutation({
     status: v.optional(workStatusValidator),
     priority: priorityValidator,
     labelIds: v.optional(v.array(v.string())),
+    visibility: v.optional(workItemVisibilityValidator),
     startDate: v.optional(nullableStringValidator),
     dueDate: v.optional(nullableStringValidator),
     targetDate: v.optional(nullableStringValidator),

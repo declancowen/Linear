@@ -109,6 +109,7 @@ export function createStoreRuntime(get: AppStoreGet) {
     fallbackMessage: string,
     options?: {
       refreshStrategy?: "none" | "snapshot"
+      showToast?: boolean
     }
   ) {
     console.error(error)
@@ -120,7 +121,9 @@ export function createStoreRuntime(get: AppStoreGet) {
         )
       })
     }
-    toast.error(fallbackMessage)
+    if (options?.showToast !== false) {
+      toast.error(fallbackMessage)
+    }
   }
 
   async function flushQueuedRichTextSync(key: string) {
@@ -248,12 +251,18 @@ export function createStoreRuntime(get: AppStoreGet) {
     })
   }
 
-  function syncInBackground(task: Promise<unknown> | null, fallbackMessage: string) {
+  function syncInBackground(
+    task: Promise<unknown> | null,
+    fallbackMessage: string,
+    options?: Parameters<typeof handleSyncFailure>[2]
+  ) {
     if (!task) {
       return
     }
 
-    void task.catch((error) => handleSyncFailure(error, fallbackMessage))
+    void task.catch((error) =>
+      handleSyncFailure(error, fallbackMessage, options)
+    )
   }
 
   return {

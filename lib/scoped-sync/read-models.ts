@@ -19,6 +19,11 @@ import type {
   Workspace,
   WorkspaceMembership,
 } from "@/lib/domain/types"
+import {
+  getCustomPropertyScopeType,
+  isCustomPropertyDefinitionVisibleToUser,
+  isLabelVisibleToUser,
+} from "@/lib/domain/labels"
 import { isWorkspaceMembershipInvite } from "@/lib/scoped-sync/invite-selection"
 
 import {
@@ -365,9 +370,75 @@ function selectMilestonesForProjects(
 
 function selectLabelsForWorkspaceIds(
   snapshot: AppSnapshot,
-  workspaceIds: ReadonlySet<string>
+  workspaceIds: ReadonlySet<string>,
+  currentUserId: string,
+  includePrivate = false
 ) {
-  return snapshot.labels.filter((label) => workspaceIds.has(label.workspaceId))
+  return (snapshot.labels ?? []).filter(
+    (label) =>
+      workspaceIds.has(label.workspaceId) &&
+      ((label.scopeType ?? "workspace") === "workspace" ||
+        (includePrivate && isLabelVisibleToUser(label, currentUserId)))
+  )
+}
+
+function selectCustomPropertyDefinitionsForTeamIds(
+  snapshot: AppSnapshot,
+  teamIds: ReadonlySet<string>,
+  options: {
+    includeTeam?: boolean
+    privateOwnerId?: string | null
+  } = {}
+) {
+  const includeTeam = options.includeTeam ?? true
+  return (snapshot.customPropertyDefinitions ?? []).filter(
+    (definition) =>
+      teamIds.has(definition.teamId) &&
+      !definition.isArchived &&
+      ((includeTeam && getCustomPropertyScopeType(definition) === "team") ||
+        (options.privateOwnerId
+          ? isCustomPropertyDefinitionVisibleToUser(
+              definition,
+              options.privateOwnerId
+            ) && getCustomPropertyScopeType(definition) === "private"
+          : false))
+  )
+}
+
+function selectCustomPropertyValuesForWorkItemIds(
+  snapshot: AppSnapshot,
+  workItemIds: ReadonlySet<string>,
+  definitions: AppSnapshot["customPropertyDefinitions"]
+) {
+  const propertyIds = new Set(definitions.map((definition) => definition.id))
+
+  return (snapshot.customPropertyValues ?? []).filter((value) =>
+    workItemIds.has(value.workItemId) && propertyIds.has(value.propertyId)
+  )
+}
+
+function collectCustomPropertyValueUserIds(
+  definitions: AppSnapshot["customPropertyDefinitions"],
+  values: AppSnapshot["customPropertyValues"]
+) {
+  const personPropertyIds = new Set(
+    definitions
+      .filter((definition) => definition.type === "person")
+      .map((definition) => definition.id)
+  )
+  const userIds = new Set<string>()
+
+  for (const value of values) {
+    if (!personPropertyIds.has(value.propertyId)) {
+      continue
+    }
+
+    if (typeof value.value === "string") {
+      userIds.add(value.value)
+    }
+  }
+
+  return userIds
 }
 
 function selectAccessibleTeamsForScope(
@@ -396,7 +467,10 @@ function selectWorkItemsForScope(
   scopeId: string
 ) {
   if (scopeType === "team") {
-    return snapshot.workItems.filter((item) => item.teamId === scopeId)
+    return snapshot.workItems.filter(
+      (item) =>
+        item.teamId === scopeId && (item.visibility ?? "team") === "team"
+    )
   }
 
   const teamIds = new Set(
@@ -405,7 +479,19 @@ function selectWorkItemsForScope(
     )
   )
 
-  return snapshot.workItems.filter((item) => teamIds.has(item.teamId))
+  if (scopeType === "personal") {
+    return snapshot.workItems.filter((item) => {
+      if ((item.visibility ?? "team") === "private") {
+        return item.creatorId === scopeId || item.assigneeId === scopeId
+      }
+
+      return teamIds.has(item.teamId)
+    })
+  }
+
+  return snapshot.workItems.filter(
+    (item) => teamIds.has(item.teamId) && (item.visibility ?? "team") === "team"
+  )
 }
 
 function selectDocumentsForScope(
@@ -492,25 +578,31 @@ function selectProjectViews(snapshot: AppSnapshot, project: Project) {
   )
 }
 
+function addValuesToSet(target: Set<string>, values: Iterable<string>) {
+  for (const value of values) {
+    target.add(value)
+  }
+}
+
+function collectViewFilterUserIds(view: ViewDefinition) {
+  return [
+    ...view.filters.assigneeIds,
+    ...view.filters.creatorIds,
+    ...(view.filters.updatedByIds ?? []),
+    ...view.filters.leadIds,
+  ]
+}
+
+function collectViewScopeUserIds(view: ViewDefinition) {
+  return view.scopeType === "personal" ? [view.scopeId] : []
+}
+
 function collectViewUserIds(views: ViewDefinition[]) {
   const userIds = new Set<string>()
 
   for (const view of views) {
-    if (view.scopeType === "personal") {
-      userIds.add(view.scopeId)
-    }
-
-    for (const assigneeId of view.filters.assigneeIds) {
-      userIds.add(assigneeId)
-    }
-
-    for (const creatorId of view.filters.creatorIds) {
-      userIds.add(creatorId)
-    }
-
-    for (const leadId of view.filters.leadIds) {
-      userIds.add(leadId)
-    }
+    addValuesToSet(userIds, collectViewScopeUserIds(view))
+    addValuesToSet(userIds, collectViewFilterUserIds(view))
   }
 
   return userIds
@@ -845,6 +937,47 @@ function selectMissingDocumentDetailReadModel(
   }
 }
 
+function selectDocumentIndexProjects(
+  snapshot: AppSnapshot,
+  documents: Document[]
+) {
+  const projectIds = new Set(
+    documents.flatMap((document) => document.linkedProjectIds)
+  )
+
+  return snapshot.projects.filter((project) => projectIds.has(project.id))
+}
+
+function selectDocumentIndexWorkItems(
+  snapshot: AppSnapshot,
+  documents: Document[]
+) {
+  const workItemIds = new Set(
+    documents.flatMap((document) => document.linkedWorkItemIds)
+  )
+
+  return snapshot.workItems.filter((item) => workItemIds.has(item.id))
+}
+
+function selectDocumentIndexTeams(
+  snapshot: AppSnapshot,
+  documents: Document[],
+  projects: Project[],
+  workItems: WorkItem[]
+) {
+  const teamIds = new Set(
+    compactStringIds([
+      ...documents.map((document) => document.teamId),
+      ...projects.map((project) =>
+        project.scopeType === "team" ? project.scopeId : null
+      ),
+      ...workItems.map((item) => item.teamId),
+    ])
+  )
+
+  return snapshot.teams.filter((team) => teamIds.has(team.id))
+}
+
 export function selectDocumentIndexReadModel(
   snapshot: AppSnapshot,
   scopeType: "team" | "workspace",
@@ -853,6 +986,14 @@ export function selectDocumentIndexReadModel(
   const documents = selectDocumentsForScope(snapshot, scopeType, scopeId).map(
     toDocumentPreviewEntry
   )
+  const projects = selectDocumentIndexProjects(snapshot, documents)
+  const workItems = selectDocumentIndexWorkItems(snapshot, documents)
+  const teams = selectDocumentIndexTeams(
+    snapshot,
+    documents,
+    projects,
+    workItems
+  )
   const views = selectDocumentIndexViews(snapshot, scopeType, scopeId)
   const users = selectUsers(snapshot, collectDocumentUserIds(documents))
 
@@ -860,6 +1001,9 @@ export function selectDocumentIndexReadModel(
     currentUserId: snapshot.currentUserId,
     currentWorkspaceId: snapshot.currentWorkspaceId,
     documents,
+    projects,
+    workItems,
+    teams,
     views,
     users,
   }
@@ -911,6 +1055,7 @@ export function selectWorkItemDetailReadModel(
     ].filter((value): value is string => Boolean(value))
   )
   const detailTeamIds = new Set([item.teamId])
+  const detailWorkItemIds = new Set(workItems.map((candidate) => candidate.id))
   const detailWorkspaceIds = new Set(workspaceId ? [workspaceId] : [])
   const projects = snapshot.projects.filter((project) => {
     if (relatedProjectIds.has(project.id)) {
@@ -924,9 +1069,30 @@ export function selectWorkItemDetailReadModel(
     )
   })
   const milestones = selectMilestonesForProjects(snapshot, projects)
-  const labels = selectLabelsForWorkspaceIds(snapshot, detailWorkspaceIds)
+  const labels = selectLabelsForWorkspaceIds(
+    snapshot,
+    detailWorkspaceIds,
+    snapshot.currentUserId,
+    (item.visibility ?? "team") === "private"
+  )
   const teamMemberships = snapshot.teamMemberships.filter(
     (membership) => membership.teamId === item.teamId
+  )
+  const customPropertyDefinitions = selectCustomPropertyDefinitionsForTeamIds(
+    snapshot,
+    detailTeamIds,
+    {
+      includeTeam: (item.visibility ?? "team") !== "private",
+      privateOwnerId:
+        (item.visibility ?? "team") === "private"
+          ? snapshot.currentUserId
+          : null,
+    }
+  )
+  const customPropertyValues = selectCustomPropertyValuesForWorkItemIds(
+    snapshot,
+    detailWorkItemIds,
+    customPropertyDefinitions
   )
   const users = selectUsers(snapshot, [
     item.creatorId,
@@ -943,12 +1109,18 @@ export function selectWorkItemDetailReadModel(
       candidate.assigneeId ?? "",
       ...candidate.subscriberIds,
     ]),
+    ...collectCustomPropertyValueUserIds(
+      customPropertyDefinitions,
+      customPropertyValues
+    ),
     ...collectCommentUserIds(comments),
     ...collectAttachmentUserIds(attachments),
   ])
 
   return {
     workItems,
+    customPropertyDefinitions,
+    customPropertyValues,
     labels,
     projects,
     milestones,
@@ -985,6 +1157,20 @@ export function selectProjectDetailReadModel(
       item.primaryProjectId === project.id ||
       item.linkedProjectIds.includes(project.id)
   )
+  const projectTeamIds = new Set(items.map((item) => item.teamId))
+  const projectWorkItemIds = new Set(items.map((item) => item.id))
+  const customPropertyDefinitions = selectCustomPropertyDefinitionsForTeamIds(
+    snapshot,
+    projectTeamIds
+  )
+  const customPropertyValues = selectCustomPropertyValuesForWorkItemIds(
+    snapshot,
+    projectWorkItemIds,
+    customPropertyDefinitions
+  )
+  const teamMemberships = snapshot.teamMemberships.filter((membership) =>
+    projectTeamIds.has(membership.teamId)
+  )
   const milestones = snapshot.milestones.filter(
     (milestone) => milestone.projectId === project.id
   )
@@ -1002,6 +1188,7 @@ export function selectProjectDetailReadModel(
   const users = selectUsers(snapshot, [
     project.leadId,
     ...project.memberIds,
+    ...teamMemberships.map((membership) => membership.userId),
     ...items.flatMap((item) => [
       item.creatorId,
       item.assigneeId ?? "",
@@ -1013,6 +1200,10 @@ export function selectProjectDetailReadModel(
       document.updatedBy,
     ]),
     ...collectViewUserIds(views),
+    ...collectCustomPropertyValueUserIds(
+      customPropertyDefinitions,
+      customPropertyValues
+    ),
   ])
 
   return {
@@ -1020,8 +1211,11 @@ export function selectProjectDetailReadModel(
     milestones,
     projectUpdates: updates as ProjectUpdate[],
     workItems: items,
+    customPropertyDefinitions,
+    customPropertyValues,
     documents,
     views,
+    teamMemberships,
     users,
   }
 }
@@ -1047,6 +1241,7 @@ export function selectProjectIndexReadModel(
       (item.primaryProjectId && projectIds.has(item.primaryProjectId)) ||
       item.linkedProjectIds.some((projectId) => projectIds.has(projectId))
   )
+  const workItemIds = new Set(workItems.map((item) => item.id))
   const teams =
     scopeType === "workspace"
       ? snapshot.teams.filter((team) => team.workspaceId === scopeId)
@@ -1055,6 +1250,15 @@ export function selectProjectIndexReadModel(
     snapshot,
     projects.map((project) => project.leadId)
   )
+  const customPropertyDefinitions = selectCustomPropertyDefinitionsForTeamIds(
+    snapshot,
+    new Set(workItems.map((item) => item.teamId))
+  )
+  const customPropertyValues = selectCustomPropertyValuesForWorkItemIds(
+    snapshot,
+    workItemIds,
+    customPropertyDefinitions
+  )
   const views = selectProjectIndexViews(snapshot, scopeType, scopeId)
 
   return {
@@ -1062,6 +1266,8 @@ export function selectProjectIndexReadModel(
     currentWorkspaceId: snapshot.currentWorkspaceId,
     projects,
     workItems,
+    customPropertyDefinitions,
+    customPropertyValues,
     teams,
     views,
     users,
@@ -1134,6 +1340,7 @@ export function selectWorkIndexReadModel(
   scopeId: string
 ): ScopedReadModelPatch {
   const workItems = selectWorkItemsForScope(snapshot, scopeType, scopeId)
+  const workItemIds = new Set(workItems.map((item) => item.id))
   const teams = selectAccessibleTeamsForScope(snapshot, scopeType, scopeId)
   const teamIds = new Set(teams.map((team) => team.id))
   const workspaceIds = new Set(teams.map((team) => team.workspaceId))
@@ -1152,13 +1359,35 @@ export function selectWorkIndexReadModel(
     isProjectScopedToTeamOrWorkspaceIds(project, teamIds, workspaceIds)
   )
   const milestones = selectMilestonesForProjects(snapshot, projects)
-  const labels = selectLabelsForWorkspaceIds(snapshot, workspaceIds)
+  const labels = selectLabelsForWorkspaceIds(
+    snapshot,
+    workspaceIds,
+    snapshot.currentUserId,
+    scopeType === "personal"
+  )
   const views = selectWorkIndexViews(snapshot, scopeType, scopeId)
+  const customPropertyDefinitions = selectCustomPropertyDefinitionsForTeamIds(
+    snapshot,
+    teamIds,
+    {
+      includeTeam: true,
+      privateOwnerId: scopeType === "personal" ? scopeId : null,
+    }
+  )
+  const customPropertyValues = selectCustomPropertyValuesForWorkItemIds(
+    snapshot,
+    workItemIds,
+    customPropertyDefinitions
+  )
   const users = selectUsers(snapshot, [
     ...collectWorkItemUserIds(workItems),
     ...teamMemberships.map((membership) => membership.userId),
     ...projects.flatMap((project) => [project.leadId, ...project.memberIds]),
     ...collectViewUserIds(views),
+    ...collectCustomPropertyValueUserIds(
+      customPropertyDefinitions,
+      customPropertyValues
+    ),
   ])
 
   return {
@@ -1173,6 +1402,8 @@ export function selectWorkIndexReadModel(
     projects,
     milestones,
     workItems,
+    customPropertyDefinitions,
+    customPropertyValues,
     views,
   }
 }
@@ -1211,6 +1442,10 @@ export function selectViewCatalogReadModel(
     workspaceMemberships,
     teams,
     teamMemberships,
+    customPropertyDefinitions: selectCustomPropertyDefinitionsForTeamIds(
+      snapshot,
+      teamIds
+    ),
     views,
   }
 }
@@ -1656,6 +1891,51 @@ export function getPrivateDocumentIndexScopeKeys(
   return [createPrivateDocumentIndexScopeKey(workspaceId, userId)]
 }
 
+function addDocumentIndexScopeKeyForDocument(
+  scopeKeys: Set<string>,
+  document: Document
+) {
+  if (document.kind === "item-description") {
+    return
+  }
+
+  if (document.kind === "private-document") {
+    scopeKeys.add(
+      createPrivateDocumentIndexScopeKey(
+        document.workspaceId,
+        document.createdBy
+      )
+    )
+    return
+  }
+
+  const scopeType = document.kind === "team-document" ? "team" : "workspace"
+  const scopeId =
+    document.kind === "team-document" ? document.teamId : document.workspaceId
+
+  if (!scopeId) {
+    return
+  }
+
+  scopeKeys.add(
+    createDocumentIndexScopeKey(
+      createScopedCollectionScopeId(scopeType, scopeId)
+    )
+  )
+}
+
+function addLinkedDocumentIndexScopeKeys(
+  snapshot: AppSnapshot,
+  scopeKeys: Set<string>,
+  isLinkedDocument: (document: Document) => boolean
+) {
+  for (const document of snapshot.documents) {
+    if (isLinkedDocument(document)) {
+      addDocumentIndexScopeKeyForDocument(scopeKeys, document)
+    }
+  }
+}
+
 export function getDocumentRelatedScopeKeys(
   snapshot: AppSnapshot,
   documentId: string
@@ -1733,6 +2013,10 @@ export function getProjectRelatedScopeKeys(
     snapshot.projects.find((entry) => entry.id === projectId) ?? null
   const scopeKeys = new Set<string>([createProjectDetailScopeKey(projectId)])
 
+  addLinkedDocumentIndexScopeKeys(snapshot, scopeKeys, (document) =>
+    document.linkedProjectIds.includes(projectId)
+  )
+
   if (
     !project ||
     (project.scopeType !== "team" && project.scopeType !== "workspace")
@@ -1770,6 +2054,108 @@ export function getWorkIndexScopeKeys(
   ]
 }
 
+function addCustomPropertyWorkspaceScopeKeys(
+  snapshot: AppSnapshot,
+  teamId: string,
+  scopeKeys: Set<string>
+) {
+  const team = snapshot.teams.find((entry) => entry.id === teamId) ?? null
+
+  if (!team) {
+    return
+  }
+
+  addScopeKeys(scopeKeys, getWorkIndexScopeKeys("workspace", team.workspaceId))
+  addScopeKeys(
+    scopeKeys,
+    getViewCatalogScopeKeys("workspace", team.workspaceId)
+  )
+  addScopeKeys(
+    scopeKeys,
+    getProjectIndexScopeKeys("workspace", team.workspaceId)
+  )
+}
+
+function collectCustomPropertyTeamProjectIds(
+  snapshot: AppSnapshot,
+  teamId: string,
+  scopeKeys: Set<string>
+) {
+  const projectIds = new Set<string>()
+
+  for (const item of snapshot.workItems) {
+    if (item.teamId !== teamId) {
+      continue
+    }
+
+    scopeKeys.add(createWorkItemDetailScopeKey(item.id))
+    for (const projectId of [item.primaryProjectId, ...item.linkedProjectIds]) {
+      if (projectId) {
+        projectIds.add(projectId)
+      }
+    }
+  }
+
+  return projectIds
+}
+
+function addCustomPropertyProjectScopeKeys(
+  snapshot: AppSnapshot,
+  projectIds: Iterable<string>,
+  scopeKeys: Set<string>
+) {
+  for (const projectId of projectIds) {
+    const project =
+      snapshot.projects.find((entry) => entry.id === projectId) ?? null
+
+    if (!project) {
+      continue
+    }
+
+    scopeKeys.add(createProjectDetailScopeKey(project.id))
+    addScopeKeys(
+      scopeKeys,
+      getProjectIndexScopeKeys(project.scopeType, project.scopeId)
+    )
+  }
+}
+
+function addTeamMemberPersonalWorkScopeKeys(
+  snapshot: AppSnapshot,
+  teamId: string,
+  scopeKeys: Set<string>
+) {
+  for (const membership of snapshot.teamMemberships) {
+    if (membership.teamId === teamId) {
+      addScopeKeys(
+        scopeKeys,
+        getWorkIndexScopeKeys("personal", membership.userId)
+      )
+    }
+  }
+}
+
+export function getCustomPropertyDefinitionScopeKeys(
+  snapshot: AppSnapshot,
+  teamId: string
+) {
+  const scopeKeys = new Set<string>([
+    ...getWorkIndexScopeKeys("team", teamId),
+    ...getViewCatalogScopeKeys("team", teamId),
+  ])
+  const projectIds = collectCustomPropertyTeamProjectIds(
+    snapshot,
+    teamId,
+    scopeKeys
+  )
+
+  addCustomPropertyWorkspaceScopeKeys(snapshot, teamId, scopeKeys)
+  addCustomPropertyProjectScopeKeys(snapshot, projectIds, scopeKeys)
+  addTeamMemberPersonalWorkScopeKeys(snapshot, teamId, scopeKeys)
+
+  return [...scopeKeys]
+}
+
 export function getViewCatalogScopeKeys(
   scopeType: "team" | "workspace",
   scopeId: string
@@ -1790,6 +2176,33 @@ export function getUserWorkspaceMembershipScopeKeys(
   )
 }
 
+function addWorkItemProjectRelatedScopeKeys(
+  snapshot: AppSnapshot,
+  item: AppSnapshot["workItems"][number],
+  scopeKeys: Set<string>
+) {
+  for (const projectId of compactStringIds([
+    item.primaryProjectId,
+    ...item.linkedProjectIds,
+  ])) {
+    addScopeKeys(scopeKeys, getProjectRelatedScopeKeys(snapshot, projectId))
+  }
+}
+
+function addWorkItemTeamRelatedScopeKeys(
+  snapshot: AppSnapshot,
+  item: AppSnapshot["workItems"][number],
+  scopeKeys: Set<string>
+) {
+  addScopeKeys(scopeKeys, getWorkIndexScopeKeys("team", item.teamId))
+
+  const team = snapshot.teams.find((entry) => entry.id === item.teamId) ?? null
+
+  if (team) {
+    scopeKeys.add(createSearchSeedScopeKey(team.workspaceId))
+  }
+}
+
 export function getWorkItemDetailScopeKeys(
   snapshot: AppSnapshot,
   itemId: string
@@ -1797,38 +2210,17 @@ export function getWorkItemDetailScopeKeys(
   const item = snapshot.workItems.find((entry) => entry.id === itemId) ?? null
   const scopeKeys = new Set<string>([createWorkItemDetailScopeKey(itemId)])
 
+  addLinkedDocumentIndexScopeKeys(snapshot, scopeKeys, (document) =>
+    document.linkedWorkItemIds.includes(itemId)
+  )
+
   if (!item) {
     return [...scopeKeys]
   }
 
-  for (const projectId of [
-    item.primaryProjectId,
-    ...item.linkedProjectIds,
-  ].filter((value): value is string => Boolean(value))) {
-    for (const scopeKey of getProjectRelatedScopeKeys(snapshot, projectId)) {
-      scopeKeys.add(scopeKey)
-    }
-  }
-
-  for (const scopeKey of getWorkIndexScopeKeys("team", item.teamId)) {
-    scopeKeys.add(scopeKey)
-  }
-
-  const team = snapshot.teams.find((entry) => entry.id === item.teamId) ?? null
-
-  if (team) {
-    scopeKeys.add(createSearchSeedScopeKey(team.workspaceId))
-  }
-
-  const teamMemberIds = snapshot.teamMemberships
-    .filter((membership) => membership.teamId === item.teamId)
-    .map((membership) => membership.userId)
-
-  for (const userId of teamMemberIds) {
-    for (const scopeKey of getWorkIndexScopeKeys("personal", userId)) {
-      scopeKeys.add(scopeKey)
-    }
-  }
+  addWorkItemProjectRelatedScopeKeys(snapshot, item, scopeKeys)
+  addWorkItemTeamRelatedScopeKeys(snapshot, item, scopeKeys)
+  addTeamMemberPersonalWorkScopeKeys(snapshot, item.teamId, scopeKeys)
 
   return [...scopeKeys]
 }

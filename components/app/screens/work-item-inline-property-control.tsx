@@ -14,7 +14,7 @@ import {
   User,
 } from "@phosphor-icons/react"
 
-import { ProjectTemplateGlyph } from "@/components/app/entity-icons"
+import { ProjectIconGlyph } from "@/components/app/entity-icons"
 import { WorkItemAssigneeAvatar } from "@/components/app/screens/work-item-ui"
 import {
   Popover,
@@ -36,17 +36,21 @@ import {
   getUser,
 } from "@/lib/domain/selectors"
 import {
+  getCustomPropertyIdFromDisplayReference,
   priorityMeta,
   statusMeta,
   type AppData,
+  type CustomPropertyDisplayReference,
   type Priority,
   type WorkItem,
   type WorkStatus,
 } from "@/lib/domain/types"
+import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 
 import { getTeamProjectOptions } from "./helpers"
+import { CustomPropertyValueControl } from "./custom-property-controls"
 import { matchesPropertyQuery } from "./property-chips"
 import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import {
@@ -60,7 +64,12 @@ const OPEN_STATUSES: WorkStatus[] = ["backlog", "todo", "in-progress"]
 const CLOSED_STATUSES: WorkStatus[] = ["done", "cancelled", "duplicate"]
 const PRIORITY_ORDER: Priority[] = ["none", "urgent", "high", "medium", "low"]
 
-type InlineEditableProperty = "status" | "priority" | "assignee" | "project"
+type InlineEditableProperty =
+  | "status"
+  | "priority"
+  | "assignee"
+  | "project"
+  | CustomPropertyDisplayReference
 type InlinePropertyControlVariant = "surface" | "child"
 type StatusOption = ReturnType<typeof buildPropertyStatusOptions>[number]
 
@@ -495,8 +504,8 @@ function InlineProjectPropertyControl({
   const triggerClassName = getTriggerClassName(variant, empty)
   const triggerContents = currentProject ? (
     <>
-      <ProjectTemplateGlyph
-        templateType={currentProject.templateType}
+      <ProjectIconGlyph
+        project={currentProject}
         className="size-3.5 shrink-0 text-fg-3"
       />
       <span className="max-w-[112px] truncate">{currentProject.name}</span>
@@ -567,8 +576,8 @@ function InlineProjectPropertyControl({
               ) : null
             }
           >
-            <ProjectTemplateGlyph
-              templateType={project.templateType}
+            <ProjectIconGlyph
+              project={project}
               className="size-4 shrink-0 text-fg-3"
             />
             <span>{project.name}</span>
@@ -592,6 +601,41 @@ export function InlineWorkItemPropertyControl({
 }) {
   const team = getTeam(data, item.teamId)
   const editable = team ? canEditTeam(data, team.id) : false
+  const customPropertyId = getCustomPropertyIdFromDisplayReference(property)
+
+  if (customPropertyId) {
+    const definition =
+      data.customPropertyDefinitions.find(
+        (entry) =>
+          entry.id === customPropertyId &&
+          isCustomPropertyDefinitionForWorkItem(
+            entry,
+            item,
+            data.currentUserId
+          )
+      ) ?? null
+
+    if (!definition) {
+      return null
+    }
+
+    return (
+      <CustomPropertyValueControl
+        data={data}
+        definition={definition}
+        item={item}
+        value={
+          data.customPropertyValues.find(
+            (entry) =>
+              entry.workItemId === item.id && entry.propertyId === definition.id
+          ) ?? null
+        }
+        editable={editable}
+        variant={variant === "child" ? "chip" : "row"}
+      />
+    )
+  }
+
   const currentAssignee = item.assigneeId
     ? getUser(data, item.assigneeId)
     : null

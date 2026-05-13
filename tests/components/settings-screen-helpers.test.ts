@@ -216,7 +216,7 @@ describe("settings screen helpers", () => {
         summary: "Builds core product surfaces.",
       })
     )
-    expect(userSettingsMocks.router.refresh).toHaveBeenCalled()
+    expect(userSettingsMocks.router.refresh).not.toHaveBeenCalled()
 
     const onSave = vi.fn()
     const { rerender } = render(

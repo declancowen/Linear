@@ -19,6 +19,7 @@ import {
   CheckCircle,
   CodesandboxLogo,
   DotsThree,
+  FileText,
   Gear,
   HashStraight,
   Kanban,
@@ -27,7 +28,6 @@ import {
   PaperPlaneTilt,
   Plus,
   PlusCircle,
-  SignIn,
   SignOut,
   SquaresFour,
   UserCircle,
@@ -76,6 +76,7 @@ import {
 import { blurActiveElement } from "@/lib/browser/focus"
 import { useExpiringRetainedValue } from "@/hooks/use-expiring-retained-value"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
+import { getDisplayAvatarFallback } from "@/lib/display-initials"
 import {
   createShellContextScopeKey,
   createWorkspaceMembershipScopeKey,
@@ -85,7 +86,7 @@ import {
   getNotificationInboxScopeKeys,
 } from "@/lib/scoped-sync/read-models"
 import { type AppStore, useAppStore } from "@/lib/store/app-store"
-import { cn, resolveImageAssetSource } from "@/lib/utils"
+import { cn, isImageAssetSource, resolveImageAssetSource } from "@/lib/utils"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
 import {
@@ -102,6 +103,7 @@ import { InviteDialog } from "@/components/app/shell/invite-dialog"
 import { SidebarLink } from "@/components/app/shell/sidebar-link"
 import { StatusDialog } from "@/components/app/shell/status-dialog"
 import { UserHoverCard, UserStatusDot } from "@/components/app/user-presence"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
@@ -1286,28 +1288,40 @@ function WorkspaceLogoMark({
   workspace: Workspace
   className?: string
 }) {
+  const [failedLogoImageSrc, setFailedLogoImageSrc] = useState<string | null>(
+    null
+  )
   const workspaceLogoImageSrc = resolveImageAssetSource(
     workspace.logoImageUrl,
     workspace.logoUrl
   )
+  const visibleLogoImageSrc =
+    workspaceLogoImageSrc && workspaceLogoImageSrc !== failedLogoImageSrc
+      ? workspaceLogoImageSrc
+      : null
+  const fallbackLogo = isImageAssetSource(workspace.logoUrl)
+    ? workspace.name.charAt(0)
+    : workspace.logoUrl?.trim() || workspace.name.charAt(0)
 
   return (
     <span
       className={cn(
-        "flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-primary text-[10px] leading-none font-bold",
+        "flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-[5px] text-[10px] leading-none font-bold",
+        visibleLogoImageSrc ? "bg-transparent" : "bg-primary",
         className
       )}
       style={{ color: "var(--primary-foreground)" }}
     >
-      {workspaceLogoImageSrc ? (
+      {visibleLogoImageSrc ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           alt={workspace.name}
           className="size-full rounded-[5px] object-cover"
-          src={workspaceLogoImageSrc}
+          src={visibleLogoImageSrc}
+          onError={() => setFailedLogoImageSrc(visibleLogoImageSrc)}
         />
       ) : (
-        workspace.logoUrl
+        fallbackLogo.slice(0, 2).toUpperCase() || "W"
       )}
     </span>
   )
@@ -1523,7 +1537,7 @@ function ShellWorkspaceSection({
             />
             <SidebarLink
               href="/workspace/docs"
-              icon={<NotePencil />}
+              icon={<FileText />}
               label="Docs"
               active={pathname.startsWith("/workspace/docs")}
             />
@@ -1714,7 +1728,7 @@ function TeamSidebarSubLinks({
             isActive={pathname.startsWith(`/team/${team.slug}/docs`)}
           >
             <Link href={`/team/${team.slug}/docs`}>
-              <NotePencil className="size-4" />
+              <FileText className="size-4" />
               <span>Docs</span>
             </Link>
           </SidebarMenuSubButton>
@@ -1911,17 +1925,15 @@ function ShellUserFooter({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <SidebarMenuButton>
-                <div className="relative flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
-                  {avatarImageSrc ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      alt={user.name}
-                      className="size-full rounded-full object-cover"
-                      src={avatarImageSrc}
-                    />
-                  ) : (
-                    user.avatarUrl
-                  )}
+                <div className="relative flex size-6 items-center justify-center">
+                  <Avatar size="sm" className="size-6 overflow-hidden">
+                    {avatarImageSrc ? (
+                      <AvatarImage src={avatarImageSrc} alt={user.name} />
+                    ) : null}
+                    <AvatarFallback className="text-[10px]">
+                      {getDisplayAvatarFallback(user.name, user.avatarUrl, "?")}
+                    </AvatarFallback>
+                  </Avatar>
                   <UserStatusDot
                     status={currentUserStatus}
                     className="absolute -right-0.5 -bottom-0.5 size-2.5 ring-2 ring-background"
@@ -1998,16 +2010,14 @@ function ShellUserFooter({
                     User settings
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <form action="/auth/logout" method="post" className="w-full">
-                    <button
-                      type="submit"
-                      className="flex w-full items-center gap-2"
-                    >
-                      <SignIn />
-                      Sign out
-                    </button>
-                  </form>
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    window.location.assign("/auth/logout")
+                  }}
+                >
+                  <SignOut />
+                  Sign out
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>

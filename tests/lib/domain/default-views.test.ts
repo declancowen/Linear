@@ -131,6 +131,7 @@ describe("buildAssignedWorkViews", () => {
     })
 
     expect(views.map((view) => view.name)).toEqual([
+      "Private tasks",
       "All tasks",
       "Active",
       "Backlog",
@@ -146,11 +147,14 @@ describe("buildAssignedWorkViews", () => {
     })
 
     expect(views.map((view) => view.name)).toEqual([
+      "Private tasks",
       "All work",
       "Active",
       "Backlog",
     ])
-    expect(views.every((view) => view.itemLevel === null)).toBe(true)
+    expect(views[0]?.itemLevel).toBe("task")
+    expect(views[0]?.filters.visibility).toEqual(["private"])
+    expect(views.slice(1).every((view) => view.itemLevel === null)).toBe(true)
     expect(views.every((view) => view.showChildItems === true)).toBe(true)
   })
 })
