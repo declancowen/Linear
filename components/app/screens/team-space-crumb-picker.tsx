@@ -51,6 +51,9 @@ export function TeamSpaceCrumbPicker({
   selectedId,
   onSelect,
   triggerClassName,
+  groupLabel = "Team spaces",
+  searchPlaceholder = "Switch team space…",
+  emptyLabel = "No team spaces",
   placeholder = "Team space",
 }: {
   options: Array<{
@@ -61,6 +64,9 @@ export function TeamSpaceCrumbPicker({
   selectedId: string
   onSelect: (id: string) => void
   triggerClassName: string
+  groupLabel?: string
+  searchPlaceholder?: string
+  emptyLabel?: string
   placeholder?: string
 }) {
   const [open, setOpen] = useState(false)
@@ -108,18 +114,18 @@ export function TeamSpaceCrumbPicker({
       <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
         <PropertyPopoverSearch
           icon={<MagnifyingGlass className="size-[14px]" />}
-          placeholder="Switch team space…"
+          placeholder={searchPlaceholder}
           value={query}
           onChange={setQuery}
         />
         <PropertyPopoverList>
           {filteredOptions.length === 0 ? (
             <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
-              No team spaces
+              {emptyLabel}
             </div>
           ) : (
             <>
-              <PropertyPopoverGroup>Team spaces</PropertyPopoverGroup>
+              <PropertyPopoverGroup>{groupLabel}</PropertyPopoverGroup>
               {filteredOptions.map((option) => {
                 const selected = option.id === selectedId
                 return (

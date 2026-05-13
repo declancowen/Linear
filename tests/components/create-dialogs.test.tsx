@@ -268,6 +268,27 @@ function spyOnCreateWorkItem() {
     .mockReturnValue("item_new")
 }
 
+function renderPrivateTaskCreateDialog() {
+  render(
+    <CreateWorkItemDialog
+      open
+      onOpenChange={vi.fn()}
+      defaultTeamId="team_1"
+      initialType="task"
+      defaultValues={{
+        assigneeId: "user_1",
+        primaryProjectId: null,
+        visibility: "private",
+      }}
+    />
+  )
+}
+
+async function selectCreateDialogDestination(destinationName: string) {
+  fireEvent.click(screen.getByRole("button", { name: /Private tasks/i }))
+  fireEvent.click(await screen.findByText(destinationName))
+}
+
 function renderCreateViewDialog(dialog: CreateViewDialogConfig) {
   render(
     <CreateViewDialog open onOpenChange={vi.fn()} dialog={dialog} />
@@ -443,6 +464,138 @@ describe("create dialogs", () => {
 
     expect(screen.getAllByText("Ops").length).toBeGreaterThan(0)
     expect(screen.getByPlaceholderText("Epic title")).toBeInTheDocument()
+  })
+
+  it("defaults private task creates to the private tasks destination", async () => {
+    const createWorkItemSpy = spyOnCreateWorkItem()
+
+    try {
+      renderPrivateTaskCreateDialog()
+
+      expect(screen.getAllByText("Private tasks").length).toBeGreaterThan(0)
+      expect(screen.getByText(/Adding to/)).toHaveTextContent("Private tasks")
+
+      fireEvent.change(screen.getByPlaceholderText("Task title"), {
+        target: { value: "Private follow-up" },
+      })
+
+      fireEvent.click(screen.getByRole("button", { name: /Create task/i }))
+
+      await waitFor(() =>
+        expect(createWorkItemSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            assigneeId: "user_1",
+            primaryProjectId: null,
+            teamId: "team_1",
+            type: "task",
+            visibility: "private",
+          })
+        )
+      )
+    } finally {
+      createWorkItemSpy.mockRestore()
+    }
+  })
+
+  it("switches a private task create back to a team-space destination", async () => {
+    const createWorkItemSpy = spyOnCreateWorkItem()
+
+    try {
+      renderPrivateTaskCreateDialog()
+
+      await selectCreateDialogDestination("Ops")
+
+      expect(screen.getByText(/Adding to/)).toHaveTextContent("Ops")
+
+      fireEvent.change(screen.getByPlaceholderText(/title/i), {
+        target: { value: "Team follow-up" },
+      })
+
+      fireEvent.click(screen.getByRole("button", { name: /Create /i }))
+
+      await waitFor(() =>
+        expect(createWorkItemSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            teamId: "team_2",
+            visibility: "team",
+          })
+        )
+      )
+    } finally {
+      createWorkItemSpy.mockRestore()
+    }
+  })
+
+  it("restores team project inheritance after switching a private create to a team destination", async () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      teams: state.teams.map((team) =>
+        team.id === "team_2"
+          ? createTestTeam({
+              id: "team_2",
+              slug: "ops",
+              name: "Ops",
+              icon: "box",
+              settings: {
+                joinCode: "JOIN5678",
+                summary: "",
+                experience: "project-management",
+              },
+            })
+          : team
+      ),
+      projects: [
+        createTestProject({
+          id: "project_ops",
+          scopeType: "team",
+          scopeId: "team_2",
+          templateType: "project-management",
+          name: "Ops roadmap",
+        }),
+      ],
+      workItems: [
+        createTestWorkItem("task_parent", {
+          key: "OPS-1",
+          teamId: "team_2",
+          type: "task",
+          title: "Parent task",
+          primaryProjectId: "project_ops",
+          linkedProjectIds: ["project_ops"],
+        }),
+      ],
+    }))
+
+    const createWorkItemSpy = spyOnCreateWorkItem()
+
+    try {
+      renderPrivateTaskCreateDialog()
+
+      await selectCreateDialogDestination("Ops")
+      fireEvent.click(screen.getByRole("button", { name: /^Task$/ }))
+      fireEvent.click(await screen.findByText("Sub-task"))
+      fireEvent.click(screen.getByRole("button", { name: "Parent" }))
+      fireEvent.click(await screen.findByText("OPS-1"))
+
+      fireEvent.change(screen.getByPlaceholderText("Sub-task title"), {
+        target: { value: "Inherited project child" },
+      })
+
+      fireEvent.click(screen.getByRole("button", { name: /Create sub-task/i }))
+
+      await waitFor(() =>
+        expect(createWorkItemSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            parentId: "task_parent",
+            primaryProjectId: "project_ops",
+            teamId: "team_2",
+            type: "sub-task",
+            visibility: "team",
+          })
+        )
+      )
+    } finally {
+      createWorkItemSpy.mockRestore()
+    }
   })
 
   it("forwards dueDate default values when creating a work item", async () => {

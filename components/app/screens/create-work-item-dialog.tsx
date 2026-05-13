@@ -100,10 +100,10 @@ import { useWorkItemCorePickerState } from "./work-item-picker-state"
 type TextLimitState = ReturnType<typeof getTextInputLimitState>
 
 function CreateWorkItemCrumbRow({
-  filteredTeams,
-  selectedTeamId,
+  destinationOptions,
+  selectedDestinationId,
   team,
-  onSelectTeam,
+  onSelectDestination,
   typePickerOpen,
   onTypePickerOpenChange,
   availableItemTypes,
@@ -112,10 +112,14 @@ function CreateWorkItemCrumbRow({
   onSelectType,
   secondaryContextLabel,
 }: {
-  filteredTeams: Team[]
-  selectedTeamId: string
+  destinationOptions: Array<{
+    id: string
+    label: string
+    teamId?: string | null
+  }>
+  selectedDestinationId: string
   team: Team | null
-  onSelectTeam: (teamId: string) => void
+  onSelectDestination: (destinationId: string) => void
   typePickerOpen: boolean
   onTypePickerOpenChange: (open: boolean) => void
   availableItemTypes: WorkItemType[]
@@ -127,13 +131,12 @@ function CreateWorkItemCrumbRow({
   return (
     <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
       <TeamSpaceCrumbPicker
-        options={filteredTeams.map((teamOption) => ({
-          id: teamOption.id,
-          label: teamOption.name,
-          teamId: teamOption.id,
-        }))}
-        selectedId={selectedTeamId}
-        onSelect={onSelectTeam}
+        options={destinationOptions}
+        selectedId={selectedDestinationId}
+        onSelect={onSelectDestination}
+        groupLabel="Destinations"
+        searchPlaceholder="Switch destination…"
+        emptyLabel="No destinations"
         triggerClassName={crumbTriggerClass}
       />
 
@@ -922,6 +925,7 @@ function CreateWorkItemWarnings({
 }
 
 function CreateWorkItemFooter({
+  destinationLabel,
   selectedProject,
   team,
   canCreate,
@@ -930,6 +934,7 @@ function CreateWorkItemFooter({
   onCancel,
   onCreate,
 }: {
+  destinationLabel?: string | null
   selectedProject: Project | null
   team: Team | null
   canCreate: boolean
@@ -943,7 +948,14 @@ function CreateWorkItemFooter({
       <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-3">
         <FolderSimple className="size-[13px] shrink-0" />
         <span className="truncate">
-          {selectedProject ? (
+          {destinationLabel ? (
+            <>
+              Adding to{" "}
+              <b className="font-medium text-foreground">
+                {destinationLabel}
+              </b>
+            </>
+          ) : selectedProject ? (
             <>
               Adding to{" "}
               <b className="font-medium text-foreground">
@@ -1015,7 +1027,9 @@ type InitialCreateWorkItemState = {
 }
 
 type WorkSurfaceCopy = ReturnType<typeof getWorkSurfaceCopy>
+type CreateWorkItemDestination = "private" | "team"
 
+const PRIVATE_TASK_DESTINATION_ID = "private-tasks"
 const PRIVATE_TASK_ITEM_TYPES: WorkItemType[] = ["task", "sub-task"]
 
 function hasItems(items: readonly unknown[]) {
@@ -1036,6 +1050,24 @@ function getHasExplicitProjectDefault(
     defaultValues?.primaryProjectId !== undefined ||
     defaultProjectId !== undefined
   )
+}
+
+function getHasExplicitProjectDefaultForDestination({
+  defaultValues,
+  defaultProjectId,
+  privateLaunchMode,
+  privateTaskMode,
+}: {
+  defaultValues: CreateWorkItemDefaultValues | undefined
+  defaultProjectId: string | null | undefined
+  privateLaunchMode: boolean
+  privateTaskMode: boolean
+}) {
+  if (privateLaunchMode && !privateTaskMode) {
+    return defaultProjectId !== undefined
+  }
+
+  return getHasExplicitProjectDefault(defaultValues, defaultProjectId)
 }
 
 function getInitialDates(
@@ -1083,6 +1115,27 @@ function getInitialTeamId(
   }
 
   return filteredTeams[0]?.id ?? ""
+}
+
+function getInitialDestination(
+  defaultValues: CreateWorkItemDefaultValues | undefined
+): CreateWorkItemDestination {
+  return defaultValues?.visibility === "private" ? "private" : "team"
+}
+
+function getDestinationOptions(teams: Team[]) {
+  return [
+    {
+      id: PRIVATE_TASK_DESTINATION_ID,
+      label: "Private tasks",
+      teamId: null,
+    },
+    ...teams.map((teamOption) => ({
+      id: teamOption.id,
+      label: teamOption.name,
+      teamId: teamOption.id,
+    })),
+  ]
 }
 
 function getProjectsForTeamCreateScope(projects: Project[], team: Team | null) {
@@ -1573,6 +1626,37 @@ function applyTeamSelection({
   setCreatingLabel(false)
 }
 
+function applyPrivateDestination({
+  currentUserId,
+  setDestination,
+  setType,
+  setAssigneeId,
+  setProjectId,
+  setSelectedParentId,
+  setSelectedLabelIds,
+  setNewLabelName,
+  setCreatingLabel,
+}: {
+  currentUserId: string
+  setDestination: Dispatch<SetStateAction<CreateWorkItemDestination>>
+  setType: Dispatch<SetStateAction<WorkItemType>>
+  setAssigneeId: Dispatch<SetStateAction<string>>
+  setProjectId: Dispatch<SetStateAction<string>>
+  setSelectedParentId: Dispatch<SetStateAction<string>>
+  setSelectedLabelIds: Dispatch<SetStateAction<string[]>>
+  setNewLabelName: Dispatch<SetStateAction<string>>
+  setCreatingLabel: Dispatch<SetStateAction<boolean>>
+}) {
+  setDestination("private")
+  setType("task")
+  setAssigneeId(currentUserId)
+  setProjectId("none")
+  setSelectedParentId("none")
+  setSelectedLabelIds([])
+  setNewLabelName("")
+  setCreatingLabel(false)
+}
+
 function applySelectedType({
   nextType,
   selectedParentItem,
@@ -1750,14 +1834,18 @@ export function CreateWorkItemDialog({
       workItems: state.workItems,
     }))
   )
-  const privateTaskMode = defaultValues?.visibility === "private"
-  const visibility = defaultValues?.visibility ?? "team"
+  const [destination, setDestination] = useState<CreateWorkItemDestination>(() =>
+    getInitialDestination(defaultValues)
+  )
+  const privateLaunchMode = defaultValues?.visibility === "private"
+  const privateTaskMode = destination === "private"
+  const visibility: WorkItemVisibility = privateTaskMode ? "private" : "team"
   const filteredTeams = useMemo(
     () =>
-      privateTaskMode
+      privateTaskMode || privateLaunchMode
         ? availableTeams
         : getFilteredTeamsForInitialType(availableTeams, initialType),
-    [availableTeams, initialType, privateTaskMode]
+    [availableTeams, initialType, privateLaunchMode, privateTaskMode]
   )
   const initialState = useMemo(
     () =>
@@ -1782,13 +1870,22 @@ export function CreateWorkItemDialog({
       teamMemberships,
     ]
   )
-  const hasExplicitProjectDefault = getHasExplicitProjectDefault(
+  const hasExplicitProjectDefault = getHasExplicitProjectDefaultForDestination({
     defaultValues,
-    defaultProjectId
-  )
+    defaultProjectId,
+    privateLaunchMode,
+    privateTaskMode,
+  })
   const initialDates = getInitialDates(defaultValues)
   const defaultPriority = getDefaultPriority(defaultValues)
   const [selectedTeamId, setSelectedTeamId] = useState(initialState.teamId)
+  const selectedDestinationId = privateTaskMode
+    ? PRIVATE_TASK_DESTINATION_ID
+    : selectedTeamId
+  const destinationOptions = useMemo(
+    () => getDestinationOptions(filteredTeams),
+    [filteredTeams]
+  )
   const {
     assigneePickerOpen,
     assigneeQuery,
@@ -1888,10 +1985,9 @@ export function CreateWorkItemDialog({
     team,
     workCopy,
   })
-  const secondaryContextLabel = getSecondaryContextLabel(
-    selectedParentItem,
-    selectedProject
-  )
+  const secondaryContextLabel = privateTaskMode
+    ? getSecondaryContextLabel(selectedParentItem, null)
+    : getSecondaryContextLabel(selectedParentItem, selectedProject)
   const titlePlaceholder = getTitlePlaceholder({
     selectedType,
     selectedTypeLabel,
@@ -1962,9 +2058,25 @@ export function CreateWorkItemDialog({
     })
   }
 
-  function handleSelectTeam(nextTeamId: string) {
+  function handleSelectDestination(destinationId: string) {
+    if (destinationId === PRIVATE_TASK_DESTINATION_ID) {
+      applyPrivateDestination({
+        currentUserId,
+        setDestination,
+        setType,
+        setAssigneeId,
+        setProjectId,
+        setSelectedParentId,
+        setSelectedLabelIds,
+        setNewLabelName,
+        setCreatingLabel,
+      })
+      return
+    }
+
+    setDestination("team")
     applyTeamSelection({
-      nextTeamId,
+      nextTeamId: destinationId,
       filteredTeams,
       projects,
       initialType,
@@ -2047,10 +2159,10 @@ export function CreateWorkItemDialog({
         </DialogHeader>
 
         <CreateWorkItemCrumbRow
-          filteredTeams={filteredTeams}
-          selectedTeamId={selectedTeamId}
+          destinationOptions={destinationOptions}
+          selectedDestinationId={selectedDestinationId}
           team={team}
-          onSelectTeam={handleSelectTeam}
+          onSelectDestination={handleSelectDestination}
           typePickerOpen={typePickerOpen}
           onTypePickerOpenChange={setTypePickerOpen}
           availableItemTypes={availableItemTypes}
@@ -2135,6 +2247,7 @@ export function CreateWorkItemDialog({
         />
 
         <CreateWorkItemFooter
+          destinationLabel={privateTaskMode ? "Private tasks" : null}
           selectedProject={selectedProject}
           team={team}
           canCreate={canCreate}
