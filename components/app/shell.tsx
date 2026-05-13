@@ -76,7 +76,7 @@ import {
 import { blurActiveElement } from "@/lib/browser/focus"
 import { useExpiringRetainedValue } from "@/hooks/use-expiring-retained-value"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
-import { getDisplayInitials } from "@/lib/display-initials"
+import { getDisplayAvatarFallback } from "@/lib/display-initials"
 import {
   createShellContextScopeKey,
   createWorkspaceMembershipScopeKey,
@@ -1931,7 +1931,7 @@ function ShellUserFooter({
                       <AvatarImage src={avatarImageSrc} alt={user.name} />
                     ) : null}
                     <AvatarFallback className="text-[10px]">
-                      {user.avatarUrl || getDisplayInitials(user.name, "?")}
+                      {getDisplayAvatarFallback(user.name, user.avatarUrl, "?")}
                     </AvatarFallback>
                   </Avatar>
                   <UserStatusDot

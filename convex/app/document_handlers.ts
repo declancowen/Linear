@@ -14,13 +14,16 @@ import { assertServerToken, getNow } from "./core"
 import {
   getDocumentDoc,
   getUserDoc,
+  getWorkItemByDescriptionDocId,
   getWorkItemDoc,
   listActiveUsersByIds,
 } from "./data"
 import { resolveAttachmentTarget } from "./assets"
 import {
+  getWorkItemAudienceUserIds,
   requireEditableDocumentAccess,
   requireEditableTeamAccess,
+  requireEditableWorkItemAccess,
   requireReadableDocumentAccess,
   requireEditableWorkspaceAccess,
   requireWorkspaceAdminAccess,
@@ -509,7 +512,7 @@ async function requireEditableItemDescriptionDocument(
     throw new Error("Work item not found")
   }
 
-  await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
+  await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
 
   const descriptionDocument = await getDocumentDoc(ctx, item.descriptionDocId)
 
@@ -678,7 +681,19 @@ async function getDocumentMentionAudienceUserIds(
   document: DocumentDoc
 ) {
   if (document.teamId) {
-    return new Set(await getTeamMemberIds(ctx, document.teamId))
+    const teamMemberIds = await getTeamMemberIds(ctx, document.teamId)
+
+    if (document.kind === "item-description") {
+      const item = await getWorkItemByDescriptionDocId(ctx, document.id)
+
+      if (!item) {
+        throw new Error("Work item not found")
+      }
+
+      return new Set(getWorkItemAudienceUserIds(item, teamMemberIds))
+    }
+
+    return new Set(teamMemberIds)
   }
 
   if (document.workspaceId) {
@@ -807,7 +822,9 @@ export async function sendItemDescriptionMentionNotificationsHandler(
   const { item, descriptionDocument } =
     await requireEditableItemDescriptionDocument(ctx, args)
 
-  const audienceUserIds = new Set(await getTeamMemberIds(ctx, item.teamId))
+  const audienceUserIds = new Set(
+    getWorkItemAudienceUserIds(item, await getTeamMemberIds(ctx, item.teamId))
+  )
   const mentionTracking = getMentionTrackingState(
     descriptionDocument.content,
     descriptionDocument.notifiedMentionCounts
@@ -1011,12 +1028,12 @@ export async function generateAttachmentUploadUrlHandler(
   args: GenerateAttachmentUploadUrlArgs
 ) {
   assertServerToken(args.serverToken)
-  const target = await resolveAttachmentTarget(
+  await resolveAttachmentTarget(
     ctx,
     args.targetType,
     args.targetId
   )
-  await requireEditableTeamAccess(ctx, target.teamId, args.currentUserId)
+  await requireEditableAttachmentTargetAccess(ctx, args)
 
   return {
     uploadUrl: await ctx.storage.generateUploadUrl(),
@@ -1085,6 +1102,33 @@ function createAttachmentRecord(
   }
 }
 
+async function requireEditableAttachmentTargetAccess(
+  ctx: MutationCtx,
+  args: Pick<
+    CreateAttachmentArgs,
+    "currentUserId" | "targetId" | "targetType"
+  >
+) {
+  if (args.targetType === "workItem") {
+    const item = await getWorkItemDoc(ctx, args.targetId)
+
+    if (!item) {
+      throw new Error("Work item not found")
+    }
+
+    await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
+    return
+  }
+
+  const document = await getDocumentDoc(ctx, args.targetId)
+
+  if (!document) {
+    throw new Error("Document not found")
+  }
+
+  await requireEditableDocumentAccess(ctx, document, args.currentUserId)
+}
+
 export async function createAttachmentHandler(
   ctx: MutationCtx,
   args: CreateAttachmentArgs
@@ -1095,7 +1139,7 @@ export async function createAttachmentHandler(
     args.targetType,
     args.targetId
   )
-  await requireEditableTeamAccess(ctx, target.teamId, args.currentUserId)
+  await requireEditableAttachmentTargetAccess(ctx, args)
 
   const metadata = await loadAttachmentUploadMetadata(ctx, args)
   const attachment = createAttachmentRecord(args, target, metadata)
@@ -1121,15 +1165,19 @@ export async function deleteAttachmentHandler(
     throw new Error("Attachment not found")
   }
 
-  await requireEditableTeamAccess(ctx, attachment.teamId, args.currentUserId)
-  await ctx.storage.delete(attachment.storageId)
-  await ctx.db.delete(attachment._id)
-
   const target = await resolveAttachmentTarget(
     ctx,
     attachment.targetType,
     attachment.targetId
   )
+
+  await requireEditableAttachmentTargetAccess(ctx, {
+    currentUserId: args.currentUserId,
+    targetId: attachment.targetId,
+    targetType: attachment.targetType,
+  })
+  await ctx.storage.delete(attachment.storageId)
+  await ctx.db.delete(attachment._id)
 
   await touchAttachmentTarget(ctx, target, args.currentUserId)
 

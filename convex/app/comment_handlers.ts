@@ -18,13 +18,16 @@ import { assertServerToken, createId, getNow } from "./core"
 import {
   getCommentDoc,
   getDocumentDoc,
+  getWorkItemByDescriptionDocId,
   getWorkItemDoc,
   listCommentsByTarget,
 } from "./data"
 import {
-  requireEditableTeamAccess,
+  requireEditableDocumentAccess,
+  requireEditableWorkItemAccess,
   requireReadableDocumentAccess,
-  requireReadableTeamAccess,
+  requireReadableWorkItemAccess,
+  getWorkItemAudienceUserIds,
 } from "./access"
 import { getTeamMemberIds } from "./conversations"
 import { queueEmailJobs } from "./email_job_handlers"
@@ -54,6 +57,7 @@ type AddCommentTargetContext = {
   entityType: CommentEntityType
   followerIds: string[]
   teamId: string
+  audienceUserIds: string[]
 }
 export function assertParentCommentTarget(
   parentComment: Awaited<ReturnType<typeof getCommentDoc>> | null,
@@ -86,6 +90,9 @@ async function resolveWorkItemCommentTarget(
     throw new Error("Work item not found")
   }
 
+  await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
+  const teamMemberIds = await getTeamMemberIds(ctx, item.teamId)
+
   await ctx.db.patch(item._id, {
     updatedAt: getNow(),
   })
@@ -102,6 +109,7 @@ async function resolveWorkItemCommentTarget(
     }),
     entityType: "workItem",
     entityTitle: item.title,
+    audienceUserIds: getWorkItemAudienceUserIds(item, teamMemberIds),
   }
 }
 
@@ -120,6 +128,9 @@ async function resolveDocumentCommentTarget(
     throw new Error("Comments are only available on team documents")
   }
 
+  await requireEditableDocumentAccess(ctx, document, args.currentUserId)
+  const teamMemberIds = await getTeamMemberIds(ctx, document.teamId)
+
   await ctx.db.patch(document._id, {
     updatedAt: getNow(),
     updatedBy: args.currentUserId,
@@ -136,7 +147,27 @@ async function resolveDocumentCommentTarget(
     }),
     entityType: "document",
     entityTitle: document.title,
+    audienceUserIds:
+      document.kind === "item-description"
+        ? getWorkItemAudienceUserIds(
+            await requireWorkItemForDescriptionDocument(ctx, document.id),
+            teamMemberIds
+          )
+        : teamMemberIds,
   }
+}
+
+async function requireWorkItemForDescriptionDocument(
+  ctx: MutationCtx,
+  documentId: string
+) {
+  const item = await getWorkItemByDescriptionDocId(ctx, documentId)
+
+  if (!item) {
+    throw new Error("Work item not found")
+  }
+
+  return item
 }
 
 function insertComment(
@@ -292,11 +323,9 @@ export async function addCommentHandler(
       ? await resolveWorkItemCommentTarget(ctx, args, existingComments)
       : await resolveDocumentCommentTarget(ctx, args, existingComments)
 
-  await requireEditableTeamAccess(ctx, targetContext.teamId, args.currentUserId)
-
   const audience = await getMentionAudienceContext(ctx, {
     actorUserId: args.currentUserId,
-    audienceUserIds: await getTeamMemberIds(ctx, targetContext.teamId),
+    audienceUserIds: targetContext.audienceUserIds,
   })
   const mentionUserIds = createMentionIds(
     args.content,
@@ -358,7 +387,7 @@ export async function toggleCommentReactionHandler(
       throw new Error("Work item not found")
     }
 
-    await requireReadableTeamAccess(ctx, item.teamId, args.currentUserId)
+    await requireReadableWorkItemAccess(ctx, item, args.currentUserId)
   } else {
     await requireReadableDocumentAccess(
       ctx,

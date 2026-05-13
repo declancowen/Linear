@@ -28,11 +28,55 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-13 12:50 BST |
-| **Total turns**       | 11                   |
+| **Last reviewed**     | 2026-05-13 13:16 BST |
+| **Total turns**       | 12                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 29                   |
+| **Resolved findings** | 31                   |
 | **Accepted findings** | 0                    |
+
+## Turn 12 — 2026-05-13 13:16 BST
+
+| Field           | Value                              |
+| --------------- | ---------------------------------- |
+| **Scope**       | GitHub Codex review follow-up for private work item collaboration routes |
+| **Review type** | Targeted diff-review + architecture authorization boundary check |
+| **Reviewer**    | Codex CLI                          |
+| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings |
+
+### Commands run
+
+- `gh pr view 34 --json headRefOid,latestReviews,reviewDecision,url` — confirmed latest Codex review was on current pushed head `6bad035f`
+- `gh api graphql ... reviewThreads` — found one new current-head P1 inline thread for private work item collaboration route access
+- `pnpm test tests/convex/access.test.ts tests/convex/document-handlers.test.ts tests/convex/comment-handlers.test.ts tests/lib/display-initials.test.ts tests/convex/work-item-handlers.test.ts tests/convex/custom-property-handlers.test.ts tests/convex/view-handlers.test.ts` — passed, 7 files / 45 tests
+- `pnpm typecheck` — passed
+- `pnpm exec eslint convex/app/access.ts convex/app/comment_handlers.ts convex/app/document_handlers.ts tests/convex/access.test.ts tests/convex/comment-handlers.test.ts tests/convex/document-handlers.test.ts lib/display-initials.ts tests/lib/display-initials.test.ts components/app/shell.tsx --max-warnings 0` — passed
+- `pnpm build` — passed
+- `git diff --check` — passed
+- `pnpm exec convex dev --once` — passed, Convex functions ready
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; changed-file audit passed with dead code `0`, complexity `0`, clone groups `0`
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; production analyzer signals clean, no new branch-specific architecture blocker
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** item document access, comment add/reaction handlers, attachment upload/create/delete handlers, item-description mention delivery, and private work item access helpers.
+- **Prior open findings rechecked:** The latest top-level Codex review body had no summary bug text, but one current-head inline P1 thread remained live. That thread is fixed locally in this turn.
+- **Prior resolved/adjacent areas revalidated:** Existing private work item mutation tests still pass, and the avatar fallback follow-up remains covered.
+- **Hotspots or sibling paths revisited:** Work item comments, comment reactions, item-description documents, attachment upload URL issuance, attachment creation/deletion, and mention notification audiences.
+- **Dependency/adjacent surfaces revalidated:** `requireReadableDocumentAccess` and `requireEditableDocumentAccess` now route item-description documents through the parent work item access rule, so direct document routes cannot bypass private item scope.
+- **Why this is enough:** Private work item collaboration writes and reactions now authorize against the same creator/assignee predicate as the item itself before any db or storage mutation, and mention audiences for private item descriptions are reduced to the private item audience.
+
+### Challenger pass
+
+- done — Rechecked whether document/team access alone was enough for item-description documents and attachments. It was not, because retained document, comment, or attachment ids could bypass the private item read model.
+
+### Resolved / Carried / New findings
+
+#### WPDV-31 — resolved — private item collaboration routes were still authorized by team/document access only
+
+- **Severity:** high
+- **Evidence:** current-head Codex review thread `PRRT_kwDOR_9-1s6BvXSI` flagged comments, item-description updates/mentions, attachment create/delete, and item-description document access as bypassing the private item creator/assignee rule.
+- **Fix:** Routed item-description document access through `getWorkItemByDescriptionDocId` plus `requireReadableWorkItemAccess`/`requireEditableWorkItemAccess`; updated comments, comment reactions, item-description mentions, attachment upload URL creation, attachment creation, and attachment deletion to enforce item-level private access before writes.
+- **Prevention:** Added focused Convex tests for item-description document access, comment/reaction rejection, private mention audience filtering, item-description update rejection, and attachment upload/create/delete rejection before storage/db mutation.
 
 ## Turn 11 — 2026-05-13 12:50 BST
 
@@ -55,12 +99,16 @@
 - `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; changed-file audit passed with dead code `0`, complexity `0`, clone groups `0`
 - `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; production analyzer signals clean, no new branch-specific architecture blocker
 - `pnpm exec convex dev --once` — passed, Convex functions ready
+- `pnpm test tests/lib/display-initials.test.ts tests/convex/access.test.ts tests/convex/work-item-handlers.test.ts tests/convex/custom-property-handlers.test.ts tests/convex/view-handlers.test.ts` — passed after avatar fallback follow-up
+- `pnpm exec eslint lib/display-initials.ts tests/lib/display-initials.test.ts components/app/shell.tsx convex/app/access.ts convex/app/work_item_handlers.ts convex/app/custom_property_handlers.ts tests/convex/access.test.ts tests/convex/work-item-handlers.test.ts tests/convex/custom-property-handlers.test.ts --max-warnings 0` — passed after avatar fallback follow-up
+- `pnpm typecheck` — passed after avatar fallback follow-up
+- `pnpm build` — passed after avatar fallback follow-up
 
 ### Branch-totality proof
 
 - **Non-delta files/systems re-read:** `auth_bootstrap` private visibility filter, `work_item_handlers` mutation authorization, `custom_property_handlers` value mutation path, and access helpers.
 - **Prior open findings rechecked:** The latest visible Codex review was stale by reviewed commit, but its review threads still mapped onto current lines. Previously documented threads remain code-fixed; the private mutation thread was a true remaining issue.
-- **Prior resolved/adjacent areas revalidated:** Personal-view team property validation tests still pass after the access change.
+- **Prior resolved/adjacent areas revalidated:** Personal-view team property validation tests still pass after the access change. The shell avatar fallback thread was also rechecked and fixed because the footer still displayed raw image URLs as fallback text.
 - **Hotspots or sibling paths revisited:** Work item update, collaboration persistence, presence, delete, timeline shift, and custom property value mutations now share the same item-level access helper.
 - **Dependency/adjacent surfaces revalidated:** The authoritative read rule from `auth_bootstrap` is now mirrored at the Convex mutation boundary.
 - **Why this is enough:** Private work items are hidden from non-creator/non-assignee users in snapshots, and the same predicate now protects all touched item mutation surfaces.
@@ -77,6 +125,13 @@
 - **Evidence:** `auth_bootstrap` filters private work items to creator/assignee, but `updateWorkItemHandler`, delete, collaboration persistence, presence, schedule shift, and custom-property value writes authorized with team edit access only.
 - **Fix:** Added `requireEditableWorkItemAccess`/`requireReadableWorkItemAccess` helpers that enforce team access plus creator/assignee access for private items, then routed item mutation handlers through the editable helper.
 - **Prevention:** Added access and handler tests for private item creator/assignee access and rejection before writes.
+
+#### WPDV-30 — resolved — shell footer avatar fallback could display raw legacy image URLs
+
+- **Severity:** medium
+- **Evidence:** `ShellUserFooter` rendered `user.avatarUrl || initials` inside `AvatarFallback`, while `avatarUrl` may be a legacy image URL.
+- **Fix:** Added `getDisplayAvatarFallback` so image-like fallback values fall back to initials, while text/initial fallback values still render.
+- **Prevention:** Added `tests/lib/display-initials.test.ts` coverage for legacy image URL fallback handling.
 
 ## Turn 10 — 2026-05-13 12:26 BST
 

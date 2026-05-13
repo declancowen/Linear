@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const getWorkspaceMembershipDocMock = vi.fn()
 const getWorkspaceRoleMapForUserMock = vi.fn()
+const getWorkItemByDescriptionDocIdMock = vi.fn()
 const getEffectiveRoleMock = vi.fn()
 const isWorkspaceOwnerMock = vi.fn()
 
@@ -9,6 +10,7 @@ vi.mock("@/convex/app/data", () => ({
   getDocumentDoc: vi.fn(),
   getEffectiveRole: getEffectiveRoleMock,
   getTeamDoc: vi.fn(),
+  getWorkItemByDescriptionDocId: getWorkItemByDescriptionDocIdMock,
   getWorkspaceMembershipDoc: getWorkspaceMembershipDocMock,
   getWorkspaceEditRole: vi.fn(),
   getWorkspaceRoleMapForUser: getWorkspaceRoleMapForUserMock,
@@ -19,6 +21,7 @@ describe("workspace access helpers", () => {
   beforeEach(() => {
     getWorkspaceMembershipDocMock.mockReset()
     getWorkspaceRoleMapForUserMock.mockReset()
+    getWorkItemByDescriptionDocIdMock.mockReset()
     getEffectiveRoleMock.mockReset()
     isWorkspaceOwnerMock.mockReset()
 
@@ -104,5 +107,38 @@ describe("workspace access helpers", () => {
         "user_2"
       )
     ).rejects.toThrow("Work item not found")
+  })
+
+  it("routes item-description document edits through private work item access", async () => {
+    const { requireEditableDocumentAccess } = await import(
+      "@/convex/app/access"
+    )
+    const document = {
+      id: "doc_1",
+      kind: "item-description",
+      teamId: "team_1",
+      workspaceId: "workspace_1",
+    }
+
+    getWorkItemByDescriptionDocIdMock.mockResolvedValue({
+      id: "item_1",
+      teamId: "team_1",
+      visibility: "private",
+      creatorId: "user_1",
+      assigneeId: null,
+    })
+
+    await expect(
+      requireEditableDocumentAccess({} as never, document as never, "user_2")
+    ).rejects.toThrow("Work item not found")
+
+    await expect(
+      requireEditableDocumentAccess({} as never, document as never, "user_1")
+    ).resolves.toBeUndefined()
+
+    expect(getWorkItemByDescriptionDocIdMock).toHaveBeenCalledWith(
+      {},
+      "doc_1"
+    )
   })
 })
