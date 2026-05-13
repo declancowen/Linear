@@ -28,6 +28,7 @@ import {
 import { useShallow } from "zustand/react/shallow"
 
 import { getLabelsForTeamScope } from "@/lib/domain/selectors"
+import { isLabelAssignableToWorkItem } from "@/lib/domain/labels"
 import {
   getTextInputLimitState,
   labelNameConstraints,
@@ -889,7 +890,13 @@ export function useWorkItemLabelEditorState({
     newLabelName,
     labelNameConstraints
   )
-  const selectedLabels = labels.filter((label) =>
+  const currentUserId = useAppStore.getState().currentUserId
+  const availableLabels = labels.filter((label) =>
+    workspaceId
+      ? isLabelAssignableToWorkItem(label, item, workspaceId, currentUserId)
+      : false
+  )
+  const selectedLabels = availableLabels.filter((label) =>
     item.labelIds.includes(label.id)
   )
 
@@ -918,7 +925,10 @@ export function useWorkItemLabelEditorState({
 
     const created = await useAppStore
       .getState()
-      .createLabel(newLabelName, workspaceId ?? null)
+      .createLabel(newLabelName, workspaceId ?? null, {
+        scopeType:
+          (item.visibility ?? "team") === "private" ? "private" : "workspace",
+      })
 
     if (!created) {
       return
@@ -940,6 +950,7 @@ export function useWorkItemLabelEditorState({
   }
 
   return {
+    availableLabels,
     handleCreateLabel,
     labelNameLimitState,
     newLabelName,
@@ -984,7 +995,7 @@ export function WorkItemLabelsEditor({
     (state) =>
       state.teams.find((team) => team.id === item.teamId)?.workspaceId ?? null
   )
-  const availableLabels = useAppStore(
+  const labelPool = useAppStore(
     useShallow((state) =>
       [...getLabelsForTeamScope(state, item.teamId)].sort((left, right) =>
         left.name.localeCompare(right.name)
@@ -992,6 +1003,7 @@ export function WorkItemLabelsEditor({
     )
   )
   const {
+    availableLabels,
     handleCreateLabel,
     labelNameLimitState: newLabelNameLimitState,
     newLabelName,
@@ -1000,7 +1012,7 @@ export function WorkItemLabelsEditor({
     toggleLabel,
   } = useWorkItemLabelEditorState({
     item,
-    labels: availableLabels,
+    labels: labelPool,
     workspaceId: itemWorkspaceId,
   })
 

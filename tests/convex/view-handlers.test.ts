@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
 const requireEditableWorkspaceAccessMock = vi.fn()
+const getCustomPropertyDefinitionDocMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const normalizeTeamMock = vi.fn()
 const assertWorkspaceLabelIdsMock = vi.fn()
@@ -21,6 +22,7 @@ vi.mock("@/convex/app/access", () => ({
 }))
 
 vi.mock("@/convex/app/data", () => ({
+  getCustomPropertyDefinitionDoc: getCustomPropertyDefinitionDocMock,
   getTeamDoc: getTeamDocMock,
 }))
 
@@ -50,6 +52,7 @@ describe("view handlers", () => {
     assertServerTokenMock.mockReset()
     requireEditableTeamAccessMock.mockReset()
     requireEditableWorkspaceAccessMock.mockReset()
+    getCustomPropertyDefinitionDocMock.mockReset()
     getTeamDocMock.mockReset()
     normalizeTeamMock.mockReset()
     assertWorkspaceLabelIdsMock.mockReset()
@@ -98,9 +101,8 @@ describe("view handlers", () => {
   })
 
   it("toggles view filter values while preserving other filters", async () => {
-    const { toggleViewFilterValueHandler } = await import(
-      "@/convex/app/view_handlers"
-    )
+    const { toggleViewFilterValueHandler } =
+      await import("@/convex/app/view_handlers")
     const ctx = createCtx()
 
     requireViewMutationAccessMock.mockResolvedValue({
@@ -112,20 +114,26 @@ describe("view handlers", () => {
     })
     resolveViewWorkspaceIdMock.mockResolvedValue("workspace_1")
 
-    await toggleViewFilterValueHandler(ctx as never, {
-      serverToken: "server_token",
-      currentUserId: "user_1",
-      viewId: "view_1",
-      key: "labelIds",
-      value: "label_2",
-    } as never)
-    await toggleViewFilterValueHandler(ctx as never, {
-      serverToken: "server_token",
-      currentUserId: "user_1",
-      viewId: "view_1",
-      key: "labelIds",
-      value: "label_3",
-    } as never)
+    await toggleViewFilterValueHandler(
+      ctx as never,
+      {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        viewId: "view_1",
+        key: "labelIds",
+        value: "label_2",
+      } as never
+    )
+    await toggleViewFilterValueHandler(
+      ctx as never,
+      {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        viewId: "view_1",
+        key: "labelIds",
+        value: "label_3",
+      } as never
+    )
 
     expect(ctx.db.patch).toHaveBeenNthCalledWith(1, "view_doc_1", {
       filters: {

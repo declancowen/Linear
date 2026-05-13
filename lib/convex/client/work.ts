@@ -267,7 +267,8 @@ export function syncToggleViewFilterValue(
     | "parentIds"
     | "itemTypes"
     | "labelIds"
-    | "teamIds",
+    | "teamIds"
+    | "visibility",
   value: string
 ) {
   return runRouteMutation(`/api/views/${viewId}`, {
@@ -297,6 +298,7 @@ export function syncClearViewFilters(viewId: string) {
 
 export function syncCreateCustomPropertyDefinition(input: {
   teamId: string
+  scopeType?: "team" | "private"
   targetType?: "workItem"
   name: string
   icon: string
@@ -416,6 +418,7 @@ export function syncCreateLabel(input: {
   workspaceId?: string
   name: string
   color?: string
+  scopeType?: "workspace" | "private"
 }) {
   return runRouteMutation<unknown>("/api/labels", {
     method: "POST",
@@ -794,7 +797,11 @@ export function syncUpdateTeamDetails(
     features: TeamFeatureSettings
   }
 ) {
-  return runRouteMutation(`/api/teams/${teamId}/details`, {
+  return runRouteMutation<{
+    ok: boolean
+    teamId: string
+    icon?: string
+  }>(`/api/teams/${teamId}/details`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",

@@ -61,6 +61,7 @@ export type PersistedViewFilterKey =
   | "itemTypes"
   | "labelIds"
   | "teamIds"
+  | "visibility"
 
 export type ViewConfigPatchInput = {
   layout?: ViewDefinition["layout"]
@@ -96,6 +97,7 @@ export function isPersistedViewFilterKey(
     "itemTypes",
     "labelIds",
     "teamIds",
+    "visibility",
   ].includes(key)
 }
 
@@ -111,7 +113,7 @@ export function toggleViewFilterValue(
   value: string
 ) {
   const nextFilters = { ...filters } as ViewDefinition["filters"]
-  const currentValues = nextFilters[key] as string[]
+  const currentValues = (nextFilters[key] ?? []) as string[]
   const nextValues = currentValues.includes(value)
     ? currentValues.filter((entry) => entry !== value)
     : [...currentValues, value]

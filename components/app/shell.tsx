@@ -28,7 +28,6 @@ import {
   PaperPlaneTilt,
   Plus,
   PlusCircle,
-  SignIn,
   SignOut,
   SquaresFour,
   UserCircle,
@@ -2000,16 +1999,14 @@ function ShellUserFooter({
                     User settings
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <form action="/auth/logout" method="post" className="w-full">
-                    <button
-                      type="submit"
-                      className="flex w-full items-center gap-2"
-                    >
-                      <SignIn />
-                      Sign out
-                    </button>
-                  </form>
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    window.location.assign("/auth/logout")
+                  }}
+                >
+                  <SignOut />
+                  Sign out
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>

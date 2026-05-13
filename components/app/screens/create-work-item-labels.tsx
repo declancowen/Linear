@@ -75,6 +75,7 @@ export async function createLabelAndSelect({
   newLabelName,
   creatingLabel,
   canSubmit,
+  scopeType,
   workspaceId,
   setCreatingLabel,
   setNewLabelName,
@@ -83,6 +84,7 @@ export async function createLabelAndSelect({
   newLabelName: string
   creatingLabel: boolean
   canSubmit: boolean
+  scopeType?: "workspace" | "private"
   workspaceId: string | null
   setCreatingLabel: Dispatch<SetStateAction<boolean>>
   setNewLabelName: Dispatch<SetStateAction<string>>
@@ -95,9 +97,10 @@ export async function createLabelAndSelect({
   }
 
   setCreatingLabel(true)
-  const created = await useAppStore
-    .getState()
-    .createLabel(normalizedName, workspaceId)
+  const createLabel = useAppStore.getState().createLabel
+  const created = scopeType
+    ? await createLabel(normalizedName, workspaceId, { scopeType })
+    : await createLabel(normalizedName, workspaceId)
   setCreatingLabel(false)
 
   if (!created) {

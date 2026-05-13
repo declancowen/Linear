@@ -310,6 +310,7 @@ describe("work item actions", () => {
     })
     expect(syncCreateLabelMock).toHaveBeenCalledWith({
       workspaceId: "workspace_2",
+      scopeType: "workspace",
       name: "Bug",
     })
     expect(harness.state.labels.map((label) => label.id)).toEqual([

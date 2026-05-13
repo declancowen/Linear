@@ -42,7 +42,7 @@ import {
   type ProjectStatus,
   type ViewDefinition,
 } from "@/lib/domain/types"
-import { sortLabelsByName } from "@/lib/domain/labels"
+import { getLabelScopeType, sortLabelsByName } from "@/lib/domain/labels"
 import { getUsersForTeamMemberships } from "@/lib/domain/team-members"
 import { useAppStore } from "@/lib/store/app-store"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
@@ -68,7 +68,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
-import { PriorityIcon } from "@/components/app/screens/shared"
+import { LabelColorDot, PriorityIcon } from "@/components/app/screens/shared"
 import { TeamSpaceCrumbPicker } from "@/components/app/screens/team-space-crumb-picker"
 import { WorkItemAssigneeAvatar } from "@/components/app/screens/work-item-ui"
 import {
@@ -750,11 +750,7 @@ function ProjectLabelsChip({
                 ) : null
               }
             >
-              <span
-                aria-hidden
-                className="inline-block size-2 shrink-0 rounded-full"
-                style={{ background: label.color }}
-              />
+              <LabelColorDot color={label.color} className="size-2" />
               <span className="truncate">{label.name}</span>
             </PropertyPopoverItem>
           )
@@ -1124,7 +1120,9 @@ function CreateProjectDialogContent({
     () =>
       settingsTeam
         ? allLabels.filter(
-            (label) => label.workspaceId === settingsTeam.workspaceId
+            (label) =>
+              label.workspaceId === settingsTeam.workspaceId &&
+              getLabelScopeType(label) === "workspace"
           )
         : [],
     [allLabels, settingsTeam]

@@ -79,6 +79,7 @@ import {
   getRootComments,
   groupCommentsByParentId,
 } from "@/lib/domain/comment-threads"
+import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
 import {
   getAllowedChildWorkItemTypesForItem,
   getChildWorkItemCopy,
@@ -417,9 +418,8 @@ function DetailChildWorkItemRow({
   const showMainProject = item.primaryProjectId !== null
   const showProperties = variant !== "sidebar"
   const childCustomProperties = data.customPropertyDefinitions
-    .filter(
-      (definition) =>
-        !definition.isArchived && definition.teamId === item.teamId
+    .filter((definition) =>
+      isCustomPropertyDefinitionForWorkItem(definition, item, data.currentUserId)
     )
     .filter((definition) =>
       data.customPropertyValues.some(
@@ -3179,9 +3179,12 @@ function WorkItemSidebarProperties({
   const [customPropertyDialogOpen, setCustomPropertyDialogOpen] =
     useState(false)
   const customPropertyDefinitions = data.customPropertyDefinitions
-    .filter(
-      (definition) =>
-        !definition.isArchived && definition.teamId === currentItem.teamId
+    .filter((definition) =>
+      isCustomPropertyDefinitionForWorkItem(
+        definition,
+        currentItem,
+        data.currentUserId
+      )
     )
     .sort((left, right) => left.name.localeCompare(right.name))
 
@@ -3412,6 +3415,11 @@ function WorkItemSidebarProperties({
       {team ? (
         <CustomPropertyDefinitionDialog
           open={customPropertyDialogOpen}
+          scopeType={
+            (currentItem.visibility ?? "team") === "private"
+              ? "private"
+              : "team"
+          }
           teamId={team.id}
           onOpenChange={setCustomPropertyDialogOpen}
         />

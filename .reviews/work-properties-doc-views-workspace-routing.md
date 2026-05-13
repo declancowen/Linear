@@ -28,11 +28,61 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-12 20:38 BST |
-| **Total turns**       | 7                    |
+| **Last reviewed**     | 2026-05-13 11:32 BST |
+| **Total turns**       | 8                    |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 20                   |
+| **Resolved findings** | 23                   |
 | **Accepted findings** | 0                    |
+
+## Turn 8 — 2026-05-13 11:32 BST
+
+| Field           | Value                           |
+| --------------- | ------------------------------- |
+| **Commit**      | `df88bed8` plus local diff      |
+| **IDE / Agent** | Codex                           |
+| **Review type** | Local diff-review + Fallow pass |
+
+**Summary:** Re-reviewed the current local diff after the follow-up fixes for docs/work taskbars, team/project icon selection, private task scope isolation, custom property display, workspace selector, and the read-model route crash reported as `Cannot read properties of undefined (reading 'filter')`.
+**Outcome:** local review clean; no open Critical/High/Medium findings remain in the reviewed scope. Convex dev was pushed with `pnpm exec convex dev --once` after backend/domain changes.
+**Risk score:** high — the diff changes persisted Convex schema/validators, API route contracts, scoped read models, optimistic store behavior, personal/team tenancy boundaries, broad work/docs UI, and generated Convex API types.
+**Change archetypes:** tenancy/data model, scoped read model compatibility, route contract, custom properties, private work views, shared UI controls, static analyzer cleanup, generated API update.
+**Architecture impact:** Scope authority now lives at the data/domain boundary: Convex handlers validate private/team label and property assignment, read models filter private definitions/labels by owner, route schemas preserve serialized `visibility` filters, and UI selectors only expose assignable properties for the active work item/view scope.
+**Branch totality:** Rechecked the cumulative local branch against `origin/main`, prior review hotspots, route/client/server view filter paths, custom property definition/value paths, label creation and assignment paths, My Items private task defaults, and Fallow changed-file dead-code/duplication signals.
+**Residual risk / unknowns:** Browser smoke was not rerun in this turn; the production build passed, but visual verification of the docs taskbar, private task board, icon picker, and workspace selector remains useful before release.
+
+### Validation
+
+- `pnpm exec convex dev --once` — passed twice; Convex functions ready on dev
+- `pnpm exec vitest run tests/convex/view-handlers.test.ts tests/convex/workspace-team-handlers.test.ts tests/convex/work-item-handlers.test.ts tests/convex/custom-property-handlers.test.ts tests/lib/domain/labels.test.ts tests/lib/store/work-item-actions.test.ts tests/lib/store/workspace-slice.test.ts tests/app/api/team-collaboration-route-contracts.test.ts tests/app/api/work-route-contracts.test.ts tests/lib/server/convex-work.test.ts` — passed, 10 files / 90 tests
+- `pnpm exec vitest run tests/components/create-dialogs.test.tsx tests/components/views-screen.test.tsx tests/components/work-item-detail-screen.test.tsx tests/lib/domain/default-views.test.ts` — passed, 4 files / 59 tests
+- `pnpm test` — passed, 178 files / 974 tests
+- `pnpm exec tsc --noEmit --pretty false` — passed
+- `pnpm lint` — passed
+- `pnpm exec fallow --ci --production --format json --quiet --explain` — passed for changed-file dead code and duplication: `total_issues=0`, `clone_groups=0`
+- `pnpm build` — passed
+
+### Resolved / Carried / New findings
+
+#### WPDV-21 — resolved locally — stale scoped snapshots could crash custom-property route/read-model refresh
+
+- **Severity:** medium
+- **Evidence:** User-reported route mutation error: `Cannot read properties of undefined (reading 'filter')` during scoped read-model refresh.
+- **Fix:** Added compatibility fallbacks for missing `customPropertyDefinitions`, `customPropertyValues`, and related snapshot arrays at route/read-model boundaries while keeping schema-owned defaults intact.
+- **Prevention:** Full route/read-model tests and TypeScript/build now cover the normalized snapshot path.
+
+#### WPDV-22 — resolved locally — private labels and custom properties could leak into team/workspace surfaces
+
+- **Severity:** high
+- **Evidence:** Private task board labels/properties needed to be contained to private tasks and not appear in team/workspace views.
+- **Fix:** Added explicit label/custom-property scope fields and owner checks; Convex handlers validate assignment by work item visibility; read models expose private labels/properties only to the owner; UI label/property pickers filter through the same domain helpers.
+- **Prevention:** Added `tests/lib/domain/labels.test.ts` and expanded handler/store tests for private task and team-icon persistence variants.
+
+#### WPDV-23 — resolved locally — changed-file static analysis reported unused public exports and duplicate UI/filter literals
+
+- **Severity:** low
+- **Evidence:** Fallow changed-file audit reported unused `teamIconMeta`/`isTeamIconToken` exports and duplicate layout/filter fragments.
+- **Fix:** Removed accidental public exports, reused `ViewsDirectoryLayoutTabs` for docs layout toggling, and centralized empty view-filter selection literals inside the domain primitives owner.
+- **Prevention:** Fallow changed-file dead-code and duplication gate now reports zero issues.
 
 ## Turn 7 — 2026-05-12 20:38 BST
 
@@ -43,17 +93,17 @@
 
 ### Automation context
 
-| Field                          | Value                                      |
-| ------------------------------ | ------------------------------------------ |
-| **Trigger**                    | PR feedback import after pushed `59398d56` |
-| **PR**                         | `declancowen/Linear#34`                    |
-| **Base ref**                   | `main`                                     |
-| **Base SHA**                   | `19e92e2dd82e447ff65af210892937c5aa589ab9` |
-| **Head SHA**                   | `59398d56c0639437cc7f8b4c3480d9f0bba604e5` |
-| **Previous reviewed head SHA** | `25f64b891d2b09bd61c9393109661524109ff60f` |
-| **Diff reviewed**              | `19e92e2d...59398d56` plus local PR-feedback fix |
-| **Review comment/check**       | Codex inline review on linked document index invalidation |
-| **Trusted state source**       | GitHub checks, GraphQL review thread fetch |
+| Field                          | Value                                                          |
+| ------------------------------ | -------------------------------------------------------------- |
+| **Trigger**                    | PR feedback import after pushed `59398d56`                     |
+| **PR**                         | `declancowen/Linear#34`                                        |
+| **Base ref**                   | `main`                                                         |
+| **Base SHA**                   | `19e92e2dd82e447ff65af210892937c5aa589ab9`                     |
+| **Head SHA**                   | `59398d56c0639437cc7f8b4c3480d9f0bba604e5`                     |
+| **Previous reviewed head SHA** | `25f64b891d2b09bd61c9393109661524109ff60f`                     |
+| **Diff reviewed**              | `19e92e2d...59398d56` plus local PR-feedback fix               |
+| **Review comment/check**       | Codex inline review on linked document index invalidation      |
+| **Trusted state source**       | GitHub checks, GraphQL review thread fetch                     |
 | **Verification policy**        | Fix live PR finding, rerun diff-review/static/test/build gates |
 
 **Summary:** Imported the latest Codex review on `59398d56` and reran the diff-review loop with architecture standards. The new live finding was valid: document indexes now include linked projects and work items for labels/filter display, so project and work-item updates also need to invalidate document index scopes for documents that link to those entities.
@@ -95,18 +145,18 @@
 
 ### Automation context
 
-| Field                          | Value                                                                |
-| ------------------------------ | -------------------------------------------------------------------- |
-| **Trigger**                    | PR feedback import after pushed `25f64b89`                           |
-| **PR**                         | `declancowen/Linear#34`                                              |
-| **Base ref**                   | `main`                                                               |
-| **Base SHA**                   | `19e92e2dd82e447ff65af210892937c5aa589ab9`                           |
-| **Head SHA**                   | `25f64b891d2b09bd61c9393109661524109ff60f`                           |
-| **Previous reviewed head SHA** | `0f0d61836051ed7bc4412e04a8e0a0680a3e0ee4`                           |
-| **Diff reviewed**              | `19e92e2d...25f64b89` plus local PR-feedback fixes                   |
-| **Workflow run**               | `25755279356`, `25755281667`                                         |
-| **Review comment/check**       | Codex inline review on document/project read-model payloads          |
-| **Trusted state source**       | GitHub checks, GraphQL review thread fetch                           |
+| Field                          | Value                                                                 |
+| ------------------------------ | --------------------------------------------------------------------- |
+| **Trigger**                    | PR feedback import after pushed `25f64b89`                            |
+| **PR**                         | `declancowen/Linear#34`                                               |
+| **Base ref**                   | `main`                                                                |
+| **Base SHA**                   | `19e92e2dd82e447ff65af210892937c5aa589ab9`                            |
+| **Head SHA**                   | `25f64b891d2b09bd61c9393109661524109ff60f`                            |
+| **Previous reviewed head SHA** | `0f0d61836051ed7bc4412e04a8e0a0680a3e0ee4`                            |
+| **Diff reviewed**              | `19e92e2d...25f64b89` plus local PR-feedback fixes                    |
+| **Workflow run**               | `25755279356`, `25755281667`                                          |
+| **Review comment/check**       | Codex inline review on document/project read-model payloads           |
+| **Trusted state source**       | GitHub checks, GraphQL review thread fetch                            |
 | **Verification policy**        | Fix live PR findings, rerun local diff-review/static/test/build gates |
 
 **Summary:** Imported the latest Codex review on `25f64b89` and reran the diff-review loop with architecture standards. Two live read-model omissions were fixed: document index read models now include linked projects, linked work items, and teams needed by document property labels/filters; project detail read models now include team memberships and membership users so person-typed custom properties work from a cold scoped fetch. A late DR-001 automation thread was also imported and classified as already fixed in the current tree.
@@ -156,11 +206,11 @@
 
 ### External finding import
 
-| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
-| ------ | ------- | -------------- | --------- | ------------------------ | ------ |
-| Codex inline review | Document index read model omits linked projects/work items/teams needed by document property labels and filters | Resolved locally | payload completeness / cold-fetch state | display-property consumers must receive referenced entity records in scoped index payloads | Added linked project/work item/team selection and selector regression test |
-| Codex inline review | Project detail read model omits team memberships needed by person custom property editors | Resolved locally | payload completeness / person option availability | person property options come from team memberships, not only users and values | Added team memberships and membership users to project detail payload with selector regression test |
-| Late PR automation thread | DR-001 duplicate custom property option IDs | Already fixed in current tree | identity/uniqueness / persistence contract | persisted option IDs must be unique independent of labels | No new code; current Convex/route guards and tests already cover it |
+| Source                    | Finding                                                                                                         | Current status                | Bug class                                         | Missed invariant/variant                                                                   | Action                                                                                              |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Codex inline review       | Document index read model omits linked projects/work items/teams needed by document property labels and filters | Resolved locally              | payload completeness / cold-fetch state           | display-property consumers must receive referenced entity records in scoped index payloads | Added linked project/work item/team selection and selector regression test                          |
+| Codex inline review       | Project detail read model omits team memberships needed by person custom property editors                       | Resolved locally              | payload completeness / person option availability | person property options come from team memberships, not only users and values              | Added team memberships and membership users to project detail payload with selector regression test |
+| Late PR automation thread | DR-001 duplicate custom property option IDs                                                                     | Already fixed in current tree | identity/uniqueness / persistence contract        | persisted option IDs must be unique independent of labels                                  | No new code; current Convex/route guards and tests already cover it                                 |
 
 ### Resolved / Carried / New findings
 
@@ -196,19 +246,19 @@
 
 ### Automation context
 
-| Field                          | Value                                                                 |
-| ------------------------------ | --------------------------------------------------------------------- |
-| **Trigger**                    | PR feedback import after pushed `0f0d6183`                            |
-| **PR**                         | `declancowen/Linear#34`                                               |
-| **Base ref**                   | `main`                                                                |
-| **Base SHA**                   | `19e92e2dd82e447ff65af210892937c5aa589ab9`                            |
-| **Head SHA**                   | `0f0d61836051ed7bc4412e04a8e0a0680a3e0ee4`                            |
-| **Previous reviewed head SHA** | `709b83ba7c23e5eb2db06326cd018aba63eb06d6`                            |
-| **Diff reviewed**              | `19e92e2d...0f0d6183` plus local PR-feedback fix                      |
-| **Workflow run**               | `25754053400`, `25754050481`                                          |
-| **Review comment/check**       | Codex inline review on project read-model invalidation                |
-| **Trusted state source**       | GitHub checks, GraphQL review thread fetch                            |
-| **Verification policy**        | Fix live PR finding, rerun local diff-review/static/test/build gates  |
+| Field                          | Value                                                                |
+| ------------------------------ | -------------------------------------------------------------------- |
+| **Trigger**                    | PR feedback import after pushed `0f0d6183`                           |
+| **PR**                         | `declancowen/Linear#34`                                              |
+| **Base ref**                   | `main`                                                               |
+| **Base SHA**                   | `19e92e2dd82e447ff65af210892937c5aa589ab9`                           |
+| **Head SHA**                   | `0f0d61836051ed7bc4412e04a8e0a0680a3e0ee4`                           |
+| **Previous reviewed head SHA** | `709b83ba7c23e5eb2db06326cd018aba63eb06d6`                           |
+| **Diff reviewed**              | `19e92e2d...0f0d6183` plus local PR-feedback fix                     |
+| **Workflow run**               | `25754053400`, `25754050481`                                         |
+| **Review comment/check**       | Codex inline review on project read-model invalidation               |
+| **Trusted state source**       | GitHub checks, GraphQL review thread fetch                           |
+| **Verification policy**        | Fix live PR finding, rerun local diff-review/static/test/build gates |
 
 **Summary:** Imported the new Codex PR review on `0f0d6183` and reran the diff-review loop with architecture standards. One live issue was fixed: custom property definition changes now invalidate project detail and project index read models that render work item custom property definitions/values. The Fallow changed-file audit then found the read-model scope helper shape too complex, so the scope fan-out was split into small owner-local helpers and the adjacent work-item detail scope collector was simplified.
 **Outcome:** local fixes complete; ready for one batched commit/push and new PR automation run.
@@ -259,10 +309,10 @@
 
 ### External finding import
 
-| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
-| ------ | ------- | -------------- | --------- | ------------------------ | ------ |
-| Codex inline review | Custom-property definition changes did not invalidate project detail/index read models that include custom property definitions/values | Resolved locally | state freshness / scoped read-model invalidation | property metadata changes affect every read model rendering team work item properties, not only work/item/view scopes | Added project detail, team project index, and workspace project index invalidation plus selector coverage |
-| Local Fallow changed-file audit | Read-model scope-key helpers introduced complexity findings in the changed-file audit | Resolved locally | analyzer drift / maintainability | shared invalidation helpers should stay small enough for configured and changed-file Fallow modes | Split scope fan-out into owner-local helpers and reran both Fallow modes |
+| Source                          | Finding                                                                                                                                | Current status   | Bug class                                        | Missed invariant/variant                                                                                              | Action                                                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Codex inline review             | Custom-property definition changes did not invalidate project detail/index read models that include custom property definitions/values | Resolved locally | state freshness / scoped read-model invalidation | property metadata changes affect every read model rendering team work item properties, not only work/item/view scopes | Added project detail, team project index, and workspace project index invalidation plus selector coverage |
+| Local Fallow changed-file audit | Read-model scope-key helpers introduced complexity findings in the changed-file audit                                                  | Resolved locally | analyzer drift / maintainability                 | shared invalidation helpers should stay small enough for configured and changed-file Fallow modes                     | Split scope fan-out into owner-local helpers and reran both Fallow modes                                  |
 
 ### Resolved / Carried / New findings
 
@@ -361,12 +411,12 @@
 
 ### External finding import
 
-| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
-| ------ | ------- | -------------- | --------- | ------------------------ | ------ |
-| GitHub CI | Convex fallback blocks schema-change PRs without `CONVEX_DEPLOYMENT` and parser rejects semicolonless generated API output | Resolved locally | CI fallback / release safety / contract encoding | no-deployment fallback must still verify source-committed generated API roster across generated formatting variants | Fallback now warns on schema changes, verifies roster, and parser accepts semicolonless imports/API maps |
-| Codex inline review | Custom-property definition create/update/archive only bumped team work index, leaving item detail subscribers stale | Resolved locally | state freshness / scoped read-model invalidation | definition changes affect item detail, view catalog, and broader work index scopes, not only team index | Added shared property-definition scope helper and route contract coverage |
-| PR diff-review automation | Select option IDs can collide and make persisted values ambiguous | Resolved locally | identity/uniqueness / persistence contract | option IDs are persisted values and must be unique, independent of labels | Added Convex validation, route schema guard, and create/update regression tests |
-| Local re-review | PATCH schema defaulted omitted `options` to `[]`, so name-only property edits could clear select options | Resolved locally | preservation / compatibility | update schemas must preserve omitted fields and differ from create defaults | Split patch schema from create schema and asserted route PATCH payload shape |
+| Source                    | Finding                                                                                                                    | Current status   | Bug class                                        | Missed invariant/variant                                                                                            | Action                                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| GitHub CI                 | Convex fallback blocks schema-change PRs without `CONVEX_DEPLOYMENT` and parser rejects semicolonless generated API output | Resolved locally | CI fallback / release safety / contract encoding | no-deployment fallback must still verify source-committed generated API roster across generated formatting variants | Fallback now warns on schema changes, verifies roster, and parser accepts semicolonless imports/API maps |
+| Codex inline review       | Custom-property definition create/update/archive only bumped team work index, leaving item detail subscribers stale        | Resolved locally | state freshness / scoped read-model invalidation | definition changes affect item detail, view catalog, and broader work index scopes, not only team index             | Added shared property-definition scope helper and route contract coverage                                |
+| PR diff-review automation | Select option IDs can collide and make persisted values ambiguous                                                          | Resolved locally | identity/uniqueness / persistence contract       | option IDs are persisted values and must be unique, independent of labels                                           | Added Convex validation, route schema guard, and create/update regression tests                          |
+| Local re-review           | PATCH schema defaulted omitted `options` to `[]`, so name-only property edits could clear select options                   | Resolved locally | preservation / compatibility                     | update schemas must preserve omitted fields and differ from create defaults                                         | Split patch schema from create schema and asserted route PATCH payload shape                             |
 
 ### Resolved / Carried / New findings
 

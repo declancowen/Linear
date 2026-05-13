@@ -70,6 +70,7 @@ const viewMutationSchema = z.discriminatedUnion("action", [
       "itemTypes",
       "labelIds",
       "teamIds",
+      "visibility",
     ]),
     value: z.string().min(1),
   }),

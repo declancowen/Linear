@@ -33,6 +33,7 @@ import {
   viewFiltersValidator,
   viewLayoutValidator,
   workItemTypeValidator,
+  workItemVisibilityValidator,
   workStatusValidator,
 } from "./validators"
 import { serverAccessArgs } from "./app/core"
@@ -796,6 +797,7 @@ export const createLabel = mutation({
     workspaceId: v.string(),
     name: v.string(),
     color: v.optional(v.string()),
+    scopeType: v.optional(v.union(v.literal("workspace"), v.literal("private"))),
   },
   handler: createLabelHandler,
 })
@@ -861,6 +863,7 @@ export const createCustomPropertyDefinition = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     teamId: v.string(),
+    scopeType: v.optional(v.union(v.literal("team"), v.literal("private"))),
     targetType: v.optional(v.literal("workItem")),
     name: v.string(),
     icon: v.string(),
@@ -1002,7 +1005,8 @@ export const toggleViewFilterValue = mutation({
       v.literal("parentIds"),
       v.literal("itemTypes"),
       v.literal("labelIds"),
-      v.literal("teamIds")
+      v.literal("teamIds"),
+      v.literal("visibility")
     ),
     value: v.string(),
   },
@@ -1431,6 +1435,7 @@ export const createWorkItem = mutation({
     status: v.optional(workStatusValidator),
     priority: priorityValidator,
     labelIds: v.optional(v.array(v.string())),
+    visibility: v.optional(workItemVisibilityValidator),
     startDate: v.optional(nullableStringValidator),
     dueDate: v.optional(nullableStringValidator),
     targetDate: v.optional(nullableStringValidator),

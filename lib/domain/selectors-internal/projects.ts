@@ -1,9 +1,5 @@
 import type { AppData, Project, UserProfile } from "@/lib/domain/types"
-import {
-  normalizeTeamIconToken,
-  teamExperienceMeta,
-  teamIconMeta,
-} from "@/lib/domain/types"
+import { teamExperienceMeta } from "@/lib/domain/types"
 
 import {
   getProject,
@@ -177,9 +173,7 @@ export function getProjectDetailModel(data: AppData, projectId: string) {
     backHref: team ? `/team/${team.slug}/projects` : "/workspace/projects",
     detailHref: getProjectHref(data, project) ?? `/projects/${project.id}`,
     teamTypeLabel: team
-      ? teamIconMeta[
-          normalizeTeamIconToken(team.icon, team.settings.experience)
-        ].label
+      ? teamExperienceMeta[team.settings.experience].label
       : null,
     teamExperienceLabel: team
       ? teamExperienceMeta[team.settings.experience].label

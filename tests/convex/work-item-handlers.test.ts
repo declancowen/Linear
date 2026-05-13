@@ -163,6 +163,30 @@ describe("work item handlers", () => {
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 
+  it("rejects non task types for private work items", async () => {
+    const { createWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      createWorkItemHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        teamId: "team_1",
+        type: "epic",
+        title: "Private epic",
+        primaryProjectId: null,
+        assigneeId: null,
+        priority: "medium",
+        visibility: "private",
+      })
+    ).rejects.toThrow("Private tasks can only use task and sub-task types")
+
+    expect(validateWorkItemParentMock).not.toHaveBeenCalled()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
   it("creates work items with empty description documents", async () => {
     const { createWorkItemHandler } =
       await import("@/convex/app/work_item_handlers")

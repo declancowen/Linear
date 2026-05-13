@@ -2,6 +2,10 @@ import type { MutationCtx } from "../_generated/server"
 
 import { isValidCalendarDateString } from "../../lib/calendar-date"
 import { isAllowedPhosphorIconName } from "../../lib/domain/phosphor-icon-options"
+import {
+  getCustomPropertyScopeType,
+  isCustomPropertyDefinitionForWorkItem,
+} from "../../lib/domain/labels"
 import type {
   CustomPropertyOption,
   CustomPropertyType,
@@ -29,6 +33,7 @@ type ServerAccessArgs = {
 
 type CustomPropertyDefinitionInput = {
   teamId: string
+  scopeType?: "team" | "private"
   targetType?: "workItem"
   name: string
   icon: string
@@ -153,6 +158,8 @@ async function assertUniquePropertyName(input: {
   ctx: MutationCtx
   exceptPropertyId?: string
   name: string
+  ownerId: string | null
+  scopeType: "team" | "private"
   teamId: string
 }) {
   const normalized = input.name.toLowerCase()
@@ -164,6 +171,8 @@ async function assertUniquePropertyName(input: {
     (definition) =>
       !definition.isArchived &&
       definition.id !== input.exceptPropertyId &&
+      getCustomPropertyScopeType(definition) === input.scopeType &&
+      (definition.ownerId ?? null) === input.ownerId &&
       definition.name.trim().toLowerCase() === normalized
   )
 
@@ -183,7 +192,13 @@ async function requireEditableDefinition(
     throw new Error("Custom property not found")
   }
 
-  await requireEditableTeamAccess(ctx, definition.teamId, currentUserId)
+  if (getCustomPropertyScopeType(definition) === "private") {
+    if ((definition.ownerId ?? definition.createdBy) !== currentUserId) {
+      throw new Error("Custom property not found")
+    }
+  } else {
+    await requireEditableTeamAccess(ctx, definition.teamId, currentUserId)
+  }
 
   return definition
 }
@@ -463,14 +478,20 @@ export async function createCustomPropertyDefinitionHandler(
   await assertUniquePropertyName({
     ctx,
     name,
+    ownerId: args.scopeType === "private" ? args.currentUserId : null,
+    scopeType: args.scopeType === "private" ? "private" : "team",
     teamId: args.teamId,
   })
 
   const now = getNow()
+  const scopeType: "team" | "private" =
+    args.scopeType === "private" ? "private" : "team"
   const definition = {
     id: createId("property"),
     workspaceId: team.workspaceId,
     teamId: args.teamId,
+    scopeType,
+    ownerId: scopeType === "private" ? args.currentUserId : null,
     targetType: "workItem" as const,
     name,
     icon: args.icon,
@@ -610,6 +631,11 @@ export async function updateCustomPropertyDefinitionHandler(
     ctx,
     exceptPropertyId: definition.id,
     name: nextName,
+    ownerId:
+      getCustomPropertyScopeType(definition) === "private"
+        ? (definition.ownerId ?? definition.createdBy)
+        : null,
+    scopeType: getCustomPropertyScopeType(definition),
     teamId: definition.teamId,
   })
 
@@ -671,7 +697,7 @@ async function requireCustomPropertyValueTarget(
   await requireEditableTeamAccess(ctx, item.teamId, args.currentUserId)
   const definition = await getCustomPropertyDefinitionDoc(ctx, args.propertyId)
 
-  if (!canUsePropertyDefinitionForItem(definition, item.teamId)) {
+  if (!canUsePropertyDefinitionForItem(definition, item, args.currentUserId)) {
     throw new Error("Custom property not found")
   }
 
@@ -683,13 +709,12 @@ async function requireCustomPropertyValueTarget(
 
 function canUsePropertyDefinitionForItem(
   definition: Awaited<ReturnType<typeof getCustomPropertyDefinitionDoc>>,
-  teamId: string
+  item: NonNullable<Awaited<ReturnType<typeof getWorkItemDoc>>>,
+  currentUserId: string
 ): definition is CustomPropertyDefinitionDoc {
   return (
     !!definition &&
-    !definition.isArchived &&
-    definition.teamId === teamId &&
-    definition.targetType === "workItem"
+    isCustomPropertyDefinitionForWorkItem(definition, item, currentUserId)
   )
 }
 

@@ -52,6 +52,10 @@ import {
 } from "@/components/app/screens/work-surface-control-state"
 import { getStatusOrderForTeam, getTeam } from "@/lib/domain/selectors"
 import {
+  getCustomPropertyScopeType,
+  isCustomPropertyDefinitionVisibleToUser,
+} from "@/lib/domain/labels"
+import {
   EMPTY_PARENT_FILTER_VALUE,
   getCustomPropertyIdFromDisplayReference,
   getChildWorkItemCopy,
@@ -75,6 +79,7 @@ import {
   type ViewDefinition,
   type WorkItem,
   type WorkItemType,
+  type WorkItemVisibility,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
@@ -505,7 +510,8 @@ function getWorkFilterActiveCount(filters: ViewDefinition["filters"]) {
     filters.projectIds.length +
     (filters.parentIds?.length ?? 0) +
     filters.itemTypes.length +
-    filters.labelIds.length
+    filters.labelIds.length +
+    (filters.visibility?.length ?? 0)
   )
 }
 
@@ -842,6 +848,50 @@ function AssigneeFilterSection({
   )
 }
 
+const WORK_ITEM_VISIBILITY_LABELS: Record<WorkItemVisibility, string> = {
+  team: "Team space work",
+  private: "Private tasks",
+}
+
+function VisibilityFilterSection({
+  hidden,
+  onToggleFilterValue,
+  query,
+  view,
+}: {
+  hidden: boolean
+  onToggleFilterValue: ToggleWorkFilterValue
+  query: string
+  view: ViewDefinition
+}) {
+  if (hidden) {
+    return null
+  }
+
+  const options: WorkItemVisibility[] = ["team", "private"]
+
+  return (
+    <FilterSection
+      label="Visibility"
+      activeCount={view.filters.visibility?.length ?? 0}
+    >
+      {options
+        .filter((visibility) =>
+          matchesQuery(WORK_ITEM_VISIBILITY_LABELS[visibility], query)
+        )
+        .map((visibility) => (
+          <FilterRow
+            key={visibility}
+            icon={<Eye className="size-3" />}
+            label={WORK_ITEM_VISIBILITY_LABELS[visibility]}
+            active={Boolean(view.filters.visibility?.includes(visibility))}
+            onClick={() => onToggleFilterValue("visibility", visibility)}
+          />
+        ))}
+    </FilterSection>
+  )
+}
+
 function ProjectFilterSection({
   hidden,
   onToggleFilterValue,
@@ -989,6 +1039,12 @@ function WorkFilterSections({
       <AssigneeFilterSection
         assignees={options.assignees}
         hidden={hiddenFilterSet.has("assigneeIds")}
+        onToggleFilterValue={onToggleFilterValue}
+        query={query}
+        view={view}
+      />
+      <VisibilityFilterSection
+        hidden={hiddenFilterSet.has("visibility")}
         onToggleFilterValue={onToggleFilterValue}
         query={query}
         view={view}
@@ -2136,16 +2192,37 @@ export function PropertiesChipPopover({
   const allCustomDefinitions = useAppStore(
     (state) => state.customPropertyDefinitions
   )
-  const customDefinitions = useMemo(
-    () =>
-      view.entityKind === "items" && view.scopeType === "team"
-        ? allCustomDefinitions.filter(
-            (definition) =>
-              !definition.isArchived && definition.teamId === view.scopeId
-          )
-        : [],
-    [allCustomDefinitions, view.entityKind, view.scopeId, view.scopeType]
-  )
+  const currentUserId = useAppStore((state) => state.currentUserId)
+  const customDefinitions = useMemo(() => {
+    if (view.entityKind !== "items") {
+      return []
+    }
+
+    if (view.scopeType === "team") {
+      return allCustomDefinitions.filter(
+        (definition) =>
+          !definition.isArchived &&
+          getCustomPropertyScopeType(definition) === "team" &&
+          definition.teamId === view.scopeId
+      )
+    }
+
+    if (view.scopeType === "personal") {
+      return allCustomDefinitions.filter(
+        (definition) =>
+          !definition.isArchived &&
+          isCustomPropertyDefinitionVisibleToUser(definition, currentUserId)
+      )
+    }
+
+    return []
+  }, [
+    allCustomDefinitions,
+    currentUserId,
+    view.entityKind,
+    view.scopeId,
+    view.scopeType,
+  ])
   const skipTogglePropertyRef = useRef<DisplayProperty | null>(null)
   const skipToggleResetTimeoutRef = useRef<number | null>(null)
   const resolvePropertyLabel =
@@ -2438,9 +2515,18 @@ export function LevelChipPopover({
   const team = useAppStore((state) =>
     view.scopeType === "team" ? getTeam(state, view.scopeId) : null
   )
+  const isPrivateTaskView =
+    view.entityKind === "items" && view.filters.visibility?.includes("private")
+  const itemLevelExperience = isPrivateTaskView
+    ? "project-management"
+    : team?.settings.experience
   const itemLevelOptions = useMemo(() => {
     if (view.entityKind !== "items") {
       return []
+    }
+
+    if (isPrivateTaskView) {
+      return ["task"] satisfies WorkItemType[]
     }
 
     const baseOptions = team
@@ -2450,7 +2536,7 @@ export function LevelChipPopover({
     return view.itemLevel && !baseOptions.includes(view.itemLevel)
       ? [view.itemLevel, ...baseOptions]
       : baseOptions
-  }, [team, view.entityKind, view.itemLevel])
+  }, [isPrivateTaskView, team, view.entityKind, view.itemLevel])
 
   if (view.entityKind !== "items" || itemLevelOptions.length === 0) {
     return null
@@ -2459,14 +2545,11 @@ export function LevelChipPopover({
   const effectiveItemLevel = view.itemLevel ?? itemLevelOptions[0] ?? null
   const childCopy = getChildWorkItemCopy(
     effectiveItemLevel,
-    team?.settings.experience
+    itemLevelExperience
   )
   const canShowChildItems = Boolean(childCopy?.childType)
   const currentLabel = effectiveItemLevel
-    ? getDisplayLabelForWorkItemType(
-        effectiveItemLevel,
-        team?.settings.experience
-      )
+    ? getDisplayLabelForWorkItemType(effectiveItemLevel, itemLevelExperience)
     : "Level"
   const handleUpdateView = createViewConfigUpdater(view.id, onUpdateView)
 
@@ -2511,10 +2594,7 @@ export function LevelChipPopover({
                   active ? <Check className="size-3.5 text-accent-fg" /> : null
                 }
               >
-                {getDisplayLabelForWorkItemType(
-                  option,
-                  team?.settings.experience
-                )}
+                {getDisplayLabelForWorkItemType(option, itemLevelExperience)}
               </PropertyPopoverItem>
             )
           })}

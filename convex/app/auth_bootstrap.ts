@@ -5,6 +5,7 @@ import {
   createDefaultTeamWorkflowSettings,
   type TeamExperienceType,
 } from "../../lib/domain/types"
+import { isLabelVisibleToUser } from "../../lib/domain/labels"
 import {
   assertServerToken,
   createHandle,
@@ -452,7 +453,9 @@ async function buildWorkspaceMembershipBootstrap(
     workspaceMemberships,
     teams,
     teamMemberships,
-    labels,
+    labels: labels.filter((label) =>
+      isLabelVisibleToUser(label, input.currentUserId)
+    ),
     users,
     invites,
   }
@@ -1560,14 +1563,19 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
         resolveUserSnapshot(ctx, user)
       )
     ),
-    labels: await listLabelsByWorkspaces(ctx, accessibleWorkspaceIdList),
+    labels: (
+      await listLabelsByWorkspaces(ctx, accessibleWorkspaceIdList)
+    ).filter((label) => isLabelVisibleToUser(label, currentUserId)),
     projects: visibleProjects,
     milestones: await listMilestonesByProjects(ctx, visibleProjectIds),
     workItems: visibleWorkItems.map((item) =>
       normalizeWorkItem(item, normalizedVisibleTeams)
     ),
     customPropertyDefinitions: visibleCustomPropertyDefinitions.filter(
-      (definition) => !definition.isArchived
+      (definition) =>
+        !definition.isArchived &&
+        ((definition.scopeType ?? "team") === "team" ||
+          (definition.ownerId ?? definition.createdBy) === currentUserId)
     ),
     customPropertyValues: visibleCustomPropertyValues.filter((value) =>
       visibleWorkItemIds.has(value.workItemId)

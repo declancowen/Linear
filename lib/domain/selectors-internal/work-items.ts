@@ -46,7 +46,8 @@ export function getVisibleWorkItems(
     const teamIds = new Set(getAccessibleTeams(data).map((team) => team.id))
     const assignedItems = data.workItems.filter(
       (item) =>
-        item.assigneeId === data.currentUserId && teamIds.has(item.teamId)
+        item.assigneeId === data.currentUserId &&
+        (getWorkItemVisibility(item) === "private" || teamIds.has(item.teamId))
     )
 
     if ("assignedToCurrentUser" in params) {
@@ -55,7 +56,11 @@ export function getVisibleWorkItems(
 
     const itemsById = new Map(
       data.workItems
-        .filter((item) => teamIds.has(item.teamId))
+        .filter(
+          (item) =>
+            getWorkItemVisibility(item) === "private" ||
+            teamIds.has(item.teamId)
+        )
         .map((item) => [item.id, item] as const)
     )
     const includedIds = new Set(assignedItems.map((item) => item.id))
@@ -79,14 +84,24 @@ export function getVisibleWorkItems(
   }
 
   if ("teamId" in params) {
-    return data.workItems.filter((item) => item.teamId === params.teamId)
+    return data.workItems.filter(
+      (item) =>
+        item.teamId === params.teamId && getWorkItemVisibility(item) === "team"
+    )
   }
 
   const teamIds = getAccessibleTeams(data)
     .filter((team) => team.workspaceId === params.workspaceId)
     .map((team) => team.id)
 
-  return data.workItems.filter((item) => teamIds.includes(item.teamId))
+  return data.workItems.filter(
+    (item) =>
+      teamIds.includes(item.teamId) && getWorkItemVisibility(item) === "team"
+  )
+}
+
+function getWorkItemVisibility(item: WorkItem) {
+  return item.visibility ?? "team"
 }
 
 export function getDirectChildWorkItems(data: AppData, itemId: string) {
@@ -241,6 +256,10 @@ function itemMatchesView(
     matchesOptionalFilter(view.filters.itemTypes, item.type),
     matchesAnyOptionalFilter(view.filters.labelIds, item.labelIds),
     matchesOptionalFilter(view.filters.teamIds, item.teamId),
+    matchesOptionalFilter(
+      view.filters.visibility ?? [],
+      getWorkItemVisibility(item)
+    ),
     matchesOptionalFilter(view.filters.leadIds, project?.leadId ?? ""),
     matchesOptionalFilter(view.filters.health, project?.health ?? "no-update"),
     matchesCompletionFilter(view.filters.showCompleted, item.status),

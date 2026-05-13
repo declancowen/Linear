@@ -7,6 +7,7 @@ import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
 import {
   CalendarDots,
+  CaretDown,
   Check,
   CodesandboxLogo,
   FileText,
@@ -18,6 +19,7 @@ import {
   Stack,
   Tag,
   SortAscending,
+  TreeStructure,
 } from "@phosphor-icons/react"
 
 import {
@@ -906,6 +908,27 @@ type DocsFilterOption = {
   key: DocsFilterKey
   value: string
   label: string
+  group: string
+}
+
+const DOCS_FILTER_GROUP_ORDER = [
+  "Kind",
+  "Team space",
+  "Created by",
+  "Updated by",
+  "Linked projects",
+  "Linked work items",
+] as const
+
+const DOCS_CHIP_BASE =
+  "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+const DOCS_CHIP_DEFAULT =
+  "border-line bg-surface text-fg-2 hover:text-foreground hover:bg-surface-3"
+const DOCS_CHIP_SELECTED =
+  "border-transparent bg-surface-3 text-foreground shadow-none hover:bg-surface-3"
+
+function getDocsChipClassName(selected = false) {
+  return cn(DOCS_CHIP_BASE, selected ? DOCS_CHIP_SELECTED : DOCS_CHIP_DEFAULT)
 }
 
 function getDocsRouteKey(scopeType: "team" | "workspace", team?: Team | null) {
@@ -1159,6 +1182,7 @@ function buildDocsFilterOptions(
       key: "documentKinds" as const,
       value: document.kind,
       label: DOC_KIND_LABEL[document.kind],
+      group: "Kind",
     })),
     ...documents.flatMap((document) =>
       document.teamId
@@ -1167,6 +1191,7 @@ function buildDocsFilterOptions(
               key: "teamIds" as const,
               value: document.teamId,
               label: getTeam(data, document.teamId)?.name ?? "Team",
+              group: "Team space",
             },
           ]
         : []
@@ -1175,17 +1200,20 @@ function buildDocsFilterOptions(
       key: "creatorIds" as const,
       value: document.createdBy,
       label: getUser(data, document.createdBy)?.name ?? "Unknown",
+      group: "Created by",
     })),
     ...documents.map((document) => ({
       key: "updatedByIds" as const,
       value: document.updatedBy,
       label: getUser(data, document.updatedBy)?.name ?? "Unknown",
+      group: "Updated by",
     })),
     ...documents.flatMap((document) =>
       document.linkedProjectIds.map((projectId) => ({
         key: "projectIds" as const,
         value: projectId,
         label: getProject(data, projectId)?.name ?? "Project",
+        group: "Linked projects",
       }))
     ),
     ...documents.flatMap((document) =>
@@ -1193,9 +1221,17 @@ function buildDocsFilterOptions(
         key: "linkedWorkItemIds" as const,
         value: itemId,
         label: getWorkItem(data, itemId)?.title ?? "Work item",
+        group: "Linked work items",
       }))
     ),
   ])
+}
+
+function groupDocsFilterOptions(options: DocsFilterOption[]) {
+  return DOCS_FILTER_GROUP_ORDER.map((group) => ({
+    group,
+    options: options.filter((option) => option.group === group),
+  })).filter((section) => section.options.length > 0)
 }
 
 function getDocsFilterValues(view: ViewDefinition, key: DocsFilterKey) {
@@ -1275,7 +1311,7 @@ function ProjectIconTile({ project }: { project: Project }) {
       className="grid size-8 shrink-0 place-items-center rounded-md"
       style={{
         background: `color-mix(in oklch, ${accent} 14%, var(--surface-2))`,
-        color: accent,
+        color: "var(--foreground)",
       }}
     >
       {project.icon ? (
@@ -1524,7 +1560,7 @@ function ProjectCard({ data, project, displayProps }: ProjectPreviewProps) {
               className="grid size-9 shrink-0 place-items-center rounded-lg text-[14px] font-semibold"
               style={{
                 background: `color-mix(in oklch, ${preview.accent} 24%, var(--surface))`,
-                color: preview.accent,
+                color: "var(--foreground)",
                 border: `1px solid color-mix(in oklch, ${preview.accent} 35%, transparent)`,
               }}
             >
@@ -2277,7 +2313,7 @@ function ViewsDirectoryViewbar({
   subGrouping: ViewsDirectoryGroupField
 }) {
   return (
-    <Viewbar>
+    <Viewbar className="border-b-0">
       <ViewsDirectoryLayoutTabs
         layout={layout}
         onLayoutChange={(nextLayout) => onUpdateConfig({ layout: nextLayout })}
@@ -2364,42 +2400,6 @@ function ViewsDirectoryViewbar({
   )
 }
 
-function DocsLayoutToggle({
-  layout,
-  onLayoutChange,
-}: {
-  layout: "list" | "board"
-  onLayoutChange: (layout: "list" | "board") => void
-}) {
-  return (
-    <div className="flex items-center rounded-md border border-line bg-surface p-0.5">
-      {[
-        { value: "list" as const, label: "List", icon: Rows },
-        { value: "board" as const, label: "Board", icon: SquaresFour },
-      ].map((option) => {
-        const Icon = option.icon
-
-        return (
-          <button
-            key={option.value}
-            type="button"
-            className={cn(
-              "inline-flex h-6 items-center gap-1.5 rounded px-2 text-[12px] transition-colors",
-              layout === option.value
-                ? "bg-background text-foreground shadow-sm"
-                : "text-fg-3 hover:text-foreground"
-            )}
-            onClick={() => onLayoutChange(option.value)}
-          >
-            <Icon className="size-3.5" />
-            {option.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 function DocsFilterPopover({
   data,
   documents,
@@ -2412,6 +2412,7 @@ function DocsFilterPopover({
   view: ViewDefinition
 }) {
   const options = buildDocsFilterOptions(data, documents)
+  const optionGroups = groupDocsFilterOptions(options)
   const count = getDocsFilterCount(view)
 
   function toggleFilter(option: DocsFilterOption) {
@@ -2432,17 +2433,9 @@ function DocsFilterPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors",
-            count > 0
-              ? "border-accent-fg/25 bg-accent-bg text-accent-fg"
-              : "border-line bg-surface text-fg-2 hover:bg-surface-3 hover:text-foreground"
-          )}
-        >
+        <button type="button" className={getDocsChipClassName(count > 0)}>
           <FunnelSimple className="size-3.5" />
-          Filters
+          Filter
           {count > 0 ? (
             <span className="rounded-full bg-background/60 px-1 text-[10px]">
               {count}
@@ -2455,31 +2448,36 @@ function DocsFilterPopover({
         className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
       >
         <PropertyPopoverList>
-          {options.length > 0 ? (
+          {optionGroups.length > 0 ? (
             <>
-              <PropertyPopoverGroup>Document fields</PropertyPopoverGroup>
-              {options.map((option) => {
-                const selected = getDocsFilterValues(view, option.key).includes(
-                  option.value
-                )
+              {optionGroups.map((group) => (
+                <div key={group.group} className="contents">
+                  <PropertyPopoverGroup>{group.group}</PropertyPopoverGroup>
+                  {group.options.map((option) => {
+                    const selected = getDocsFilterValues(
+                      view,
+                      option.key
+                    ).includes(option.value)
 
-                return (
-                  <PropertyPopoverItem
-                    key={`${option.key}:${option.value}`}
-                    selected={selected}
-                    onClick={() => toggleFilter(option)}
-                    trailing={
-                      selected ? (
-                        <Check className="size-3.5 text-accent-fg" />
-                      ) : null
-                    }
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {option.label}
-                    </span>
-                  </PropertyPopoverItem>
-                )
-              })}
+                    return (
+                      <PropertyPopoverItem
+                        key={`${option.key}:${option.value}`}
+                        selected={selected}
+                        onClick={() => toggleFilter(option)}
+                        trailing={
+                          selected ? (
+                            <Check className="size-3.5 text-accent-fg" />
+                          ) : null
+                        }
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          {option.label}
+                        </span>
+                      </PropertyPopoverItem>
+                    )
+                  })}
+                </div>
+              ))}
             </>
           ) : (
             <PropertyPopoverItem muted className="pointer-events-none">
@@ -2520,15 +2518,13 @@ function DocsGroupPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-[12px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
-        >
-          <Stack className="size-3.5" />
+        <button type="button" className={getDocsChipClassName()}>
+          <TreeStructure className="size-3.5" />
           Group
           <span className="font-medium text-foreground">
-            {getGroupFieldOptionLabel(view.grouping)}
+            · {getGroupFieldOptionLabel(view.grouping)}
           </span>
+          <CaretDown className="size-3 opacity-70" />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -2577,15 +2573,10 @@ function DocsSortPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-[12px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
-        >
+        <button type="button" className={getDocsChipClassName()}>
           <SortAscending className="size-3.5" />
-          Sort
-          <span className="font-medium text-foreground">
-            {DOCS_ORDERING_LABEL[view.ordering]}
-          </span>
+          <span>{DOCS_ORDERING_LABEL[view.ordering]}</span>
+          <CaretDown className="size-3 opacity-70" />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -2660,23 +2651,26 @@ function DocsViewTabs({
 
   return (
     <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
-      {views.map((view) => (
-        <ViewContextMenu key={view.id} view={view}>
-          <button
-            type="button"
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs leading-[1.15] transition-colors",
-              activeView?.id === view.id
-                ? "border border-line bg-surface text-foreground shadow-[0_1px_0_0_oklch(0.18_0_0/0.04)]"
-                : "text-fg-2 hover:bg-surface-3 hover:text-foreground"
-            )}
-            onClick={() => selectView(view.id)}
-          >
-            <FileText className="size-3.5" />
-            <span className="truncate">{view.name}</span>
-          </button>
-        </ViewContextMenu>
-      ))}
+      {views.map((view) => {
+        const button = (
+          <ProjectViewTabButton
+            key={view.id}
+            active={activeView?.id === view.id}
+            onSelect={() => selectView(view.id)}
+            view={view}
+          />
+        )
+
+        if (isSystemView(view)) {
+          return button
+        }
+
+        return (
+          <ViewContextMenu key={view.id} view={view}>
+            {button}
+          </ViewContextMenu>
+        )
+      })}
       {editable ? (
         <IconButton
           aria-label="Create document view"
@@ -2714,8 +2708,12 @@ function DocsTaskbar({
   }
 
   return (
-    <Viewbar className="gap-2 overflow-x-auto">
-      <DocsLayoutToggle layout={layout} onLayoutChange={onLayoutChange} />
+    <Viewbar className="gap-2 overflow-x-auto border-b-0">
+      <ViewsDirectoryLayoutTabs
+        layout={layout}
+        onLayoutChange={onLayoutChange}
+      />
+      <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
       <DocsFilterPopover
         data={data}
         documents={documents}
@@ -2726,7 +2724,6 @@ function DocsTaskbar({
       <DocsSortPopover routeKey={routeKey} view={activeView} />
       <PropertiesChipPopover
         view={activeView}
-        tone="default"
         propertyOptions={DOCS_DISPLAY_PROPERTY_OPTIONS}
         getPropertyLabel={(property) =>
           DOCS_DISPLAY_PROPERTY_LABEL[property] ?? "Property"
@@ -2999,7 +2996,7 @@ function ProjectsViewbar({
   view: ViewDefinition
 }) {
   return (
-    <Viewbar>
+    <Viewbar className="border-b-0">
       <ProjectLayoutTabs view={view} onUpdateView={handlers.onUpdateView} />
       <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
       <ProjectFilterPopover

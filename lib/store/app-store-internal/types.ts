@@ -74,6 +74,7 @@ export type CreateWorkItemInput = CreateStoreWorkItemInput
 
 export type CreateCustomPropertyInput = {
   teamId: string
+  scopeType?: "team" | "private"
   name: string
   icon: string
   type: CustomPropertyType
@@ -230,6 +231,7 @@ export type ViewFilterValueKey =
   | "itemTypes"
   | "labelIds"
   | "teamIds"
+  | "visibility"
 
 export type PendingViewConfig = {
   token: string
@@ -342,7 +344,8 @@ export type AppStore = AppData & {
   clearViewFilters: (viewId: string) => void
   createLabel: (
     name: string,
-    workspaceId?: string | null
+    workspaceId?: string | null,
+    options?: { scopeType?: "workspace" | "private" }
   ) => Promise<Label | null>
   updateWorkItem: (
     itemId: string,

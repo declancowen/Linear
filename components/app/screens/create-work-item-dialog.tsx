@@ -37,9 +37,10 @@ import {
   type UserProfile,
   type WorkItem,
   type WorkItemType,
+  type WorkItemVisibility,
   type WorkStatus,
 } from "@/lib/domain/types"
-import { sortLabelsByName } from "@/lib/domain/labels"
+import { getLabelScopeType, sortLabelsByName } from "@/lib/domain/labels"
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
 import {
@@ -91,6 +92,7 @@ import {
   propertyChipTriggerDashedClass as chipTriggerDashedClass,
   propertyCrumbTriggerClass as crumbTriggerClass,
 } from "@/components/app/screens/property-chips"
+import { LabelColorDot } from "@/components/app/screens/shared"
 import { cn } from "@/lib/utils"
 import { TeamSpaceCrumbPicker } from "./team-space-crumb-picker"
 import { useWorkItemCorePickerState } from "./work-item-picker-state"
@@ -371,7 +373,9 @@ function ParentPicker({
   onParentChange: (parentId: string) => void
 }) {
   const matches = parentOptions.filter(
-    (item) => matchesPropertyQuery(item.key, query) || matchesPropertyQuery(item.title, query)
+    (item) =>
+      matchesPropertyQuery(item.key, query) ||
+      matchesPropertyQuery(item.title, query)
   )
 
   return (
@@ -507,11 +511,7 @@ function LabelOptionItem({
         selected ? <Check className="size-[14px] text-foreground" /> : null
       }
     >
-      <span
-        aria-hidden
-        className="inline-block size-2 shrink-0 rounded-full"
-        style={{ background: label.color }}
-      />
+      <LabelColorDot color={label.color} className="size-2" />
       <span className="truncate">{label.name}</span>
     </PropertyPopoverItem>
   )
@@ -999,6 +999,7 @@ type CreateWorkItemDefaultValues = Partial<{
   primaryProjectId: string | null
   parentId: string | null
   labelIds: string[]
+  visibility: WorkItemVisibility
   startDate: string | null
   dueDate: string | null
   targetDate: string | null
@@ -1014,6 +1015,8 @@ type InitialCreateWorkItemState = {
 }
 
 type WorkSurfaceCopy = ReturnType<typeof getWorkSurfaceCopy>
+
+const PRIVATE_TASK_ITEM_TYPES: WorkItemType[] = ["task", "sub-task"]
 
 function hasItems(items: readonly unknown[]) {
   return items.length > 0
@@ -1186,6 +1189,7 @@ function getInitialCreateWorkItemState({
   defaultProjectId,
   defaultValues,
   teamMemberships,
+  privateTaskMode,
 }: {
   filteredTeams: Team[]
   defaultTeamId: string | null | undefined
@@ -1194,6 +1198,7 @@ function getInitialCreateWorkItemState({
   defaultProjectId: string | null | undefined
   defaultValues: CreateWorkItemDefaultValues | undefined
   teamMemberships: TeamMembership[]
+  privateTaskMode: boolean
 }): InitialCreateWorkItemState {
   const teamId = getInitialTeamId(filteredTeams, defaultTeamId)
   const team = getTeamById(filteredTeams, teamId)
@@ -1202,7 +1207,7 @@ function getInitialCreateWorkItemState({
 
   return {
     teamId,
-    type: getInitialWorkItemType(initialType, team),
+    type: privateTaskMode ? "task" : getInitialWorkItemType(initialType, team),
     status: getInitialStatus(defaultValues, statuses),
     priority: defaultValues?.priority ?? "none",
     assigneeId: getInitialAssigneeId(defaultValues, teamMemberships, teamId),
@@ -1214,10 +1219,35 @@ function getInitialCreateWorkItemState({
   }
 }
 
-function getLabelsForTeam(labels: Label[], team: Team | null) {
-  return team
-    ? labels.filter((label) => label.workspaceId === team.workspaceId)
-    : []
+function getLabelsForTeam({
+  currentUserId,
+  labels,
+  team,
+  visibility,
+}: {
+  currentUserId: string
+  labels: Label[]
+  team: Team | null
+  visibility: WorkItemVisibility
+}) {
+  if (!team) {
+    return []
+  }
+
+  return labels.filter((label) => {
+    if (label.workspaceId !== team.workspaceId) {
+      return false
+    }
+
+    if (visibility === "private") {
+      return (
+        getLabelScopeType(label) === "private" &&
+        label.ownerId === currentUserId
+      )
+    }
+
+    return getLabelScopeType(label) === "workspace"
+  })
 }
 
 function getTeamMembers(
@@ -1628,6 +1658,7 @@ function createWorkItemFromDialogState({
   startDate,
   dueDate,
   targetDate,
+  visibility,
   normalizedDescription,
   onOpenChange,
 }: {
@@ -1644,6 +1675,7 @@ function createWorkItemFromDialogState({
   startDate: string | null
   dueDate: string | null
   targetDate: string | null
+  visibility?: WorkItemVisibility
   normalizedDescription: string
   onOpenChange: (open: boolean) => void
 }) {
@@ -1659,6 +1691,7 @@ function createWorkItemFromDialogState({
     priority,
     status,
     labelIds: selectedLabelIds,
+    visibility,
     assigneeId: effectiveAssigneeId === "none" ? null : effectiveAssigneeId,
     primaryProjectId: effectiveProjectId === "none" ? null : effectiveProjectId,
     startDate,
@@ -1700,19 +1733,31 @@ export function CreateWorkItemDialog({
   const availableTeams = useAppStore(
     useShallow((state) => getEditableTeamsForFeature(state, "issues"))
   )
-  const { allLabels, projects, teamMemberships, users, workItems } =
-    useAppStore(
-      useShallow((state) => ({
-        allLabels: state.labels,
-        projects: state.projects,
-        teamMemberships: state.teamMemberships,
-        users: state.users,
-        workItems: state.workItems,
-      }))
-    )
+  const {
+    allLabels,
+    currentUserId,
+    projects,
+    teamMemberships,
+    users,
+    workItems,
+  } = useAppStore(
+    useShallow((state) => ({
+      allLabels: state.labels,
+      currentUserId: state.currentUserId,
+      projects: state.projects,
+      teamMemberships: state.teamMemberships,
+      users: state.users,
+      workItems: state.workItems,
+    }))
+  )
+  const privateTaskMode = defaultValues?.visibility === "private"
+  const visibility = defaultValues?.visibility ?? "team"
   const filteredTeams = useMemo(
-    () => getFilteredTeamsForInitialType(availableTeams, initialType),
-    [availableTeams, initialType]
+    () =>
+      privateTaskMode
+        ? availableTeams
+        : getFilteredTeamsForInitialType(availableTeams, initialType),
+    [availableTeams, initialType, privateTaskMode]
   )
   const initialState = useMemo(
     () =>
@@ -1724,6 +1769,7 @@ export function CreateWorkItemDialog({
         defaultProjectId,
         defaultValues,
         teamMemberships,
+        privateTaskMode,
       }),
     [
       defaultProjectId,
@@ -1731,6 +1777,7 @@ export function CreateWorkItemDialog({
       defaultValues,
       filteredTeams,
       initialType,
+      privateTaskMode,
       projects,
       teamMemberships,
     ]
@@ -1768,8 +1815,14 @@ export function CreateWorkItemDialog({
     [filteredTeams, selectedTeamId]
   )
   const labels = useMemo(
-    () => getLabelsForTeam(allLabels, team),
-    [allLabels, team]
+    () =>
+      getLabelsForTeam({
+        currentUserId,
+        labels: allLabels,
+        team,
+        visibility,
+      }),
+    [allLabels, currentUserId, team, visibility]
   )
   const teamMembers = useMemo(
     () => getTeamMembers(users, teamMemberships, selectedTeamId),
@@ -1779,10 +1832,7 @@ export function CreateWorkItemDialog({
     () => getProjectsForTeamCreateScope(projects, team),
     [projects, team]
   )
-  const availableLabels = useMemo(
-    () => sortLabelsByName(labels),
-    [labels]
-  )
+  const availableLabels = useMemo(() => sortLabelsByName(labels), [labels])
   const [type, setType] = useState<WorkItemType>(initialState.type)
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
@@ -1811,8 +1861,9 @@ export function CreateWorkItemDialog({
   const workCopy = getWorkCopyForTeam(team)
   const teamStatuses = getStatusOrderForTeam(team)
   const activeTemplateType = getActiveTemplateType(selectedProject, team)
-  const availableItemTypes =
-    getAllowedWorkItemTypesForTemplate(activeTemplateType)
+  const availableItemTypes = privateTaskMode
+    ? PRIVATE_TASK_ITEM_TYPES
+    : getAllowedWorkItemTypesForTemplate(activeTemplateType)
   const selectedType = getSelectedWorkItemType(availableItemTypes, type)
   const scopedProjectId = projectId === "none" ? null : projectId
   const parentOptions = getParentOptionsForCreate({
@@ -1882,6 +1933,7 @@ export function CreateWorkItemDialog({
       newLabelName,
       creatingLabel,
       canSubmit: labelNameLimitState.canSubmit,
+      scopeType: privateTaskMode ? "private" : "workspace",
       workspaceId: getTeamWorkspaceId(team),
       setCreatingLabel,
       setNewLabelName,
@@ -1904,6 +1956,7 @@ export function CreateWorkItemDialog({
       startDate,
       dueDate,
       targetDate,
+      visibility,
       normalizedDescription,
       onOpenChange,
     })

@@ -52,7 +52,7 @@ import {
 import {
   assertScheduleDate,
   assertTargetDateOnOrAfterStartDate,
-  assertWorkspaceLabelIds,
+  assertWorkItemLabelIds,
   collectWorkItemCascadeIds,
   getResolvedProjectLinkForWorkItemUpdate,
   projectBelongsToTeamScope,
@@ -513,11 +513,18 @@ async function assertWorkItemAssigneePatchAllowed(
 
 async function assertWorkItemLabelPatchAllowed(
   ctx: MutationCtx,
+  currentUserId: string,
+  existing: WorkItemDoc,
   team: TeamDoc,
   patch: WorkItemPatch
 ) {
   if (patch.labelIds !== undefined) {
-    await assertWorkspaceLabelIds(ctx, team.workspaceId, patch.labelIds)
+    await assertWorkItemLabelIds(ctx, {
+      currentUserId,
+      labelIds: patch.labelIds,
+      visibility: existing.visibility,
+      workspaceId: team.workspaceId,
+    })
   }
 }
 
@@ -665,7 +672,13 @@ export async function updateWorkItemHandler(
   })
 
   await assertWorkItemAssigneePatchAllowed(ctx, existing, args.patch)
-  await assertWorkItemLabelPatchAllowed(ctx, team, args.patch)
+  await assertWorkItemLabelPatchAllowed(
+    ctx,
+    args.currentUserId,
+    existing,
+    team,
+    args.patch
+  )
   await assertProjectLinkPatchAllowed(ctx, {
     team,
     teamItems,
@@ -1173,7 +1186,22 @@ async function assertCreateWorkItemLabels(
   args: CreateWorkItemArgs
 ) {
   if (args.labelIds !== undefined) {
-    await assertWorkspaceLabelIds(ctx, team.workspaceId, args.labelIds)
+    await assertWorkItemLabelIds(ctx, {
+      currentUserId: args.currentUserId,
+      labelIds: args.labelIds,
+      visibility: args.visibility,
+      workspaceId: team.workspaceId,
+    })
+  }
+}
+
+function assertCreateWorkItemVisibility(args: CreateWorkItemArgs) {
+  if (
+    args.visibility === "private" &&
+    args.type !== "task" &&
+    args.type !== "sub-task"
+  ) {
+    throw new Error("Private tasks can only use task and sub-task types")
   }
 }
 
@@ -1335,6 +1363,7 @@ function buildCreatedWorkItem({
     linkedProjectIds: [],
     linkedDocumentIds: [],
     labelIds: args.labelIds ?? [],
+    visibility: args.visibility ?? "team",
     milestoneId: null,
     startDate: args.startDate ?? formatLocalCalendarDate(),
     dueDate: args.dueDate ?? addLocalCalendarDays(7),
@@ -1408,6 +1437,7 @@ export async function createWorkItemHandler(
 
   assertCreateWorkItemSchedule(args)
   assertTeamSupportsWorkItems(normalizedTeam)
+  assertCreateWorkItemVisibility(args)
   await assertCreateWorkItemAssignee(ctx, args)
   await assertCreateWorkItemLabels(ctx, team, args)
   const parent = await resolveCreateWorkItemParent(ctx, args)

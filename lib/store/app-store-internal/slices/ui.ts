@@ -67,6 +67,7 @@ const FILTER_KEYS: ViewFilterValueKey[] = [
   "itemTypes",
   "labelIds",
   "teamIds",
+  "visibility",
 ]
 
 type RuntimeViewConfigPatch = PendingViewConfig["patch"] & {

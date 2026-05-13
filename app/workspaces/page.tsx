@@ -74,6 +74,7 @@ export default async function WorkspacesPage({
         id: workspace.id,
         name: workspace.name,
         logoUrl: workspace.logoUrl,
+        logoImageUrl: workspace.logoImageUrl,
       }))}
     />
   )

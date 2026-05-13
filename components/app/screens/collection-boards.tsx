@@ -208,7 +208,7 @@ function ProjectBoardCardHeader({
         className="grid size-8 shrink-0 place-items-center rounded-md text-[15px]"
         style={{
           background: `color-mix(in oklch, ${tint} 22%, transparent)`,
-          color: tint,
+          color: "var(--foreground)",
         }}
       >
         {project.icon ? (

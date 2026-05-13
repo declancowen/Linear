@@ -45,6 +45,12 @@ export const workItemTypes = [
 ] as const
 export type WorkItemType = (typeof workItemTypes)[number]
 
+export const workItemVisibilities = ["team", "private"] as const
+export type WorkItemVisibility = (typeof workItemVisibilities)[number]
+
+export const labelScopeTypes = ["workspace", "private"] as const
+export type LabelScopeType = (typeof labelScopeTypes)[number]
+
 export type LegacyWorkItemType = "bug"
 export type StoredWorkItemType = WorkItemType | LegacyWorkItemType
 
@@ -270,6 +276,9 @@ export const customPropertyTargetTypes = ["workItem"] as const
 export type CustomPropertyTargetType =
   (typeof customPropertyTargetTypes)[number]
 
+export const customPropertyScopeTypes = ["team", "private"] as const
+export type CustomPropertyScopeType = (typeof customPropertyScopeTypes)[number]
+
 export const customPropertyTypes = [
   "text",
   "integer",
@@ -338,6 +347,7 @@ export type ViewFilters = {
   itemTypes: WorkItemType[]
   labelIds: string[]
   teamIds: string[]
+  visibility?: WorkItemVisibility[]
   showCompleted: boolean
 }
 
@@ -351,7 +361,7 @@ export interface ProjectPresentationConfig {
   filters: ViewFilters
 }
 
-export function createDefaultViewFilters(): ViewFilters {
+function createEmptyViewFilterSelections() {
   return {
     status: [],
     priority: [],
@@ -369,6 +379,13 @@ export function createDefaultViewFilters(): ViewFilters {
     itemTypes: [],
     labelIds: [],
     teamIds: [],
+    visibility: [],
+  }
+}
+
+export function createDefaultViewFilters(): ViewFilters {
+  return {
+    ...createEmptyViewFilterSelections(),
     showCompleted: true,
   }
 }
@@ -376,22 +393,7 @@ export function createDefaultViewFilters(): ViewFilters {
 export function clearViewFilterSelections(filters: ViewFilters): ViewFilters {
   return {
     ...filters,
-    status: [],
-    priority: [],
-    assigneeIds: [],
-    creatorIds: [],
-    updatedByIds: [],
-    documentKinds: [],
-    linkedWorkItemIds: [],
-    leadIds: [],
-    health: [],
-    milestoneIds: [],
-    relationTypes: [],
-    projectIds: [],
-    parentIds: [],
-    itemTypes: [],
-    labelIds: [],
-    teamIds: [],
+    ...createEmptyViewFilterSelections(),
   }
 }
 
@@ -420,6 +422,7 @@ export function cloneViewFilters(
     itemTypes: [...filters.itemTypes],
     labelIds: [...filters.labelIds],
     teamIds: [...filters.teamIds],
+    visibility: [...(filters.visibility ?? [])],
   }
 }
 

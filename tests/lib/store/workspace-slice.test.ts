@@ -53,14 +53,10 @@ function createWorkspaceSliceHarness(
   const refreshFromServerMock = vi.fn()
   const syncInBackgroundMock = vi.fn()
   const setState = createMutableSetState(state)
-  const slice = createWorkspaceSlice(
-    setState as never,
-    () => state as never,
-    {
-      refreshFromServer: refreshFromServerMock,
-      syncInBackground: syncInBackgroundMock,
-    } as never
-  )
+  const slice = createWorkspaceSlice(setState as never, () => state as never, {
+    refreshFromServer: refreshFromServerMock,
+    syncInBackground: syncInBackgroundMock,
+  } as never)
 
   return {
     refreshFromServerMock,
@@ -190,6 +186,31 @@ describe("workspace slice", () => {
       experience: "software-development",
       features: createDefaultTeamFeatureSettings("software-development"),
     })
+  })
+
+  it("keeps the canonical saved Phosphor team icon after details sync", async () => {
+    const { createWorkspaceSlice } =
+      await import("@/lib/store/app-store-internal/slices/workspace")
+
+    const { slice, state } = createWorkspaceSliceHarness(createWorkspaceSlice)
+
+    syncUpdateTeamDetailsMock.mockResolvedValue({
+      ok: true,
+      teamId: "team_1",
+      icon: "RocketLaunch",
+    })
+
+    await expect(
+      slice.updateTeamDetails("team_1", {
+        name: "Platform",
+        icon: "RocketLaunch",
+        summary: "Platform team",
+        experience: "software-development",
+        features: createDefaultTeamFeatureSettings("software-development"),
+      })
+    ).resolves.toBe(true)
+
+    expect(state.teams[0].icon).toBe("RocketLaunch")
   })
 
   it("accepts an empty workspace description when updating branding", async () => {

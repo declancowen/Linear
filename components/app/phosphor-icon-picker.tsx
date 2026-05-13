@@ -1,7 +1,7 @@
 "use client"
 
 import * as PhosphorIcons from "@phosphor-icons/react"
-import { CaretDown, Check, MagnifyingGlass } from "@phosphor-icons/react"
+import { CaretDown, MagnifyingGlass } from "@phosphor-icons/react"
 import { createElement, useState, type ComponentType } from "react"
 
 import {
@@ -17,8 +17,6 @@ import {
 } from "@/components/ui/popover"
 import {
   PROPERTY_POPOVER_CLASS,
-  PropertyPopoverItem,
-  PropertyPopoverList,
   PropertyPopoverSearch,
 } from "@/components/ui/template-primitives"
 type IconComponent = ComponentType<{
@@ -61,11 +59,13 @@ export function PhosphorIconPicker({
   onValueChange,
   className,
   triggerClassName,
+  disabled = false,
 }: {
   value: string
   onValueChange: (value: PhosphorIconName) => void
   className?: string
   triggerClassName?: string
+  disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -87,8 +87,9 @@ export function PhosphorIconPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
+          disabled={disabled}
           className={cn(
-            "inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-[12px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground",
+            "inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-[12px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface disabled:hover:text-fg-2",
             triggerClassName
           )}
         >
@@ -107,33 +108,33 @@ export function PhosphorIconPicker({
           value={query}
           onChange={setQuery}
         />
-        <PropertyPopoverList>
+        <div className="grid max-h-[260px] grid-cols-8 gap-1 overflow-y-auto p-1">
           {filteredOptions.map((icon) => {
             const Icon = getIconComponent(icon)
             const isSelected = icon === selected
 
             return (
-              <PropertyPopoverItem
+              <button
                 key={icon}
-                selected={isSelected}
+                type="button"
+                aria-label={getIconLabel(icon)}
+                title={getIconLabel(icon)}
+                className={cn(
+                  "relative grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+                  isSelected && "bg-surface-3 text-foreground"
+                )}
                 onClick={() => {
                   onValueChange(icon)
                   setOpen(false)
                 }}
-                trailing={
-                  isSelected ? (
-                    <Check className="size-[14px] text-foreground" />
-                  ) : null
-                }
               >
                 {createElement(Icon, {
-                  className: "size-[14px] shrink-0 text-fg-3",
+                  className: "size-[15px] shrink-0",
                 })}
-                <span>{getIconLabel(icon)}</span>
-              </PropertyPopoverItem>
+              </button>
             )
           })}
-        </PropertyPopoverList>
+        </div>
       </PopoverContent>
     </Popover>
   )

@@ -36,12 +36,14 @@ import {
 import {
   attachmentTargetTypes,
   commentTargetTypes,
+  customPropertyScopeTypes,
   customPropertyTargetTypes,
   customPropertyTypes,
   displayProperties,
   entityKinds,
   viewContainerTypes,
   groupFields,
+  labelScopeTypes,
   orderingFields,
   priorities,
   projectNameMaxLength,
@@ -51,7 +53,6 @@ import {
   roles,
   scopeTypes,
   teamExperienceTypes,
-  teamIconTokens,
   themePreferences,
   userStatuses,
   viewLayouts,
@@ -59,10 +60,14 @@ import {
   viewNameMaxLength,
   viewNameMinLength,
   workItemTypes,
+  workItemVisibilities,
   workStatuses,
   type DisplayProperty,
 } from "./primitives"
-import { getTeamFeatureValidationMessage } from "./work"
+import {
+  getTeamFeatureValidationMessage,
+  isValidTeamIconInputValue,
+} from "./work"
 
 function boundedTrimmedStringSchema(constraint: {
   min?: number
@@ -101,6 +106,15 @@ function boundedTrimmedStringSchema(constraint: {
   return schema
 }
 
+const teamIconSchema = z
+  .string()
+  .trim()
+  .min(1, "Select an icon")
+  .max(80, "Select an icon")
+  .refine(isValidTeamIconInputValue, {
+    message: "Select a supported icon",
+  })
+
 function boundedRichTextPlainTextSchema(constraint: {
   min?: number
   max: number
@@ -138,6 +152,7 @@ export const nullableCalendarDateSchema = z
 
 export const labelCreateSchema = z.object({
   workspaceId: z.string().trim().min(1).optional(),
+  scopeType: z.enum(labelScopeTypes).optional(),
   name: boundedTrimmedStringSchema(labelNameConstraints),
   color: z.string().trim().min(1).max(24).optional(),
 })
@@ -173,7 +188,7 @@ export const workspaceSetupSchema = z.object({
 export const teamDetailsSchema = z
   .object({
     name: boundedTrimmedStringSchema(teamNameConstraints),
-    icon: z.enum(teamIconTokens),
+    icon: teamIconSchema,
     summary: boundedTrimmedStringSchema(teamSummaryConstraints),
     joinCode: boundedTrimmedStringSchema(teamJoinCodeConstraints).optional(),
     experience: z.enum(teamExperienceTypes),
@@ -204,7 +219,7 @@ export const teamDetailsSchema = z
 export const teamDetailsUpdateSchema = z
   .object({
     name: boundedTrimmedStringSchema(teamNameConstraints),
-    icon: z.enum(teamIconTokens),
+    icon: teamIconSchema,
     summary: boundedTrimmedStringSchema(optionalTeamSummaryConstraints),
     joinCode: boundedTrimmedStringSchema(teamJoinCodeConstraints).optional(),
     experience: z.enum(teamExperienceTypes),
@@ -281,6 +296,7 @@ const viewFiltersSchema = z.object({
   itemTypes: z.array(z.enum(workItemTypes)),
   labelIds: z.array(z.string()),
   teamIds: z.array(z.string()),
+  visibility: z.array(z.enum(workItemVisibilities)).default([]),
   showCompleted: z.boolean(),
 })
 
@@ -394,6 +410,7 @@ export const workItemSchema = z.object({
   status: z.enum(workStatuses).optional(),
   priority: z.enum(priorities),
   labelIds: z.array(z.string()).optional(),
+  visibility: z.enum(workItemVisibilities).optional(),
   startDate: nullableCalendarDateSchema.optional(),
   dueDate: nullableCalendarDateSchema.optional(),
   targetDate: nullableCalendarDateSchema.optional(),
@@ -407,6 +424,7 @@ const customPropertyOptionSchema = z.object({
 
 const customPropertyDefinitionBaseSchema = z.object({
   teamId: z.string().trim().min(1),
+  scopeType: z.enum(customPropertyScopeTypes).optional(),
   targetType: z.enum(customPropertyTargetTypes).default("workItem"),
   name: z.string().trim().min(1).max(64),
   icon: z.string().trim().min(1).max(80),

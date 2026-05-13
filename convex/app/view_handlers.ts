@@ -10,6 +10,7 @@ import {
   isRouteAllowedForViewContext,
   isSystemView,
 } from "../../lib/domain/default-views"
+import { getCustomPropertyScopeType } from "../../lib/domain/labels"
 import { viewNameMaxLength, viewNameMinLength } from "../../lib/domain/types"
 import { assertServerToken, createId, getNow } from "./core"
 import { getCustomPropertyDefinitionDoc, getTeamDoc } from "./data"
@@ -137,6 +138,7 @@ type ViewFilterValueArgs = ServerAccessArgs & {
     | "itemTypes"
     | "labelIds"
     | "teamIds"
+    | "visibility"
   value: string
 }
 
@@ -236,6 +238,7 @@ function assertCreateViewRoute(args: CreateViewArgs, teamSlug: string | null) {
 
 async function assertCustomDisplayPropertyAllowed(
   ctx: MutationCtx,
+  currentUserId: string,
   view: {
     scopeType: "personal" | "team" | "workspace"
     scopeId: string
@@ -247,8 +250,8 @@ async function assertCustomDisplayPropertyAllowed(
     return
   }
 
-  if (view.entityKind !== "items" || view.scopeType !== "team") {
-    throw new Error("Custom properties are only available on team work views")
+  if (view.entityKind !== "items" || view.scopeType === "workspace") {
+    throw new Error("Custom properties are only available on work views")
   }
 
   const propertyId = property.slice("custom:".length)
@@ -257,8 +260,23 @@ async function assertCustomDisplayPropertyAllowed(
   if (
     !definition ||
     definition.isArchived ||
-    definition.targetType !== "workItem" ||
-    definition.teamId !== view.scopeId
+    definition.targetType !== "workItem"
+  ) {
+    throw new Error("Custom property is not available in this view scope")
+  }
+
+  if (
+    view.scopeType === "team" &&
+    (definition.teamId !== view.scopeId ||
+      getCustomPropertyScopeType(definition) !== "team")
+  ) {
+    throw new Error("Custom property is not available in this view scope")
+  }
+
+  if (
+    view.scopeType === "personal" &&
+    (getCustomPropertyScopeType(definition) !== "private" ||
+      (definition.ownerId ?? definition.createdBy) !== currentUserId)
   ) {
     throw new Error("Custom property is not available in this view scope")
   }
@@ -266,6 +284,7 @@ async function assertCustomDisplayPropertyAllowed(
 
 async function assertDisplayPropertiesAllowed(
   ctx: MutationCtx,
+  currentUserId: string,
   view: {
     scopeType: "personal" | "team" | "workspace"
     scopeId: string
@@ -275,7 +294,7 @@ async function assertDisplayPropertiesAllowed(
 ) {
   await Promise.all(
     displayProps.map((property) =>
-      assertCustomDisplayPropertyAllowed(ctx, view, property)
+      assertCustomDisplayPropertyAllowed(ctx, currentUserId, view, property)
     )
   )
 }
@@ -325,7 +344,12 @@ export async function createViewHandler(
     throw new Error("View route is not valid for the selected scope")
   }
 
-  await assertDisplayPropertiesAllowed(ctx, view, view.displayProps)
+  await assertDisplayPropertiesAllowed(
+    ctx,
+    args.currentUserId,
+    view,
+    view.displayProps
+  )
 
   await ctx.db.insert("views", view)
 
@@ -400,7 +424,12 @@ export async function toggleViewDisplayPropertyHandler(
     ? view.displayProps.filter((value: string) => value !== args.property)
     : [...view.displayProps, args.property]
 
-  await assertDisplayPropertiesAllowed(ctx, view, nextDisplayProps)
+  await assertDisplayPropertiesAllowed(
+    ctx,
+    args.currentUserId,
+    view,
+    nextDisplayProps
+  )
 
   await ctx.db.patch(view._id, {
     displayProps: nextDisplayProps,
@@ -421,7 +450,12 @@ export async function reorderViewDisplayPropertiesHandler(
 
   const nextDisplayProps = Array.from(new Set(args.displayProps))
 
-  await assertDisplayPropertiesAllowed(ctx, view, nextDisplayProps)
+  await assertDisplayPropertiesAllowed(
+    ctx,
+    args.currentUserId,
+    view,
+    nextDisplayProps
+  )
 
   await ctx.db.patch(view._id, {
     displayProps: nextDisplayProps,

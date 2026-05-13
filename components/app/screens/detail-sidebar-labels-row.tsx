@@ -35,6 +35,7 @@ export function DetailSidebarLabelsRow({
   editable: boolean
 }) {
   const {
+    availableLabels = labels,
     handleCreateLabel,
     labelNameLimitState,
     newLabelName,
@@ -97,8 +98,8 @@ export function DetailSidebarLabelsRow({
                   Labels
                 </div>
                 <div className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
-                  {labels.length > 0 ? (
-                    labels.map((label) => {
+                  {availableLabels.length > 0 ? (
+                    availableLabels.map((label) => {
                       const selected = item.labelIds.includes(label.id)
 
                       return (

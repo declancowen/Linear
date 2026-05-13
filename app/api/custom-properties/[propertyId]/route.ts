@@ -24,7 +24,7 @@ async function resolvePropertyTeamId(
   })) as AppSnapshot
 
   return (
-    snapshot.customPropertyDefinitions.find(
+    (snapshot.customPropertyDefinitions ?? []).find(
       (definition) => definition.id === propertyId
     )?.teamId ?? null
   )

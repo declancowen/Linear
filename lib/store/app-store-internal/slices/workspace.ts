@@ -85,7 +85,9 @@ function getTeamOrToast(get: AppStoreGet, teamId: string) {
 
 function getCurrentUserOrToast(get: AppStoreGet) {
   const state = get()
-  const currentUser = state.users.find((user) => user.id === state.currentUserId)
+  const currentUser = state.users.find(
+    (user) => user.id === state.currentUserId
+  )
 
   if (!currentUser) {
     toast.error("Profile not found")
@@ -302,7 +304,9 @@ export function createWorkspaceSlice(
       }
 
       try {
-        const result = requireCreatedTeamResult(await syncCreateTeam(parsed.data))
+        const result = requireCreatedTeamResult(
+          await syncCreateTeam(parsed.data)
+        )
 
         set((state) => {
           return applyCreatedTeamState(state, {
@@ -369,10 +373,7 @@ export function createWorkspaceSlice(
         const result = await syncLeaveTeam(teamId)
         set((state) => ({
           ...(result.workspaceAccessRemoved && result.workspaceId
-            ? getNextStateAfterWorkspaceRemoval(
-                state,
-                result.workspaceId
-              )
+            ? getNextStateAfterWorkspaceRemoval(state, result.workspaceId)
             : getNextStateAfterTeamRemoval(state, result.teamId ?? teamId)),
         }))
         toast.success("Left team")
@@ -540,7 +541,22 @@ export function createWorkspaceSlice(
       }))
 
       try {
-        await syncUpdateTeamDetails(teamId, parsed.data)
+        const result = await syncUpdateTeamDetails(teamId, parsed.data)
+        const savedIcon = normalizeTeamIconToken(
+          result?.icon ?? parsed.data.icon,
+          parsed.data.experience
+        )
+
+        set((state) => ({
+          teams: state.teams.map((teamEntry) =>
+            teamEntry.id === teamId
+              ? {
+                  ...teamEntry,
+                  icon: savedIcon,
+                }
+              : teamEntry
+          ),
+        }))
 
         if (shouldRefreshForNewRealtimeSurfaces) {
           try {
@@ -558,7 +574,9 @@ export function createWorkspaceSlice(
       } catch (error) {
         console.error(error)
         set((state) => ({
-          teams: state.teams.map((entry) => (entry.id === teamId ? team : entry)),
+          teams: state.teams.map((entry) =>
+            entry.id === teamId ? team : entry
+          ),
         }))
         void runtime.refreshFromServer().catch((refreshError) => {
           console.error(

@@ -238,6 +238,7 @@ vi.mock("@phosphor-icons/react", () => ({
   Tag: () => null,
   Target: () => null,
   Trash: () => null,
+  TreeStructure: () => null,
   UsersThree: () => null,
   XIcon: () => null,
 }))

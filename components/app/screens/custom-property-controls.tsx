@@ -170,10 +170,12 @@ function parseTextInputValue(
 
 export function CustomPropertyDefinitionDialog({
   open,
+  scopeType = "team",
   teamId,
   onOpenChange,
 }: {
   open: boolean
+  scopeType?: "team" | "private"
   teamId: string
   onOpenChange: (open: boolean) => void
 }) {
@@ -199,6 +201,7 @@ export function CustomPropertyDefinitionDialog({
 
     const result = await createCustomPropertyDefinition({
       teamId,
+      scopeType,
       name: name.trim(),
       icon,
       type,

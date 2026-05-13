@@ -50,6 +50,7 @@ import {
   type WorkItem,
   getCustomPropertyIdFromDisplayReference,
 } from "@/lib/domain/types"
+import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
 import { useAppStore } from "@/lib/store/app-store"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { StatusRing } from "@/components/ui/template-primitives"
@@ -817,8 +818,11 @@ function renderWorkItemDisplayProperty(
     const definition = context.data.customPropertyDefinitions.find(
       (entry) =>
         entry.id === customPropertyId &&
-        !entry.isArchived &&
-        entry.teamId === context.item.teamId
+        isCustomPropertyDefinitionForWorkItem(
+          entry,
+          context.item,
+          context.data.currentUserId
+        )
     )
 
     if (!definition) {
@@ -2078,13 +2082,17 @@ function BoardCardBody({
         />
         <div className="pointer-events-none relative z-10 flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            {idProperty ? <div className="mb-1">{idProperty}</div> : null}
+            {idProperty || subCount > 0 ? (
+              <div className="mb-1 flex items-center gap-1.5">
+                {idProperty}
+                <WorkItemChildCount count={subCount} />
+              </div>
+            ) : null}
             <div className="min-w-0">
               <div className="flex min-w-0 items-start gap-1.5">
-                <div className="min-w-0 text-[13.5px] leading-[1.4] font-medium text-foreground">
+                <div className="min-w-0 text-[13px] leading-[1.35] font-medium text-foreground">
                   {item.title}
                 </div>
-                <WorkItemChildCount count={subCount} className="pt-0.5" />
               </div>
             </div>
           </div>

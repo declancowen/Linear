@@ -9,6 +9,7 @@ import {
   syncUpdateCustomPropertyDefinition,
 } from "@/lib/convex/client"
 import { customPropertyDefinitionSchema } from "@/lib/domain/types"
+import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
 
 import { createId, getNow } from "../helpers"
 import { createStoreRuntime } from "../runtime"
@@ -49,6 +50,7 @@ export function createCustomPropertySlice(
 
       const state = get()
       const team = state.teams.find((entry) => entry.id === parsed.data.teamId)
+      const scopeType = parsed.data.scopeType ?? "team"
 
       if (!team) {
         toast.error("Team not found")
@@ -64,6 +66,9 @@ export function createCustomPropertySlice(
         (definition) =>
           !definition.isArchived &&
           definition.teamId === team.id &&
+          (definition.scopeType ?? "team") === scopeType &&
+          (definition.ownerId ?? null) ===
+            (scopeType === "private" ? state.currentUserId : null) &&
           definition.name.trim().toLowerCase() ===
             parsed.data.name.trim().toLowerCase()
       )
@@ -78,6 +83,8 @@ export function createCustomPropertySlice(
         id: createId("property"),
         workspaceId: team.workspaceId,
         teamId: team.id,
+        scopeType,
+        ownerId: scopeType === "private" ? state.currentUserId : null,
         targetType: "workItem" as const,
         name: parsed.data.name.trim(),
         icon: parsed.data.icon,
@@ -199,7 +206,15 @@ export function createCustomPropertySlice(
         (entry) => entry.id === propertyId && !entry.isArchived
       )
 
-      if (!item || !definition || item.teamId !== definition.teamId) {
+      if (
+        !item ||
+        !definition ||
+        !isCustomPropertyDefinitionForWorkItem(
+          definition,
+          item,
+          state.currentUserId
+        )
+      ) {
         toast.error("Property not found")
         return
       }

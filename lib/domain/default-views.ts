@@ -397,6 +397,30 @@ export function buildAssignedWorkViews(
 
   return [
     createViewDefinition({
+      id: "view_assigned_private_tasks",
+      name: "Private tasks",
+      description: "Private task/sub-task work that only appears in My items.",
+      scopeType: "personal",
+      scopeId: input.userId,
+      entityKind: "items",
+      route: "/assigned",
+      defaultItemLevelExperience: "project-management",
+      isShared: false,
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+      overrides: {
+        layout: "board",
+        grouping: "status",
+        itemLevel: "task",
+        showChildItems: true,
+        filters: {
+          ...createDefaultViewFilters(),
+          visibility: ["private"],
+        },
+        displayProps: ["id", "status", "assignee", "priority", "dueDate"],
+      },
+    }),
+    createViewDefinition({
       id: "view_assigned_all_items",
       name: primaryViewName,
       description: "Everything assigned to you grouped by status.",
@@ -410,6 +434,10 @@ export function buildAssignedWorkViews(
       updatedAt: input.updatedAt,
       overrides: {
         showChildItems: true,
+        filters: {
+          ...createDefaultViewFilters(),
+          visibility: ["team"],
+        },
       },
     }),
     createViewDefinition({
@@ -430,6 +458,7 @@ export function buildAssignedWorkViews(
         filters: {
           ...createDefaultViewFilters(),
           status: ["todo", "in-progress"],
+          visibility: ["team"],
         },
         displayProps: ACTIVE_WORK_ITEM_DISPLAY_PROPS,
       },
@@ -451,6 +480,7 @@ export function buildAssignedWorkViews(
         filters: {
           ...createDefaultViewFilters(),
           status: ["backlog"],
+          visibility: ["team"],
         },
         grouping: "priority",
         ordering: "targetDate",
@@ -510,7 +540,7 @@ export function buildWorkspaceDocumentViews(input: {
   return [
     createViewDefinition({
       id: `view_${input.workspaceId}_private_docs`,
-      name: "Work private",
+      name: "Private docs",
       description: "Your private documents in this workspace.",
       scopeType: "personal",
       scopeId: input.userId,

@@ -5,6 +5,10 @@ import {
   type AppSnapshot,
 } from "@/lib/domain/types"
 import {
+  getCustomPropertyScopeType,
+  isCustomPropertyDefinitionVisibleToUser,
+} from "@/lib/domain/labels"
+import {
   bumpScopedReadModelVersionsServer,
   createCustomPropertyDefinitionServer,
 } from "@/lib/server/convex"
@@ -105,11 +109,19 @@ async function listCustomProperties(context: CustomPropertyListContext) {
       return accessError
     }
 
+    const definitions = snapshot.customPropertyDefinitions ?? []
+
     return jsonOk({
       ok: true,
-      properties: snapshot.customPropertyDefinitions.filter(
+      properties: definitions.filter(
         (definition) =>
-          definition.teamId === context.teamId && !definition.isArchived
+          definition.teamId === context.teamId &&
+          !definition.isArchived &&
+          getCustomPropertyScopeType(definition) === "team" &&
+          isCustomPropertyDefinitionVisibleToUser(
+            definition,
+            snapshot.currentUserId
+          )
       ),
     })
   } catch (error) {

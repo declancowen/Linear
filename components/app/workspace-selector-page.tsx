@@ -3,13 +3,15 @@
 import { useState, useTransition } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
+import { SpinnerGap } from "@phosphor-icons/react"
 
-import { cn } from "@/lib/utils"
+import { cn, resolveImageAssetSource } from "@/lib/utils"
 
 type WorkspaceSelectorWorkspace = {
   id: string
   name: string
   logoUrl?: string | null
+  logoImageUrl?: string | null
 }
 
 function WorkspaceLogo({
@@ -17,15 +19,21 @@ function WorkspaceLogo({
 }: {
   workspace: WorkspaceSelectorWorkspace
 }) {
-  if (workspace.logoUrl) {
+  const logoImageSrc = resolveImageAssetSource(
+    workspace.logoImageUrl,
+    workspace.logoUrl
+  )
+  const fallbackLogo = workspace.logoUrl?.trim() || workspace.name.charAt(0)
+
+  if (logoImageSrc) {
     return (
       <Image
         alt=""
-        src={workspace.logoUrl}
-        width={56}
-        height={56}
+        src={logoImageSrc}
+        width={32}
+        height={32}
         unoptimized
-        className="size-14 rounded-xl object-cover"
+        className="size-8 rounded-md object-cover"
       />
     )
   }
@@ -33,9 +41,9 @@ function WorkspaceLogo({
   return (
     <span
       aria-hidden
-      className="grid size-14 place-items-center rounded-xl border border-line-soft bg-surface-2 text-lg font-semibold text-foreground"
+      className="grid size-8 place-items-center rounded-md bg-surface-3 text-[11.5px] font-semibold text-fg-2"
     >
-      {workspace.name.trim().slice(0, 1).toUpperCase() || "W"}
+      {fallbackLogo.slice(0, 2).toUpperCase() || "W"}
     </span>
   )
 }
@@ -83,18 +91,24 @@ export function WorkspaceSelectorPage({
   }
 
   return (
-    <main className="min-h-screen bg-background px-6 py-10">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
+    <main className="min-h-screen bg-background px-6 py-12">
+      <div className="mx-auto flex w-full max-w-xl flex-col gap-8">
         <header className="text-center">
-          <h1 className="text-xl font-semibold tracking-tight">
+          <h1 className="text-lg font-semibold tracking-tight">
             Choose a workspace
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-[13px] text-fg-3">
             Select where you want to continue.
           </p>
         </header>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div
+          className="mx-auto grid w-full gap-2"
+          style={{
+            gridTemplateColumns: "repeat(auto-fit, minmax(108px, 1fr))",
+            maxWidth: "calc(4 * 116px + 3 * 0.5rem)",
+          }}
+        >
           {workspaces.map((workspace) => {
             const selected = pendingWorkspaceId === workspace.id
 
@@ -105,16 +119,22 @@ export function WorkspaceSelectorPage({
                 disabled={isPending}
                 aria-label={`Open ${workspace.name}`}
                 className={cn(
-                  "aspect-square rounded-xl border border-line-soft bg-surface px-4 py-5 text-center transition-colors hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-wait disabled:opacity-70",
-                  selected && "border-ring bg-surface-2"
+                  "flex aspect-square flex-col items-center justify-center gap-2 rounded-lg border border-line-soft bg-surface px-2 py-3 text-center transition-colors hover:border-line hover:bg-surface-2 focus-visible:border-line focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-wait",
+                  isPending && !selected && "opacity-50",
+                  selected && "border-line bg-surface-2"
                 )}
                 onClick={() => selectWorkspace(workspace.id)}
               >
-                <span className="flex h-full flex-col items-center justify-center gap-4">
+                {selected ? (
+                  <SpinnerGap
+                    className="size-4 animate-spin text-fg-3"
+                    aria-hidden
+                  />
+                ) : (
                   <WorkspaceLogo workspace={workspace} />
-                  <span className="line-clamp-2 text-sm font-medium text-foreground">
-                    {workspace.name}
-                  </span>
+                )}
+                <span className="line-clamp-2 text-[12px] leading-tight font-medium text-foreground">
+                  {workspace.name}
                 </span>
               </button>
             )

@@ -6,6 +6,7 @@ import type {
   ConversationScopeType,
   ConversationVariant,
   CustomPropertyOption,
+  CustomPropertyScopeType,
   CustomPropertyTargetType,
   CustomPropertyType,
   CustomPropertyValue,
@@ -14,6 +15,7 @@ import type {
   EntityKind,
   GroupField,
   HiddenState,
+  LabelScopeType,
   NotificationEntityType,
   NotificationType,
   OrderingField,
@@ -34,6 +36,7 @@ import type {
   ViewLayout,
   ViewScopeType,
   WorkItemType,
+  WorkItemVisibility,
   WorkStatus,
 } from "./primitives"
 
@@ -106,6 +109,8 @@ export interface UserProfile {
 export interface Label {
   id: string
   workspaceId: string
+  scopeType?: LabelScopeType
+  ownerId?: string | null
   name: string
   color: string
 }
@@ -138,6 +143,8 @@ export interface CustomPropertyDefinition {
   id: string
   workspaceId: string
   teamId: string
+  scopeType?: CustomPropertyScopeType
+  ownerId?: string | null
   targetType: CustomPropertyTargetType
   name: string
   icon: string
@@ -186,6 +193,7 @@ export interface WorkItem {
   linkedProjectIds: string[]
   linkedDocumentIds: string[]
   labelIds: string[]
+  visibility?: WorkItemVisibility
   milestoneId: string | null
   startDate: string | null
   dueDate: string | null
@@ -444,6 +452,7 @@ export type CreateDialogState =
           | "primaryProjectId"
           | "parentId"
           | "labelIds"
+          | "visibility"
           | "startDate"
           | "dueDate"
           | "targetDate"

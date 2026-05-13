@@ -38,6 +38,11 @@ const workItemTypeLiterals = [
 
 const legacyWorkItemTypeLiterals = [v.literal("bug")] as const
 
+const workItemVisibilityLiterals = [
+  v.literal("team"),
+  v.literal("private"),
+] as const
+
 const workStatusLiterals = [
   v.literal("backlog"),
   v.literal("todo"),
@@ -245,6 +250,9 @@ export const teamExperienceTypeValidator = v.union(
   ...teamExperienceTypeLiterals
 )
 export const workItemTypeValidator = v.union(...workItemTypeLiterals)
+export const workItemVisibilityValidator = v.union(
+  ...workItemVisibilityLiterals
+)
 export const storedWorkItemTypeValidator = v.union(
   ...workItemTypeLiterals,
   ...legacyWorkItemTypeLiterals
@@ -417,6 +425,8 @@ export const userFields = {
 export const labelFields = {
   id: v.string(),
   workspaceId: v.string(),
+  scopeType: v.optional(v.union(v.literal("workspace"), v.literal("private"))),
+  ownerId: v.optional(nullableString),
   name: v.string(),
   color: v.string(),
 }
@@ -437,6 +447,7 @@ const baseViewFilterFields = {
   parentIds: v.optional(v.array(v.string())),
   labelIds: v.array(v.string()),
   teamIds: v.array(v.string()),
+  visibility: v.optional(v.array(workItemVisibilityValidator)),
   showCompleted: v.boolean(),
 }
 
@@ -507,6 +518,7 @@ export const workItemFields = {
   linkedProjectIds: v.array(v.string()),
   linkedDocumentIds: v.array(v.string()),
   labelIds: v.array(v.string()),
+  visibility: v.optional(workItemVisibilityValidator),
   milestoneId: nullableString,
   startDate: nullableString,
   dueDate: nullableString,
@@ -534,6 +546,8 @@ export const customPropertyDefinitionFields = {
   id: v.string(),
   workspaceId: v.string(),
   teamId: v.string(),
+  scopeType: v.optional(v.union(v.literal("team"), v.literal("private"))),
+  ownerId: v.optional(nullableString),
   targetType: v.literal("workItem"),
   name: v.string(),
   icon: v.string(),

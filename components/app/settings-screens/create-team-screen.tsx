@@ -21,11 +21,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { Button } from "@/components/ui/button"
 
-import {
-  SettingsHero,
-  SettingsScaffold,
-  SettingsSection,
-} from "./shared"
+import { SettingsHero, SettingsScaffold, SettingsSection } from "./shared"
 import {
   defaultTeamSurfaceDisableReasons,
   TeamEditorFields,
@@ -37,7 +33,9 @@ type AppStoreSnapshot = Parameters<typeof getCurrentWorkspace>[0]
 function selectCanCreateTeam(state: AppStoreSnapshot) {
   const currentWorkspace = getCurrentWorkspace(state)
 
-  return currentWorkspace ? canAdminWorkspace(state, currentWorkspace.id) : false
+  return currentWorkspace
+    ? canAdminWorkspace(state, currentWorkspace.id)
+    : false
 }
 
 function CreateTeamUnavailableSection() {
@@ -102,7 +100,7 @@ function CreateTeamHero({
 
 function useCreateTeamDraft() {
   const [name, setName] = useState("")
-  const [icon, setIcon] = useState(() =>
+  const [icon, setIcon] = useState<string>(() =>
     getDefaultTeamIconForExperience("software-development")
   )
   const [summary, setSummary] = useState("")
@@ -114,7 +112,10 @@ function useCreateTeamDraft() {
   )
   const [saving, setSaving] = useState(false)
   const nameLimitState = getTextInputLimitState(name, teamNameConstraints)
-  const summaryLimitState = getTextInputLimitState(summary, teamSummaryConstraints)
+  const summaryLimitState = getTextInputLimitState(
+    summary,
+    teamSummaryConstraints
+  )
 
   return {
     canSubmit: nameLimitState.canSubmit && summaryLimitState.canSubmit,
@@ -210,16 +211,13 @@ export function CreateTeamScreen() {
         name={draft.name}
         savedFeatures={draft.features}
         setFeatures={draft.setFeatures}
-        setIcon={(value) =>
-          draft.setIcon(normalizeTeamIconToken(value, draft.experience))
-        }
+        setIcon={draft.setIcon}
         setName={draft.setName}
         setSummary={draft.setSummary}
         summary={draft.summary}
         surfaceDisableReasons={defaultTeamSurfaceDisableReasons}
         onExperienceChange={(nextExperience) => {
           draft.setExperience(nextExperience)
-          draft.setIcon(getDefaultTeamIconForExperience(nextExperience))
           draft.setFeatures(createDefaultTeamFeatureSettings(nextExperience))
         }}
       />

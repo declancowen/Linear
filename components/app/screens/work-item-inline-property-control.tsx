@@ -45,6 +45,7 @@ import {
   type WorkItem,
   type WorkStatus,
 } from "@/lib/domain/types"
+import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 
@@ -607,8 +608,11 @@ export function InlineWorkItemPropertyControl({
       data.customPropertyDefinitions.find(
         (entry) =>
           entry.id === customPropertyId &&
-          entry.teamId === item.teamId &&
-          !entry.isArchived
+          isCustomPropertyDefinitionForWorkItem(
+            entry,
+            item,
+            data.currentUserId
+          )
       ) ?? null
 
     if (!definition) {
