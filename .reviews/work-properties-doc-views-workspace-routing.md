@@ -28,11 +28,55 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-13 13:16 BST |
-| **Total turns**       | 12                   |
+| **Last reviewed**     | 2026-05-13 13:30 BST |
+| **Total turns**       | 13                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 31                   |
+| **Resolved findings** | 32                   |
 | **Accepted findings** | 0                    |
+
+## Turn 13 — 2026-05-13 13:30 BST
+
+| Field           | Value                              |
+| --------------- | ---------------------------------- |
+| **Scope**       | GitHub Codex review follow-up for private custom property value visibility |
+| **Review type** | Targeted diff-review + architecture read-model boundary check |
+| **Reviewer**    | Codex CLI                          |
+| **Outcome**     | 1 current-head Codex finding fixed locally; no local open findings |
+
+### Commands run
+
+- `gh pr view 34 --json headRefOid,latestReviews,reviewDecision,statusCheckRollup,url` — confirmed latest Codex top-level review was on current pushed head `c2be7040` and both CI runs were green
+- `gh api graphql ... reviewThreads` — found one current-head P1 inline thread for private custom property value leakage despite the top-level review body not summarizing it
+- `pnpm test tests/lib/scoped-read-models.test.ts tests/convex/auth-bootstrap-health.test.ts tests/convex/access.test.ts tests/convex/document-handlers.test.ts tests/convex/comment-handlers.test.ts tests/lib/display-initials.test.ts tests/convex/work-item-handlers.test.ts tests/convex/custom-property-handlers.test.ts tests/convex/view-handlers.test.ts` — passed, 9 files / 63 tests
+- `pnpm typecheck` — passed
+- `pnpm exec eslint convex/app/auth_bootstrap.ts lib/scoped-sync/read-models.ts tests/lib/scoped-read-models.test.ts tests/convex/auth-bootstrap-health.test.ts convex/app/access.ts convex/app/comment_handlers.ts convex/app/document_handlers.ts tests/convex/access.test.ts tests/convex/comment-handlers.test.ts tests/convex/document-handlers.test.ts lib/display-initials.ts tests/lib/display-initials.test.ts components/app/shell.tsx --max-warnings 0` — passed
+- `git diff --check` — passed
+- `pnpm exec convex dev --once` — passed, Convex functions ready
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; changed-file audit passed with dead code `0`, complexity `0`, clone groups `0`
+- `pnpm build` — passed
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; production analyzer signals clean, no new branch-specific architecture blocker
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** scoped read-model custom property definition/value selection, auth bootstrap full snapshot filtering, personal work index scopes, work item detail scopes, project detail scopes, and project index scopes.
+- **Prior open findings rechecked:** The top-level Codex review body looked clean, but current-head review threads exposed one live P1 thread. That thread is fixed locally in this turn.
+- **Prior resolved/adjacent areas revalidated:** Private work item snapshot, mutation, collaboration, and avatar fallback tests still pass with the custom property value visibility change.
+- **Hotspots or sibling paths revisited:** Initial bootstrap snapshots and scoped read-model refreshes now both apply the same visible-definition gate to custom property values.
+- **Dependency/adjacent surfaces revalidated:** Team-scoped and user-private custom property definitions remain visible where intended, while values without a visible definition are removed from the returned payload.
+- **Why this is enough:** Raw private property values can no longer be returned merely because their work item is visible; the corresponding property definition must also be visible to the requesting user.
+
+### Challenger pass
+
+- done — Rechecked whether filtering by visible work item id was enough. It was not, because user-private properties can exist on team-visible items and their values would otherwise leak without the definition.
+
+### Resolved / Carried / New findings
+
+#### WPDV-32 — resolved — private custom property values leaked without visible definitions
+
+- **Severity:** high
+- **Evidence:** current-head Codex review thread `PRRT_kwDOR_9-1s6BvxtU` flagged scoped read models and initial bootstrap as filtering custom property values by visible work item id only, while definitions were filtered by team/private ownership.
+- **Fix:** Filtered custom property values through the visible/returned property definition ids in both scoped read-model selectors and Convex auth bootstrap.
+- **Prevention:** Added regression coverage for scoped read models and full bootstrap snapshots where a visible team work item has another user's private property value.
 
 ## Turn 12 — 2026-05-13 13:16 BST
 

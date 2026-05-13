@@ -766,6 +766,41 @@ describe("auth bootstrap handlers", () => {
         createdAt: "2026-05-01T00:00:00.000Z",
       } as never
     )
+    ctx.tables.customPropertyDefinitions.push(
+      {
+        _id: "custom_property_definition_team_doc",
+        id: "property_1",
+        workspaceId: "workspace_2",
+        teamId: "team_2",
+        scopeType: "team",
+        targetType: "workItem",
+        name: "Visible property",
+        icon: "Tag",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "user_1",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      } as never,
+      {
+        _id: "custom_property_definition_private_other_doc",
+        id: "property_private_other",
+        workspaceId: "workspace_2",
+        teamId: "team_2",
+        scopeType: "private",
+        ownerId: "owner_1",
+        targetType: "workItem",
+        name: "Hidden property",
+        icon: "Lock",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "owner_1",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      } as never
+    )
     ctx.tables.customPropertyValues.push(
       {
         _id: "custom_property_value_team_doc",
@@ -775,6 +810,17 @@ describe("auth bootstrap handlers", () => {
         workItemId: "item_team",
         propertyId: "property_1",
         value: "visible",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      } as never,
+      {
+        _id: "custom_property_value_private_other_visible_item_doc",
+        id: "custom_property_value_private_other_visible_item",
+        workspaceId: "workspace_2",
+        teamId: "team_2",
+        workItemId: "item_team",
+        propertyId: "property_private_other",
+        value: "hidden",
         createdAt: "2026-05-01T00:00:00.000Z",
         updatedAt: "2026-05-01T00:00:00.000Z",
       } as never,
@@ -811,6 +857,9 @@ describe("auth bootstrap handlers", () => {
     expect(snapshot.attachments.map((attachment) => attachment.id)).toEqual([
       "attachment_team",
     ])
+    expect(
+      snapshot.customPropertyDefinitions.map((definition) => definition.id)
+    ).toEqual(["property_1"])
     expect(
       snapshot.customPropertyValues.map((value) => value.id)
     ).toEqual(["custom_property_value_team"])

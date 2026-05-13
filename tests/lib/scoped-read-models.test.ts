@@ -14,6 +14,7 @@ import {
   selectDocumentIndexReadModel,
   selectProjectDetailReadModel,
   selectWorkItemDetailReadModel,
+  selectWorkIndexReadModel,
 } from "@/lib/scoped-sync/read-models"
 import {
   createScopedReadModelProject,
@@ -265,6 +266,115 @@ describe("scoped read model selectors", () => {
       "work-index:team_team_1",
       "work-item-detail:item_1",
     ])
+  })
+
+  it("filters custom property values to definitions visible in the read model", () => {
+    const snapshot = createSnapshotFixture()
+
+    snapshot.customPropertyDefinitions = [
+      {
+        id: "property_team",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        scopeType: "team",
+        targetType: "workItem",
+        name: "Team field",
+        icon: "Tag",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
+        id: "property_private_own",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        scopeType: "private",
+        ownerId: "user_1",
+        targetType: "workItem",
+        name: "My field",
+        icon: "Lock",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
+        id: "property_private_other",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        scopeType: "private",
+        ownerId: "user_2",
+        targetType: "workItem",
+        name: "Other field",
+        icon: "Lock",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "user_2",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+    ] as never
+    snapshot.customPropertyValues = [
+      {
+        id: "value_team",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        workItemId: "item_1",
+        propertyId: "property_team",
+        value: "team",
+        createdBy: "user_1",
+        updatedBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
+        id: "value_private_own",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        workItemId: "item_1",
+        propertyId: "property_private_own",
+        value: "mine",
+        createdBy: "user_1",
+        updatedBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
+        id: "value_private_other",
+        workspaceId: "workspace_1",
+        teamId: "team_1",
+        workItemId: "item_1",
+        propertyId: "property_private_other",
+        value: "hidden",
+        createdBy: "user_2",
+        updatedBy: "user_2",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+    ] as never
+
+    const personalWorkIndex = selectWorkIndexReadModel(
+      snapshot,
+      "personal",
+      "user_1"
+    )
+    const workItemDetail = selectWorkItemDetailReadModel(snapshot, "item_1")
+
+    expect(
+      personalWorkIndex.customPropertyDefinitions?.map((entry) => entry.id)
+    ).toEqual(["property_team", "property_private_own"])
+    expect(
+      personalWorkIndex.customPropertyValues?.map((entry) => entry.id)
+    ).toEqual(["value_team", "value_private_own"])
+    expect(workItemDetail?.customPropertyValues?.map((entry) => entry.id)).toEqual(
+      ["value_team"]
+    )
   })
 
   it("invalidates document indexes for linked project and work item labels", () => {

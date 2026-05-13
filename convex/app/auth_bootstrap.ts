@@ -1555,6 +1555,16 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     accessibleWorkspaceIdList,
     currentUserId,
   })
+  const returnedCustomPropertyDefinitions =
+    visibleCustomPropertyDefinitions.filter(
+      (definition) =>
+        !definition.isArchived &&
+        ((definition.scopeType ?? "team") === "team" ||
+          (definition.ownerId ?? definition.createdBy) === currentUserId)
+    )
+  const returnedCustomPropertyDefinitionIds = new Set(
+    returnedCustomPropertyDefinitions.map((definition) => definition.id)
+  )
 
   collectSnapshotVisibleUserIds({
     visibleUserIds,
@@ -1600,14 +1610,10 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     workItems: visibleWorkItems.map((item) =>
       normalizeWorkItem(item, normalizedVisibleTeams)
     ),
-    customPropertyDefinitions: visibleCustomPropertyDefinitions.filter(
-      (definition) =>
-        !definition.isArchived &&
-        ((definition.scopeType ?? "team") === "team" ||
-          (definition.ownerId ?? definition.createdBy) === currentUserId)
-    ),
+    customPropertyDefinitions: returnedCustomPropertyDefinitions,
     customPropertyValues: visibleCustomPropertyValues.filter((value) =>
-      visibleWorkItemIds.has(value.workItemId)
+      visibleWorkItemIds.has(value.workItemId) &&
+      returnedCustomPropertyDefinitionIds.has(value.propertyId)
     ),
     documents: visibleDocuments,
     views: visibleViews.map((view) =>

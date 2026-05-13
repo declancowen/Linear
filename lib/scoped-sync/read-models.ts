@@ -407,10 +407,13 @@ function selectCustomPropertyDefinitionsForTeamIds(
 
 function selectCustomPropertyValuesForWorkItemIds(
   snapshot: AppSnapshot,
-  workItemIds: ReadonlySet<string>
+  workItemIds: ReadonlySet<string>,
+  definitions: AppSnapshot["customPropertyDefinitions"]
 ) {
+  const propertyIds = new Set(definitions.map((definition) => definition.id))
+
   return (snapshot.customPropertyValues ?? []).filter((value) =>
-    workItemIds.has(value.workItemId)
+    workItemIds.has(value.workItemId) && propertyIds.has(value.propertyId)
   )
 }
 
@@ -1088,7 +1091,8 @@ export function selectWorkItemDetailReadModel(
   )
   const customPropertyValues = selectCustomPropertyValuesForWorkItemIds(
     snapshot,
-    detailWorkItemIds
+    detailWorkItemIds,
+    customPropertyDefinitions
   )
   const users = selectUsers(snapshot, [
     item.creatorId,
@@ -1161,7 +1165,8 @@ export function selectProjectDetailReadModel(
   )
   const customPropertyValues = selectCustomPropertyValuesForWorkItemIds(
     snapshot,
-    projectWorkItemIds
+    projectWorkItemIds,
+    customPropertyDefinitions
   )
   const teamMemberships = snapshot.teamMemberships.filter((membership) =>
     projectTeamIds.has(membership.teamId)
@@ -1251,7 +1256,8 @@ export function selectProjectIndexReadModel(
   )
   const customPropertyValues = selectCustomPropertyValuesForWorkItemIds(
     snapshot,
-    workItemIds
+    workItemIds,
+    customPropertyDefinitions
   )
   const views = selectProjectIndexViews(snapshot, scopeType, scopeId)
 
@@ -1370,7 +1376,8 @@ export function selectWorkIndexReadModel(
   )
   const customPropertyValues = selectCustomPropertyValuesForWorkItemIds(
     snapshot,
-    workItemIds
+    workItemIds,
+    customPropertyDefinitions
   )
   const users = selectUsers(snapshot, [
     ...collectWorkItemUserIds(workItems),
