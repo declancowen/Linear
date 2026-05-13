@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { SpinnerGap } from "@phosphor-icons/react"
 
-import { cn, resolveImageAssetSource } from "@/lib/utils"
+import { cn, isImageAssetSource, resolveImageAssetSource } from "@/lib/utils"
 
 type WorkspaceSelectorWorkspace = {
   id: string
@@ -19,13 +19,18 @@ function WorkspaceLogo({
 }: {
   workspace: WorkspaceSelectorWorkspace
 }) {
+  const [failedLogoImageSrc, setFailedLogoImageSrc] = useState<string | null>(
+    null
+  )
   const logoImageSrc = resolveImageAssetSource(
     workspace.logoImageUrl,
     workspace.logoUrl
   )
-  const fallbackLogo = workspace.logoUrl?.trim() || workspace.name.charAt(0)
+  const fallbackLogo = isImageAssetSource(workspace.logoUrl)
+    ? workspace.name.charAt(0)
+    : workspace.logoUrl?.trim() || workspace.name.charAt(0)
 
-  if (logoImageSrc) {
+  if (logoImageSrc && logoImageSrc !== failedLogoImageSrc) {
     return (
       <Image
         alt=""
@@ -34,6 +39,7 @@ function WorkspaceLogo({
         height={32}
         unoptimized
         className="size-8 rounded-md object-cover"
+        onError={() => setFailedLogoImageSrc(logoImageSrc)}
       />
     )
   }

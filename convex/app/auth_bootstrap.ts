@@ -1193,9 +1193,18 @@ function isTeamScopedBootstrapDocument(document: BootstrapSnapshotDocument) {
 
 function isVisibleTeamScopedBootstrapDocument(
   document: BootstrapSnapshotDocument,
-  accessibleTeamIds: Set<string>
+  input: {
+    accessibleTeamIds: Set<string>
+    visibleWorkItemDescriptionDocIds: Set<string>
+  }
 ) {
-  return document.teamId !== null && accessibleTeamIds.has(document.teamId)
+  if (document.kind === "item-description") {
+    return input.visibleWorkItemDescriptionDocIds.has(document.id)
+  }
+
+  return (
+    document.teamId !== null && input.accessibleTeamIds.has(document.teamId)
+  )
 }
 
 function isVisiblePrivateBootstrapDocument(
@@ -1217,13 +1226,11 @@ function isVisibleBootstrapDocument(
     accessibleTeamIds: Set<string>
     accessibleWorkspaceIds: Set<string>
     currentUserId: string
+    visibleWorkItemDescriptionDocIds: Set<string>
   }
 ) {
   if (isTeamScopedBootstrapDocument(document)) {
-    return isVisibleTeamScopedBootstrapDocument(
-      document,
-      input.accessibleTeamIds
-    )
+    return isVisibleTeamScopedBootstrapDocument(document, input)
   }
 
   if (document.kind === "private-document") {
@@ -1241,6 +1248,7 @@ async function loadVisibleBootstrapDocuments(
     accessibleWorkspaceIdList: string[]
     accessibleWorkspaceIds: Set<string>
     currentUserId: string
+    visibleWorkItemDescriptionDocIds: Set<string>
     visibleTeams: Awaited<ReturnType<typeof listTeamsByIds>>
   }
 ) {
@@ -1255,6 +1263,19 @@ async function loadVisibleBootstrapDocuments(
   return visibleDocuments
     .filter((document) => isVisibleBootstrapDocument(document, input))
     .map((document) => normalizeDocument(document, input.visibleTeams))
+}
+
+function canCurrentUserSeeBootstrapWorkItem(
+  workItem: Awaited<ReturnType<typeof listWorkItemsByTeams>>[number],
+  currentUserId: string
+) {
+  if ((workItem.visibility ?? "team") !== "private") {
+    return true
+  }
+
+  return (
+    workItem.creatorId === currentUserId || workItem.assigneeId === currentUserId
+  )
 }
 
 function createTeamConversationScopes(teamIds: string[]) {
@@ -1432,9 +1453,16 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   const visibleProjectIds = new Set(
     visibleProjects.map((project) => project.id)
   )
-  const visibleWorkItems = await listWorkItemsByTeams(ctx, accessibleTeamIdList)
+  const visibleWorkItems = (
+    await listWorkItemsByTeams(ctx, accessibleTeamIdList)
+  ).filter((workItem) =>
+    canCurrentUserSeeBootstrapWorkItem(workItem, currentUserId)
+  )
   const visibleWorkItemIds = new Set(
     visibleWorkItems.map((workItem) => workItem.id)
+  )
+  const visibleWorkItemDescriptionDocIds = new Set(
+    visibleWorkItems.map((workItem) => workItem.descriptionDocId)
   )
   const [visibleCustomPropertyDefinitions, visibleCustomPropertyValues] =
     await Promise.all([
@@ -1447,6 +1475,7 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     accessibleWorkspaceIdList,
     accessibleWorkspaceIds,
     currentUserId,
+    visibleWorkItemDescriptionDocIds,
     visibleTeams,
   })
   const visibleDocumentIds = new Set(

@@ -28,11 +28,64 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-13 11:32 BST |
-| **Total turns**       | 8                    |
+| **Last reviewed**     | 2026-05-13 11:49 BST |
+| **Total turns**       | 9                    |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 23                   |
+| **Resolved findings** | 25                   |
 | **Accepted findings** | 0                    |
+
+## Turn 9 — 2026-05-13 11:49 BST
+
+| Field           | Value                              |
+| --------------- | ---------------------------------- |
+| **Commit**      | `79c0c536` plus local diff         |
+| **IDE / Agent** | Codex                              |
+| **Review type** | PR feedback import + local review  |
+
+**Summary:** Imported the latest Codex PR feedback on `79c0c536`, triaged the user-reported navigation console logs, and reran the local diff-review loop with architecture standards. The live P1 finding was valid: the full bootstrap snapshot still returned other users' private work items. That is fixed locally before the next push, including dependent comments, attachments, custom property values, and item-description documents. The repeated WorkOS CDN 404s were traced to stale external avatar/logo URLs and are now handled by app-owned fallbacks instead of repeatedly rendering broken images.
+**Outcome:** local review clean; ready for one batched commit/push and PR automation rerun. No open Critical/High/Medium findings remain in the current local diff.
+**Risk score:** high — this turn touches auth bootstrap tenancy, full snapshot payload privacy, shared avatar fallback behavior, and workspace logo rendering.
+**Change archetypes:** external PR feedback, privacy/tenancy, scoped snapshot filtering, stale image fallback, shared UI primitive.
+**Architecture impact:** Bootstrap snapshot filtering now applies the same private work invariant as personal work indexes before derived collections are loaded. Image fallback behavior is kept at rendering boundaries, preserving stored legacy URLs while preventing broken external media from degrading navigation.
+**Branch totality:** Rechecked current PR comments, custom property route/schema/handler duplicate-ID guards, custom property invalidation scope helpers, document index linked entity payload/invalidation, project detail memberships, avatar/sidebar/workspace selector image paths, and the cumulative branch gates.
+**Residual risk / unknowns:** The `vendor.js No Listener: tabs:outgoing.message.ready` console line appears to be browser extension/content-script noise rather than app code. Browser smoke was not rerun after this final local diff; build and UI/component coverage passed.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/auth-bootstrap-health.test.ts tests/lib/scoped-read-models.test.ts tests/app/api/custom-properties-route-contracts.test.ts tests/components/user-presence.test.tsx tests/components/workspace-chats-screen.test.tsx tests/components/channel-ui.test.tsx tests/app/workspace-layout.test.tsx` — passed, 7 files / 36 tests
+- `pnpm exec tsc --noEmit --pretty false` — passed
+- `pnpm lint` — passed
+- `pnpm exec fallow --ci --production --format json --quiet --explain` — passed configured production check with `total_issues=0`; duplication `clone_groups=0`; advisory health inventory still reports pre-existing complexity hotspots
+- `pnpm test` — passed, 178 files / 975 tests
+- `pnpm build` — passed
+- `git diff --check` — passed
+
+### External finding import
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+| ------ | ------- | -------------- | --------- | ------------------------ | ------ |
+| Codex inline review | Full bootstrap returns other users' private tasks | Resolved locally | tenancy / payload privacy | private work visibility must filter before derived collections and returned snapshot data | Filtered `visibleWorkItems` before IDs, comments, attachments, custom property values, item-description docs, and return payload; added regression coverage |
+| Codex inline review | Property definition changes only invalidate team work index | Already fixed in current tree | read-model invalidation | custom property definitions are consumed by item details, project details/indexes, view catalogs, workspace/personal work indexes | Current `getCustomPropertyDefinitionScopeKeys` includes those scopes and selector tests assert them |
+| Codex inline review | Custom property changes omit project read models | Already fixed in current tree | read-model invalidation | project pages depend on custom property definitions/values | Current helper adds project detail and project index scopes for affected item projects |
+| Codex / DR-001 | Duplicate select option IDs allowed | Already fixed in current tree | identity / persistence contract | option IDs must be unique independent of labels | Route schema and Convex handler both reject duplicate normalized IDs; contract tests cover create |
+| Codex inline review | Document index linked project/item/team payloads and invalidation | Already fixed in current tree | payload completeness / stale index | docs display properties must carry and invalidate referenced entities | Current selectors and invalidation tests cover linked entities |
+| User console logs | Repeated 404s for stale WorkOS/avatar/logo image URLs | Resolved locally | fallback / legacy data compatibility | broken external media must fall back without corrupting stored data | Shared avatar image failure cache and workspace logo `onError` fallbacks added |
+
+### Resolved / Carried / New findings
+
+#### WPDV-24 — resolved locally — full bootstrap snapshot leaked other users' private work items
+
+- **Severity:** high
+- **Evidence:** Codex P1 review on `convex/app/auth_bootstrap.ts`; current-tree inspection confirmed `listWorkItemsByTeams` fed `visibleWorkItemIds` before private visibility filtering.
+- **Fix:** Added `canCurrentUserSeeBootstrapWorkItem()` and applied it before deriving work item IDs, custom property values, work-item comments/attachments, item-description documents, visible user IDs, and returned `workItems`.
+- **Prevention:** Added `tests/convex/auth-bootstrap-health.test.ts` coverage for team work, current-user private work, another user's private work, and dependent hidden comments/attachments/custom property values/documents.
+
+#### WPDV-25 — resolved locally — stale external image URLs rendered broken workspace/user media
+
+- **Severity:** medium
+- **Evidence:** User-reported navigation logs showed repeated `workoscdn.com/images/v1/... 404` from avatar/logo rendering paths.
+- **Fix:** Added failed-source caching to `AvatarImage`, moved shell user footer to the shared avatar primitive, and added `onError` fallbacks for workspace logos in the sidebar and workspace selector. Stored legacy URLs are preserved; only rendering falls back.
+- **Prevention:** Existing avatar/chat component tests plus full build/test/lint/typecheck cover the changed paths.
 
 ## Turn 8 — 2026-05-13 11:32 BST
 
