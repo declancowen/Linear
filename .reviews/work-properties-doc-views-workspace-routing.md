@@ -28,11 +28,85 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-19 19:31 BST |
-| **Total turns**       | 17                   |
+| **Last reviewed**     | 2026-05-19 20:34 BST |
+| **Total turns**       | 18                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 36                   |
+| **Resolved findings** | 40                   |
 | **Accepted findings** | 0                    |
+
+## Turn 18 — 2026-05-19 20:34 BST
+
+| Field           | Value                                                                         |
+| --------------- | ----------------------------------------------------------------------------- |
+| **Scope**       | Calendar multi-day spans, PR review feedback, and CI dependency audit failure |
+| **Review type** | PR feedback triage + targeted diff-review + architecture/security check       |
+| **Reviewer**    | Codex CLI                                                                     |
+| **Outcome**     | 4 issues fixed locally; no local open findings; changes intentionally unpushed |
+
+### Commands run
+
+- `gh pr checks 36 --repo declancowen/Linear` — PR still failed on pushed commit `153bc2f6`; current local fixes are unpushed
+- `python3 .../gh-fix-ci/scripts/inspect_pr_checks.py --repo . --pr 36 --json` — CI root cause was `pnpm audit:deps` failing on critical `sanitize-html@2.17.3`
+- `pnpm exec vitest run tests/lib/content/rich-text-security.test.ts tests/components/work-surface-view.test.tsx` — passed, 2 files / 30 tests
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx` — passed after month-span adjustment, 1 file / 26 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `pnpm test` — passed, 182 files / 1021 tests
+- `pnpm build` — passed
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta and PR context recorded
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; production health and duplication clean, no branch-specific architecture blocker identified
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** calendar view day/week/month rendering, work-surface component tests, rich-text sanitization boundary, package dependency audit path, PR review comments, and CI logs.
+- **External findings triaged:** Codex PR comments for month-mode timed items and month navigation were live against pushed `153bc2f6`; both are fixed in the local tree. CI audit failure was live and caused by a direct vulnerable dependency.
+- **Prior resolved/adjacent areas revalidated:** calendar hover/sidebar behavior remains on the shared `WorkItemDetailSidebarSurface`; timed drag/resize and all-day-to-timed drop paths remain intact; rich-text storage still preserves allowed editor markup and trims message display whitespace.
+- **Hotspots or sibling paths revisited:** all-day calendar rendering in day/week and month, timed month entries, navigation controls, sanitizer raw-text container handling, unsafe URL filtering, package lock integrity, and dependency audit gate.
+- **Dependency/adjacent surfaces revalidated:** removing `sanitize-html` keeps sanitization inside `lib/content/rich-text-security.ts` using existing `linkedom`; no new dependency or audit suppression was added.
+- **Why this is enough:** the user-visible calendar span behavior is now covered in both week and month modes, the PR feedback has direct regression tests, and the CI failure class is removed by deleting the vulnerable package rather than weakening the gate.
+
+### Challenger pass
+
+- done — Checked whether merged all-day spans only needed day/week support. Month view had the same repeated-per-day failure mode, so it now splits merged spans by visible calendar week instead of rendering one copy in each day cell.
+- done — Checked whether the audit failure could be muted because the local sanitizer options excluded `xmp`. CI would still fail on the vulnerable direct dependency, so the safer fix removes `sanitize-html` and covers the advisory payload with a regression test.
+- done — Checked whether month cells should continue deriving entries only from all-day records. Timed work is real scheduled work in month mode too, so same-day timed entries are now included with a time label.
+
+### Resolved / Carried / New findings
+
+#### WPDV-37 — resolved — multi-day all-day calendar items repeated instead of spanning
+
+- **Severity:** medium
+- **Evidence:** user reported multi-day all-day events should render as merged events rather than one event per day.
+- **Fix:** Day/week all-day lanes now place a single absolute span across visible day columns, and month mode splits all-day spans per visible calendar week rather than per day cell.
+- **Prevention:** Added calendar regression coverage asserting a multi-day all-day work item appears once in week mode and once in month mode.
+
+#### WPDV-38 — resolved — month mode hid same-day timed work
+
+- **Severity:** high
+- **Evidence:** Codex PR comment noted month mode derived entries only from all-day records while same-day scheduled work lived in `timedEntries`.
+- **Fix:** Month cells now include same-day timed entries with a compact time label.
+- **Prevention:** Added a focused calendar test that switches to month mode and verifies timed work remains visible.
+
+#### WPDV-39 — resolved — month navigation advanced by 28 days instead of one calendar month
+
+- **Severity:** medium
+- **Evidence:** Codex PR comment noted previous/next month controls used a fixed 28-day jump.
+- **Fix:** Month navigation now uses `addMonths`, while week/day keep their existing 7-day and 1-day movement.
+- **Prevention:** Added a focused calendar test that switches to month mode and verifies the next period lands on the next calendar month.
+
+#### WPDV-40 — resolved — CI dependency audit failed on vulnerable `sanitize-html`
+
+- **Severity:** high
+- **Evidence:** GitHub Actions failed in `pnpm audit:deps` on critical advisory `GHSA-rpr9-rxv7-x643` for direct dependency `sanitize-html@2.17.3`.
+- **Fix:** Replaced the direct package with an owner-local DOM sanitizer using the existing `linkedom` dependency, removed `sanitize-html` and its types from the manifest/lockfile, and preserved the existing allowed rich-text tags, attributes, class, style, URL, and message-trimming behavior.
+- **Prevention:** Added a raw-text container regression test for the `xmp` bypass shape; dependency audit now passes at the CI threshold.
+
+### Residual risk
+
+- PR #36 still shows failed checks until these local fixes are pushed. No browser screenshot smoke was rerun in this turn; the current proof is component tests, full Vitest, build, lint, typecheck, Fallow, audit, and code review.
 
 ## Turn 17 — 2026-05-19 19:31 BST
 

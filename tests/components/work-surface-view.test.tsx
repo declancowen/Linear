@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { fireEvent, render, screen } from "@testing-library/react"
+import { addDays, addMonths, format, startOfDay } from "date-fns"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("next/link", async () =>
@@ -59,7 +60,11 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
   openManagedCreateDialog: vi.fn(),
 }))
 
-import { BoardView, ListView } from "@/components/app/screens/work-surface-view"
+import {
+  BoardView,
+  CalendarView,
+  ListView,
+} from "@/components/app/screens/work-surface-view"
 import { BoardChildItemRow } from "@/components/app/screens/work-surface-view/board-child-item-row"
 import { requestWorkSurfaceDragUpdate } from "@/components/app/screens/work-surface-view/drag-state"
 import {
@@ -69,6 +74,7 @@ import {
 import { getTimelineMovePatchForDrag } from "@/components/app/screens/work-surface-view/timeline-state"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { createEmptyState } from "@/lib/domain/empty-state"
+import { formatLocalCalendarDate } from "@/lib/calendar-date"
 import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
@@ -547,6 +553,69 @@ function createCrossTeamEpicGroupedCreateData(): AppData {
     ],
   }
 }
+
+describe("CalendarView", () => {
+  it("renders multi-day all-day work as one spanning event", () => {
+    const today = startOfDay(new Date())
+    const item = createWorkItem({
+      id: "multi-day-item",
+      title: "Company holiday",
+      startDate: formatLocalCalendarDate(today),
+      targetDate: formatLocalCalendarDate(addDays(today, 2)),
+    })
+    const data = {
+      ...createData(),
+      workItems: [item],
+    }
+
+    render(<CalendarView data={data} items={[item]} editable={false} />)
+
+    expect(
+      screen.getAllByRole("button", { name: "Company holiday" })
+    ).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole("button", { name: /month/i }))
+
+    expect(
+      screen.getAllByRole("button", { name: "Company holiday" })
+    ).toHaveLength(1)
+  })
+
+  it("keeps timed work visible in month mode", () => {
+    const today = startOfDay(new Date())
+    const date = formatLocalCalendarDate(today)
+    const item = createWorkItem({
+      id: "timed-item",
+      title: "Timed planning",
+      startDate: date,
+      targetDate: date,
+      startTime: "09:00",
+      endTime: "10:00",
+      scheduleTimeZone: "Europe/London",
+    })
+    const data = {
+      ...createData(),
+      workItems: [item],
+    }
+
+    render(<CalendarView data={data} items={[item]} editable={false} />)
+    fireEvent.click(screen.getByRole("button", { name: /month/i }))
+
+    expect(screen.getByText("Timed planning")).toBeInTheDocument()
+  })
+
+  it("moves month navigation by calendar months", () => {
+    const today = startOfDay(new Date())
+
+    render(<CalendarView data={createData()} items={[]} editable={false} />)
+    fireEvent.click(screen.getByRole("button", { name: /month/i }))
+    fireEvent.click(screen.getByRole("button", { name: "Next period" }))
+
+    expect(
+      screen.getByText(format(addMonths(today, 1), "MMMM yyyy"))
+    ).toBeInTheDocument()
+  })
+})
 
 describe("TimelineView primitives", () => {
   it("computes drag patches and rejects invalid timeline drops", () => {

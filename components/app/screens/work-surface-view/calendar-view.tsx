@@ -10,6 +10,7 @@ import {
 } from "react"
 import {
   addDays,
+  addMonths,
   differenceInCalendarDays,
   endOfMonth,
   format,
@@ -52,6 +53,18 @@ type AllDayCalendarEntry = {
   endDate: string
 }
 
+type AllDayCalendarSpan = {
+  entry: AllDayCalendarEntry
+  startIndex: number
+  endIndex: number
+  rowIndex: number
+}
+
+type MonthCalendarEntry = {
+  item: WorkItem
+  timeLabel: string | null
+}
+
 type CalendarDragState = {
   action: DragAction
   item: WorkItem
@@ -73,6 +86,8 @@ type HoverDetailAnchor = {
 }
 
 const HOUR_HEIGHT = 64
+const ALL_DAY_EVENT_HEIGHT = 26
+const ALL_DAY_EVENT_GAP = 4
 const MIN_TIMED_DURATION_MINUTES = 15
 const HOVER_DETAIL_DELAY_MS = 1000
 const HOVER_DETAIL_WIDTH = 420
@@ -202,6 +217,102 @@ function itemTone(index: number) {
   return tones[index % tones.length]
 }
 
+function getAllDaySpanForVisibleDays(
+  entry: AllDayCalendarEntry,
+  dayKeys: string[]
+) {
+  let startIndex = -1
+  let endIndex = -1
+
+  dayKeys.forEach((dayKey, index) => {
+    if (dayKey < entry.startDate || dayKey > entry.endDate) {
+      return
+    }
+
+    if (startIndex === -1) {
+      startIndex = index
+    }
+
+    endIndex = index
+  })
+
+  return startIndex === -1 || endIndex === -1
+    ? null
+    : {
+        entry,
+        startIndex,
+        endIndex,
+      }
+}
+
+function getAllDayCalendarSpans(
+  entries: AllDayCalendarEntry[],
+  dayKeys: string[]
+): AllDayCalendarSpan[] {
+  const occupiedRows: Array<Set<number>> = []
+
+  return entries
+    .map((entry) => getAllDaySpanForVisibleDays(entry, dayKeys))
+    .filter((span): span is NonNullable<typeof span> => span !== null)
+    .sort(
+      (left, right) =>
+        left.startIndex - right.startIndex ||
+        right.endIndex - right.startIndex - (left.endIndex - left.startIndex)
+    )
+    .map((span) => {
+      const dayIndexes = Array.from(
+        { length: span.endIndex - span.startIndex + 1 },
+        (_, index) => span.startIndex + index
+      )
+      let rowIndex = occupiedRows.findIndex((row) =>
+        dayIndexes.every((dayIndex) => !row.has(dayIndex))
+      )
+
+      if (rowIndex === -1) {
+        rowIndex = occupiedRows.length
+        occupiedRows.push(new Set())
+      }
+
+      dayIndexes.forEach((dayIndex) => occupiedRows[rowIndex]?.add(dayIndex))
+
+      return {
+        ...span,
+        rowIndex,
+      }
+    })
+}
+
+function getAllDaySpanLaneHeight(
+  spans: AllDayCalendarSpan[],
+  minimumHeight = 0
+) {
+  if (spans.length === 0) {
+    return minimumHeight
+  }
+
+  const rowCount = Math.max(...spans.map((span) => span.rowIndex + 1))
+
+  return Math.max(
+    minimumHeight,
+    12 + rowCount * (ALL_DAY_EVENT_HEIGHT + ALL_DAY_EVENT_GAP)
+  )
+}
+
+function getMonthCalendarEntries({
+  dayKey,
+  timedEntries,
+}: {
+  dayKey: string
+  timedEntries: TimedCalendarEntry[]
+}): MonthCalendarEntry[] {
+  return timedEntries
+    .filter((entry) => entry.date === dayKey)
+    .map((entry) => ({
+      item: entry.item,
+      timeLabel: formatTimeFromMinutes(entry.startMinutes),
+    }))
+}
+
 export function CalendarView({
   data,
   items,
@@ -306,10 +417,9 @@ export function CalendarView({
 
   function moveAnchor(direction: -1 | 1) {
     setAnchorDate((current) =>
-      addDays(
-        current,
-        direction * (mode === "month" ? 28 : mode === "week" ? 7 : 1)
-      )
+      mode === "month"
+        ? addMonths(current, direction)
+        : addDays(current, direction * (mode === "week" ? 7 : 1))
     )
   }
 
@@ -429,6 +539,37 @@ export function CalendarView({
     })
   }
 
+  function getDayKeyFromHorizontalPosition(
+    element: HTMLElement,
+    clientX: number
+  ) {
+    const rect = element.getBoundingClientRect()
+    const dayWidth = rect.width / dayKeys.length
+    const dayIndex = Math.max(
+      0,
+      Math.min(dayKeys.length - 1, Math.floor((clientX - rect.left) / dayWidth))
+    )
+
+    return dayKeys[dayIndex]
+  }
+
+  function handleAllDayDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+
+    const itemId = event.dataTransfer.getData("text/calendar-item")
+    const targetDate = getDayKeyFromHorizontalPosition(
+      event.currentTarget,
+      event.clientX
+    )
+    const entry = visibleAllDayEntries.find(
+      (candidate) => candidate.item.id === itemId
+    )
+
+    if (entry && targetDate) {
+      moveAllDayItem(entry, targetDate)
+    }
+  }
+
   function convertAllDayItemToTimed(
     itemId: string,
     clientX: number,
@@ -462,6 +603,8 @@ export function CalendarView({
       entry.endDate >= dayKeys[0] &&
       entry.startDate <= dayKeys[dayKeys.length - 1]
   )
+  const allDaySpans = getAllDayCalendarSpans(visibleAllDayEntries, dayKeys)
+  const allDayLaneHeight = getAllDaySpanLaneHeight(allDaySpans, 76)
   const visibleTimedEntries = timedEntries.filter((entry) =>
     dayKeySet.has(entry.date)
   )
@@ -491,7 +634,12 @@ export function CalendarView({
               </ViewTab>
             ))}
           </div>
-          <Button variant="ghost" size="icon" onClick={() => moveAnchor(-1)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Previous period"
+            onClick={() => moveAnchor(-1)}
+          >
             <CaretLeft className="size-4" />
           </Button>
           <Button
@@ -501,44 +649,111 @@ export function CalendarView({
           >
             Today
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => moveAnchor(1)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Next period"
+            onClick={() => moveAnchor(1)}
+          >
             <CaretRight className="size-4" />
           </Button>
         </div>
 
         {mode === "month" ? (
-          <div className="grid flex-1 grid-cols-7 overflow-hidden">
-            {days.map((day) => {
-              const dayKey = getDateKey(day)
-              const entries = allDayEntries.filter(
-                (entry) => entry.startDate <= dayKey && entry.endDate >= dayKey
+          <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+            {Array.from({ length: Math.ceil(days.length / 7) }, (_, week) => {
+              const weekDays = days.slice(week * 7, week * 7 + 7)
+              const weekDayKeys = weekDays.map(getDateKey)
+              const weekAllDaySpans = getAllDayCalendarSpans(
+                allDayEntries,
+                weekDayKeys
               )
+              const monthAllDayAreaHeight = getAllDaySpanLaneHeight(
+                weekAllDaySpans
+              )
+              const rowMinHeight = Math.max(128, 52 + monthAllDayAreaHeight)
 
               return (
                 <div
-                  key={dayKey}
-                  className={cn(
-                    "min-h-[128px] border-r border-b border-line-soft p-2",
-                    !isSameMonth(day, anchorDate) && "bg-surface/40 text-fg-4"
-                  )}
+                  key={weekDayKeys.join(":")}
+                  className="relative grid grid-cols-7 border-b border-line-soft"
+                  style={{ minHeight: rowMinHeight }}
                 >
-                  <div className="mb-2 text-[11px] font-medium">
-                    {format(day, "EEE d")}
-                  </div>
-                  <div className="space-y-1">
-                    {entries.slice(0, 4).map((entry, index) => (
-                      <button
-                        key={entry.item.id}
+                  {weekDays.map((day) => {
+                    const dayKey = getDateKey(day)
+                    const entries = getMonthCalendarEntries({
+                      dayKey,
+                      timedEntries,
+                    })
+
+                    return (
+                      <div
+                        key={dayKey}
                         className={cn(
-                          "block w-full truncate rounded border-l-2 px-2 py-1 text-left text-[12px]",
+                          "border-r border-line-soft p-2",
+                          !isSameMonth(day, anchorDate) &&
+                            "bg-surface/40 text-fg-4"
+                        )}
+                      >
+                        <div className="mb-2 text-[11px] font-medium">
+                          {format(day, "EEE d")}
+                        </div>
+                        <div
+                          className="space-y-1"
+                          style={{
+                            marginTop: monthAllDayAreaHeight,
+                          }}
+                        >
+                          {entries.slice(0, 4).map((entry, index) => (
+                            <button
+                              key={entry.item.id}
+                              className={cn(
+                                "flex w-full min-w-0 items-center gap-1 rounded border-l-2 px-2 py-1 text-left text-[12px]",
+                                itemTone(index)
+                              )}
+                              {...getCalendarItemInteractionProps(
+                                entry.item.id
+                              )}
+                            >
+                              {entry.timeLabel ? (
+                                <span className="shrink-0 text-[11px] text-fg-3">
+                                  {entry.timeLabel}
+                                </span>
+                              ) : null}
+                              <span className="truncate">
+                                {entry.item.title}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {weekAllDaySpans.map((span, index) => {
+                    const spanLength = span.endIndex - span.startIndex + 1
+
+                    return (
+                      <button
+                        key={span.entry.item.id}
+                        className={cn(
+                          "absolute z-10 truncate rounded border-l-2 px-2 text-left text-[12px] leading-[26px]",
                           itemTone(index)
                         )}
-                        {...getCalendarItemInteractionProps(entry.item.id)}
+                        style={{
+                          left: `calc(${(span.startIndex / 7) * 100}% + 6px)`,
+                          width: `calc(${(spanLength / 7) * 100}% - 12px)`,
+                          top:
+                            30 +
+                            span.rowIndex *
+                              (ALL_DAY_EVENT_HEIGHT + ALL_DAY_EVENT_GAP),
+                          height: ALL_DAY_EVENT_HEIGHT,
+                        }}
+                        {...getCalendarItemInteractionProps(span.entry.item.id)}
                       >
-                        {entry.item.title}
+                        {span.entry.item.title}
                       </button>
-                    ))}
-                  </div>
+                    )
+                  })}
                 </div>
               )
             })}
@@ -570,54 +785,65 @@ export function CalendarView({
               className="grid min-h-[76px] border-b border-line-soft"
               style={{
                 gridTemplateColumns: `64px repeat(${dayKeys.length}, minmax(0, 1fr))`,
+                minHeight: allDayLaneHeight,
               }}
             >
               <div className="px-2 py-2 text-right text-[11px] text-fg-4">
                 All day
               </div>
-              {dayKeys.map((dayKey) => (
+              <div
+                className="relative min-h-[76px]"
+                style={{
+                  gridColumn: `2 / span ${dayKeys.length}`,
+                  minHeight: allDayLaneHeight,
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={handleAllDayDrop}
+              >
                 <div
-                  key={dayKey}
-                  className="min-h-[76px] border-l border-line-soft p-1.5"
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    const itemId =
-                      event.dataTransfer.getData("text/calendar-item")
-                    const entry = visibleAllDayEntries.find(
-                      (candidate) => candidate.item.id === itemId
-                    )
-                    if (entry) {
-                      moveAllDayItem(entry, dayKey)
-                    }
+                  className="pointer-events-none absolute inset-0 grid"
+                  style={{
+                    gridTemplateColumns: `repeat(${dayKeys.length}, minmax(0, 1fr))`,
                   }}
                 >
-                  {visibleAllDayEntries
-                    .filter(
-                      (entry) =>
-                        entry.startDate <= dayKey && entry.endDate >= dayKey
-                    )
-                    .map((entry, index) => (
-                      <button
-                        key={entry.item.id}
-                        draggable={editable}
-                        className={cn(
-                          "mb-1 block w-full truncate rounded border-l-2 px-2 py-1 text-left text-[12px]",
-                          itemTone(index)
-                        )}
-                        onDragStart={(event) => {
-                          event.dataTransfer.effectAllowed = "move"
-                          event.dataTransfer.setData(
-                            "text/calendar-item",
-                            entry.item.id
-                          )
-                        }}
-                        {...getCalendarItemInteractionProps(entry.item.id)}
-                      >
-                        {entry.item.title}
-                      </button>
-                    ))}
+                  {dayKeys.map((dayKey) => (
+                    <div key={dayKey} className="border-l border-line-soft" />
+                  ))}
                 </div>
-              ))}
+                {allDaySpans.map((span, index) => {
+                  const spanLength = span.endIndex - span.startIndex + 1
+
+                  return (
+                    <button
+                      key={span.entry.item.id}
+                      draggable={editable}
+                      className={cn(
+                        "absolute z-10 truncate rounded border-l-2 px-2 text-left text-[12px] leading-[26px]",
+                        itemTone(index)
+                      )}
+                      style={{
+                        left: `calc(${(span.startIndex / dayKeys.length) * 100}% + 6px)`,
+                        width: `calc(${(spanLength / dayKeys.length) * 100}% - 12px)`,
+                        top:
+                          6 +
+                          span.rowIndex *
+                            (ALL_DAY_EVENT_HEIGHT + ALL_DAY_EVENT_GAP),
+                        height: ALL_DAY_EVENT_HEIGHT,
+                      }}
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move"
+                        event.dataTransfer.setData(
+                          "text/calendar-item",
+                          span.entry.item.id
+                        )
+                      }}
+                      {...getCalendarItemInteractionProps(span.entry.item.id)}
+                    >
+                      {span.entry.item.title}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
               <div

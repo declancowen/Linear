@@ -1,4 +1,3 @@
-import sanitizeHtml from "sanitize-html"
 import { parseHTML } from "linkedom"
 
 import { getPlainTextContent } from "@/lib/utils"
@@ -41,19 +40,188 @@ const RICH_TEXT_ALLOWED_TAGS = [
   "ul",
 ] satisfies string[]
 
+const RICH_TEXT_ALLOWED_TAG_SET = new Set<string>(RICH_TEXT_ALLOWED_TAGS)
+
 const RICH_TEXT_EMBEDDED_CONTENT_TAGS = new Set(["hr", "img", "input", "table"])
 
-function normalizeAnchorAttributes(attributes: sanitizeHtml.Attributes) {
-  const href =
-    typeof attributes.href === "string" ? attributes.href.trim() : null
+const RICH_TEXT_DROP_CONTENT_TAGS = new Set([
+  "script",
+  "style",
+  "textarea",
+  "option",
+  "xmp",
+])
+
+const RICH_TEXT_VOID_TAGS = new Set(["br", "hr", "img", "input"])
+
+const RICH_TEXT_BOOLEAN_ATTRIBUTES = new Set(["checked", "disabled"])
+
+const RICH_TEXT_ALLOWED_ATTRIBUTES: Record<string, readonly string[]> = {
+  a: ["href", "target", "rel"],
+  col: ["style"],
+  div: ["data-type"],
+  h1: ["style"],
+  h2: ["style"],
+  h3: ["style"],
+  img: ["src", "alt", "title", "class"],
+  input: ["type", "checked", "disabled"],
+  label: ["contenteditable"],
+  li: ["data-type", "data-checked"],
+  p: ["style"],
+  span: ["class", "data-type", "data-id", "data-label"],
+  td: ["colspan", "rowspan", "colwidth", "style"],
+  th: ["colspan", "rowspan", "colwidth", "style"],
+  ul: ["data-type"],
+}
+
+const RICH_TEXT_ALLOWED_CLASSES: Record<string, readonly string[]> = {
+  img: ["editor-image"],
+  span: ["editor-highlight", "editor-mention"],
+}
+
+const RICH_TEXT_ALLOWED_STYLES: Record<
+  string,
+  Record<string, readonly RegExp[]>
+> = {
+  col: {
+    width: LENGTH_STYLE_VALUES,
+    "min-width": LENGTH_STYLE_VALUES,
+  },
+  h1: {
+    "text-align": TEXT_ALIGN_STYLE_VALUES,
+  },
+  h2: {
+    "text-align": TEXT_ALIGN_STYLE_VALUES,
+  },
+  h3: {
+    "text-align": TEXT_ALIGN_STYLE_VALUES,
+  },
+  p: {
+    "text-align": TEXT_ALIGN_STYLE_VALUES,
+  },
+  td: {
+    width: LENGTH_STYLE_VALUES,
+    "min-width": LENGTH_STYLE_VALUES,
+    "text-align": TEXT_ALIGN_STYLE_VALUES,
+  },
+  th: {
+    width: LENGTH_STYLE_VALUES,
+    "min-width": LENGTH_STYLE_VALUES,
+    "text-align": TEXT_ALIGN_STYLE_VALUES,
+  },
+}
+
+function getAttributeMap(element: Element) {
+  return Object.fromEntries(
+    [...element.attributes].map((attribute) => [
+      attribute.name.toLowerCase(),
+      attribute.value,
+    ])
+  )
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+}
+
+function escapeAttribute(value: string) {
+  return escapeHtml(value).replace(/"/g, "&quot;")
+}
+
+function isSafeUrlAttribute(tagName: string, attributeName: string, value: string) {
+  if (attributeName !== "href" && attributeName !== "src") {
+    return true
+  }
+
+  const trimmedValue = value.trim()
+
+  if (!trimmedValue) {
+    return false
+  }
+
+  const compactValue = trimmedValue
+    .replace(/[\u0000-\u001F\u007F\s]+/gu, "")
+    .toLowerCase()
+  const schemeMatch = compactValue.match(/^([a-z][a-z0-9+.-]*):/u)
+
+  if (!schemeMatch) {
+    return true
+  }
+
+  const scheme = schemeMatch[1]
+
+  if (tagName === "img") {
+    return scheme === "http" || scheme === "https"
+  }
+
+  return (
+    scheme === "http" ||
+    scheme === "https" ||
+    scheme === "mailto" ||
+    scheme === "tel"
+  )
+}
+
+function sanitizeStyleAttribute(tagName: string, value: string) {
+  const allowedStyles = RICH_TEXT_ALLOWED_STYLES[tagName]
+
+  if (!allowedStyles) {
+    return null
+  }
+
+  const sanitizedDeclarations = value
+    .split(";")
+    .map((declaration) => declaration.trim())
+    .map((declaration) => {
+      const separatorIndex = declaration.indexOf(":")
+
+      if (separatorIndex === -1) {
+        return null
+      }
+
+      const property = declaration.slice(0, separatorIndex).trim().toLowerCase()
+      const propertyValue = declaration.slice(separatorIndex + 1).trim()
+      const allowedValues = allowedStyles[property]
+
+      if (!allowedValues?.some((pattern) => pattern.test(propertyValue))) {
+        return null
+      }
+
+      return `${property}:${propertyValue}`
+    })
+    .filter((declaration): declaration is string => Boolean(declaration))
+
+  return sanitizedDeclarations.length > 0
+    ? sanitizedDeclarations.join(";")
+    : null
+}
+
+function sanitizeClassAttribute(tagName: string, value: string) {
+  const allowedClasses = RICH_TEXT_ALLOWED_CLASSES[tagName]
+
+  if (!allowedClasses) {
+    return null
+  }
+
+  const sanitizedClasses = value
+    .split(/\s+/u)
+    .map((className) => className.trim())
+    .filter((className) => allowedClasses.includes(className))
+
+  return sanitizedClasses.length > 0 ? sanitizedClasses.join(" ") : null
+}
+
+function normalizeAnchorAttributes(attributes: Record<string, string>) {
+  const href = attributes.href?.trim() ?? null
   const target = attributes.target === "_blank" ? "_blank" : null
   const relValues = new Set(
-    typeof attributes.rel === "string"
-      ? attributes.rel
-          .split(/\s+/)
-          .map((value) => value.trim())
-          .filter(Boolean)
-      : []
+    attributes.rel
+      ?.split(/\s+/u)
+      .map((value) => value.trim())
+      .filter(Boolean) ?? []
   )
 
   if (target === "_blank") {
@@ -62,86 +230,117 @@ function normalizeAnchorAttributes(attributes: sanitizeHtml.Attributes) {
   }
 
   return {
-    ...(href ? { href } : {}),
+    ...(href && isSafeUrlAttribute("a", "href", href) ? { href } : {}),
     ...(target ? { target } : {}),
     ...(relValues.size > 0 ? { rel: [...relValues].sort().join(" ") } : {}),
   }
 }
 
-const RICH_TEXT_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
-  allowedTags: RICH_TEXT_ALLOWED_TAGS,
-  allowedAttributes: {
-    a: ["href", "target", "rel"],
-    col: ["style"],
-    div: ["data-type"],
-    h1: ["style"],
-    h2: ["style"],
-    h3: ["style"],
-    img: ["src", "alt", "title", "class"],
-    input: ["type", "checked", "disabled"],
-    label: ["contenteditable"],
-    li: ["data-type", "data-checked"],
-    p: ["style"],
-    span: ["class", "data-type", "data-id", "data-label"],
-    td: ["colspan", "rowspan", "colwidth", "style"],
-    th: ["colspan", "rowspan", "colwidth", "style"],
-    ul: ["data-type"],
-  },
-  allowedClasses: {
-    img: ["editor-image"],
-    span: ["editor-highlight", "editor-mention"],
-  },
-  allowedSchemes: ["http", "https", "mailto", "tel"],
-  allowedSchemesAppliedToAttributes: ["href", "src"],
-  allowedSchemesByTag: {
-    img: ["http", "https"],
-  },
-  allowedStyles: {
-    col: {
-      width: LENGTH_STYLE_VALUES,
-      "min-width": LENGTH_STYLE_VALUES,
-    },
-    h1: {
-      "text-align": TEXT_ALIGN_STYLE_VALUES,
-    },
-    h2: {
-      "text-align": TEXT_ALIGN_STYLE_VALUES,
-    },
-    h3: {
-      "text-align": TEXT_ALIGN_STYLE_VALUES,
-    },
-    p: {
-      "text-align": TEXT_ALIGN_STYLE_VALUES,
-    },
-    td: {
-      width: LENGTH_STYLE_VALUES,
-      "min-width": LENGTH_STYLE_VALUES,
-      "text-align": TEXT_ALIGN_STYLE_VALUES,
-    },
-    th: {
-      width: LENGTH_STYLE_VALUES,
-      "min-width": LENGTH_STYLE_VALUES,
-      "text-align": TEXT_ALIGN_STYLE_VALUES,
-    },
-  },
-  nonBooleanAttributes: [
-    ...sanitizeHtml.defaults.nonBooleanAttributes,
-    "data-type",
-    "data-id",
-    "data-label",
-    "data-checked",
-    "colwidth",
-  ],
-  transformTags: {
-    a: (_tagName, attributes) => ({
-      tagName: "a",
-      attribs: normalizeAnchorAttributes(attributes),
-    }),
-  },
+function sanitizeAttribute(
+  tagName: string,
+  attributeName: string,
+  value: string,
+  attributes: Record<string, string>
+) {
+  if (tagName === "a") {
+    const normalizedAttributes = normalizeAnchorAttributes(attributes)
+    return normalizedAttributes[attributeName as keyof typeof normalizedAttributes]
+  }
+
+  if (!RICH_TEXT_ALLOWED_ATTRIBUTES[tagName]?.includes(attributeName)) {
+    return null
+  }
+
+  if (attributeName === "style") {
+    return sanitizeStyleAttribute(tagName, value)
+  }
+
+  if (attributeName === "class") {
+    return sanitizeClassAttribute(tagName, value)
+  }
+
+  if (!isSafeUrlAttribute(tagName, attributeName, value)) {
+    return null
+  }
+
+  return value.trim()
+}
+
+function sanitizeElementAttributes(element: Element, tagName: string) {
+  const attributes = getAttributeMap(element)
+  const attributeNames =
+    tagName === "a"
+      ? (["href", "target", "rel"] as const)
+      : (RICH_TEXT_ALLOWED_ATTRIBUTES[tagName] ?? [])
+
+  return attributeNames
+    .map((attributeName) => {
+      if (
+        !Object.hasOwn(attributes, attributeName) &&
+        !(tagName === "a" && attributeName === "rel")
+      ) {
+        return null
+      }
+
+      if (RICH_TEXT_BOOLEAN_ATTRIBUTES.has(attributeName)) {
+        return attributeName
+      }
+
+      const value = sanitizeAttribute(
+        tagName,
+        attributeName,
+        attributes[attributeName] ?? "",
+        attributes
+      )
+
+      return value ? `${attributeName}="${escapeAttribute(value)}"` : null
+    })
+    .filter((attribute): attribute is string => Boolean(attribute))
+    .join(" ")
+}
+
+function sanitizeNode(node: Node): string {
+  if (node.nodeType === 3) {
+    return escapeHtml(node.textContent ?? "")
+  }
+
+  if (node.nodeType !== 1) {
+    return ""
+  }
+
+  const element = node as Element
+  const tagName = element.tagName.toLowerCase()
+
+  if (RICH_TEXT_DROP_CONTENT_TAGS.has(tagName)) {
+    return ""
+  }
+
+  const content = [...element.childNodes].map(sanitizeNode).join("")
+
+  if (!RICH_TEXT_ALLOWED_TAG_SET.has(tagName)) {
+    return content
+  }
+
+  const attributes = sanitizeElementAttributes(element, tagName)
+  const attributesFragment = attributes ? ` ${attributes}` : ""
+
+  if (tagName === "br" || tagName === "hr") {
+    return `<${tagName}${attributesFragment}>`
+  }
+
+  if (RICH_TEXT_VOID_TAGS.has(tagName)) {
+    return `<${tagName}${attributesFragment} />`
+  }
+
+  return `<${tagName}${attributesFragment}>${content}</${tagName}>`
 }
 
 export function sanitizeRichTextContent(content: string) {
-  return sanitizeHtml(content, RICH_TEXT_SANITIZE_OPTIONS).trim()
+  const { document } = parseHTML(
+    `<!DOCTYPE html><html><head></head><body>${content}</body></html>`
+  )
+
+  return [...document.body.childNodes].map(sanitizeNode).join("").trim()
 }
 
 function hasMeaningfulRichTextNode(node: Node): boolean {
