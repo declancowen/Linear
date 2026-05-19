@@ -22,7 +22,9 @@ export function getSupportedTimeZones() {
       : undefined
 
   if (supportedValuesOf) {
-    return supportedValuesOf("timeZone")
+    return Array.from(
+      new Set([fallbackTimeZone, ...supportedValuesOf("timeZone")])
+    )
   }
 
   return [

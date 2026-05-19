@@ -389,6 +389,35 @@ describe("view slice", () => {
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
+  it("persists view metadata when updating view config", async () => {
+    const state = createViewTestState()
+    seedSharedView(state, {
+      description: "Old description",
+      route: "/team/platform/work",
+    })
+    const harness = await createViewSliceHarness({ state })
+
+    harness.slice.updateViewConfig("view_1", {
+      description: "Project delivery",
+      containerType: "project-items",
+      containerId: "project_1",
+      route: "/team/platform/projects/project_1",
+    })
+
+    expect(state.views[0]).toMatchObject({
+      description: "Project delivery",
+      containerType: "project-items",
+      containerId: "project_1",
+      route: "/team/platform/projects/project_1",
+    })
+    expect(syncUpdateViewConfigMock).toHaveBeenCalledWith("view_1", {
+      description: "Project delivery",
+      containerType: "project-items",
+      containerId: "project_1",
+      route: "/team/platform/projects/project_1",
+    })
+  })
+
   it("clears a pending optimistic view config when the sync fails", async () => {
     const state = createPendingViewConfigState()
     syncUpdateViewConfigMock.mockRejectedValueOnce(new Error("sync failed"))

@@ -28,11 +28,65 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-19 20:34 BST |
-| **Total turns**       | 18                   |
+| **Last reviewed**     | 2026-05-19 22:46 BST |
+| **Total turns**       | 19                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 40                   |
+| **Resolved findings** | 43                   |
 | **Accepted findings** | 0                    |
+
+## Turn 19 — 2026-05-19 22:46 BST
+
+| Field           | Value                                                                          |
+| --------------- | ------------------------------------------------------------------------------ |
+| **Scope**       | PR review loop for timezone options, private optimistic IDs, and edited views  |
+| **Review type** | External finding triage + targeted diff-review + static analyzer gate rerun    |
+| **Reviewer**    | Codex CLI                                                                      |
+| **Outcome**     | 3 live PR findings fixed locally; no local open findings; ready to push        |
+
+### Commands run
+
+- `python3 .../gh-address-comments/scripts/fetch_comments.py` — fetched unresolved PR review threads for #36
+- `pnpm exec vitest run tests/lib/time-zone.test.ts tests/lib/store/work-item-actions.test.ts tests/lib/store/view-slice.test.ts tests/components/create-dialogs.test.tsx tests/app/api/work-route-contracts.test.ts` — passed, 5 files / 83 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; PR context, branch-total diff, and analyzer evidence recorded
+
+### Branch-totality proof
+
+- **External findings triaged:** `CDR-002`, `CDR-003`, and `CDR-004` were live against pushed `e63501db`; the old month-calendar threads are stale or already resolved in the current tree.
+- **Hotspots revalidated:** shared timezone option contract, optimistic private work-item numbering, create/edit view modal state, store/API/Convex view update contracts, and route schema validation.
+- **Architecture rule applied:** view metadata edits now flow through the same view-config domain/API/Convex update path instead of a dialog-local bypass; the repeated patch type is owned by the domain contract.
+- **Why this is enough:** each PR finding has a focused regression test at the layer that owns the invariant, and the broad static/type/lint gates are clean after the fix.
+
+### Resolved / Carried / New findings
+
+#### WPDV-41 — resolved — timezone pickers could not select UTC on runtimes where `Intl.supportedValuesOf("timeZone")` omits it
+
+- **Severity:** medium
+- **Evidence:** PR automation confirmed the runtime timezone list can omit `UTC` while the app default/fallback is `UTC`.
+- **Fix:** `getSupportedTimeZones()` now prepends the fallback timezone and deduplicates the runtime list.
+- **Prevention:** Added a timezone utility regression test that mocks a runtime list without `UTC`.
+
+#### WPDV-42 — resolved — optimistic private work-item keys counted private items from other teams
+
+- **Severity:** medium
+- **Evidence:** client optimistic numbering filtered by private visibility and creator but not by `teamId`, while the server numbering is team-scoped.
+- **Fix:** the private optimistic count now includes `item.teamId === input.teamId`.
+- **Prevention:** Added a store regression test where another team's private item must not advance the current team's `PRIVATE-002` key.
+
+#### WPDV-43 — resolved — edited view descriptions and project route/container selections were discarded
+
+- **Severity:** medium
+- **Evidence:** the edit path returned after updating name/config only, ignoring the dialog's visible description and selected project route/container state.
+- **Fix:** edited views now send description, route, `containerType`, and `containerId` through `updateViewConfig`; the shared patch contract, API schema, server wrapper, and Convex mutation all accept and validate those fields.
+- **Prevention:** Added dialog, store, and route-contract coverage, including rejection for incomplete container patches.
+
+### Residual risk
+
+- Full `pnpm test` and `pnpm build` were not rerun for this small PR-feedback delta; the previous pushed branch had green CI, and this turn reran targeted tests plus typecheck, lint, Fallow, dependency audit, and diff checks.
 
 ## Turn 18 — 2026-05-19 20:34 BST
 

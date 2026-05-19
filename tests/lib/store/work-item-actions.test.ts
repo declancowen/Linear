@@ -386,6 +386,43 @@ describe("work item actions", () => {
     )
   })
 
+  it("scopes optimistic private work item keys to the selected team", async () => {
+    const state = createState()
+    state.workItems = [
+      createTestWorkItem("private-team-item", {
+        key: "PRIVATE-001",
+        teamId: "team_1",
+        creatorId: "user_1",
+        visibility: "private",
+      }),
+      createTestWorkItem("other-team-private-item", {
+        key: "PRIVATE-001",
+        teamId: "team_2",
+        creatorId: "user_1",
+        visibility: "private",
+      }),
+    ]
+    const harness = await createWorkItemActionsHarness(state)
+
+    const createdItemId = harness.actions.createWorkItem({
+      teamId: "team_1",
+      type: "task",
+      title: "Private follow-up",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      visibility: "private",
+    })
+
+    expect(createdItemId).toBeTruthy()
+    expect(harness.state.workItems[0]).toMatchObject({
+      id: createdItemId,
+      key: "PRIVATE-002",
+      teamId: "team_1",
+      visibility: "private",
+    })
+  })
+
   it("creates work items with selected schedule dates", async () => {
     const state = createState()
     state.users = state.users.map((user) =>

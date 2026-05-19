@@ -164,6 +164,7 @@ function resolveCreateWorkItemScope(
   const teamItems = state.workItems.filter((item) =>
     isPrivate
       ? (item.visibility ?? "team") === "private" &&
+        item.teamId === input.teamId &&
         item.creatorId === state.currentUserId
       : item.teamId === input.teamId && (item.visibility ?? "team") !== "private"
   )

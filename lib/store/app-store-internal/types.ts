@@ -13,18 +13,15 @@ import type {
   CustomPropertyOption,
   CustomPropertyType,
   CustomPropertyValue,
-  GroupField,
   Label,
-  OrderingField,
   Priority,
   ProjectStatus,
   Role,
   TeamFeatureSettings,
   TeamWorkflowSettings,
-  ViewLayout,
+  ViewConfigPatch,
   UserStatus,
   WorkItem,
-  WorkItemType,
   ViewerDirectoryConfig,
 } from "@/lib/domain/types"
 import type {
@@ -206,16 +203,6 @@ export type AddChannelPostCommentInput = {
   postId: string
   content: string
 }
-
-export type ViewConfigPatch = Partial<{
-  layout: ViewLayout
-  grouping: GroupField
-  subGrouping: GroupField | null
-  ordering: OrderingField
-  itemLevel: WorkItemType | null
-  showChildItems: boolean
-  showCompleted: boolean
-}>
 
 export type ViewFilterValueKey =
   | "status"

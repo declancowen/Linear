@@ -358,6 +358,19 @@ function getInitialCreateViewScopeDialog(
     : dialog
 }
 
+function getInitialSelectedProjectId(
+  dialog: CreateViewDialogState,
+  editingView?: ViewDefinition | null
+) {
+  if (dialog.lockProject) {
+    return dialog.defaultProjectId ?? ""
+  }
+
+  return editingView?.containerType === "project-items"
+    ? (editingView.containerId ?? "")
+    : ""
+}
+
 function getSelectedCreateViewTeam({
   editableTeams,
   selectedScope,
@@ -864,22 +877,42 @@ function getCreateViewConfig({
 }
 
 async function updateExistingViewFromDraft({
+  description,
   draftView,
   editingView,
   name,
+  projectViewContainer,
+  resolvedRoute,
 }: {
+  description: string
   draftView: ViewDefinition
   editingView: ViewDefinition
   name: string
+  projectViewContainer:
+    | { containerType: "project-items"; containerId: string }
+    | Record<string, never>
+  resolvedRoute: string
 }) {
   const store = useAppStore.getState()
   const trimmedName = name.trim()
+  const nextContainerType =
+    "containerType" in projectViewContainer
+      ? projectViewContainer.containerType
+      : null
+  const nextContainerId =
+    "containerId" in projectViewContainer
+      ? projectViewContainer.containerId
+      : null
 
   if (trimmedName !== editingView.name) {
     await store.renameView(editingView.id, trimmedName)
   }
 
   store.updateViewConfig(editingView.id, {
+    description: description.trim(),
+    containerType: nextContainerType,
+    containerId: nextContainerId,
+    route: resolvedRoute,
     layout: draftView.layout,
     grouping: draftView.grouping,
     subGrouping: draftView.subGrouping,
@@ -930,7 +963,14 @@ async function submitCreateViewDialog({
   }
 
   if (editingView && draftView) {
-    await updateExistingViewFromDraft({ draftView, editingView, name })
+    await updateExistingViewFromDraft({
+      description,
+      draftView,
+      editingView,
+      name,
+      projectViewContainer,
+      resolvedRoute,
+    })
     return true
   }
 
@@ -991,9 +1031,7 @@ function useCreateViewDialogOpenReset({
     setSelectedScopeKey(initialScopeKey)
     setProjectPickerOpen(false)
     setProjectQuery("")
-    setSelectedProjectId(
-      dialog.lockProject ? (dialog.defaultProjectId ?? "") : ""
-    )
+    setSelectedProjectId(getInitialSelectedProjectId(dialog, editingView))
     setDraftConfig(
       getInitialDraftConfig(dialog, initialEntityKind, editingView)
     )
@@ -2111,7 +2149,7 @@ export function CreateViewDialog({
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   const [projectQuery, setProjectQuery] = useState("")
   const [selectedProjectId, setSelectedProjectId] = useState(
-    dialog.lockProject ? (dialog.defaultProjectId ?? "") : ""
+    getInitialSelectedProjectId(dialog, editingView)
   )
   const [draftConfig, setDraftConfig] = useState<DraftViewConfig>(() =>
     getInitialDraftConfig(dialog, selectedEntityKind, editingView)

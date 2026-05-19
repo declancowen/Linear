@@ -257,6 +257,20 @@ export interface ViewDefinition {
   updatedAt: string
 }
 
+export type ViewConfigPatch = Partial<{
+  layout: ViewLayout
+  grouping: GroupField
+  subGrouping: GroupField | null
+  ordering: OrderingField
+  itemLevel: WorkItemType | null
+  showChildItems: boolean
+  showCompleted: boolean
+  description: string
+  containerType: ViewContainerType | null
+  containerId: string | null
+  route: string
+}>
+
 export type CreateViewInput = {
   id?: string
   scopeType: ScopeType
