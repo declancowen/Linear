@@ -406,6 +406,9 @@ describe("work item actions", () => {
       title: "Schedule work",
       startDate: "2026-05-01",
       targetDate: "2026-05-10",
+      startTime: null,
+      endTime: null,
+      scheduleTimeZone: "Europe/London",
     })
     expect(harness.state.documents[0]).toMatchObject({
       kind: "item-description",
@@ -424,6 +427,9 @@ describe("work item actions", () => {
       startDate: "2026-05-01",
       dueDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       targetDate: "2026-05-10",
+      startTime: null,
+      endTime: null,
+      scheduleTimeZone: "Europe/London",
     })
     expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
@@ -449,6 +455,9 @@ describe("work item actions", () => {
         startDate: formatLocalCalendarDate(),
         dueDate: addLocalCalendarDays(7),
         targetDate: addLocalCalendarDays(10),
+        startTime: null,
+        endTime: null,
+        scheduleTimeZone: "America/Los_Angeles",
       })
       expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
         id: createdItemId,
@@ -462,6 +471,9 @@ describe("work item actions", () => {
         startDate: formatLocalCalendarDate(),
         dueDate: addLocalCalendarDays(7),
         targetDate: addLocalCalendarDays(10),
+        startTime: null,
+        endTime: null,
+        scheduleTimeZone: "America/Los_Angeles",
       })
       expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
     })

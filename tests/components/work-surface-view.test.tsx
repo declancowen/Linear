@@ -171,6 +171,21 @@ function expectCreateDialogDefaults({
   )
 }
 
+function expectPrivateCreateDialogDefaults() {
+  expect(openManagedCreateDialog).toHaveBeenCalledWith(
+    expect.objectContaining({
+      defaultTeamId: "team_1",
+      defaultProjectId: null,
+      defaultValues: expect.objectContaining({
+        assigneeId: null,
+        primaryProjectId: null,
+        status: "backlog",
+        visibility: "private",
+      }),
+    })
+  )
+}
+
 function expectBoardAndListCreateDefaults({
   data,
   expected,
@@ -697,18 +712,7 @@ describe("ListView", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Add item" })[0])
 
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
-        defaultProjectId: null,
-        defaultValues: expect.objectContaining({
-          assigneeId: null,
-          primaryProjectId: null,
-          status: "backlog",
-          visibility: "private",
-        }),
-      })
-    )
+    expectPrivateCreateDialogDefaults()
 
     vi.mocked(openManagedCreateDialog).mockClear()
 
@@ -725,18 +729,7 @@ describe("ListView", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Add item" })[0])
 
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
-        defaultProjectId: null,
-        defaultValues: expect.objectContaining({
-          assigneeId: null,
-          primaryProjectId: null,
-          status: "backlog",
-          visibility: "private",
-        }),
-      })
-    )
+    expectPrivateCreateDialogDefaults()
   })
 
   it("does not synthesize create-context groups for read-only empty surfaces", () => {

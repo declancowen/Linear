@@ -11,6 +11,7 @@ import {
 
 import { formatDateInputLabel } from "@/lib/date-input"
 import { getDisplayInitials } from "@/lib/display-initials"
+import { formatTimeZoneLabel } from "@/lib/time-zone"
 import {
   getDisplayLabelForWorkItemType,
   priorityMeta,
@@ -520,10 +521,20 @@ export function PropertyAssigneePicker<TUser extends PropertyAssignee>({
 export function PropertyDateChip({
   value,
   label,
+  timeValue,
+  timeZoneValue,
+  timeZoneOptions,
+  onTimeValueChange,
+  onTimeZoneValueChange,
   onValueChange,
 }: {
   value: string | null
   label: string
+  timeValue?: string | null
+  timeZoneValue?: string | null
+  timeZoneOptions?: string[]
+  onTimeValueChange?: (value: string | null) => void
+  onTimeZoneValueChange?: (value: string) => void
   onValueChange: (value: string | null) => void
 }) {
   return (
@@ -555,12 +566,39 @@ export function PropertyDateChip({
             onChange={(event) => onValueChange(event.target.value || null)}
             className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
           />
+          {onTimeValueChange ? (
+            <input
+              type="time"
+              value={timeValue ?? ""}
+              onChange={(event) =>
+                onTimeValueChange(event.target.value || null)
+              }
+              className="mt-2 h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
+            />
+          ) : null}
+          {timeZoneValue && timeZoneOptions && onTimeZoneValueChange ? (
+            <select
+              value={timeZoneValue}
+              onChange={(event) => onTimeZoneValueChange(event.target.value)}
+              className="mt-2 h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
+              aria-label={`${label} time zone`}
+            >
+              {timeZoneOptions.map((timeZone) => (
+                <option key={timeZone} value={timeZone}>
+                  {formatTimeZoneLabel(timeZone)}
+                </option>
+              ))}
+            </select>
+          ) : null}
         </div>
         <PropertyPopoverFoot>
           <button
             type="button"
             className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-            onClick={() => onValueChange(null)}
+            onClick={() => {
+              onValueChange(null)
+              onTimeValueChange?.(null)
+            }}
           >
             Clear
           </button>

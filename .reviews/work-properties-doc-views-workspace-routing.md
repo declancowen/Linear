@@ -28,11 +28,60 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-13 17:00 BST |
-| **Total turns**       | 16                   |
+| **Last reviewed**     | 2026-05-19 19:31 BST |
+| **Total turns**       | 17                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 35                   |
+| **Resolved findings** | 36                   |
 | **Accepted findings** | 0                    |
+
+## Turn 17 — 2026-05-19 19:31 BST
+
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| **Scope**       | Calendar hover detail, workspace item-view routing, and create-view UX |
+| **Review type** | Targeted diff-review + architecture UI/routing boundary check          |
+| **Reviewer**    | Codex CLI                                                              |
+| **Outcome**     | 1 user-reported issue family fixed locally; no local open findings     |
+
+### Commands run
+
+- `pnpm exec vitest run tests/lib/domain/default-views.test.ts tests/components/create-dialogs.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/work-surface.test.tsx tests/components/work-surface-view.test.tsx` — passed, 5 files / 87 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm test` — passed, 182 files / 1017 tests
+- `pnpm build` — passed and included `/workspace/items`
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; production health and duplication clean, no branch-specific architecture blocker identified
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; reported `changed-file-audit: tool/config error (exit 2)` because the worktree is still on `main` with no PR branch, while direct Fallow gates passed cleanly
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx` — passed on rerun after a parallel focused run timed out in an existing mention-retry test under concurrent lint/typecheck load
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** create-view route selection, workspace item default view routing, work surface topbar create-view launch, calendar hover/detail rendering, work-item detail sidebar variant rendering, and the current review/static-analysis history.
+- **Prior open findings rechecked:** no open findings were recorded from Turn 16; the current user report mapped to the calendar floating detail using the full docked sidebar content and workspace item views still acting project-required.
+- **Prior resolved/adjacent areas revalidated:** document/project/item create-view modal switching still uses the relevant taskbar controls; project-specific item views still save to project detail routes when a project is intentionally selected; docked work-item sidebars still keep Relations and Activity.
+- **Hotspots or sibling paths revisited:** calendar month/all-day/timed hover entry points, workspace item route availability, workspace/team create-view scope locking, default route validation, and detail sidebar floating/docked variants.
+- **Dependency/adjacent surfaces revalidated:** Fallow duplication caught the duplicated calendar hover handler introduced by the month/all-day hover parity change; that was extracted and the Fallow gate reran clean.
+- **Why this is enough:** the optional-project behavior is now owned by the default view-route contract, the actual `/workspace/items` route exists, and the calendar hover remains the same work-item detail surface with variant-specific section visibility rather than a separate detail implementation.
+
+### Challenger pass
+
+- done — Checked whether the floating calendar detail should be a bespoke lightweight card. That would drift from the requested Work Details sidebar behavior, so the fix keeps `WorkItemDetailSidebarSurface` as the single surface and gates only the expensive sections by `variant === "floating"`.
+- done — Checked whether workspace item views should continue requiring a project route. That preserved the old broken modal behavior, so the default route contract now allows `/workspace/items` while project-selected item views still route to their project detail.
+
+### Resolved / Carried / New findings
+
+#### WPDV-36 — resolved — calendar hover detail used full sidebar sections and workspace item views still behaved project-required
+
+- **Severity:** medium
+- **Evidence:** user reported the calendar hover popup should match the Work Details sidebar but omit Relations and Activity, remain visible in sidebar calendar contexts, and the view modal should not force a project before creating a workspace item view.
+- **Fix:** Floating work-item detail sidebars now hide Relations and Activity, the calendar hover anchor centers on the hovered event and clamps to the viewport, month entries now use the same delayed hover behavior, workspace item views default to `/workspace/items`, and a real workspace item surface route was added.
+- **Prevention:** Added regression coverage for workspace item default routes, creating workspace item views without a project, and floating detail sidebars omitting the heavy sections.
+
+### Residual risk
+
+- Browser smoke was not rerun in this turn. Earlier local dev-server smoke was blocked by stale unkillable local processes, so the current presentation proof is build, component coverage, and route generation rather than an interactive screenshot pass.
 
 ## Turn 16 — 2026-05-13 17:00 BST
 

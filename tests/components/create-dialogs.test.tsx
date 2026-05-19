@@ -1073,6 +1073,35 @@ describe("create dialogs", () => {
     }
   })
 
+  it("creates a workspace item view without requiring a project", async () => {
+    const createViewSpy = spyOnCreateView()
+
+    try {
+      renderWorkspaceCreateViewDialog()
+
+      expect(
+        screen.queryByText("Select a project to create this workspace view.")
+      ).not.toBeInTheDocument()
+
+      await submitCreateView("Workspace intake")
+
+      expect(createViewSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          entityKind: "items",
+          route: "/workspace/items",
+          name: "Workspace intake",
+          filters: expect.objectContaining({
+            projectIds: [],
+          }),
+        })
+      )
+    } finally {
+      createViewSpy.mockRestore()
+    }
+  })
+
   it("lets workspace-scoped item views be created without editable teams", async () => {
     useAppStore.setState({
       workspaceMemberships: [createTestWorkspaceMembership()],

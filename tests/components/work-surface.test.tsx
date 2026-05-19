@@ -83,6 +83,8 @@ vi.mock("@/components/app/screens/work-surface-view", () => ({
 }))
 
 vi.mock("@phosphor-icons/react", () => ({
+  CalendarBlank: () => null,
+  ChartBarHorizontal: () => null,
   Plus: () => null,
 }))
 

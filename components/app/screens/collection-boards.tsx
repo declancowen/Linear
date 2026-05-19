@@ -5,6 +5,7 @@ import { format } from "date-fns"
 import {
   ArrowSquareOut,
   CalendarDots,
+  CalendarBlank,
   FileText,
   Rows,
   SquaresFour,
@@ -86,6 +87,11 @@ const viewLayoutMeta: Record<
     label: "Timeline",
     icon: CalendarDots,
     accent: "var(--status-review)",
+  },
+  calendar: {
+    label: "Calendar",
+    icon: CalendarBlank,
+    accent: "var(--status-done)",
   },
 }
 

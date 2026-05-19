@@ -21,6 +21,7 @@ import type {
   Role,
   TeamFeatureSettings,
   TeamWorkflowSettings,
+  ViewLayout,
   UserStatus,
   WorkItem,
   WorkItemType,
@@ -68,6 +69,7 @@ export type ProjectPatch = {
   startDate?: string | null
   targetDate?: string | null
   labelIds?: string[]
+  presentation?: CreateProjectInput["presentation"]
 }
 
 export type CreateWorkItemInput = CreateStoreWorkItemInput
@@ -144,6 +146,7 @@ export type UpdateProfileInput = {
     emailAssignments: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
+    timeZone?: string
   }
 }
 
@@ -205,7 +208,7 @@ export type AddChannelPostCommentInput = {
 }
 
 export type ViewConfigPatch = Partial<{
-  layout: "list" | "board" | "timeline"
+  layout: ViewLayout
   grouping: GroupField
   subGrouping: GroupField | null
   ordering: OrderingField

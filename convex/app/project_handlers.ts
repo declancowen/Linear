@@ -330,7 +330,7 @@ async function assertProjectPatchLabels(
   patch: UpdateProjectArgs["patch"],
   project: ProjectDoc
 ) {
-  if (!patch.labelIds) {
+  if (!patch.labelIds && !patch.presentation?.filters.labelIds) {
     return
   }
 
@@ -344,6 +344,11 @@ async function assertProjectPatchLabels(
   }
 
   await assertWorkspaceLabelIds(ctx, workspaceId, patch.labelIds)
+  await assertWorkspaceLabelIds(
+    ctx,
+    workspaceId,
+    patch.presentation?.filters.labelIds
+  )
 }
 
 async function assertProjectPatchMembers(

@@ -42,6 +42,11 @@ import {
 } from "@/lib/domain/types"
 import { getLabelScopeType, sortLabelsByName } from "@/lib/domain/labels"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  getBrowserTimeZone,
+  getSupportedTimeZones,
+  normalizeTimeZone,
+} from "@/lib/time-zone"
 import { Button } from "@/components/ui/button"
 import {
   ShortcutKeys,
@@ -727,8 +732,14 @@ function CreateWorkItemPropertiesRow({
   onProjectChange,
   startDate,
   setStartDate,
+  startTime,
+  setStartTime,
   targetDate,
   setTargetDate,
+  endTime,
+  setEndTime,
+  scheduleTimeZone,
+  setScheduleTimeZone,
   showParentSelect,
   parentPickerOpen,
   setParentPickerOpen,
@@ -784,8 +795,14 @@ function CreateWorkItemPropertiesRow({
   onProjectChange: (projectId: string) => void
   startDate: string | null
   setStartDate: Dispatch<SetStateAction<string | null>>
+  startTime: string | null
+  setStartTime: Dispatch<SetStateAction<string | null>>
   targetDate: string | null
   setTargetDate: Dispatch<SetStateAction<string | null>>
+  endTime: string | null
+  setEndTime: Dispatch<SetStateAction<string | null>>
+  scheduleTimeZone: string | null
+  setScheduleTimeZone: Dispatch<SetStateAction<string | null>>
   showParentSelect: boolean
   parentPickerOpen: boolean
   setParentPickerOpen: Dispatch<SetStateAction<boolean>>
@@ -809,6 +826,8 @@ function CreateWorkItemPropertiesRow({
   onClearLabels: () => void
   onCreateLabel: () => void
 }) {
+  const timeZoneOptions = useMemo(() => getSupportedTimeZones(), [])
+
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-[18px] py-2.5">
       <WorkItemStatusPropertyPicker
@@ -860,11 +879,21 @@ function CreateWorkItemPropertiesRow({
       <PropertyDateChip
         value={startDate}
         label="Start date"
+        timeValue={startTime}
+        timeZoneValue={scheduleTimeZone}
+        timeZoneOptions={timeZoneOptions}
+        onTimeValueChange={setStartTime}
+        onTimeZoneValueChange={setScheduleTimeZone}
         onValueChange={setStartDate}
       />
       <PropertyDateChip
         value={targetDate}
         label="Target date"
+        timeValue={endTime}
+        timeZoneValue={scheduleTimeZone}
+        timeZoneOptions={timeZoneOptions}
+        onTimeValueChange={setEndTime}
+        onTimeZoneValueChange={setScheduleTimeZone}
         onValueChange={setTargetDate}
       />
 
@@ -1017,6 +1046,9 @@ type CreateWorkItemDefaultValues = Partial<{
   startDate: string | null
   dueDate: string | null
   targetDate: string | null
+  startTime: string | null
+  endTime: string | null
+  scheduleTimeZone: string | null
 }>
 
 type InitialCreateWorkItemState = {
@@ -1079,6 +1111,9 @@ function getInitialDates(
     startDate: defaultValues?.startDate ?? null,
     dueDate: defaultValues?.dueDate ?? null,
     targetDate: defaultValues?.targetDate ?? null,
+    startTime: defaultValues?.startTime ?? null,
+    endTime: defaultValues?.endTime ?? null,
+    scheduleTimeZone: defaultValues?.scheduleTimeZone ?? null,
   }
 }
 
@@ -1744,6 +1779,9 @@ function createWorkItemFromDialogState({
   startDate,
   dueDate,
   targetDate,
+  startTime,
+  endTime,
+  scheduleTimeZone,
   visibility,
   normalizedDescription,
   onOpenChange,
@@ -1761,6 +1799,9 @@ function createWorkItemFromDialogState({
   startDate: string | null
   dueDate: string | null
   targetDate: string | null
+  startTime: string | null
+  endTime: string | null
+  scheduleTimeZone: string | null
   visibility?: WorkItemVisibility
   normalizedDescription: string
   onOpenChange: (open: boolean) => void
@@ -1786,6 +1827,9 @@ function createWorkItemFromDialogState({
     startDate,
     dueDate,
     targetDate,
+    startTime,
+    endTime,
+    scheduleTimeZone,
   })
 
   if (!createdItemId) {
@@ -1948,6 +1992,15 @@ export function CreateWorkItemDialog({
   const [targetDate, setTargetDate] = useState<string | null>(
     initialDates.targetDate
   )
+  const currentUser = users.find((user) => user.id === currentUserId) ?? null
+  const [startTime, setStartTime] = useState<string | null>(
+    initialDates.startTime
+  )
+  const [endTime, setEndTime] = useState<string | null>(initialDates.endTime)
+  const [scheduleTimeZone, setScheduleTimeZone] = useState<string | null>(
+    initialDates.scheduleTimeZone ??
+      normalizeTimeZone(currentUser?.preferences.timeZone, getBrowserTimeZone())
+  )
   const [projectId, setProjectId] = useState<string>(initialState.projectId)
   const [selectedParentId, setSelectedParentId] = useState<string>(
     defaultValues?.parentId ?? "none"
@@ -2057,6 +2110,9 @@ export function CreateWorkItemDialog({
       startDate,
       dueDate,
       targetDate,
+      startTime,
+      endTime,
+      scheduleTimeZone,
       visibility,
       normalizedDescription,
       onOpenChange,
@@ -2218,8 +2274,14 @@ export function CreateWorkItemDialog({
           onProjectChange={handleProjectChange}
           startDate={startDate}
           setStartDate={setStartDate}
+          startTime={startTime}
+          setStartTime={setStartTime}
           targetDate={targetDate}
           setTargetDate={setTargetDate}
+          endTime={endTime}
+          setEndTime={setEndTime}
+          scheduleTimeZone={scheduleTimeZone}
+          setScheduleTimeZone={setScheduleTimeZone}
           showParentSelect={showParentSelect}
           parentPickerOpen={parentPickerOpen}
           setParentPickerOpen={setParentPickerOpen}

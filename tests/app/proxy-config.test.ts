@@ -9,4 +9,12 @@ describe("proxy config", () => {
     expect(proxySource).toContain('"/api/channel-posts/:path*"')
     expect(proxySource).toContain('"/api/chat-messages/:path*"')
   })
+
+  it("covers the user calendar route with the authenticated workspace routes", () => {
+    const proxySource = readFileSync(join(process.cwd(), "proxy.ts"), "utf8")
+
+    expect(proxySource).toContain('"/assigned"')
+    expect(proxySource).toContain('"/calendar"')
+    expect(proxySource).toContain('"/chats"')
+  })
 })

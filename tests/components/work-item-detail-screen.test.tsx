@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import "@/tests/lib/fixtures/detail-screen-mocks"
 import { DetailSidebarLabelsRow } from "@/components/app/screens/detail-sidebar-labels-row"
-import { WorkItemDetailScreen } from "@/components/app/screens/work-item-detail-screen"
+import {
+  WorkItemDetailScreen,
+  WorkItemDetailSidebarSurface,
+} from "@/components/app/screens/work-item-detail-screen"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import { useAppStore } from "@/lib/store/app-store"
@@ -944,6 +947,28 @@ describe("work item detail screen", () => {
     expect(
       screen.queryByRole("button", { name: "Assignee" })
     ).not.toBeInTheDocument()
+  })
+
+  it("omits relations and activity from floating item detail popovers", () => {
+    const data = useAppStore.getState()
+    const item = data.workItems.find((candidate) => candidate.id === "item_1")
+
+    if (!item) {
+      throw new Error("Expected seeded work item")
+    }
+
+    render(
+      <WorkItemDetailSidebarSurface
+        data={data}
+        currentItem={item}
+        editable
+        variant="floating"
+      />
+    )
+
+    expect(screen.getByText("Plan launch")).toBeInTheDocument()
+    expect(screen.queryByText("Relations")).not.toBeInTheDocument()
+    expect(screen.queryByText("Activity")).not.toBeInTheDocument()
   })
 
   it("hides empty child-row assignee and project controls", () => {

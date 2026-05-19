@@ -7,6 +7,7 @@ import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
 import {
   CalendarDots,
+  CalendarBlank,
   CaretDown,
   Check,
   CodesandboxLogo,
@@ -26,8 +27,8 @@ import {
   canEditTeam,
   canEditWorkspace,
   getAccessibleTeams,
+  getCurrentWorkspace,
   getPrivateDocuments,
-  getProject,
   getProjectHref,
   getProjectProgress,
   getProjectsForScope,
@@ -38,7 +39,6 @@ import {
   getVisibleProjectsForView,
   getViewsForScope,
   getVisibleWorkItems,
-  getWorkItem,
   getWorkspaceDocuments,
   getWorkspaceDirectoryViews,
   teamHasFeature,
@@ -124,6 +124,7 @@ import {
 } from "@/components/app/screens/grouped-sections"
 import { ScopedScreenLoading } from "@/components/app/screens/scoped-screen-loading"
 import { WorkSurface } from "@/components/app/screens/work-surface"
+import { CalendarView } from "@/components/app/screens/work-surface-view"
 import { getViewHref } from "@/lib/domain/default-views"
 import {
   GroupChipPopover,
@@ -148,6 +149,18 @@ import {
   ViewsDirectoryPropertiesChipPopover,
   ViewsDirectorySortChipPopover,
 } from "@/components/app/screens/directory-controls"
+import { DocsFilterOptionsList } from "@/components/app/screens/docs-filter-options-list"
+import {
+  buildDocsFilterOptions,
+  DOC_KIND_LABEL,
+  DOCS_DISPLAY_PROPERTY_LABEL,
+  DOCS_DISPLAY_PROPERTY_OPTIONS,
+  DOCS_GROUP_OPTIONS,
+  DOCS_ORDERING_LABEL,
+  DOCS_ORDERING_OPTIONS,
+  getDocsFilterCount,
+  groupDocsFilterOptions,
+} from "@/components/app/screens/docs-view-config"
 import {
   IconButton,
   PROPERTY_POPOVER_CLASS,
@@ -262,6 +275,11 @@ const viewDirectoryLayoutMeta: Record<
     label: "Timeline",
     icon: CalendarDots,
     accent: "var(--status-review)",
+  },
+  calendar: {
+    label: "Calendar",
+    icon: CalendarBlank,
+    accent: "var(--status-done)",
   },
 }
 
@@ -845,81 +863,6 @@ function getDocsEmptyTitle(isWorkspaceDocs: boolean, activeTab: DocsTab) {
     : "No private documents yet"
 }
 
-const DOCS_DISPLAY_PROPERTY_OPTIONS: DisplayProperty[] = [
-  "kind",
-  "team",
-  "createdBy",
-  "updatedBy",
-  "created",
-  "updated",
-  "linkedProjects",
-  "linkedItems",
-]
-
-const DOCS_GROUP_OPTIONS: GroupField[] = [
-  "kind",
-  "team",
-  "createdBy",
-  "updatedBy",
-]
-
-const DOCS_ORDERING_OPTIONS: OrderingField[] = [
-  "title",
-  "createdAt",
-  "updatedAt",
-]
-
-const DOC_KIND_LABEL: Record<DocumentKind, string> = {
-  "private-document": "Private",
-  "workspace-document": "Workspace docs",
-  "team-document": "Team docs",
-  "item-description": "Work item description",
-}
-
-const DOCS_ORDERING_LABEL: Record<OrderingField, string> = {
-  priority: "Priority",
-  updatedAt: "Updated",
-  createdAt: "Created",
-  dueDate: "Due date",
-  targetDate: "Target date",
-  title: "Title",
-}
-
-const DOCS_DISPLAY_PROPERTY_LABEL: Partial<Record<DisplayProperty, string>> = {
-  kind: "Kind",
-  team: "Team",
-  createdBy: "Created by",
-  updatedBy: "Updated by",
-  created: "Created",
-  updated: "Updated",
-  linkedProjects: "Linked projects",
-  linkedItems: "Linked work items",
-}
-
-type DocsFilterKey =
-  | "documentKinds"
-  | "teamIds"
-  | "creatorIds"
-  | "updatedByIds"
-  | "projectIds"
-  | "linkedWorkItemIds"
-
-type DocsFilterOption = {
-  key: DocsFilterKey
-  value: string
-  label: string
-  group: string
-}
-
-const DOCS_FILTER_GROUP_ORDER = [
-  "Kind",
-  "Team space",
-  "Created by",
-  "Updated by",
-  "Linked projects",
-  "Linked work items",
-] as const
-
 const DOCS_CHIP_BASE =
   "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
 const DOCS_CHIP_DEFAULT =
@@ -1154,101 +1097,6 @@ function buildDocsSections(
     compareGroupKeys: (field, left, right) =>
       compareDocumentGroupKeys(data, field, left, right),
   })
-}
-
-function getUniqueDocsFilterOptions(
-  options: DocsFilterOption[]
-): DocsFilterOption[] {
-  const seen = new Set<string>()
-
-  return options.filter((option) => {
-    const key = `${option.key}:${option.value}`
-
-    if (seen.has(key)) {
-      return false
-    }
-
-    seen.add(key)
-    return true
-  })
-}
-
-function buildDocsFilterOptions(
-  data: AppData,
-  documents: Document[]
-): DocsFilterOption[] {
-  return getUniqueDocsFilterOptions([
-    ...documents.map((document) => ({
-      key: "documentKinds" as const,
-      value: document.kind,
-      label: DOC_KIND_LABEL[document.kind],
-      group: "Kind",
-    })),
-    ...documents.flatMap((document) =>
-      document.teamId
-        ? [
-            {
-              key: "teamIds" as const,
-              value: document.teamId,
-              label: getTeam(data, document.teamId)?.name ?? "Team",
-              group: "Team space",
-            },
-          ]
-        : []
-    ),
-    ...documents.map((document) => ({
-      key: "creatorIds" as const,
-      value: document.createdBy,
-      label: getUser(data, document.createdBy)?.name ?? "Unknown",
-      group: "Created by",
-    })),
-    ...documents.map((document) => ({
-      key: "updatedByIds" as const,
-      value: document.updatedBy,
-      label: getUser(data, document.updatedBy)?.name ?? "Unknown",
-      group: "Updated by",
-    })),
-    ...documents.flatMap((document) =>
-      document.linkedProjectIds.map((projectId) => ({
-        key: "projectIds" as const,
-        value: projectId,
-        label: getProject(data, projectId)?.name ?? "Project",
-        group: "Linked projects",
-      }))
-    ),
-    ...documents.flatMap((document) =>
-      document.linkedWorkItemIds.map((itemId) => ({
-        key: "linkedWorkItemIds" as const,
-        value: itemId,
-        label: getWorkItem(data, itemId)?.title ?? "Work item",
-        group: "Linked work items",
-      }))
-    ),
-  ])
-}
-
-function groupDocsFilterOptions(options: DocsFilterOption[]) {
-  return DOCS_FILTER_GROUP_ORDER.map((group) => ({
-    group,
-    options: options.filter((option) => option.group === group),
-  })).filter((section) => section.options.length > 0)
-}
-
-function getDocsFilterValues(view: ViewDefinition, key: DocsFilterKey) {
-  return (view.filters[key] ?? []) as string[]
-}
-
-function getDocsFilterCount(view: ViewDefinition) {
-  const filters = view.filters
-
-  return [
-    filters.documentKinds?.length ?? 0,
-    filters.teamIds.length,
-    filters.creatorIds.length,
-    filters.updatedByIds?.length ?? 0,
-    filters.projectIds.length,
-    filters.linkedWorkItemIds?.length ?? 0,
-  ].reduce((total, count) => total + count, 0)
 }
 
 const PROJECT_HEALTH_PILL_CLASS: Record<Project["health"], string> = {
@@ -2415,15 +2263,10 @@ function DocsFilterPopover({
   const optionGroups = groupDocsFilterOptions(options)
   const count = getDocsFilterCount(view)
 
-  function toggleFilter(option: DocsFilterOption) {
+  function toggleFilter(key: ViewFilterKey, value: string) {
     useAppStore
       .getState()
-      .toggleViewerViewFilterValue(
-        routeKey,
-        view.id,
-        option.key as ViewFilterKey,
-        option.value
-      )
+      .toggleViewerViewFilterValue(routeKey, view.id, key, value)
   }
 
   function clearFilters() {
@@ -2447,44 +2290,12 @@ function DocsFilterPopover({
         align="start"
         className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
       >
-        <PropertyPopoverList>
-          {optionGroups.length > 0 ? (
-            <>
-              {optionGroups.map((group) => (
-                <div key={group.group} className="contents">
-                  <PropertyPopoverGroup>{group.group}</PropertyPopoverGroup>
-                  {group.options.map((option) => {
-                    const selected = getDocsFilterValues(
-                      view,
-                      option.key
-                    ).includes(option.value)
-
-                    return (
-                      <PropertyPopoverItem
-                        key={`${option.key}:${option.value}`}
-                        selected={selected}
-                        onClick={() => toggleFilter(option)}
-                        trailing={
-                          selected ? (
-                            <Check className="size-3.5 text-accent-fg" />
-                          ) : null
-                        }
-                      >
-                        <span className="min-w-0 flex-1 truncate">
-                          {option.label}
-                        </span>
-                      </PropertyPopoverItem>
-                    )
-                  })}
-                </div>
-              ))}
-            </>
-          ) : (
-            <PropertyPopoverItem muted className="pointer-events-none">
-              No document fields yet
-            </PropertyPopoverItem>
-          )}
-        </PropertyPopoverList>
+        <DocsFilterOptionsList
+          checkClassName="size-3.5 text-accent-fg"
+          optionGroups={optionGroups}
+          view={view}
+          onToggleFilter={toggleFilter}
+        />
         <PropertyPopoverFoot>
           <span>{count} active</span>
           {count > 0 ? (
@@ -2635,14 +2446,14 @@ function DocsViewTabs({
       defaultScopeId: scopeId,
       defaultEntityKind: "docs",
       defaultRoute: routeKey,
-      lockScope: true,
       lockEntityKind: true,
+      seedInitialConfig: true,
       initialConfig: {
         layout: activeView?.layout ?? "list",
         grouping: activeView?.grouping ?? "kind",
         subGrouping: null,
         ordering: activeView?.ordering ?? "updatedAt",
-        filters: createEmptyViewFilters(),
+        filters: activeView?.filters ?? createEmptyViewFilters(),
         displayProps: activeView?.displayProps ?? DOCS_DISPLAY_PROPERTY_OPTIONS,
         hiddenState: { groups: [], subgroups: [] },
       },
@@ -3532,6 +3343,64 @@ export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
   )
 }
 
+export function WorkspaceItemsScreen() {
+  const workspace = useAppStore(getCurrentWorkspace)
+  const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(workspace?.id),
+    scopeKeys: workspace
+      ? getWorkIndexScopeKeys("workspace", workspace.id)
+      : [],
+    fetchLatest: () =>
+      fetchWorkIndexReadModel("workspace", workspace?.id ?? ""),
+  })
+  const views = useAppStore(
+    useShallow((state) =>
+      workspace
+        ? getViewsForScope(state, "workspace", workspace.id, "items")
+        : []
+    )
+  )
+  const items = useAppStore(
+    useShallow((state) =>
+      workspace ? getVisibleWorkItems(state, { workspaceId: workspace.id }) : []
+    )
+  )
+  const workspaceExperience = useAppStore((state) => {
+    if (!workspace) {
+      return null
+    }
+
+    return getSharedTeamExperience(
+      getAccessibleTeams(state)
+        .filter((team) => team.workspaceId === workspace.id)
+        .map((team) => team.settings.experience)
+    )
+  })
+
+  if (!workspace) {
+    return <MissingState title="Workspace not found" />
+  }
+
+  const workCopy = getWorkSurfaceCopy(workspaceExperience)
+
+  return (
+    <WorkSurface
+      title="Workspace items"
+      routeKey="/workspace/items"
+      views={views}
+      items={items}
+      team={null}
+      workspaceId={workspace.id}
+      createTeamId={activeTeamId}
+      groupingExperience={workspaceExperience}
+      emptyLabel={workCopy.emptyLabel}
+      isLoading={!hasLoadedOnce && items.length === 0}
+      loadingLabel="Loading workspace items..."
+    />
+  )
+}
+
 export function AssignedScreen() {
   const { activeTeamId, currentUserId } = useAppStore(
     useShallow((state) => ({
@@ -3603,6 +3472,33 @@ export function AssignedScreen() {
       hiddenFilters={["assigneeIds"]}
     />
   )
+}
+
+export function UserCalendarScreen() {
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
+  const { currentUserId } = useAppStore(
+    useShallow((state) => ({
+      currentUserId: state.currentUserId,
+    }))
+  )
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(currentUserId),
+    scopeKeys: currentUserId
+      ? getWorkIndexScopeKeys("personal", currentUserId)
+      : [],
+    fetchLatest: () => fetchWorkIndexReadModel("personal", currentUserId ?? ""),
+  })
+  const calendarItems = useAppStore(
+    useShallow((state) =>
+      getVisibleWorkItems(state, { assignedToCurrentUser: true })
+    )
+  )
+
+  if (!hasLoadedOnce && calendarItems.length === 0) {
+    return <ScopedScreenLoading label="Loading calendar..." />
+  }
+
+  return <CalendarView data={data} items={calendarItems} editable />
 }
 
 type ProjectsScreenProps = {

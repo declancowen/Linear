@@ -55,8 +55,10 @@ vi.mock("@/components/ui/context-menu", () => ({
 
 vi.mock("@phosphor-icons/react", () => ({
   ArrowSquareOut: () => null,
+  CalendarBlank: () => null,
   CalendarDots: () => null,
   CaretDown: () => null,
+  ChartBarHorizontal: () => null,
   Check: () => null,
   DotsSixVertical: () => null,
   Eye: () => null,

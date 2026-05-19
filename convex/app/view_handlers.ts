@@ -31,7 +31,7 @@ type ServerAccessArgs = {
   serverToken: string
 }
 
-type ViewLayout = "list" | "board" | "timeline"
+type ViewLayout = "list" | "board" | "timeline" | "calendar"
 type ViewItemLevel =
   | "epic"
   | "feature"

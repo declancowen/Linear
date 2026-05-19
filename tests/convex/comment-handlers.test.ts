@@ -27,31 +27,19 @@ vi.mock("@/convex/app/data", () => ({
   listCommentsByTarget: listCommentsByTargetMock,
 }))
 
-vi.mock("@/convex/app/access", () => ({
-  getWorkItemAudienceUserIds: vi.fn(
-    (
-      item: {
-        assigneeId?: string | null
-        creatorId?: string | null
-        visibility?: "team" | "private" | null
-      },
-      teamMemberIds: string[]
-    ) =>
-    (item.visibility ?? "team") === "private"
-      ? [
-          ...new Set(
-            [item.creatorId, item.assigneeId].filter(
-              (userId): userId is string => Boolean(userId)
-            )
-          ),
-        ].filter((userId) => teamMemberIds.includes(userId))
-      : teamMemberIds
-  ),
-  requireEditableDocumentAccess: requireEditableDocumentAccessMock,
-  requireEditableWorkItemAccess: requireEditableWorkItemAccessMock,
-  requireReadableDocumentAccess: requireReadableDocumentAccessMock,
-  requireReadableWorkItemAccess: requireReadableWorkItemAccessMock,
-}))
+vi.mock("@/convex/app/access", async () => {
+  const { getTestWorkItemAudienceUserIds } = await import(
+    "@/tests/lib/fixtures/convex"
+  )
+
+  return {
+    getWorkItemAudienceUserIds: vi.fn(getTestWorkItemAudienceUserIds),
+    requireEditableDocumentAccess: requireEditableDocumentAccessMock,
+    requireEditableWorkItemAccess: requireEditableWorkItemAccessMock,
+    requireReadableDocumentAccess: requireReadableDocumentAccessMock,
+    requireReadableWorkItemAccess: requireReadableWorkItemAccessMock,
+  }
+})
 
 vi.mock("@/convex/app/conversations", () => ({
   getTeamMemberIds: getTeamMemberIdsMock,

@@ -334,7 +334,7 @@ export async function deleteWorkItemServer(input: {
 export async function updateViewConfigServer(input: {
   currentUserId: string
   viewId: string
-  layout?: "list" | "board" | "timeline"
+  layout?: import("@/lib/domain/types").ViewLayout
   grouping?: GroupField
   subGrouping?: GroupField | null
   ordering?: OrderingField

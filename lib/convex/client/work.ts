@@ -15,6 +15,7 @@ import type {
   Role,
   TeamFeatureSettings,
   TeamWorkflowSettings,
+  ViewLayout,
   WorkItemType,
 } from "@/lib/domain/types"
 import type { CreateProjectInput } from "@/lib/domain/project-inputs"
@@ -38,7 +39,7 @@ import { runRouteMutation } from "./shared"
 type WorkItemPatch = WorkItemMutationPatch
 
 type UpdateViewConfigPatch = Partial<{
-  layout: "list" | "board" | "timeline"
+  layout: ViewLayout
   grouping: GroupField
   subGrouping: GroupField | null
   ordering: OrderingField

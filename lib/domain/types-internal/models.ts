@@ -103,6 +103,7 @@ export interface UserProfile {
     emailAssignments: boolean
     emailDigest: boolean
     theme: ThemePreference
+    timeZone?: string
   }
 }
 
@@ -198,6 +199,9 @@ export interface WorkItem {
   startDate: string | null
   dueDate: string | null
   targetDate: string | null
+  startTime?: string | null
+  endTime?: string | null
+  scheduleTimeZone?: string | null
   subscriberIds: string[]
   createdAt: string
   updatedAt: string
@@ -454,17 +458,22 @@ export type CreateDialogState =
           | "labelIds"
           | "visibility"
           | "startDate"
+          | "startTime"
           | "dueDate"
           | "targetDate"
+          | "endTime"
+          | "scheduleTimeZone"
         >
       >
     }
   | {
       kind: "project"
       defaultTeamId?: string | null
+      editProjectId?: string | null
     }
   | {
       kind: "view"
+      editViewId?: string | null
       defaultScopeType?: "team" | "workspace" | null
       defaultScopeId?: string | null
       defaultProjectId?: string | null
@@ -473,6 +482,7 @@ export type CreateDialogState =
       lockScope?: boolean
       lockProject?: boolean
       lockEntityKind?: boolean
+      seedInitialConfig?: boolean
       initialConfig?: Partial<{
         layout: ViewLayout
         filters: ViewFilters

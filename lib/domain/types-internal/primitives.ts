@@ -126,7 +126,7 @@ export const viewNameMaxLength = viewNameConstraints.max
 export const viewContainerTypes = ["project-items"] as const
 export type ViewContainerType = (typeof viewContainerTypes)[number]
 
-export const viewLayouts = ["list", "board", "timeline"] as const
+export const viewLayouts = ["list", "board", "timeline", "calendar"] as const
 export type ViewLayout = (typeof viewLayouts)[number]
 
 export type ViewScopeType = "personal" | "team" | "workspace"
@@ -444,9 +444,10 @@ export function createDefaultProjectPresentationConfig(
     showChildItems: false,
     layout,
     grouping: "status",
-    ordering: layout === "timeline" ? "targetDate" : "priority",
+    ordering:
+      layout === "timeline" || layout === "calendar" ? "targetDate" : "priority",
     displayProps:
-      layout === "timeline"
+      layout === "timeline" || layout === "calendar"
         ? ["id", "status", "assignee", "priority", "dueDate"]
         : ["id", "status", "assignee", "priority", "labels", "updated"],
     filters: createDefaultViewFilters(),

@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { type PointerEvent as ReactPointerEvent } from "react"
+import { memo, type PointerEvent as ReactPointerEvent } from "react"
 import { useDraggable } from "@dnd-kit/core"
 import { CSS } from "@dnd-kit/utilities"
 
@@ -11,7 +11,7 @@ import { IssueContextMenu } from "../work-item-menus"
 import { WorkItemTypeBadge } from "../work-item-ui"
 import { TIMELINE_ITEM_ROW_HEIGHT_CLASS } from "./timeline-constants"
 
-export function TimelineLabelRow({
+export const TimelineLabelRow = memo(function TimelineLabelRow({
   data,
   item,
 }: {
@@ -57,7 +57,7 @@ export function TimelineLabelRow({
       </div>
     </IssueContextMenu>
   )
-}
+})
 
 const barColors: Record<string, string> = {
   backlog: "bg-muted-foreground/20 text-foreground",
@@ -68,7 +68,7 @@ const barColors: Record<string, string> = {
   cancelled: "bg-red-400/60 text-white",
 }
 
-export function TimelineBarPreview({
+export const TimelineBarPreview = memo(function TimelineBarPreview({
   item,
   span,
 }: {
@@ -88,9 +88,9 @@ export function TimelineBarPreview({
       <span className="truncate">{span >= 3 ? item.title : item.key}</span>
     </div>
   )
-}
+})
 
-export function TimelineBar({
+export const TimelineBar = memo(function TimelineBar({
   data,
   item,
   span,
@@ -158,4 +158,4 @@ export function TimelineBar({
       </button>
     </IssueContextMenu>
   )
-}
+})

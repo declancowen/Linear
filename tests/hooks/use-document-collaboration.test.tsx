@@ -107,6 +107,34 @@ function mockOpenSession(session: ReturnType<typeof createSession>) {
   )
 }
 
+function createSameUserAwareness(activeBlockId = "paragraph:1") {
+  const baseAwareness = {
+    userId: "user_1",
+    name: "Alex",
+    avatarUrl: "https://example.com/avatar.png",
+    color: "#123456",
+    typing: false,
+    cursor: null,
+    selection: null,
+    cursorSide: null,
+  }
+
+  return {
+    local: {
+      ...baseAwareness,
+      sessionId: "session_1",
+      activeBlockId: "paragraph:1",
+    },
+    remote: [
+      {
+        ...baseAwareness,
+        sessionId: "session_2",
+        activeBlockId,
+      },
+    ],
+  }
+}
+
 async function renderCollaborationHook(
   options: {
     avatarImageUrl?: string | null
@@ -488,34 +516,7 @@ describe("useDocumentCollaboration", () => {
 
     await expectAttachedCollaboration(result)
 
-    awarenessChanges.emit({
-      local: {
-        userId: "user_1",
-        sessionId: "session_1",
-        name: "Alex",
-        avatarUrl: "https://example.com/avatar.png",
-        color: "#123456",
-        typing: false,
-        activeBlockId: "paragraph:1",
-        cursor: null,
-        selection: null,
-        cursorSide: null,
-      },
-      remote: [
-        {
-          userId: "user_1",
-          sessionId: "session_2",
-          name: "Alex",
-          avatarUrl: "https://example.com/avatar.png",
-          color: "#123456",
-          typing: false,
-          activeBlockId: "paragraph:1",
-          cursor: null,
-          selection: null,
-          cursorSide: null,
-        },
-      ],
-    })
+    awarenessChanges.emit(createSameUserAwareness())
 
     await waitFor(() => {
       expect(result.current.viewers).toHaveLength(2)
@@ -523,65 +524,11 @@ describe("useDocumentCollaboration", () => {
 
     const firstViewers = result.current.viewers
 
-    awarenessChanges.emit({
-      local: {
-        userId: "user_1",
-        sessionId: "session_1",
-        name: "Alex",
-        avatarUrl: "https://example.com/avatar.png",
-        color: "#123456",
-        typing: false,
-        activeBlockId: "paragraph:1",
-        cursor: null,
-        selection: null,
-        cursorSide: null,
-      },
-      remote: [
-        {
-          userId: "user_1",
-          sessionId: "session_2",
-          name: "Alex",
-          avatarUrl: "https://example.com/avatar.png",
-          color: "#123456",
-          typing: false,
-          activeBlockId: "paragraph:1",
-          cursor: null,
-          selection: null,
-          cursorSide: null,
-        },
-      ],
-    })
+    awarenessChanges.emit(createSameUserAwareness())
 
     expect(result.current.viewers).toBe(firstViewers)
 
-    awarenessChanges.emit({
-      local: {
-        userId: "user_1",
-        sessionId: "session_1",
-        name: "Alex",
-        avatarUrl: "https://example.com/avatar.png",
-        color: "#123456",
-        typing: false,
-        activeBlockId: "paragraph:1",
-        cursor: null,
-        selection: null,
-        cursorSide: null,
-      },
-      remote: [
-        {
-          userId: "user_1",
-          sessionId: "session_2",
-          name: "Alex",
-          avatarUrl: "https://example.com/avatar.png",
-          color: "#123456",
-          typing: false,
-          activeBlockId: "paragraph:2",
-          cursor: null,
-          selection: null,
-          cursorSide: null,
-        },
-      ],
-    })
+    awarenessChanges.emit(createSameUserAwareness("paragraph:2"))
 
     expect(result.current.viewers).not.toBe(firstViewers)
     expect(result.current.viewers[1]?.activeBlockId).toBe("paragraph:2")

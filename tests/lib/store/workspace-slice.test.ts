@@ -398,6 +398,7 @@ describe("workspace slice", () => {
         emailDigest: true,
         emailMentions: true,
         theme: "dark",
+        timeZone: "UTC",
       },
       {
         avatarImageStorageId: undefined,

@@ -18,6 +18,9 @@ export type WorkItemMutationPatch = {
   startDate?: string | null
   dueDate?: string | null
   targetDate?: string | null
+  startTime?: string | null
+  endTime?: string | null
+  scheduleTimeZone?: string | null
 }
 
 export type StoreWorkItemPatch = Omit<WorkItemMutationPatch, "description">
@@ -38,6 +41,9 @@ export type CreateWorkItemMutationInput = {
   startDate?: string | null
   dueDate?: string | null
   targetDate?: string | null
+  startTime?: string | null
+  endTime?: string | null
+  scheduleTimeZone?: string | null
 }
 
 export type CreateStoreWorkItemInput = Omit<

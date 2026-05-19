@@ -339,6 +339,15 @@ export const bumpScopedReadModelVersions = operationalMutation({
   handler: bumpScopedReadModelVersionsHandler,
 })
 
+const workItemScheduleMutationArgs = {
+  startDate: v.optional(nullableStringValidator),
+  dueDate: v.optional(nullableStringValidator),
+  targetDate: v.optional(nullableStringValidator),
+  startTime: v.optional(nullableStringValidator),
+  endTime: v.optional(nullableStringValidator),
+  scheduleTimeZone: v.optional(nullableStringValidator),
+}
+
 export const getSnapshot = query({
   args: {
     ...serverAccessArgs,
@@ -676,6 +685,7 @@ export const updateCurrentUserProfile = mutation({
       emailAssignments: v.boolean(),
       emailDigest: v.boolean(),
       theme: v.optional(themePreferenceValidator),
+      timeZone: v.optional(v.string()),
     }),
   },
   handler: updateCurrentUserProfileHandler,
@@ -1038,9 +1048,7 @@ export const updateWorkItem = mutation({
       parentId: v.optional(nullableStringValidator),
       primaryProjectId: v.optional(nullableStringValidator),
       labelIds: v.optional(v.array(v.string())),
-      startDate: v.optional(nullableStringValidator),
-      dueDate: v.optional(nullableStringValidator),
-      targetDate: v.optional(nullableStringValidator),
+      ...workItemScheduleMutationArgs,
     }),
   },
   handler: updateWorkItemHandler,
@@ -1337,6 +1345,18 @@ export const joinTeamByCode = mutation({
   handler: joinTeamByCodeHandler,
 })
 
+const projectPresentationMutationArg = v.optional(
+  v.object({
+    itemLevel: v.optional(v.union(workItemTypeValidator, v.null())),
+    showChildItems: v.optional(v.boolean()),
+    layout: viewLayoutValidator,
+    grouping: groupFieldValidator,
+    ordering: orderingFieldValidator,
+    displayProps: v.array(displayPropertyValidator),
+    filters: viewFiltersValidator,
+  })
+)
+
 export const createProject = mutation({
   args: {
     ...serverAccessArgs,
@@ -1351,17 +1371,7 @@ export const createProject = mutation({
     priority: priorityValidator,
     ...projectPeopleAndScheduleMutationArgs,
     settingsTeamId: v.optional(nullableStringValidator),
-    presentation: v.optional(
-      v.object({
-        itemLevel: v.optional(v.union(workItemTypeValidator, v.null())),
-        showChildItems: v.optional(v.boolean()),
-        layout: viewLayoutValidator,
-        grouping: groupFieldValidator,
-        ordering: orderingFieldValidator,
-        displayProps: v.array(displayPropertyValidator),
-        filters: viewFiltersValidator,
-      })
-    ),
+    presentation: projectPresentationMutationArg,
   },
   handler: createProjectHandler,
 })
@@ -1377,6 +1387,7 @@ export const updateProject = mutation({
       summary: v.optional(v.string()),
       status: v.optional(projectStatusValidator),
       priority: v.optional(priorityValidator),
+      presentation: projectPresentationMutationArg,
       ...projectPeopleAndScheduleMutationArgs,
     }),
   },
@@ -1436,9 +1447,7 @@ export const createWorkItem = mutation({
     priority: priorityValidator,
     labelIds: v.optional(v.array(v.string())),
     visibility: v.optional(workItemVisibilityValidator),
-    startDate: v.optional(nullableStringValidator),
-    dueDate: v.optional(nullableStringValidator),
-    targetDate: v.optional(nullableStringValidator),
+    ...workItemScheduleMutationArgs,
   },
   handler: createWorkItemHandler,
 })

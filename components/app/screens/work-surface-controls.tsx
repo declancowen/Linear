@@ -28,8 +28,9 @@ import {
 } from "@dnd-kit/modifiers"
 import { CSS } from "@dnd-kit/utilities"
 import {
-  CalendarDots,
+  CalendarBlank,
   CaretDown,
+  ChartBarHorizontal,
   Check,
   DotsSixVertical,
   Eye,
@@ -160,7 +161,12 @@ const WORK_LAYOUT_OPTIONS: Array<{
   {
     value: "timeline",
     label: "Timeline",
-    icon: <CalendarDots className="size-3.5" />,
+    icon: <ChartBarHorizontal className="size-3.5" />,
+  },
+  {
+    value: "calendar",
+    label: "Calendar",
+    icon: <CalendarBlank className="size-3.5" />,
   },
 ]
 
@@ -1281,7 +1287,12 @@ export function ViewConfigPopover({
               {
                 value: "timeline",
                 label: "Timeline",
-                icon: <CalendarDots className="size-3" />,
+                icon: <ChartBarHorizontal className="size-3" />,
+              },
+              {
+                value: "calendar",
+                label: "Calendar",
+                icon: <CalendarBlank className="size-3" />,
               },
             ].map((layout) => (
               <button

@@ -58,6 +58,44 @@ function createView(overrides?: Partial<ViewDefinition>): ViewDefinition {
   }
 }
 
+function createCurrentUserTeamState(
+  experience: Parameters<typeof createDefaultTeamFeatureSettings>[0] =
+    "software-development"
+) {
+  const state = createEmptyState()
+
+  state.currentUserId = "user_1"
+  state.currentWorkspaceId = "workspace_1"
+  state.teams = [
+    {
+      id: "team_1",
+      workspaceId: "workspace_1",
+      slug: "platform",
+      name: "Platform",
+      icon: "rocket",
+      settings: {
+        joinCode: "JOIN1234",
+        summary: "",
+        guestProjectIds: [],
+        guestDocumentIds: [],
+        guestWorkItemIds: [],
+        experience,
+        features: createDefaultTeamFeatureSettings(experience),
+        workflow: createDefaultTeamWorkflowSettings(experience),
+      },
+    },
+  ]
+  state.teamMemberships = [
+    {
+      teamId: "team_1",
+      userId: "user_1",
+      role: "member",
+    },
+  ]
+
+  return state
+}
+
 describe("view item levels", () => {
   it("filters visible items to the configured item level", () => {
     const state = createEmptyState()
@@ -357,35 +395,7 @@ describe("view item levels", () => {
   })
 
   it("includes ancestor context for current-user work without pulling in unrelated items", () => {
-    const state = createEmptyState()
-    state.currentUserId = "user_1"
-    state.currentWorkspaceId = "workspace_1"
-    state.teams = [
-      {
-        id: "team_1",
-        workspaceId: "workspace_1",
-        slug: "platform",
-        name: "Platform",
-        icon: "rocket",
-        settings: {
-          joinCode: "JOIN1234",
-          summary: "",
-          guestProjectIds: [],
-          guestDocumentIds: [],
-          guestWorkItemIds: [],
-          experience: "software-development",
-          features: createDefaultTeamFeatureSettings("software-development"),
-          workflow: createDefaultTeamWorkflowSettings("software-development"),
-        },
-      },
-    ]
-    state.teamMemberships = [
-      {
-        teamId: "team_1",
-        userId: "user_1",
-        role: "member",
-      },
-    ]
+    const state = createCurrentUserTeamState()
     state.workItems = [
       createTestWorkItem("epic", { type: "epic" }),
       createTestWorkItem("feature", { type: "feature", parentId: "epic" }),
@@ -408,35 +418,7 @@ describe("view item levels", () => {
   })
 
   it("treats private work created by the current user as personal work without assignee state", () => {
-    const state = createEmptyState()
-    state.currentUserId = "user_1"
-    state.currentWorkspaceId = "workspace_1"
-    state.teams = [
-      {
-        id: "team_1",
-        workspaceId: "workspace_1",
-        slug: "platform",
-        name: "Platform",
-        icon: "rocket",
-        settings: {
-          joinCode: "JOIN1234",
-          summary: "",
-          guestProjectIds: [],
-          guestDocumentIds: [],
-          guestWorkItemIds: [],
-          experience: "project-management",
-          features: createDefaultTeamFeatureSettings("project-management"),
-          workflow: createDefaultTeamWorkflowSettings("project-management"),
-        },
-      },
-    ]
-    state.teamMemberships = [
-      {
-        teamId: "team_1",
-        userId: "user_1",
-        role: "member",
-      },
-    ]
+    const state = createCurrentUserTeamState("project-management")
     state.workItems = [
       createTestWorkItem("private-owned", {
         creatorId: "user_1",

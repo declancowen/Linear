@@ -1,4 +1,5 @@
 import type { UserProfile } from "@/lib/domain/types"
+import { getBrowserTimeZone, normalizeTimeZone } from "@/lib/time-zone"
 import { resolveImageAssetSource } from "@/lib/utils"
 
 type UserProfileDraftSource = {
@@ -12,6 +13,7 @@ type UserProfileDraftSource = {
   emailMentions: boolean
   emailAssignments: boolean
   emailDigest: boolean
+  timeZone: string
 }
 
 export function getUserProfileDraftSource(
@@ -29,6 +31,7 @@ export function getUserProfileDraftSource(
       emailMentions: false,
       emailAssignments: false,
       emailDigest: false,
+      timeZone: getBrowserTimeZone(),
     }
   }
 
@@ -49,5 +52,9 @@ export function getUserProfileDraftSource(
     emailMentions: currentUser.preferences.emailMentions,
     emailAssignments: currentUser.preferences.emailAssignments,
     emailDigest: currentUser.preferences.emailDigest,
+    timeZone: normalizeTimeZone(
+      currentUser.preferences.timeZone,
+      getBrowserTimeZone()
+    ),
   }
 }

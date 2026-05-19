@@ -358,6 +358,7 @@ describe("workspace and profile route contracts", () => {
         emailAssignments: true,
         emailDigest: true,
         theme: "system",
+        timeZone: "UTC",
       },
     })
     expect(syncUserProfileToWorkOSMock).toHaveBeenCalledWith({

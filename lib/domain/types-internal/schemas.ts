@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { isValidCalendarDateString } from "@/lib/calendar-date"
+import { isValidTimeValue, isValidTimeZone } from "@/lib/time-zone"
 import {
   channelPostCommentContentConstraints,
   channelPostContentConstraints,
@@ -150,6 +151,22 @@ export const nullableCalendarDateSchema = z
   })
   .nullable()
 
+export const nullableTimeSchema = z
+  .string()
+  .trim()
+  .refine(isValidTimeValue, {
+    message: "Must be a valid time",
+  })
+  .nullable()
+
+export const nullableTimeZoneSchema = z
+  .string()
+  .trim()
+  .refine(isValidTimeZone, {
+    message: "Must be a valid time zone",
+  })
+  .nullable()
+
 export const labelCreateSchema = z.object({
   workspaceId: z.string().trim().min(1).optional(),
   scopeType: z.enum(labelScopeTypes).optional(),
@@ -267,6 +284,13 @@ export const profileSchema = z.object({
     emailAssignments: z.boolean(),
     emailDigest: z.boolean(),
     theme: z.enum(themePreferences).default("light"),
+    timeZone: z
+      .string()
+      .trim()
+      .refine(isValidTimeZone, {
+        message: "Must be a valid time zone",
+      })
+      .default("UTC"),
   }),
 })
 
@@ -414,6 +438,9 @@ export const workItemSchema = z.object({
   startDate: nullableCalendarDateSchema.optional(),
   dueDate: nullableCalendarDateSchema.optional(),
   targetDate: nullableCalendarDateSchema.optional(),
+  startTime: nullableTimeSchema.optional(),
+  endTime: nullableTimeSchema.optional(),
+  scheduleTimeZone: nullableTimeZoneSchema.optional(),
 })
 
 const customPropertyOptionSchema = z.object({

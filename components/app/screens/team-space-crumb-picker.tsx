@@ -60,6 +60,7 @@ export function TeamSpaceCrumbPicker({
     id: string
     label: string
     teamId?: string | null
+    section?: "workspace" | "team"
   }>
   selectedId: string
   onSelect: (id: string) => void
@@ -79,6 +80,55 @@ export function TeamSpaceCrumbPicker({
     () => options.filter((option) => matchesQuery(option.label, query)),
     [options, query]
   )
+  const workspaceOptions = filteredOptions.filter(
+    (option) => option.section === "workspace"
+  )
+  const teamOptions = filteredOptions.filter(
+    (option) => option.section !== "workspace"
+  )
+
+  function renderOptions(
+    label: string,
+    entries: typeof filteredOptions
+  ) {
+    if (entries.length === 0) {
+      return null
+    }
+
+    return (
+      <>
+        <PropertyPopoverGroup>{label}</PropertyPopoverGroup>
+        {entries.map((option) => {
+          const selected = option.id === selectedId
+          return (
+            <PropertyPopoverItem
+              key={option.id}
+              selected={selected}
+              onClick={() => {
+                onSelect(option.id)
+                setOpen(false)
+                setQuery("")
+              }}
+              trailing={
+                selected ? (
+                  <Check className="size-[14px] text-foreground" />
+                ) : null
+              }
+            >
+              <span
+                aria-hidden
+                className="inline-block size-2 shrink-0 rounded-full"
+                style={{
+                  background: getTeamDotColor(option.teamId ?? option.id),
+                }}
+              />
+              <span className="truncate">{option.label}</span>
+            </PropertyPopoverItem>
+          )
+        })}
+      </>
+    )
+  }
 
   return (
     <Popover
@@ -125,35 +175,14 @@ export function TeamSpaceCrumbPicker({
             </div>
           ) : (
             <>
-              <PropertyPopoverGroup>{groupLabel}</PropertyPopoverGroup>
-              {filteredOptions.map((option) => {
-                const selected = option.id === selectedId
-                return (
-                  <PropertyPopoverItem
-                    key={option.id}
-                    selected={selected}
-                    onClick={() => {
-                      onSelect(option.id)
-                      setOpen(false)
-                      setQuery("")
-                    }}
-                    trailing={
-                      selected ? (
-                        <Check className="size-[14px] text-foreground" />
-                      ) : null
-                    }
-                  >
-                    <span
-                      aria-hidden
-                      className="inline-block size-2 shrink-0 rounded-full"
-                      style={{
-                        background: getTeamDotColor(option.teamId ?? option.id),
-                      }}
-                    />
-                    <span className="truncate">{option.label}</span>
-                  </PropertyPopoverItem>
-                )
-              })}
+              {workspaceOptions.length > 0 || teamOptions.length > 0
+                ? (
+                    <>
+                      {renderOptions("Workspace", workspaceOptions)}
+                      {renderOptions(groupLabel, teamOptions)}
+                    </>
+                  )
+                : renderOptions(groupLabel, filteredOptions)}
             </>
           )}
         </PropertyPopoverList>
