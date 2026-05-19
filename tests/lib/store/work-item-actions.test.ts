@@ -387,7 +387,19 @@ describe("work item actions", () => {
   })
 
   it("creates work items with selected schedule dates", async () => {
-    const harness = await createWorkItemActionsHarness()
+    const state = createState()
+    state.users = state.users.map((user) =>
+      user.id === state.currentUserId
+        ? {
+            ...user,
+            preferences: {
+              ...user.preferences,
+              timeZone: "Europe/London",
+            },
+          }
+        : user
+    )
+    const harness = await createWorkItemActionsHarness(state)
 
     const createdItemId = harness.actions.createWorkItem({
       teamId: "team_1",
