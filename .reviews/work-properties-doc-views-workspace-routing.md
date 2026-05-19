@@ -31,7 +31,7 @@
 | **Last reviewed**     | 2026-05-19 22:46 BST |
 | **Total turns**       | 19                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 43                   |
+| **Resolved findings** | 44                   |
 | **Accepted findings** | 0                    |
 
 ## Turn 19 — 2026-05-19 22:46 BST
@@ -53,6 +53,8 @@
 - `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
 - `git diff --check` — passed
 - `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; PR context, branch-total diff, and analyzer evidence recorded
+- `gh run view 26127327310 --log-failed` / `gh run view 26127330138 --log-failed` — CI failed in the same detail-screen retry test timeout
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx` — passed locally after increasing the slow integration-style test timeout, 1 file / 17 tests
 
 ### Branch-totality proof
 
@@ -84,9 +86,16 @@
 - **Fix:** edited views now send description, route, `containerType`, and `containerId` through `updateViewConfig`; the shared patch contract, API schema, server wrapper, and Convex mutation all accept and validate those fields.
 - **Prevention:** Added dialog, store, and route-contract coverage, including rejection for incomplete container patches.
 
+#### WPDV-44 — resolved — CI timed out on the cross-item mention retry test
+
+- **Severity:** medium
+- **Evidence:** both GitHub Actions jobs timed out on `tests/components/work-item-detail-screen.test.tsx` while running the full suite, while the test file passed locally but spent over 10 seconds across 17 tests.
+- **Fix:** the specific cross-item retry scenario now has a 10 second timeout because it exercises multiple editor open/save/rerender cycles under the full-suite runner.
+- **Prevention:** Reran the detail-screen test file and lint locally before pushing the stabilization.
+
 ### Residual risk
 
-- Full `pnpm test` and `pnpm build` were not rerun for this small PR-feedback delta; the previous pushed branch had green CI, and this turn reran targeted tests plus typecheck, lint, Fallow, dependency audit, and diff checks.
+- Full `pnpm test` and `pnpm build` were not rerun locally for this small PR-feedback delta; the pushed branch is relying on GitHub CI for the full check after the timeout stabilization.
 
 ## Turn 18 — 2026-05-19 20:34 BST
 

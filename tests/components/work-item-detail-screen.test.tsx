@@ -789,44 +789,48 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
   })
 
-  it("preserves mention retries for one item when saving a different item without mentions", async () => {
-    setSaveWorkItemMainSectionMock(
-      createStateUpdatingSaveMock({
-        getDocumentId: (itemId) =>
-          itemId === "item_1" ? "document_1" : "document_2",
+  it(
+    "preserves mention retries for one item when saving a different item without mentions",
+    async () => {
+      setSaveWorkItemMainSectionMock(
+        createStateUpdatingSaveMock({
+          getDocumentId: (itemId) =>
+            itemId === "item_1" ? "document_1" : "document_2",
+        })
+      )
+      mockRetryingMentionDelivery()
+
+      const { rerender } = renderWorkItemDetail()
+
+      openWorkItemEditor()
+      updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+      clickSaveButton()
+
+      await expectWorkItemEditorClosed()
+
+      rerender(<WorkItemDetailScreen itemId="item_2" />)
+
+      openWorkItemEditor()
+      fireEvent.change(screen.getByDisplayValue("Follow up"), {
+        target: { value: "Follow up updated" },
       })
-    )
-    mockRetryingMentionDelivery()
+      clickSaveButton()
 
-    const { rerender } = renderWorkItemDetail()
+      await expectWorkItemEditorClosed()
 
-    openWorkItemEditor()
-    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
-    clickSaveButton()
+      rerender(<WorkItemDetailScreen itemId="item_1" />)
 
-    await expectWorkItemEditorClosed()
+      openWorkItemEditor()
 
-    rerender(<WorkItemDetailScreen itemId="item_2" />)
+      const saveButton = screen.getByRole("button", { name: "Save" })
+      expect(saveButton).not.toBeDisabled()
 
-    openWorkItemEditor()
-    fireEvent.change(screen.getByDisplayValue("Follow up"), {
-      target: { value: "Follow up updated" },
-    })
-    clickSaveButton()
+      fireEvent.click(saveButton)
 
-    await expectWorkItemEditorClosed()
-
-    rerender(<WorkItemDetailScreen itemId="item_1" />)
-
-    openWorkItemEditor()
-
-    const saveButton = screen.getByRole("button", { name: "Save" })
-    expect(saveButton).not.toBeDisabled()
-
-    fireEvent.click(saveButton)
-
-    await expectTaylorMentionDeliveryRetry()
-  })
+      await expectTaylorMentionDeliveryRetry()
+    },
+    10_000
+  )
 
   it("sends self-mentions after saving the main section", async () => {
     const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
