@@ -91,6 +91,7 @@ import {
   ListView,
   TimelineView,
 } from "@/components/app/screens/work-surface-view"
+import { getCalendarNavigationAnchorDate } from "@/components/app/screens/work-surface-view/calendar-view"
 import { BoardChildItemRow } from "@/components/app/screens/work-surface-view/board-child-item-row"
 import { requestWorkSurfaceDragUpdate } from "@/components/app/screens/work-surface-view/drag-state"
 import {
@@ -815,6 +816,43 @@ describe("CalendarView", () => {
     expect(
       screen.getByText(format(addMonths(today, 1), "MMMM yyyy"))
     ).toBeInTheDocument()
+  })
+
+  it("advances hidden-weekend week navigation by visible days", () => {
+    const periodStart = new Date(2026, 4, 18)
+    const nextAnchor = getCalendarNavigationAnchorDate({
+      anchorDate: periodStart,
+      direction: 1,
+      mode: "week",
+      showWeekends: false,
+      weekDayCount: 7,
+      weekStart: "monday",
+    })
+    const previousAnchor = getCalendarNavigationAnchorDate({
+      anchorDate: nextAnchor,
+      direction: -1,
+      mode: "week",
+      showWeekends: false,
+      weekDayCount: 7,
+      weekStart: "monday",
+    })
+
+    expect(formatLocalCalendarDate(nextAnchor)).toBe("2026-05-27")
+    expect(formatLocalCalendarDate(previousAnchor)).toBe("2026-05-18")
+  })
+
+  it("keeps hidden-weekend five-day navigation on the next workweek", () => {
+    const periodStart = new Date(2026, 4, 18)
+    const nextAnchor = getCalendarNavigationAnchorDate({
+      anchorDate: periodStart,
+      direction: 1,
+      mode: "week",
+      showWeekends: false,
+      weekDayCount: 5,
+      weekStart: "monday",
+    })
+
+    expect(formatLocalCalendarDate(nextAnchor)).toBe("2026-05-25")
   })
 
   it("keeps trackpad wheel events as native calendar scrolling", () => {

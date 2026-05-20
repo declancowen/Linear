@@ -28,11 +28,51 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 13:40 BST |
-| **Total turns**       | 28                   |
+| **Last reviewed**     | 2026-05-20 13:55 BST |
+| **Total turns**       | 29                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 58                   |
+| **Resolved findings** | 59                   |
 | **Accepted findings** | 0                    |
+
+## Turn 29 — 2026-05-20 13:55 BST
+
+| Field           | Value                                                                  |
+| --------------- | ---------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex feedback for hidden-weekend week navigation               |
+| **Review type** | External PR feedback triage + calendar navigation fix + gate rerun     |
+| **Reviewer**    | Codex CLI                                                              |
+| **Outcome**     | 1 live PR finding fixed locally; no local open findings                |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the latest Codex review feedback
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 50 tests
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm lint` — passed
+- `git diff --check` — passed before the review-log update
+
+### Branch-totality proof
+
+- **External findings triaged:** current PR feedback had one live P2 issue: week navigation advanced by raw calendar days, causing overlap when weekends were hidden and the selected day count spans more calendar days than visible days.
+- **Bug classes / invariants checked:** hidden-weekend navigation, visible-day page boundaries, backward/forward symmetry, and five-day workweek alignment.
+- **Sibling closure:** day navigation now also steps by visible days when weekends are hidden; month navigation remains calendar-month based. Five-day hidden-weekend weeks still jump to the next workweek, while seven/fourteen-day hidden-weekend ranges advance to the next non-overlapping visible range.
+- **Architecture rule applied:** visible-day navigation lives in the calendar view owner as a pure helper, separate from schedule interpretation and rendering.
+- **Why this is enough:** component coverage now asserts seven-visible-day hidden-weekend navigation advances from `2026-05-18` to `2026-05-27` and back without overlap, and five-day hidden-weekend navigation advances to the next workweek.
+
+### Resolved / Carried / New findings
+
+#### WPDV-59 — resolved — hidden-weekend week navigation overlapped already visible days
+
+- **Severity:** medium
+- **Evidence:** `moveAnchor` used `addDays(current, weekDayCount)` in week mode; with weekends hidden, `weekDayCount` visible days can span more than `weekDayCount` calendar days.
+- **Fix:** calendar navigation now advances by visible days for day/week modes and keeps month navigation on calendar months.
+- **Prevention:** Added hidden-weekend navigation regression coverage and reran calendar tests, lint, typecheck, and Fallow.
+
+### Residual risk
+
+- I did not resolve or reply to the GitHub review thread; the branch was pushed with the fix for Codex to re-review.
 
 ## Turn 28 — 2026-05-20 13:40 BST
 

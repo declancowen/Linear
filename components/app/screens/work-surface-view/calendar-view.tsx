@@ -556,9 +556,14 @@ function getScrollableMonthWeeks(
 function getScrollableWeekStart(
   anchorDate: Date,
   weekDayCount: CalendarWeekDayCount,
+  showWeekends: boolean,
   weekStart: CalendarWeekStart
 ) {
-  return weekDayCount >= 7
+  const alignsToWeekStart = showWeekends
+    ? weekDayCount >= 7
+    : weekDayCount === 5
+
+  return alignsToWeekStart
     ? startOfWeek(anchorDate, {
         weekStartsOn: getWeekStartsOn(weekStart),
       })
@@ -574,7 +579,12 @@ function getScrollAnchorDay(
 ) {
   const start =
     mode === "week"
-      ? getScrollableWeekStart(anchorDate, weekDayCount, weekStart)
+      ? getScrollableWeekStart(
+          anchorDate,
+          weekDayCount,
+          showWeekends,
+          weekStart
+        )
       : startOfDay(anchorDate)
 
   return getVisibleDaySequence({
@@ -620,7 +630,12 @@ function getScrollableDays(
   }
 
   if (mode === "week") {
-    const start = getScrollableWeekStart(anchorDate, weekDayCount, weekStart)
+    const start = getScrollableWeekStart(
+      anchorDate,
+      weekDayCount,
+      showWeekends,
+      weekStart
+    )
     const currentDays = getVisibleDaySequence({
       count: weekDayCount,
       showWeekends,
@@ -646,6 +661,72 @@ function getScrollableDays(
   }
 
   return getScrollableMonthWeeks(anchorDate, showWeekends, weekStart).flat()
+}
+
+function moveDateByVisibleDays(
+  anchorDate: Date,
+  visibleDayDelta: number,
+  showWeekends: boolean
+) {
+  if (visibleDayDelta === 0) {
+    return startOfDay(anchorDate)
+  }
+
+  if (showWeekends) {
+    return addDays(startOfDay(anchorDate), visibleDayDelta)
+  }
+
+  const direction = visibleDayDelta > 0 ? 1 : -1
+  let remaining = Math.abs(visibleDayDelta)
+  let cursor = startOfDay(anchorDate)
+
+  while (remaining > 0) {
+    cursor = addDays(cursor, direction)
+
+    if (!isWeekendDate(cursor)) {
+      remaining -= 1
+    }
+  }
+
+  return cursor
+}
+
+export function getCalendarNavigationAnchorDate({
+  anchorDate,
+  direction,
+  mode,
+  showWeekends,
+  weekDayCount,
+  weekStart,
+}: {
+  anchorDate: Date
+  direction: -1 | 1
+  mode: CalendarMode
+  showWeekends: boolean
+  weekDayCount: CalendarWeekDayCount
+  weekStart: CalendarWeekStart
+}) {
+  if (mode === "month") {
+    return addMonths(anchorDate, direction)
+  }
+
+  if (mode === "day") {
+    return moveDateByVisibleDays(anchorDate, direction, showWeekends)
+  }
+
+  const periodStart = getScrollAnchorDay(
+    anchorDate,
+    mode,
+    weekDayCount,
+    showWeekends,
+    weekStart
+  )
+
+  return moveDateByVisibleDays(
+    periodStart,
+    direction * weekDayCount,
+    showWeekends
+  )
 }
 
 function getModeTitle(anchorDate: Date, mode: CalendarMode) {
@@ -3875,9 +3956,14 @@ export function CalendarView({
 
   function moveAnchor(direction: -1 | 1) {
     setCalendarAnchorDate((current) =>
-      mode === "month"
-        ? addMonths(current, direction)
-        : addDays(current, direction * (mode === "week" ? weekDayCount : 1))
+      getCalendarNavigationAnchorDate({
+        anchorDate: current,
+        direction,
+        mode,
+        showWeekends,
+        weekDayCount,
+        weekStart,
+      })
     )
   }
 
