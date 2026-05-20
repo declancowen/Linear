@@ -903,6 +903,26 @@ describe("CalendarView", () => {
     expect(screen.queryByText("23 May 2026")).not.toBeInTheDocument()
   })
 
+  it("anchors Today clicks to the selected calendar time zone", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-21T02:00:00.000Z"))
+
+    render(
+      <CalendarView
+        data={createData()}
+        items={[]}
+        editable={false}
+        mode="day"
+        timeZone="America/Los_Angeles"
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Today" }))
+
+    expect(screen.getByText("20 May 2026")).toBeInTheDocument()
+    expect(screen.queryByText("21 May 2026")).not.toBeInTheDocument()
+  })
+
   it("normalizes hidden-weekend anchors when entering day mode", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 4, 23, 9))

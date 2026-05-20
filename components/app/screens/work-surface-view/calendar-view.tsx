@@ -48,6 +48,7 @@ import {
   getBrowserTimeZone,
   getSupportedTimeZones,
   normalizeTimeZone,
+  utcToZonedWallTime,
 } from "@/lib/time-zone"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
@@ -446,6 +447,10 @@ function getDateKey(date: Date) {
 
 function getDateFromKey(value: string) {
   return getCalendarDate(value) ?? new Date(value)
+}
+
+function getTodayDateInTimeZone(timeZone: string, now = new Date()) {
+  return getDateFromKey(utcToZonedWallTime(now, timeZone).date)
 }
 
 function isWeekendDate(date: Date) {
@@ -1253,14 +1258,16 @@ function CalendarSettingsField({
 
 function CalendarDatePicker({
   anchorDate,
+  getTodayDate,
   onSelect,
   triggerLabel,
 }: {
   anchorDate: Date
+  getTodayDate: () => Date
   onSelect: (next: Date) => void
   triggerLabel: string
 }) {
-  const today = useMemo(() => startOfDay(new Date()), [])
+  const todayDate = getTodayDate()
   const [open, setOpen] = useState(false)
   const [viewMonth, setViewMonth] = useState<Date>(() =>
     startOfMonth(anchorDate)
@@ -1330,7 +1337,7 @@ function CalendarDatePicker({
           <button
             type="button"
             className="flex-1 truncate rounded-md px-2 py-1 text-center text-[13px] font-semibold transition-colors hover:bg-surface-3"
-            onClick={() => commitDate(today)}
+            onClick={() => commitDate(getTodayDate())}
             aria-label="Jump to today"
           >
             {format(viewMonth, "MMMM yyyy")}
@@ -1362,7 +1369,7 @@ function CalendarDatePicker({
             {monthGridDays.map((day) => {
               const inMonth = isSameMonth(day, viewMonth)
               const isSelected = isSameDay(day, anchorDate)
-              const isToday = isSameDay(day, today)
+              const isToday = isSameDay(day, todayDate)
               return (
                 <button
                   key={day.toISOString()}
@@ -1389,7 +1396,11 @@ function CalendarDatePicker({
           <div className="text-[11px] text-fg-3">
             {format(yearStart, "yyyy")}
           </div>
-          <Button variant="outline" size="sm" onClick={() => commitDate(today)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => commitDate(getTodayDate())}
+          >
             Jump to today
           </Button>
         </div>
@@ -2004,6 +2015,10 @@ function CalendarToolbar({
   weekDayCount,
   weekStart,
 }: CalendarToolbarProps) {
+  function getTodayDate() {
+    return getTodayDateInTimeZone(timeZone)
+  }
+
   return (
     <div className="flex min-w-0 shrink-0 items-center gap-3 overflow-hidden border-b border-line-soft px-5 py-3">
       <div className="min-w-0 flex-1">
@@ -2011,6 +2026,7 @@ function CalendarToolbar({
           anchorDate={anchorDate}
           triggerLabel={getModeTitle(anchorDate, mode)}
           onSelect={onAnchorDateChange}
+          getTodayDate={getTodayDate}
         />
       </div>
       <div className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-surface-3/70 p-0.5">
@@ -2037,7 +2053,7 @@ function CalendarToolbar({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => onAnchorDateChange(startOfDay(new Date()))}
+          onClick={() => onAnchorDateChange(getTodayDate())}
         >
           Today
         </Button>

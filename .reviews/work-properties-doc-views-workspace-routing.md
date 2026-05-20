@@ -28,11 +28,51 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 14:29 BST |
-| **Total turns**       | 32                   |
+| **Last reviewed**     | 2026-05-20 14:47 BST |
+| **Total turns**       | 33                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 62                   |
+| **Resolved findings** | 63                   |
 | **Accepted findings** | 0                    |
+
+## Turn 33 — 2026-05-20 14:47 BST
+
+| Field           | Value                                                                  |
+| --------------- | ---------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex feedback for timezone-aware Today anchors                 |
+| **Review type** | External PR feedback triage + calendar timezone fix + gate rerun       |
+| **Reviewer**    | Codex CLI                                                              |
+| **Outcome**     | 1 live PR finding fixed locally; no local open findings                |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the latest Codex review feedback
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 55 tests
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm lint` — passed
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** current PR feedback had one live P2 issue: the Today button used browser-local `startOfDay(new Date())` instead of the selected calendar timezone.
+- **Bug classes / invariants checked:** timezone-aware Today navigation, date-boundary behavior, stale render-time clocks, and existing hidden-weekend Today normalization.
+- **Sibling closure:** the date picker Jump to today path now uses the same timezone-aware date source as the toolbar Today button.
+- **Architecture rule applied:** timezone date derivation stays inside the calendar controls owner and reuses the existing timezone wall-time adapter instead of hand-rolling offsets in UI code.
+- **Why this is enough:** component coverage now asserts a Los Angeles calendar at `2026-05-21T02:00:00.000Z` anchors Today to `2026-05-20`, not the browser/UTC date.
+
+### Resolved / Carried / New findings
+
+#### WPDV-63 — resolved — Today used the browser timezone instead of the selected calendar timezone
+
+- **Severity:** medium
+- **Evidence:** the toolbar Today handler used `startOfDay(new Date())`, which can be a different date than the selected calendar timezone around midnight boundaries.
+- **Fix:** Today now derives the current date from the selected calendar timezone at click time, and the date picker uses the same timezone-aware Today source.
+- **Prevention:** Added a timezone-boundary Today regression test and reran calendar tests, lint, typecheck, and Fallow.
+
+### Residual risk
+
+- I did not resolve or reply to the GitHub review thread; the branch will be pushed with the fix for Codex to re-review.
 
 ## Turn 32 — 2026-05-20 14:29 BST
 
