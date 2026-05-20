@@ -63,14 +63,19 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
 vi.mock("@/components/app/screens/work-item-detail-screen", () => ({
   WorkItemDetailSidebarSurface: ({
     currentItem,
+    editable,
     onClose,
     variant = "docked",
   }: {
     currentItem: { title: string }
+    editable?: boolean
     onClose?: () => void
     variant?: "docked" | "floating"
   }) => (
-    <div data-testid={`${variant}-detail`}>
+    <div
+      data-testid={`${variant}-detail`}
+      data-editable={String(Boolean(editable))}
+    >
       <button type="button" onClick={onClose}>
         Close detail
       </button>
@@ -287,6 +292,81 @@ function createData(): AppData {
     currentWorkspaceId: "workspace_1",
     teams: [createTeam()],
     workItems: [createWorkItem()],
+  }
+}
+
+function createTimedCalendarItem(overrides: Partial<WorkItem> = {}) {
+  const date = formatLocalCalendarDate(startOfDay(new Date()))
+
+  return createWorkItem({
+    startDate: date,
+    targetDate: date,
+    startTime: "09:00",
+    endTime: "10:00",
+    scheduleTimeZone: "Europe/London",
+    ...overrides,
+  })
+}
+
+function getCalendarTimedGrid() {
+  const timedGrid = screen.getByTestId("calendar-timed-grid")
+  timedGrid.getBoundingClientRect = () =>
+    ({
+      bottom: 1536,
+      height: 1536,
+      left: 0,
+      right: 700,
+      top: 0,
+      width: 700,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect
+
+  return timedGrid
+}
+
+function getCalendarEventCard(title: string) {
+  const eventCard = screen.getByText(title).parentElement
+
+  expect(eventCard).toBeTruthy()
+
+  return eventCard!
+}
+
+function renderTimedCalendarItem({
+  canEditItem,
+  editable = true,
+  item,
+}: {
+  canEditItem?: (item: WorkItem) => boolean
+  editable?: boolean
+  item: WorkItem
+}) {
+  const data = {
+    ...createData(),
+    workItems: [item],
+  }
+
+  useAppStore.setState(data)
+  const updateWorkItemSpy = vi
+    .spyOn(useAppStore.getState(), "updateWorkItem")
+    .mockReturnValue({ status: "updated" })
+
+  render(
+    <CalendarView
+      data={data}
+      items={[item]}
+      editable={editable}
+      canEditItem={canEditItem}
+    />
+  )
+
+  return {
+    data,
+    eventCard: getCalendarEventCard(item.title),
+    timedGrid: getCalendarTimedGrid(),
+    updateWorkItemSpy,
   }
 }
 
@@ -675,54 +755,19 @@ describe("CalendarView", () => {
   })
 
   it("clears timed drag state on pointer cancellation", () => {
-    const today = startOfDay(new Date())
-    const date = formatLocalCalendarDate(today)
-    const item = createWorkItem({
+    const item = createTimedCalendarItem({
       id: "drag-item",
       title: "Drag planning",
-      startDate: date,
-      targetDate: date,
-      startTime: "09:00",
-      endTime: "10:00",
-      scheduleTimeZone: "Europe/London",
     })
-    const data = {
-      ...createData(),
-      workItems: [item],
-    }
+    const { eventCard, timedGrid, updateWorkItemSpy } =
+      renderTimedCalendarItem({ item })
 
-    useAppStore.setState(data)
-    const updateWorkItemSpy = vi.spyOn(
-      useAppStore.getState(),
-      "updateWorkItem"
-    )
-
-    render(<CalendarView data={data} items={[item]} editable />)
-
-    const timedGrid = screen.getByTestId("calendar-timed-grid")
-    timedGrid.getBoundingClientRect = () =>
-      ({
-        bottom: 1536,
-        height: 1536,
-        left: 0,
-        right: 700,
-        top: 0,
-        width: 700,
-        x: 0,
-        y: 0,
-        toJSON: () => ({}),
-      }) as DOMRect
-
-    const eventCard = screen.getByText("Drag planning").parentElement
-
-    expect(eventCard).toBeTruthy()
-
-    fireEvent.pointerDown(eventCard!, {
+    fireEvent.pointerDown(eventCard, {
       clientX: 120,
       clientY: 576,
       pointerId: 7,
     })
-    fireEvent.pointerCancel(eventCard!, {
+    fireEvent.pointerCancel(eventCard, {
       clientX: 120,
       clientY: 576,
       pointerId: 7,
@@ -734,6 +779,68 @@ describe("CalendarView", () => {
     })
 
     expect(updateWorkItemSpy).not.toHaveBeenCalled()
+    updateWorkItemSpy.mockRestore()
+  })
+
+  it("blocks drag edits for non-editable calendar items", () => {
+    const item = createTimedCalendarItem({
+      id: "readonly-calendar-item",
+      title: "Read-only planning",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } =
+      renderTimedCalendarItem({
+        canEditItem: () => false,
+        item,
+      })
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 120,
+      clientY: 576,
+      pointerId: 11,
+    })
+    fireEvent.pointerUp(timedGrid, {
+      clientX: 260,
+      clientY: 720,
+      pointerId: 11,
+    })
+    fireEvent.click(eventCard)
+
+    expect(updateWorkItemSpy).not.toHaveBeenCalled()
+    expect(screen.getByTestId("docked-detail")).toHaveAttribute(
+      "data-editable",
+      "false"
+    )
+    updateWorkItemSpy.mockRestore()
+  })
+
+  it("keeps timed event duration when a move is clamped late in the day", () => {
+    const item = createTimedCalendarItem({
+      id: "late-day-drag-item",
+      title: "Late-day planning",
+      startTime: "10:00",
+      endTime: "11:30",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } =
+      renderTimedCalendarItem({ item })
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 120,
+      clientY: 640,
+      pointerId: 12,
+    })
+    fireEvent.pointerUp(timedGrid, {
+      clientX: 120,
+      clientY: 1504,
+      pointerId: 12,
+    })
+
+    expect(updateWorkItemSpy).toHaveBeenCalledWith(
+      "late-day-drag-item",
+      expect.objectContaining({
+        startTime: "22:29",
+        endTime: "23:59",
+      })
+    )
     updateWorkItemSpy.mockRestore()
   })
 })

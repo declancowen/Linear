@@ -318,10 +318,12 @@ export function CalendarView({
   data,
   items,
   editable,
+  canEditItem,
 }: {
   data: AppData
   items: WorkItem[]
   editable?: boolean
+  canEditItem?: (item: WorkItem) => boolean
 }) {
   const currentUser = getUser(data, data.currentUserId)
   const viewerTimeZone = normalizeTimeZone(
@@ -348,6 +350,10 @@ export function CalendarView({
   )
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? null
   const hoveredItem = items.find((item) => item.id === hoveredItemId) ?? null
+
+  function isItemEditable(item: WorkItem) {
+    return Boolean(editable) && (canEditItem?.(item) ?? true)
+  }
 
   function clearHoverTimer() {
     if (hoverTimerRef.current) {
@@ -465,7 +471,7 @@ export function CalendarView({
     const slot = getPointerSlot(event.clientX, event.clientY)
     dragStateRef.current = null
 
-    if (!slot || !editable) {
+    if (!slot || !isItemEditable(drag.item)) {
       return
     }
 
@@ -479,8 +485,11 @@ export function CalendarView({
     let endMinutes = drag.originEndMinutes
 
     if (drag.action === "move") {
-      startMinutes = slot.minutes
-      endMinutes = slot.minutes + drag.durationMinutes
+      startMinutes = Math.min(
+        slot.minutes,
+        Math.max(0, 24 * 60 - 1 - drag.durationMinutes)
+      )
+      endMinutes = startMinutes + drag.durationMinutes
     } else if (drag.action === "resize-start") {
       startMinutes = Math.min(
         slot.minutes,
@@ -509,7 +518,7 @@ export function CalendarView({
     entry: TimedCalendarEntry,
     action: DragAction
   ) {
-    if (!editable) {
+    if (!isItemEditable(entry.item)) {
       return
     }
 
@@ -553,7 +562,7 @@ export function CalendarView({
 
   function moveAllDayItem(entry: AllDayCalendarEntry, targetDate: string) {
     const range = getWorkItemScheduleDateRange(entry.item)
-    if (!range || !editable) {
+    if (!range || !isItemEditable(entry.item)) {
       return
     }
 
@@ -612,7 +621,7 @@ export function CalendarView({
     const slot = getPointerSlot(clientX, clientY)
     const item = items.find((candidate) => candidate.id === itemId) ?? null
 
-    if (!slot || !item || !editable) {
+    if (!slot || !item || !isItemEditable(item)) {
       return
     }
 
@@ -850,7 +859,7 @@ export function CalendarView({
                   return (
                     <button
                       key={span.entry.item.id}
-                      draggable={editable}
+                      draggable={isItemEditable(span.entry.item)}
                       className={cn(
                         "absolute z-10 truncate rounded border-l-2 px-2 text-left text-[12px] leading-[26px]",
                         itemTone(index)
@@ -1022,7 +1031,7 @@ export function CalendarView({
         <WorkItemDetailSidebarSurface
           data={data}
           currentItem={selectedItem}
-          editable={Boolean(editable)}
+          editable={isItemEditable(selectedItem)}
           onClose={() => setSelectedItemId(null)}
         />
       ) : null}
@@ -1042,7 +1051,7 @@ export function CalendarView({
           <WorkItemDetailSidebarSurface
             data={data}
             currentItem={hoveredItem}
-            editable={Boolean(editable)}
+            editable={isItemEditable(hoveredItem)}
             variant="floating"
             onClose={clearHoverDetail}
           />

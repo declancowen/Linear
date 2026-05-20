@@ -28,11 +28,59 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 05:10 BST |
-| **Total turns**       | 22                   |
+| **Last reviewed**     | 2026-05-20 05:34 BST |
+| **Total turns**       | 23                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 50                   |
+| **Resolved findings** | 52                   |
 | **Accepted findings** | 0                    |
+
+## Turn 23 — 2026-05-20 05:34 BST
+
+| Field           | Value                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------- |
+| **Scope**       | Current-head Codex review feedback for personal calendar editability and timed drag bounds  |
+| **Review type** | External finding triage + calendar interaction fix + static analyzer gate rerun             |
+| **Reviewer**    | Codex CLI                                                                                   |
+| **Outcome**     | 2 live current-head Codex findings fixed locally; no local open findings after gate rerun   |
+
+### Commands run
+
+- `gh pr view 36 --json latestReviews` — confirmed Codex reviewed pushed head `e1b698cf`
+- `gh api graphql ... reviewThreads(first: 100)` — fetched current-head inline review threads
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 31 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — initially failed on duplicated test setup from the new calendar drag tests, then passed after extracting test-local helpers: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** current-head Codex review found two live Medium issues: personal calendar drag/resize allowed optimistic updates for assigned items from read-only teams, and timed event moves near midnight could shorten duration by clamping only at serialization.
+- **Bug classes / invariants checked:** authorization/UI editability parity for personal calendar items; drag/drop preservation for timed event duration under late-day clamping.
+- **Sibling closure:** item-level calendar editability now gates timed move/resize, all-day moves, all-day-to-timed drops, all-day dragging, and docked/floating detail sidebar edit state. Timed move clamping now moves start and end together rather than clamping end only.
+- **Architecture rule applied:** edit authority stays with the personal calendar screen and is passed as an item-level predicate into the shared `CalendarView`; the view owns interaction math but not team-role policy.
+- **Why this is enough:** the fixes are at the shared calendar boundary and have regression coverage for denied item edits and the exact late-day 90-minute move variant that previously lost duration.
+
+### Resolved / Carried / New findings
+
+#### WPDV-51 — resolved — personal calendar allowed drag edits for read-only team items
+
+- **Severity:** medium
+- **Evidence:** `UserCalendarScreen` passed `editable` unconditionally to `CalendarView`, so assigned items from teams the current user cannot edit could still run optimistic `updateWorkItem` schedule mutations.
+- **Fix:** personal calendar now supplies `canEditItem` using `canEditTeam(data, item.teamId)`, and `CalendarView` applies item-level editability to drag/drop/resize and detail sidebar edit state.
+- **Prevention:** Added a calendar regression test that renders an editable calendar with a non-editable item predicate, attempts a timed drag, opens the detail surface, and verifies no update is attempted and the detail is read-only.
+
+#### WPDV-52 — resolved — moving timed events late in the day could shorten their duration
+
+- **Severity:** medium
+- **Evidence:** timed move set `endMinutes = slot.minutes + duration` and relied on final time formatting to clamp to `23:59`, shortening long events moved near midnight.
+- **Fix:** move now clamps the start minute to the latest value that can preserve the event's original duration within the same-day time range, then derives the end from that clamped start.
+- **Prevention:** Added a timed drag regression test that moves a 90-minute event to a late-day slot and verifies it lands at `22:29`-`23:59` instead of being shortened from `23:30`.
+
+### Residual risk
+
+- Browser smoke was not rerun for this narrow interaction delta; the changed paths are covered by focused component tests, type/lint/static gates, and CI will rerun after push.
 
 ## Turn 22 — 2026-05-20 05:10 BST
 

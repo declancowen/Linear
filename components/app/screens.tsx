@@ -60,6 +60,7 @@ import {
   type Team,
   type ViewDefinition,
   type ViewerDirectoryConfig,
+  type WorkItem,
 } from "@/lib/domain/types"
 import {
   buildAssignedWorkViews,
@@ -3493,12 +3494,23 @@ export function UserCalendarScreen() {
       getVisibleWorkItems(state, { assignedToCurrentUser: true })
     )
   )
+  const canEditCalendarItem = useMemo(
+    () => (item: WorkItem) => canEditTeam(data, item.teamId),
+    [data]
+  )
 
   if (!hasLoadedOnce && calendarItems.length === 0) {
     return <ScopedScreenLoading label="Loading calendar..." />
   }
 
-  return <CalendarView data={data} items={calendarItems} editable />
+  return (
+    <CalendarView
+      data={data}
+      items={calendarItems}
+      editable
+      canEditItem={canEditCalendarItem}
+    />
+  )
 }
 
 type ProjectsScreenProps = {
