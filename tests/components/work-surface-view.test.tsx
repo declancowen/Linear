@@ -91,7 +91,10 @@ import {
   ListView,
   TimelineView,
 } from "@/components/app/screens/work-surface-view"
-import { getCalendarNavigationAnchorDate } from "@/components/app/screens/work-surface-view/calendar-view"
+import {
+  getCalendarNavigationAnchorDate,
+  getCalendarWeekendVisibilityAnchorDate,
+} from "@/components/app/screens/work-surface-view/calendar-view"
 import { BoardChildItemRow } from "@/components/app/screens/work-surface-view/board-child-item-row"
 import { requestWorkSurfaceDragUpdate } from "@/components/app/screens/work-surface-view/drag-state"
 import {
@@ -853,6 +856,28 @@ describe("CalendarView", () => {
     })
 
     expect(formatLocalCalendarDate(nextAnchor)).toBe("2026-05-25")
+  })
+
+  it("re-anchors day view from a hidden weekend to the next visible day", () => {
+    const saturday = new Date(2026, 4, 23)
+    const nextAnchor = getCalendarWeekendVisibilityAnchorDate({
+      anchorDate: saturday,
+      mode: "day",
+      nextShowWeekends: false,
+    })
+
+    expect(formatLocalCalendarDate(nextAnchor)).toBe("2026-05-25")
+  })
+
+  it("keeps visible-weekend day anchors unchanged", () => {
+    const saturday = new Date(2026, 4, 23)
+    const nextAnchor = getCalendarWeekendVisibilityAnchorDate({
+      anchorDate: saturday,
+      mode: "day",
+      nextShowWeekends: true,
+    })
+
+    expect(formatLocalCalendarDate(nextAnchor)).toBe("2026-05-23")
   })
 
   it("keeps trackpad wheel events as native calendar scrolling", () => {

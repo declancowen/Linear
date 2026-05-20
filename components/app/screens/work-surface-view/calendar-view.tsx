@@ -729,6 +729,26 @@ export function getCalendarNavigationAnchorDate({
   )
 }
 
+export function getCalendarWeekendVisibilityAnchorDate({
+  anchorDate,
+  mode,
+  nextShowWeekends,
+}: {
+  anchorDate: Date
+  mode: CalendarMode
+  nextShowWeekends: boolean
+}) {
+  if (nextShowWeekends || mode !== "day" || !isWeekendDate(anchorDate)) {
+    return startOfDay(anchorDate)
+  }
+
+  return getVisibleDaySequence({
+    count: 1,
+    showWeekends: false,
+    start: anchorDate,
+  })[0] ?? startOfDay(anchorDate)
+}
+
 function getModeTitle(anchorDate: Date, mode: CalendarMode) {
   if (mode === "day") {
     return format(anchorDate, "d MMMM yyyy")
@@ -3704,6 +3724,13 @@ function useCalendarViewControls({
 
   function handleShowWeekendsChange(nextShowWeekends: boolean) {
     resetAllDayExpansion()
+    setAnchorDate((current) =>
+      getCalendarWeekendVisibilityAnchorDate({
+        anchorDate: current,
+        mode,
+        nextShowWeekends,
+      })
+    )
     setShowWeekends(nextShowWeekends)
   }
 
