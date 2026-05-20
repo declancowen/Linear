@@ -28,11 +28,66 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 14:47 BST |
-| **Total turns**       | 33                   |
+| **Last reviewed**     | 2026-05-20 15:03 BST |
+| **Total turns**       | 34                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 63                   |
+| **Resolved findings** | 66                   |
 | **Accepted findings** | 0                    |
+
+## Turn 34 — 2026-05-20 15:03 BST
+
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex/repo-agnostic feedback for calendar timezone and drag    |
+| **Review type** | External PR feedback triage + calendar timezone/drag fixes + gates    |
+| **Reviewer**    | Codex CLI                                                             |
+| **Outcome**     | 3 live PR findings fixed locally; no local open findings              |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the latest Codex and repo-agnostic PR review feedback
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta and analyzer policy signals recorded
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 58 tests
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — initially caught duplicated prop typing in the calendar patch, then passed after extracting `CalendarTimedInteractionProps`: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm lint` — passed
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** latest feedback had two live Codex P2 issues on timezone-aware initial anchors/current-day highlighting and one repo-agnostic Medium issue for hidden-weekend timed drags.
+- **Bug classes / invariants checked:** selected-timezone initial render, timezone-derived today styling, hidden-weekend visible target dates, and Friday-to-Monday timed drag persistence.
+- **Sibling closure:** the same timezone-derived `todayDate` now feeds both the day header and timed-grid background; timed drag persistence now uses the resolved slot date instead of recomputing from visible column deltas.
+- **Architecture rule applied:** timezone and drag-date policy stays in the calendar control/drag owner, with tests at the component boundary rather than scattered offset or date math in callers.
+- **Why this is enough:** component coverage now proves a Los Angeles calendar opens/highlights May 20 when browser time is May 21 UTC, and a hidden-weekend Friday timed drag persists Monday rather than Saturday.
+
+### Resolved / Carried / New findings
+
+#### WPDV-64 — resolved — initial calendar anchor used the browser-local date
+
+- **Severity:** medium
+- **Evidence:** `useCalendarViewControls` initialized `anchorDate` with browser-local `startOfDay(new Date())`, so a selected calendar timezone could open on the wrong date around midnight.
+- **Fix:** initial anchor creation now derives today from the selected/default viewer timezone.
+- **Prevention:** Added a timezone-boundary initial-render regression test.
+
+#### WPDV-65 — resolved — current-day styling used the browser-local date
+
+- **Severity:** medium
+- **Evidence:** `getCalendarDayDisplayState` compared day cells to `new Date()`, which could disagree with timezone-aware Today navigation and the now marker.
+- **Fix:** `CalendarView` computes a timezone-derived `todayDate` and passes it into day-header and timed-grid display state.
+- **Prevention:** Added a timezone-boundary highlighted-day regression test and kept Fallow duplication at zero.
+
+#### WPDV-66 — resolved — hidden-weekend timed drags could save the wrong date
+
+- **Severity:** medium
+- **Evidence:** timed drag preview date math added the visible column delta as calendar days; Friday-to-next-visible-Monday with weekends hidden could save Saturday.
+- **Fix:** timed drag preview now uses the target slot's resolved visible date.
+- **Prevention:** Added a hidden-weekend Friday-to-Monday timed drag regression test.
+
+### Residual risk
+
+- I did not resolve or reply to GitHub review threads; the branch will be pushed for Codex and repo-agnostic automation to re-review the new head.
 
 ## Turn 33 — 2026-05-20 14:47 BST
 

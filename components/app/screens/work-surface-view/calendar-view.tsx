@@ -224,6 +224,17 @@ type CalendarItemInteractionPropsGetter = (itemId: string) => {
   onMouseLeave: () => void
 }
 
+type CalendarTimedInteractionProps = {
+  onSelectItem: (itemId: string) => void
+  scheduleHover: (itemId: string, event: MouseEvent<HTMLElement>) => void
+  scheduleHoverDetailClear: () => void
+  scheduleTimedMoveDrag: CalendarTimedEntryBlockProps["scheduleTimedMoveDrag"]
+  selectedItemId: string | null
+  selectionPreview: CalendarSelectionPreview | null
+  suppressNextClickRef: RefObject<boolean>
+  todayDate: Date
+}
+
 type CalendarToolbarProps = {
   anchorDate: Date
   colorMode: CalendarColorMode
@@ -2474,11 +2485,13 @@ function CalendarDayHeader({
   dayColumnsGridTemplateColumns,
   dayHeaderScrollRef,
   days,
+  todayDate,
 }: {
   dayColumnsContentWidth: string
   dayColumnsGridTemplateColumns: string
   dayHeaderScrollRef: RefObject<HTMLDivElement | null>
   days: Date[]
+  todayDate: Date
 }) {
   return (
     <div
@@ -2493,7 +2506,7 @@ function CalendarDayHeader({
         }}
       >
         {days.map((day) => {
-          const dayState = getCalendarDayDisplayState(day)
+          const dayState = getCalendarDayDisplayState(day, todayDate)
 
           return (
             <div
@@ -2529,10 +2542,10 @@ function CalendarDayHeader({
   )
 }
 
-function getCalendarDayDisplayState(day: Date) {
+function getCalendarDayDisplayState(day: Date, todayDate: Date) {
   return {
     dayKey: getDateKey(day),
-    isToday: isSameDay(day, new Date()),
+    isToday: isSameDay(day, todayDate),
     isWeekend: day.getDay() === 0 || day.getDay() === 6,
   }
 }
@@ -2854,15 +2867,17 @@ function CalendarTimeRail({
 
 function CalendarTimedGridBackground({
   days,
+  todayDate,
   timeRows,
 }: {
   days: Date[]
+  todayDate: Date
   timeRows: CalendarTimeRow[]
 }) {
   return (
     <>
       {days.map((day) => {
-        const dayState = getCalendarDayDisplayState(day)
+        const dayState = getCalendarDayDisplayState(day, todayDate)
 
         return (
           <div
@@ -3066,13 +3081,14 @@ function CalendarTimedGrid({
   selectedItemId,
   selectionPreview,
   suppressNextClickRef,
+  todayDate,
   timeRows,
   timedEntryLayouts,
   timedGridRef,
   updateCalendarSelection,
   updateDragMovement,
   visibleTimedEntries,
-}: {
+}: CalendarTimedInteractionProps & {
   beginCalendarSelection: (event: ReactPointerEvent<HTMLDivElement>) => void
   beginTimedDrag: CalendarTimedEntryBlockProps["beginTimedDrag"]
   cancelCalendarSelection: (event: PointerEvent) => boolean
@@ -3096,13 +3112,6 @@ function CalendarTimedGrid({
   labelsById: EventAccentLabelLookup
   nowDayIndex: number
   nowTop: number
-  onSelectItem: (itemId: string) => void
-  scheduleHover: (itemId: string, event: MouseEvent<HTMLElement>) => void
-  scheduleHoverDetailClear: () => void
-  scheduleTimedMoveDrag: CalendarTimedEntryBlockProps["scheduleTimedMoveDrag"]
-  selectedItemId: string | null
-  selectionPreview: CalendarSelectionPreview | null
-  suppressNextClickRef: RefObject<boolean>
   timeRows: CalendarTimeRow[]
   timedEntryLayouts: Map<string, TimedEntryLayout[]>
   timedGridRef: RefObject<HTMLDivElement | null>
@@ -3147,7 +3156,11 @@ function CalendarTimedGrid({
         }
       }}
     >
-      <CalendarTimedGridBackground days={days} timeRows={timeRows} />
+      <CalendarTimedGridBackground
+        days={days}
+        todayDate={todayDate}
+        timeRows={timeRows}
+      />
       <CalendarNowMarker
         dayKeys={dayKeys}
         nowDayIndex={nowDayIndex}
@@ -3231,6 +3244,7 @@ function CalendarDayWeekView({
   selectedItemId,
   selectionPreview,
   suppressNextClickRef,
+  todayDate,
   timeRailContentRef,
   timeRows,
   timedEntryLayouts,
@@ -3240,7 +3254,7 @@ function CalendarDayWeekView({
   visibleAllDayRowCount,
   visibleAllDaySpans,
   visibleTimedEntries,
-}: CalendarAllDaySurfaceProps & {
+}: CalendarAllDaySurfaceProps & CalendarTimedInteractionProps & {
   allDayLaneHeight: number
   allDayRangeExpanded: boolean
   allDayRangeKey: string
@@ -3272,13 +3286,6 @@ function CalendarDayWeekView({
   nowTop: number
   nowWallTime: CalendarWallTime
   onAllDayDragStart: () => void
-  onSelectItem: (itemId: string) => void
-  scheduleHover: (itemId: string, event: MouseEvent<HTMLElement>) => void
-  scheduleHoverDetailClear: () => void
-  scheduleTimedMoveDrag: CalendarTimedEntryBlockProps["scheduleTimedMoveDrag"]
-  selectedItemId: string | null
-  selectionPreview: CalendarSelectionPreview | null
-  suppressNextClickRef: RefObject<boolean>
   timeRailContentRef: RefObject<HTMLDivElement | null>
   timeRows: CalendarTimeRow[]
   timedEntryLayouts: Map<string, TimedEntryLayout[]>
@@ -3313,6 +3320,7 @@ function CalendarDayWeekView({
     dayKeys,
     days,
     labelsById,
+    todayDate,
   }
   const timedGridInteractionProps = {
     handleTimedGridBlankClick,
@@ -3346,6 +3354,7 @@ function CalendarDayWeekView({
         dayColumnsGridTemplateColumns={dayColumnsGridTemplateColumns}
         dayHeaderScrollRef={dayHeaderScrollRef}
         days={days}
+        todayDate={todayDate}
       />
       <div
         data-testid="calendar-all-day-lane"
@@ -3630,7 +3639,13 @@ function useCalendarViewControls({
   onWeekDayCountChange,
   onWeekStartChange,
 }: CalendarViewControlOptions) {
-  const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()))
+  const initialViewerTimeZone = normalizeTimeZone(
+    controlledTimeZone,
+    defaultViewerTimeZone
+  )
+  const [anchorDate, setAnchorDate] = useState(() =>
+    getTodayDateInTimeZone(initialViewerTimeZone)
+  )
   const {
     collapseAllDayRange,
     expandAllDayRange,
@@ -4168,12 +4183,7 @@ export function CalendarView({
     slot: ReturnType<typeof getPointerSlotFromMetrics>,
     clientY?: number
   ): CalendarDragPreview {
-    const dayDelta = slot.dayIndex - drag.originDayIndex
-    const baseDate = addDays(
-      getDateFromKey(drag.grid.dayKeys[drag.originDayIndex]),
-      dayDelta
-    )
-    const nextDate = getDateKey(baseDate)
+    const nextDate = slot.date
     let startMinutes = drag.originStartMinutes
     let endMinutes = drag.originEndMinutes
 
@@ -4655,6 +4665,7 @@ export function CalendarView({
     new Date(),
     viewerTimeZone
   )
+  const todayDate = getDateFromKey(nowWallTime.date)
   const nowDayIndex = dayKeys.indexOf(nowWallTime.date)
   const nowTop = (getMinutesFromTime(nowWallTime.time) / 60) * HOUR_HEIGHT
   const monthBaseRowHeight =
@@ -4755,6 +4766,7 @@ export function CalendarView({
     dayKeys,
     days,
     labelsById,
+    todayDate,
   }
   const dayWeekAllDayInteractionProps = {
     collapseAllDayRange,

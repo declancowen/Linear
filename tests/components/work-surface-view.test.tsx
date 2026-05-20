@@ -386,10 +386,12 @@ function getCalendarEventCard(title: string) {
 }
 
 function renderTimedCalendarItem({
+  calendarProps,
   canEditItem,
   editable = true,
   item,
 }: {
+  calendarProps?: Partial<React.ComponentProps<typeof CalendarView>>
   canEditItem?: (item: WorkItem) => boolean
   editable?: boolean
   item: WorkItem
@@ -410,6 +412,7 @@ function renderTimedCalendarItem({
       items={[item]}
       editable={editable}
       canEditItem={canEditItem}
+      {...calendarProps}
     />
   )
 
@@ -921,6 +924,45 @@ describe("CalendarView", () => {
 
     expect(screen.getByText("20 May 2026")).toBeInTheDocument()
     expect(screen.queryByText("21 May 2026")).not.toBeInTheDocument()
+  })
+
+  it("initializes the anchor date from the selected calendar time zone", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-21T02:00:00.000Z"))
+
+    render(
+      <CalendarView
+        data={createData()}
+        items={[]}
+        editable={false}
+        mode="day"
+        timeZone="America/Los_Angeles"
+      />
+    )
+
+    expect(screen.getByText("20 May 2026")).toBeInTheDocument()
+    expect(screen.queryByText("21 May 2026")).not.toBeInTheDocument()
+  })
+
+  it("highlights today from the selected calendar time zone", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-21T02:00:00.000Z"))
+
+    render(
+      <CalendarView
+        data={createData()}
+        items={[]}
+        editable={false}
+        timeZone="America/Los_Angeles"
+      />
+    )
+
+    expect(screen.getByText("20")).toHaveClass(
+      "bg-[color:var(--priority-urgent)]"
+    )
+    expect(screen.getByText("21")).not.toHaveClass(
+      "bg-[color:var(--priority-urgent)]"
+    )
   })
 
   it("normalizes hidden-weekend anchors when entering day mode", () => {
@@ -1478,6 +1520,70 @@ describe("CalendarView", () => {
     expect(
       screen.queryByTestId("calendar-drag-preview")
     ).not.toBeInTheDocument()
+    updateWorkItemSpy.mockRestore()
+  })
+
+  it("moves timed items to the target visible day when weekends are hidden", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-22T09:00:00.000Z"))
+
+    const item = createTimedCalendarItem({
+      id: "hidden-weekend-drag-item",
+      title: "Hidden weekend drag",
+      startDate: "2026-05-22",
+      targetDate: "2026-05-22",
+      startTime: "09:00",
+      endTime: "10:00",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } = renderTimedCalendarItem(
+      {
+        calendarProps: {
+          mode: "day",
+          showWeekends: false,
+          timeZone: "Europe/London",
+        },
+        item,
+      }
+    )
+
+    timedGrid.getBoundingClientRect = () =>
+      ({
+        bottom: 1536,
+        height: 1536,
+        left: 0,
+        right: 2900,
+        top: 0,
+        width: 2900,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 1450,
+      clientY: 576,
+      pointerId: 18,
+    })
+    fireEvent.pointerMove(timedGrid, {
+      clientX: 1550,
+      clientY: 576,
+      pointerId: 18,
+    })
+    fireEvent.pointerUp(timedGrid, {
+      clientX: 1550,
+      clientY: 576,
+      pointerId: 18,
+    })
+
+    expect(updateWorkItemSpy).toHaveBeenCalledWith(
+      "hidden-weekend-drag-item",
+      expect.objectContaining({
+        startDate: "2026-05-25",
+        targetDate: "2026-05-25",
+        startTime: "09:00",
+        endTime: "10:00",
+      })
+    )
     updateWorkItemSpy.mockRestore()
   })
 
