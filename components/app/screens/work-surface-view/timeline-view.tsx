@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  useEffect,
   memo,
   useRef,
   useMemo,
@@ -69,14 +70,26 @@ export function TimelineView({
   view: ViewDefinition
   editable: boolean
 }) {
-  const { today, timelineStart, timelineEnd } = useMemo(() => {
+  const [today, setToday] = useState(() => startOfDay(new Date()))
+
+  useEffect(() => {
     const now = new Date()
-    return {
-      today: startOfDay(now),
-      timelineStart: startOfDay(subDays(now, 3)),
-      timelineEnd: endOfDay(addDays(now, 24)),
-    }
-  }, [])
+    const nextDay = addDays(startOfDay(now), 1)
+    const timeoutId = window.setTimeout(
+      () => setToday(startOfDay(new Date())),
+      Math.max(1000, nextDay.getTime() - now.getTime() + 1000)
+    )
+
+    return () => window.clearTimeout(timeoutId)
+  }, [today])
+
+  const { timelineStart, timelineEnd } = useMemo(
+    () => ({
+      timelineStart: startOfDay(subDays(today, 3)),
+      timelineEnd: endOfDay(addDays(today, 24)),
+    }),
+    [today]
+  )
   const days = useMemo(
     () =>
       eachDayOfInterval({

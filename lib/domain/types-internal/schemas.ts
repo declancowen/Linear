@@ -50,6 +50,7 @@ import {
   projectNameMaxLength,
   projectNameMinLength,
   projectHealths,
+  projectPresentationLayouts,
   projectStatuses,
   roles,
   scopeTypes,
@@ -359,7 +360,7 @@ export const projectSchema = z.object({
     .object({
       itemLevel: z.enum(workItemTypes).nullable().optional(),
       showChildItems: z.boolean().optional(),
-      layout: z.enum(viewLayouts),
+      layout: z.enum(projectPresentationLayouts),
       grouping: z.enum(groupFields),
       ordering: z.enum(orderingFields),
       displayProps: z.array(displayPropertySchema),

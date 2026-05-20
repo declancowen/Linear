@@ -128,6 +128,13 @@ export type ViewContainerType = (typeof viewContainerTypes)[number]
 
 export const viewLayouts = ["list", "board", "timeline", "calendar"] as const
 export type ViewLayout = (typeof viewLayouts)[number]
+export const projectPresentationLayouts = [
+  "list",
+  "board",
+  "timeline",
+] as const
+export type ProjectPresentationLayout =
+  (typeof projectPresentationLayouts)[number]
 
 export type ViewScopeType = "personal" | "team" | "workspace"
 
@@ -354,7 +361,7 @@ export type ViewFilters = {
 export interface ProjectPresentationConfig {
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
-  layout: ViewLayout
+  layout: ProjectPresentationLayout
   grouping: GroupField
   ordering: OrderingField
   displayProps: DisplayProperty[]
@@ -432,22 +439,27 @@ export function createDefaultProjectPresentationConfig(
     layout?: ViewLayout
   }
 ): ProjectPresentationConfig {
-  const layout =
-    options?.layout ??
-    (templateType === "project-management"
+  const defaultLayout: ProjectPresentationLayout =
+    templateType === "project-management"
       ? "timeline"
       : templateType === "bug-tracking"
         ? "list"
-        : "board")
+        : "board"
+  const layout: ProjectPresentationLayout =
+    options?.layout &&
+    projectPresentationLayouts.includes(
+      options.layout as ProjectPresentationLayout
+    )
+      ? (options.layout as ProjectPresentationLayout)
+      : defaultLayout
 
   return {
     showChildItems: false,
     layout,
     grouping: "status",
-    ordering:
-      layout === "timeline" || layout === "calendar" ? "targetDate" : "priority",
+    ordering: layout === "timeline" ? "targetDate" : "priority",
     displayProps:
-      layout === "timeline" || layout === "calendar"
+      layout === "timeline"
         ? ["id", "status", "assignee", "priority", "dueDate"]
         : ["id", "status", "assignee", "priority", "labels", "updated"],
     filters: createDefaultViewFilters(),

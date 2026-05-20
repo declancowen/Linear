@@ -83,6 +83,7 @@ import {
   BoardView,
   CalendarView,
   ListView,
+  TimelineView,
 } from "@/components/app/screens/work-surface-view"
 import { BoardChildItemRow } from "@/components/app/screens/work-surface-view/board-child-item-row"
 import { requestWorkSurfaceDragUpdate } from "@/components/app/screens/work-surface-view/drag-state"
@@ -738,6 +739,33 @@ describe("CalendarView", () => {
 })
 
 describe("TimelineView primitives", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("updates timeline anchors after the local date changes", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 4, 20, 23, 59, 50))
+
+    render(
+      <TimelineView
+        data={createData()}
+        items={[]}
+        view={createView("timeline")}
+        editable={false}
+      />
+    )
+
+    expect(screen.getByText("W 20")).toHaveClass("text-primary")
+
+    act(() => {
+      vi.setSystemTime(new Date(2026, 4, 21, 0, 0, 2))
+      vi.advanceTimersByTime(12_000)
+    })
+
+    expect(screen.getByText("T 21")).toHaveClass("text-primary")
+  })
+
   it("computes drag patches and rejects invalid timeline drops", () => {
     const data = {
       ...createData(),

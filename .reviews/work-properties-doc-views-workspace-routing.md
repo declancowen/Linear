@@ -28,11 +28,61 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 04:48 BST |
-| **Total turns**       | 21                   |
+| **Last reviewed**     | 2026-05-20 05:10 BST |
+| **Total turns**       | 22                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 48                   |
+| **Resolved findings** | 50                   |
 | **Accepted findings** | 0                    |
+
+## Turn 22 — 2026-05-20 05:10 BST
+
+| Field           | Value                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| **Scope**       | Current-head Codex review feedback for project presentation layouts and timeline date roll |
+| **Review type** | External finding triage + domain validation fix + targeted presentation lifecycle fix       |
+| **Reviewer**    | Codex CLI                                                                                  |
+| **Outcome**     | 2 live current-head Codex findings fixed locally; prior unresolved PR threads rechecked    |
+
+### Commands run
+
+- `gh pr view 36 --json number,title,url,headRefName,headRefOid,baseRefName,baseRefOid,state,reviewDecision,latestReviews,comments` — confirmed PR #36 current head `95de17ea`
+- `gh api graphql ... reviewThreads(first: 100)` — fetched inline review threads and separated stale/fixed older threads from current live findings
+- `pnpm exec vitest run tests/lib/domain/project-views.test.ts tests/components/work-surface-view.test.tsx` — passed, 2 files / 40 tests
+- `pnpm typecheck` — initially exposed an over-narrowed team template layout type; passed after keeping team defaults broad and narrowing only project presentation
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta, branch-total diff, PR context, and analyzer evidence recorded
+
+### Branch-totality proof
+
+- **External findings triaged:** unresolved PR threads for month timed entries, month navigation, UTC timezone options, private optimistic IDs, edited view metadata/project routing, fallback view defaults, timezone persistence, hover detail clearing, and pointer cancellation were rechecked against the current tree and are already fixed by Turns 18-21.
+- **Live current-head findings:** Codex review found two remaining live issues: project presentation schemas could accept the global `calendar` layout even though project rendering supports only list/board/timeline, and timeline anchors froze to mount-time dates.
+- **Bug classes / invariants checked:** domain validation/presentation renderer compatibility for project layouts; long-lived session date-boundary lifecycle for timeline today/window anchors.
+- **Sibling closure:** project presentation now has its own supported layout union and schema while team/work views continue to use the full global layout set; timeline recalculates all date anchors from the same `today` state after the local day boundary.
+- **Architecture rule applied:** the supported project-layout invariant is enforced in the domain type and Zod schema rather than patched in the renderer; the timeline date lifecycle stays inside the presentation component with behavior-level coverage.
+- **Why this is enough:** both findings are fixed at their owning boundary, older current-head threads have current-tree proof, and focused tests plus type/lint/static gates cover the changed contract and lifecycle paths.
+
+### Resolved / Carried / New findings
+
+#### WPDV-49 — resolved — project presentation configs accepted unsupported calendar layouts
+
+- **Severity:** medium
+- **Evidence:** the global `viewLayouts` union now includes `calendar`, and `projectSchema.presentation.layout` reused that union even though `ProjectItemsBody` renders only list, board, and timeline.
+- **Fix:** added a project-specific presentation layout union/schema for list, board, and timeline; unsupported calendar defaults normalize back to the template's supported default layout.
+- **Prevention:** Added domain tests proving `projectSchema` rejects `presentation.layout: "calendar"` and default project presentation creation normalizes an unsupported calendar option.
+
+#### WPDV-50 — resolved — timeline today/window anchors became stale in long-lived sessions
+
+- **Severity:** low
+- **Evidence:** timeline `today`, `timelineStart`, and `timelineEnd` were memoized with an empty dependency array, so tabs left open across midnight could show stale today markers and date ranges.
+- **Fix:** timeline now stores `today` in state, schedules a local date-boundary refresh, and derives `timelineStart`/`timelineEnd` from that refreshed state.
+- **Prevention:** Added a fake-timer regression test that mounts just before midnight, advances through the date boundary, and verifies the today marker moves to the new local date.
+
+### Residual risk
+
+- Browser smoke was not rerun for this narrow validation/lifecycle delta; the broader calendar/work-surface browser risk was covered earlier, and this pass is covered by focused component/domain tests plus CI after push.
 
 ## Turn 21 — 2026-05-20 04:48 BST
 
