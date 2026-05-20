@@ -2,10 +2,15 @@ import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 
-const { filterPopoverMock, getVisibleItemsForViewMock, searchParamsState } =
-  vi.hoisted(() => ({
+const {
+  filterPopoverMock,
+  getVisibleItemsForViewMock,
+  propertiesPopoverMock,
+  searchParamsState,
+} = vi.hoisted(() => ({
   filterPopoverMock: vi.fn(() => null),
   getVisibleItemsForViewMock: vi.fn((_: unknown, items: unknown[]) => items),
+  propertiesPopoverMock: vi.fn(() => null),
   searchParamsState: {
     value: "",
   },
@@ -54,7 +59,7 @@ vi.mock("@/components/app/screens/work-surface-controls", () => ({
   LevelChipPopover: ({ showLabel }: { showLabel?: boolean }) => (
     <div>{showLabel === false ? "level:value-only" : "level:label"}</div>
   ),
-  PropertiesChipPopover: () => null,
+  PropertiesChipPopover: propertiesPopoverMock,
   SortChipPopover: () => null,
   ViewConfigPopover: () => null,
 }))
@@ -205,6 +210,7 @@ describe("WorkSurface", () => {
     searchParamsState.value = ""
     filterPopoverMock.mockClear()
     getVisibleItemsForViewMock.mockClear()
+    propertiesPopoverMock.mockClear()
     vi.clearAllMocks()
   })
 
@@ -371,6 +377,71 @@ describe("WorkSurface", () => {
     })
 
     expect(screen.queryByText("board-content")).not.toBeInTheDocument()
+  })
+
+  it("preserves fallback view defaults when applying local viewbar changes", () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      views: [],
+    })
+
+    renderAssignedFallbackSurface()
+
+    const initialFilterProps = (
+      filterPopoverMock.mock.calls as unknown[][]
+    ).at(-1)?.[0] as
+      | {
+          view: ViewDefinition
+          onToggleFilterValue?: (key: string, value: string) => void
+        }
+      | undefined
+
+    expect(initialFilterProps?.view.displayProps).toEqual(["id", "status"])
+
+    act(() => {
+      initialFilterProps?.onToggleFilterValue?.("status", "todo")
+    })
+
+    const updatedFilterProps = (
+      filterPopoverMock.mock.calls as unknown[][]
+    ).at(-1)?.[0] as
+      | {
+          view: ViewDefinition
+        }
+      | undefined
+
+    expect(updatedFilterProps?.view.filters.status).toEqual(["todo"])
+    expect(updatedFilterProps?.view.displayProps).toEqual(["id", "status"])
+
+    const propertyProps = (
+      propertiesPopoverMock.mock.calls as unknown[][]
+    ).at(-1)?.[0] as
+      | {
+          onToggleDisplayProperty?: (
+            property: ViewDefinition["displayProps"][number]
+          ) => void
+        }
+      | undefined
+
+    act(() => {
+      propertyProps?.onToggleDisplayProperty?.("priority")
+    })
+
+    const latestFilterProps = (
+      filterPopoverMock.mock.calls as unknown[][]
+    ).at(-1)?.[0] as
+      | {
+          view: ViewDefinition
+        }
+      | undefined
+
+    expect(latestFilterProps?.view.filters.status).toEqual(["todo"])
+    expect(latestFilterProps?.view.displayProps).toEqual([
+      "id",
+      "status",
+      "priority",
+    ])
+    expect(useAppStore.getState().ui.viewerViewConfigByRoute).toEqual({})
   })
 
   it("renders a loading state instead of the empty label while scoped data is hydrating", () => {

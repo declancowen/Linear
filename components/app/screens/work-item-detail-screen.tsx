@@ -1553,10 +1553,9 @@ function WorkItemSidebarScheduleRows({
   onStartDateChange: (value: string | null) => void
   onStartTimeChange: (value: string | null) => void
 }) {
-  const currentUser = getUser(data, data.currentUserId)
-  const scheduleTimeZone = normalizeTimeZone(
-    currentItem.scheduleTimeZone,
-    currentUser?.preferences.timeZone
+  const scheduleTimeZone = getResolvedWorkItemScheduleTimeZone(
+    data,
+    currentItem
   )
   const timeZoneOptions = getSupportedTimeZones().map((timeZone) => ({
     value: timeZone,
@@ -2070,6 +2069,18 @@ function updateWorkItemEndDate({
   useAppStore.getState().updateWorkItem(currentItem.id, patch)
 }
 
+function getResolvedWorkItemScheduleTimeZone(
+  data: AppData,
+  currentItem: WorkItem
+) {
+  const currentUser = getUser(data, data.currentUserId)
+
+  return normalizeTimeZone(
+    currentItem.scheduleTimeZone,
+    currentUser?.preferences.timeZone
+  )
+}
+
 function requestWorkItemProjectChange({
   currentItem,
   requestConfirmedWorkItemUpdate,
@@ -2114,10 +2125,12 @@ function getWorkItemDetailPropertyHandlers({
   currentItem,
   displayedEndDate,
   requestConfirmedWorkItemUpdate,
+  scheduleTimeZone,
 }: {
   currentItem: WorkItem
   displayedEndDate: string | null
   requestConfirmedWorkItemUpdate: DetailRequestWorkItemUpdate
+  scheduleTimeZone: string
 }): DetailPropertyChangeHandlers {
   return {
     onStatusChange: (value) =>
@@ -2141,12 +2154,18 @@ function getWorkItemDetailPropertyHandlers({
     onStartTimeChange: (nextStartTime) =>
       useAppStore.getState().updateWorkItem(currentItem.id, {
         startTime: nextStartTime,
+        ...(nextStartTime && currentItem.scheduleTimeZone !== scheduleTimeZone
+          ? { scheduleTimeZone }
+          : {}),
       }),
     onEndDateChange: (nextEndDate) =>
       updateWorkItemEndDate({ currentItem, nextEndDate }),
     onEndTimeChange: (nextEndTime) =>
       useAppStore.getState().updateWorkItem(currentItem.id, {
         endTime: nextEndTime,
+        ...(nextEndTime && currentItem.scheduleTimeZone !== scheduleTimeZone
+          ? { scheduleTimeZone }
+          : {}),
       }),
     onScheduleTimeZoneChange: (nextTimeZone) =>
       useAppStore.getState().updateWorkItem(currentItem.id, {
@@ -4290,10 +4309,15 @@ export function WorkItemDetailSidebarSurface({
     sidebarTitle: currentItem.title,
     team,
   })
+  const scheduleTimeZone = getResolvedWorkItemScheduleTimeZone(
+    data,
+    currentItem
+  )
   const propertyHandlers = getWorkItemDetailPropertyHandlers({
     currentItem,
     displayedEndDate: detailModel.displayedEndDate,
     requestConfirmedWorkItemUpdate,
+    scheduleTimeZone,
   })
 
   function handleCopyItemLink() {
@@ -4551,6 +4575,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     currentItem,
     displayedEndDate,
     requestConfirmedWorkItemUpdate,
+    scheduleTimeZone: getResolvedWorkItemScheduleTimeZone(data, currentItem),
   })
 
   async function handleDeleteItem() {

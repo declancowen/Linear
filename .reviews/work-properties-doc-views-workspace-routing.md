@@ -6,7 +6,7 @@
 | -------------- | ------------------------------------------- |
 | **Repository** | `Linear`                                    |
 | **Remote**     | `https://github.com/declancowen/Linear.git` |
-| **Branch**     | `codex/work-properties-doc-views-routing`   |
+| **Branch**     | `codex-work-surfaces-calendar-views`        |
 | **Stack**      | Next.js, React, Convex, PartyKit, Zustand   |
 
 ## Scope
@@ -28,11 +28,62 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-19 22:46 BST |
-| **Total turns**       | 19                   |
+| **Last reviewed**     | 2026-05-20 04:25 BST |
+| **Total turns**       | 20                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 44                   |
+| **Resolved findings** | 46                   |
 | **Accepted findings** | 0                    |
+
+## Turn 20 — 2026-05-20 04:25 BST
+
+| Field           | Value                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------- |
+| **Scope**       | PR review loop for fallback view edits and timezone persistence in detail time edits  |
+| **Review type** | External finding triage + targeted implementation review + static analyzer gate rerun |
+| **Reviewer**    | Codex CLI                                                                             |
+| **Outcome**     | 2 live current-head Codex review findings fixed locally; no local open findings       |
+
+### Commands run
+
+- `gh pr checks 36 --watch=false` — passed on pushed `3af970bb` before this local PR-feedback delta
+- `gh pr view 36 --json headRefOid,headRefName,baseRefName,url,reviewDecision,comments,reviews` — confirmed latest reviewed head `3af970bb` and current PR context
+- `pnpm exec vitest run tests/components/work-surface.test.tsx` — passed, 1 file / 8 tests
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx` — passed, 1 file / 19 tests
+- `pnpm exec vitest run tests/components/work-surface.test.tsx tests/components/work-item-detail-screen.test.tsx` — passed, 2 files / 27 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta, PR context, branch-total diff, and analyzer evidence recorded
+
+### Branch-totality proof
+
+- **External findings triaged:** current-head Codex review found two live Medium issues: fallback viewbar edits used persisted-view actions without a base view, and start/end time edits could leave legacy items without `scheduleTimeZone`.
+- **Bug classes / invariants checked:** preservation and fallback state ownership for view defaults; compatibility/legacy-data and optimistic-persisted payload parity for timezone-bearing time edits.
+- **Sibling closure:** filter toggles, property toggles/reorder/clear, hidden-state toggles, and view-config patches now share the same local fallback owner; both start and due time handlers use the resolved schedule timezone when a timed value is set.
+- **Architecture rule applied:** fallback views remain local fallback state instead of becoming malformed persisted viewer overrides; work item schedule timezone resolution is a shared detail-screen helper reused by display and edit handlers.
+- **Why this is enough:** the fixes are at the owning UI/store boundary, have focused regression coverage for the weak `null scheduleTimeZone` and fallback-view variants, and all configured static gates are clean.
+
+### Resolved / Carried / New findings
+
+#### WPDV-45 — resolved — fallback viewbar edits could discard default filters/properties
+
+- **Severity:** medium
+- **Evidence:** `WorkSurface` passed fallback view IDs into persisted viewer action helpers; those helpers resolve their base view from `state.views`, where fallback views do not exist.
+- **Fix:** fallback surfaces skip persisted viewer overrides and apply viewbar mutations directly to `localFallbackViews`, preserving the cloned fallback defaults.
+- **Prevention:** Added a fallback surface regression test that toggles a filter and display property, verifies previous fallback defaults remain present, and confirms no persisted viewer override is written.
+
+#### WPDV-46 — resolved — editing start/end times did not persist a schedule timezone for legacy items
+
+- **Severity:** medium
+- **Evidence:** `onStartTimeChange` and `onEndTimeChange` patched only `startTime`/`endTime`, so items with `scheduleTimeZone: null` could remain viewer-timezone-relative.
+- **Fix:** detail time edit handlers now include the resolved schedule timezone when a timed value is set and the item lacks that resolved timezone.
+- **Prevention:** Added sidebar-surface coverage for both Start and Due time edits on an item with `scheduleTimeZone: null`, asserting local optimistic state and sync payload include `Europe/London`.
+
+### Residual risk
+
+- Browser smoke was not rerun for this narrow PR-feedback delta; the touched UI paths are covered by focused component tests and the broader PR already has calendar/detail surface coverage.
 
 ## Turn 19 — 2026-05-19 22:46 BST
 

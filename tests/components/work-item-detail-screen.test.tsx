@@ -928,6 +928,85 @@ describe("work item detail screen", () => {
     expect(screen.queryByText("19 December 2030")).not.toBeInTheDocument()
   })
 
+  it.each([
+    ["Start", "startTime"],
+    ["Due", "endTime"],
+  ] as const)(
+    "persists the account timezone when editing the %s time",
+    (buttonName, timeField) => {
+      act(() => {
+        useAppStore.setState((state) => ({
+          ...state,
+          users: state.users.map((user) =>
+            user.id === "user_1"
+              ? {
+                  ...user,
+                  preferences: {
+                    ...user.preferences,
+                    timeZone: "Europe/London",
+                  },
+                }
+              : user
+          ),
+          workItems: state.workItems.map((item) =>
+            item.id === "item_1"
+              ? {
+                  ...item,
+                  scheduleTimeZone: null,
+                  startTime: null,
+                  endTime: null,
+                }
+              : item
+          ),
+        }))
+      })
+
+      const data = useAppStore.getState()
+      const item = data.workItems.find((entry) => entry.id === "item_1")
+
+      if (!item) {
+        throw new Error("Expected seeded work item")
+      }
+
+      render(
+        <WorkItemDetailSidebarSurface
+          data={data}
+          currentItem={item}
+          editable
+        />
+      )
+
+      fireEvent.click(screen.getByRole("button", { name: buttonName }))
+
+      const timeInput = document.querySelector<HTMLInputElement>(
+        'input[type="time"]'
+      )
+
+      expect(timeInput).toBeTruthy()
+
+      fireEvent.change(timeInput!, {
+        target: {
+          value: "15:00",
+        },
+      })
+
+      const updatedItem = useAppStore
+        .getState()
+        .workItems.find((entry) => entry.id === "item_1")
+
+      expect(updatedItem?.[timeField]).toBe("15:00")
+      expect(updatedItem?.scheduleTimeZone).toBe("Europe/London")
+      expect(syncUpdateWorkItemMock).toHaveBeenCalledWith(
+        "user_1",
+        "item_1",
+        expect.objectContaining({
+          [timeField]: "15:00",
+          scheduleTimeZone: "Europe/London",
+        })
+      )
+    }
+  )
+
   it("hides assignee configuration for private tasks", () => {
     act(() => {
       useAppStore.setState((state) => ({

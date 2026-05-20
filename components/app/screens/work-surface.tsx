@@ -36,8 +36,11 @@ import {
 import { HeaderTitle } from "@/components/app/screens/shared"
 import { ViewContextMenu } from "@/components/app/screens/entity-context-menus"
 import {
+  applyViewConfigPatch,
+  clearViewFiltersPreservingCompletion,
   cloneViewFilters,
   selectAppDataSnapshot,
+  toggleViewFilterValue,
   type ViewFilterKey,
 } from "@/components/app/screens/helpers"
 import {
@@ -171,12 +174,18 @@ function getActiveWorkSurfaceView({
   activeBaseView,
   data,
   routeKey,
+  useViewerConfig,
 }: {
   activeBaseView: ViewDefinition | null
   data: ReturnType<typeof selectAppDataSnapshot>
   routeKey: string
+  useViewerConfig: boolean
 }) {
   if (!activeBaseView) {
+    return activeBaseView
+  }
+
+  if (!useViewerConfig) {
     return activeBaseView
   }
 
@@ -618,14 +627,35 @@ function WorkSurfaceActiveContent({
 
 function useViewerViewActions({
   activeView,
+  onUpdateFallbackView,
   routeKey,
 }: {
   activeView: ViewDefinition | null
+  onUpdateFallbackView?: (
+    viewId: string,
+    updateView: (view: ViewDefinition) => ViewDefinition
+  ) => void
   routeKey: string
 }) {
   const activeViewId = activeView?.id ?? null
+  function updateFallbackActiveView(
+    updateView: (view: ViewDefinition) => ViewDefinition
+  ) {
+    if (!activeViewId || !onUpdateFallbackView) {
+      return false
+    }
+
+    onUpdateFallbackView(activeViewId, updateView)
+    return true
+  }
 
   function updateViewerActiveView(patch: ViewConfigPatch) {
+    if (
+      updateFallbackActiveView((view) => applyViewConfigPatch(view, patch))
+    ) {
+      return
+    }
+
     if (!activeViewId) {
       return
     }
@@ -637,6 +667,15 @@ function useViewerViewActions({
     key: ViewFilterKey,
     value: string
   ) {
+    if (
+      updateFallbackActiveView((view) => ({
+        ...view,
+        filters: toggleViewFilterValue(view.filters, key, value),
+      }))
+    ) {
+      return
+    }
+
     if (!activeViewId) {
       return
     }
@@ -647,6 +686,15 @@ function useViewerViewActions({
   }
 
   function clearViewerActiveViewFilters() {
+    if (
+      updateFallbackActiveView((view) => ({
+        ...view,
+        filters: clearViewFiltersPreservingCompletion(view.filters),
+      }))
+    ) {
+      return
+    }
+
     if (!activeViewId) {
       return
     }
@@ -657,6 +705,21 @@ function useViewerViewActions({
   function toggleViewerActiveDisplayProperty(
     property: ViewDefinition["displayProps"][number]
   ) {
+    if (
+      updateFallbackActiveView((view) => {
+        const displayProps = view.displayProps.includes(property)
+          ? view.displayProps.filter((entry) => entry !== property)
+          : [...view.displayProps, property]
+
+        return {
+          ...view,
+          displayProps,
+        }
+      })
+    ) {
+      return
+    }
+
     if (!activeViewId) {
       return
     }
@@ -669,6 +732,15 @@ function useViewerViewActions({
   function reorderViewerActiveDisplayProperties(
     displayProps: ViewDefinition["displayProps"]
   ) {
+    if (
+      updateFallbackActiveView((view) => ({
+        ...view,
+        displayProps: [...new Set(displayProps)],
+      }))
+    ) {
+      return
+    }
+
     if (!activeViewId) {
       return
     }
@@ -679,6 +751,15 @@ function useViewerViewActions({
   }
 
   function clearViewerActiveDisplayProperties() {
+    if (
+      updateFallbackActiveView((view) => ({
+        ...view,
+        displayProps: [],
+      }))
+    ) {
+      return
+    }
+
     if (!activeViewId) {
       return
     }
@@ -692,6 +773,26 @@ function useViewerViewActions({
     key: "groups" | "subgroups",
     value: string
   ) {
+    if (
+      updateFallbackActiveView((view) => {
+        const currentValues = view.hiddenState[key] ?? []
+        const nextValues = currentValues.includes(value)
+          ? currentValues.filter((entry) => entry !== value)
+          : [...currentValues, value]
+
+        return {
+          ...view,
+          hiddenState: {
+            groups: [...view.hiddenState.groups],
+            subgroups: [...view.hiddenState.subgroups],
+            [key]: nextValues,
+          },
+        }
+      })
+    ) {
+      return
+    }
+
     if (!activeViewId) {
       return
     }
@@ -777,6 +878,7 @@ export function WorkSurface({
     activeBaseView,
     data,
     routeKey,
+    useViewerConfig: !usingFallbackViews,
   })
   const effectiveGroupingExperience = getEffectiveGroupingExperience(
     groupingExperience,
@@ -861,8 +963,20 @@ export function WorkSurface({
     shouldMatchAssignedItems,
     view: compatibleActiveView,
   })
+  function updateLocalFallbackView(
+    viewId: string,
+    updateView: (view: ViewDefinition) => ViewDefinition
+  ) {
+    setLocalFallbackViews((currentViews) =>
+      currentViews.map((view) => (view.id === viewId ? updateView(view) : view))
+    )
+  }
+
   const viewerViewActions = useViewerViewActions({
     activeView,
+    onUpdateFallbackView: usingFallbackViews
+      ? updateLocalFallbackView
+      : undefined,
     routeKey,
   })
 
