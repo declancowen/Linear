@@ -295,6 +295,22 @@ function createData(): AppData {
   }
 }
 
+function createUtcCalendarData(item: WorkItem): AppData {
+  return {
+    ...createData(),
+    users: [
+      {
+        id: "user_1",
+        name: "Alex",
+        preferences: {
+          timeZone: "UTC",
+        },
+      } as never,
+    ],
+    workItems: [item],
+  }
+}
+
 function createTimedCalendarItem(overrides: Partial<WorkItem> = {}) {
   const date = formatLocalCalendarDate(startOfDay(new Date()))
 
@@ -723,19 +739,7 @@ describe("CalendarView", () => {
       endTime: "00:30",
       scheduleTimeZone: "UTC",
     })
-    const data = {
-      ...createData(),
-      users: [
-        {
-          id: "user_1",
-          name: "Alex",
-          preferences: {
-            timeZone: "UTC",
-          },
-        } as never,
-      ],
-      workItems: [item],
-    }
+    const data = createUtcCalendarData(item)
 
     render(<CalendarView data={data} items={[item]} editable={false} />)
 
@@ -745,6 +749,28 @@ describe("CalendarView", () => {
     expect(screen.getAllByText("Overnight support")).toHaveLength(2)
     expect(screen.getByText("23:30 - 23:59")).toBeInTheDocument()
     expect(screen.getByText("00:00 - 00:30")).toBeInTheDocument()
+  })
+
+  it("does not render a terminal midnight timed segment", () => {
+    const today = startOfDay(new Date())
+    const startDate = formatLocalCalendarDate(today)
+    const endDate = formatLocalCalendarDate(addDays(today, 1))
+    const item = createWorkItem({
+      id: "overnight-midnight-item",
+      title: "Midnight handoff",
+      startDate,
+      targetDate: endDate,
+      startTime: "23:30",
+      endTime: "00:00",
+      scheduleTimeZone: "UTC",
+    })
+    const data = createUtcCalendarData(item)
+
+    render(<CalendarView data={data} items={[item]} editable={false} />)
+
+    expect(screen.getAllByText("Midnight handoff")).toHaveLength(1)
+    expect(screen.getByText("23:30 - 23:59")).toBeInTheDocument()
+    expect(screen.queryByText("00:00 - 00:00")).not.toBeInTheDocument()
   })
 
   it("moves month navigation by calendar months", () => {

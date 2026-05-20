@@ -28,11 +28,52 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 06:11 BST |
-| **Total turns**       | 25                   |
+| **Last reviewed**     | 2026-05-20 08:47 BST |
+| **Total turns**       | 26                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 55                   |
+| **Resolved findings** | 56                   |
 | **Accepted findings** | 0                    |
+
+## Turn 26 — 2026-05-20 08:47 BST
+
+| Field           | Value                                                                       |
+| --------------- | --------------------------------------------------------------------------- |
+| **Scope**       | Current-head Codex review feedback for terminal-midnight timed event splits |
+| **Review type** | External finding triage + calendar fix + gate rerun                         |
+| **Reviewer**    | Codex CLI                                                                   |
+| **Outcome**     | 1 live current-head Codex finding fixed locally; no local open findings     |
+
+### Commands run
+
+- `gh api graphql ... reviewThreads(first: 100)` — fetched current-head inline review threads for `959849a1`
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx tests/lib/domain/work-item-schedule.test.ts` — passed, 2 files / 37 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed after splitting the timed calendar entry resolver and extracting duplicated UTC test setup; dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed for the current working-tree delta
+
+### Branch-totality proof
+
+- **External findings triaged:** latest current-head Codex review found one live Medium issue: cross-day timed work ending exactly at `00:00` emitted a zero-length terminal-day segment that rendered as a visible minimum-height block.
+- **Bug classes / invariants checked:** cross-day hourly segmentation, terminal-exclusive midnight boundary, visible timed entry stability, static-analysis health/duplication fitness.
+- **Sibling closure:** `CalendarView` now skips zero-length timed segments while preserving the visible prior-day segment. Timed calendar entry shaping was split into owner-local helpers so the schedule display rule remains reviewable and under Fallow health thresholds.
+- **Architecture rule applied:** terminal-midnight display behavior stays in the calendar presentation segmentation layer; schedule interpretation remains in the domain resolver.
+- **Why this is enough:** the regression test covers a `23:30` to `00:00` cross-day item and proves no `00:00 - 00:00` phantom block renders.
+
+### Resolved / Carried / New findings
+
+#### WPDV-56 — resolved — cross-day timed work ending at midnight rendered a phantom terminal-day block
+
+- **Severity:** medium
+- **Evidence:** the split loop emitted a terminal entry with `startMinutes=0` and `endMinutes=0`; the timed-card minimum height made that zero-length segment visible.
+- **Fix:** cross-day timed segmentation now only emits a segment when `endMinutes > startMinutes`.
+- **Prevention:** Added component coverage for an overnight item ending at midnight and kept Fallow health/duplication gates clean.
+
+### Residual risk
+
+- Cross-midnight partial-day segments remain display-only for drag/resize; the sidebar remains the explicit edit path for those multi-segment timed items.
 
 ## Turn 25 — 2026-05-20 06:07 BST
 

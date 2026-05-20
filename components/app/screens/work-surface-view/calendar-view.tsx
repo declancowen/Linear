@@ -66,6 +66,8 @@ type MonthCalendarEntry = {
   timeLabel: string | null
 }
 
+type CalendarWallTime = ReturnType<typeof getViewerWallTimeForScheduleDate>
+
 type CalendarDragState = {
   action: DragAction
   item: WorkItem
@@ -155,6 +157,70 @@ function snapMinutes(value: number) {
   return Math.round(value / 15) * 15
 }
 
+function getSameDayTimedCalendarEntry(
+  item: WorkItem,
+  start: CalendarWallTime,
+  end: CalendarWallTime
+): TimedCalendarEntry {
+  const startMinutes = getMinutesFromTime(start.time)
+
+  return {
+    item,
+    date: start.date,
+    startMinutes,
+    endMinutes: Math.max(
+      getMinutesFromTime(end.time),
+      startMinutes + MIN_TIMED_DURATION_MINUTES
+    ),
+  }
+}
+
+function getCrossDayTimedCalendarEntries(
+  item: WorkItem,
+  start: CalendarWallTime,
+  end: CalendarWallTime
+): TimedCalendarEntry[] {
+  const entries: TimedCalendarEntry[] = []
+  let cursor = getDateFromKey(start.date)
+  const endDate = getDateFromKey(end.date)
+
+  while (cursor <= endDate) {
+    const date = getDateKey(cursor)
+    const startMinutes =
+      date === start.date ? getMinutesFromTime(start.time) : 0
+    const endMinutes = date === end.date
+      ? getMinutesFromTime(end.time)
+      : 24 * 60 - 1
+
+    if (endMinutes > startMinutes) {
+      entries.push({
+        isPartialDay: true,
+        item,
+        date,
+        startMinutes,
+        endMinutes,
+      })
+    }
+
+    cursor = addDays(cursor, 1)
+  }
+
+  return entries
+}
+
+function getTimedCalendarEntries(
+  item: WorkItem,
+  schedule: Extract<ReturnType<typeof resolveWorkItemSchedule>, { kind: "timed" }>,
+  viewerTimeZone: string
+): TimedCalendarEntry[] {
+  const start = getViewerWallTimeForScheduleDate(schedule.start, viewerTimeZone)
+  const end = getViewerWallTimeForScheduleDate(schedule.end, viewerTimeZone)
+
+  return start.date === end.date
+    ? [getSameDayTimedCalendarEntry(item, start, end)]
+    : getCrossDayTimedCalendarEntries(item, start, end)
+}
+
 function resolveCalendarEntries(
   items: WorkItem[],
   viewerTimeZone: string
@@ -169,47 +235,9 @@ function resolveCalendarEntries(
     const schedule = resolveWorkItemSchedule(item, viewerTimeZone)
 
     if (schedule.kind === "timed") {
-      const start = getViewerWallTimeForScheduleDate(
-        schedule.start,
-        viewerTimeZone
+      timedEntries.push(
+        ...getTimedCalendarEntries(item, schedule, viewerTimeZone)
       )
-      const end = getViewerWallTimeForScheduleDate(schedule.end, viewerTimeZone)
-
-      if (start.date === end.date) {
-        timedEntries.push({
-          item,
-          date: start.date,
-          startMinutes: getMinutesFromTime(start.time),
-          endMinutes: Math.max(
-            getMinutesFromTime(end.time),
-            getMinutesFromTime(start.time) + MIN_TIMED_DURATION_MINUTES
-          ),
-        })
-        return
-      }
-
-      let cursor = getDateFromKey(start.date)
-      const endDate = getDateFromKey(end.date)
-
-      while (getDateKey(cursor) <= end.date) {
-        const date = getDateKey(cursor)
-        const isStartDate = date === start.date
-        const isEndDate = date === end.date
-
-        timedEntries.push({
-          isPartialDay: true,
-          item,
-          date,
-          startMinutes: isStartDate ? getMinutesFromTime(start.time) : 0,
-          endMinutes: isEndDate ? getMinutesFromTime(end.time) : 24 * 60 - 1,
-        })
-
-        cursor = addDays(cursor, 1)
-
-        if (cursor > endDate) {
-          break
-        }
-      }
       return
     }
 
