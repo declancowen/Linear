@@ -460,9 +460,6 @@ function useShellNotificationToasts(input: {
             },
           }
         : undefined,
-      onDismiss: () => {
-        useAppStore.getState().markNotificationRead(nextNotification.id)
-      },
     })
 
     notificationToastFlushTimeoutRef.current = window.setTimeout(() => {

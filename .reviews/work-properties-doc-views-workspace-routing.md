@@ -28,11 +28,50 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 13:28 BST |
-| **Total turns**       | 27                   |
+| **Last reviewed**     | 2026-05-20 13:40 BST |
+| **Total turns**       | 28                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 57                   |
+| **Resolved findings** | 58                   |
 | **Accepted findings** | 0                    |
+
+## Turn 28 — 2026-05-20 13:40 BST
+
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex feedback for notification toast read-state behavior      |
+| **Review type** | External PR feedback triage + targeted shell fix + gate rerun         |
+| **Reviewer**    | Codex CLI                                                             |
+| **Outcome**     | 1 live PR finding fixed locally; no local open findings               |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the current Codex review feedback
+- `pnpm vitest run tests/components/notification-routing.test.ts` — passed, 1 file / 9 tests
+- `pnpm exec eslint components/app/shell.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `git diff --check` — passed before the review-log update
+
+### Branch-totality proof
+
+- **External findings triaged:** current PR feedback had one live P1 issue: toast dismissal could mark notifications read even when the user never saw or opened the target.
+- **Bug classes / invariants checked:** notification unread-state preservation, explicit user-open read acknowledgement, already-viewing suppression path, and inbox badge integrity.
+- **Sibling closure:** the already-viewing path still marks the notification read immediately because the target is visible; the toast action still marks read before routing to the target. Passive toast timeout and close no longer mark read.
+- **Architecture rule applied:** notification read state remains tied to explicit viewing/opening behavior, not passive presentation lifecycle callbacks.
+- **Why this is enough:** the only new read mutation introduced by the toast presentation rewrite was the `onDismiss` callback; removing it restores the prior read-state boundary while leaving intentional open/viewed read paths intact.
+
+### Resolved / Carried / New findings
+
+#### WPDV-58 — resolved — notification toast auto-dismiss marked unseen notifications as read
+
+- **Severity:** high
+- **Evidence:** the Sonner toast had an `onDismiss` handler that called `markNotificationRead`, and that dismissal path includes automatic timeout.
+- **Fix:** removed the toast dismissal read mutation. Notifications are now marked read only when the current route is already viewing the target or when the user clicks the toast action to open it.
+- **Prevention:** Re-ran shell lint, notification routing tests, typecheck, and Fallow gate.
+
+### Residual risk
+
+- I did not resolve or reply to the GitHub review thread because the user asked to continue with fixes, not to write back on GitHub.
 
 ## Turn 27 — 2026-05-20 13:28 BST
 
