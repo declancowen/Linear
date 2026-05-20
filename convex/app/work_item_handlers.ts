@@ -51,6 +51,8 @@ import {
 } from "./presence_helpers"
 import {
   assertScheduleDate,
+  assertScheduleTime,
+  assertScheduleTimeZone,
   assertTargetDateOnOrAfterStartDate,
   assertWorkItemLabelIds,
   collectWorkItemCascadeIds,
@@ -159,6 +161,9 @@ function assertWorkItemSchedulePatch(
   assertScheduleDate(patch.startDate, "Start date")
   assertScheduleDate(patch.dueDate, "Due date")
   assertScheduleDate(patch.targetDate, "Target date")
+  assertScheduleTime(patch.startTime, "Start time")
+  assertScheduleTime(patch.endTime, "End time")
+  assertScheduleTimeZone(patch.scheduleTimeZone)
 
   const nextStartDate =
     patch.startDate === undefined ? existing.startDate : patch.startDate
@@ -1193,6 +1198,9 @@ function assertCreateWorkItemSchedule(args: CreateWorkItemArgs) {
   assertScheduleDate(args.startDate, "Start date")
   assertScheduleDate(args.dueDate, "Due date")
   assertScheduleDate(args.targetDate, "Target date")
+  assertScheduleTime(args.startTime, "Start time")
+  assertScheduleTime(args.endTime, "End time")
+  assertScheduleTimeZone(args.scheduleTimeZone)
   assertTargetDateOnOrAfterStartDate(args)
 }
 
@@ -1336,10 +1344,18 @@ async function getCreateWorkItemNumbering(
     .query("workItems")
     .withIndex("by_team_id", (q) => q.eq("teamId", args.teamId))
     .collect()
+  const isPrivate = args.visibility === "private"
+  const matchingItems = isPrivate
+    ? teamItems.filter(
+        (item) =>
+          (item.visibility ?? "team") === "private" &&
+          item.creatorId === args.currentUserId
+      )
+    : teamItems.filter((item) => (item.visibility ?? "team") !== "private")
 
   return {
-    prefix: toTeamKeyPrefix(team.name, args.teamId),
-    nextNumber: 1 + teamItems.length + 100,
+    prefix: isPrivate ? "PRIVATE" : toTeamKeyPrefix(team.name, args.teamId),
+    nextNumber: isPrivate ? matchingItems.length + 1 : 1 + matchingItems.length + 100,
   }
 }
 
@@ -1384,6 +1400,7 @@ function buildCreatedWorkItem({
   prefix,
   nextNumber,
   now,
+  defaultScheduleTimeZone,
 }: {
   args: CreateWorkItemArgs
   parent: Awaited<ReturnType<typeof validateWorkItemParent>>
@@ -1392,6 +1409,7 @@ function buildCreatedWorkItem({
   prefix: string
   nextNumber: number
   now: string
+  defaultScheduleTimeZone: string | null
 }) {
   return {
     id: args.id ?? createId("item"),
@@ -1414,6 +1432,9 @@ function buildCreatedWorkItem({
     startDate: args.startDate ?? formatLocalCalendarDate(),
     dueDate: args.dueDate ?? addLocalCalendarDays(7),
     targetDate: args.targetDate ?? addLocalCalendarDays(10),
+    startTime: args.startTime ?? null,
+    endTime: args.endTime ?? null,
+    scheduleTimeZone: args.scheduleTimeZone ?? defaultScheduleTimeZone,
     subscriberIds: [args.currentUserId],
     createdAt: now,
     updatedAt: now,
@@ -1498,6 +1519,8 @@ export async function createWorkItemHandler(
   )
   const descriptionDocId = args.descriptionDocId ?? createId("doc")
   const now = getNow()
+  const creator = await getUserDoc(ctx, args.currentUserId)
+  const defaultScheduleTimeZone = creator?.preferences.timeZone ?? null
 
   await insertCreatedWorkItemDescription({
     ctx,
@@ -1515,6 +1538,7 @@ export async function createWorkItemHandler(
     prefix,
     nextNumber,
     now,
+    defaultScheduleTimeZone,
   })
 
   await ctx.db.insert("workItems", workItem)

@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
-import { nullableCalendarDateSchema } from "@/lib/domain/types"
+import {
+  nullableCalendarDateSchema,
+  nullableTimeSchema,
+  nullableTimeZoneSchema,
+} from "@/lib/domain/types"
 import { ApplicationError } from "@/lib/server/application-errors"
 import {
   bumpScopedReadModelVersionsServer,
@@ -46,6 +50,9 @@ const workItemPatchSchema = z
     startDate: nullableCalendarDateSchema.optional(),
     dueDate: nullableCalendarDateSchema.optional(),
     targetDate: nullableCalendarDateSchema.optional(),
+    startTime: nullableTimeSchema.optional(),
+    endTime: nullableTimeSchema.optional(),
+    scheduleTimeZone: nullableTimeZoneSchema.optional(),
   })
   .refine(
     (value) => Object.values(value).some((entry) => entry !== undefined),

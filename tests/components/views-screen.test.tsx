@@ -7,6 +7,7 @@ import {
   DocsScreen,
   ProjectsScreen,
   TeamWorkScreen,
+  UserCalendarScreen,
   ViewsScreen,
 } from "@/components/app/screens"
 import { getDocsDialogInput } from "@/components/app/screens/docs-dialog-input"
@@ -24,8 +25,12 @@ import {
   createTestProject,
   createTestTeam,
   createTestUser,
+  createTestWorkItem,
   createTestWorkspaceDirectoryAppData,
 } from "@/tests/lib/fixtures/app-data"
+
+const workSurfaceMock = vi.hoisted(() => vi.fn())
+const calendarViewMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@/components/app/screens/shared", () => ({
   CollectionDisplaySettingsPopover: () => null,
@@ -74,7 +79,17 @@ vi.mock("@/components/app/screens/collection-boards", () => ({
 }))
 
 vi.mock("@/components/app/screens/work-surface", () => ({
-  WorkSurface: () => <div>Work surface</div>,
+  WorkSurface: (props: Record<string, unknown>) => {
+    workSurfaceMock(props)
+    return <div>Work surface</div>
+  },
+}))
+
+vi.mock("@/components/app/screens/work-surface-view", () => ({
+  CalendarView: (props: Record<string, unknown>) => {
+    calendarViewMock(props)
+    return <div>Calendar surface</div>
+  },
 }))
 
 vi.mock("@/hooks/use-scoped-read-model-refresh", () => ({
@@ -208,6 +223,7 @@ vi.mock("@/components/ui/template-primitives", async () =>
 vi.mock("@phosphor-icons/react", () => ({
   Archive: () => null,
   ArrowCounterClockwise: () => null,
+  CalendarBlank: () => null,
   CalendarDots: () => null,
   ArrowSquareOut: () => null,
   Bell: () => null,
@@ -308,6 +324,43 @@ describe("ViewsScreen", () => {
 
     expect(screen.getByText("Docs")).toBeInTheDocument()
     expect(screen.getByText("Screen document")).toBeInTheDocument()
+  })
+
+  it("renders the user calendar from assigned team work and private tasks", () => {
+    useAppStore.setState(
+      createTestAppData({
+        workItems: [
+          createTestWorkItem("assigned", {
+            assigneeId: "user_1",
+            visibility: "team",
+          }),
+          createTestWorkItem("private", {
+            creatorId: "user_1",
+            visibility: "private",
+          }),
+          createTestWorkItem("not-mine", {
+            assigneeId: null,
+            creatorId: "user_2",
+            visibility: "team",
+          }),
+        ],
+      })
+    )
+
+    render(<UserCalendarScreen />)
+
+    expect(calendarViewMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        editable: true,
+        items: expect.arrayContaining([
+          expect.objectContaining({ id: "assigned" }),
+          expect.objectContaining({ id: "private" }),
+        ]),
+      })
+    )
+    expect(
+      (calendarViewMock.mock.lastCall?.[0] as { items: { id: string }[] }).items
+    ).toHaveLength(2)
   })
 
   it("renders docs content loading, empty, list, and board states", () => {

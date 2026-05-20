@@ -67,6 +67,7 @@ export const config = {
     "/inbox",
     "/invites",
     "/assigned",
+    "/calendar",
     "/chats",
     "/settings/:path*",
     "/onboarding",

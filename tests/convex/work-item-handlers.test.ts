@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import {
+  expectPrivateWorkItemMutationDenied,
+  mockEmptyQueryCollect,
+} from "@/tests/lib/fixtures/convex"
+
 const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
 const requireEditableTeamDocMock = vi.fn()
@@ -203,11 +208,7 @@ describe("work item handlers", () => {
     const { createWorkItemHandler } =
       await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
-    ctx.db.query.mockReturnValue({
-      withIndex: vi.fn(() => ({
-        collect: vi.fn().mockResolvedValue([]),
-      })),
-    })
+    mockEmptyQueryCollect(ctx)
 
     const result = await createWorkItemHandler(ctx as never, {
       serverToken: "server_token",
@@ -238,11 +239,7 @@ describe("work item handlers", () => {
     const { createWorkItemHandler } =
       await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
-    ctx.db.query.mockReturnValue({
-      withIndex: vi.fn(() => ({
-        collect: vi.fn().mockResolvedValue([]),
-      })),
-    })
+    mockEmptyQueryCollect(ctx)
 
     await createWorkItemHandler(ctx as never, {
       serverToken: "server_token",
@@ -344,30 +341,22 @@ describe("work item handlers", () => {
       await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
 
-    requireEditableWorkItemAccessMock.mockRejectedValueOnce(
-      new Error("Work item not found")
-    )
-
-    await expect(
-      updateWorkItemHandler(ctx as never, {
-        serverToken: "server_token",
-        currentUserId: "user_2",
-        origin: "https://app.example.com",
-        itemId: "item_1",
-        patch: {
-          title: "Updated title",
-        },
-      })
-    ).rejects.toThrow("Work item not found")
-
-    expect(requireEditableWorkItemAccessMock).toHaveBeenCalledWith(
+    await expectPrivateWorkItemMutationDenied({
       ctx,
-      expect.objectContaining({
-        id: "item_1",
-      }),
-      "user_2"
-    )
-    expect(ctx.db.patch).not.toHaveBeenCalled()
+      itemId: "item_1",
+      mock: requireEditableWorkItemAccessMock,
+      mutate: () =>
+        updateWorkItemHandler(ctx as never, {
+          serverToken: "server_token",
+          currentUserId: "user_2",
+          origin: "https://app.example.com",
+          itemId: "item_1",
+          patch: {
+            title: "Updated title",
+          },
+        }),
+      userId: "user_2",
+    })
   })
 
   it("ignores private work item assignee and project patches on update", async () => {

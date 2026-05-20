@@ -2,6 +2,8 @@ import { v } from "convex/values"
 
 const nullableString = v.union(v.string(), v.null())
 const nullableStorageId = v.union(v.id("_storage"), v.null())
+const nullableTimeString = nullableString
+const nullableTimeZoneString = nullableString
 
 const roleLiterals = [
   v.literal("admin"),
@@ -106,6 +108,7 @@ const viewLayoutLiterals = [
   v.literal("list"),
   v.literal("board"),
   v.literal("timeline"),
+  v.literal("calendar"),
 ] as const
 
 const viewScopeTypeLiterals = [
@@ -419,6 +422,7 @@ export const userFields = {
     emailAssignments: v.boolean(),
     emailDigest: v.boolean(),
     theme: themePreferenceValidator,
+    timeZone: v.optional(v.string()),
   }),
 }
 
@@ -523,6 +527,9 @@ export const workItemFields = {
   startDate: nullableString,
   dueDate: nullableString,
   targetDate: nullableString,
+  startTime: v.optional(nullableTimeString),
+  endTime: v.optional(nullableTimeString),
+  scheduleTimeZone: v.optional(nullableTimeZoneString),
   subscriberIds: v.array(v.string()),
   createdAt: v.string(),
   updatedAt: v.string(),

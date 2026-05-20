@@ -8,14 +8,12 @@ import type {
   CustomPropertyValue,
   DocumentPresenceViewer,
   DisplayProperty,
-  GroupField,
-  OrderingField,
   Priority,
   ProjectStatus,
   Role,
   TeamFeatureSettings,
   TeamWorkflowSettings,
-  WorkItemType,
+  ViewConfigPatch,
 } from "@/lib/domain/types"
 import type { CreateProjectInput } from "@/lib/domain/project-inputs"
 import type {
@@ -36,16 +34,6 @@ import {
 import { runRouteMutation } from "./shared"
 
 type WorkItemPatch = WorkItemMutationPatch
-
-type UpdateViewConfigPatch = Partial<{
-  layout: "list" | "board" | "timeline"
-  grouping: GroupField
-  subGrouping: GroupField | null
-  ordering: OrderingField
-  itemLevel: WorkItemType | null
-  showChildItems: boolean
-  showCompleted: boolean
-}>
 
 export function syncMarkNotificationRead(notificationId: string) {
   return runRouteMutation(`/api/notifications/${notificationId}`, {
@@ -150,7 +138,7 @@ export function syncDeleteNotification(notificationId: string) {
 
 export function syncUpdateViewConfig(
   viewId: string,
-  patch: UpdateViewConfigPatch
+  patch: ViewConfigPatch
 ) {
   return runRouteMutation(`/api/views/${viewId}`, {
     method: "PATCH",

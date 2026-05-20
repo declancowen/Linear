@@ -16,6 +16,7 @@ import {
   shiftCalendarDate,
 } from "@/lib/calendar-date"
 import { getLabelsForWorkspace } from "@/lib/domain/selectors"
+import { formatWorkItemKey } from "@/lib/domain/work-item-key"
 import {
   buildWorkItemAssignmentNotificationMessage,
   buildWorkItemStatusChangeNotificationMessage,
@@ -25,6 +26,7 @@ import {
   statusMeta,
   workItemSchema,
 } from "@/lib/domain/types"
+import { getBrowserTimeZone, normalizeTimeZone } from "@/lib/time-zone"
 
 import {
   createId,
@@ -52,7 +54,10 @@ type WorkItemDocument = AppStore["documents"][number]
 type WorkItemNotification = AppStore["notifications"][number]
 type CreateWorkItemDates = {
   dueDate: string
+  endTime: string | null
+  scheduleTimeZone: string | null
   startDate: string
+  startTime: string | null
   targetDate: string
 }
 type CreateWorkItemScope = {
@@ -121,12 +126,22 @@ function getWorkItemDeleteSuccessMessage(deletionPlan: WorkItemDeletePlan) {
 }
 
 function resolveCreateWorkItemDates(
+  state: AppStore,
   input: CreateWorkItemInput
 ): CreateWorkItemDates {
+  const currentUser = state.users.find((user) => user.id === state.currentUserId)
+  const fallbackScheduleTimeZone = normalizeTimeZone(
+    currentUser?.preferences.timeZone,
+    getBrowserTimeZone()
+  )
+
   return {
     startDate: input.startDate ?? formatLocalCalendarDate(),
     dueDate: input.dueDate ?? addLocalCalendarDays(7),
     targetDate: input.targetDate ?? addLocalCalendarDays(10),
+    startTime: input.startTime ?? null,
+    endTime: input.endTime ?? null,
+    scheduleTimeZone: input.scheduleTimeZone ?? fallbackScheduleTimeZone,
   }
 }
 
@@ -145,13 +160,18 @@ function resolveCreateWorkItemScope(
     ? (state.workItems.find((item) => item.id === input.parentId) ?? null)
     : null
   const team = state.teams.find((entry) => entry.id === input.teamId) ?? null
-  const teamItems = state.workItems.filter(
-    (item) => item.teamId === input.teamId
+  const isPrivate = input.visibility === "private"
+  const teamItems = state.workItems.filter((item) =>
+    isPrivate
+      ? (item.visibility ?? "team") === "private" &&
+        item.teamId === input.teamId &&
+        item.creatorId === state.currentUserId
+      : item.teamId === input.teamId && (item.visibility ?? "team") !== "private"
   )
 
   return {
-    keyPrefix: toTeamKeyPrefix(team?.name, input.teamId),
-    nextNumber: 1 + teamItems.length + 100,
+    keyPrefix: isPrivate ? "PRIVATE" : toTeamKeyPrefix(team?.name, input.teamId),
+    nextNumber: isPrivate ? teamItems.length + 1 : 1 + teamItems.length + 100,
     parent,
     resolvedPrimaryProjectId: parent
       ? (parent.primaryProjectId ?? null)
@@ -200,7 +220,7 @@ function buildOptimisticWorkItem(input: {
 
   return {
     id: input.itemId,
-    key: `${input.scope.keyPrefix}-${input.scope.nextNumber}`,
+    key: formatWorkItemKey(input.scope.keyPrefix, input.scope.nextNumber),
     teamId: input.parsedInput.teamId,
     type: input.parsedInput.type,
     title: input.parsedInput.title,
@@ -219,6 +239,9 @@ function buildOptimisticWorkItem(input: {
     startDate: input.dates.startDate,
     dueDate: input.dates.dueDate,
     targetDate: input.dates.targetDate,
+    startTime: input.dates.startTime,
+    endTime: input.dates.endTime,
+    scheduleTimeZone: input.dates.scheduleTimeZone,
     subscriberIds: [input.currentUserId],
     createdAt: now,
     updatedAt: now,
@@ -422,6 +445,52 @@ function getEffectivePrimaryProjectIdForWorkItemUpdate(
   resolvedPrimaryProjectId: string | null
 ) {
   return isPrivateWorkItem(item) ? null : resolvedPrimaryProjectId
+}
+
+function getUpdatedWorkItemValidationInput(input: {
+  existing: WorkItem
+  localPatch: LocalWorkItemPatch
+  resolvedPrimaryProjectId: string | null
+}) {
+  const { existing, localPatch, resolvedPrimaryProjectId } = input
+
+  return {
+    teamId: existing.teamId,
+    type: existing.type,
+    title: localPatch.title ?? existing.title,
+    priority: localPatch.priority ?? existing.priority,
+    assigneeId:
+      localPatch.assigneeId === undefined
+        ? existing.assigneeId
+        : localPatch.assigneeId,
+    parentId:
+      localPatch.parentId === undefined ? existing.parentId : localPatch.parentId,
+    primaryProjectId: getEffectivePrimaryProjectIdForWorkItemUpdate(
+      existing,
+      resolvedPrimaryProjectId
+    ),
+    labelIds:
+      localPatch.labelIds === undefined ? existing.labelIds : localPatch.labelIds,
+    startDate:
+      localPatch.startDate === undefined
+        ? existing.startDate
+        : localPatch.startDate,
+    targetDate:
+      localPatch.targetDate === undefined
+        ? existing.targetDate
+        : localPatch.targetDate,
+    startTime:
+      localPatch.startTime === undefined
+        ? existing.startTime
+        : localPatch.startTime,
+    endTime:
+      localPatch.endTime === undefined ? existing.endTime : localPatch.endTime,
+    scheduleTimeZone:
+      localPatch.scheduleTimeZone === undefined
+        ? existing.scheduleTimeZone
+        : localPatch.scheduleTimeZone,
+    currentItemId: existing.id,
+  }
 }
 
 function applyOptimisticProjectLinkToWorkItems(
@@ -828,29 +897,14 @@ export function createWorkItemActions({
         shouldCascadeProjectLink,
       } = getResolvedProjectLinkForWorkItemUpdate(state, existing, localPatch)
 
-      const validationMessage = getWorkItemValidationMessage(state, {
-        teamId: existing.teamId,
-        type: existing.type,
-        title: localPatch.title ?? existing.title,
-        priority: localPatch.priority ?? existing.priority,
-        assigneeId:
-          localPatch.assigneeId === undefined
-            ? existing.assigneeId
-            : localPatch.assigneeId,
-        parentId:
-          localPatch.parentId === undefined
-            ? existing.parentId
-            : localPatch.parentId,
-        primaryProjectId: getEffectivePrimaryProjectIdForWorkItemUpdate(
+      const validationMessage = getWorkItemValidationMessage(
+        state,
+        getUpdatedWorkItemValidationInput({
           existing,
-          resolvedPrimaryProjectId
-        ),
-        labelIds:
-          localPatch.labelIds === undefined
-            ? existing.labelIds
-            : localPatch.labelIds,
-        currentItemId: existing.id,
-      })
+          localPatch,
+          resolvedPrimaryProjectId,
+        })
+      )
 
       if (validationMessage) {
         toast.error(validationMessage)
@@ -1016,7 +1070,7 @@ export function createWorkItemActions({
 
       let createdItemId: string | null = null
       let createdDescriptionDocId: string | null = null
-      const dates = resolveCreateWorkItemDates(parsedInput)
+      const dates = resolveCreateWorkItemDates(get(), parsedInput)
 
       set((state) => {
         const optimisticCreation = buildOptimisticWorkItemCreationState(state, {
@@ -1044,6 +1098,9 @@ export function createWorkItemActions({
         startDate: dates.startDate,
         dueDate: dates.dueDate,
         targetDate: dates.targetDate,
+        startTime: dates.startTime,
+        endTime: dates.endTime,
+        scheduleTimeZone: dates.scheduleTimeZone,
       }).then((result) => {
         if (!createdItemId) {
           return result

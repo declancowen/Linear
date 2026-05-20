@@ -424,6 +424,7 @@ export async function updateCurrentUserProfileServer(input: {
     emailAssignments: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
+    timeZone?: string
   }
 }) {
   try {

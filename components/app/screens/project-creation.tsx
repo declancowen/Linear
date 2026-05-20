@@ -38,6 +38,7 @@ import {
   type AppData,
   type DisplayProperty,
   type Priority,
+  type Project,
   type ProjectPresentationConfig,
   type ProjectStatus,
   type ViewDefinition,
@@ -296,15 +297,383 @@ function createInitialProjectPresentationConfig(
   }
 }
 
+function getInitialProjectTeamId({
+  availableTeams,
+  defaultTeamId,
+  project,
+}: {
+  availableTeams: ProjectDialogTeam[]
+  defaultTeamId?: string | null
+  project?: Project | null
+}) {
+  const projectTeamId =
+    project?.scopeType === "team" ? project.scopeId : defaultTeamId
+
+  return projectTeamId && availableTeams.some((team) => team.id === projectTeamId)
+    ? projectTeamId
+    : (availableTeams[0]?.id ?? "")
+}
+
+function getInitialProjectLeadId({
+  currentUserId,
+  project,
+  teamMembers,
+}: {
+  currentUserId: string
+  project?: Project | null
+  teamMembers: ProjectDialogUser[]
+}) {
+  return (
+    project?.leadId ??
+    teamMembers.find((member) => member.id === currentUserId)?.id ??
+    teamMembers[0]?.id ??
+    null
+  )
+}
+
+function getProjectDialogLabels({
+  allLabels,
+  settingsTeam,
+}: {
+  allLabels: ProjectDialogLabel[]
+  settingsTeam: ProjectDialogTeam | null
+}) {
+  if (!settingsTeam) {
+    return []
+  }
+
+  return allLabels.filter(
+    (label) =>
+      label.workspaceId === settingsTeam.workspaceId &&
+      getLabelScopeType(label) === "workspace"
+  )
+}
+
+function getProjectDialogTemplateType({
+  project,
+  settingsTeam,
+}: {
+  project?: Project | null
+  settingsTeam: ProjectDialogTeam | null
+}) {
+  return (
+    project?.templateType ??
+    getDefaultTemplateTypeForTeamExperience(settingsTeam?.settings.experience)
+  )
+}
+
+function getProjectDialogInitialValues({
+  initialLeadId,
+  initialTemplateType,
+  project,
+}: {
+  initialLeadId: string | null
+  initialTemplateType: Project["templateType"]
+  project?: Project | null
+}) {
+  const defaultValues = {
+    icon: "FolderSimple",
+    labelIds: [],
+    leadId: initialLeadId,
+    memberIds: [],
+    name: "",
+    presentation: createInitialProjectPresentationConfig(initialTemplateType),
+    priority: "none" as Priority,
+    startDate: null,
+    status: "backlog" as ProjectStatus,
+    summary: "",
+    targetDate: null,
+  }
+
+  if (!project) {
+    return defaultValues
+  }
+
+  return {
+    icon: project.icon ?? defaultValues.icon,
+    labelIds: project.labelIds ?? defaultValues.labelIds,
+    leadId: project.leadId ?? defaultValues.leadId,
+    memberIds: project.memberIds ?? defaultValues.memberIds,
+    name: project.name,
+    presentation: project.presentation ?? defaultValues.presentation,
+    priority: project.priority,
+    startDate: project.startDate,
+    status: project.status,
+    summary: project.summary,
+    targetDate: project.targetDate,
+  }
+}
+
+function getScopedProjectDialogItems({
+  appData,
+  selectedTeamId,
+}: {
+  appData: AppData
+  selectedTeamId: string
+}) {
+  return selectedTeamId
+    ? getVisibleWorkItems(appData, { teamId: selectedTeamId })
+    : []
+}
+
+function getProjectPresentationPatch(presentation: ProjectPresentationConfig) {
+  return {
+    ...presentation,
+    displayProps: [...presentation.displayProps],
+    filters: cloneViewFilters(presentation.filters),
+  }
+}
+
+function getProjectPresentationDraftView({
+  presentation,
+  selectedTeamId,
+  settingsTeam,
+}: {
+  presentation: ProjectPresentationConfig
+  selectedTeamId: string
+  settingsTeam: ProjectDialogTeam | null
+}): ViewDefinition | null {
+  if (!selectedTeamId) {
+    return null
+  }
+
+  return {
+    id: "__draft_project_presentation__",
+    name: "Project view",
+    description: "",
+    scopeType: "team",
+    scopeId: selectedTeamId,
+    entityKind: "items",
+    itemLevel: presentation.itemLevel ?? null,
+    showChildItems: presentation.showChildItems ?? false,
+    layout: presentation.layout,
+    filters: presentation.filters,
+    grouping: presentation.grouping,
+    subGrouping: null,
+    ordering: presentation.ordering,
+    displayProps: presentation.displayProps,
+    hiddenState: {
+      groups: [],
+      subgroups: [],
+    },
+    isShared: true,
+    route: settingsTeam ? `/team/${settingsTeam.slug}/projects` : "",
+    createdAt: "__draft__",
+    updatedAt: "__draft__",
+  }
+}
+
+function canSubmitProjectDialog({
+  availableTeams,
+  leadId,
+  nameLimitState,
+  selectedTeamId,
+  summaryLimitState,
+}: {
+  availableTeams: ProjectDialogTeam[]
+  leadId: string | null
+  nameLimitState: ProjectTextLimitState
+  selectedTeamId: string
+  summaryLimitState: ProjectTextLimitState
+}) {
+  return (
+    availableTeams.length > 0 &&
+    nameLimitState.canSubmit &&
+    summaryLimitState.canSubmit &&
+    Boolean(selectedTeamId) &&
+    Boolean(leadId)
+  )
+}
+
+function saveProjectDialog({
+  icon,
+  leadId,
+  memberIds,
+  name,
+  onOpenChange,
+  presentation,
+  priority,
+  project,
+  selectedLabelIds,
+  selectedTeamId,
+  startDate,
+  status,
+  summary,
+  targetDate,
+  templateType,
+}: {
+  icon: string
+  leadId: string | null
+  memberIds: string[]
+  name: string
+  onOpenChange: (open: boolean) => void
+  presentation: ProjectPresentationConfig
+  priority: Priority
+  project?: Project | null
+  selectedLabelIds: string[]
+  selectedTeamId: string
+  startDate: string | null
+  status: ProjectStatus
+  summary: string
+  targetDate: string | null
+  templateType: Project["templateType"]
+}) {
+  if (!selectedTeamId || !leadId) {
+    return
+  }
+
+  const patch = {
+    name,
+    icon,
+    summary,
+    status,
+    priority,
+    leadId,
+    memberIds,
+    startDate,
+    targetDate,
+    labelIds: selectedLabelIds,
+    presentation: getProjectPresentationPatch(presentation),
+  }
+
+  if (project) {
+    useAppStore.getState().updateProject(project.id, patch)
+  } else {
+    useAppStore.getState().createProject({
+      scopeType: "team",
+      scopeId: selectedTeamId,
+      templateType,
+      settingsTeamId: selectedTeamId,
+      ...patch,
+    })
+  }
+
+  onOpenChange(false)
+}
+
+function resetProjectDialogTeamSelection({
+  availableTeams,
+  currentUserId,
+  nextTeamId,
+  setIcon,
+  setLeadId,
+  setMemberIds,
+  setPresentation,
+  setPriority,
+  setSelectedLabelIds,
+  setSelectedTeamId,
+  setStartDate,
+  setStatus,
+  setTargetDate,
+  teamMemberships,
+  users,
+}: {
+  availableTeams: ProjectDialogTeam[]
+  currentUserId: string
+  nextTeamId: string
+  setIcon: (icon: string) => void
+  setLeadId: (leadId: string | null) => void
+  setMemberIds: (memberIds: string[]) => void
+  setPresentation: (presentation: ProjectPresentationConfig) => void
+  setPriority: (priority: Priority) => void
+  setSelectedLabelIds: (labelIds: string[]) => void
+  setSelectedTeamId: (teamId: string) => void
+  setStartDate: (date: string | null) => void
+  setStatus: (status: ProjectStatus) => void
+  setTargetDate: (date: string | null) => void
+  teamMemberships: AppData["teamMemberships"]
+  users: AppData["users"]
+}) {
+  const nextTeam =
+    availableTeams.find((entry) => entry.id === nextTeamId) ?? null
+  const nextTemplateType = getDefaultTemplateTypeForTeamExperience(
+    nextTeam?.settings.experience
+  )
+  const nextTeamMembers = getDialogTeamMembers(
+    nextTeamId,
+    teamMemberships,
+    users
+  )
+  const nextLeadId = getInitialProjectLeadId({
+    currentUserId,
+    teamMembers: nextTeamMembers,
+  })
+
+  setSelectedTeamId(nextTeamId)
+  setStatus("backlog")
+  setPriority("none")
+  setLeadId(nextLeadId)
+  setMemberIds([])
+  setStartDate(null)
+  setTargetDate(null)
+  setSelectedLabelIds([])
+  setIcon("FolderSimple")
+  setPresentation(createInitialProjectPresentationConfig(nextTemplateType))
+}
+
+function useProjectPresentationActions({
+  setPresentation,
+}: {
+  setPresentation: Dispatch<SetStateAction<ProjectPresentationConfig>>
+}) {
+  return {
+    clearDisplayProperties: () =>
+      setPresentation((current) => ({
+        ...current,
+        displayProps: [],
+      })),
+    clearFilters: () =>
+      setPresentation((current) => ({
+        ...current,
+        filters: createEmptyViewFilters(),
+      })),
+    reorderDisplayProperties: (displayProps: DisplayProperty[]) =>
+      setPresentation((current) => ({
+        ...current,
+        displayProps,
+      })),
+    toggleDisplayProperty: (property: DisplayProperty) => {
+      if (property === "project") {
+        return
+      }
+
+      setPresentation((current) => ({
+        ...current,
+        displayProps: current.displayProps.includes(property)
+          ? current.displayProps.filter((value) => value !== property)
+          : [...current.displayProps, property],
+      }))
+    },
+    toggleFilterValue: (key: ViewFilterKey, value: string) =>
+      setPresentation((current) => {
+        const currentValues = current.filters[key] as string[]
+        const nextValues = currentValues.includes(value)
+          ? currentValues.filter((entry) => entry !== value)
+          : [...currentValues, value]
+
+        return {
+          ...current,
+          filters: {
+            ...current.filters,
+            [key]: nextValues as never,
+          },
+        }
+      }),
+    updateView: (patch: ViewConfigPatch) =>
+      setPresentation((current) => applyViewConfigPatch(current, patch)),
+  }
+}
+
 type CreateProjectDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   defaultTeamId?: string | null
+  project?: Project | null
 }
 
 export function CreateProjectDialog(props: CreateProjectDialogProps) {
   const dialogInstanceKey = props.open
-    ? `open:${props.defaultTeamId ?? ""}`
+    ? `open:${props.project?.id ?? props.defaultTeamId ?? ""}`
     : "closed"
 
   return <CreateProjectDialogContent key={dialogInstanceKey} {...props} />
@@ -334,25 +703,38 @@ function getCollectionTriggerText<T extends { name: string }>(
 
 function ProjectDialogHeader({
   availableTeams,
+  isEditing,
   selectedTeamId,
   onTeamSelect,
 }: {
   availableTeams: ProjectDialogTeam[]
+  isEditing: boolean
   selectedTeamId: string
   onTeamSelect: (teamId: string) => void
 }) {
+  const selectedTeam =
+    availableTeams.find((team) => team.id === selectedTeamId) ?? null
+
   return (
     <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
-      <TeamSpaceCrumbPicker
-        options={availableTeams.map((team) => ({
-          id: team.id,
-          label: team.name,
-          teamId: team.id,
-        }))}
-        selectedId={selectedTeamId}
-        onSelect={onTeamSelect}
-        triggerClassName={crumbTriggerClass}
-      />
+      {isEditing ? (
+        <span className={crumbTriggerClass}>
+          <span className="font-medium text-foreground">
+            {selectedTeam?.name ?? "Team space"}
+          </span>
+        </span>
+      ) : (
+        <TeamSpaceCrumbPicker
+          options={availableTeams.map((team) => ({
+            id: team.id,
+            label: team.name,
+            teamId: team.id,
+          }))}
+          selectedId={selectedTeamId}
+          onSelect={onTeamSelect}
+          triggerClassName={crumbTriggerClass}
+        />
+      )}
       <span className={crumbTriggerClass}>
         <span className="font-medium text-foreground">Project</span>
       </span>
@@ -1021,12 +1403,14 @@ function ProjectDialogControlStrip({
 
 function ProjectDialogFooter({
   canCreate,
+  isEditing,
   selectedTeam,
   shortcutModifierLabel,
   onCancel,
   onCreate,
 }: {
   canCreate: boolean
+  isEditing: boolean
   selectedTeam: ProjectDialogTeam | null
   shortcutModifierLabel: string
   onCancel: () => void
@@ -1039,7 +1423,7 @@ function ProjectDialogFooter({
         <span className="truncate">
           {selectedTeam ? (
             <>
-              Adding to{" "}
+              {isEditing ? "Saving in " : "Adding to "}
               <b className="font-medium text-foreground">{selectedTeam.name}</b>
             </>
           ) : (
@@ -1062,7 +1446,7 @@ function ProjectDialogFooter({
           onClick={onCreate}
           className="gap-1"
         >
-          Create project
+          {isEditing ? "Save project" : "Create project"}
           <ShortcutKeys
             keys={[shortcutModifierLabel, "Enter"]}
             variant="inline"
@@ -1078,6 +1462,7 @@ function CreateProjectDialogContent({
   open,
   onOpenChange,
   defaultTeamId,
+  project,
 }: CreateProjectDialogProps) {
   const appData = useAppStore(useShallow(selectAppDataSnapshot))
   const availableTeams = useAppStore(
@@ -1092,11 +1477,13 @@ function CreateProjectDialogContent({
     }))
   )
   const shortcutModifierLabel = useShortcutModifierLabel()
+  const isEditing = Boolean(project)
 
-  const initialTeamId =
-    defaultTeamId && availableTeams.some((team) => team.id === defaultTeamId)
-      ? defaultTeamId
-      : (availableTeams[0]?.id ?? "")
+  const initialTeamId = getInitialProjectTeamId({
+    availableTeams,
+    defaultTeamId,
+    project,
+  })
   const initialTeam =
     availableTeams.find((entry) => entry.id === initialTeamId) ?? null
   const initialTeamMembers = getDialogTeamMembers(
@@ -1104,27 +1491,27 @@ function CreateProjectDialogContent({
     teamMemberships,
     users
   )
-  const initialTemplateType = getDefaultTemplateTypeForTeamExperience(
-    initialTeam?.settings.experience
-  )
-  const initialLeadId =
-    initialTeamMembers.find((member) => member.id === currentUserId)?.id ??
-    initialTeamMembers[0]?.id ??
-    null
+  const initialTemplateType = getProjectDialogTemplateType({
+    project,
+    settingsTeam: initialTeam,
+  })
+  const initialLeadId = getInitialProjectLeadId({
+    currentUserId,
+    project,
+    teamMembers: initialTeamMembers,
+  })
+  const initialValues = getProjectDialogInitialValues({
+    initialLeadId,
+    initialTemplateType,
+    project,
+  })
   const [selectedTeamId, setSelectedTeamId] = useState(initialTeamId)
   const settingsTeam = useMemo(
     () => availableTeams.find((entry) => entry.id === selectedTeamId) ?? null,
     [availableTeams, selectedTeamId]
   )
   const labels = useMemo(
-    () =>
-      settingsTeam
-        ? allLabels.filter(
-            (label) =>
-              label.workspaceId === settingsTeam.workspaceId &&
-              getLabelScopeType(label) === "workspace"
-          )
-        : [],
+    () => getProjectDialogLabels({ allLabels, settingsTeam }),
     [allLabels, settingsTeam]
   )
   const teamMembers = useMemo(
@@ -1132,25 +1519,29 @@ function CreateProjectDialogContent({
     [selectedTeamId, teamMemberships, users]
   )
   const availableLabels = useMemo(() => sortLabelsByName(labels), [labels])
-  const templateType = getDefaultTemplateTypeForTeamExperience(
-    settingsTeam?.settings.experience
-  )
+  const templateType = getProjectDialogTemplateType({ project, settingsTeam })
   const templateDefaults = getTemplateDefaultsForTeam(
     settingsTeam,
     templateType
   )
-  const [name, setName] = useState("")
-  const [icon, setIcon] = useState("FolderSimple")
-  const [summary, setSummary] = useState("")
-  const [status, setStatus] = useState<ProjectStatus>("backlog")
-  const [priority, setPriority] = useState<Priority>("none")
-  const [leadId, setLeadId] = useState<string | null>(initialLeadId)
-  const [memberIds, setMemberIds] = useState<string[]>([])
-  const [startDate, setStartDate] = useState<string | null>(null)
-  const [targetDate, setTargetDate] = useState<string | null>(null)
-  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
+  const [name, setName] = useState(initialValues.name)
+  const [icon, setIcon] = useState(initialValues.icon)
+  const [summary, setSummary] = useState(initialValues.summary)
+  const [status, setStatus] = useState<ProjectStatus>(initialValues.status)
+  const [priority, setPriority] = useState<Priority>(initialValues.priority)
+  const [leadId, setLeadId] = useState<string | null>(initialValues.leadId)
+  const [memberIds, setMemberIds] = useState<string[]>(initialValues.memberIds)
+  const [startDate, setStartDate] = useState<string | null>(
+    initialValues.startDate
+  )
+  const [targetDate, setTargetDate] = useState<string | null>(
+    initialValues.targetDate
+  )
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>(
+    initialValues.labelIds
+  )
   const [presentation, setPresentation] = useState<ProjectPresentationConfig>(
-    () => createInitialProjectPresentationConfig(initialTemplateType)
+    initialValues.presentation
   )
   const [statusPickerOpen, setStatusPickerOpen] = useState(false)
   const [priorityPickerOpen, setPriorityPickerOpen] = useState(false)
@@ -1173,9 +1564,7 @@ function CreateProjectDialogContent({
     [memberIds]
   )
   const defaultLeadIdForSelectedTeam =
-    teamMembers.find((member) => member.id === currentUserId)?.id ??
-    teamMembers[0]?.id ??
-    null
+    getInitialProjectLeadId({ currentUserId, teamMembers })
   const selectedLead = useMemo(
     () => teamMembers.find((member) => member.id === leadId) ?? null,
     [teamMembers, leadId]
@@ -1189,166 +1578,73 @@ function CreateProjectDialogContent({
       availableLabels.filter((label) => selectedLabelIds.includes(label.id)),
     [availableLabels, selectedLabelIds]
   )
-  const canCreate =
-    availableTeams.length > 0 &&
-    nameLimitState.canSubmit &&
-    summaryLimitState.canSubmit &&
-    Boolean(selectedTeamId) &&
-    Boolean(leadId)
+  const canCreate = canSubmitProjectDialog({
+    availableTeams,
+    leadId,
+    nameLimitState,
+    selectedTeamId,
+    summaryLimitState,
+  })
   const presentationGroupOptions = useMemo(
     () => getProjectPresentationGroupOptions(templateType),
     [templateType]
   )
   const scopedTeamItems = useMemo(
     () =>
-      selectedTeamId
-        ? getVisibleWorkItems(appData, { teamId: selectedTeamId })
-        : [],
+      getScopedProjectDialogItems({
+        appData,
+        selectedTeamId,
+      }),
     [appData, selectedTeamId]
   )
   const presentationView = useMemo<ViewDefinition | null>(() => {
-    if (!selectedTeamId) {
-      return null
-    }
-
-    return {
-      id: "__draft_project_presentation__",
-      name: "Project view",
-      description: "",
-      scopeType: "team",
-      scopeId: selectedTeamId,
-      entityKind: "items",
-      itemLevel: presentation.itemLevel ?? null,
-      showChildItems: presentation.showChildItems ?? false,
-      layout: presentation.layout,
-      filters: presentation.filters,
-      grouping: presentation.grouping,
-      subGrouping: null,
-      ordering: presentation.ordering,
-      displayProps: presentation.displayProps,
-      hiddenState: {
-        groups: [],
-        subgroups: [],
-      },
-      isShared: true,
-      route: settingsTeam ? `/team/${settingsTeam.slug}/projects` : "",
-      createdAt: "__draft__",
-      updatedAt: "__draft__",
-    }
+    return getProjectPresentationDraftView({
+      presentation,
+      selectedTeamId,
+      settingsTeam,
+    })
   }, [presentation, selectedTeamId, settingsTeam])
 
-  function updatePresentationView(patch: ViewConfigPatch) {
-    setPresentation((current) => applyViewConfigPatch(current, patch))
-  }
-
-  function togglePresentationFilterValue(key: ViewFilterKey, value: string) {
-    setPresentation((current) => {
-      const currentValues = current.filters[key] as string[]
-      const nextValues = currentValues.includes(value)
-        ? currentValues.filter((entry) => entry !== value)
-        : [...currentValues, value]
-
-      return {
-        ...current,
-        filters: {
-          ...current.filters,
-          [key]: nextValues as never,
-        },
-      }
-    })
-  }
-
-  function clearPresentationFilters() {
-    setPresentation((current) => ({
-      ...current,
-      filters: createEmptyViewFilters(),
-    }))
-  }
-
-  function clearPresentationDisplayProperties() {
-    setPresentation((current) => ({
-      ...current,
-      displayProps: [],
-    }))
-  }
-
-  function togglePresentationDisplayProperty(property: DisplayProperty) {
-    if (property === "project") {
-      return
-    }
-
-    setPresentation((current) => ({
-      ...current,
-      displayProps: current.displayProps.includes(property)
-        ? current.displayProps.filter((value) => value !== property)
-        : [...current.displayProps, property],
-    }))
-  }
-
-  function reorderPresentationDisplayProperties(
-    displayProps: DisplayProperty[]
-  ) {
-    setPresentation((current) => ({
-      ...current,
-      displayProps,
-    }))
-  }
+  const presentationActions = useProjectPresentationActions({ setPresentation })
 
   function syncTeamSelection(nextTeamId: string) {
-    const nextTeam =
-      availableTeams.find((entry) => entry.id === nextTeamId) ?? null
-    const nextTemplateType = getDefaultTemplateTypeForTeamExperience(
-      nextTeam?.settings.experience
-    )
-    const nextTeamMembers = getDialogTeamMembers(
+    resetProjectDialogTeamSelection({
+      availableTeams,
+      currentUserId,
       nextTeamId,
+      setIcon,
+      setLeadId,
+      setMemberIds,
+      setPresentation,
+      setPriority,
+      setSelectedLabelIds,
+      setSelectedTeamId,
+      setStartDate,
+      setStatus,
+      setTargetDate,
       teamMemberships,
-      users
-    )
-    const nextLeadId =
-      nextTeamMembers.find((member) => member.id === currentUserId)?.id ??
-      nextTeamMembers[0]?.id ??
-      null
-
-    setSelectedTeamId(nextTeamId)
-    setStatus("backlog")
-    setPriority("none")
-    setLeadId(nextLeadId)
-    setMemberIds([])
-    setStartDate(null)
-    setTargetDate(null)
-    setSelectedLabelIds([])
-    setIcon("FolderSimple")
-    setPresentation(createInitialProjectPresentationConfig(nextTemplateType))
+      users,
+    })
   }
 
   const handleCreate = useCallback(() => {
-    if (!selectedTeamId || !leadId) {
-      return
-    }
-
-    useAppStore.getState().createProject({
-      scopeType: "team",
-      scopeId: selectedTeamId,
-      templateType,
-      name: normalizedName,
+    saveProjectDialog({
       icon,
-      summary: resolvedSummary,
-      status,
-      priority,
       leadId,
       memberIds: resolvedMemberIds,
+      name: normalizedName,
+      onOpenChange,
+      presentation,
+      priority,
+      project,
+      selectedLabelIds,
+      selectedTeamId,
       startDate,
+      status,
+      summary: resolvedSummary,
       targetDate,
-      labelIds: selectedLabelIds,
-      settingsTeamId: selectedTeamId,
-      presentation: {
-        ...presentation,
-        displayProps: [...presentation.displayProps],
-        filters: cloneViewFilters(presentation.filters),
-      },
+      templateType,
     })
-    onOpenChange(false)
   }, [
     leadId,
     icon,
@@ -1356,6 +1652,7 @@ function CreateProjectDialogContent({
     onOpenChange,
     presentation,
     priority,
+    project,
     resolvedMemberIds,
     resolvedSummary,
     selectedLabelIds,
@@ -1407,8 +1704,8 @@ function CreateProjectDialogContent({
     status,
     statusPickerOpen,
     targetDate,
-    onClearPresentationDisplayProperties: clearPresentationDisplayProperties,
-    onClearPresentationFilters: clearPresentationFilters,
+    onClearPresentationDisplayProperties: presentationActions.clearDisplayProperties,
+    onClearPresentationFilters: presentationActions.clearFilters,
     onIconChange: setIcon,
     onLabelIdsChange: setSelectedLabelIds,
     onLabelsPickerOpenChange: setLabelsPickerOpen,
@@ -1422,14 +1719,14 @@ function CreateProjectDialogContent({
     onPriorityChange: setPriority,
     onPriorityPickerOpenChange: setPriorityPickerOpen,
     onReorderPresentationDisplayProperties:
-      reorderPresentationDisplayProperties,
+      presentationActions.reorderDisplayProperties,
     onStartDateChange: setStartDate,
     onStatusChange: setStatus,
     onStatusPickerOpenChange: setStatusPickerOpen,
     onTargetDateChange: setTargetDate,
-    onTogglePresentationDisplayProperty: togglePresentationDisplayProperty,
-    onTogglePresentationFilterValue: togglePresentationFilterValue,
-    onUpdatePresentationView: updatePresentationView,
+    onTogglePresentationDisplayProperty: presentationActions.toggleDisplayProperty,
+    onTogglePresentationFilterValue: presentationActions.toggleFilterValue,
+    onUpdatePresentationView: presentationActions.updateView,
   } satisfies Parameters<typeof ProjectDialogControlStrip>[0]
 
   return (
@@ -1439,15 +1736,17 @@ function CreateProjectDialogContent({
         className="top-6 max-h-[calc(100vh-3rem)] translate-y-0 gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-10 sm:max-w-[640px]"
       >
         <DialogHeader className="sr-only">
-          <DialogTitle>New project</DialogTitle>
+          <DialogTitle>{isEditing ? "Edit project" : "New project"}</DialogTitle>
           <DialogDescription>
-            Create a project and configure its default presentation before
-            teammates start using it.
+            {isEditing
+              ? "Update the project and its default presentation."
+              : "Create a project and configure its default presentation before teammates start using it."}
           </DialogDescription>
         </DialogHeader>
 
         <ProjectDialogHeader
           availableTeams={availableTeams}
+          isEditing={isEditing}
           selectedTeamId={selectedTeamId}
           onTeamSelect={syncTeamSelection}
         />
@@ -1472,6 +1771,7 @@ function CreateProjectDialogContent({
 
         <ProjectDialogFooter
           canCreate={canCreate}
+          isEditing={isEditing}
           selectedTeam={settingsTeam}
           shortcutModifierLabel={shortcutModifierLabel}
           onCancel={() => onOpenChange(false)}

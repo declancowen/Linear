@@ -51,6 +51,7 @@ describe("createMinimalWorkspaceShellSeed", () => {
               emailAssignments: true,
               emailDigest: true,
               theme: "light",
+              timeZone: "UTC",
             },
           }),
         ],

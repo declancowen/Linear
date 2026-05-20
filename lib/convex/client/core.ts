@@ -233,6 +233,7 @@ export function syncUpdateCurrentUserProfile(
     emailAssignments: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
+    timeZone?: string
   },
   options?: {
     avatarImageStorageId?: string
@@ -268,6 +269,7 @@ function buildCurrentUserProfileMutationBody(input: {
     emailAssignments: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
+    timeZone?: string
   }
   options?: {
     avatarImageStorageId?: string
@@ -305,6 +307,7 @@ type CurrentUserProfileMutationBody = {
     emailAssignments: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
+    timeZone?: string
   }
   status?: UserStatus
   statusMessage?: string

@@ -22,6 +22,7 @@ import {
   resolveWorkItemProjectLinkUpdate,
   type WorkItemProjectLinkResolution,
 } from "@/lib/domain/work-item-project-links"
+import { isValidTimeValue, isValidTimeZone } from "@/lib/time-zone"
 import type { CreateProjectInput } from "@/lib/domain/project-inputs"
 
 import { getNow } from "./helpers"
@@ -171,11 +172,27 @@ function getWorkItemLabelValidationMessage(
 }
 
 function getWorkItemDateValidationMessage(input: WorkItemValidationInput) {
-  return input.startDate &&
+  if (
+    input.startDate &&
     input.targetDate &&
     new Date(input.targetDate).getTime() < new Date(input.startDate).getTime()
-    ? "Target date must be on or after the start date"
-    : null
+  ) {
+    return "Target date must be on or after the start date"
+  }
+
+  if (input.startTime && !isValidTimeValue(input.startTime)) {
+    return "Start time must be valid"
+  }
+
+  if (input.endTime && !isValidTimeValue(input.endTime)) {
+    return "End time must be valid"
+  }
+
+  if (input.scheduleTimeZone && !isValidTimeZone(input.scheduleTimeZone)) {
+    return "Time zone must be valid"
+  }
+
+  return null
 }
 
 function getInputParentWorkItem(

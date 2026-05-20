@@ -13,17 +13,15 @@ import type {
   CustomPropertyOption,
   CustomPropertyType,
   CustomPropertyValue,
-  GroupField,
   Label,
-  OrderingField,
   Priority,
   ProjectStatus,
   Role,
   TeamFeatureSettings,
   TeamWorkflowSettings,
+  ViewConfigPatch,
   UserStatus,
   WorkItem,
-  WorkItemType,
   ViewerDirectoryConfig,
 } from "@/lib/domain/types"
 import type {
@@ -68,6 +66,7 @@ export type ProjectPatch = {
   startDate?: string | null
   targetDate?: string | null
   labelIds?: string[]
+  presentation?: CreateProjectInput["presentation"]
 }
 
 export type CreateWorkItemInput = CreateStoreWorkItemInput
@@ -144,6 +143,7 @@ export type UpdateProfileInput = {
     emailAssignments: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
+    timeZone?: string
   }
 }
 
@@ -203,16 +203,6 @@ export type AddChannelPostCommentInput = {
   postId: string
   content: string
 }
-
-export type ViewConfigPatch = Partial<{
-  layout: "list" | "board" | "timeline"
-  grouping: GroupField
-  subGrouping: GroupField | null
-  ordering: OrderingField
-  itemLevel: WorkItemType | null
-  showChildItems: boolean
-  showCompleted: boolean
-}>
 
 export type ViewFilterValueKey =
   | "status"

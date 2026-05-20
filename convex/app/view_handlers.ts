@@ -31,7 +31,7 @@ type ServerAccessArgs = {
   serverToken: string
 }
 
-type ViewLayout = "list" | "board" | "timeline"
+type ViewLayout = "list" | "board" | "timeline" | "calendar"
 type ViewItemLevel =
   | "epic"
   | "feature"
@@ -74,6 +74,10 @@ type ViewConfigArgs = ServerAccessArgs & {
   subGrouping?: ViewGrouping | null
   ordering?: ViewOrdering
   showCompleted?: boolean
+  description?: string
+  containerType?: "project-items" | null
+  containerId?: string | null
+  route?: string
 }
 
 type CreateViewArgs = ServerAccessArgs & {
@@ -370,7 +374,24 @@ function createViewConfigPatch(
   args: ViewConfigArgs,
   now: string
 ) {
+  const containerType = getDefinedViewConfigValue(
+    args.containerType,
+    view.containerType ?? null
+  )
+  const containerId = getDefinedViewConfigValue(
+    args.containerId,
+    view.containerId ?? null
+  )
+
+  if (Boolean(containerType) !== Boolean(containerId)) {
+    throw new Error("View container is not valid")
+  }
+
   return {
+    description: args.description ?? view.description,
+    containerType,
+    containerId,
+    route: args.route ?? view.route,
     layout: args.layout ?? view.layout,
     itemLevel: getDefinedViewConfigValue(args.itemLevel, view.itemLevel),
     showChildItems: getDefinedViewConfigValue(
@@ -404,6 +425,31 @@ function getViewConfigFiltersPatch(
       }
 }
 
+async function assertUpdateViewRoute(
+  ctx: MutationCtx,
+  view: Awaited<ReturnType<typeof requireViewMutationAccess>>,
+  route: string | undefined
+) {
+  if (route === undefined) {
+    return
+  }
+
+  const team =
+    view.scopeType === "team" ? await getTeamDoc(ctx, view.scopeId) : null
+  const teamSlug = team ? normalizeTeam(team).slug : null
+
+  if (
+    !isRouteAllowedForViewContext({
+      scopeType: view.scopeType,
+      entityKind: view.entityKind,
+      route,
+      teamSlug,
+    })
+  ) {
+    throw new Error("View route is not valid for the selected scope")
+  }
+}
+
 export async function updateViewConfigHandler(
   ctx: MutationCtx,
   args: ViewConfigArgs
@@ -415,6 +461,7 @@ export async function updateViewConfigHandler(
     args.currentUserId
   )
 
+  await assertUpdateViewRoute(ctx, view, args.route)
   await ctx.db.patch(view._id, createViewConfigPatch(view, args, getNow()))
 }
 

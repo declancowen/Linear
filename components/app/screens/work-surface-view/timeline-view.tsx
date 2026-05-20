@@ -1,7 +1,10 @@
 "use client"
 
 import {
+  useEffect,
+  memo,
   useRef,
+  useMemo,
   useState,
   type RefObject,
   type MouseEvent as ReactMouseEvent,
@@ -67,22 +70,49 @@ export function TimelineView({
   view: ViewDefinition
   editable: boolean
 }) {
-  const today = startOfDay(new Date())
-  const timelineStart = startOfDay(subDays(new Date(), 3))
-  const timelineEnd = endOfDay(addDays(new Date(), 24))
-  const days = eachDayOfInterval({
-    start: timelineStart,
-    end: timelineEnd,
-  })
+  const [today, setToday] = useState(() => startOfDay(new Date()))
+
+  useEffect(() => {
+    const now = new Date()
+    const nextDay = addDays(startOfDay(now), 1)
+    const timeoutId = window.setTimeout(
+      () => setToday(startOfDay(new Date())),
+      Math.max(1000, nextDay.getTime() - now.getTime() + 1000)
+    )
+
+    return () => window.clearTimeout(timeoutId)
+  }, [today])
+
+  const { timelineStart, timelineEnd } = useMemo(
+    () => ({
+      timelineStart: startOfDay(subDays(today, 3)),
+      timelineEnd: endOfDay(addDays(today, 24)),
+    }),
+    [today]
+  )
+  const days = useMemo(
+    () =>
+      eachDayOfInterval({
+        start: timelineStart,
+        end: timelineEnd,
+      }),
+    [timelineEnd, timelineStart]
+  )
   const dayColumnWidth = 56
-  const groups = [
-    ...buildItemGroups(data, items, { ...view, subGrouping: null }).entries(),
-  ]
-  const weeks = buildTimelineWeeks(days)
+  const groups = useMemo(
+    () => [
+      ...buildItemGroups(data, items, { ...view, subGrouping: null }).entries(),
+    ],
+    [data, items, view]
+  )
+  const weeks = useMemo(() => buildTimelineWeeks(days), [days])
   const todayIndex = differenceInCalendarDays(today, timelineStart)
   const timelineGridTemplateColumns = `repeat(${days.length}, ${dayColumnWidth}px)`
   const timelineCanvasWidth = dayColumnWidth * days.length
-  const visibleGroups = getVisibleTimelineGroups(groups, view)
+  const visibleGroups = useMemo(
+    () => getVisibleTimelineGroups(groups, view),
+    [groups, view]
+  )
   const { labelColWidth, handleResizeStart } = useTimelineLabelColumnResize()
   const { timelineHeaderScrollRef, handleTimelineBodyHorizontalScroll } =
     useTimelineBodyScrollSync()
@@ -411,7 +441,7 @@ function timelineRangeMatches(
   )
 }
 
-function TimelineFrame({
+const TimelineFrame = memo(function TimelineFrame({
   data,
   days,
   dayColumnWidth,
@@ -487,7 +517,7 @@ function TimelineFrame({
       />
     </div>
   )
-}
+})
 
 function TimelineLabelColumnHeader({
   labelColWidth,
@@ -703,7 +733,7 @@ function TimelineBody({
   )
 }
 
-function TimelineLabelGroupsColumn({
+const TimelineLabelGroupsColumn = memo(function TimelineLabelGroupsColumn({
   data,
   labelColWidth,
   view,
@@ -730,9 +760,9 @@ function TimelineLabelGroupsColumn({
       ))}
     </div>
   )
-}
+})
 
-function TimelineLabelGroup({
+const TimelineLabelGroup = memo(function TimelineLabelGroup({
   data,
   groupName,
   subgroups,
@@ -767,9 +797,9 @@ function TimelineLabelGroup({
       ))}
     </div>
   )
-}
+})
 
-function TimelineGridGroups({
+const TimelineGridGroups = memo(function TimelineGridGroups({
   data,
   dayColumnWidth,
   days,
@@ -810,7 +840,7 @@ function TimelineGridGroups({
       </div>
     </div>
   )
-}
+})
 
 function TimelineTodayMarker({
   dayColumnWidth,
@@ -833,7 +863,7 @@ function TimelineTodayMarker({
   )
 }
 
-function TimelineGridGroup({
+const TimelineGridGroup = memo(function TimelineGridGroup({
   data,
   days,
   gridTemplateColumns,
@@ -880,7 +910,7 @@ function TimelineGridGroup({
       ))}
     </div>
   )
-}
+})
 
 function TimelineDragOverlay({
   activeDragItem,
@@ -905,7 +935,7 @@ function TimelineDragOverlay({
   )
 }
 
-function TimelineGridRow({
+const TimelineGridRow = memo(function TimelineGridRow({
   data,
   item,
   days,
@@ -973,9 +1003,9 @@ function TimelineGridRow({
       </div>
     </div>
   )
-}
+})
 
-function TimelineDropCell({
+const TimelineDropCell = memo(function TimelineDropCell({
   id,
   isWeekend,
 }: {
@@ -995,4 +1025,4 @@ function TimelineDropCell({
       )}
     />
   )
-}
+})

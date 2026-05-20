@@ -164,6 +164,7 @@ import {
   createTestTeam,
   createTestTeamMembership,
   createTestUser,
+  createTestViewDefinition,
   createTestWorkspace,
   createTestWorkspaceMembership,
   createTestWorkItem,
@@ -1070,6 +1071,87 @@ describe("create dialogs", () => {
       )
     } finally {
       createViewSpy.mockRestore()
+    }
+  })
+
+  it("creates a workspace item view without requiring a project", async () => {
+    const createViewSpy = spyOnCreateView()
+
+    try {
+      renderWorkspaceCreateViewDialog()
+
+      expect(
+        screen.queryByText("Select a project to create this workspace view.")
+      ).not.toBeInTheDocument()
+
+      await submitCreateView("Workspace intake")
+
+      expect(createViewSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          entityKind: "items",
+          route: "/workspace/items",
+          name: "Workspace intake",
+          filters: expect.objectContaining({
+            projectIds: [],
+          }),
+        })
+      )
+    } finally {
+      createViewSpy.mockRestore()
+    }
+  })
+
+  it("saves edited view descriptions and project containers through the create-view modal", async () => {
+    useAppStore.setState({
+      projects: [createBillingProject()],
+      views: [
+        createTestViewDefinition({
+          id: "view_edit",
+          name: "Delivery queue",
+          description: "Old description",
+          scopeType: "team",
+          scopeId: "team_1",
+          entityKind: "items",
+          route: "/team/platform/work",
+          filters: createDefaultViewFilters(),
+        }),
+      ],
+    })
+    const updateViewConfigSpy = vi
+      .spyOn(useAppStore.getState(), "updateViewConfig")
+      .mockImplementation(() => undefined)
+
+    try {
+      renderTeamItemsCreateViewDialog({
+        editViewId: "view_edit",
+      })
+
+      fireEvent.change(screen.getByPlaceholderText("What this view is for"), {
+        target: { value: "Project delivery" },
+      })
+      fireEvent.click(screen.getByRole("button", { name: "Project" }))
+      fireEvent.click(await screen.findByRole("button", { name: "Billing v2" }))
+
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /Save view/ })).not.toBeDisabled()
+      )
+      fireEvent.click(screen.getByRole("button", { name: /Save view/ }))
+
+      await waitFor(() =>
+        expect(updateViewConfigSpy).toHaveBeenCalledWith(
+          "view_edit",
+          expect.objectContaining({
+            description: "Project delivery",
+            containerType: "project-items",
+            containerId: "project_1",
+            route: "/team/platform/projects/project_1",
+          })
+        )
+      )
+    } finally {
+      updateViewConfigSpy.mockRestore()
     }
   })
 

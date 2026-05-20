@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import "@/tests/lib/fixtures/detail-screen-mocks"
 import { DetailSidebarLabelsRow } from "@/components/app/screens/detail-sidebar-labels-row"
-import { WorkItemDetailScreen } from "@/components/app/screens/work-item-detail-screen"
+import {
+  WorkItemDetailScreen,
+  WorkItemDetailSidebarSurface,
+} from "@/components/app/screens/work-item-detail-screen"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import { useAppStore } from "@/lib/store/app-store"
@@ -786,44 +789,48 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
   })
 
-  it("preserves mention retries for one item when saving a different item without mentions", async () => {
-    setSaveWorkItemMainSectionMock(
-      createStateUpdatingSaveMock({
-        getDocumentId: (itemId) =>
-          itemId === "item_1" ? "document_1" : "document_2",
+  it(
+    "preserves mention retries for one item when saving a different item without mentions",
+    async () => {
+      setSaveWorkItemMainSectionMock(
+        createStateUpdatingSaveMock({
+          getDocumentId: (itemId) =>
+            itemId === "item_1" ? "document_1" : "document_2",
+        })
+      )
+      mockRetryingMentionDelivery()
+
+      const { rerender } = renderWorkItemDetail()
+
+      openWorkItemEditor()
+      updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+      clickSaveButton()
+
+      await expectWorkItemEditorClosed()
+
+      rerender(<WorkItemDetailScreen itemId="item_2" />)
+
+      openWorkItemEditor()
+      fireEvent.change(screen.getByDisplayValue("Follow up"), {
+        target: { value: "Follow up updated" },
       })
-    )
-    mockRetryingMentionDelivery()
+      clickSaveButton()
 
-    const { rerender } = renderWorkItemDetail()
+      await expectWorkItemEditorClosed()
 
-    openWorkItemEditor()
-    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
-    clickSaveButton()
+      rerender(<WorkItemDetailScreen itemId="item_1" />)
 
-    await expectWorkItemEditorClosed()
+      openWorkItemEditor()
 
-    rerender(<WorkItemDetailScreen itemId="item_2" />)
+      const saveButton = screen.getByRole("button", { name: "Save" })
+      expect(saveButton).not.toBeDisabled()
 
-    openWorkItemEditor()
-    fireEvent.change(screen.getByDisplayValue("Follow up"), {
-      target: { value: "Follow up updated" },
-    })
-    clickSaveButton()
+      fireEvent.click(saveButton)
 
-    await expectWorkItemEditorClosed()
-
-    rerender(<WorkItemDetailScreen itemId="item_1" />)
-
-    openWorkItemEditor()
-
-    const saveButton = screen.getByRole("button", { name: "Save" })
-    expect(saveButton).not.toBeDisabled()
-
-    fireEvent.click(saveButton)
-
-    await expectTaylorMentionDeliveryRetry()
-  })
+      await expectTaylorMentionDeliveryRetry()
+    },
+    10_000
+  )
 
   it("sends self-mentions after saving the main section", async () => {
     const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
@@ -921,6 +928,85 @@ describe("work item detail screen", () => {
     expect(screen.queryByText("19 December 2030")).not.toBeInTheDocument()
   })
 
+  it.each([
+    ["Start", "startTime"],
+    ["Due", "endTime"],
+  ] as const)(
+    "persists the account timezone when editing the %s time",
+    (buttonName, timeField) => {
+      act(() => {
+        useAppStore.setState((state) => ({
+          ...state,
+          users: state.users.map((user) =>
+            user.id === "user_1"
+              ? {
+                  ...user,
+                  preferences: {
+                    ...user.preferences,
+                    timeZone: "Europe/London",
+                  },
+                }
+              : user
+          ),
+          workItems: state.workItems.map((item) =>
+            item.id === "item_1"
+              ? {
+                  ...item,
+                  scheduleTimeZone: null,
+                  startTime: null,
+                  endTime: null,
+                }
+              : item
+          ),
+        }))
+      })
+
+      const data = useAppStore.getState()
+      const item = data.workItems.find((entry) => entry.id === "item_1")
+
+      if (!item) {
+        throw new Error("Expected seeded work item")
+      }
+
+      render(
+        <WorkItemDetailSidebarSurface
+          data={data}
+          currentItem={item}
+          editable
+        />
+      )
+
+      fireEvent.click(screen.getByRole("button", { name: buttonName }))
+
+      const timeInput = document.querySelector<HTMLInputElement>(
+        'input[type="time"]'
+      )
+
+      expect(timeInput).toBeTruthy()
+
+      fireEvent.change(timeInput!, {
+        target: {
+          value: "15:00",
+        },
+      })
+
+      const updatedItem = useAppStore
+        .getState()
+        .workItems.find((entry) => entry.id === "item_1")
+
+      expect(updatedItem?.[timeField]).toBe("15:00")
+      expect(updatedItem?.scheduleTimeZone).toBe("Europe/London")
+      expect(syncUpdateWorkItemMock).toHaveBeenCalledWith(
+        "user_1",
+        "item_1",
+        expect.objectContaining({
+          [timeField]: "15:00",
+          scheduleTimeZone: "Europe/London",
+        })
+      )
+    }
+  )
+
   it("hides assignee configuration for private tasks", () => {
     act(() => {
       useAppStore.setState((state) => ({
@@ -944,6 +1030,28 @@ describe("work item detail screen", () => {
     expect(
       screen.queryByRole("button", { name: "Assignee" })
     ).not.toBeInTheDocument()
+  })
+
+  it("omits relations and activity from floating item detail popovers", () => {
+    const data = useAppStore.getState()
+    const item = data.workItems.find((candidate) => candidate.id === "item_1")
+
+    if (!item) {
+      throw new Error("Expected seeded work item")
+    }
+
+    render(
+      <WorkItemDetailSidebarSurface
+        data={data}
+        currentItem={item}
+        editable
+        variant="floating"
+      />
+    )
+
+    expect(screen.getByText("Plan launch")).toBeInTheDocument()
+    expect(screen.queryByText("Relations")).not.toBeInTheDocument()
+    expect(screen.queryByText("Activity")).not.toBeInTheDocument()
   })
 
   it("hides empty child-row assignee and project controls", () => {

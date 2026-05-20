@@ -6,7 +6,7 @@
 | -------------- | ------------------------------------------- |
 | **Repository** | `Linear`                                    |
 | **Remote**     | `https://github.com/declancowen/Linear.git` |
-| **Branch**     | `codex/work-properties-doc-views-routing`   |
+| **Branch**     | `codex-work-surfaces-calendar-views`        |
 | **Stack**      | Next.js, React, Convex, PartyKit, Zustand   |
 
 ## Scope
@@ -28,11 +28,526 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-13 17:00 BST |
-| **Total turns**       | 16                   |
+| **Last reviewed**     | 2026-05-20 08:47 BST |
+| **Total turns**       | 26                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 35                   |
+| **Resolved findings** | 56                   |
 | **Accepted findings** | 0                    |
+
+## Turn 26 — 2026-05-20 08:47 BST
+
+| Field           | Value                                                                       |
+| --------------- | --------------------------------------------------------------------------- |
+| **Scope**       | Current-head Codex review feedback for terminal-midnight timed event splits |
+| **Review type** | External finding triage + calendar fix + gate rerun                         |
+| **Reviewer**    | Codex CLI                                                                   |
+| **Outcome**     | 1 live current-head Codex finding fixed locally; no local open findings     |
+
+### Commands run
+
+- `gh api graphql ... reviewThreads(first: 100)` — fetched current-head inline review threads for `959849a1`
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx tests/lib/domain/work-item-schedule.test.ts` — passed, 2 files / 37 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed after splitting the timed calendar entry resolver and extracting duplicated UTC test setup; dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed for the current working-tree delta
+
+### Branch-totality proof
+
+- **External findings triaged:** latest current-head Codex review found one live Medium issue: cross-day timed work ending exactly at `00:00` emitted a zero-length terminal-day segment that rendered as a visible minimum-height block.
+- **Bug classes / invariants checked:** cross-day hourly segmentation, terminal-exclusive midnight boundary, visible timed entry stability, static-analysis health/duplication fitness.
+- **Sibling closure:** `CalendarView` now skips zero-length timed segments while preserving the visible prior-day segment. Timed calendar entry shaping was split into owner-local helpers so the schedule display rule remains reviewable and under Fallow health thresholds.
+- **Architecture rule applied:** terminal-midnight display behavior stays in the calendar presentation segmentation layer; schedule interpretation remains in the domain resolver.
+- **Why this is enough:** the regression test covers a `23:30` to `00:00` cross-day item and proves no `00:00 - 00:00` phantom block renders.
+
+### Resolved / Carried / New findings
+
+#### WPDV-56 — resolved — cross-day timed work ending at midnight rendered a phantom terminal-day block
+
+- **Severity:** medium
+- **Evidence:** the split loop emitted a terminal entry with `startMinutes=0` and `endMinutes=0`; the timed-card minimum height made that zero-length segment visible.
+- **Fix:** cross-day timed segmentation now only emits a segment when `endMinutes > startMinutes`.
+- **Prevention:** Added component coverage for an overnight item ending at midnight and kept Fallow health/duplication gates clean.
+
+### Residual risk
+
+- Cross-midnight partial-day segments remain display-only for drag/resize; the sidebar remains the explicit edit path for those multi-segment timed items.
+
+## Turn 25 — 2026-05-20 06:07 BST
+
+| Field           | Value                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------- |
+| **Scope**       | Current-head Codex review feedback for moved view selection and cross-midnight timing |
+| **Review type** | External finding triage + store/domain/calendar fixes + gate rerun                    |
+| **Reviewer**    | Codex CLI                                                                              |
+| **Outcome**     | 2 live current-head Codex findings fixed locally; no local open findings              |
+
+### Commands run
+
+- `gh pr view 36 --json latestReviews` — confirmed Codex reviewed pushed head `32682756`
+- `gh api graphql ... reviewThreads(first: 100)` — fetched current-head inline review threads
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx tests/lib/store/view-slice.test.ts tests/lib/domain/work-item-schedule.test.ts` — passed, 3 files / 50 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — passed; changed-file audit, production dead-code, production health, and duplication gates remained clean
+
+### Branch-totality proof
+
+- **External findings triaged:** current-head Codex review found two live Medium issues: updating an existing view's route did not move selected-view state from the old route to the new route, and timed items crossing midnight were represented as all-day calendar spans.
+- **Bug classes / invariants checked:** per-route selected-view identity, optimistic UI state preservation, timed schedule classification, cross-day hourly rendering.
+- **Sibling closure:** `updateViewConfig` now rebinds selected-view state only when the edited view was selected on the old route; unselected moved views do not steal selection. Schedule resolution now treats date ranges with both start/end times as timed even across dates, and `CalendarView` renders cross-midnight timed items as partial-day hourly segments instead of all-day bars. The segment render key includes item/date/time so multi-segment timed work reconciles stably.
+- **Architecture rule applied:** selected-view rebinding lives in the view store slice that owns route selection state; timed-vs-all-day classification is fixed in the domain schedule resolver, with calendar rendering handling only display segmentation.
+- **Why this is enough:** both fixes are at the owning boundary and have regression coverage: store state movement for route edits, domain resolution for later-day timed ranges, and calendar rendering for cross-midnight hourly segments.
+
+### Resolved / Carried / New findings
+
+#### WPDV-54 — resolved — edited view route changes left selected-view state on the old route
+
+- **Severity:** medium
+- **Evidence:** `updateExistingViewFromDraft` patched `route` through `updateViewConfig`, but the store kept `ui.selectedViewByRoute` keyed to the previous route.
+- **Fix:** `updateViewConfig` now removes the moved view from the previous route selection and selects it on the new viewer-scoped route key when it was selected before the move.
+- **Prevention:** Added a view-slice regression test that moves a selected view from `/workspace/items` to a project route and verifies the selection key is rebound.
+
+#### WPDV-55 — resolved — cross-midnight timed work was converted into all-day calendar spans
+
+- **Severity:** medium
+- **Evidence:** `resolveWorkItemSchedule` only returned `timed` for same-day ranges, and `CalendarView` converted timed cross-day ranges into all-day entries.
+- **Fix:** schedule resolution now treats any item with valid start/end times as timed, including later-day end dates; calendar rendering splits cross-midnight timed work into hourly partial-day segments and keeps them out of the all-day lane.
+- **Prevention:** Added domain coverage for later-day timed schedule resolution and component coverage proving a `23:30`-`00:30` item renders as two hourly segments rather than an all-day button.
+
+### Residual risk
+
+- Cross-midnight partial-day segments are display-only for drag/resize to avoid corrupting the full schedule from a single segment. The item detail sidebar remains available for explicit edits.
+
+## Turn 24 — 2026-05-20 05:47 BST
+
+| Field           | Value                                                                             |
+| --------------- | --------------------------------------------------------------------------------- |
+| **Scope**       | Current-head Codex review feedback for timed calendar drag click suppression      |
+| **Review type** | External finding triage + calendar interaction fix + targeted gate rerun          |
+| **Reviewer**    | Codex CLI                                                                         |
+| **Outcome**     | 1 live current-head Codex finding fixed locally; no local open findings           |
+
+### Commands run
+
+- `gh pr view 36 --json latestReviews` — confirmed Codex reviewed pushed head `26e89ed9`
+- `gh api graphql ... reviewThreads(first: 100)` — fetched current-head inline review threads
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 32 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** current-head Codex review found one live Medium issue: moved/resized timed calendar events could still receive the subsequent click event and open the detail sidebar.
+- **Bug classes / invariants checked:** pointer gesture lifecycle, click-vs-drag classification, transient interaction state handoff after drag commit.
+- **Sibling closure:** timed move and resize paths share the same `commitDrag` path, so moved drags now suppress the next emitted click regardless of which timed action triggered the commit. Non-moved pointer clicks still open details normally.
+- **Architecture rule applied:** drag/click coordination remains local to `CalendarView`, the owner of the calendar interaction state; no store or sidebar API change was needed.
+- **Why this is enough:** the exact pointer-down, pointer-move, pointer-up, click sequence is covered by a component regression test, and the focused test file plus type/lint/static gates are clean.
+
+### Resolved / Carried / New findings
+
+#### WPDV-53 — resolved — timed drag click events could still open item detail
+
+- **Severity:** medium
+- **Evidence:** `commitDrag` nulled `dragStateRef` before React's click handler ran, so the click guard saw no moved drag and opened the docked detail sidebar after a drag.
+- **Fix:** moved timed drags now set a one-click suppression flag before clearing drag state; the next emitted click clears that flag and does not open detail.
+- **Prevention:** Added a regression test that performs pointer-down, pointer-move, pointer-up on the event card, emits click, and verifies the item updates without opening the detail sidebar.
+
+### Residual risk
+
+- Browser smoke was not rerun for this narrow pointer-event delta; the interaction is covered by focused component tests and CI will rerun after push.
+
+## Turn 23 — 2026-05-20 05:34 BST
+
+| Field           | Value                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------- |
+| **Scope**       | Current-head Codex review feedback for personal calendar editability and timed drag bounds  |
+| **Review type** | External finding triage + calendar interaction fix + static analyzer gate rerun             |
+| **Reviewer**    | Codex CLI                                                                                   |
+| **Outcome**     | 2 live current-head Codex findings fixed locally; no local open findings after gate rerun   |
+
+### Commands run
+
+- `gh pr view 36 --json latestReviews` — confirmed Codex reviewed pushed head `e1b698cf`
+- `gh api graphql ... reviewThreads(first: 100)` — fetched current-head inline review threads
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 31 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — initially failed on duplicated test setup from the new calendar drag tests, then passed after extracting test-local helpers: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** current-head Codex review found two live Medium issues: personal calendar drag/resize allowed optimistic updates for assigned items from read-only teams, and timed event moves near midnight could shorten duration by clamping only at serialization.
+- **Bug classes / invariants checked:** authorization/UI editability parity for personal calendar items; drag/drop preservation for timed event duration under late-day clamping.
+- **Sibling closure:** item-level calendar editability now gates timed move/resize, all-day moves, all-day-to-timed drops, all-day dragging, and docked/floating detail sidebar edit state. Timed move clamping now moves start and end together rather than clamping end only.
+- **Architecture rule applied:** edit authority stays with the personal calendar screen and is passed as an item-level predicate into the shared `CalendarView`; the view owns interaction math but not team-role policy.
+- **Why this is enough:** the fixes are at the shared calendar boundary and have regression coverage for denied item edits and the exact late-day 90-minute move variant that previously lost duration.
+
+### Resolved / Carried / New findings
+
+#### WPDV-51 — resolved — personal calendar allowed drag edits for read-only team items
+
+- **Severity:** medium
+- **Evidence:** `UserCalendarScreen` passed `editable` unconditionally to `CalendarView`, so assigned items from teams the current user cannot edit could still run optimistic `updateWorkItem` schedule mutations.
+- **Fix:** personal calendar now supplies `canEditItem` using `canEditTeam(data, item.teamId)`, and `CalendarView` applies item-level editability to drag/drop/resize and detail sidebar edit state.
+- **Prevention:** Added a calendar regression test that renders an editable calendar with a non-editable item predicate, attempts a timed drag, opens the detail surface, and verifies no update is attempted and the detail is read-only.
+
+#### WPDV-52 — resolved — moving timed events late in the day could shorten their duration
+
+- **Severity:** medium
+- **Evidence:** timed move set `endMinutes = slot.minutes + duration` and relied on final time formatting to clamp to `23:59`, shortening long events moved near midnight.
+- **Fix:** move now clamps the start minute to the latest value that can preserve the event's original duration within the same-day time range, then derives the end from that clamped start.
+- **Prevention:** Added a timed drag regression test that moves a 90-minute event to a late-day slot and verifies it lands at `22:29`-`23:59` instead of being shortened from `23:30`.
+
+### Residual risk
+
+- Browser smoke was not rerun for this narrow interaction delta; the changed paths are covered by focused component tests, type/lint/static gates, and CI will rerun after push.
+
+## Turn 22 — 2026-05-20 05:10 BST
+
+| Field           | Value                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| **Scope**       | Current-head Codex review feedback for project presentation layouts and timeline date roll |
+| **Review type** | External finding triage + domain validation fix + targeted presentation lifecycle fix       |
+| **Reviewer**    | Codex CLI                                                                                  |
+| **Outcome**     | 2 live current-head Codex findings fixed locally; prior unresolved PR threads rechecked    |
+
+### Commands run
+
+- `gh pr view 36 --json number,title,url,headRefName,headRefOid,baseRefName,baseRefOid,state,reviewDecision,latestReviews,comments` — confirmed PR #36 current head `95de17ea`
+- `gh api graphql ... reviewThreads(first: 100)` — fetched inline review threads and separated stale/fixed older threads from current live findings
+- `pnpm exec vitest run tests/lib/domain/project-views.test.ts tests/components/work-surface-view.test.tsx` — passed, 2 files / 40 tests
+- `pnpm typecheck` — initially exposed an over-narrowed team template layout type; passed after keeping team defaults broad and narrowing only project presentation
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta, branch-total diff, PR context, and analyzer evidence recorded
+
+### Branch-totality proof
+
+- **External findings triaged:** unresolved PR threads for month timed entries, month navigation, UTC timezone options, private optimistic IDs, edited view metadata/project routing, fallback view defaults, timezone persistence, hover detail clearing, and pointer cancellation were rechecked against the current tree and are already fixed by Turns 18-21.
+- **Live current-head findings:** Codex review found two remaining live issues: project presentation schemas could accept the global `calendar` layout even though project rendering supports only list/board/timeline, and timeline anchors froze to mount-time dates.
+- **Bug classes / invariants checked:** domain validation/presentation renderer compatibility for project layouts; long-lived session date-boundary lifecycle for timeline today/window anchors.
+- **Sibling closure:** project presentation now has its own supported layout union and schema while team/work views continue to use the full global layout set; timeline recalculates all date anchors from the same `today` state after the local day boundary.
+- **Architecture rule applied:** the supported project-layout invariant is enforced in the domain type and Zod schema rather than patched in the renderer; the timeline date lifecycle stays inside the presentation component with behavior-level coverage.
+- **Why this is enough:** both findings are fixed at their owning boundary, older current-head threads have current-tree proof, and focused tests plus type/lint/static gates cover the changed contract and lifecycle paths.
+
+### Resolved / Carried / New findings
+
+#### WPDV-49 — resolved — project presentation configs accepted unsupported calendar layouts
+
+- **Severity:** medium
+- **Evidence:** the global `viewLayouts` union now includes `calendar`, and `projectSchema.presentation.layout` reused that union even though `ProjectItemsBody` renders only list, board, and timeline.
+- **Fix:** added a project-specific presentation layout union/schema for list, board, and timeline; unsupported calendar defaults normalize back to the template's supported default layout.
+- **Prevention:** Added domain tests proving `projectSchema` rejects `presentation.layout: "calendar"` and default project presentation creation normalizes an unsupported calendar option.
+
+#### WPDV-50 — resolved — timeline today/window anchors became stale in long-lived sessions
+
+- **Severity:** low
+- **Evidence:** timeline `today`, `timelineStart`, and `timelineEnd` were memoized with an empty dependency array, so tabs left open across midnight could show stale today markers and date ranges.
+- **Fix:** timeline now stores `today` in state, schedules a local date-boundary refresh, and derives `timelineStart`/`timelineEnd` from that refreshed state.
+- **Prevention:** Added a fake-timer regression test that mounts just before midnight, advances through the date boundary, and verifies the today marker moves to the new local date.
+
+### Residual risk
+
+- Browser smoke was not rerun for this narrow validation/lifecycle delta; the broader calendar/work-surface browser risk was covered earlier, and this pass is covered by focused component/domain tests plus CI after push.
+
+## Turn 21 — 2026-05-20 04:48 BST
+
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| **Scope**       | Current-head Codex review feedback for calendar hover and drag cancel |
+| **Review type** | External finding triage + targeted interaction fix + gate rerun       |
+| **Reviewer**    | Codex CLI                                                             |
+| **Outcome**     | 2 live current-head Codex review findings fixed locally               |
+
+### Commands run
+
+- `gh pr view 36 --json headRefOid,reviews,comments` — confirmed current-head review on `9060a63f`
+- `gh api repos/declancowen/Linear/pulls/36/comments --paginate` — fetched current-head inline findings
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 28 tests
+- `pnpm typecheck` — initially failed on ignored duplicate `.next/types/* 2.ts` / `* 3.ts` generated files; passed after removing only those generated duplicates
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta, branch-total diff, and analyzer evidence recorded
+
+### Branch-totality proof
+
+- **External findings triaged:** current-head Codex review found two live Medium issues in `CalendarView`: hover detail could remain stuck after leaving an event, and pointer cancellation could leave timed drag state live.
+- **Bug classes / invariants checked:** lifecycle/transient container for hover detail, atomicity/transient input cancellation for drag state, pointer identity for active drag commits.
+- **Sibling closure:** all calendar item hover paths now use the same delayed detail clear; timed move, resize-start, and resize-end share pointer-id guarded movement, commit, and cancellation through the timed grid.
+- **Architecture rule applied:** the interaction state remains owned by `CalendarView`; tests assert user-observable behavior instead of exposing drag state internals.
+- **Why this is enough:** the weak variants from the review are directly covered: leaving an item after the floating detail opens clears it, and `pointercancel` prevents a later `pointerup` from committing a stale drag.
+
+### Resolved / Carried / New findings
+
+#### WPDV-47 — resolved — floating calendar detail could remain stuck after pointer leaves an item
+
+- **Severity:** medium
+- **Evidence:** item `onMouseLeave` only cleared the open timer and did not clear an already-open `hoveredItemId`.
+- **Fix:** calendar item mouse-leave now schedules a short delayed detail clear, while the floating detail itself still cancels that timer on entry so users can hover into it.
+- **Prevention:** Added a fake-timer regression test that opens the floating detail, leaves the item, advances the clear delay, and verifies the floating detail is gone.
+
+#### WPDV-48 — resolved — cancelled timed drags could commit on a later pointer-up
+
+- **Severity:** medium
+- **Evidence:** timed drag state was cleared on `pointerup` only; `pointercancel` left `dragStateRef` populated, and movement/commit did not check `pointerId`.
+- **Fix:** timed drag movement, cancellation, and commit now guard on the active `pointerId`; `pointercancel` clears the drag state.
+- **Prevention:** Added a timed calendar drag regression test that starts a drag, dispatches `pointercancel`, then dispatches `pointerup` and asserts no work item update is requested.
+
+### Residual risk
+
+- Browser smoke was not rerun for this narrow interaction delta; the calendar interaction paths are covered by focused component tests and will be rechecked by CI after push.
+
+## Turn 20 — 2026-05-20 04:25 BST
+
+| Field           | Value                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------- |
+| **Scope**       | PR review loop for fallback view edits and timezone persistence in detail time edits  |
+| **Review type** | External finding triage + targeted implementation review + static analyzer gate rerun |
+| **Reviewer**    | Codex CLI                                                                             |
+| **Outcome**     | 2 live current-head Codex review findings fixed locally; no local open findings       |
+
+### Commands run
+
+- `gh pr checks 36 --watch=false` — passed on pushed `3af970bb` before this local PR-feedback delta
+- `gh pr view 36 --json headRefOid,headRefName,baseRefName,url,reviewDecision,comments,reviews` — confirmed latest reviewed head `3af970bb` and current PR context
+- `pnpm exec vitest run tests/components/work-surface.test.tsx` — passed, 1 file / 8 tests
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx` — passed, 1 file / 19 tests
+- `pnpm exec vitest run tests/components/work-surface.test.tsx tests/components/work-item-detail-screen.test.tsx` — passed, 2 files / 27 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta, PR context, branch-total diff, and analyzer evidence recorded
+
+### Branch-totality proof
+
+- **External findings triaged:** current-head Codex review found two live Medium issues: fallback viewbar edits used persisted-view actions without a base view, and start/end time edits could leave legacy items without `scheduleTimeZone`.
+- **Bug classes / invariants checked:** preservation and fallback state ownership for view defaults; compatibility/legacy-data and optimistic-persisted payload parity for timezone-bearing time edits.
+- **Sibling closure:** filter toggles, property toggles/reorder/clear, hidden-state toggles, and view-config patches now share the same local fallback owner; both start and due time handlers use the resolved schedule timezone when a timed value is set.
+- **Architecture rule applied:** fallback views remain local fallback state instead of becoming malformed persisted viewer overrides; work item schedule timezone resolution is a shared detail-screen helper reused by display and edit handlers.
+- **Why this is enough:** the fixes are at the owning UI/store boundary, have focused regression coverage for the weak `null scheduleTimeZone` and fallback-view variants, and all configured static gates are clean.
+
+### Resolved / Carried / New findings
+
+#### WPDV-45 — resolved — fallback viewbar edits could discard default filters/properties
+
+- **Severity:** medium
+- **Evidence:** `WorkSurface` passed fallback view IDs into persisted viewer action helpers; those helpers resolve their base view from `state.views`, where fallback views do not exist.
+- **Fix:** fallback surfaces skip persisted viewer overrides and apply viewbar mutations directly to `localFallbackViews`, preserving the cloned fallback defaults.
+- **Prevention:** Added a fallback surface regression test that toggles a filter and display property, verifies previous fallback defaults remain present, and confirms no persisted viewer override is written.
+
+#### WPDV-46 — resolved — editing start/end times did not persist a schedule timezone for legacy items
+
+- **Severity:** medium
+- **Evidence:** `onStartTimeChange` and `onEndTimeChange` patched only `startTime`/`endTime`, so items with `scheduleTimeZone: null` could remain viewer-timezone-relative.
+- **Fix:** detail time edit handlers now include the resolved schedule timezone when a timed value is set and the item lacks that resolved timezone.
+- **Prevention:** Added sidebar-surface coverage for both Start and Due time edits on an item with `scheduleTimeZone: null`, asserting local optimistic state and sync payload include `Europe/London`.
+
+### Residual risk
+
+- Browser smoke was not rerun for this narrow PR-feedback delta; the touched UI paths are covered by focused component tests and the broader PR already has calendar/detail surface coverage.
+
+## Turn 19 — 2026-05-19 22:46 BST
+
+| Field           | Value                                                                          |
+| --------------- | ------------------------------------------------------------------------------ |
+| **Scope**       | PR review loop for timezone options, private optimistic IDs, and edited views  |
+| **Review type** | External finding triage + targeted diff-review + static analyzer gate rerun    |
+| **Reviewer**    | Codex CLI                                                                      |
+| **Outcome**     | 3 live PR findings fixed locally; no local open findings; ready to push        |
+
+### Commands run
+
+- `python3 .../gh-address-comments/scripts/fetch_comments.py` — fetched unresolved PR review threads for #36
+- `pnpm exec vitest run tests/lib/time-zone.test.ts tests/lib/store/work-item-actions.test.ts tests/lib/store/view-slice.test.ts tests/components/create-dialogs.test.tsx tests/app/api/work-route-contracts.test.ts` — passed, 5 files / 83 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; PR context, branch-total diff, and analyzer evidence recorded
+- `gh run view 26127327310 --log-failed` / `gh run view 26127330138 --log-failed` — CI failed in the same detail-screen retry test timeout
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx` — passed locally after increasing the slow integration-style test timeout, 1 file / 17 tests
+
+### Branch-totality proof
+
+- **External findings triaged:** `CDR-002`, `CDR-003`, and `CDR-004` were live against pushed `e63501db`; the old month-calendar threads are stale or already resolved in the current tree.
+- **Hotspots revalidated:** shared timezone option contract, optimistic private work-item numbering, create/edit view modal state, store/API/Convex view update contracts, and route schema validation.
+- **Architecture rule applied:** view metadata edits now flow through the same view-config domain/API/Convex update path instead of a dialog-local bypass; the repeated patch type is owned by the domain contract.
+- **Why this is enough:** each PR finding has a focused regression test at the layer that owns the invariant, and the broad static/type/lint gates are clean after the fix.
+
+### Resolved / Carried / New findings
+
+#### WPDV-41 — resolved — timezone pickers could not select UTC on runtimes where `Intl.supportedValuesOf("timeZone")` omits it
+
+- **Severity:** medium
+- **Evidence:** PR automation confirmed the runtime timezone list can omit `UTC` while the app default/fallback is `UTC`.
+- **Fix:** `getSupportedTimeZones()` now prepends the fallback timezone and deduplicates the runtime list.
+- **Prevention:** Added a timezone utility regression test that mocks a runtime list without `UTC`.
+
+#### WPDV-42 — resolved — optimistic private work-item keys counted private items from other teams
+
+- **Severity:** medium
+- **Evidence:** client optimistic numbering filtered by private visibility and creator but not by `teamId`, while the server numbering is team-scoped.
+- **Fix:** the private optimistic count now includes `item.teamId === input.teamId`.
+- **Prevention:** Added a store regression test where another team's private item must not advance the current team's `PRIVATE-002` key.
+
+#### WPDV-43 — resolved — edited view descriptions and project route/container selections were discarded
+
+- **Severity:** medium
+- **Evidence:** the edit path returned after updating name/config only, ignoring the dialog's visible description and selected project route/container state.
+- **Fix:** edited views now send description, route, `containerType`, and `containerId` through `updateViewConfig`; the shared patch contract, API schema, server wrapper, and Convex mutation all accept and validate those fields.
+- **Prevention:** Added dialog, store, and route-contract coverage, including rejection for incomplete container patches.
+
+#### WPDV-44 — resolved — CI timed out on the cross-item mention retry test
+
+- **Severity:** medium
+- **Evidence:** both GitHub Actions jobs timed out on `tests/components/work-item-detail-screen.test.tsx` while running the full suite, while the test file passed locally but spent over 10 seconds across 17 tests.
+- **Fix:** the specific cross-item retry scenario now has a 10 second timeout because it exercises multiple editor open/save/rerender cycles under the full-suite runner.
+- **Prevention:** Reran the detail-screen test file and lint locally before pushing the stabilization.
+
+### Residual risk
+
+- Full `pnpm test` and `pnpm build` were not rerun locally for this small PR-feedback delta; the pushed branch is relying on GitHub CI for the full check after the timeout stabilization.
+
+## Turn 18 — 2026-05-19 20:34 BST
+
+| Field           | Value                                                                         |
+| --------------- | ----------------------------------------------------------------------------- |
+| **Scope**       | Calendar multi-day spans, PR review feedback, and CI dependency audit failure |
+| **Review type** | PR feedback triage + targeted diff-review + architecture/security check       |
+| **Reviewer**    | Codex CLI                                                                     |
+| **Outcome**     | 4 issues fixed locally; no local open findings; changes intentionally unpushed |
+
+### Commands run
+
+- `gh pr checks 36 --repo declancowen/Linear` — PR still failed on pushed commit `153bc2f6`; current local fixes are unpushed
+- `python3 .../gh-fix-ci/scripts/inspect_pr_checks.py --repo . --pr 36 --json` — CI root cause was `pnpm audit:deps` failing on critical `sanitize-html@2.17.3`
+- `pnpm exec vitest run tests/lib/content/rich-text-security.test.ts tests/components/work-surface-view.test.tsx` — passed, 2 files / 30 tests
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx` — passed after month-span adjustment, 1 file / 26 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `pnpm test` — passed, 182 files / 1021 tests
+- `pnpm build` — passed
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta and PR context recorded
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; production health and duplication clean, no branch-specific architecture blocker identified
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** calendar view day/week/month rendering, work-surface component tests, rich-text sanitization boundary, package dependency audit path, PR review comments, and CI logs.
+- **External findings triaged:** Codex PR comments for month-mode timed items and month navigation were live against pushed `153bc2f6`; both are fixed in the local tree. CI audit failure was live and caused by a direct vulnerable dependency.
+- **Prior resolved/adjacent areas revalidated:** calendar hover/sidebar behavior remains on the shared `WorkItemDetailSidebarSurface`; timed drag/resize and all-day-to-timed drop paths remain intact; rich-text storage still preserves allowed editor markup and trims message display whitespace.
+- **Hotspots or sibling paths revisited:** all-day calendar rendering in day/week and month, timed month entries, navigation controls, sanitizer raw-text container handling, unsafe URL filtering, package lock integrity, and dependency audit gate.
+- **Dependency/adjacent surfaces revalidated:** removing `sanitize-html` keeps sanitization inside `lib/content/rich-text-security.ts` using existing `linkedom`; no new dependency or audit suppression was added.
+- **Why this is enough:** the user-visible calendar span behavior is now covered in both week and month modes, the PR feedback has direct regression tests, and the CI failure class is removed by deleting the vulnerable package rather than weakening the gate.
+
+### Challenger pass
+
+- done — Checked whether merged all-day spans only needed day/week support. Month view had the same repeated-per-day failure mode, so it now splits merged spans by visible calendar week instead of rendering one copy in each day cell.
+- done — Checked whether the audit failure could be muted because the local sanitizer options excluded `xmp`. CI would still fail on the vulnerable direct dependency, so the safer fix removes `sanitize-html` and covers the advisory payload with a regression test.
+- done — Checked whether month cells should continue deriving entries only from all-day records. Timed work is real scheduled work in month mode too, so same-day timed entries are now included with a time label.
+
+### Resolved / Carried / New findings
+
+#### WPDV-37 — resolved — multi-day all-day calendar items repeated instead of spanning
+
+- **Severity:** medium
+- **Evidence:** user reported multi-day all-day events should render as merged events rather than one event per day.
+- **Fix:** Day/week all-day lanes now place a single absolute span across visible day columns, and month mode splits all-day spans per visible calendar week rather than per day cell.
+- **Prevention:** Added calendar regression coverage asserting a multi-day all-day work item appears once in week mode and once in month mode.
+
+#### WPDV-38 — resolved — month mode hid same-day timed work
+
+- **Severity:** high
+- **Evidence:** Codex PR comment noted month mode derived entries only from all-day records while same-day scheduled work lived in `timedEntries`.
+- **Fix:** Month cells now include same-day timed entries with a compact time label.
+- **Prevention:** Added a focused calendar test that switches to month mode and verifies timed work remains visible.
+
+#### WPDV-39 — resolved — month navigation advanced by 28 days instead of one calendar month
+
+- **Severity:** medium
+- **Evidence:** Codex PR comment noted previous/next month controls used a fixed 28-day jump.
+- **Fix:** Month navigation now uses `addMonths`, while week/day keep their existing 7-day and 1-day movement.
+- **Prevention:** Added a focused calendar test that switches to month mode and verifies the next period lands on the next calendar month.
+
+#### WPDV-40 — resolved — CI dependency audit failed on vulnerable `sanitize-html`
+
+- **Severity:** high
+- **Evidence:** GitHub Actions failed in `pnpm audit:deps` on critical advisory `GHSA-rpr9-rxv7-x643` for direct dependency `sanitize-html@2.17.3`.
+- **Fix:** Replaced the direct package with an owner-local DOM sanitizer using the existing `linkedom` dependency, removed `sanitize-html` and its types from the manifest/lockfile, and preserved the existing allowed rich-text tags, attributes, class, style, URL, and message-trimming behavior.
+- **Prevention:** Added a raw-text container regression test for the `xmp` bypass shape; dependency audit now passes at the CI threshold.
+
+### Residual risk
+
+- PR #36 still shows failed checks until these local fixes are pushed. No browser screenshot smoke was rerun in this turn; the current proof is component tests, full Vitest, build, lint, typecheck, Fallow, audit, and code review.
+
+## Turn 17 — 2026-05-19 19:31 BST
+
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| **Scope**       | Calendar hover detail, workspace item-view routing, and create-view UX |
+| **Review type** | Targeted diff-review + architecture UI/routing boundary check          |
+| **Reviewer**    | Codex CLI                                                              |
+| **Outcome**     | 1 user-reported issue family fixed locally; no local open findings     |
+
+### Commands run
+
+- `pnpm exec vitest run tests/lib/domain/default-views.test.ts tests/components/create-dialogs.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/work-surface.test.tsx tests/components/work-surface-view.test.tsx` — passed, 5 files / 87 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm test` — passed, 182 files / 1017 tests
+- `pnpm build` — passed and included `/workspace/items`
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; production health and duplication clean, no branch-specific architecture blocker identified
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; reported `changed-file-audit: tool/config error (exit 2)` because the worktree is still on `main` with no PR branch, while direct Fallow gates passed cleanly
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx` — passed on rerun after a parallel focused run timed out in an existing mention-retry test under concurrent lint/typecheck load
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** create-view route selection, workspace item default view routing, work surface topbar create-view launch, calendar hover/detail rendering, work-item detail sidebar variant rendering, and the current review/static-analysis history.
+- **Prior open findings rechecked:** no open findings were recorded from Turn 16; the current user report mapped to the calendar floating detail using the full docked sidebar content and workspace item views still acting project-required.
+- **Prior resolved/adjacent areas revalidated:** document/project/item create-view modal switching still uses the relevant taskbar controls; project-specific item views still save to project detail routes when a project is intentionally selected; docked work-item sidebars still keep Relations and Activity.
+- **Hotspots or sibling paths revisited:** calendar month/all-day/timed hover entry points, workspace item route availability, workspace/team create-view scope locking, default route validation, and detail sidebar floating/docked variants.
+- **Dependency/adjacent surfaces revalidated:** Fallow duplication caught the duplicated calendar hover handler introduced by the month/all-day hover parity change; that was extracted and the Fallow gate reran clean.
+- **Why this is enough:** the optional-project behavior is now owned by the default view-route contract, the actual `/workspace/items` route exists, and the calendar hover remains the same work-item detail surface with variant-specific section visibility rather than a separate detail implementation.
+
+### Challenger pass
+
+- done — Checked whether the floating calendar detail should be a bespoke lightweight card. That would drift from the requested Work Details sidebar behavior, so the fix keeps `WorkItemDetailSidebarSurface` as the single surface and gates only the expensive sections by `variant === "floating"`.
+- done — Checked whether workspace item views should continue requiring a project route. That preserved the old broken modal behavior, so the default route contract now allows `/workspace/items` while project-selected item views still route to their project detail.
+
+### Resolved / Carried / New findings
+
+#### WPDV-36 — resolved — calendar hover detail used full sidebar sections and workspace item views still behaved project-required
+
+- **Severity:** medium
+- **Evidence:** user reported the calendar hover popup should match the Work Details sidebar but omit Relations and Activity, remain visible in sidebar calendar contexts, and the view modal should not force a project before creating a workspace item view.
+- **Fix:** Floating work-item detail sidebars now hide Relations and Activity, the calendar hover anchor centers on the hovered event and clamps to the viewport, month entries now use the same delayed hover behavior, workspace item views default to `/workspace/items`, and a real workspace item surface route was added.
+- **Prevention:** Added regression coverage for workspace item default routes, creating workspace item views without a project, and floating detail sidebars omitting the heavy sections.
+
+### Residual risk
+
+- Browser smoke was not rerun in this turn. Earlier local dev-server smoke was blocked by stale unkillable local processes, so the current presentation proof is build, component coverage, and route generation rather than an interactive screenshot pass.
 
 ## Turn 16 — 2026-05-13 17:00 BST
 

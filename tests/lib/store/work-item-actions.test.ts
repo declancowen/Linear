@@ -386,8 +386,57 @@ describe("work item actions", () => {
     )
   })
 
+  it("scopes optimistic private work item keys to the selected team", async () => {
+    const state = createState()
+    state.workItems = [
+      createTestWorkItem("private-team-item", {
+        key: "PRIVATE-001",
+        teamId: "team_1",
+        creatorId: "user_1",
+        visibility: "private",
+      }),
+      createTestWorkItem("other-team-private-item", {
+        key: "PRIVATE-001",
+        teamId: "team_2",
+        creatorId: "user_1",
+        visibility: "private",
+      }),
+    ]
+    const harness = await createWorkItemActionsHarness(state)
+
+    const createdItemId = harness.actions.createWorkItem({
+      teamId: "team_1",
+      type: "task",
+      title: "Private follow-up",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      visibility: "private",
+    })
+
+    expect(createdItemId).toBeTruthy()
+    expect(harness.state.workItems[0]).toMatchObject({
+      id: createdItemId,
+      key: "PRIVATE-002",
+      teamId: "team_1",
+      visibility: "private",
+    })
+  })
+
   it("creates work items with selected schedule dates", async () => {
-    const harness = await createWorkItemActionsHarness()
+    const state = createState()
+    state.users = state.users.map((user) =>
+      user.id === state.currentUserId
+        ? {
+            ...user,
+            preferences: {
+              ...user.preferences,
+              timeZone: "Europe/London",
+            },
+          }
+        : user
+    )
+    const harness = await createWorkItemActionsHarness(state)
 
     const createdItemId = harness.actions.createWorkItem({
       teamId: "team_1",
@@ -406,6 +455,9 @@ describe("work item actions", () => {
       title: "Schedule work",
       startDate: "2026-05-01",
       targetDate: "2026-05-10",
+      startTime: null,
+      endTime: null,
+      scheduleTimeZone: "Europe/London",
     })
     expect(harness.state.documents[0]).toMatchObject({
       kind: "item-description",
@@ -424,6 +476,9 @@ describe("work item actions", () => {
       startDate: "2026-05-01",
       dueDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       targetDate: "2026-05-10",
+      startTime: null,
+      endTime: null,
+      scheduleTimeZone: "Europe/London",
     })
     expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
@@ -449,6 +504,9 @@ describe("work item actions", () => {
         startDate: formatLocalCalendarDate(),
         dueDate: addLocalCalendarDays(7),
         targetDate: addLocalCalendarDays(10),
+        startTime: null,
+        endTime: null,
+        scheduleTimeZone: "America/Los_Angeles",
       })
       expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
         id: createdItemId,
@@ -462,6 +520,9 @@ describe("work item actions", () => {
         startDate: formatLocalCalendarDate(),
         dueDate: addLocalCalendarDays(7),
         targetDate: addLocalCalendarDays(10),
+        startTime: null,
+        endTime: null,
+        scheduleTimeZone: "America/Los_Angeles",
       })
       expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
     })

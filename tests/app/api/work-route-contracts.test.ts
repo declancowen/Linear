@@ -865,6 +865,10 @@ describe("work route contracts", () => {
           patch: {
             itemLevel: "feature",
             showChildItems: true,
+            description: "Project delivery",
+            containerType: "project-items",
+            containerId: "project_1",
+            route: "/team/platform/projects/project_1",
           },
         }),
       }) as never,
@@ -880,11 +884,45 @@ describe("work route contracts", () => {
       viewId: "view_1",
       itemLevel: "feature",
       showChildItems: true,
+      description: "Project delivery",
+      containerType: "project-items",
+      containerId: "project_1",
+      route: "/team/platform/projects/project_1",
     })
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
       ok: true,
     })
+  })
+
+  it("rejects incomplete view container updates", async () => {
+    const { PATCH } = await import("@/app/api/views/[viewId]/route")
+
+    const response = await PATCH(
+      new Request("http://localhost/api/views/view_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "updateConfig",
+          patch: {
+            containerType: "project-items",
+          },
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          viewId: "view_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Invalid view request",
+    })
+    expect(updateViewConfigServerMock).not.toHaveBeenCalled()
   })
 
   it("accepts project-specific view filter toggles", async () => {

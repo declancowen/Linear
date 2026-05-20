@@ -13,6 +13,7 @@ import {
 } from "react"
 import {
   Bell,
+  CalendarBlank,
   CaretDown,
   CaretRight,
   ChatCircleDots,
@@ -73,6 +74,12 @@ import {
   openManagedCreateDialog,
   openTopLevelDialog,
 } from "@/lib/browser/dialog-transitions"
+import {
+  optionalWorkspaceDescriptionConstraints,
+  workspaceAccentConstraints,
+  workspaceBrandingNameConstraints,
+  workspaceFallbackBadgeConstraints,
+} from "@/lib/domain/input-constraints"
 import { blurActiveElement } from "@/lib/browser/focus"
 import { useExpiringRetainedValue } from "@/hooks/use-expiring-retained-value"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
@@ -107,6 +114,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -120,6 +135,15 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   clampSidebarWidth,
   Sidebar,
@@ -139,6 +163,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { Textarea } from "@/components/ui/textarea"
 
 type AppShellProps = {
   children: ReactNode
@@ -1327,6 +1352,113 @@ function WorkspaceLogoMark({
   )
 }
 
+function EditWorkspaceDialog({
+  open,
+  workspace,
+  onOpenChange,
+}: {
+  open: boolean
+  workspace: Workspace
+  onOpenChange: (open: boolean) => void
+}) {
+  const updateWorkspaceBranding = useAppStore(
+    (state) => state.updateWorkspaceBranding
+  )
+  const [name, setName] = useState(workspace.name)
+  const [logoUrl, setLogoUrl] = useState(workspace.logoUrl ?? "")
+  const [description, setDescription] = useState(
+    workspace.settings.description ?? ""
+  )
+  const [accent, setAccent] = useState(
+    workspace.settings.accent || "var(--primary)"
+  )
+  const trimmedName = name.trim()
+  const trimmedLogoUrl = logoUrl.trim()
+  const trimmedDescription = description.trim()
+  const trimmedAccent = accent.trim()
+  const canSave =
+    trimmedName.length >= (workspaceBrandingNameConstraints.min ?? 1) &&
+    trimmedName.length <= workspaceBrandingNameConstraints.max &&
+    trimmedLogoUrl.length <= workspaceFallbackBadgeConstraints.max &&
+    trimmedDescription.length <= optionalWorkspaceDescriptionConstraints.max &&
+    trimmedAccent.length >= (workspaceAccentConstraints.min ?? 1) &&
+    trimmedAccent.length <= workspaceAccentConstraints.max
+
+  function handleSave() {
+    if (!canSave) {
+      return
+    }
+
+    updateWorkspaceBranding({
+      name: trimmedName,
+      logoUrl: trimmedLogoUrl,
+      description: trimmedDescription,
+      accent: trimmedAccent,
+    })
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>Edit workspace</DialogTitle>
+          <DialogDescription>
+            Update the workspace identity used across the app.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-1.5 text-[12px] font-medium text-fg-2">
+            <Label htmlFor="workspace-edit-name">Name</Label>
+            <Input
+              id="workspace-edit-name"
+              value={name}
+              maxLength={workspaceBrandingNameConstraints.max}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5 text-[12px] font-medium text-fg-2">
+            <Label htmlFor="workspace-edit-logo">Fallback badge</Label>
+            <Input
+              id="workspace-edit-logo"
+              value={logoUrl}
+              maxLength={workspaceFallbackBadgeConstraints.max}
+              onChange={(event) => setLogoUrl(event.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5 text-[12px] font-medium text-fg-2">
+            <Label htmlFor="workspace-edit-accent">Accent</Label>
+            <Input
+              id="workspace-edit-accent"
+              value={accent}
+              maxLength={workspaceAccentConstraints.max}
+              onChange={(event) => setAccent(event.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5 text-[12px] font-medium text-fg-2">
+            <Label htmlFor="workspace-edit-description">Description</Label>
+            <Textarea
+              id="workspace-edit-description"
+              value={description}
+              maxLength={optionalWorkspaceDescriptionConstraints.max}
+              rows={3}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button disabled={!canSave} onClick={handleSave}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ShellWorkspaceMenu({
   workspace,
   switchableWorkspaces,
@@ -1350,100 +1482,124 @@ function ShellWorkspaceMenu({
   onSetWorkspacePendingLeave: (workspace: { id: string; name: string }) => void
   onSwitchWorkspace: (workspaceId: string) => void
 }) {
+  const [editWorkspaceOpen, setEditWorkspaceOpen] = useState(false)
+
   return (
-    <SidebarHeader className="pb-1">
-      <div className="flex items-center gap-1">
+    <>
+      <SidebarHeader className="pb-1">
+        <div className="flex items-center gap-1">
         <SidebarMenu className="min-w-0 flex-1">
           <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton className="h-9">
-                  <WorkspaceLogoMark workspace={workspace} />
-                  <span className="truncate text-[12px] leading-none font-semibold">
-                    {workspace.name}
-                  </span>
-                  <CaretDown
-                    className="ml-auto size-2.5 shrink-0 text-sidebar-foreground/50"
-                    weight="fill"
-                  />
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-64">
-                <DropdownMenuLabel>Workspace</DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  {canOpenWorkspaceSettings ? (
+            <ContextMenu>
+              <DropdownMenu>
+                <ContextMenuTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <SidebarMenuButton className="h-9">
+                      <WorkspaceLogoMark workspace={workspace} />
+                      <span className="truncate text-[12px] leading-none font-semibold">
+                        {workspace.name}
+                      </span>
+                      <CaretDown
+                        className="ml-auto size-2.5 shrink-0 text-sidebar-foreground/50"
+                        weight="fill"
+                      />
+                    </SidebarMenuButton>
+                  </DropdownMenuTrigger>
+                </ContextMenuTrigger>
+                <DropdownMenuContent align="start" className="w-64">
+                  <DropdownMenuLabel>Workspace</DropdownMenuLabel>
+                  <DropdownMenuGroup>
+                    {canOpenWorkspaceSettings ? (
+                      <DropdownMenuItem asChild>
+                        <Link href="/workspace/settings">
+                          <Gear />
+                          Workspace settings
+                        </Link>
+                      </DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuItem asChild>
-                      <Link href="/workspace/settings">
-                        <Gear />
-                        Workspace settings
+                      <Link
+                        href="/invites"
+                        className="flex w-full items-center justify-between gap-3"
+                      >
+                        <span className="flex items-center gap-2">
+                          <PlusCircle />
+                          <span>Join a workspace</span>
+                        </span>
+                        {pendingInviteCount > 0 ? (
+                          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none font-medium text-muted-foreground">
+                            {pendingInviteCount}
+                          </span>
+                        ) : null}
                       </Link>
                     </DropdownMenuItem>
-                  ) : null}
-                  <DropdownMenuItem asChild>
-                    <Link
-                      href="/invites"
-                      className="flex w-full items-center justify-between gap-3"
-                    >
-                      <span className="flex items-center gap-2">
-                        <PlusCircle />
-                        <span>Join a workspace</span>
-                      </span>
-                      {pendingInviteCount > 0 ? (
-                        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none font-medium text-muted-foreground">
-                          {pendingInviteCount}
-                        </span>
-                      ) : null}
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={onOpenWorkspaceInviteDialog}>
-                    <PaperPlaneTilt />
-                    Invite to workspace
-                  </DropdownMenuItem>
-                  {switchableWorkspaces.length > 0 ? (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuLabel>Switch workspace</DropdownMenuLabel>
-                      {switchableWorkspaces.map((switchableWorkspace) => (
+                    <DropdownMenuItem onSelect={onOpenWorkspaceInviteDialog}>
+                      <PaperPlaneTilt />
+                      Invite to workspace
+                    </DropdownMenuItem>
+                    {switchableWorkspaces.length > 0 ? (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel>Switch workspace</DropdownMenuLabel>
+                        {switchableWorkspaces.map((switchableWorkspace) => (
+                          <DropdownMenuItem
+                            key={switchableWorkspace.id}
+                            disabled={
+                              switchingWorkspaceId === switchableWorkspace.id
+                            }
+                            onSelect={() => {
+                              onSwitchWorkspace(switchableWorkspace.id)
+                            }}
+                          >
+                            <WorkspaceLogoMark
+                              workspace={switchableWorkspace}
+                              className="size-4 rounded-[4px] text-[8px]"
+                            />
+                            <span className="truncate">
+                              {switchableWorkspace.name}
+                            </span>
+                          </DropdownMenuItem>
+                        ))}
+                      </>
+                    ) : null}
+                    {canLeaveWorkspace ? (
+                      <>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          key={switchableWorkspace.id}
-                          disabled={
-                            switchingWorkspaceId === switchableWorkspace.id
-                          }
+                          variant="destructive"
                           onSelect={() => {
-                            onSwitchWorkspace(switchableWorkspace.id)
+                            onSetWorkspacePendingLeave({
+                              id: workspace.id,
+                              name: workspace.name,
+                            })
                           }}
                         >
-                          <WorkspaceLogoMark
-                            workspace={switchableWorkspace}
-                            className="size-4 rounded-[4px] text-[8px]"
-                          />
-                          <span className="truncate">
-                            {switchableWorkspace.name}
-                          </span>
+                          <SignOut />
+                          Leave workspace
                         </DropdownMenuItem>
-                      ))}
-                    </>
-                  ) : null}
-                  {canLeaveWorkspace ? (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onSelect={() => {
-                          onSetWorkspacePendingLeave({
-                            id: workspace.id,
-                            name: workspace.name,
-                          })
-                        }}
-                      >
-                        <SignOut />
-                        Leave workspace
-                      </DropdownMenuItem>
-                    </>
-                  ) : null}
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                      </>
+                    ) : null}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {canOpenWorkspaceSettings ? (
+                <ContextMenuContent className="w-56">
+                  <ContextMenuLabel className="truncate">
+                    {workspace.name}
+                  </ContextMenuLabel>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      setEditWorkspaceOpen(true)
+                    }}
+                  >
+                      <Gear />
+                      Edit workspace
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              ) : null}
+            </ContextMenu>
           </SidebarMenuItem>
         </SidebarMenu>
         <Button
@@ -1454,8 +1610,15 @@ function ShellWorkspaceMenu({
         >
           <MagnifyingGlass className="size-3.5" />
         </Button>
-      </div>
-    </SidebarHeader>
+        </div>
+      </SidebarHeader>
+      <EditWorkspaceDialog
+        key={`${workspace.id}:${editWorkspaceOpen ? "open" : "closed"}:${workspace.name}`}
+        open={editWorkspaceOpen}
+        workspace={workspace}
+        onOpenChange={setEditWorkspaceOpen}
+      />
+    </>
   )
 }
 
@@ -1488,6 +1651,12 @@ function ShellPrimaryNavigation({
             icon={<CheckCircle />}
             label="My items"
             active={pathname.startsWith("/assigned")}
+          />
+          <SidebarLink
+            href="/calendar"
+            icon={<CalendarBlank />}
+            label="Calendar"
+            active={pathname.startsWith("/calendar")}
           />
         </SidebarMenu>
       </SidebarGroupContent>

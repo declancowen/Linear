@@ -2,6 +2,7 @@ import {
   getCalendarDatePrefix,
   isValidCalendarDateString,
 } from "../../lib/calendar-date"
+import { isValidTimeValue, isValidTimeZone } from "../../lib/time-zone"
 import {
   buildTeamProjectViews,
   buildTeamWorkViews,
@@ -58,6 +59,21 @@ export function assertScheduleDate(
     !isValidCalendarDateString(value)
   ) {
     throw new Error(`${label} must be a valid calendar date`)
+  }
+}
+
+export function assertScheduleTime(
+  value: string | null | undefined,
+  label: "Start time" | "End time"
+) {
+  if (value !== undefined && value !== null && !isValidTimeValue(value)) {
+    throw new Error(`${label} must be a valid time`)
+  }
+}
+
+export function assertScheduleTimeZone(value: string | null | undefined) {
+  if (value !== undefined && value !== null && !isValidTimeZone(value)) {
+    throw new Error("Time zone must be valid")
   }
 }
 
@@ -620,6 +636,28 @@ export async function assertWorkspaceLabelIds(
   }
 }
 
+async function getLabelValidationContext(
+  ctx: AppCtx,
+  input: {
+    labelIds: Iterable<string> | null | undefined
+    workspaceId: string
+  }
+) {
+  const uniqueLabelIds = [...new Set(input.labelIds ?? [])]
+
+  if (uniqueLabelIds.length === 0) {
+    return null
+  }
+
+  const workspaceLabels = await listLabelsByWorkspace(ctx, input.workspaceId)
+  const labelsById = new Map(workspaceLabels.map((label) => [label.id, label]))
+
+  return {
+    labelsById,
+    uniqueLabelIds,
+  }
+}
+
 export async function assertViewLabelIds(
   ctx: AppCtx,
   input: {
@@ -629,21 +667,19 @@ export async function assertViewLabelIds(
     workspaceId: string
   }
 ) {
-  const uniqueLabelIds = [...new Set(input.labelIds ?? [])]
+  const labelContext = await getLabelValidationContext(ctx, input)
 
-  if (uniqueLabelIds.length === 0) {
+  if (!labelContext) {
     return
   }
 
-  const workspaceLabels = await listLabelsByWorkspace(ctx, input.workspaceId)
-  const labelsById = new Map(workspaceLabels.map((label) => [label.id, label]))
   const canUsePrivateLabels =
     input.view.scopeType === "personal" &&
     input.view.scopeId === input.currentUserId &&
     input.view.entityKind === "items"
 
-  const invalid = uniqueLabelIds.some((labelId) => {
-    const label = labelsById.get(labelId)
+  const invalid = labelContext.uniqueLabelIds.some((labelId) => {
+    const label = labelContext.labelsById.get(labelId)
 
     if (!label || label.workspaceId !== input.workspaceId) {
       return true
@@ -670,16 +706,14 @@ export async function assertWorkItemLabelIds(
     workspaceId: string
   }
 ) {
-  const uniqueLabelIds = [...new Set(input.labelIds ?? [])]
+  const labelContext = await getLabelValidationContext(ctx, input)
 
-  if (uniqueLabelIds.length === 0) {
+  if (!labelContext) {
     return
   }
 
-  const workspaceLabels = await listLabelsByWorkspace(ctx, input.workspaceId)
-  const labelsById = new Map(workspaceLabels.map((label) => [label.id, label]))
-  const invalid = uniqueLabelIds.some((labelId) => {
-    const label = labelsById.get(labelId)
+  const invalid = labelContext.uniqueLabelIds.some((labelId) => {
+    const label = labelContext.labelsById.get(labelId)
 
     return (
       !label ||

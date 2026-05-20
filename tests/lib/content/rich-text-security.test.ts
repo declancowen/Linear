@@ -53,6 +53,16 @@ describe("rich-text security", () => {
     expect(maliciousOnly.isMeaningful).toBe(false)
   })
 
+  it("drops raw-text containers instead of reactivating their contents", () => {
+    const sanitized = sanitizeRichTextContent(
+      '<p>Safe</p><xmp><img src=x onerror=alert(1)><script>alert(1)</script></xmp>'
+    )
+
+    expect(sanitized).toBe("<p>Safe</p>")
+    expect(sanitized).not.toContain("<img")
+    expect(sanitized).not.toContain("<script")
+  })
+
   it("trims trailing hard breaks and empty blocks from message content", () => {
     const trailingBreaks = prepareRichTextMessageForStorage(
       "<p>Hello<br><br></p>",

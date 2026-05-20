@@ -313,6 +313,37 @@ function rollbackOptimisticView(input: {
   })
 }
 
+function rebindSelectedViewRoute(input: {
+  currentUserId: string
+  nextRoute: string
+  previousRoute: string
+  selectedViewByRoute: Record<string, string>
+  viewId: string
+}) {
+  const nextSelectedViewByRoute = { ...input.selectedViewByRoute }
+  const previousKeys = [
+    input.previousRoute,
+    getViewerScopedDirectoryKey(input.currentUserId, input.previousRoute),
+  ]
+  const wasSelected = previousKeys.some(
+    (key) => nextSelectedViewByRoute[key] === input.viewId
+  )
+
+  previousKeys.forEach((key) => {
+    if (nextSelectedViewByRoute[key] === input.viewId) {
+      delete nextSelectedViewByRoute[key]
+    }
+  })
+
+  if (wasSelected) {
+    nextSelectedViewByRoute[
+      getViewerScopedDirectoryKey(input.currentUserId, input.nextRoute)
+    ] = input.viewId
+  }
+
+  return nextSelectedViewByRoute
+}
+
 function syncOptimisticViewCreation(input: {
   get: AppStoreGet
   parsedInput: CreateViewInput
@@ -473,34 +504,52 @@ export function createViewSlice(
 
       const { showCompleted, ...viewPatch } = patch
 
-      set((state) => ({
-        views: state.views.map((view) =>
-          view.id === viewId
-            ? {
-                ...view,
-                ...viewPatch,
-                filters:
-                  showCompleted === undefined
-                    ? view.filters
-                    : {
-                        ...view.filters,
-                        showCompleted,
-                      },
-                updatedAt: getNow(),
-              }
-            : view
-        ),
-        pendingViewConfigById: {
-          ...(state.pendingViewConfigById ?? {}),
-          [viewId]: {
-            token: pendingToken,
-            patch: {
-              ...(state.pendingViewConfigById?.[viewId]?.patch ?? {}),
-              ...patch,
+      set((state) => {
+        const previousView = state.views.find((view) => view.id === viewId)
+        const selectedViewByRoute =
+          previousView && viewPatch.route && viewPatch.route !== previousView.route
+            ? rebindSelectedViewRoute({
+                currentUserId: state.currentUserId,
+                nextRoute: viewPatch.route,
+                previousRoute: previousView.route,
+                selectedViewByRoute: state.ui.selectedViewByRoute,
+                viewId,
+              })
+            : state.ui.selectedViewByRoute
+
+        return {
+          views: state.views.map((view) =>
+            view.id === viewId
+              ? {
+                  ...view,
+                  ...viewPatch,
+                  filters:
+                    showCompleted === undefined
+                      ? view.filters
+                      : {
+                          ...view.filters,
+                          showCompleted,
+                        },
+                  updatedAt: getNow(),
+                }
+              : view
+          ),
+          ui: {
+            ...state.ui,
+            selectedViewByRoute,
+          },
+          pendingViewConfigById: {
+            ...(state.pendingViewConfigById ?? {}),
+            [viewId]: {
+              token: pendingToken,
+              patch: {
+                ...(state.pendingViewConfigById?.[viewId]?.patch ?? {}),
+                ...patch,
+              },
             },
           },
-        },
-      }))
+        }
+      })
 
       runtime.syncInBackground(
         Promise.resolve(syncUpdateViewConfig(viewId, patch))

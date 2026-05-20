@@ -38,6 +38,18 @@ function documentReadModelRequest(documentId: string) {
   })
 }
 
+async function getDocumentIndexReadModelResponse(snapshot: Partial<AppSnapshot>) {
+  const { GET } = await import("@/app/api/read-models/documents/index/route")
+
+  getSnapshotServerMock.mockResolvedValue(snapshot)
+
+  return GET(
+    new Request(
+      "http://localhost/api/read-models/documents/index?scopeType=workspace&scopeId=workspace_1"
+    ) as never
+  )
+}
+
 function createSnapshot(): AppSnapshot {
   return {
     ...createEmptyState(),
@@ -414,15 +426,7 @@ describe("read model route contracts", () => {
   })
 
   it("returns a document index read model", async () => {
-    const { GET } = await import("@/app/api/read-models/documents/index/route")
-
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
-
-    const response = await GET(
-      new Request(
-        "http://localhost/api/read-models/documents/index?scopeType=workspace&scopeId=workspace_1"
-      ) as never
-    )
+    const response = await getDocumentIndexReadModelResponse(createSnapshot())
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -434,10 +438,9 @@ describe("read model route contracts", () => {
   })
 
   it("returns a document index read model when optional collections are missing from the snapshot", async () => {
-    const { GET } = await import("@/app/api/read-models/documents/index/route")
     const baseSnapshot = createSnapshot()
 
-    getSnapshotServerMock.mockResolvedValue({
+    const response = await getDocumentIndexReadModelResponse({
       currentUserId: baseSnapshot.currentUserId,
       currentWorkspaceId: baseSnapshot.currentWorkspaceId,
       workspaces: baseSnapshot.workspaces,
@@ -445,12 +448,6 @@ describe("read model route contracts", () => {
       documents: [baseSnapshot.documents[1]],
       views: [],
     } as Partial<AppSnapshot>)
-
-    const response = await GET(
-      new Request(
-        "http://localhost/api/read-models/documents/index?scopeType=workspace&scopeId=workspace_1"
-      ) as never
-    )
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({

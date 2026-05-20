@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest"
 import {
   buildAssignedWorkViews,
   createViewDefinition,
+  getDefaultRouteForViewContext,
   getSharedTeamExperience,
+  isRouteAllowedForViewContext,
   isSystemView,
 } from "@/lib/domain/default-views"
 
@@ -42,6 +44,23 @@ describe("isSystemView", () => {
 })
 
 describe("createViewDefinition", () => {
+  it("uses a workspace item surface when item views are not project-specific", () => {
+    expect(
+      getDefaultRouteForViewContext({
+        scopeType: "workspace",
+        entityKind: "items",
+      })
+    ).toBe("/workspace/items")
+
+    expect(
+      isRouteAllowedForViewContext({
+        scopeType: "workspace",
+        entityKind: "items",
+        route: "/workspace/items",
+      })
+    ).toBe(true)
+  })
+
   it("supports personal assigned item routes", () => {
     const view = createViewDefinition({
       id: "view_assigned_all_items",

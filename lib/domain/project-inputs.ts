@@ -37,6 +37,7 @@ export type ProjectUpdatePatchInput = Partial<
     | "memberIds"
     | "name"
     | "priority"
+    | "presentation"
     | "startDate"
     | "status"
     | "summary"

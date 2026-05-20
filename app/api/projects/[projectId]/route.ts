@@ -8,6 +8,7 @@ import {
   nullableCalendarDateSchema,
   projectNameMaxLength,
   projectNameMinLength,
+  projectSchema,
 } from "@/lib/domain/types"
 import { projectSummaryConstraints } from "@/lib/domain/input-constraints"
 import { deleteProjectServer, updateProjectServer } from "@/lib/server/convex"
@@ -43,6 +44,7 @@ const projectPatchSchema = z
     startDate: nullableCalendarDateSchema.optional(),
     targetDate: nullableCalendarDateSchema.optional(),
     labelIds: z.array(z.string()).optional(),
+    presentation: projectSchema.shape.presentation,
   })
   .refine(
     (value) => Object.values(value).some((entry) => entry !== undefined),

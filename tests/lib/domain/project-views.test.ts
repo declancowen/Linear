@@ -11,6 +11,7 @@ import {
   createDefaultProjectPresentationConfig,
   getDefaultViewItemLevelForProjectTemplate,
   getDefaultViewItemLevelForTeamExperience,
+  projectSchema,
   type Project,
   type ViewDefinition,
 } from "@/lib/domain/types"
@@ -125,6 +126,26 @@ function createProjectItemsViewFromPresentation(input: {
 }
 
 describe("project views", () => {
+  it("rejects calendar layouts for project presentation configs", () => {
+    const result = projectSchema.safeParse({
+      ...createProject("launch"),
+      presentation: {
+        ...createDefaultProjectPresentationConfig("software-delivery"),
+        layout: "calendar" as never,
+      },
+    })
+
+    expect(result.success).toBe(false)
+  })
+
+  it("normalizes unsupported calendar project presentation defaults", () => {
+    expect(
+      createDefaultProjectPresentationConfig("software-delivery", {
+        layout: "calendar",
+      }).layout
+    ).toBe("board")
+  })
+
   it("filters projects using project-relevant view fields", () => {
     const state = createEmptyState()
     const projects = [

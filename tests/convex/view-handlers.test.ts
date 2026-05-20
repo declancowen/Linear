@@ -51,6 +51,32 @@ function createCtx() {
   }
 }
 
+function mockPersonalWorkView() {
+  requireViewMutationAccessMock.mockResolvedValue({
+    _id: "view_doc_1",
+    scopeType: "personal",
+    scopeId: "user_1",
+    entityKind: "items",
+    displayProps: ["status"],
+  })
+}
+
+function mockWorkItemCustomPropertyDefinition(
+  overrides: {
+    scopeType: "private" | "team"
+    ownerId: string | null
+  }
+) {
+  getCustomPropertyDefinitionDocMock.mockResolvedValue({
+    id: "property_1",
+    teamId: "team_1",
+    targetType: "workItem",
+    isArchived: false,
+    createdBy: "user_2",
+    ...overrides,
+  })
+}
+
 describe("view handlers", () => {
   beforeEach(() => {
     assertServerTokenMock.mockReset()
@@ -180,21 +206,10 @@ describe("view handlers", () => {
       await import("@/convex/app/view_handlers")
     const ctx = createCtx()
 
-    requireViewMutationAccessMock.mockResolvedValue({
-      _id: "view_doc_1",
-      scopeType: "personal",
-      scopeId: "user_1",
-      entityKind: "items",
-      displayProps: ["status"],
-    })
-    getCustomPropertyDefinitionDocMock.mockResolvedValue({
-      id: "property_1",
-      teamId: "team_1",
-      targetType: "workItem",
+    mockPersonalWorkView()
+    mockWorkItemCustomPropertyDefinition({
       scopeType: "team",
-      isArchived: false,
       ownerId: null,
-      createdBy: "user_2",
     })
     requireReadableTeamAccessMock.mockResolvedValue("member")
 
@@ -221,21 +236,10 @@ describe("view handlers", () => {
       await import("@/convex/app/view_handlers")
     const ctx = createCtx()
 
-    requireViewMutationAccessMock.mockResolvedValue({
-      _id: "view_doc_1",
-      scopeType: "personal",
-      scopeId: "user_1",
-      entityKind: "items",
-      displayProps: ["status"],
-    })
-    getCustomPropertyDefinitionDocMock.mockResolvedValue({
-      id: "property_1",
-      teamId: "team_1",
-      targetType: "workItem",
+    mockPersonalWorkView()
+    mockWorkItemCustomPropertyDefinition({
       scopeType: "private",
-      isArchived: false,
       ownerId: "user_2",
-      createdBy: "user_2",
     })
 
     await expect(

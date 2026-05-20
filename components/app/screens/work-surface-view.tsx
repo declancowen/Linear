@@ -2,6 +2,8 @@
 
 import Link from "next/link"
 import {
+  memo,
+  useMemo,
   useState,
   type Dispatch,
   type ReactNode,
@@ -84,6 +86,7 @@ import {
   type WorkSurfaceScope,
 } from "./work-surface-view/drag-state"
 export { TimelineView } from "./work-surface-view/timeline-view"
+export { CalendarView } from "./work-surface-view/calendar-view"
 import { cn } from "@/lib/utils"
 
 const DRAG_HOLD_DELAY_MS = 160
@@ -909,6 +912,31 @@ function renderWorkItemDisplayProperties({
   })
 }
 
+function useMemoizedWorkSurfaceGroups({
+  createContext,
+  data,
+  editable,
+  items,
+  scopedItems,
+  view,
+}: Pick<
+  WorkSurfaceViewProps,
+  "createContext" | "data" | "editable" | "items" | "scopedItems" | "view"
+>) {
+  return useMemo(
+    () =>
+      getWorkSurfaceGroups({
+        createContext,
+        data,
+        editable,
+        items,
+        scopedItems,
+        view,
+      }),
+    [createContext, data, editable, items, scopedItems, view]
+  )
+}
+
 export function BoardView({
   data,
   items,
@@ -919,7 +947,7 @@ export function BoardView({
   createContext,
   onToggleHiddenValue,
 }: WorkSurfaceViewProps) {
-  const groups = getWorkSurfaceGroups({
+  const groups = useMemoizedWorkSurfaceGroups({
     createContext,
     data,
     editable,
@@ -1193,7 +1221,7 @@ export function ListView({
   createContext,
   onToggleHiddenValue,
 }: WorkSurfaceViewProps) {
-  const groups = getWorkSurfaceGroups({
+  const groups = useMemoizedWorkSurfaceGroups({
     createContext,
     data,
     editable,
@@ -1881,9 +1909,9 @@ function ListRowBody({
   )
 }
 
-function ListRow(props: ListRowProps) {
+const ListRow = memo(function ListRow(props: ListRowProps) {
   return <ListRowBody {...props} />
-}
+})
 
 function DraggableWorkSurfaceItem({
   children,
@@ -2009,7 +2037,7 @@ function BoardDropLane({
   )
 }
 
-function DraggableWorkCard({
+const DraggableWorkCard = memo(function DraggableWorkCard({
   data,
   item,
   displayProps,
@@ -2041,9 +2069,9 @@ function DraggableWorkCard({
       )}
     </DraggableWorkSurfaceItem>
   )
-}
+})
 
-function BoardCardBody({
+const BoardCardBody = memo(function BoardCardBody({
   data,
   item,
   displayProps,
@@ -2140,7 +2168,7 @@ function BoardCardBody({
       </div>
     </IssueContextMenu>
   )
-}
+})
 
 function WorkItemChildDisclosure({
   data,

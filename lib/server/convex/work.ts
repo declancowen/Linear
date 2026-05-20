@@ -8,6 +8,8 @@ import type {
   DisplayProperty,
   GroupField,
   OrderingField,
+  ViewContainerType,
+  ViewLayout,
   WorkItemType,
 } from "@/lib/domain/types"
 import type {
@@ -334,13 +336,17 @@ export async function deleteWorkItemServer(input: {
 export async function updateViewConfigServer(input: {
   currentUserId: string
   viewId: string
-  layout?: "list" | "board" | "timeline"
+  layout?: ViewLayout
   grouping?: GroupField
   subGrouping?: GroupField | null
   ordering?: OrderingField
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
   showCompleted?: boolean
+  description?: string
+  containerType?: ViewContainerType | null
+  containerId?: string | null
+  route?: string
 }) {
   try {
     return await getConvexServerClient().mutation(

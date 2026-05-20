@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { isValidCalendarDateString } from "@/lib/calendar-date"
+import { isValidTimeValue, isValidTimeZone } from "@/lib/time-zone"
 import {
   channelPostCommentContentConstraints,
   channelPostContentConstraints,
@@ -49,6 +50,7 @@ import {
   projectNameMaxLength,
   projectNameMinLength,
   projectHealths,
+  projectPresentationLayouts,
   projectStatuses,
   roles,
   scopeTypes,
@@ -147,6 +149,22 @@ export const nullableCalendarDateSchema = z
   .trim()
   .refine(isValidCalendarDateString, {
     message: "Must be a valid calendar date",
+  })
+  .nullable()
+
+export const nullableTimeSchema = z
+  .string()
+  .trim()
+  .refine(isValidTimeValue, {
+    message: "Must be a valid time",
+  })
+  .nullable()
+
+export const nullableTimeZoneSchema = z
+  .string()
+  .trim()
+  .refine(isValidTimeZone, {
+    message: "Must be a valid time zone",
   })
   .nullable()
 
@@ -267,6 +285,13 @@ export const profileSchema = z.object({
     emailAssignments: z.boolean(),
     emailDigest: z.boolean(),
     theme: z.enum(themePreferences).default("light"),
+    timeZone: z
+      .string()
+      .trim()
+      .refine(isValidTimeZone, {
+        message: "Must be a valid time zone",
+      })
+      .default("UTC"),
   }),
 })
 
@@ -335,7 +360,7 @@ export const projectSchema = z.object({
     .object({
       itemLevel: z.enum(workItemTypes).nullable().optional(),
       showChildItems: z.boolean().optional(),
-      layout: z.enum(viewLayouts),
+      layout: z.enum(projectPresentationLayouts),
       grouping: z.enum(groupFields),
       ordering: z.enum(orderingFields),
       displayProps: z.array(displayPropertySchema),
@@ -344,7 +369,7 @@ export const projectSchema = z.object({
     .optional(),
 })
 
-export const viewConfigPatchSchema = z.object({
+const viewConfigPatchBaseSchema = z.object({
   layout: z.enum(viewLayouts).optional(),
   grouping: z.enum(groupFields).optional(),
   subGrouping: z.enum(groupFields).nullable().optional(),
@@ -352,7 +377,40 @@ export const viewConfigPatchSchema = z.object({
   itemLevel: z.enum(workItemTypes).nullable().optional(),
   showChildItems: z.boolean().optional(),
   showCompleted: z.boolean().optional(),
+  description: boundedTrimmedStringSchema(
+    viewDescriptionConstraints
+  ).optional(),
+  containerType: z.enum(viewContainerTypes).nullable().optional(),
+  containerId: z.string().trim().min(1).nullable().optional(),
+  route: z.string().trim().min(1).optional(),
 })
+
+export const viewConfigPatchSchema = viewConfigPatchBaseSchema
+  .superRefine((value, ctx) => {
+    const hasContainerTypeKey = "containerType" in value
+    const hasContainerIdKey = "containerId" in value
+    const hasContainerType =
+      value.containerType !== undefined && value.containerType !== null
+    const hasContainerId =
+      value.containerId !== undefined && value.containerId !== null
+
+    if (hasContainerTypeKey !== hasContainerIdKey) {
+      ctx.addIssue({
+        code: "custom",
+        message: "containerType and containerId must be provided together",
+        path: hasContainerTypeKey ? ["containerId"] : ["containerType"],
+      })
+      return
+    }
+
+    if (hasContainerType !== hasContainerId) {
+      ctx.addIssue({
+        code: "custom",
+        message: "containerType and containerId must be provided together",
+        path: hasContainerType ? ["containerId"] : ["containerType"],
+      })
+    }
+  })
 
 export const viewSchema = z
   .object({
@@ -367,13 +425,13 @@ export const viewSchema = z
     description: boundedTrimmedStringSchema(viewDescriptionConstraints).default(
       ""
     ),
-    layout: viewConfigPatchSchema.shape.layout,
-    grouping: viewConfigPatchSchema.shape.grouping,
-    subGrouping: viewConfigPatchSchema.shape.subGrouping,
-    ordering: viewConfigPatchSchema.shape.ordering,
-    itemLevel: viewConfigPatchSchema.shape.itemLevel,
-    showChildItems: viewConfigPatchSchema.shape.showChildItems,
-    showCompleted: viewConfigPatchSchema.shape.showCompleted,
+    layout: viewConfigPatchBaseSchema.shape.layout,
+    grouping: viewConfigPatchBaseSchema.shape.grouping,
+    subGrouping: viewConfigPatchBaseSchema.shape.subGrouping,
+    ordering: viewConfigPatchBaseSchema.shape.ordering,
+    itemLevel: viewConfigPatchBaseSchema.shape.itemLevel,
+    showChildItems: viewConfigPatchBaseSchema.shape.showChildItems,
+    showCompleted: viewConfigPatchBaseSchema.shape.showCompleted,
     filters: viewFiltersSchema.optional(),
     displayProps: z.array(displayPropertySchema).optional(),
     hiddenState: z
@@ -414,6 +472,9 @@ export const workItemSchema = z.object({
   startDate: nullableCalendarDateSchema.optional(),
   dueDate: nullableCalendarDateSchema.optional(),
   targetDate: nullableCalendarDateSchema.optional(),
+  startTime: nullableTimeSchema.optional(),
+  endTime: nullableTimeSchema.optional(),
+  scheduleTimeZone: nullableTimeZoneSchema.optional(),
 })
 
 const customPropertyOptionSchema = z.object({

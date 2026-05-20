@@ -31,6 +31,7 @@ import {
   SidebarSimple,
   Smiley,
   Trash,
+  X,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
@@ -59,6 +60,7 @@ import {
   workItemTitleConstraints,
 } from "@/lib/domain/input-constraints"
 import { createWorkItemDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
+import { getViewerScopedViewKey } from "@/lib/domain/viewer-view-config"
 import {
   canEditTeam,
   getCommentsForTarget,
@@ -95,10 +97,16 @@ import {
   type Project,
   type Team,
   type UserProfile,
+  type ViewDefinition,
   type WorkItem,
 } from "@/lib/domain/types"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  formatTimeZoneLabel,
+  getSupportedTimeZones,
+  normalizeTimeZone,
+} from "@/lib/time-zone"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { DetailSidebarLabelsRow } from "@/components/app/screens/detail-sidebar-labels-row"
 import {
@@ -137,6 +145,7 @@ import { useLegacyPresenceHeartbeat } from "./legacy-presence-heartbeat"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
 import {
   getEligibleParentWorkItems,
+  createEmptyViewFilters,
   getTeamProjectOptions,
   getWorkItemPresenceSessionId,
   selectAppDataSnapshot,
@@ -161,6 +170,7 @@ import {
 import { useCommentComposer } from "./use-comment-composer"
 import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import { formatWorkItemDetailDate } from "./date-presentation"
+import { PropertiesChipPopover } from "./work-surface-controls"
 import { cn } from "@/lib/utils"
 
 const WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
@@ -332,13 +342,23 @@ function DetailSidebarDateRow({
   label,
   icon,
   value,
+  timeValue,
+  timeZoneOptions,
+  timeZoneValue,
   onValueChange,
+  onTimeValueChange,
+  onTimeZoneValueChange,
   disabled,
 }: {
   label: string
   icon: ReactNode
   value: string | null
+  timeValue?: string | null
+  timeZoneOptions?: DetailSelectOption[]
+  timeZoneValue?: string | null
   onValueChange: (value: string | null) => void
+  onTimeValueChange?: (value: string | null) => void
+  onTimeZoneValueChange?: (value: string) => void
   disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -354,9 +374,16 @@ function DetailSidebarDateRow({
               label,
               children: (
                 <>
-                  <span className={cn(!value && "text-fg-4")}>
+                  <span
+                    className={cn("min-w-0 truncate", !value && "text-fg-4")}
+                  >
                     {value ? formatDetailDate(value) : "Set date"}
                   </span>
+                  {timeValue ? (
+                    <span className="shrink-0 text-[11.5px] text-fg-3">
+                      {timeValue}
+                    </span>
+                  ) : null}
                   <CaretDown className="ml-auto size-3 shrink-0 text-fg-4" />
                 </>
               ),
@@ -379,6 +406,32 @@ function DetailSidebarDateRow({
                 }}
                 className="h-8"
               />
+              {onTimeValueChange ? (
+                <Input
+                  type="time"
+                  value={timeValue ?? ""}
+                  onChange={(event) =>
+                    onTimeValueChange(event.target.value || null)
+                  }
+                  className="h-8"
+                />
+              ) : null}
+              {timeZoneValue && timeZoneOptions && onTimeZoneValueChange ? (
+                <select
+                  value={timeZoneValue}
+                  onChange={(event) =>
+                    onTimeZoneValueChange(event.target.value)
+                  }
+                  className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
+                  aria-label={`${label} time zone`}
+                >
+                  {timeZoneOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               <div className="flex justify-between gap-2">
                 <Button
                   size="sm"
@@ -386,6 +439,7 @@ function DetailSidebarDateRow({
                   disabled={!value}
                   onClick={() => {
                     onValueChange(null)
+                    onTimeValueChange?.(null)
                     setOpen(false)
                   }}
                 >
@@ -403,22 +457,36 @@ function DetailSidebarDateRow({
   )
 }
 
-function DetailChildWorkItemRow({
+const DETAIL_CHILD_DEFAULT_DISPLAY_PROPS: ViewDefinition["displayProps"] = [
+  "status",
+  "priority",
+  "assignee",
+  "project",
+]
+
+function getDetailChildDisplayProps(
+  displayProps: ViewDefinition["displayProps"] | undefined,
+  variant: "main" | "sidebar"
+) {
+  return (
+    displayProps ??
+    (variant === "sidebar" ? [] : DETAIL_CHILD_DEFAULT_DISPLAY_PROPS)
+  )
+}
+
+function getDetailChildCustomPropertyEntries({
   data,
   item,
-  variant = "main",
+  selectedDisplayProps,
 }: {
   data: AppData
   item: WorkItem
-  variant?: "main" | "sidebar"
+  selectedDisplayProps: ViewDefinition["displayProps"]
 }) {
-  const childDone = item.status === "done"
-  const showMainPriority = item.priority !== "none"
-  const showMainAssignee =
-    (item.visibility ?? "team") !== "private" && item.assigneeId !== null
-  const showMainProject = item.primaryProjectId !== null
-  const showProperties = variant !== "sidebar"
-  const childCustomProperties = data.customPropertyDefinitions
+  return data.customPropertyDefinitions
+    .filter((definition) =>
+      selectedDisplayProps.includes(`custom:${definition.id}`)
+    )
     .filter((definition) =>
       isCustomPropertyDefinitionForWorkItem(
         definition,
@@ -426,12 +494,108 @@ function DetailChildWorkItemRow({
         data.currentUserId
       )
     )
-    .filter((definition) =>
-      data.customPropertyValues.some(
-        (value) =>
-          value.workItemId === item.id && value.propertyId === definition.id
-      )
-    )
+    .map((definition) => ({
+      definition,
+      value:
+        data.customPropertyValues.find(
+          (entry) =>
+            entry.workItemId === item.id && entry.propertyId === definition.id
+        ) ?? null,
+    }))
+    .filter((entry) => entry.value !== null)
+}
+
+function DetailChildPropertyChips({
+  data,
+  item,
+  selectedDisplayProps,
+}: {
+  data: AppData
+  item: WorkItem
+  selectedDisplayProps: ViewDefinition["displayProps"]
+}) {
+  const customPropertyEntries = getDetailChildCustomPropertyEntries({
+    data,
+    item,
+    selectedDisplayProps,
+  })
+  const showMainAssignee =
+    (item.visibility ?? "team") !== "private" && item.assigneeId !== null
+  const showMainPriority = item.priority !== "none"
+  const showMainProject = item.primaryProjectId !== null
+
+  if (selectedDisplayProps.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {selectedDisplayProps.includes("status") ? (
+        <InlineWorkItemPropertyControl
+          data={data}
+          item={item}
+          property="status"
+          variant="child"
+        />
+      ) : null}
+      {selectedDisplayProps.includes("priority") && showMainPriority ? (
+        <InlineWorkItemPropertyControl
+          data={data}
+          item={item}
+          property="priority"
+          variant="child"
+        />
+      ) : null}
+      {selectedDisplayProps.includes("assignee") && showMainAssignee ? (
+        <InlineWorkItemPropertyControl
+          data={data}
+          item={item}
+          property="assignee"
+          variant="child"
+        />
+      ) : null}
+      {selectedDisplayProps.includes("project") && showMainProject ? (
+        <InlineWorkItemPropertyControl
+          data={data}
+          item={item}
+          property="project"
+          variant="child"
+        />
+      ) : null}
+      {selectedDisplayProps.includes("dueDate") && item.dueDate ? (
+        <span className={detailChipClassName}>
+          <CalendarBlank className="size-3" />
+          {format(new Date(item.dueDate), "MMM d")}
+        </span>
+      ) : null}
+      {customPropertyEntries.map(({ definition, value }) => (
+        <CustomPropertyValueControl
+          key={definition.id}
+          data={data}
+          definition={definition}
+          item={item}
+          value={value}
+          editable={false}
+          variant="chip"
+        />
+      ))}
+    </div>
+  )
+}
+
+function DetailChildWorkItemRow({
+  data,
+  displayProps,
+  item,
+  variant = "main",
+}: {
+  data: AppData
+  displayProps?: ViewDefinition["displayProps"]
+  item: WorkItem
+  variant?: "main" | "sidebar"
+}) {
+  const childDone = item.status === "done"
+  const selectedDisplayProps = getDetailChildDisplayProps(displayProps, variant)
 
   return (
     <div
@@ -454,57 +618,11 @@ function DetailChildWorkItemRow({
           {item.title}
         </span>
       </Link>
-      {showProperties ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <InlineWorkItemPropertyControl
-            data={data}
-            item={item}
-            property="status"
-            variant="child"
-          />
-          {showMainPriority ? (
-            <InlineWorkItemPropertyControl
-              data={data}
-              item={item}
-              property="priority"
-              variant="child"
-            />
-          ) : null}
-          {showMainAssignee ? (
-            <InlineWorkItemPropertyControl
-              data={data}
-              item={item}
-              property="assignee"
-              variant="child"
-            />
-          ) : null}
-          {showMainProject ? (
-            <InlineWorkItemPropertyControl
-              data={data}
-              item={item}
-              property="project"
-              variant="child"
-            />
-          ) : null}
-          {childCustomProperties.map((definition) => (
-            <CustomPropertyValueControl
-              key={definition.id}
-              data={data}
-              definition={definition}
-              item={item}
-              value={
-                data.customPropertyValues.find(
-                  (entry) =>
-                    entry.workItemId === item.id &&
-                    entry.propertyId === definition.id
-                ) ?? null
-              }
-              editable={false}
-              variant="chip"
-            />
-          ))}
-        </div>
-      ) : null}
+      <DetailChildPropertyChips
+        data={data}
+        item={item}
+        selectedDisplayProps={selectedDisplayProps}
+      />
     </div>
   )
 }
@@ -1338,10 +1456,321 @@ type DetailPropertyChangeHandlers = {
   onPriorityChange: (value: string) => void
   onAssigneeChange: (value: string) => void
   onStartDateChange: (value: string | null) => void
+  onStartTimeChange: (value: string | null) => void
   onEndDateChange: (value: string | null) => void
+  onEndTimeChange: (value: string | null) => void
+  onScheduleTimeZoneChange: (value: string) => void
   onProjectChange: (value: string) => void
   onParentChange: (value: string) => void
 }
+
+function renderSidebarAssigneeOption(
+  value: string,
+  optionLabel: string,
+  teamMembers: UserProfile[],
+  compact: boolean
+) {
+  if (value === "unassigned") {
+    return (
+      <span className={compact ? "truncate" : undefined}>{optionLabel}</span>
+    )
+  }
+
+  const selectedUser = teamMembers.find((user) => user.id === value) ?? null
+
+  return selectedUser ? (
+    <div className={cn("flex items-center gap-2", compact && "min-w-0")}>
+      <WorkItemAssigneeAvatar
+        user={selectedUser}
+        className="data-[size=sm]:size-4"
+      />
+      <span className={compact ? "truncate" : undefined}>
+        {selectedUser.name}
+      </span>
+    </div>
+  ) : (
+    <span className={compact ? "truncate" : undefined}>{optionLabel}</span>
+  )
+}
+
+function WorkItemSidebarAssigneeRow({
+  currentItem,
+  disabled,
+  teamMembers,
+  onAssigneeChange,
+}: {
+  currentItem: WorkItem
+  disabled: boolean
+  teamMembers: UserProfile[]
+  onAssigneeChange: (value: string) => void
+}) {
+  if ((currentItem.visibility ?? "team") === "private") {
+    return null
+  }
+
+  return (
+    <DetailSidebarSelectRow
+      label="Assignee"
+      icon={<Plus className="size-[13px]" />}
+      value={currentItem.assigneeId ?? "unassigned"}
+      disabled={disabled}
+      options={[
+        { value: "unassigned", label: "Assign" },
+        ...teamMembers.map((user) => ({
+          value: user.id,
+          label: user.name,
+        })),
+      ]}
+      renderValue={(value, optionLabel) =>
+        renderSidebarAssigneeOption(value, optionLabel, teamMembers, true)
+      }
+      renderOption={(value, optionLabel) =>
+        renderSidebarAssigneeOption(value, optionLabel, teamMembers, false)
+      }
+      onValueChange={onAssigneeChange}
+    />
+  )
+}
+
+function WorkItemSidebarScheduleRows({
+  currentItem,
+  data,
+  displayedEndDate,
+  disabled,
+  onEndDateChange,
+  onEndTimeChange,
+  onScheduleTimeZoneChange,
+  onStartDateChange,
+  onStartTimeChange,
+}: {
+  currentItem: WorkItem
+  data: AppData
+  displayedEndDate: string | null
+  disabled: boolean
+  onEndDateChange: (value: string | null) => void
+  onEndTimeChange: (value: string | null) => void
+  onScheduleTimeZoneChange: (value: string) => void
+  onStartDateChange: (value: string | null) => void
+  onStartTimeChange: (value: string | null) => void
+}) {
+  const scheduleTimeZone = getResolvedWorkItemScheduleTimeZone(
+    data,
+    currentItem
+  )
+  const timeZoneOptions = getSupportedTimeZones().map((timeZone) => ({
+    value: timeZone,
+    label: formatTimeZoneLabel(timeZone),
+  }))
+
+  return (
+    <>
+      <DetailSidebarDateRow
+        label="Start"
+        icon={<Clock className="size-[13px]" />}
+        value={currentItem.startDate}
+        timeValue={currentItem.startTime ?? null}
+        timeZoneValue={scheduleTimeZone}
+        timeZoneOptions={timeZoneOptions}
+        disabled={disabled}
+        onValueChange={onStartDateChange}
+        onTimeValueChange={onStartTimeChange}
+        onTimeZoneValueChange={onScheduleTimeZoneChange}
+      />
+      <DetailSidebarDateRow
+        label="Due"
+        icon={<CalendarBlank className="size-[13px]" />}
+        value={displayedEndDate}
+        timeValue={currentItem.endTime ?? null}
+        timeZoneValue={scheduleTimeZone}
+        timeZoneOptions={timeZoneOptions}
+        disabled={disabled}
+        onValueChange={onEndDateChange}
+        onTimeValueChange={onEndTimeChange}
+        onTimeZoneValueChange={onScheduleTimeZoneChange}
+      />
+    </>
+  )
+}
+
+function WorkItemSidebarProjectRow({
+  currentItem,
+  disabled,
+  teamProjects,
+  onProjectChange,
+}: {
+  currentItem: WorkItem
+  disabled: boolean
+  teamProjects: Project[]
+  onProjectChange: (value: string) => void
+}) {
+  return (
+    <DetailSidebarSelectRow
+      label="Project"
+      icon={<FolderSimple className="size-[13px]" />}
+      value={currentItem.primaryProjectId ?? "none"}
+      disabled={disabled}
+      options={[
+        { value: "none", label: "No project" },
+        ...teamProjects.map((project) => ({
+          value: project.id,
+          label: project.name,
+        })),
+      ]}
+      renderValue={(value, optionLabel) =>
+        value === "none" ? (
+          <span className="truncate text-fg-4">{optionLabel}</span>
+        ) : (
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="inline-block size-1.5 rounded-full bg-fg-3" />
+            <span className="truncate">{optionLabel}</span>
+          </div>
+        )
+      }
+      onValueChange={onProjectChange}
+    />
+  )
+}
+
+function WorkItemSidebarMilestoneRow({
+  selectedMilestone,
+}: {
+  selectedMilestone: Milestone | null
+}) {
+  if (!selectedMilestone) {
+    return null
+  }
+
+  return (
+    <DetailSidebarStaticRow
+      label="Milestone"
+      icon={<Flag className="size-[13px]" />}
+    >
+      <span className="truncate">{selectedMilestone.name}</span>
+      {selectedMilestone.targetDate ? (
+        <span className="text-fg-4">
+          · {format(new Date(selectedMilestone.targetDate), "MMM d")}
+        </span>
+      ) : null}
+    </DetailSidebarStaticRow>
+  )
+}
+
+function WorkItemSidebarParentRow({
+  currentItem,
+  disabled,
+  parentOptions,
+  onParentChange,
+}: {
+  currentItem: WorkItem
+  disabled: boolean
+  parentOptions: DetailSelectOption[]
+  onParentChange: (value: string) => void
+}) {
+  if (!currentItem.parentId && parentOptions.length <= 1) {
+    return null
+  }
+
+  return (
+    <DetailSidebarSelectRow
+      label="Parent"
+      icon={<FolderSimple className="size-[13px]" />}
+      value={currentItem.parentId ?? "none"}
+      disabled={disabled}
+      options={parentOptions}
+      renderValue={(value, optionLabel) =>
+        value === "none" ? (
+          <span className="truncate text-fg-4">{optionLabel}</span>
+        ) : (
+          <span className="truncate">{optionLabel}</span>
+        )
+      }
+      onValueChange={onParentChange}
+    />
+  )
+}
+
+function getWorkItemSidebarCustomPropertyDefinitions(
+  data: AppData,
+  currentItem: WorkItem
+) {
+  return data.customPropertyDefinitions
+    .filter((definition) =>
+      isCustomPropertyDefinitionForWorkItem(
+        definition,
+        currentItem,
+        data.currentUserId
+      )
+    )
+    .sort((left, right) => left.name.localeCompare(right.name))
+}
+
+function WorkItemSidebarCustomPropertyRows({
+  currentItem,
+  customPropertyDefinitions,
+  data,
+  editable,
+}: {
+  currentItem: WorkItem
+  customPropertyDefinitions: AppData["customPropertyDefinitions"]
+  data: AppData
+  editable: boolean
+}) {
+  return customPropertyDefinitions.map((definition) => (
+    <div key={definition.id} className="contents">
+      {renderDetailSidebarTerm(
+        definition.name,
+        <PhosphorIconGlyph icon={definition.icon} className="size-[13px]" />
+      )}
+      <dd className="flex min-w-0 items-center">
+        <CustomPropertyValueControl
+          data={data}
+          definition={definition}
+          item={currentItem}
+          value={
+            data.customPropertyValues.find(
+              (entry) =>
+                entry.workItemId === currentItem.id &&
+                entry.propertyId === definition.id
+            ) ?? null
+          }
+          editable={editable}
+        />
+      </dd>
+    </div>
+  ))
+}
+
+function WorkItemSidebarAddPropertyRow({
+  disabled,
+  team,
+  onOpen,
+}: {
+  disabled: boolean
+  team: Team | null
+  onOpen: () => void
+}) {
+  if (!team) {
+    return null
+  }
+
+  return (
+    <div className="contents">
+      {renderDetailSidebarTerm("Properties", <Plus className="size-[13px]" />)}
+      <dd>
+        <button
+          type="button"
+          disabled={disabled}
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-dashed border-line px-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:opacity-60"
+          onClick={onOpen}
+        >
+          <Plus className="size-3.5" />
+          Add property
+        </button>
+      </dd>
+    </div>
+  )
+}
+
 type DetailTextLimitState = ReturnType<typeof getTextInputLimitState>
 type DetailChildProgress = ReturnType<typeof getWorkItemChildProgress>
 type DetailChildCopy = ReturnType<typeof getChildWorkItemCopy>
@@ -1524,12 +1953,14 @@ function getWorkItemDetailModel({
   data,
   editable,
   mainSection,
+  sidebarTitle,
   team,
 }: {
   currentItem: WorkItem
   data: AppData
   editable: boolean
-  mainSection: ReturnType<typeof useWorkItemMainSectionController>
+  mainSection?: ReturnType<typeof useWorkItemMainSectionController>
+  sidebarTitle?: string
   team: Team | null
 }) {
   const teamExperience = team?.settings.experience
@@ -1561,7 +1992,9 @@ function getWorkItemDetailModel({
     selectedMilestone: getSelectedWorkItemMilestone(data, currentItem),
     selectedProject: getSelectedWorkItemProject(data, currentItem),
     sidebarEditable: editable,
-    sidebarTitle: getWorkItemSidebarTitle({ currentItem, mainSection }),
+    sidebarTitle: mainSection
+      ? getWorkItemSidebarTitle({ currentItem, mainSection })
+      : (sidebarTitle ?? currentItem.title),
     statusOptions: buildPropertyStatusOptions(getStatusOrderForTeam(team)),
     teamMembers,
     teamProjects: getTeamProjectOptions(
@@ -1636,6 +2069,18 @@ function updateWorkItemEndDate({
   useAppStore.getState().updateWorkItem(currentItem.id, patch)
 }
 
+function getResolvedWorkItemScheduleTimeZone(
+  data: AppData,
+  currentItem: WorkItem
+) {
+  const currentUser = getUser(data, data.currentUserId)
+
+  return normalizeTimeZone(
+    currentItem.scheduleTimeZone,
+    currentUser?.preferences.timeZone
+  )
+}
+
 function requestWorkItemProjectChange({
   currentItem,
   requestConfirmedWorkItemUpdate,
@@ -1674,6 +2119,71 @@ function requestWorkItemParentChange({
   requestConfirmedWorkItemUpdate(currentItem.id, {
     parentId: nextParentId,
   })
+}
+
+function getWorkItemDetailPropertyHandlers({
+  currentItem,
+  displayedEndDate,
+  requestConfirmedWorkItemUpdate,
+  scheduleTimeZone,
+}: {
+  currentItem: WorkItem
+  displayedEndDate: string | null
+  requestConfirmedWorkItemUpdate: DetailRequestWorkItemUpdate
+  scheduleTimeZone: string
+}): DetailPropertyChangeHandlers {
+  return {
+    onStatusChange: (value) =>
+      useAppStore.getState().updateWorkItem(currentItem.id, {
+        status: value as WorkItem["status"],
+      }),
+    onPriorityChange: (value) =>
+      useAppStore.getState().updateWorkItem(currentItem.id, {
+        priority: value as Priority,
+      }),
+    onAssigneeChange: (value) =>
+      useAppStore.getState().updateWorkItem(currentItem.id, {
+        assigneeId: value === "unassigned" ? null : value,
+      }),
+    onStartDateChange: (nextStartDate) =>
+      updateWorkItemStartDate({
+        currentItem,
+        displayedEndDate,
+        nextStartDate,
+      }),
+    onStartTimeChange: (nextStartTime) =>
+      useAppStore.getState().updateWorkItem(currentItem.id, {
+        startTime: nextStartTime,
+        ...(nextStartTime && currentItem.scheduleTimeZone !== scheduleTimeZone
+          ? { scheduleTimeZone }
+          : {}),
+      }),
+    onEndDateChange: (nextEndDate) =>
+      updateWorkItemEndDate({ currentItem, nextEndDate }),
+    onEndTimeChange: (nextEndTime) =>
+      useAppStore.getState().updateWorkItem(currentItem.id, {
+        endTime: nextEndTime,
+        ...(nextEndTime && currentItem.scheduleTimeZone !== scheduleTimeZone
+          ? { scheduleTimeZone }
+          : {}),
+      }),
+    onScheduleTimeZoneChange: (nextTimeZone) =>
+      useAppStore.getState().updateWorkItem(currentItem.id, {
+        scheduleTimeZone: nextTimeZone,
+      }),
+    onProjectChange: (value) =>
+      requestWorkItemProjectChange({
+        currentItem,
+        requestConfirmedWorkItemUpdate,
+        value,
+      }),
+    onParentChange: (value) =>
+      requestWorkItemParentChange({
+        currentItem,
+        requestConfirmedWorkItemUpdate,
+        value,
+      }),
+  }
 }
 
 async function deleteWorkItemAndNavigate({
@@ -2771,6 +3281,8 @@ function WorkItemDescriptionSection({
 }
 
 function WorkItemChildItemsHeader({
+  data,
+  currentItem,
   childItems,
   childProgress,
   childCopy,
@@ -2780,6 +3292,8 @@ function WorkItemChildItemsHeader({
   onToggleOpen,
   onToggleComposer,
 }: {
+  data: AppData
+  currentItem: WorkItem
   childItems: WorkItem[]
   childProgress: DetailChildProgress
   childCopy: DetailChildCopy
@@ -2817,16 +3331,21 @@ function WorkItemChildItemsHeader({
       ) : (
         <span className="text-[11px] text-fg-4">None yet</span>
       )}
-      {canCreateChildItem ? (
-        <Button
-          size="icon-sm"
-          variant={mainChildComposerOpen ? "outline" : "ghost"}
-          className="ml-auto"
-          onClick={onToggleComposer}
-        >
-          <Plus className="size-3.5" />
-        </Button>
-      ) : null}
+      <div className="ml-auto flex items-center gap-1.5">
+        <WorkItemSubitemPropertiesButton
+          data={data}
+          currentItem={currentItem}
+        />
+        {canCreateChildItem ? (
+          <Button
+            size="icon-sm"
+            variant={mainChildComposerOpen ? "outline" : "ghost"}
+            onClick={onToggleComposer}
+          >
+            <Plus className="size-3.5" />
+          </Button>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -2857,9 +3376,11 @@ function WorkItemChildProgressBar({
 function WorkItemChildRows({
   data,
   childItems,
+  displayProps,
 }: {
   data: AppData
   childItems: WorkItem[]
+  displayProps: ViewDefinition["displayProps"]
 }) {
   if (childItems.length === 0) {
     return null
@@ -2869,7 +3390,12 @@ function WorkItemChildRows({
     <ul className="flex flex-col divide-y divide-line-soft">
       {childItems.map((child) => (
         <li key={child.id}>
-          <DetailChildWorkItemRow data={data} item={child} variant="main" />
+          <DetailChildWorkItemRow
+            data={data}
+            item={child}
+            displayProps={displayProps}
+            variant="main"
+          />
         </li>
       ))}
     </ul>
@@ -2960,10 +3486,13 @@ function WorkItemChildItemsSection({
   if (childItems.length === 0 && !canCreateChildItem) {
     return null
   }
+  const subitemView = getWorkDetailSubitemView(data, currentItem)
 
   return (
     <section className="mt-8 overflow-hidden rounded-xl border border-line bg-surface">
       <WorkItemChildItemsHeader
+        data={data}
+        currentItem={currentItem}
         childItems={childItems}
         childProgress={childProgress}
         childCopy={childCopy}
@@ -2981,7 +3510,11 @@ function WorkItemChildItemsSection({
 
       {open ? (
         <div className="border-t border-line-soft">
-          <WorkItemChildRows data={data} childItems={childItems} />
+          <WorkItemChildRows
+            data={data}
+            childItems={childItems}
+            displayProps={subitemView.displayProps}
+          />
           <WorkItemChildComposerSlot
             currentItem={currentItem}
             childItems={childItems}
@@ -3165,7 +3698,10 @@ function WorkItemSidebarProperties({
   onPriorityChange,
   onAssigneeChange,
   onStartDateChange,
+  onStartTimeChange,
   onEndDateChange,
+  onEndTimeChange,
+  onScheduleTimeZoneChange,
   onProjectChange,
   onParentChange,
 }: {
@@ -3183,16 +3719,10 @@ function WorkItemSidebarProperties({
 } & DetailPropertyChangeHandlers) {
   const [customPropertyDialogOpen, setCustomPropertyDialogOpen] =
     useState(false)
-  const isPrivateTask = (currentItem.visibility ?? "team") === "private"
-  const customPropertyDefinitions = data.customPropertyDefinitions
-    .filter((definition) =>
-      isCustomPropertyDefinitionForWorkItem(
-        definition,
-        currentItem,
-        data.currentUserId
-      )
-    )
-    .sort((left, right) => left.name.localeCompare(right.name))
+  const customPropertyDefinitions = getWorkItemSidebarCustomPropertyDefinitions(
+    data,
+    currentItem
+  )
 
   return (
     <>
@@ -3244,75 +3774,22 @@ function WorkItemSidebarProperties({
           )}
           onValueChange={onPriorityChange}
         />
-        {!isPrivateTask ? (
-          <DetailSidebarSelectRow
-            label="Assignee"
-            icon={<Plus className="size-[13px]" />}
-            value={currentItem.assigneeId ?? "unassigned"}
-            disabled={!sidebarEditable}
-            options={[
-              { value: "unassigned", label: "Assign" },
-              ...teamMembers.map((user) => ({
-                value: user.id,
-                label: user.name,
-              })),
-            ]}
-            renderValue={(value, optionLabel) => {
-              if (value === "unassigned") {
-                return <span className="truncate">{optionLabel}</span>
-              }
-
-              const selectedUser =
-                teamMembers.find((user) => user.id === value) ?? null
-
-              return selectedUser ? (
-                <div className="flex min-w-0 items-center gap-2">
-                  <WorkItemAssigneeAvatar
-                    user={selectedUser}
-                    className="data-[size=sm]:size-4"
-                  />
-                  <span className="truncate">{selectedUser.name}</span>
-                </div>
-              ) : (
-                <span className="truncate">{optionLabel}</span>
-              )
-            }}
-            renderOption={(value, optionLabel) => {
-              if (value === "unassigned") {
-                return <span>{optionLabel}</span>
-              }
-
-              const optionUser =
-                teamMembers.find((user) => user.id === value) ?? null
-
-              return optionUser ? (
-                <div className="flex items-center gap-2">
-                  <WorkItemAssigneeAvatar
-                    user={optionUser}
-                    className="data-[size=sm]:size-4"
-                  />
-                  <span>{optionUser.name}</span>
-                </div>
-              ) : (
-                <span>{optionLabel}</span>
-              )
-            }}
-            onValueChange={onAssigneeChange}
-          />
-        ) : null}
-        <DetailSidebarDateRow
-          label="Start"
-          icon={<Clock className="size-[13px]" />}
-          value={currentItem.startDate}
+        <WorkItemSidebarAssigneeRow
+          currentItem={currentItem}
           disabled={!sidebarEditable}
-          onValueChange={onStartDateChange}
+          teamMembers={teamMembers}
+          onAssigneeChange={onAssigneeChange}
         />
-        <DetailSidebarDateRow
-          label="Due"
-          icon={<CalendarBlank className="size-[13px]" />}
-          value={displayedEndDate}
+        <WorkItemSidebarScheduleRows
+          currentItem={currentItem}
+          data={data}
+          displayedEndDate={displayedEndDate}
           disabled={!sidebarEditable}
-          onValueChange={onEndDateChange}
+          onEndDateChange={onEndDateChange}
+          onEndTimeChange={onEndTimeChange}
+          onScheduleTimeZoneChange={onScheduleTimeZoneChange}
+          onStartDateChange={onStartDateChange}
+          onStartTimeChange={onStartTimeChange}
         />
         <DetailSidebarLabelsRow
           item={currentItem}
@@ -3320,105 +3797,30 @@ function WorkItemSidebarProperties({
           labels={availableLabels}
           editable={sidebarEditable}
         />
-        <DetailSidebarSelectRow
-          label="Project"
-          icon={<FolderSimple className="size-[13px]" />}
-          value={currentItem.primaryProjectId ?? "none"}
+        <WorkItemSidebarProjectRow
+          currentItem={currentItem}
           disabled={!sidebarEditable}
-          options={[
-            { value: "none", label: "No project" },
-            ...teamProjects.map((project) => ({
-              value: project.id,
-              label: project.name,
-            })),
-          ]}
-          renderValue={(value, optionLabel) =>
-            value === "none" ? (
-              <span className="truncate text-fg-4">{optionLabel}</span>
-            ) : (
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="inline-block size-1.5 rounded-full bg-fg-3" />
-                <span className="truncate">{optionLabel}</span>
-              </div>
-            )
-          }
-          onValueChange={onProjectChange}
+          teamProjects={teamProjects}
+          onProjectChange={onProjectChange}
         />
-        {selectedMilestone ? (
-          <DetailSidebarStaticRow
-            label="Milestone"
-            icon={<Flag className="size-[13px]" />}
-          >
-            <span className="truncate">{selectedMilestone.name}</span>
-            {selectedMilestone.targetDate ? (
-              <span className="text-fg-4">
-                · {format(new Date(selectedMilestone.targetDate), "MMM d")}
-              </span>
-            ) : null}
-          </DetailSidebarStaticRow>
-        ) : null}
-        {currentItem.parentId || parentOptions.length > 1 ? (
-          <DetailSidebarSelectRow
-            label="Parent"
-            icon={<FolderSimple className="size-[13px]" />}
-            value={currentItem.parentId ?? "none"}
-            disabled={!sidebarEditable}
-            options={parentOptions}
-            renderValue={(value, optionLabel) =>
-              value === "none" ? (
-                <span className="truncate text-fg-4">{optionLabel}</span>
-              ) : (
-                <span className="truncate">{optionLabel}</span>
-              )
-            }
-            onValueChange={onParentChange}
-          />
-        ) : null}
-        {customPropertyDefinitions.map((definition) => (
-          <div key={definition.id} className="contents">
-            {renderDetailSidebarTerm(
-              definition.name,
-              <PhosphorIconGlyph
-                icon={definition.icon}
-                className="size-[13px]"
-              />
-            )}
-            <dd className="flex min-w-0 items-center">
-              <CustomPropertyValueControl
-                data={data}
-                definition={definition}
-                item={currentItem}
-                value={
-                  data.customPropertyValues.find(
-                    (entry) =>
-                      entry.workItemId === currentItem.id &&
-                      entry.propertyId === definition.id
-                  ) ?? null
-                }
-                editable={sidebarEditable}
-              />
-            </dd>
-          </div>
-        ))}
-        {team ? (
-          <div className="contents">
-            {renderDetailSidebarTerm(
-              "Properties",
-              <Plus className="size-[13px]" />
-            )}
-            <dd>
-              <button
-                type="button"
-                disabled={!sidebarEditable}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-dashed border-line px-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:opacity-60"
-                onClick={() => setCustomPropertyDialogOpen(true)}
-              >
-                <Plus className="size-3.5" />
-                Add property
-              </button>
-            </dd>
-          </div>
-        ) : null}
+        <WorkItemSidebarMilestoneRow selectedMilestone={selectedMilestone} />
+        <WorkItemSidebarParentRow
+          currentItem={currentItem}
+          disabled={!sidebarEditable}
+          parentOptions={parentOptions}
+          onParentChange={onParentChange}
+        />
+        <WorkItemSidebarCustomPropertyRows
+          currentItem={currentItem}
+          customPropertyDefinitions={customPropertyDefinitions}
+          data={data}
+          editable={sidebarEditable}
+        />
+        <WorkItemSidebarAddPropertyRow
+          disabled={!sidebarEditable}
+          team={team}
+          onOpen={() => setCustomPropertyDialogOpen(true)}
+        />
       </dl>
       {team ? (
         <CustomPropertyDefinitionDialog
@@ -3433,6 +3835,100 @@ function WorkItemSidebarProperties({
         />
       ) : null}
     </>
+  )
+}
+
+const WORK_DETAIL_SUBITEM_SURFACE_KEY = "work-detail:subitems"
+const WORK_DETAIL_SUBITEM_VIEW_ID = "work-detail-subitems"
+const WORK_DETAIL_SUBITEM_DEFAULT_PROPS: ViewDefinition["displayProps"] = [
+  "status",
+  "priority",
+  "assignee",
+  "project",
+  "dueDate",
+]
+
+function getWorkDetailSubitemView(
+  data: AppData,
+  currentItem: WorkItem
+): ViewDefinition {
+  const key = getViewerScopedViewKey(
+    data.currentUserId,
+    WORK_DETAIL_SUBITEM_SURFACE_KEY,
+    WORK_DETAIL_SUBITEM_VIEW_ID
+  )
+  const override = data.ui.viewerViewConfigByRoute[key]
+
+  return {
+    id: WORK_DETAIL_SUBITEM_VIEW_ID,
+    name: "Sub-items",
+    description: "",
+    scopeType:
+      (currentItem.visibility ?? "team") === "private" ? "personal" : "team",
+    scopeId:
+      (currentItem.visibility ?? "team") === "private"
+        ? data.currentUserId
+        : currentItem.teamId,
+    entityKind: "items",
+    route: WORK_DETAIL_SUBITEM_SURFACE_KEY,
+    layout: "list",
+    grouping: "status",
+    subGrouping: null,
+    ordering: "priority",
+    itemLevel: null,
+    showChildItems: false,
+    filters: {
+      ...createEmptyViewFilters(),
+      visibility:
+        (currentItem.visibility ?? "team") === "private" ? ["private"] : [],
+    },
+    displayProps: override?.displayProps ?? WORK_DETAIL_SUBITEM_DEFAULT_PROPS,
+    hiddenState: { groups: [], subgroups: [] },
+    isShared: false,
+    createdAt: "",
+    updatedAt: "",
+  }
+}
+
+function WorkItemSubitemPropertiesButton({
+  data,
+  currentItem,
+}: {
+  data: AppData
+  currentItem: WorkItem
+}) {
+  const view = getWorkDetailSubitemView(data, currentItem)
+
+  return (
+    <PropertiesChipPopover
+      view={view}
+      onToggleDisplayProperty={(property) =>
+        useAppStore
+          .getState()
+          .toggleViewerViewDisplayProperty(
+            WORK_DETAIL_SUBITEM_SURFACE_KEY,
+            WORK_DETAIL_SUBITEM_VIEW_ID,
+            property
+          )
+      }
+      onReorderDisplayProperties={(displayProps) =>
+        useAppStore
+          .getState()
+          .reorderViewerViewDisplayProperties(
+            WORK_DETAIL_SUBITEM_SURFACE_KEY,
+            WORK_DETAIL_SUBITEM_VIEW_ID,
+            displayProps
+          )
+      }
+      onClearDisplayProperties={() =>
+        useAppStore
+          .getState()
+          .clearViewerViewDisplayProperties(
+            WORK_DETAIL_SUBITEM_SURFACE_KEY,
+            WORK_DETAIL_SUBITEM_VIEW_ID
+          )
+      }
+    />
   )
 }
 
@@ -3459,21 +3955,29 @@ function WorkItemSidebarSubtasks({
   onToggleComposer: () => void
   onCloseComposer: () => void
 }) {
+  const subitemView = getWorkDetailSubitemView(data, currentItem)
+
   return (
     <DetailSidebarSection
       title="Subtasks"
       count={`${childProgress.completedChildren} of ${childItems.length || 0}`}
       action={
-        canCreateChildItem ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
-            onClick={onToggleComposer}
-          >
-            <Plus className="size-3" />
-            {childCopy.addChildLabel}
-          </button>
-        ) : null
+        <div className="flex items-center gap-1.5">
+          <WorkItemSubitemPropertiesButton
+            data={data}
+            currentItem={currentItem}
+          />
+          {canCreateChildItem ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+              onClick={onToggleComposer}
+            >
+              <Plus className="size-3" />
+              {childCopy.addChildLabel}
+            </button>
+          ) : null}
+        </div>
       }
     >
       <div className="flex flex-col gap-1">
@@ -3502,6 +4006,7 @@ function WorkItemSidebarSubtasks({
             key={child.id}
             data={data}
             item={child}
+            displayProps={subitemView.displayProps}
             variant="sidebar"
           />
         ))}
@@ -3585,6 +4090,8 @@ function WorkItemRelationsSection({
   )
 }
 
+type WorkItemDetailSidebarVariant = "docked" | "floating"
+
 function WorkItemDetailSidebar({
   open,
   data,
@@ -3608,12 +4115,17 @@ function WorkItemDetailSidebar({
   linkedProjects,
   linkedDocuments,
   currentUserId,
+  variant = "docked",
   onCopyItemLink,
+  onClose,
   onStatusChange,
   onPriorityChange,
   onAssigneeChange,
   onStartDateChange,
+  onStartTimeChange,
   onEndDateChange,
+  onEndTimeChange,
+  onScheduleTimeZoneChange,
   onProjectChange,
   onParentChange,
   onToggleChildComposer,
@@ -3641,25 +4153,26 @@ function WorkItemDetailSidebar({
   linkedProjects: Project[]
   linkedDocuments: AppDocument[]
   currentUserId: string
+  variant?: WorkItemDetailSidebarVariant
   onCopyItemLink: () => void
+  onClose?: () => void
   onToggleChildComposer: () => void
   onCloseChildComposer: () => void
 } & DetailPropertyChangeHandlers) {
   const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
+  const showExtendedSections = variant !== "floating"
 
-  return (
-    <CollapsibleRightSidebar
-      open={open}
-      width="26.25rem"
-      className="border-l border-line bg-surface"
-    >
+  const content = (
+    <>
       <div className="flex items-center gap-1 border-b border-line-soft px-3 py-2">
         <span className="mr-2 font-mono text-[12px] text-fg-3">
           {currentItem.key}
         </span>
-        <span className="flex items-center gap-1.5 text-[12px] text-fg-2">
+        <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-2">
           <StatusIcon status={currentItem.status} />
-          <span>{statusMeta[currentItem.status].label}</span>
+          <span className="truncate">
+            {statusMeta[currentItem.status].label}
+          </span>
         </span>
         <div className="ml-auto flex items-center gap-0.5">
           <button
@@ -3670,6 +4183,16 @@ function WorkItemDetailSidebar({
           >
             <LinkSimple className="size-[14px]" />
           </button>
+          {onClose ? (
+            <button
+              type="button"
+              className={detailIconButtonClassName}
+              aria-label="Close item details"
+              onClick={onClose}
+            >
+              <X className="size-[14px]" />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -3694,7 +4217,10 @@ function WorkItemDetailSidebar({
           onPriorityChange={onPriorityChange}
           onAssigneeChange={onAssigneeChange}
           onStartDateChange={onStartDateChange}
+          onStartTimeChange={onStartTimeChange}
           onEndDateChange={onEndDateChange}
+          onEndTimeChange={onEndTimeChange}
+          onScheduleTimeZoneChange={onScheduleTimeZoneChange}
           onProjectChange={onProjectChange}
           onParentChange={onParentChange}
         />
@@ -3712,23 +4238,133 @@ function WorkItemDetailSidebar({
           onCloseComposer={onCloseChildComposer}
         />
 
-        <WorkItemRelationsSection
-          data={data}
-          selectedProject={selectedProject}
-          linkedProjects={linkedProjects}
-          linkedDocuments={linkedDocuments}
-        />
+        {showExtendedSections ? (
+          <>
+            <WorkItemRelationsSection
+              data={data}
+              selectedProject={selectedProject}
+              linkedProjects={linkedProjects}
+              linkedDocuments={linkedDocuments}
+            />
 
-        <DetailSidebarSection title="Activity">
-          <DetailSidebarActivity
-            data={data}
-            currentUserId={currentUserId}
-            item={currentItem}
-            editable={editable}
-          />
-        </DetailSidebarSection>
+            <DetailSidebarSection title="Activity">
+              <DetailSidebarActivity
+                data={data}
+                currentUserId={currentUserId}
+                item={currentItem}
+                editable={editable}
+              />
+            </DetailSidebarSection>
+          </>
+        ) : null}
       </div>
+    </>
+  )
+
+  if (variant === "floating") {
+    return (
+      <aside className="flex max-h-[min(680px,calc(100vh-24px))] min-h-0 w-full flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-xl">
+        {content}
+      </aside>
+    )
+  }
+
+  return (
+    <CollapsibleRightSidebar
+      open={open}
+      width="26.25rem"
+      className="border-l border-line bg-surface"
+    >
+      {content}
     </CollapsibleRightSidebar>
+  )
+}
+
+export function WorkItemDetailSidebarSurface({
+  data,
+  currentItem,
+  editable,
+  open = true,
+  variant = "docked",
+  onClose,
+  onCopyItemLink,
+}: {
+  data: AppData
+  currentItem: WorkItem
+  editable: boolean
+  open?: boolean
+  variant?: WorkItemDetailSidebarVariant
+  onClose?: () => void
+  onCopyItemLink?: () => void
+}) {
+  const [sidebarChildComposerOpen, setSidebarChildComposerOpen] =
+    useState(false)
+  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
+    useWorkItemProjectCascadeConfirmation()
+  const team = getTeam(data, currentItem.teamId)
+  const detailModel = getWorkItemDetailModel({
+    currentItem,
+    data,
+    editable,
+    sidebarTitle: currentItem.title,
+    team,
+  })
+  const scheduleTimeZone = getResolvedWorkItemScheduleTimeZone(
+    data,
+    currentItem
+  )
+  const propertyHandlers = getWorkItemDetailPropertyHandlers({
+    currentItem,
+    displayedEndDate: detailModel.displayedEndDate,
+    requestConfirmedWorkItemUpdate,
+    scheduleTimeZone,
+  })
+
+  function handleCopyItemLink() {
+    if (onCopyItemLink) {
+      onCopyItemLink()
+      return
+    }
+
+    void copyCurrentItemLink()
+  }
+
+  return (
+    <>
+      <WorkItemDetailSidebar
+        open={open}
+        data={data}
+        currentItem={currentItem}
+        team={team}
+        sidebarTitle={detailModel.sidebarTitle}
+        sidebarEditable={detailModel.sidebarEditable}
+        statusOptions={detailModel.statusOptions}
+        teamMembers={detailModel.teamMembers}
+        teamProjects={detailModel.teamProjects}
+        selectedProject={detailModel.selectedProject}
+        selectedMilestone={detailModel.selectedMilestone}
+        availableLabels={detailModel.availableLabels}
+        parentOptions={detailModel.parentOptions}
+        childItems={detailModel.childItems}
+        childProgress={detailModel.childProgress}
+        childCopy={detailModel.childCopy}
+        editable={editable}
+        canCreateChildItem={detailModel.canCreateChildItem}
+        sidebarChildComposerOpen={sidebarChildComposerOpen}
+        linkedProjects={detailModel.linkedProjects}
+        linkedDocuments={detailModel.linkedDocuments}
+        currentUserId={data.currentUserId}
+        variant={variant}
+        onClose={onClose}
+        onCopyItemLink={handleCopyItemLink}
+        {...propertyHandlers}
+        onToggleChildComposer={() =>
+          setSidebarChildComposerOpen((current) => !current)
+        }
+        onCloseChildComposer={() => setSidebarChildComposerOpen(false)}
+      />
+      {confirmationDialog}
+    </>
   )
 }
 
@@ -3935,34 +4571,12 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     teamProjects,
     workCopy,
   } = detailModel
-
-  function handleStartDateChange(nextStartDate: string | null) {
-    updateWorkItemStartDate({
-      currentItem,
-      displayedEndDate,
-      nextStartDate,
-    })
-  }
-
-  function handleProjectChange(value: string) {
-    requestWorkItemProjectChange({
-      currentItem,
-      requestConfirmedWorkItemUpdate,
-      value,
-    })
-  }
-
-  function handleParentChange(value: string) {
-    requestWorkItemParentChange({
-      currentItem,
-      requestConfirmedWorkItemUpdate,
-      value,
-    })
-  }
-
-  function handleEndDateChange(nextEndDate: string | null) {
-    updateWorkItemEndDate({ currentItem, nextEndDate })
-  }
+  const propertyHandlers = getWorkItemDetailPropertyHandlers({
+    currentItem,
+    displayedEndDate,
+    requestConfirmedWorkItemUpdate,
+    scheduleTimeZone: getResolvedWorkItemScheduleTimeZone(data, currentItem),
+  })
 
   async function handleDeleteItem() {
     await deleteWorkItemAndNavigate({
@@ -4083,25 +4697,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
             onCopyItemLink={() => {
               void handleCopyItemLink()
             }}
-            onStatusChange={(value) =>
-              useAppStore.getState().updateWorkItem(currentItem.id, {
-                status: value as WorkItem["status"],
-              })
-            }
-            onPriorityChange={(value) =>
-              useAppStore.getState().updateWorkItem(currentItem.id, {
-                priority: value as Priority,
-              })
-            }
-            onAssigneeChange={(value) =>
-              useAppStore.getState().updateWorkItem(currentItem.id, {
-                assigneeId: value === "unassigned" ? null : value,
-              })
-            }
-            onStartDateChange={handleStartDateChange}
-            onEndDateChange={handleEndDateChange}
-            onProjectChange={handleProjectChange}
-            onParentChange={handleParentChange}
+            {...propertyHandlers}
             onToggleChildComposer={() =>
               setSidebarChildComposerOpen((current) => {
                 const next = !current

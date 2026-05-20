@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
+import { addDays, addMonths, format, startOfDay } from "date-fns"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("next/link", async () =>
@@ -59,7 +60,36 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
   openManagedCreateDialog: vi.fn(),
 }))
 
-import { BoardView, ListView } from "@/components/app/screens/work-surface-view"
+vi.mock("@/components/app/screens/work-item-detail-screen", () => ({
+  WorkItemDetailSidebarSurface: ({
+    currentItem,
+    editable,
+    onClose,
+    variant = "docked",
+  }: {
+    currentItem: { title: string }
+    editable?: boolean
+    onClose?: () => void
+    variant?: "docked" | "floating"
+  }) => (
+    <div
+      data-testid={`${variant}-detail`}
+      data-editable={String(Boolean(editable))}
+    >
+      <button type="button" onClick={onClose}>
+        Close detail
+      </button>
+      <span>{currentItem.title}</span>
+    </div>
+  ),
+}))
+
+import {
+  BoardView,
+  CalendarView,
+  ListView,
+  TimelineView,
+} from "@/components/app/screens/work-surface-view"
 import { BoardChildItemRow } from "@/components/app/screens/work-surface-view/board-child-item-row"
 import { requestWorkSurfaceDragUpdate } from "@/components/app/screens/work-surface-view/drag-state"
 import {
@@ -69,6 +99,8 @@ import {
 import { getTimelineMovePatchForDrag } from "@/components/app/screens/work-surface-view/timeline-state"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { createEmptyState } from "@/lib/domain/empty-state"
+import { formatLocalCalendarDate } from "@/lib/calendar-date"
+import { useAppStore } from "@/lib/store/app-store"
 import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
@@ -171,6 +203,21 @@ function expectCreateDialogDefaults({
   )
 }
 
+function expectPrivateCreateDialogDefaults() {
+  expect(openManagedCreateDialog).toHaveBeenCalledWith(
+    expect.objectContaining({
+      defaultTeamId: "team_1",
+      defaultProjectId: null,
+      defaultValues: expect.objectContaining({
+        assigneeId: null,
+        primaryProjectId: null,
+        status: "backlog",
+        visibility: "private",
+      }),
+    })
+  )
+}
+
 function expectBoardAndListCreateDefaults({
   data,
   expected,
@@ -245,6 +292,97 @@ function createData(): AppData {
     currentWorkspaceId: "workspace_1",
     teams: [createTeam()],
     workItems: [createWorkItem()],
+  }
+}
+
+function createUtcCalendarData(item: WorkItem): AppData {
+  return {
+    ...createData(),
+    users: [
+      {
+        id: "user_1",
+        name: "Alex",
+        preferences: {
+          timeZone: "UTC",
+        },
+      } as never,
+    ],
+    workItems: [item],
+  }
+}
+
+function createTimedCalendarItem(overrides: Partial<WorkItem> = {}) {
+  const date = formatLocalCalendarDate(startOfDay(new Date()))
+
+  return createWorkItem({
+    startDate: date,
+    targetDate: date,
+    startTime: "09:00",
+    endTime: "10:00",
+    scheduleTimeZone: "Europe/London",
+    ...overrides,
+  })
+}
+
+function getCalendarTimedGrid() {
+  const timedGrid = screen.getByTestId("calendar-timed-grid")
+  timedGrid.getBoundingClientRect = () =>
+    ({
+      bottom: 1536,
+      height: 1536,
+      left: 0,
+      right: 700,
+      top: 0,
+      width: 700,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect
+
+  return timedGrid
+}
+
+function getCalendarEventCard(title: string) {
+  const eventCard = screen.getByText(title).parentElement
+
+  expect(eventCard).toBeTruthy()
+
+  return eventCard!
+}
+
+function renderTimedCalendarItem({
+  canEditItem,
+  editable = true,
+  item,
+}: {
+  canEditItem?: (item: WorkItem) => boolean
+  editable?: boolean
+  item: WorkItem
+}) {
+  const data = {
+    ...createData(),
+    workItems: [item],
+  }
+
+  useAppStore.setState(data)
+  const updateWorkItemSpy = vi
+    .spyOn(useAppStore.getState(), "updateWorkItem")
+    .mockReturnValue({ status: "updated" })
+
+  render(
+    <CalendarView
+      data={data}
+      items={[item]}
+      editable={editable}
+      canEditItem={canEditItem}
+    />
+  )
+
+  return {
+    data,
+    eventCard: getCalendarEventCard(item.title),
+    timedGrid: getCalendarTimedGrid(),
+    updateWorkItemSpy,
   }
 }
 
@@ -533,7 +671,308 @@ function createCrossTeamEpicGroupedCreateData(): AppData {
   }
 }
 
+describe("CalendarView", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    useAppStore.setState(createEmptyState())
+  })
+
+  it("renders multi-day all-day work as one spanning event", () => {
+    const today = startOfDay(new Date())
+    const item = createWorkItem({
+      id: "multi-day-item",
+      title: "Company holiday",
+      startDate: formatLocalCalendarDate(today),
+      targetDate: formatLocalCalendarDate(addDays(today, 2)),
+    })
+    const data = {
+      ...createData(),
+      workItems: [item],
+    }
+
+    render(<CalendarView data={data} items={[item]} editable={false} />)
+
+    expect(
+      screen.getAllByRole("button", { name: "Company holiday" })
+    ).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole("button", { name: /month/i }))
+
+    expect(
+      screen.getAllByRole("button", { name: "Company holiday" })
+    ).toHaveLength(1)
+  })
+
+  it("keeps timed work visible in month mode", () => {
+    const today = startOfDay(new Date())
+    const date = formatLocalCalendarDate(today)
+    const item = createWorkItem({
+      id: "timed-item",
+      title: "Timed planning",
+      startDate: date,
+      targetDate: date,
+      startTime: "09:00",
+      endTime: "10:00",
+      scheduleTimeZone: "Europe/London",
+    })
+    const data = {
+      ...createData(),
+      workItems: [item],
+    }
+
+    render(<CalendarView data={data} items={[item]} editable={false} />)
+    fireEvent.click(screen.getByRole("button", { name: /month/i }))
+
+    expect(screen.getByText("Timed planning")).toBeInTheDocument()
+  })
+
+  it("renders cross-midnight timed work in hourly columns", () => {
+    const today = startOfDay(new Date())
+    const startDate = formatLocalCalendarDate(today)
+    const endDate = formatLocalCalendarDate(addDays(today, 1))
+    const item = createWorkItem({
+      id: "overnight-item",
+      title: "Overnight support",
+      startDate,
+      targetDate: endDate,
+      startTime: "23:30",
+      endTime: "00:30",
+      scheduleTimeZone: "UTC",
+    })
+    const data = createUtcCalendarData(item)
+
+    render(<CalendarView data={data} items={[item]} editable={false} />)
+
+    expect(
+      screen.queryByRole("button", { name: "Overnight support" })
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByText("Overnight support")).toHaveLength(2)
+    expect(screen.getByText("23:30 - 23:59")).toBeInTheDocument()
+    expect(screen.getByText("00:00 - 00:30")).toBeInTheDocument()
+  })
+
+  it("does not render a terminal midnight timed segment", () => {
+    const today = startOfDay(new Date())
+    const startDate = formatLocalCalendarDate(today)
+    const endDate = formatLocalCalendarDate(addDays(today, 1))
+    const item = createWorkItem({
+      id: "overnight-midnight-item",
+      title: "Midnight handoff",
+      startDate,
+      targetDate: endDate,
+      startTime: "23:30",
+      endTime: "00:00",
+      scheduleTimeZone: "UTC",
+    })
+    const data = createUtcCalendarData(item)
+
+    render(<CalendarView data={data} items={[item]} editable={false} />)
+
+    expect(screen.getAllByText("Midnight handoff")).toHaveLength(1)
+    expect(screen.getByText("23:30 - 23:59")).toBeInTheDocument()
+    expect(screen.queryByText("00:00 - 00:00")).not.toBeInTheDocument()
+  })
+
+  it("moves month navigation by calendar months", () => {
+    const today = startOfDay(new Date())
+
+    render(<CalendarView data={createData()} items={[]} editable={false} />)
+    fireEvent.click(screen.getByRole("button", { name: /month/i }))
+    fireEvent.click(screen.getByRole("button", { name: "Next period" }))
+
+    expect(
+      screen.getByText(format(addMonths(today, 1), "MMMM yyyy"))
+    ).toBeInTheDocument()
+  })
+
+  it("clears floating detail after leaving a hovered calendar item", () => {
+    vi.useFakeTimers()
+    const today = startOfDay(new Date())
+    const item = createWorkItem({
+      id: "hover-item",
+      title: "Hover planning",
+      startDate: formatLocalCalendarDate(today),
+      targetDate: formatLocalCalendarDate(today),
+    })
+    const data = {
+      ...createData(),
+      workItems: [item],
+    }
+
+    render(<CalendarView data={data} items={[item]} editable />)
+
+    const itemButton = screen.getByRole("button", { name: "Hover planning" })
+    fireEvent.mouseEnter(itemButton)
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    expect(screen.getByTestId("floating-detail")).toBeInTheDocument()
+
+    fireEvent.mouseLeave(itemButton)
+    act(() => {
+      vi.advanceTimersByTime(150)
+    })
+
+    expect(screen.queryByTestId("floating-detail")).not.toBeInTheDocument()
+  })
+
+  it("clears timed drag state on pointer cancellation", () => {
+    const item = createTimedCalendarItem({
+      id: "drag-item",
+      title: "Drag planning",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } =
+      renderTimedCalendarItem({ item })
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 120,
+      clientY: 576,
+      pointerId: 7,
+    })
+    fireEvent.pointerCancel(eventCard, {
+      clientX: 120,
+      clientY: 576,
+      pointerId: 7,
+    })
+    fireEvent.pointerUp(timedGrid, {
+      clientX: 260,
+      clientY: 720,
+      pointerId: 7,
+    })
+
+    expect(updateWorkItemSpy).not.toHaveBeenCalled()
+    updateWorkItemSpy.mockRestore()
+  })
+
+  it("blocks drag edits for non-editable calendar items", () => {
+    const item = createTimedCalendarItem({
+      id: "readonly-calendar-item",
+      title: "Read-only planning",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } =
+      renderTimedCalendarItem({
+        canEditItem: () => false,
+        item,
+      })
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 120,
+      clientY: 576,
+      pointerId: 11,
+    })
+    fireEvent.pointerUp(timedGrid, {
+      clientX: 260,
+      clientY: 720,
+      pointerId: 11,
+    })
+    fireEvent.click(eventCard)
+
+    expect(updateWorkItemSpy).not.toHaveBeenCalled()
+    expect(screen.getByTestId("docked-detail")).toHaveAttribute(
+      "data-editable",
+      "false"
+    )
+    updateWorkItemSpy.mockRestore()
+  })
+
+  it("keeps timed event duration when a move is clamped late in the day", () => {
+    const item = createTimedCalendarItem({
+      id: "late-day-drag-item",
+      title: "Late-day planning",
+      startTime: "10:00",
+      endTime: "11:30",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } =
+      renderTimedCalendarItem({ item })
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 120,
+      clientY: 640,
+      pointerId: 12,
+    })
+    fireEvent.pointerUp(timedGrid, {
+      clientX: 120,
+      clientY: 1504,
+      pointerId: 12,
+    })
+
+    expect(updateWorkItemSpy).toHaveBeenCalledWith(
+      "late-day-drag-item",
+      expect.objectContaining({
+        startTime: "22:29",
+        endTime: "23:59",
+      })
+    )
+    updateWorkItemSpy.mockRestore()
+  })
+
+  it("suppresses the click emitted after a timed calendar drag", () => {
+    vi.useFakeTimers()
+    const item = createTimedCalendarItem({
+      id: "drag-click-item",
+      title: "Drag click planning",
+      startTime: "10:00",
+      endTime: "11:00",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } =
+      renderTimedCalendarItem({ item })
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 120,
+      clientY: 640,
+      pointerId: 13,
+    })
+    fireEvent.pointerMove(timedGrid, {
+      clientX: 120,
+      clientY: 704,
+      pointerId: 13,
+    })
+    fireEvent.pointerUp(eventCard, {
+      clientX: 120,
+      clientY: 704,
+      pointerId: 13,
+    })
+    fireEvent.click(eventCard)
+
+    expect(updateWorkItemSpy).toHaveBeenCalled()
+    expect(screen.queryByTestId("docked-detail")).not.toBeInTheDocument()
+
+    act(() => {
+      vi.runOnlyPendingTimers()
+    })
+    updateWorkItemSpy.mockRestore()
+  })
+})
+
 describe("TimelineView primitives", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("updates timeline anchors after the local date changes", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 4, 20, 23, 59, 50))
+
+    render(
+      <TimelineView
+        data={createData()}
+        items={[]}
+        view={createView("timeline")}
+        editable={false}
+      />
+    )
+
+    expect(screen.getByText("W 20")).toHaveClass("text-primary")
+
+    act(() => {
+      vi.setSystemTime(new Date(2026, 4, 21, 0, 0, 2))
+      vi.advanceTimersByTime(12_000)
+    })
+
+    expect(screen.getByText("T 21")).toHaveClass("text-primary")
+  })
+
   it("computes drag patches and rejects invalid timeline drops", () => {
     const data = {
       ...createData(),
@@ -697,18 +1136,7 @@ describe("ListView", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Add item" })[0])
 
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
-        defaultProjectId: null,
-        defaultValues: expect.objectContaining({
-          assigneeId: null,
-          primaryProjectId: null,
-          status: "backlog",
-          visibility: "private",
-        }),
-      })
-    )
+    expectPrivateCreateDialogDefaults()
 
     vi.mocked(openManagedCreateDialog).mockClear()
 
@@ -725,18 +1153,7 @@ describe("ListView", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Add item" })[0])
 
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultTeamId: "team_1",
-        defaultProjectId: null,
-        defaultValues: expect.objectContaining({
-          assigneeId: null,
-          primaryProjectId: null,
-          status: "backlog",
-          visibility: "private",
-        }),
-      })
-    )
+    expectPrivateCreateDialogDefaults()
   })
 
   it("does not synthesize create-context groups for read-only empty surfaces", () => {

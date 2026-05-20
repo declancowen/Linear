@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
@@ -25,6 +25,7 @@ import {
 import { getCurrentUser } from "@/lib/domain/selectors"
 import { type ThemePreference, type UserProfile } from "@/lib/domain/types"
 import { useAppStore, type AppStore } from "@/lib/store/app-store"
+import { getSupportedTimeZones, normalizeTimeZone } from "@/lib/time-zone"
 import { cn } from "@/lib/utils"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
@@ -84,6 +85,7 @@ type PersistedProfileSnapshot = {
     emailAssignments: boolean
     emailDigest: boolean
     theme: ThemePreference
+    timeZone: string
   }
 }
 
@@ -494,6 +496,46 @@ function AppearanceSettingsSection({
   )
 }
 
+function TimeZoneSettingsSection({
+  timeZone,
+  onTimeZoneChange,
+}: {
+  timeZone: string
+  onTimeZoneChange: (value: string) => void
+}) {
+  const timeZones = useMemo(() => getSupportedTimeZones(), [])
+
+  return (
+    <SettingsSection
+      title="Schedule"
+      description="Choose the timezone used when you create timed work items."
+    >
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="profile-time-zone">Time zone</FieldLabel>
+          <FieldContent>
+            <select
+              id="profile-time-zone"
+              value={timeZone}
+              onChange={(event) => onTimeZoneChange(event.target.value)}
+              className="h-9 w-full max-w-md rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              {timeZones.map((option) => (
+                <option key={option} value={option}>
+                  {option.replaceAll("_", " ")}
+                </option>
+              ))}
+            </select>
+          </FieldContent>
+          <FieldDescription>
+            Calendar times from other time zones are converted into this zone.
+          </FieldDescription>
+        </Field>
+      </FieldGroup>
+    </SettingsSection>
+  )
+}
+
 function NotificationsSettingsSection({
   emailMentions,
   emailAssignments,
@@ -663,6 +705,7 @@ function createPersistedProfileSnapshot(
       emailAssignments: currentUser.preferences.emailAssignments,
       emailDigest: currentUser.preferences.emailDigest,
       theme: currentUser.preferences.theme,
+      timeZone: normalizeTimeZone(currentUser.preferences.timeZone),
     },
   }
 }
@@ -715,6 +758,7 @@ function updateStoredUserProfile({
   emailMentions,
   name,
   themePreference,
+  timeZone,
   title,
   userId,
 }: {
@@ -725,6 +769,7 @@ function updateStoredUserProfile({
   emailMentions: boolean
   name: string
   themePreference: ThemePreference
+  timeZone: string
   title: string
   userId: string
 }) {
@@ -742,6 +787,7 @@ function updateStoredUserProfile({
               emailAssignments,
               emailDigest,
               theme: themePreference,
+              timeZone,
             },
           }
         : user
@@ -883,6 +929,7 @@ function useUserProfileDraft(currentUser: UserProfile | null) {
     source.emailAssignments
   )
   const [emailDigest, setEmailDigest] = useState(source.emailDigest)
+  const [timeZone, setTimeZone] = useState(source.timeZone)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const nameLimitState = getTextInputLimitState(name, profileNameConstraints)
   const titleLimitState = getTextInputLimitState(title, profileTitleConstraints)
@@ -920,6 +967,7 @@ function useUserProfileDraft(currentUser: UserProfile | null) {
     setEmailMentions(source.emailMentions)
     setEmailAssignments(source.emailAssignments)
     setEmailDigest(source.emailDigest)
+    setTimeZone(source.timeZone)
   }, [
     source.avatarPreviewUrl,
     source.avatarUrl,
@@ -927,6 +975,7 @@ function useUserProfileDraft(currentUser: UserProfile | null) {
     source.emailAssignments,
     source.emailDigest,
     source.emailMentions,
+    source.timeZone,
     source.id,
     source.name,
     source.title,
@@ -975,6 +1024,8 @@ function useUserProfileDraft(currentUser: UserProfile | null) {
     setEmailAssignments,
     setEmailDigest,
     setEmailMentions,
+    setTimeZone,
+    timeZone,
     setName,
     setTitle,
     title,
@@ -1112,6 +1163,7 @@ function useUserProfilePersistence({
           emailAssignments: draft.emailAssignments,
           emailDigest: draft.emailDigest,
           theme: themePreference,
+          timeZone: draft.timeZone,
         },
       }
 
@@ -1126,6 +1178,7 @@ function useUserProfilePersistence({
             emailAssignments: draft.emailAssignments,
             emailDigest: draft.emailDigest,
             theme: themePreference,
+            timeZone: draft.timeZone,
           },
           {
             ...(draft.avatarImageStorageId
@@ -1149,6 +1202,7 @@ function useUserProfilePersistence({
         emailMentions: draft.emailMentions,
         name: draft.name,
         themePreference,
+        timeZone: draft.timeZone,
         title: draft.title,
         userId: currentUser.id,
       })
@@ -1240,6 +1294,11 @@ export function UserSettingsScreen() {
       <AppearanceSettingsSection
         themePreference={persistence.themePreference}
         onThemePreferenceChange={persistence.handleThemePreferenceChange}
+      />
+
+      <TimeZoneSettingsSection
+        timeZone={draft.timeZone}
+        onTimeZoneChange={draft.setTimeZone}
       />
 
       <NotificationsSettingsSection

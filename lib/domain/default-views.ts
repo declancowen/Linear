@@ -145,7 +145,7 @@ export function getDefaultRouteForViewContext(input: {
     return "/workspace/docs"
   }
 
-  return null
+  return "/workspace/items"
 }
 
 export function isRouteAllowedForViewContext(input: {
@@ -178,7 +178,10 @@ export function isRouteAllowedForViewContext(input: {
   }
 
   if (input.entityKind === "items") {
-    return input.route.startsWith("/workspace/projects/")
+    return (
+      input.route === "/workspace/items" ||
+      input.route.startsWith("/workspace/projects/")
+    )
   }
 
   if (input.entityKind === "projects") {

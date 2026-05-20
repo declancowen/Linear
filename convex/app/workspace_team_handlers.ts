@@ -118,6 +118,7 @@ type UserPreferences = {
   emailAssignments: boolean
   emailDigest: boolean
   theme?: ThemePreference
+  timeZone?: string
 }
 
 type UpdateCurrentUserProfileArgs = ServerAccessArgs & {
