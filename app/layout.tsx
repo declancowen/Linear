@@ -17,6 +17,14 @@ const fontMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
+  title: {
+    default: "Recipe Room",
+    template: "%s · Recipe Room",
+  },
+  applicationName: "Recipe Room",
+  appleWebApp: {
+    title: "Recipe Room",
+  },
   icons: {
     icon: [
       { url: "/icon.svg", type: "image/svg+xml", sizes: "any" },

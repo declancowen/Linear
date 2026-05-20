@@ -6,7 +6,7 @@
 | -------------- | ------------------------------------------- |
 | **Repository** | `Linear`                                    |
 | **Remote**     | `https://github.com/declancowen/Linear.git` |
-| **Branch**     | `codex-work-surfaces-calendar-views`        |
+| **Branch**     | `codex/calendar-settings-and-polish`        |
 | **Stack**      | Next.js, React, Convex, PartyKit, Zustand   |
 
 ## Scope
@@ -28,11 +28,349 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 08:47 BST |
-| **Total turns**       | 26                   |
+| **Last reviewed**     | 2026-05-20 15:03 BST |
+| **Total turns**       | 34                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 56                   |
+| **Resolved findings** | 66                   |
 | **Accepted findings** | 0                    |
+
+## Turn 34 — 2026-05-20 15:03 BST
+
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex/repo-agnostic feedback for calendar timezone and drag    |
+| **Review type** | External PR feedback triage + calendar timezone/drag fixes + gates    |
+| **Reviewer**    | Codex CLI                                                             |
+| **Outcome**     | 3 live PR findings fixed locally; no local open findings              |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the latest Codex and repo-agnostic PR review feedback
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta and analyzer policy signals recorded
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 58 tests
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — initially caught duplicated prop typing in the calendar patch, then passed after extracting `CalendarTimedInteractionProps`: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm lint` — passed
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** latest feedback had two live Codex P2 issues on timezone-aware initial anchors/current-day highlighting and one repo-agnostic Medium issue for hidden-weekend timed drags.
+- **Bug classes / invariants checked:** selected-timezone initial render, timezone-derived today styling, hidden-weekend visible target dates, and Friday-to-Monday timed drag persistence.
+- **Sibling closure:** the same timezone-derived `todayDate` now feeds both the day header and timed-grid background; timed drag persistence now uses the resolved slot date instead of recomputing from visible column deltas.
+- **Architecture rule applied:** timezone and drag-date policy stays in the calendar control/drag owner, with tests at the component boundary rather than scattered offset or date math in callers.
+- **Why this is enough:** component coverage now proves a Los Angeles calendar opens/highlights May 20 when browser time is May 21 UTC, and a hidden-weekend Friday timed drag persists Monday rather than Saturday.
+
+### Resolved / Carried / New findings
+
+#### WPDV-64 — resolved — initial calendar anchor used the browser-local date
+
+- **Severity:** medium
+- **Evidence:** `useCalendarViewControls` initialized `anchorDate` with browser-local `startOfDay(new Date())`, so a selected calendar timezone could open on the wrong date around midnight.
+- **Fix:** initial anchor creation now derives today from the selected/default viewer timezone.
+- **Prevention:** Added a timezone-boundary initial-render regression test.
+
+#### WPDV-65 — resolved — current-day styling used the browser-local date
+
+- **Severity:** medium
+- **Evidence:** `getCalendarDayDisplayState` compared day cells to `new Date()`, which could disagree with timezone-aware Today navigation and the now marker.
+- **Fix:** `CalendarView` computes a timezone-derived `todayDate` and passes it into day-header and timed-grid display state.
+- **Prevention:** Added a timezone-boundary highlighted-day regression test and kept Fallow duplication at zero.
+
+#### WPDV-66 — resolved — hidden-weekend timed drags could save the wrong date
+
+- **Severity:** medium
+- **Evidence:** timed drag preview date math added the visible column delta as calendar days; Friday-to-next-visible-Monday with weekends hidden could save Saturday.
+- **Fix:** timed drag preview now uses the target slot's resolved visible date.
+- **Prevention:** Added a hidden-weekend Friday-to-Monday timed drag regression test.
+
+### Residual risk
+
+- I did not resolve or reply to GitHub review threads; the branch will be pushed for Codex and repo-agnostic automation to re-review the new head.
+
+## Turn 33 — 2026-05-20 14:47 BST
+
+| Field           | Value                                                                  |
+| --------------- | ---------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex feedback for timezone-aware Today anchors                 |
+| **Review type** | External PR feedback triage + calendar timezone fix + gate rerun       |
+| **Reviewer**    | Codex CLI                                                              |
+| **Outcome**     | 1 live PR finding fixed locally; no local open findings                |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the latest Codex review feedback
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 55 tests
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm lint` — passed
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** current PR feedback had one live P2 issue: the Today button used browser-local `startOfDay(new Date())` instead of the selected calendar timezone.
+- **Bug classes / invariants checked:** timezone-aware Today navigation, date-boundary behavior, stale render-time clocks, and existing hidden-weekend Today normalization.
+- **Sibling closure:** the date picker Jump to today path now uses the same timezone-aware date source as the toolbar Today button.
+- **Architecture rule applied:** timezone date derivation stays inside the calendar controls owner and reuses the existing timezone wall-time adapter instead of hand-rolling offsets in UI code.
+- **Why this is enough:** component coverage now asserts a Los Angeles calendar at `2026-05-21T02:00:00.000Z` anchors Today to `2026-05-20`, not the browser/UTC date.
+
+### Resolved / Carried / New findings
+
+#### WPDV-63 — resolved — Today used the browser timezone instead of the selected calendar timezone
+
+- **Severity:** medium
+- **Evidence:** the toolbar Today handler used `startOfDay(new Date())`, which can be a different date than the selected calendar timezone around midnight boundaries.
+- **Fix:** Today now derives the current date from the selected calendar timezone at click time, and the date picker uses the same timezone-aware Today source.
+- **Prevention:** Added a timezone-boundary Today regression test and reran calendar tests, lint, typecheck, and Fallow.
+
+### Residual risk
+
+- I did not resolve or reply to the GitHub review thread; the branch will be pushed with the fix for Codex to re-review.
+
+## Turn 32 — 2026-05-20 14:29 BST
+
+| Field           | Value                                                                  |
+| --------------- | ---------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex feedback for hidden-weekend day-mode entry anchors        |
+| **Review type** | External PR feedback triage + calendar mode-switch fix + gate rerun    |
+| **Reviewer**    | Codex CLI                                                              |
+| **Outcome**     | 1 live PR finding fixed locally; no local open findings                |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the latest Codex review feedback
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 54 tests
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm lint` — passed
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** current PR feedback had one live P2 issue: entering day mode while weekends were hidden could keep a Saturday/Sunday anchor even though day rendering skipped to the next weekday.
+- **Bug classes / invariants checked:** mode-switch anchor normalization, weekend initial load, hidden-weekend day rendering, and next/previous anchor consistency.
+- **Sibling closure:** Turns 30 and 31 covered weekend-toggle and manual anchor writes; this pass covers the remaining mode transition into day view.
+- **Architecture rule applied:** day-mode entry uses the same calendar-owned weekend visibility helper, keeping hidden-weekend policy centralized inside the calendar controls owner.
+- **Why this is enough:** component coverage now asserts that switching from week to day on Saturday with weekends hidden lands on Monday `2026-05-25`.
+
+### Resolved / Carried / New findings
+
+#### WPDV-62 — resolved — entering day mode could preserve a hidden weekend anchor
+
+- **Severity:** medium
+- **Evidence:** `handleCalendarModeChange("day")` reset expansion and changed mode without normalizing the current anchor; a weekend anchor could remain while `getScrollAnchorDay` rendered Monday.
+- **Fix:** mode changes now normalize the current anchor through the weekend visibility helper before applying the next mode.
+- **Prevention:** Added a hidden-weekend mode-switch regression test and reran calendar tests, lint, typecheck, and Fallow.
+
+### Residual risk
+
+- I did not resolve or reply to the GitHub review thread; the branch will be pushed with the fix for Codex to re-review.
+
+## Turn 31 — 2026-05-20 14:19 BST
+
+| Field           | Value                                                                  |
+| --------------- | ---------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex feedback for manual hidden-weekend day anchors            |
+| **Review type** | External PR feedback triage + calendar anchor fix + gate rerun         |
+| **Reviewer**    | Codex CLI                                                              |
+| **Outcome**     | 1 live PR finding fixed locally; no local open findings                |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the latest Codex review feedback
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 53 tests
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm lint` — passed
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** current PR feedback had one live P2 issue: manual anchor updates from the date picker or Today button could set a hidden-weekend day anchor while day rendering skipped to Monday.
+- **Bug classes / invariants checked:** date picker anchor normalization, Today button anchor normalization, hidden-weekend day mode, and preserved weekday/weekend-visible behavior.
+- **Sibling closure:** Turn 30 fixed the weekend toggle path; this pass applies the same calendar-owned normalization to every manual anchor write.
+- **Architecture rule applied:** manual anchor writes now reuse the same pure weekend visibility helper instead of duplicating visibility policy in toolbar/date-picker code.
+- **Why this is enough:** component coverage now asserts that clicking Today while the clock is on Saturday with weekends hidden lands the day view on Monday `2026-05-25`.
+
+### Resolved / Carried / New findings
+
+#### WPDV-61 — resolved — manual day anchors could stay on hidden weekends
+
+- **Severity:** medium
+- **Evidence:** `setCalendarAnchorDate` reset expansion and wrote the selected date directly; with hidden weekends in day mode, a Saturday/Sunday selected through the date picker or Today button diverged from the visible rendered day.
+- **Fix:** `setCalendarAnchorDate` now normalizes all manual day anchors through the weekend visibility helper before storing them.
+- **Prevention:** Added a Today-button regression test for hidden-weekend day mode and reran calendar tests, lint, typecheck, and Fallow.
+
+### Residual risk
+
+- I did not resolve or reply to the GitHub review thread; the branch will be pushed with the fix for Codex to re-review.
+
+## Turn 30 — 2026-05-20 14:06 BST
+
+| Field           | Value                                                              |
+| --------------- | ------------------------------------------------------------------ |
+| **Scope**       | PR #37 Codex feedback for day-view weekend visibility anchoring    |
+| **Review type** | External PR feedback triage + calendar anchor fix + gate rerun     |
+| **Reviewer**    | Codex CLI                                                          |
+| **Outcome**     | 1 live PR finding fixed locally; no local open findings            |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the latest Codex review feedback
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 52 tests
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm lint` — passed
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** current PR feedback had one live P2 issue: hiding weekends in day mode left a Saturday/Sunday anchor active while rendering skipped to the next visible weekday.
+- **Bug classes / invariants checked:** weekend-hide settings, day-mode anchor consistency, visible-day fallback behavior, and keeping visible-weekend anchors unchanged.
+- **Sibling closure:** week navigation was already fixed in Turn 29; this pass covers the adjacent day-mode weekend-toggle path so hidden-weekend rendering and navigation use the same anchor.
+- **Architecture rule applied:** weekend visibility anchoring lives as a pure calendar-owned helper next to visible-day navigation logic, keeping the settings handler thin and testable.
+- **Why this is enough:** component coverage now asserts a hidden-weekend Saturday anchor moves to Monday `2026-05-25`, while enabling weekends keeps the Saturday date unchanged.
+
+### Resolved / Carried / New findings
+
+#### WPDV-60 — resolved — day view stayed anchored on a hidden weekend
+
+- **Severity:** medium
+- **Evidence:** `handleShowWeekendsChange(false)` only reset all-day expansion and toggled the setting; if the current day anchor was Saturday/Sunday, the header/navigation date could diverge from the rendered visible weekday.
+- **Fix:** hiding weekends now re-anchors day mode from a weekend to the next visible weekday before applying the setting.
+- **Prevention:** Added weekend visibility anchor regression coverage and reran calendar tests, lint, typecheck, and Fallow.
+
+### Residual risk
+
+- I did not resolve or reply to the GitHub review thread; the branch will be pushed with the fix for Codex to re-review.
+
+## Turn 29 — 2026-05-20 13:55 BST
+
+| Field           | Value                                                                  |
+| --------------- | ---------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex feedback for hidden-weekend week navigation               |
+| **Review type** | External PR feedback triage + calendar navigation fix + gate rerun     |
+| **Reviewer**    | Codex CLI                                                              |
+| **Outcome**     | 1 live PR finding fixed locally; no local open findings                |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the latest Codex review feedback
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 50 tests
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm lint` — passed
+- `git diff --check` — passed before the review-log update
+
+### Branch-totality proof
+
+- **External findings triaged:** current PR feedback had one live P2 issue: week navigation advanced by raw calendar days, causing overlap when weekends were hidden and the selected day count spans more calendar days than visible days.
+- **Bug classes / invariants checked:** hidden-weekend navigation, visible-day page boundaries, backward/forward symmetry, and five-day workweek alignment.
+- **Sibling closure:** day navigation now also steps by visible days when weekends are hidden; month navigation remains calendar-month based. Five-day hidden-weekend weeks still jump to the next workweek, while seven/fourteen-day hidden-weekend ranges advance to the next non-overlapping visible range.
+- **Architecture rule applied:** visible-day navigation lives in the calendar view owner as a pure helper, separate from schedule interpretation and rendering.
+- **Why this is enough:** component coverage now asserts seven-visible-day hidden-weekend navigation advances from `2026-05-18` to `2026-05-27` and back without overlap, and five-day hidden-weekend navigation advances to the next workweek.
+
+### Resolved / Carried / New findings
+
+#### WPDV-59 — resolved — hidden-weekend week navigation overlapped already visible days
+
+- **Severity:** medium
+- **Evidence:** `moveAnchor` used `addDays(current, weekDayCount)` in week mode; with weekends hidden, `weekDayCount` visible days can span more than `weekDayCount` calendar days.
+- **Fix:** calendar navigation now advances by visible days for day/week modes and keeps month navigation on calendar months.
+- **Prevention:** Added hidden-weekend navigation regression coverage and reran calendar tests, lint, typecheck, and Fallow.
+
+### Residual risk
+
+- I did not resolve or reply to the GitHub review thread; the branch was pushed with the fix for Codex to re-review.
+
+## Turn 28 — 2026-05-20 13:40 BST
+
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex feedback for notification toast read-state behavior      |
+| **Review type** | External PR feedback triage + targeted shell fix + gate rerun         |
+| **Reviewer**    | Codex CLI                                                             |
+| **Outcome**     | 1 live PR finding fixed locally; no local open findings               |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the current Codex review feedback
+- `pnpm vitest run tests/components/notification-routing.test.ts` — passed, 1 file / 9 tests
+- `pnpm exec eslint components/app/shell.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `git diff --check` — passed before the review-log update
+
+### Branch-totality proof
+
+- **External findings triaged:** current PR feedback had one live P1 issue: toast dismissal could mark notifications read even when the user never saw or opened the target.
+- **Bug classes / invariants checked:** notification unread-state preservation, explicit user-open read acknowledgement, already-viewing suppression path, and inbox badge integrity.
+- **Sibling closure:** the already-viewing path still marks the notification read immediately because the target is visible; the toast action still marks read before routing to the target. Passive toast timeout and close no longer mark read.
+- **Architecture rule applied:** notification read state remains tied to explicit viewing/opening behavior, not passive presentation lifecycle callbacks.
+- **Why this is enough:** the only new read mutation introduced by the toast presentation rewrite was the `onDismiss` callback; removing it restores the prior read-state boundary while leaving intentional open/viewed read paths intact.
+
+### Resolved / Carried / New findings
+
+#### WPDV-58 — resolved — notification toast auto-dismiss marked unseen notifications as read
+
+- **Severity:** high
+- **Evidence:** the Sonner toast had an `onDismiss` handler that called `markNotificationRead`, and that dismissal path includes automatic timeout.
+- **Fix:** removed the toast dismissal read mutation. Notifications are now marked read only when the current route is already viewing the target or when the user clicks the toast action to open it.
+- **Prevention:** Re-ran shell lint, notification routing tests, typecheck, and Fallow gate.
+
+### Residual risk
+
+- I did not resolve or reply to the GitHub review thread because the user asked to continue with fixes, not to write back on GitHub.
+
+## Turn 27 — 2026-05-20 13:28 BST
+
+| Field           | Value                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------- |
+| **Scope**       | Fallow/architecture cleanup for calendar work surfaces and final local review loop     |
+| **Review type** | Static-analysis remediation + diff-review + calendar drag correctness challenger pass |
+| **Reviewer**    | Codex CLI                                                                              |
+| **Outcome**     | 1 local bug fixed; Fallow, lint, typecheck, and targeted tests clean; no open findings |
+
+### Commands run
+
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; production health findings `0`, production duplication `0`, dead code `0`; boundary config remains not configured
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; static analyzer signals clean, `changed-file-audit` reported a tool/config error
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 48 tests
+- `pnpm vitest run tests/components/work-surface-view.test.tsx tests/components/work-surface.test.tsx tests/components/views-screen.test.tsx` — passed, 3 files / 67 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `git diff --check` — passed
+- `pnpm audit:deps` — blocked by sandbox DNS/network: `ENOTFOUND registry.npmjs.org`
+- `pnpm build` — blocked by sandbox network while fetching Google Fonts: `Geist Mono` and `Noto Sans`
+
+### Branch-totality proof
+
+- **Fallow cleanup applied:** split the large calendar surface into owner-local render/state helpers and extracted shared event accent resolution for calendar/timeline instead of adding a new cross-app abstraction.
+- **Bug classes / invariants checked:** timed-to-all-day drag semantics, explicit nullable schedule clearing, calendar hover/detail ownership, smooth day/week/month scrolling structure, all-day row expansion reset, shared accent coloring parity across calendar and timeline, and docs/view modal routing regressions covered by existing targeted tests.
+- **Challenger pass:** traced the timed event drag-back-to-all-day path through `CalendarView` and the store update boundary. The first local implementation used `undefined` to clear schedule fields, but the store treats `undefined` as "unchanged"; this was fixed to send explicit `null`.
+- **Architecture rule applied:** schedule interpretation remains in domain helpers, calendar interaction state remains inside the calendar owner, and timeline/calendar styling share only the small presentation-owned accent resolver.
+- **Why this is enough:** the fixed weak variant now has component coverage asserting `startTime`, `endTime`, and `scheduleTimeZone` are cleared with `null`, and the static analyzer gates stayed clean after the refactor.
+
+### Resolved / Carried / New findings
+
+#### WPDV-57 — resolved — dragging timed calendar work into the all-day lane did not actually clear the stored time
+
+- **Severity:** medium
+- **Evidence:** the calendar patch sent `startTime: undefined`, `endTime: undefined`, and `scheduleTimeZone: undefined`; the store update path preserves existing values when patch fields are `undefined`.
+- **Fix:** timed-to-all-day conversion now sends explicit `null` values for all schedule time fields.
+- **Prevention:** Updated the drag-back-to-all-day component test to assert `null` clearing semantics.
+
+### Residual risk
+
+- Local production build and dependency audit could not complete in this sandbox because outbound network/DNS is blocked. CI should rerun those with normal network access.
 
 ## Turn 26 — 2026-05-20 08:47 BST
 

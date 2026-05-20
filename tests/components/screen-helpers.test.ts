@@ -234,8 +234,8 @@ describe("screen helpers", () => {
         new Date("2026-05-10T00:00:00.000"),
       ])
     ).toEqual([
-      { label: "May 9 – May 9", span: 1 },
-      { label: "May 10 – May 10", span: 1 },
+      { label: "May 9", span: 1 },
+      { label: "May 10", span: 1 },
     ])
   })
 })

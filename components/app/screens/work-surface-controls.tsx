@@ -76,6 +76,7 @@ import {
   type OrderingField,
   type Priority,
   type Project,
+  type Team,
   type UserProfile,
   type ViewDefinition,
   type WorkItem,
@@ -446,6 +447,7 @@ type FilterPopoverProps = {
   variant?: "icon" | "chip"
   chipTone?: ChipTone | "adaptive"
   label?: string
+  triggerIcon?: ReactNode
   dashedWhenEmpty?: boolean
 }
 
@@ -453,6 +455,7 @@ type WorkFilterOptions = {
   assignees: UserProfile[]
   filteredLabels: Label[]
   filteredProjects: Project[]
+  filteredTeams: Team[]
   itemTypes: WorkItemType[]
   statusOptions: ReturnType<typeof getStatusOrderForTeam>
 }
@@ -534,6 +537,7 @@ function getWorkFilterActiveCount(filters: ViewDefinition["filters"]) {
     (filters.parentIds?.length ?? 0) +
     filters.itemTypes.length +
     filters.labelIds.length +
+    filters.teamIds.length +
     (filters.visibility?.length ?? 0)
   )
 }
@@ -547,7 +551,13 @@ function useWorkFilterOptions(
     [items, view]
   )
   const teamIds = useMemo(
-    () => [...new Set(scopedItems.map((item) => item.teamId))],
+    () => [
+      ...new Set(
+        scopedItems
+          .filter((item) => (item.visibility ?? "team") === "team")
+          .map((item) => item.teamId)
+      ),
+    ],
     [scopedItems]
   )
   const singleTeamId = teamIds.length === 1 ? teamIds[0] : null
@@ -557,6 +567,7 @@ function useWorkFilterOptions(
   const users = useAppStore((state) => state.users)
   const projects = useAppStore((state) => state.projects)
   const labels = useAppStore((state) => state.labels)
+  const teams = useAppStore((state) => state.teams)
   const userById = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
     [users]
@@ -578,6 +589,10 @@ function useWorkFilterOptions(
     () => labels.filter((entry) => labelIds.has(entry.id)),
     [labelIds, labels]
   )
+  const filteredTeams = useMemo(
+    () => teams.filter((team) => teamIds.includes(team.id)),
+    [teamIds, teams]
+  )
   const itemTypes = useMemo(
     () => getVisibleFilterItemTypes(scopedItems),
     [scopedItems]
@@ -587,6 +602,7 @@ function useWorkFilterOptions(
     assignees,
     filteredLabels,
     filteredProjects,
+    filteredTeams,
     itemTypes,
     statusOptions: getStatusOrderForTeam(singleTeam),
   }
@@ -657,17 +673,18 @@ const FilterTriggerButton = forwardRef<
   {
     activeCount: number
     className?: string
+    icon?: ReactNode
     label: string
     variant: "icon" | "chip"
   } & ComponentPropsWithoutRef<"button">
 >(function FilterTriggerButton(
-  { activeCount, className, label, type = "button", variant, ...props },
+  { activeCount, className, icon, label, type = "button", variant, ...props },
   ref
 ) {
   if (variant === "chip") {
     return (
       <button ref={ref} type={type} className={className} {...props}>
-        <FunnelSimple className="size-3.5" />
+        {icon ?? <FunnelSimple className="size-3.5" />}
         <span>{label}</span>
         {activeCount > 0 ? (
           <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
@@ -687,7 +704,7 @@ const FilterTriggerButton = forwardRef<
       className="relative"
       {...props}
     >
-      <FadersHorizontal className="size-3.5" />
+      {icon ?? <FadersHorizontal className="size-3.5" />}
       {activeCount > 0 ? (
         <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
           {activeCount}
@@ -915,6 +932,45 @@ function VisibilityFilterSection({
   )
 }
 
+function TeamFilterSection({
+  hidden,
+  onToggleFilterValue,
+  query,
+  teams,
+  view,
+}: {
+  hidden: boolean
+  onToggleFilterValue: ToggleWorkFilterValue
+  query: string
+  teams: Team[]
+  view: ViewDefinition
+}) {
+  if (hidden || teams.length <= 1) {
+    return null
+  }
+
+  return (
+    <FilterSection label="Team space" activeCount={view.filters.teamIds.length}>
+      {teams
+        .filter((team) => matchesQuery(team.name, query))
+        .map((team) => (
+          <FilterRow
+            key={team.id}
+            icon={
+              <TeamIconGlyph
+                icon={team.icon}
+                className="size-[13px] text-fg-3"
+              />
+            }
+            label={team.name}
+            active={view.filters.teamIds.includes(team.id)}
+            onClick={() => onToggleFilterValue("teamIds", team.id)}
+          />
+        ))}
+    </FilterSection>
+  )
+}
+
 function ProjectFilterSection({
   hidden,
   onToggleFilterValue,
@@ -1072,6 +1128,13 @@ function WorkFilterSections({
         query={query}
         view={view}
       />
+      <TeamFilterSection
+        hidden={hiddenFilterSet.has("teamIds")}
+        onToggleFilterValue={onToggleFilterValue}
+        query={query}
+        teams={options.filteredTeams}
+        view={view}
+      />
       <ProjectFilterSection
         hidden={hiddenFilterSet.has("projectIds")}
         onToggleFilterValue={onToggleFilterValue}
@@ -1105,6 +1168,7 @@ export function FilterPopover({
   variant = "icon",
   chipTone = "adaptive",
   label = "Filter",
+  triggerIcon,
   dashedWhenEmpty = false,
 }: FilterPopoverProps) {
   const [query, setQuery] = useState("")
@@ -1135,6 +1199,7 @@ export function FilterPopover({
             chipBase,
             getWorkFilterChipClass({ activeCount, chipTone, dashedWhenEmpty })
           )}
+          icon={triggerIcon}
           label={label}
           variant={variant}
         />

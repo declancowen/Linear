@@ -701,6 +701,7 @@ function LabelsPicker({
 
 function CreateWorkItemPropertiesRow({
   showAssignee,
+  showProject,
   team,
   status,
   teamStatuses,
@@ -764,6 +765,7 @@ function CreateWorkItemPropertiesRow({
   onCreateLabel,
 }: {
   showAssignee: boolean
+  showProject: boolean
   team: Team | null
   status: WorkStatus
   teamStatuses: WorkStatus[]
@@ -863,18 +865,20 @@ function CreateWorkItemPropertiesRow({
         />
       ) : null}
 
-      <ProjectPicker
-        open={projectPickerOpen}
-        onOpenChange={setProjectPickerOpen}
-        query={projectQuery}
-        onQueryChange={setProjectQuery}
-        team={team}
-        teamProjects={teamProjects}
-        selectedProject={selectedProject}
-        effectiveProjectId={effectiveProjectId}
-        selectedParentItem={selectedParentItem}
-        onProjectChange={onProjectChange}
-      />
+      {showProject ? (
+        <ProjectPicker
+          open={projectPickerOpen}
+          onOpenChange={setProjectPickerOpen}
+          query={projectQuery}
+          onQueryChange={setProjectQuery}
+          team={team}
+          teamProjects={teamProjects}
+          selectedProject={selectedProject}
+          effectiveProjectId={effectiveProjectId}
+          selectedParentItem={selectedParentItem}
+          onProjectChange={onProjectChange}
+        />
+      ) : null}
 
       <PropertyDateChip
         value={startDate}
@@ -1612,9 +1616,6 @@ function applyTeamSelection({
   setStatus,
   setPriority,
   setAssigneeId,
-  setStartDate,
-  setDueDate,
-  setTargetDate,
   setProjectId,
   setSelectedParentId,
   setSelectedLabelIds,
@@ -1632,9 +1633,6 @@ function applyTeamSelection({
   setStatus: Dispatch<SetStateAction<WorkStatus>>
   setPriority: Dispatch<SetStateAction<Priority>>
   setAssigneeId: Dispatch<SetStateAction<string>>
-  setStartDate: Dispatch<SetStateAction<string | null>>
-  setDueDate: Dispatch<SetStateAction<string | null>>
-  setTargetDate: Dispatch<SetStateAction<string | null>>
   setProjectId: Dispatch<SetStateAction<string>>
   setSelectedParentId: Dispatch<SetStateAction<string>>
   setSelectedLabelIds: Dispatch<SetStateAction<string[]>>
@@ -1655,9 +1653,6 @@ function applyTeamSelection({
   setStatus(nextDefaults.status)
   setPriority(nextDefaults.priority)
   setAssigneeId("none")
-  setStartDate(null)
-  setDueDate(null)
-  setTargetDate(null)
   setProjectId(nextDefaults.projectId)
   setSelectedParentId("none")
   setSelectedLabelIds([])
@@ -1823,7 +1818,10 @@ function createWorkItemFromDialogState({
       visibility === "private" || effectiveAssigneeId === "none"
         ? null
         : effectiveAssigneeId,
-    primaryProjectId: effectiveProjectId === "none" ? null : effectiveProjectId,
+    primaryProjectId:
+      visibility === "private" || effectiveProjectId === "none"
+        ? null
+        : effectiveProjectId,
     startDate,
     dueDate,
     targetDate,
@@ -1988,7 +1986,7 @@ export function CreateWorkItemDialog({
   const [startDate, setStartDate] = useState<string | null>(
     initialDates.startDate
   )
-  const [dueDate, setDueDate] = useState<string | null>(initialDates.dueDate)
+  const [dueDate] = useState<string | null>(initialDates.dueDate)
   const [targetDate, setTargetDate] = useState<string | null>(
     initialDates.targetDate
   )
@@ -2147,9 +2145,6 @@ export function CreateWorkItemDialog({
       setStatus,
       setPriority,
       setAssigneeId,
-      setStartDate,
-      setDueDate,
-      setTargetDate,
       setProjectId,
       setSelectedParentId,
       setSelectedLabelIds,
@@ -2243,6 +2238,7 @@ export function CreateWorkItemDialog({
 
         <CreateWorkItemPropertiesRow
           showAssignee={!privateTaskMode}
+          showProject={!privateTaskMode}
           team={team}
           status={status}
           teamStatuses={teamStatuses}

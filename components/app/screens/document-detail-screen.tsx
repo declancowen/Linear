@@ -14,7 +14,7 @@ import {
   type RefObject,
 } from "react"
 import { useShallow } from "zustand/react/shallow"
-import { Trash } from "@phosphor-icons/react"
+import { Bell, Trash } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import {
@@ -586,10 +586,15 @@ function DocumentMentionNotificationBanner({
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
-      <div className="pointer-events-auto flex w-full max-w-xl items-center justify-between gap-4 rounded-2xl border bg-background/95 px-4 py-3 shadow-lg backdrop-blur">
-        <div className="min-w-0">
-          <div className="text-sm font-medium">Send mention notifications</div>
-          <div className="text-xs text-muted-foreground">
+      <div className="cn-toast group pointer-events-auto flex w-full max-w-xl items-center gap-2.5 rounded-lg border border-line/60 bg-background/95 px-3.5 py-2.5 shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)] backdrop-blur-xl [--toast-accent:var(--brand)]">
+        <span className="flex size-4 shrink-0 items-center justify-center text-[color:var(--toast-accent)]">
+          <Bell weight="fill" className="size-[15px]" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] leading-5 font-medium text-foreground">
+            Send mention notifications
+          </div>
+          <div className="text-[12px] leading-4 text-fg-3">
             {formatMentionCountLabel(pendingMentionSummary.mentionCount)} across{" "}
             {formatRecipientCountLabel(pendingMentionSummary.recipientCount)}{" "}
             are ready to send for this document.
@@ -599,6 +604,7 @@ function DocumentMentionNotificationBanner({
           size="sm"
           disabled={sendingMentionNotifications}
           onClick={onSend}
+          className="shrink-0"
         >
           {sendingMentionNotifications ? "Sending..." : "Send notifications"}
         </Button>

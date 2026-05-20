@@ -86,7 +86,16 @@ import {
   type WorkSurfaceScope,
 } from "./work-surface-view/drag-state"
 export { TimelineView } from "./work-surface-view/timeline-view"
-export { CalendarView } from "./work-surface-view/calendar-view"
+export {
+  CalendarSettingsButton,
+  CalendarView,
+  type CalendarColorMode,
+  type CalendarMode,
+  type CalendarTimeInterval,
+  type CalendarViewControls,
+  type CalendarWeekDayCount,
+  type CalendarWeekStart,
+} from "./work-surface-view/calendar-view"
 import { cn } from "@/lib/utils"
 
 const DRAG_HOLD_DELAY_MS = 160

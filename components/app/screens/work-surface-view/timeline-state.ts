@@ -146,24 +146,31 @@ export function buildTimelineWeeks(days: Date[]) {
   }
 
   if (currentSpan > 0) {
-    weeks.push({
-      label:
-        format(days[days.length - currentSpan], "MMM d") +
-        " – " +
-        format(days[days.length - 1], "MMM d"),
-      span: currentSpan,
-    })
+    weeks.push(
+      buildTimelineWeekLabel(
+        days[days.length - currentSpan],
+        days[days.length - 1],
+        currentSpan
+      )
+    )
   }
 
   return weeks
 }
 
 function buildTimelineWeek(days: Date[], nextDay: Date, span: number) {
+  return buildTimelineWeekLabel(
+    subDays(nextDay, span),
+    subDays(nextDay, 1),
+    span
+  )
+}
+
+function buildTimelineWeekLabel(start: Date, end: Date, span: number) {
+  const startLabel = format(start, "MMM d")
+
   return {
-    label:
-      format(subDays(nextDay, span), "MMM d") +
-      " – " +
-      format(subDays(nextDay, 1), "MMM d"),
+    label: span === 1 ? startLabel : `${startLabel} – ${format(end, "MMM d")}`,
     span,
   }
 }

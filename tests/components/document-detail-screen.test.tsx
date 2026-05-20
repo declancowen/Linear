@@ -318,6 +318,7 @@ vi.mock("@/components/ui/confirm-dialog", () => ({
 }))
 
 vi.mock("@phosphor-icons/react", () => ({
+  Bell: () => null,
   Trash: () => null,
 }))
 

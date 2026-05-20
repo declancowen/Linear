@@ -88,7 +88,12 @@ vi.mock("@/components/app/screens/work-surface", () => ({
 vi.mock("@/components/app/screens/work-surface-view", () => ({
   CalendarView: (props: Record<string, unknown>) => {
     calendarViewMock(props)
-    return <div>Calendar surface</div>
+    return (
+      <div>
+        <div>Calendar surface</div>
+        {props.toolbarAccessory as ReactNode}
+      </div>
+    )
   },
 }))
 
@@ -109,102 +114,138 @@ vi.mock("@/components/app/screens/document-ui", () => ({
   DocumentAuthorAvatar: () => null,
 }))
 
-vi.mock("@/components/app/screens/work-surface-controls", () => ({
-  GroupChipPopover: ({
-    onUpdateView,
-    view,
-  }: {
-    onUpdateView?: (patch: { grouping?: string }) => void
-    view: ViewDefinition
-  }) => (
-    <button
-      type="button"
-      onClick={() =>
-        onUpdateView?.({
-          grouping: view.grouping === "status" ? "priority" : "status",
-        })
-      }
-    >
-      {`Group:${view.grouping}`}
-    </button>
-  ),
-  PROJECT_DISPLAY_PROPERTY_OPTIONS: [
-    "id",
-    "status",
-    "assignee",
-    "priority",
-    "updated",
-    "dueDate",
-  ],
-  PROJECT_GROUP_OPTIONS: ["status", "priority"],
-  ProjectFilterPopover: ({
+vi.mock("@/components/app/screens/work-surface-controls", () => {
+  function StatusFilterButton({
+    label,
     onToggleFilterValue,
     view,
   }: {
+    label: string
     onToggleFilterValue?: (key: "status", value: string) => void
     view: ViewDefinition
-  }) => (
-    <button
-      type="button"
-      onClick={() => onToggleFilterValue?.("status", "in-progress")}
-    >
-      {`Status filters:${view.filters.status.join(",") || "none"}`}
-    </button>
-  ),
-  ProjectLayoutTabs: ({
-    onUpdateView,
-    view,
-  }: {
-    onUpdateView?: (patch: { layout?: "list" | "board" }) => void
-    view: ViewDefinition
-  }) => (
-    <button
-      type="button"
-      onClick={() => {
-        const layout = view.layout === "list" ? "board" : "list"
+  }) {
+    return (
+      <button
+        type="button"
+        onClick={() => onToggleFilterValue?.("status", "in-progress")}
+      >
+        {`${label} filters:${view.filters.status.join(",") || "none"}`}
+      </button>
+    )
+  }
 
-        if (onUpdateView) {
-          onUpdateView({ layout })
-          return
+  return {
+    GroupChipPopover: ({
+      onUpdateView,
+      view,
+    }: {
+      onUpdateView?: (patch: { grouping?: string }) => void
+      view: ViewDefinition
+    }) => (
+      <button
+        type="button"
+        onClick={() =>
+          onUpdateView?.({
+            grouping: view.grouping === "status" ? "priority" : "status",
+          })
         }
+      >
+        {`Group:${view.grouping}`}
+      </button>
+    ),
+    PROJECT_DISPLAY_PROPERTY_OPTIONS: [
+      "id",
+      "status",
+      "assignee",
+      "priority",
+      "updated",
+      "dueDate",
+    ],
+    PROJECT_GROUP_OPTIONS: ["status", "priority"],
+    ProjectFilterPopover: ({
+      onToggleFilterValue,
+      view,
+    }: {
+      onToggleFilterValue?: (key: "status", value: string) => void
+      view: ViewDefinition
+    }) => (
+      <StatusFilterButton
+        label="Status"
+        view={view}
+        onToggleFilterValue={onToggleFilterValue}
+      />
+    ),
+    FilterPopover: ({
+      onToggleFilterValue,
+      view,
+    }: {
+      onToggleFilterValue?: (key: "status", value: string) => void
+      view: ViewDefinition
+    }) => (
+      <StatusFilterButton
+        label="Calendar"
+        view={view}
+        onToggleFilterValue={onToggleFilterValue}
+      />
+    ),
+    ProjectLayoutTabs: ({
+      onUpdateView,
+      view,
+    }: {
+      onUpdateView?: (patch: { layout?: "list" | "board" }) => void
+      view: ViewDefinition
+    }) => (
+      <button
+        type="button"
+        onClick={() => {
+          const layout = view.layout === "list" ? "board" : "list"
 
-        useAppStore.getState().updateViewConfig(view.id, { layout })
-      }}
-    >
-      {`Layout:${view.layout}`}
-    </button>
-  ),
-  ProjectSortChipPopover: ({
-    onUpdateView,
-    view,
-  }: {
-    onUpdateView?: (patch: { ordering?: string }) => void
-    view: ViewDefinition
-  }) => (
-    <button
-      type="button"
-      onClick={() =>
-        onUpdateView?.({
-          ordering: view.ordering === "priority" ? "updatedAt" : "priority",
-        })
-      }
-    >
-      {`Sort:${view.ordering}`}
-    </button>
-  ),
-  PropertiesChipPopover: ({
-    onToggleDisplayProperty,
-    view,
-  }: {
-    onToggleDisplayProperty?: (property: "dueDate") => void
-    view: ViewDefinition
-  }) => (
-    <button type="button" onClick={() => onToggleDisplayProperty?.("dueDate")}>
-      {`Props:${view.displayProps.join(",")}`}
-    </button>
-  ),
-  getGroupFieldOptionLabel: (value: string) => value,
-}))
+          if (onUpdateView) {
+            onUpdateView({ layout })
+            return
+          }
+
+          useAppStore.getState().updateViewConfig(view.id, { layout })
+        }}
+      >
+        {`Layout:${view.layout}`}
+      </button>
+    ),
+    ProjectSortChipPopover: ({
+      onUpdateView,
+      view,
+    }: {
+      onUpdateView?: (patch: { ordering?: string }) => void
+      view: ViewDefinition
+    }) => (
+      <button
+        type="button"
+        onClick={() =>
+          onUpdateView?.({
+            ordering: view.ordering === "priority" ? "updatedAt" : "priority",
+          })
+        }
+      >
+        {`Sort:${view.ordering}`}
+      </button>
+    ),
+    PropertiesChipPopover: ({
+      onToggleDisplayProperty,
+      view,
+    }: {
+      onToggleDisplayProperty?: (property: "dueDate") => void
+      view: ViewDefinition
+    }) => (
+      <button
+        type="button"
+        onClick={() => onToggleDisplayProperty?.("dueDate")}
+      >
+        {`Props:${view.displayProps.join(",")}`}
+      </button>
+    ),
+    getGroupFieldOptionLabel: (value: string) => value,
+  }
+})
 
 vi.mock("@/components/app/screens/directory-controls", () => ({
   ViewsDirectoryFilterPopover: () => null,
@@ -361,6 +402,42 @@ describe("ViewsScreen", () => {
     expect(
       (calendarViewMock.mock.lastCall?.[0] as { items: { id: string }[] }).items
     ).toHaveLength(2)
+  })
+
+  it("uses the shared work filter popover for the user calendar", () => {
+    useAppStore.setState(
+      createTestAppData({
+        workItems: [
+          createTestWorkItem("assigned", {
+            assigneeId: "user_1",
+            status: "todo",
+            visibility: "team",
+          }),
+          createTestWorkItem("private", {
+            creatorId: "user_1",
+            status: "in-progress",
+            visibility: "private",
+          }),
+          createTestWorkItem("not-mine", {
+            assigneeId: null,
+            creatorId: "user_2",
+            status: "in-progress",
+            visibility: "team",
+          }),
+        ],
+      })
+    )
+
+    render(<UserCalendarScreen />)
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Calendar filters:none" })
+    )
+
+    expect(
+      (calendarViewMock.mock.lastCall?.[0] as { items: { id: string }[] }).items
+    ).toEqual([expect.objectContaining({ id: "private" })])
+    expect(screen.getByText("Calendar filters:in-progress")).toBeInTheDocument()
   })
 
   it("renders docs content loading, empty, list, and board states", () => {
