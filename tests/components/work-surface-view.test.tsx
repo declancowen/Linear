@@ -86,6 +86,7 @@ vi.mock("@/components/app/screens/work-item-detail-screen", () => ({
 
 import {
   BoardView,
+  CalendarSettingsButton,
   CalendarView,
   ListView,
   TimelineView,
@@ -311,6 +312,34 @@ function createUtcCalendarData(item: WorkItem): AppData {
   }
 }
 
+function createCalendarDataWithItems(items: WorkItem[]): AppData {
+  return {
+    ...createData(),
+    workItems: items,
+  }
+}
+
+function createAllDayCalendarItems({
+  count,
+  date = formatLocalCalendarDate(startOfDay(new Date())),
+  idPrefix,
+  titlePrefix,
+}: {
+  count: number
+  date?: string
+  idPrefix: string
+  titlePrefix: string
+}) {
+  return Array.from({ length: count }, (_, index) =>
+    createWorkItem({
+      id: `${idPrefix}-${index + 1}`,
+      title: `${titlePrefix} ${index + 1}`,
+      startDate: date,
+      targetDate: date,
+    })
+  )
+}
+
 function createTimedCalendarItem(overrides: Partial<WorkItem> = {}) {
   const date = formatLocalCalendarDate(startOfDay(new Date()))
 
@@ -343,7 +372,9 @@ function getCalendarTimedGrid() {
 }
 
 function getCalendarEventCard(title: string) {
-  const eventCard = screen.getByText(title).parentElement
+  const eventCard = screen
+    .getByText(title)
+    .closest<HTMLElement>("[data-calendar-timed-event]")
 
   expect(eventCard).toBeTruthy()
 
@@ -673,6 +704,7 @@ function createCrossTeamEpicGroupedCreateData(): AppData {
 
 describe("CalendarView", () => {
   afterEach(() => {
+    vi.clearAllMocks()
     vi.useRealTimers()
     useAppStore.setState(createEmptyState())
   })
@@ -747,8 +779,8 @@ describe("CalendarView", () => {
       screen.queryByRole("button", { name: "Overnight support" })
     ).not.toBeInTheDocument()
     expect(screen.getAllByText("Overnight support")).toHaveLength(2)
-    expect(screen.getByText("23:30 - 23:59")).toBeInTheDocument()
-    expect(screen.getByText("00:00 - 00:30")).toBeInTheDocument()
+    expect(screen.getByText("23:30 – 23:59")).toBeInTheDocument()
+    expect(screen.getByText("00:00 – 00:30")).toBeInTheDocument()
   })
 
   it("does not render a terminal midnight timed segment", () => {
@@ -769,7 +801,7 @@ describe("CalendarView", () => {
     render(<CalendarView data={data} items={[item]} editable={false} />)
 
     expect(screen.getAllByText("Midnight handoff")).toHaveLength(1)
-    expect(screen.getByText("23:30 - 23:59")).toBeInTheDocument()
+    expect(screen.getByText("23:30 – 23:59")).toBeInTheDocument()
     expect(screen.queryByText("00:00 - 00:00")).not.toBeInTheDocument()
   })
 
@@ -783,6 +815,241 @@ describe("CalendarView", () => {
     expect(
       screen.getByText(format(addMonths(today, 1), "MMMM yyyy"))
     ).toBeInTheDocument()
+  })
+
+  it("keeps trackpad wheel events as native calendar scrolling", () => {
+    const today = startOfDay(new Date())
+
+    render(<CalendarView data={createData()} items={[]} editable={false} />)
+
+    fireEvent.wheel(screen.getByTestId("calendar-view"), {
+      deltaX: 180,
+      deltaY: 0,
+    })
+
+    expect(screen.getByText(format(today, "MMMM yyyy"))).toBeInTheDocument()
+  })
+
+  it("anchors day view after its backward scroll buffer", () => {
+    const scrollWidthSpy = vi
+      .spyOn(HTMLElement.prototype, "scrollWidth", "get")
+      .mockReturnValue(29000)
+
+    try {
+      render(
+        <CalendarView
+          data={createData()}
+          items={[]}
+          editable={false}
+          mode="day"
+        />
+      )
+
+      expect(screen.getByTestId("calendar-timed-grid")).toHaveStyle({
+        width: "2900%",
+      })
+      expect(
+        screen.getByTestId("calendar-day-scroll-container").scrollLeft
+      ).toBe(14000)
+    } finally {
+      scrollWidthSpy.mockRestore()
+    }
+  })
+
+  it("exposes shared calendar settings controls", () => {
+    const onColorModeChange = vi.fn()
+    const onTimeIntervalChange = vi.fn()
+    const onMaxAllDayEventsChange = vi.fn()
+    const onTimeZoneChange = vi.fn()
+
+    render(
+      <CalendarSettingsButton
+        colorMode="status"
+        onColorModeChange={onColorModeChange}
+        timeInterval="hour"
+        onTimeIntervalChange={onTimeIntervalChange}
+        maxAllDayEvents={3}
+        onMaxAllDayEventsChange={onMaxAllDayEventsChange}
+        timeZone="UTC"
+        onTimeZoneChange={onTimeZoneChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Calendar settings" }))
+
+    expect(screen.getByText("Color formatting")).toBeInTheDocument()
+    expect(
+      screen.getByRole("combobox", { name: "Color formatting" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("combobox", { name: "Time interval" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("combobox", { name: "Max all-day events shown" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("combobox", { name: "Weekends" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("combobox", { name: "Week starts on" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("combobox", { name: "Time zone" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("combobox", { name: "Show number of days" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows the number of days setting only for week calendars", () => {
+    const props = {
+      colorMode: "status" as const,
+      onColorModeChange: vi.fn(),
+      timeInterval: "hour" as const,
+      onTimeIntervalChange: vi.fn(),
+      maxAllDayEvents: 3,
+      onMaxAllDayEventsChange: vi.fn(),
+      weekDayCount: 7 as const,
+      onWeekDayCountChange: vi.fn(),
+      showWeekends: true,
+      onShowWeekendsChange: vi.fn(),
+      timeZone: "UTC",
+      onTimeZoneChange: vi.fn(),
+    }
+
+    const { rerender } = render(
+      <CalendarSettingsButton {...props} showWeekDayCount={false} />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Calendar settings" }))
+
+    expect(
+      screen.queryByRole("combobox", { name: "Show number of days" })
+    ).not.toBeInTheDocument()
+
+    rerender(<CalendarSettingsButton {...props} showWeekDayCount />)
+
+    expect(
+      screen.getByRole("combobox", { name: "Show number of days" })
+    ).toBeInTheDocument()
+  })
+
+  it("collapses extra all-day rows and expands them on demand", () => {
+    const items = createAllDayCalendarItems({
+      count: 5,
+      idPrefix: "all-day-limit",
+      titlePrefix: "All-day limit",
+    })
+    const data = createCalendarDataWithItems(items)
+
+    render(
+      <CalendarView
+        data={data}
+        items={items}
+        editable={false}
+        maxAllDayEvents={3}
+      />
+    )
+
+    expect(screen.getByText("All-day limit 1")).toBeInTheDocument()
+    expect(screen.getByText("All-day limit 2")).toBeInTheDocument()
+    expect(screen.getByText("All-day limit 3")).toBeInTheDocument()
+    expect(screen.queryByText("All-day limit 4")).not.toBeInTheDocument()
+    expect(screen.queryByText("All-day limit 5")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("+ 2 more"))
+
+    expect(screen.getByText("All-day limit 4")).toBeInTheDocument()
+    expect(screen.getByText("All-day limit 5")).toBeInTheDocument()
+    expect(screen.getByText("Collapse events")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("Collapse events"))
+
+    expect(screen.queryByText("All-day limit 4")).not.toBeInTheDocument()
+    expect(screen.queryByText("All-day limit 5")).not.toBeInTheDocument()
+    expect(screen.getByText("+ 2 more")).toBeInTheDocument()
+  })
+
+  it("resets expanded all-day rows after navigating away and back", () => {
+    const items = createAllDayCalendarItems({
+      count: 5,
+      idPrefix: "all-day-reset",
+      titlePrefix: "All-day reset",
+    })
+    const data = createCalendarDataWithItems(items)
+
+    render(
+      <CalendarView
+        data={data}
+        items={items}
+        editable={false}
+        maxAllDayEvents={3}
+      />
+    )
+
+    fireEvent.click(screen.getByText("+ 2 more"))
+    expect(screen.getByText("All-day reset 5")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Next period" }))
+    fireEvent.click(screen.getByRole("button", { name: "Previous period" }))
+
+    expect(screen.queryByText("All-day reset 4")).not.toBeInTheDocument()
+    expect(screen.queryByText("All-day reset 5")).not.toBeInTheDocument()
+    expect(screen.getByText("+ 2 more")).toBeInTheDocument()
+  })
+
+  it("opens the day view from hidden month events", () => {
+    const today = startOfDay(new Date())
+    const date = formatLocalCalendarDate(today)
+    const items = Array.from({ length: 8 }, (_, index) =>
+      createWorkItem({
+        id: `month-more-${index + 1}`,
+        title: `Month hidden ${index + 1}`,
+        startDate: date,
+        targetDate: date,
+        startTime: `${String(9 + index).padStart(2, "0")}:00`,
+        endTime: `${String(10 + index).padStart(2, "0")}:00`,
+        scheduleTimeZone: "UTC",
+      })
+    )
+    const data = createUtcCalendarData(items[0]!)
+
+    render(
+      <CalendarView
+        data={{ ...data, workItems: items }}
+        items={items}
+        editable={false}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /month/i }))
+    fireEvent.click(screen.getAllByText(/\+ \d+ more/)[0]!)
+
+    expect(screen.getByText(format(today, "d MMMM yyyy"))).toBeInTheDocument()
+    expect(screen.getByText("Month hidden 8")).toBeInTheDocument()
+  })
+
+  it("sizes the all-day lane to the visible all-day row count", () => {
+    const items = createAllDayCalendarItems({
+      count: 2,
+      idPrefix: "all-day-fit",
+      titlePrefix: "All-day fit",
+    })
+    const data = createCalendarDataWithItems(items)
+
+    render(
+      <CalendarView
+        data={data}
+        items={items}
+        editable={false}
+        maxAllDayEvents={3}
+      />
+    )
+
+    expect(screen.getByTestId("calendar-all-day-lane")).toHaveStyle({
+      minHeight: "68px",
+    })
+    expect(screen.queryByText(/more/)).not.toBeInTheDocument()
   })
 
   it("clears floating detail after leaving a hovered calendar item", () => {
@@ -822,8 +1089,9 @@ describe("CalendarView", () => {
       id: "drag-item",
       title: "Drag planning",
     })
-    const { eventCard, timedGrid, updateWorkItemSpy } =
-      renderTimedCalendarItem({ item })
+    const { eventCard, timedGrid, updateWorkItemSpy } = renderTimedCalendarItem(
+      { item }
+    )
 
     fireEvent.pointerDown(eventCard, {
       clientX: 120,
@@ -850,11 +1118,12 @@ describe("CalendarView", () => {
       id: "readonly-calendar-item",
       title: "Read-only planning",
     })
-    const { eventCard, timedGrid, updateWorkItemSpy } =
-      renderTimedCalendarItem({
+    const { eventCard, timedGrid, updateWorkItemSpy } = renderTimedCalendarItem(
+      {
         canEditItem: () => false,
         item,
-      })
+      }
+    )
 
     fireEvent.pointerDown(eventCard, {
       clientX: 120,
@@ -883,12 +1152,18 @@ describe("CalendarView", () => {
       startTime: "10:00",
       endTime: "11:30",
     })
-    const { eventCard, timedGrid, updateWorkItemSpy } =
-      renderTimedCalendarItem({ item })
+    const { eventCard, timedGrid, updateWorkItemSpy } = renderTimedCalendarItem(
+      { item }
+    )
 
     fireEvent.pointerDown(eventCard, {
       clientX: 120,
       clientY: 640,
+      pointerId: 12,
+    })
+    fireEvent.pointerMove(timedGrid, {
+      clientX: 120,
+      clientY: 1504,
       pointerId: 12,
     })
     fireEvent.pointerUp(timedGrid, {
@@ -907,6 +1182,223 @@ describe("CalendarView", () => {
     updateWorkItemSpy.mockRestore()
   })
 
+  it("opens details on click without starting a timed calendar drag", () => {
+    const item = createTimedCalendarItem({
+      id: "click-calendar-item",
+      title: "Click planning",
+      startTime: "10:00",
+      endTime: "11:00",
+    })
+    const { eventCard, updateWorkItemSpy } = renderTimedCalendarItem({ item })
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 120,
+      clientY: 640,
+      pointerId: 14,
+    })
+    fireEvent.pointerUp(eventCard, {
+      clientX: 120,
+      clientY: 640,
+      pointerId: 14,
+    })
+    fireEvent.click(eventCard)
+
+    expect(updateWorkItemSpy).not.toHaveBeenCalled()
+    expect(screen.getByTestId("docked-detail")).toBeInTheDocument()
+    updateWorkItemSpy.mockRestore()
+  })
+
+  it("closes the calendar detail sidebar when a blank slot is clicked", () => {
+    const item = createTimedCalendarItem({
+      id: "blank-close-item",
+      title: "Blank close planning",
+      startTime: "10:00",
+      endTime: "11:00",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } = renderTimedCalendarItem(
+      { item }
+    )
+
+    fireEvent.click(eventCard)
+
+    expect(screen.getByTestId("docked-detail")).toBeInTheDocument()
+
+    fireEvent.click(timedGrid)
+
+    expect(screen.queryByTestId("docked-detail")).not.toBeInTheDocument()
+    updateWorkItemSpy.mockRestore()
+  })
+
+  it("opens the create modal with private schedule defaults on blank double click", () => {
+    render(
+      <CalendarView
+        data={createData()}
+        items={[]}
+        editable
+        createContext={{
+          defaultTeamId: "team_1",
+          defaultProjectId: "project_1",
+          defaultVisibility: "private",
+        }}
+      />
+    )
+
+    const timedGrid = getCalendarTimedGrid()
+
+    fireEvent.doubleClick(timedGrid, {
+      clientX: 120,
+      clientY: 640,
+    })
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultProjectId: null,
+        defaultTeamId: "team_1",
+        initialType: "task",
+        kind: "workItem",
+        defaultValues: expect.objectContaining({
+          primaryProjectId: null,
+          scheduleTimeZone: expect.any(String),
+          startTime: "10:00",
+          endTime: "11:00",
+          visibility: "private",
+        }),
+      })
+    )
+  })
+
+  it("opens the create modal with a dragged calendar time range", () => {
+    render(
+      <CalendarView
+        data={createData()}
+        items={[]}
+        editable
+        createContext={{
+          defaultTeamId: "team_1",
+          defaultProjectId: "project_1",
+        }}
+      />
+    )
+
+    const timedGrid = getCalendarTimedGrid()
+
+    fireEvent.pointerDown(timedGrid, {
+      clientX: 120,
+      clientY: 640,
+      pointerId: 17,
+    })
+    fireEvent.pointerMove(timedGrid, {
+      clientX: 120,
+      clientY: 704,
+      pointerId: 17,
+    })
+
+    expect(screen.getByTestId("calendar-selection-preview")).toBeInTheDocument()
+
+    fireEvent.pointerUp(timedGrid, {
+      clientX: 120,
+      clientY: 704,
+      pointerId: 17,
+    })
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultProjectId: "project_1",
+        defaultTeamId: "team_1",
+        kind: "workItem",
+        defaultValues: expect.objectContaining({
+          scheduleTimeZone: expect.any(String),
+          startTime: "10:00",
+          endTime: "11:00",
+        }),
+      })
+    )
+  })
+
+  it("shows a visible preview while dragging timed calendar items", () => {
+    const item = createTimedCalendarItem({
+      id: "preview-calendar-item",
+      title: "Preview planning",
+      startTime: "10:00",
+      endTime: "11:00",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } = renderTimedCalendarItem(
+      { item }
+    )
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 120,
+      clientY: 640,
+      pointerId: 15,
+    })
+    fireEvent.pointerMove(timedGrid, {
+      clientX: 120,
+      clientY: 704,
+      pointerId: 15,
+    })
+
+    expect(screen.getByTestId("calendar-drag-preview")).toHaveTextContent(
+      "Preview planning"
+    )
+    expect(screen.getByTestId("calendar-drag-preview")).toHaveTextContent(
+      "11:00 – 12:00"
+    )
+
+    fireEvent.pointerUp(timedGrid, {
+      clientX: 120,
+      clientY: 704,
+      pointerId: 15,
+    })
+
+    expect(
+      screen.queryByTestId("calendar-drag-preview")
+    ).not.toBeInTheDocument()
+    updateWorkItemSpy.mockRestore()
+  })
+
+  it("converts a timed calendar item back to all day when dragged into the all-day lane", () => {
+    const item = createTimedCalendarItem({
+      id: "timed-to-all-day-item",
+      title: "Timed to all day",
+      startTime: "10:00",
+      endTime: "11:00",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } = renderTimedCalendarItem(
+      { item }
+    )
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 120,
+      clientY: 640,
+      pointerId: 16,
+    })
+    fireEvent.pointerMove(timedGrid, {
+      clientX: 120,
+      clientY: -12,
+      pointerId: 16,
+    })
+
+    expect(
+      screen.getByTestId("calendar-all-day-drag-preview")
+    ).toHaveTextContent("Timed to all day")
+
+    fireEvent.pointerUp(timedGrid, {
+      clientX: 120,
+      clientY: -12,
+      pointerId: 16,
+    })
+
+    expect(updateWorkItemSpy).toHaveBeenCalledWith(
+      "timed-to-all-day-item",
+      expect.objectContaining({
+        startTime: null,
+        endTime: null,
+        scheduleTimeZone: null,
+      })
+    )
+    updateWorkItemSpy.mockRestore()
+  })
+
   it("suppresses the click emitted after a timed calendar drag", () => {
     vi.useFakeTimers()
     const item = createTimedCalendarItem({
@@ -915,8 +1407,9 @@ describe("CalendarView", () => {
       startTime: "10:00",
       endTime: "11:00",
     })
-    const { eventCard, timedGrid, updateWorkItemSpy } =
-      renderTimedCalendarItem({ item })
+    const { eventCard, timedGrid, updateWorkItemSpy } = renderTimedCalendarItem(
+      { item }
+    )
 
     fireEvent.pointerDown(eventCard, {
       clientX: 120,
@@ -1033,10 +1526,19 @@ describe("TimelineView primitives", () => {
 
     render(
       <>
-        <TimelineLabelRow data={data} item={item} />
+        <TimelineLabelRow
+          data={data}
+          item={item}
+          accentMode="status"
+          accentIndex={0}
+          labelsById={null}
+        />
         <TimelineBar
           data={data}
           item={item}
+          accentMode="status"
+          accentIndex={0}
+          labelsById={null}
           span={1}
           onCaptureDragOffset={vi.fn()}
           onResizeStart={vi.fn()}

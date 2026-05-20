@@ -26,6 +26,8 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
 
 vi.mock("@/lib/domain/selectors", () => ({
   canEditTeam: () => true,
+  canEditWorkspace: () => true,
+  getUser: () => null,
   getVisibleItemsForView: getVisibleItemsForViewMock,
   getViewByRoute: (
     data: { views: Array<{ route: string }> },

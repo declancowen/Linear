@@ -8,6 +8,7 @@ import { Plus } from "@phosphor-icons/react"
 import {
   canEditTeam,
   canEditWorkspace,
+  getUser,
   getVisibleItemsForView,
   getViewByRoute,
 } from "@/lib/domain/selectors"
@@ -25,6 +26,7 @@ import {
   type WorkItem,
   type WorkItemVisibility,
 } from "@/lib/domain/types"
+import { getBrowserTimeZone, normalizeTimeZone } from "@/lib/time-zone"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
@@ -55,9 +57,16 @@ import {
 } from "@/components/app/screens/work-surface-controls"
 import {
   BoardView,
+  CalendarSettingsButton,
   CalendarView,
   ListView,
   TimelineView,
+  type CalendarColorMode,
+  type CalendarMode,
+  type CalendarTimeInterval,
+  type CalendarViewControls,
+  type CalendarWeekDayCount,
+  type CalendarWeekStart,
 } from "@/components/app/screens/work-surface-view"
 import { cn } from "@/lib/utils"
 
@@ -67,8 +76,73 @@ type WorkSurfaceCreateContext = {
   defaultProjectId?: string | null
   defaultVisibility?: WorkItemVisibility
 }
+type WorkSurfaceCalendarState = Required<CalendarViewControls>
 
 const EMPTY_FALLBACK_VIEWS: ViewDefinition[] = []
+
+function useWorkSurfaceCalendarState(
+  data: ReturnType<typeof selectAppDataSnapshot>
+): WorkSurfaceCalendarState {
+  const [colorMode, onColorModeChange] = useState<CalendarColorMode>("status")
+  const [mode, onModeChange] = useState<CalendarMode>("week")
+  const [timeInterval, onTimeIntervalChange] =
+    useState<CalendarTimeInterval>("hour")
+  const [maxAllDayEvents, onMaxAllDayEventsChange] = useState(3)
+  const [weekDayCount, onWeekDayCountChange] = useState<CalendarWeekDayCount>(7)
+  const [showWeekends, onShowWeekendsChange] = useState(true)
+  const [weekStart, onWeekStartChange] = useState<CalendarWeekStart>("monday")
+  const currentUser = getUser(data, data.currentUserId)
+  const defaultTimeZone = normalizeTimeZone(
+    currentUser?.preferences.timeZone,
+    getBrowserTimeZone()
+  )
+  const [timeZoneOverride, setTimeZoneOverride] = useState<string | null>(null)
+
+  return {
+    colorMode,
+    onColorModeChange,
+    mode,
+    onModeChange,
+    timeInterval,
+    onTimeIntervalChange,
+    maxAllDayEvents,
+    onMaxAllDayEventsChange,
+    weekDayCount,
+    onWeekDayCountChange,
+    showWeekends,
+    onShowWeekendsChange,
+    weekStart,
+    onWeekStartChange,
+    timeZone: timeZoneOverride ?? defaultTimeZone,
+    onTimeZoneChange: setTimeZoneOverride,
+  }
+}
+
+function WorkSurfaceCalendarSettingsButton({
+  calendar,
+}: {
+  calendar: WorkSurfaceCalendarState
+}) {
+  return (
+    <CalendarSettingsButton
+      colorMode={calendar.colorMode}
+      onColorModeChange={calendar.onColorModeChange}
+      timeInterval={calendar.timeInterval}
+      onTimeIntervalChange={calendar.onTimeIntervalChange}
+      maxAllDayEvents={calendar.maxAllDayEvents}
+      onMaxAllDayEventsChange={calendar.onMaxAllDayEventsChange}
+      weekDayCount={calendar.weekDayCount}
+      onWeekDayCountChange={calendar.onWeekDayCountChange}
+      showWeekDayCount={calendar.mode === "week"}
+      showWeekends={calendar.showWeekends}
+      onShowWeekendsChange={calendar.onShowWeekendsChange}
+      weekStart={calendar.weekStart}
+      onWeekStartChange={calendar.onWeekStartChange}
+      timeZone={calendar.timeZone}
+      onTimeZoneChange={calendar.onTimeZoneChange}
+    />
+  )
+}
 
 function cloneFallbackView(view: ViewDefinition): ViewDefinition {
   return {
@@ -375,6 +449,7 @@ function WorkSurfaceViewbar({
   onReorderViewerDisplayProperties,
   onClearViewerDisplayProperties,
   onCreateWorkItem,
+  calendar,
 }: {
   view: ViewDefinition
   filterPopoverItems: WorkItem[]
@@ -391,6 +466,7 @@ function WorkSurfaceViewbar({
   ) => void
   onClearViewerDisplayProperties: () => void
   onCreateWorkItem: () => void
+  calendar: WorkSurfaceCalendarState
 }) {
   return (
     <Viewbar
@@ -424,6 +500,9 @@ function WorkSurfaceViewbar({
         onClearDisplayProperties={onClearViewerDisplayProperties}
       />
       <div className="ml-auto flex items-center gap-1.5">
+        {view.layout === "calendar" ? (
+          <WorkSurfaceCalendarSettingsButton calendar={calendar} />
+        ) : null}
         <Button
           size="sm"
           variant="default"
@@ -450,6 +529,7 @@ function WorkSurfaceContent({
   isLoading,
   loadingLabel,
   emptyLabel,
+  calendar,
   onCreateWorkItem,
   onToggleHiddenValue,
 }: {
@@ -464,6 +544,7 @@ function WorkSurfaceContent({
   isLoading: boolean
   loadingLabel: string
   emptyLabel: string
+  calendar: WorkSurfaceCalendarState
   onCreateWorkItem: () => void
   onToggleHiddenValue: (key: "groups" | "subgroups", value: string) => void
 }) {
@@ -483,6 +564,7 @@ function WorkSurfaceContent({
           resolvedCreateTeamId={resolvedCreateTeamId}
           scopedItems={scopedItems}
           view={view}
+          calendar={calendar}
           onToggleHiddenValue={onToggleHiddenValue}
         />
       ) : (
@@ -497,12 +579,14 @@ function WorkSurfaceContent({
 }
 
 function getWorkSurfaceContentClassName(view: ViewDefinition | null) {
+  if (view?.layout === "calendar") {
+    return "min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden overscroll-contain"
+  }
+
   return cn(
     "min-h-0 min-w-0 flex-1 overscroll-contain",
-    view?.layout === "board" ||
-      view?.layout === "timeline" ||
-      view?.layout === "calendar"
-      ? "overflow-hidden"
+    view?.layout === "board" || view?.layout === "timeline"
+      ? "flex overflow-hidden"
       : "overflow-x-hidden overflow-y-auto"
   )
 }
@@ -567,6 +651,7 @@ function WorkSurfaceActiveContent({
   resolvedCreateTeamId,
   scopedItems,
   view,
+  calendar,
   onToggleHiddenValue,
 }: {
   childDisplayMode: WorkSurfaceChildDisplayMode
@@ -577,6 +662,7 @@ function WorkSurfaceActiveContent({
   resolvedCreateTeamId: string | null
   scopedItems: WorkItem[]
   view: ViewDefinition
+  calendar: WorkSurfaceCalendarState
   onToggleHiddenValue: (key: "groups" | "subgroups", value: string) => void
 }) {
   const resolvedCreateContext = getResolvedWorkSurfaceCreateContext(
@@ -617,7 +703,31 @@ function WorkSurfaceActiveContent({
   }
 
   if (view.layout === "calendar") {
-    return <CalendarView data={data} items={items} editable={editable} />
+    return (
+      <CalendarView
+        data={data}
+        items={items}
+        editable={editable}
+        mode={calendar.mode}
+        onModeChange={calendar.onModeChange}
+        colorMode={calendar.colorMode}
+        onColorModeChange={calendar.onColorModeChange}
+        timeInterval={calendar.timeInterval}
+        onTimeIntervalChange={calendar.onTimeIntervalChange}
+        maxAllDayEvents={calendar.maxAllDayEvents}
+        onMaxAllDayEventsChange={calendar.onMaxAllDayEventsChange}
+        weekDayCount={calendar.weekDayCount}
+        onWeekDayCountChange={calendar.onWeekDayCountChange}
+        showWeekends={calendar.showWeekends}
+        onShowWeekendsChange={calendar.onShowWeekendsChange}
+        weekStart={calendar.weekStart}
+        onWeekStartChange={calendar.onWeekStartChange}
+        timeZone={calendar.timeZone}
+        onTimeZoneChange={calendar.onTimeZoneChange}
+        createContext={resolvedCreateContext}
+        showSettingsButton={false}
+      />
+    )
   }
 
   return (
@@ -650,9 +760,7 @@ function useViewerViewActions({
   }
 
   function updateViewerActiveView(patch: ViewConfigPatch) {
-    if (
-      updateFallbackActiveView((view) => applyViewConfigPatch(view, patch))
-    ) {
+    if (updateFallbackActiveView((view) => applyViewConfigPatch(view, patch))) {
       return
     }
 
@@ -865,6 +973,7 @@ export function WorkSurface({
   const [localFallbackViewId, setLocalFallbackViewId] = useState<string | null>(
     null
   )
+  const calendar = useWorkSurfaceCalendarState(data)
   const usingFallbackViews = views.length === 0 && localFallbackViews.length > 0
   const activeBaseView = getActiveBaseWorkSurfaceView({
     data,
@@ -1044,6 +1153,7 @@ export function WorkSurface({
           onClearViewerDisplayProperties={
             viewerViewActions.clearViewerActiveDisplayProperties
           }
+          calendar={calendar}
           onCreateWorkItem={handleCreateWorkItem}
         />
       ) : null}
@@ -1060,6 +1170,7 @@ export function WorkSurface({
         isLoading={isLoading}
         loadingLabel={loadingLabel}
         emptyLabel={emptyLabel}
+        calendar={calendar}
         onCreateWorkItem={handleCreateWorkItem}
         onToggleHiddenValue={viewerViewActions.toggleViewerActiveHiddenValue}
       />

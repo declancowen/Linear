@@ -3440,17 +3440,22 @@ function WorkItemChildComposerSlot({
   }
 
   return (
-    <button
-      type="button"
+    <div
       className={cn(
-        "inline-flex w-full items-center gap-2 px-4 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground",
+        "flex px-3 py-1.5",
         childItems.length > 0 && "border-t border-line-soft"
       )}
-      onClick={onOpenComposer}
     >
-      <Plus className="size-3" />
-      <span>{childCopy.addChildLabel}</span>
-    </button>
+      <Button
+        type="button"
+        size="icon-sm"
+        variant="ghost"
+        aria-label={childCopy.addChildLabel}
+        onClick={onOpenComposer}
+      >
+        <Plus className="size-3.5" />
+      </Button>
+    </div>
   )
 }
 
@@ -3968,14 +3973,15 @@ function WorkItemSidebarSubtasks({
             currentItem={currentItem}
           />
           {canCreateChildItem ? (
-            <button
+            <Button
               type="button"
-              className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+              size="icon-sm"
+              variant="ghost"
+              aria-label={childCopy.addChildLabel}
               onClick={onToggleComposer}
             >
-              <Plus className="size-3" />
-              {childCopy.addChildLabel}
-            </button>
+              <Plus className="size-3.5" />
+            </Button>
           ) : null}
         </div>
       }

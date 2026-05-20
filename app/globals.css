@@ -142,6 +142,14 @@
   --label-3: oklch(0.72 0.15 160);
   --label-4: oklch(0.7 0.16 230);
   --label-5: oklch(0.7 0.17 300);
+  --cal-event-blue: oklch(0.72 0.15 245);
+  --cal-event-indigo: oklch(0.66 0.18 275);
+  --cal-event-violet: oklch(0.66 0.2 305);
+  --cal-event-pink: oklch(0.72 0.18 350);
+  --cal-event-rose: oklch(0.68 0.2 18);
+  --cal-event-amber: oklch(0.78 0.16 75);
+  --cal-event-green: oklch(0.72 0.16 150);
+  --cal-event-teal: oklch(0.7 0.13 195);
 }
 
 .dark {
@@ -205,6 +213,14 @@
   --label-3: oklch(0.76 0.15 160);
   --label-4: oklch(0.74 0.16 230);
   --label-5: oklch(0.74 0.17 300);
+  --cal-event-blue: oklch(0.78 0.13 245);
+  --cal-event-indigo: oklch(0.74 0.16 275);
+  --cal-event-violet: oklch(0.74 0.18 305);
+  --cal-event-pink: oklch(0.78 0.16 350);
+  --cal-event-rose: oklch(0.74 0.18 18);
+  --cal-event-amber: oklch(0.83 0.14 75);
+  --cal-event-green: oklch(0.78 0.14 150);
+  --cal-event-teal: oklch(0.76 0.12 195);
 }
 
 @layer base {

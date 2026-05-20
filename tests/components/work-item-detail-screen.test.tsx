@@ -789,48 +789,44 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
   })
 
-  it(
-    "preserves mention retries for one item when saving a different item without mentions",
-    async () => {
-      setSaveWorkItemMainSectionMock(
-        createStateUpdatingSaveMock({
-          getDocumentId: (itemId) =>
-            itemId === "item_1" ? "document_1" : "document_2",
-        })
-      )
-      mockRetryingMentionDelivery()
-
-      const { rerender } = renderWorkItemDetail()
-
-      openWorkItemEditor()
-      updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
-      clickSaveButton()
-
-      await expectWorkItemEditorClosed()
-
-      rerender(<WorkItemDetailScreen itemId="item_2" />)
-
-      openWorkItemEditor()
-      fireEvent.change(screen.getByDisplayValue("Follow up"), {
-        target: { value: "Follow up updated" },
+  it("preserves mention retries for one item when saving a different item without mentions", async () => {
+    setSaveWorkItemMainSectionMock(
+      createStateUpdatingSaveMock({
+        getDocumentId: (itemId) =>
+          itemId === "item_1" ? "document_1" : "document_2",
       })
-      clickSaveButton()
+    )
+    mockRetryingMentionDelivery()
 
-      await expectWorkItemEditorClosed()
+    const { rerender } = renderWorkItemDetail()
 
-      rerender(<WorkItemDetailScreen itemId="item_1" />)
+    openWorkItemEditor()
+    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+    clickSaveButton()
 
-      openWorkItemEditor()
+    await expectWorkItemEditorClosed()
 
-      const saveButton = screen.getByRole("button", { name: "Save" })
-      expect(saveButton).not.toBeDisabled()
+    rerender(<WorkItemDetailScreen itemId="item_2" />)
 
-      fireEvent.click(saveButton)
+    openWorkItemEditor()
+    fireEvent.change(screen.getByDisplayValue("Follow up"), {
+      target: { value: "Follow up updated" },
+    })
+    clickSaveButton()
 
-      await expectTaylorMentionDeliveryRetry()
-    },
-    10_000
-  )
+    await expectWorkItemEditorClosed()
+
+    rerender(<WorkItemDetailScreen itemId="item_1" />)
+
+    openWorkItemEditor()
+
+    const saveButton = screen.getByRole("button", { name: "Save" })
+    expect(saveButton).not.toBeDisabled()
+
+    fireEvent.click(saveButton)
+
+    await expectTaylorMentionDeliveryRetry()
+  }, 10_000)
 
   it("sends self-mentions after saving the main section", async () => {
     const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
@@ -969,18 +965,13 @@ describe("work item detail screen", () => {
       }
 
       render(
-        <WorkItemDetailSidebarSurface
-          data={data}
-          currentItem={item}
-          editable
-        />
+        <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
       )
 
       fireEvent.click(screen.getByRole("button", { name: buttonName }))
 
-      const timeInput = document.querySelector<HTMLInputElement>(
-        'input[type="time"]'
-      )
+      const timeInput =
+        document.querySelector<HTMLInputElement>('input[type="time"]')
 
       expect(timeInput).toBeTruthy()
 
@@ -1095,6 +1086,7 @@ describe("work item detail screen", () => {
 
     const addButtons = screen.getAllByRole("button", { name: "Add sub-task" })
     expect(addButtons).toHaveLength(2)
+    expect(screen.queryByText("Add sub-task")).not.toBeInTheDocument()
 
     fireEvent.click(addButtons[0]!)
     expect(screen.getAllByTestId("inline-child-composer")).toHaveLength(1)

@@ -284,7 +284,10 @@ function itemMatchesView(
     matchesParentFilter(view.filters.parentIds ?? [], item.parentId),
     matchesOptionalFilter(view.filters.itemTypes, item.type),
     matchesAnyOptionalFilter(view.filters.labelIds, item.labelIds),
-    matchesOptionalFilter(view.filters.teamIds, item.teamId),
+    matchesOptionalFilter(
+      view.filters.teamIds,
+      getWorkItemVisibility(item) === "team" ? item.teamId : ""
+    ),
     matchesOptionalFilter(
       view.filters.visibility ?? [],
       getWorkItemVisibility(item)
@@ -293,6 +296,17 @@ function itemMatchesView(
     matchesOptionalFilter(view.filters.health, project?.health ?? "no-update"),
     matchesCompletionFilter(view.filters.showCompleted, item.status),
   ].every(Boolean)
+}
+
+export function workItemMatchesView(
+  data: AppData,
+  item: WorkItem,
+  view: ViewDefinition,
+  options?: {
+    ignoreItemLevel?: boolean
+  }
+) {
+  return itemMatchesView(data, item, view, options)
 }
 
 function matchesOptionalFilter<T>(values: T[], candidate: T) {

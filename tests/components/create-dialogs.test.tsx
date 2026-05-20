@@ -478,6 +478,9 @@ describe("create dialogs", () => {
       expect(
         screen.queryByRole("button", { name: /Assignee/i })
       ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: /Project/i })
+      ).not.toBeInTheDocument()
 
       fireEvent.change(screen.getByPlaceholderText("Task title"), {
         target: { value: "Private follow-up" },
@@ -593,6 +596,53 @@ describe("create dialogs", () => {
             primaryProjectId: "project_ops",
             teamId: "team_2",
             type: "sub-task",
+            visibility: "team",
+          })
+        )
+      )
+    } finally {
+      createWorkItemSpy.mockRestore()
+    }
+  })
+
+  it("preserves calendar schedule defaults when switching destinations", async () => {
+    const createWorkItemSpy = spyOnCreateWorkItem()
+
+    try {
+      render(
+        <CreateWorkItemDialog
+          open
+          onOpenChange={vi.fn()}
+          defaultTeamId="team_1"
+          initialType="task"
+          defaultValues={{
+            startDate: "2026-05-17",
+            targetDate: "2026-05-17",
+            startTime: "10:00",
+            endTime: "11:00",
+            scheduleTimeZone: "Europe/London",
+            visibility: "private",
+          }}
+        />
+      )
+
+      await selectCreateDialogDestination("Ops")
+
+      fireEvent.change(screen.getByPlaceholderText(/title/i), {
+        target: { value: "Scheduled team task" },
+      })
+
+      fireEvent.click(screen.getByRole("button", { name: /Create /i }))
+
+      await waitFor(() =>
+        expect(createWorkItemSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            startDate: "2026-05-17",
+            targetDate: "2026-05-17",
+            startTime: "10:00",
+            endTime: "11:00",
+            scheduleTimeZone: "Europe/London",
+            teamId: "team_2",
             visibility: "team",
           })
         )
@@ -1135,7 +1185,9 @@ describe("create dialogs", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Billing v2" }))
 
       await waitFor(() =>
-        expect(screen.getByRole("button", { name: /Save view/ })).not.toBeDisabled()
+        expect(
+          screen.getByRole("button", { name: /Save view/ })
+        ).not.toBeDisabled()
       )
       fireEvent.click(screen.getByRole("button", { name: /Save view/ }))
 

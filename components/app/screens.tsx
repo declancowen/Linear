@@ -42,6 +42,7 @@ import {
   getWorkspaceDocuments,
   getWorkspaceDirectoryViews,
   teamHasFeature,
+  workItemMatchesView,
 } from "@/lib/domain/selectors"
 import { formatCalendarDateLabel } from "@/lib/date-input"
 import {
@@ -129,6 +130,7 @@ import { CalendarView } from "@/components/app/screens/work-surface-view"
 import { getViewHref } from "@/lib/domain/default-views"
 import {
   GroupChipPopover,
+  FilterPopover,
   PROJECT_DISPLAY_PROPERTY_OPTIONS,
   PROJECT_GROUP_OPTIONS,
   ProjectFilterPopover,
@@ -3477,6 +3479,9 @@ export function AssignedScreen() {
 
 export function UserCalendarScreen() {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
+  const [calendarFilters, setCalendarFilters] = useState(() =>
+    createEmptyViewFilters()
+  )
   const { currentUserId } = useAppStore(
     useShallow((state) => ({
       currentUserId: state.currentUserId,
@@ -3494,10 +3499,45 @@ export function UserCalendarScreen() {
       getVisibleWorkItems(state, { assignedToCurrentUser: true })
     )
   )
+  const calendarFilterView = useMemo<ViewDefinition>(
+    () => ({
+      id: "user-calendar-filters",
+      name: "Calendar",
+      description: "",
+      scopeType: "personal",
+      scopeId: currentUserId ?? "current-user",
+      entityKind: "items",
+      itemLevel: null,
+      showChildItems: true,
+      layout: "calendar",
+      filters: calendarFilters,
+      grouping: "status",
+      subGrouping: null,
+      ordering: "targetDate",
+      displayProps: [],
+      hiddenState: { groups: [], subgroups: [] },
+      isShared: false,
+      route: "/calendar",
+      createdAt: "",
+      updatedAt: "",
+    }),
+    [calendarFilters, currentUserId]
+  )
+  const filteredCalendarItems = useMemo(() => {
+    return calendarItems.filter((item) =>
+      workItemMatchesView(data, item, calendarFilterView, {
+        ignoreItemLevel: true,
+      })
+    )
+  }, [calendarFilterView, calendarItems, data])
   const canEditCalendarItem = useMemo(
     () => (item: WorkItem) => canEditTeam(data, item.teamId),
     [data]
   )
+  const defaultCreateTeamId =
+    data.teams.find(
+      (team) => teamHasFeature(team, "issues") && canEditTeam(data, team.id)
+    )?.id ?? null
 
   if (!hasLoadedOnce && calendarItems.length === 0) {
     return <ScopedScreenLoading label="Loading calendar..." />
@@ -3506,9 +3546,32 @@ export function UserCalendarScreen() {
   return (
     <CalendarView
       data={data}
-      items={calendarItems}
+      items={filteredCalendarItems}
       editable
       canEditItem={canEditCalendarItem}
+      toolbarAccessory={
+        <FilterPopover
+          view={calendarFilterView}
+          items={calendarItems}
+          onToggleFilterValue={(key, value) =>
+            setCalendarFilters((current) =>
+              toggleViewFilterValue(current, key, value)
+            )
+          }
+          onClearFilters={() =>
+            setCalendarFilters((current) =>
+              clearViewFiltersPreservingCompletion(current)
+            )
+          }
+          triggerIcon={<FunnelSimple className="size-3.5" />}
+          variant="icon"
+        />
+      }
+      createContext={{
+        defaultTeamId: defaultCreateTeamId,
+        defaultProjectId: null,
+        defaultVisibility: "private",
+      }}
     />
   )
 }

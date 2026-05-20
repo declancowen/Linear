@@ -36,6 +36,12 @@ import { cn } from "@/lib/utils"
 
 import { getGroupValueAdornment, getGroupValueLabel } from "./shared"
 import {
+  createEventAccentLabelLookup,
+  resolveEventAccentModeFromGrouping,
+  type EventAccentLabelLookup,
+  type EventAccentMode,
+} from "./event-accent"
+import {
   TimelineBar,
   TimelineBarPreview,
   TimelineLabelRow,
@@ -134,6 +140,14 @@ export function TimelineView({
       dayColumnWidth,
       timelineStart,
     })
+  const accentMode = useMemo<EventAccentMode>(
+    () => resolveEventAccentModeFromGrouping(view.grouping),
+    [view.grouping]
+  )
+  const labelsById = useMemo<EventAccentLabelLookup>(
+    () => createEventAccentLabelLookup(data.labels),
+    [data.labels]
+  )
 
   return (
     <DndContext
@@ -160,11 +174,15 @@ export function TimelineView({
         view={view}
         visibleGroups={visibleGroups}
         weeks={weeks}
+        accentMode={accentMode}
+        labelsById={labelsById}
       />
       <TimelineDragOverlay
         activeDragItem={activeDragItem}
         activeDragSpan={activeDragSpan}
         dayColumnWidth={dayColumnWidth}
+        accentMode={accentMode}
+        labelsById={labelsById}
       />
     </DndContext>
   )
@@ -312,10 +330,7 @@ function useTimelineDndController({
   }
 }
 
-function getTimelineActiveDragItem(
-  data: AppData,
-  activeItemId: string | null
-) {
+function getTimelineActiveDragItem(data: AppData, activeItemId: string | null) {
   if (!activeItemId) {
     return null
   }
@@ -459,6 +474,8 @@ const TimelineFrame = memo(function TimelineFrame({
   view,
   visibleGroups,
   weeks,
+  accentMode,
+  labelsById,
 }: {
   data: AppData
   days: Date[]
@@ -485,6 +502,8 @@ const TimelineFrame = memo(function TimelineFrame({
   view: ViewDefinition
   visibleGroups: TimelineGroupEntry[]
   weeks: TimelineWeek[]
+  accentMode: EventAccentMode
+  labelsById: EventAccentLabelLookup
 }) {
   return (
     <div className="grid h-full min-h-0 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
@@ -514,6 +533,8 @@ const TimelineFrame = memo(function TimelineFrame({
         todayIndex={todayIndex}
         view={view}
         visibleGroups={visibleGroups}
+        accentMode={accentMode}
+        labelsById={labelsById}
       />
     </div>
   )
@@ -631,7 +652,11 @@ function TimelineDayHeader({
   return (
     <div className="grid" style={{ gridTemplateColumns }}>
       {days.map((day) => (
-        <TimelineDayHeaderCell key={day.toISOString()} day={day} today={today} />
+        <TimelineDayHeaderCell
+          key={day.toISOString()}
+          day={day}
+          today={today}
+        />
       ))}
     </div>
   )
@@ -684,11 +709,15 @@ type TimelineBodyProps = TimelineGridInteractionProps & {
   labelColWidth: number
   view: ViewDefinition
   visibleGroups: TimelineGroupEntry[]
+  accentMode: EventAccentMode
+  labelsById: EventAccentLabelLookup
 }
 
 type TimelineGridGroupsProps = TimelineGridInteractionProps & {
   data: AppData
   visibleGroups: TimelineGroupEntry[]
+  accentMode: EventAccentMode
+  labelsById: EventAccentLabelLookup
 }
 
 function TimelineBody({
@@ -705,6 +734,8 @@ function TimelineBody({
   todayIndex,
   view,
   visibleGroups,
+  accentMode,
+  labelsById,
 }: TimelineBodyProps) {
   return (
     <div className="col-span-2 min-h-0 overflow-y-auto overscroll-contain">
@@ -714,6 +745,8 @@ function TimelineBody({
           labelColWidth={labelColWidth}
           view={view}
           visibleGroups={visibleGroups}
+          accentMode={accentMode}
+          labelsById={labelsById}
         />
         <TimelineGridGroups
           data={data}
@@ -727,6 +760,8 @@ function TimelineBody({
           timelineCanvasWidth={timelineCanvasWidth}
           todayIndex={todayIndex}
           visibleGroups={visibleGroups}
+          accentMode={accentMode}
+          labelsById={labelsById}
         />
       </div>
     </div>
@@ -738,11 +773,15 @@ const TimelineLabelGroupsColumn = memo(function TimelineLabelGroupsColumn({
   labelColWidth,
   view,
   visibleGroups,
+  accentMode,
+  labelsById,
 }: {
   data: AppData
   labelColWidth: number
   view: ViewDefinition
   visibleGroups: TimelineGroupEntry[]
+  accentMode: EventAccentMode
+  labelsById: EventAccentLabelLookup
 }) {
   return (
     <div
@@ -756,6 +795,8 @@ const TimelineLabelGroupsColumn = memo(function TimelineLabelGroupsColumn({
           groupName={groupName}
           subgroups={subgroups}
           view={view}
+          accentMode={accentMode}
+          labelsById={labelsById}
         />
       ))}
     </div>
@@ -767,11 +808,15 @@ const TimelineLabelGroup = memo(function TimelineLabelGroup({
   groupName,
   subgroups,
   view,
+  accentMode,
+  labelsById,
 }: {
   data: AppData
   groupName: string
   subgroups: Map<string, WorkItem[]>
   view: ViewDefinition
+  accentMode: EventAccentMode
+  labelsById: EventAccentLabelLookup
 }) {
   const groupItems = Array.from(subgroups.values()).flat()
   const groupLabel = getGroupValueLabel(view.grouping, groupName)
@@ -792,8 +837,15 @@ const TimelineLabelGroup = memo(function TimelineLabelGroup({
         </span>
       </div>
 
-      {groupItems.map((item) => (
-        <TimelineLabelRow key={item.id} data={data} item={item} />
+      {groupItems.map((item, index) => (
+        <TimelineLabelRow
+          key={item.id}
+          data={data}
+          item={item}
+          accentMode={accentMode}
+          accentIndex={index}
+          labelsById={labelsById}
+        />
       ))}
     </div>
   )
@@ -811,13 +863,18 @@ const TimelineGridGroups = memo(function TimelineGridGroups({
   timelineCanvasWidth,
   todayIndex,
   visibleGroups,
+  accentMode,
+  labelsById,
 }: TimelineGridGroupsProps) {
   return (
     <div
       className="min-w-0 overflow-x-auto overscroll-x-contain"
       onScroll={onBodyHorizontalScroll}
     >
-      <div className="relative min-w-max" style={{ width: timelineCanvasWidth }}>
+      <div
+        className="relative min-w-max"
+        style={{ width: timelineCanvasWidth }}
+      >
         <div className="relative">
           <TimelineTodayMarker
             dayColumnWidth={dayColumnWidth}
@@ -834,6 +891,8 @@ const TimelineGridGroups = memo(function TimelineGridGroups({
               onTimelineBarResizeStart={onTimelineBarResizeStart}
               resizeDraft={resizeDraft}
               subgroups={subgroups}
+              accentMode={accentMode}
+              labelsById={labelsById}
             />
           ))}
         </div>
@@ -871,6 +930,8 @@ const TimelineGridGroup = memo(function TimelineGridGroup({
   onTimelineBarResizeStart,
   resizeDraft,
   subgroups,
+  accentMode,
+  labelsById,
 }: {
   data: AppData
   days: Date[]
@@ -887,6 +948,8 @@ const TimelineGridGroup = memo(function TimelineGridGroup({
   ) => void
   resizeDraft: TimelineRangeDraft | null
   subgroups: Map<string, WorkItem[]>
+  accentMode: EventAccentMode
+  labelsById: EventAccentLabelLookup
 }) {
   const groupItems = Array.from(subgroups.values()).flat()
 
@@ -896,7 +959,7 @@ const TimelineGridGroup = memo(function TimelineGridGroup({
         className={cn("border-b bg-muted/30", TIMELINE_GROUP_ROW_HEIGHT_CLASS)}
       />
 
-      {groupItems.map((item) => (
+      {groupItems.map((item, index) => (
         <TimelineGridRow
           key={item.id}
           data={data}
@@ -906,6 +969,9 @@ const TimelineGridGroup = memo(function TimelineGridGroup({
           onCaptureDragOffset={onCaptureDragOffset}
           onResizeStart={onTimelineBarResizeStart}
           rangeOverride={resizeDraft?.itemId === item.id ? resizeDraft : null}
+          accentMode={accentMode}
+          accentIndex={index}
+          labelsById={labelsById}
         />
       ))}
     </div>
@@ -916,10 +982,14 @@ function TimelineDragOverlay({
   activeDragItem,
   activeDragSpan,
   dayColumnWidth,
+  accentMode,
+  labelsById,
 }: {
   activeDragItem: WorkItem | null
   activeDragSpan: number
   dayColumnWidth: number
+  accentMode: EventAccentMode
+  labelsById: EventAccentLabelLookup
 }) {
   return (
     <DragOverlay>
@@ -928,7 +998,13 @@ function TimelineDragOverlay({
           className="h-9 px-0.5 py-1"
           style={{ width: activeDragSpan * dayColumnWidth }}
         >
-          <TimelineBarPreview item={activeDragItem} span={activeDragSpan} />
+          <TimelineBarPreview
+            item={activeDragItem}
+            span={activeDragSpan}
+            accentMode={accentMode}
+            accentIndex={0}
+            labelsById={labelsById}
+          />
         </div>
       ) : null}
     </DragOverlay>
@@ -943,6 +1019,9 @@ const TimelineGridRow = memo(function TimelineGridRow({
   onCaptureDragOffset,
   onResizeStart,
   rangeOverride,
+  accentMode,
+  accentIndex,
+  labelsById,
 }: {
   data: AppData
   item: WorkItem
@@ -959,6 +1038,9 @@ const TimelineGridRow = memo(function TimelineGridRow({
     clientX: number
   ) => void
   rangeOverride: TimelineRangeDraft | null
+  accentMode: EventAccentMode
+  accentIndex: number
+  labelsById: EventAccentLabelLookup
 }) {
   const range = rangeOverride ?? {
     itemId: item.id,
@@ -996,6 +1078,9 @@ const TimelineGridRow = memo(function TimelineGridRow({
             data={data}
             item={item}
             span={span}
+            accentMode={accentMode}
+            accentIndex={accentIndex}
+            labelsById={labelsById}
             onCaptureDragOffset={onCaptureDragOffset}
             onResizeStart={onResizeStart}
           />

@@ -6,7 +6,7 @@
 | -------------- | ------------------------------------------- |
 | **Repository** | `Linear`                                    |
 | **Remote**     | `https://github.com/declancowen/Linear.git` |
-| **Branch**     | `codex-work-surfaces-calendar-views`        |
+| **Branch**     | `codex/calendar-settings-and-polish`        |
 | **Stack**      | Next.js, React, Convex, PartyKit, Zustand   |
 
 ## Scope
@@ -28,11 +28,55 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 08:47 BST |
-| **Total turns**       | 26                   |
+| **Last reviewed**     | 2026-05-20 13:28 BST |
+| **Total turns**       | 27                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 56                   |
+| **Resolved findings** | 57                   |
 | **Accepted findings** | 0                    |
+
+## Turn 27 — 2026-05-20 13:28 BST
+
+| Field           | Value                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------- |
+| **Scope**       | Fallow/architecture cleanup for calendar work surfaces and final local review loop     |
+| **Review type** | Static-analysis remediation + diff-review + calendar drag correctness challenger pass |
+| **Reviewer**    | Codex CLI                                                                              |
+| **Outcome**     | 1 local bug fixed; Fallow, lint, typecheck, and targeted tests clean; no open findings |
+
+### Commands run
+
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; production health findings `0`, production duplication `0`, dead code `0`; boundary config remains not configured
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; static analyzer signals clean, `changed-file-audit` reported a tool/config error
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 48 tests
+- `pnpm vitest run tests/components/work-surface-view.test.tsx tests/components/work-surface.test.tsx tests/components/views-screen.test.tsx` — passed, 3 files / 67 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `git diff --check` — passed
+- `pnpm audit:deps` — blocked by sandbox DNS/network: `ENOTFOUND registry.npmjs.org`
+- `pnpm build` — blocked by sandbox network while fetching Google Fonts: `Geist Mono` and `Noto Sans`
+
+### Branch-totality proof
+
+- **Fallow cleanup applied:** split the large calendar surface into owner-local render/state helpers and extracted shared event accent resolution for calendar/timeline instead of adding a new cross-app abstraction.
+- **Bug classes / invariants checked:** timed-to-all-day drag semantics, explicit nullable schedule clearing, calendar hover/detail ownership, smooth day/week/month scrolling structure, all-day row expansion reset, shared accent coloring parity across calendar and timeline, and docs/view modal routing regressions covered by existing targeted tests.
+- **Challenger pass:** traced the timed event drag-back-to-all-day path through `CalendarView` and the store update boundary. The first local implementation used `undefined` to clear schedule fields, but the store treats `undefined` as "unchanged"; this was fixed to send explicit `null`.
+- **Architecture rule applied:** schedule interpretation remains in domain helpers, calendar interaction state remains inside the calendar owner, and timeline/calendar styling share only the small presentation-owned accent resolver.
+- **Why this is enough:** the fixed weak variant now has component coverage asserting `startTime`, `endTime`, and `scheduleTimeZone` are cleared with `null`, and the static analyzer gates stayed clean after the refactor.
+
+### Resolved / Carried / New findings
+
+#### WPDV-57 — resolved — dragging timed calendar work into the all-day lane did not actually clear the stored time
+
+- **Severity:** medium
+- **Evidence:** the calendar patch sent `startTime: undefined`, `endTime: undefined`, and `scheduleTimeZone: undefined`; the store update path preserves existing values when patch fields are `undefined`.
+- **Fix:** timed-to-all-day conversion now sends explicit `null` values for all schedule time fields.
+- **Prevention:** Updated the drag-back-to-all-day component test to assert `null` clearing semantics.
+
+### Residual risk
+
+- Local production build and dependency audit could not complete in this sandbox because outbound network/DNS is blocked. CI should rerun those with normal network access.
 
 ## Turn 26 — 2026-05-20 08:47 BST
 
