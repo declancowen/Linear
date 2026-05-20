@@ -3717,6 +3717,13 @@ function useCalendarViewControls({
 
   function handleCalendarModeChange(nextMode: CalendarMode) {
     resetAllDayExpansion()
+    setAnchorDate((current) =>
+      getCalendarWeekendVisibilityAnchorDate({
+        anchorDate: current,
+        mode: nextMode,
+        nextShowWeekends: showWeekends,
+      })
+    )
     handleModeChange(nextMode)
   }
 

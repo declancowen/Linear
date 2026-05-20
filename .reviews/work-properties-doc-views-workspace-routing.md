@@ -28,11 +28,51 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 14:19 BST |
-| **Total turns**       | 31                   |
+| **Last reviewed**     | 2026-05-20 14:29 BST |
+| **Total turns**       | 32                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 61                   |
+| **Resolved findings** | 62                   |
 | **Accepted findings** | 0                    |
+
+## Turn 32 — 2026-05-20 14:29 BST
+
+| Field           | Value                                                                  |
+| --------------- | ---------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex feedback for hidden-weekend day-mode entry anchors        |
+| **Review type** | External PR feedback triage + calendar mode-switch fix + gate rerun    |
+| **Reviewer**    | Codex CLI                                                              |
+| **Outcome**     | 1 live PR finding fixed locally; no local open findings                |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the latest Codex review feedback
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 54 tests
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm lint` — passed
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** current PR feedback had one live P2 issue: entering day mode while weekends were hidden could keep a Saturday/Sunday anchor even though day rendering skipped to the next weekday.
+- **Bug classes / invariants checked:** mode-switch anchor normalization, weekend initial load, hidden-weekend day rendering, and next/previous anchor consistency.
+- **Sibling closure:** Turns 30 and 31 covered weekend-toggle and manual anchor writes; this pass covers the remaining mode transition into day view.
+- **Architecture rule applied:** day-mode entry uses the same calendar-owned weekend visibility helper, keeping hidden-weekend policy centralized inside the calendar controls owner.
+- **Why this is enough:** component coverage now asserts that switching from week to day on Saturday with weekends hidden lands on Monday `2026-05-25`.
+
+### Resolved / Carried / New findings
+
+#### WPDV-62 — resolved — entering day mode could preserve a hidden weekend anchor
+
+- **Severity:** medium
+- **Evidence:** `handleCalendarModeChange("day")` reset expansion and changed mode without normalizing the current anchor; a weekend anchor could remain while `getScrollAnchorDay` rendered Monday.
+- **Fix:** mode changes now normalize the current anchor through the weekend visibility helper before applying the next mode.
+- **Prevention:** Added a hidden-weekend mode-switch regression test and reran calendar tests, lint, typecheck, and Fallow.
+
+### Residual risk
+
+- I did not resolve or reply to the GitHub review thread; the branch will be pushed with the fix for Codex to re-review.
 
 ## Turn 31 — 2026-05-20 14:19 BST
 
