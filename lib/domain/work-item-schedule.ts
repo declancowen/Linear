@@ -72,7 +72,6 @@ export function resolveWorkItemSchedule(
     viewerTimeZone
   )
   const hasTimedRange =
-    range.startDate === range.endDate &&
     isValidTimeValue(item.startTime) &&
     isValidTimeValue(item.endTime)
 

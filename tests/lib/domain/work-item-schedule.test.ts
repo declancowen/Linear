@@ -65,4 +65,31 @@ describe("work item schedule helpers", () => {
       endDate: "2026-05-19",
     })
   })
+
+  it("keeps timed work timed when the end date is a later day", () => {
+    const schedule = resolveWorkItemSchedule(
+      {
+        startDate: "2026-05-19",
+        targetDate: "2026-05-20",
+        startTime: "23:30",
+        endTime: "00:30",
+        scheduleTimeZone: "UTC",
+      },
+      "UTC"
+    )
+
+    expect(schedule.kind).toBe("timed")
+    if (schedule.kind !== "timed") {
+      return
+    }
+
+    expect(getViewerWallTimeForScheduleDate(schedule.start, "UTC")).toEqual({
+      date: "2026-05-19",
+      time: "23:30",
+    })
+    expect(getViewerWallTimeForScheduleDate(schedule.end, "UTC")).toEqual({
+      date: "2026-05-20",
+      time: "00:30",
+    })
+  })
 })

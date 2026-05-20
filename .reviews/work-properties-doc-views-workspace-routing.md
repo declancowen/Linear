@@ -28,11 +28,60 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 05:47 BST |
-| **Total turns**       | 24                   |
+| **Last reviewed**     | 2026-05-20 06:11 BST |
+| **Total turns**       | 25                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 53                   |
+| **Resolved findings** | 55                   |
 | **Accepted findings** | 0                    |
+
+## Turn 25 — 2026-05-20 06:07 BST
+
+| Field           | Value                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------- |
+| **Scope**       | Current-head Codex review feedback for moved view selection and cross-midnight timing |
+| **Review type** | External finding triage + store/domain/calendar fixes + gate rerun                    |
+| **Reviewer**    | Codex CLI                                                                              |
+| **Outcome**     | 2 live current-head Codex findings fixed locally; no local open findings              |
+
+### Commands run
+
+- `gh pr view 36 --json latestReviews` — confirmed Codex reviewed pushed head `32682756`
+- `gh api graphql ... reviewThreads(first: 100)` — fetched current-head inline review threads
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx tests/lib/store/view-slice.test.ts tests/lib/domain/work-item-schedule.test.ts` — passed, 3 files / 50 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — passed; changed-file audit, production dead-code, production health, and duplication gates remained clean
+
+### Branch-totality proof
+
+- **External findings triaged:** current-head Codex review found two live Medium issues: updating an existing view's route did not move selected-view state from the old route to the new route, and timed items crossing midnight were represented as all-day calendar spans.
+- **Bug classes / invariants checked:** per-route selected-view identity, optimistic UI state preservation, timed schedule classification, cross-day hourly rendering.
+- **Sibling closure:** `updateViewConfig` now rebinds selected-view state only when the edited view was selected on the old route; unselected moved views do not steal selection. Schedule resolution now treats date ranges with both start/end times as timed even across dates, and `CalendarView` renders cross-midnight timed items as partial-day hourly segments instead of all-day bars. The segment render key includes item/date/time so multi-segment timed work reconciles stably.
+- **Architecture rule applied:** selected-view rebinding lives in the view store slice that owns route selection state; timed-vs-all-day classification is fixed in the domain schedule resolver, with calendar rendering handling only display segmentation.
+- **Why this is enough:** both fixes are at the owning boundary and have regression coverage: store state movement for route edits, domain resolution for later-day timed ranges, and calendar rendering for cross-midnight hourly segments.
+
+### Resolved / Carried / New findings
+
+#### WPDV-54 — resolved — edited view route changes left selected-view state on the old route
+
+- **Severity:** medium
+- **Evidence:** `updateExistingViewFromDraft` patched `route` through `updateViewConfig`, but the store kept `ui.selectedViewByRoute` keyed to the previous route.
+- **Fix:** `updateViewConfig` now removes the moved view from the previous route selection and selects it on the new viewer-scoped route key when it was selected before the move.
+- **Prevention:** Added a view-slice regression test that moves a selected view from `/workspace/items` to a project route and verifies the selection key is rebound.
+
+#### WPDV-55 — resolved — cross-midnight timed work was converted into all-day calendar spans
+
+- **Severity:** medium
+- **Evidence:** `resolveWorkItemSchedule` only returned `timed` for same-day ranges, and `CalendarView` converted timed cross-day ranges into all-day entries.
+- **Fix:** schedule resolution now treats any item with valid start/end times as timed, including later-day end dates; calendar rendering splits cross-midnight timed work into hourly partial-day segments and keeps them out of the all-day lane.
+- **Prevention:** Added domain coverage for later-day timed schedule resolution and component coverage proving a `23:30`-`00:30` item renders as two hourly segments rather than an all-day button.
+
+### Residual risk
+
+- Cross-midnight partial-day segments are display-only for drag/resize to avoid corrupting the full schedule from a single segment. The item detail sidebar remains available for explicit edits.
 
 ## Turn 24 — 2026-05-20 05:47 BST
 

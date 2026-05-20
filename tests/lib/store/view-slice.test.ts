@@ -418,6 +418,37 @@ describe("view slice", () => {
     })
   })
 
+  it("moves selected view state when an updated view changes route", async () => {
+    const state = createViewTestState()
+    const previousRoute = "/workspace/items"
+    const nextRoute = "/team/platform/projects/project_1"
+    seedSharedView(state, {
+      route: previousRoute,
+    })
+    state.ui.selectedViewByRoute = {
+      [getViewerScopedDirectoryKey(state.currentUserId, previousRoute)]:
+        "view_1",
+    }
+    const harness = await createViewSliceHarness({ state })
+
+    harness.slice.updateViewConfig("view_1", {
+      containerType: "project-items",
+      containerId: "project_1",
+      route: nextRoute,
+    })
+
+    expect(
+      state.ui.selectedViewByRoute[
+        getViewerScopedDirectoryKey(state.currentUserId, previousRoute)
+      ]
+    ).toBeUndefined()
+    expect(
+      state.ui.selectedViewByRoute[
+        getViewerScopedDirectoryKey(state.currentUserId, nextRoute)
+      ]
+    ).toBe("view_1")
+  })
+
   it("clears a pending optimistic view config when the sync fails", async () => {
     const state = createPendingViewConfigState()
     syncUpdateViewConfigMock.mockRejectedValueOnce(new Error("sync failed"))

@@ -41,6 +41,7 @@ type CalendarMode = "day" | "week" | "month"
 type DragAction = "move" | "resize-start" | "resize-end"
 
 type TimedCalendarEntry = {
+  isPartialDay?: boolean
   item: WorkItem
   date: string
   startMinutes: number
@@ -187,11 +188,28 @@ function resolveCalendarEntries(
         return
       }
 
-      allDayEntries.push({
-        item,
-        startDate: start.date,
-        endDate: end.date,
-      })
+      let cursor = getDateFromKey(start.date)
+      const endDate = getDateFromKey(end.date)
+
+      while (getDateKey(cursor) <= end.date) {
+        const date = getDateKey(cursor)
+        const isStartDate = date === start.date
+        const isEndDate = date === end.date
+
+        timedEntries.push({
+          isPartialDay: true,
+          item,
+          date,
+          startMinutes: isStartDate ? getMinutesFromTime(start.time) : 0,
+          endMinutes: isEndDate ? getMinutesFromTime(end.time) : 24 * 60 - 1,
+        })
+
+        cursor = addDays(cursor, 1)
+
+        if (cursor > endDate) {
+          break
+        }
+      }
       return
     }
 
@@ -973,6 +991,8 @@ export function CalendarView({
                   ) : null}
                   {visibleTimedEntries.map((entry, index) => {
                     const dayIndex = dayKeys.indexOf(entry.date)
+                    const entryEditable =
+                      isItemEditable(entry.item) && !entry.isPartialDay
                     const top = (entry.startMinutes / 60) * HOUR_HEIGHT
                     const height = Math.max(
                       24,
@@ -982,7 +1002,7 @@ export function CalendarView({
 
                     return (
                       <div
-                        key={entry.item.id}
+                        key={`${entry.item.id}-${entry.date}-${entry.startMinutes}-${entry.endMinutes}`}
                         className={cn(
                           "absolute rounded-md border-l-2 px-2 py-1 text-left text-[12px] shadow-sm",
                           itemTone(index)
@@ -994,7 +1014,9 @@ export function CalendarView({
                           height,
                         }}
                         onPointerDown={(event) =>
-                          beginTimedDrag(event, entry, "move")
+                          entryEditable
+                            ? beginTimedDrag(event, entry, "move")
+                            : undefined
                         }
                         onClick={() => {
                           if (suppressNextClickRef.current) {
@@ -1009,14 +1031,16 @@ export function CalendarView({
                         }
                         onMouseLeave={scheduleHoverDetailClear}
                       >
-                        <button
-                          type="button"
-                          className="absolute inset-x-1 top-0 h-2 cursor-ns-resize"
-                          onPointerDown={(event) =>
-                            beginTimedDrag(event, entry, "resize-start")
-                          }
-                          aria-label="Resize start time"
-                        />
+                        {entryEditable ? (
+                          <button
+                            type="button"
+                            className="absolute inset-x-1 top-0 h-2 cursor-ns-resize"
+                            onPointerDown={(event) =>
+                              beginTimedDrag(event, entry, "resize-start")
+                            }
+                            aria-label="Resize start time"
+                          />
+                        ) : null}
                         <div className="truncate font-medium">
                           {entry.item.title}
                         </div>
@@ -1024,14 +1048,16 @@ export function CalendarView({
                           {formatTimeFromMinutes(entry.startMinutes)} -{" "}
                           {formatTimeFromMinutes(entry.endMinutes)}
                         </div>
-                        <button
-                          type="button"
-                          className="absolute inset-x-1 bottom-0 h-2 cursor-ns-resize"
-                          onPointerDown={(event) =>
-                            beginTimedDrag(event, entry, "resize-end")
-                          }
-                          aria-label="Resize end time"
-                        />
+                        {entryEditable ? (
+                          <button
+                            type="button"
+                            className="absolute inset-x-1 bottom-0 h-2 cursor-ns-resize"
+                            onPointerDown={(event) =>
+                              beginTimedDrag(event, entry, "resize-end")
+                            }
+                            aria-label="Resize end time"
+                          />
+                        ) : null}
                       </div>
                     )
                   })}

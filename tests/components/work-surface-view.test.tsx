@@ -710,6 +710,43 @@ describe("CalendarView", () => {
     expect(screen.getByText("Timed planning")).toBeInTheDocument()
   })
 
+  it("renders cross-midnight timed work in hourly columns", () => {
+    const today = startOfDay(new Date())
+    const startDate = formatLocalCalendarDate(today)
+    const endDate = formatLocalCalendarDate(addDays(today, 1))
+    const item = createWorkItem({
+      id: "overnight-item",
+      title: "Overnight support",
+      startDate,
+      targetDate: endDate,
+      startTime: "23:30",
+      endTime: "00:30",
+      scheduleTimeZone: "UTC",
+    })
+    const data = {
+      ...createData(),
+      users: [
+        {
+          id: "user_1",
+          name: "Alex",
+          preferences: {
+            timeZone: "UTC",
+          },
+        } as never,
+      ],
+      workItems: [item],
+    }
+
+    render(<CalendarView data={data} items={[item]} editable={false} />)
+
+    expect(
+      screen.queryByRole("button", { name: "Overnight support" })
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByText("Overnight support")).toHaveLength(2)
+    expect(screen.getByText("23:30 - 23:59")).toBeInTheDocument()
+    expect(screen.getByText("00:00 - 00:30")).toBeInTheDocument()
+  })
+
   it("moves month navigation by calendar months", () => {
     const today = startOfDay(new Date())
 
