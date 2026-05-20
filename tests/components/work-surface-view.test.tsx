@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import { addDays, addMonths, format, startOfDay } from "date-fns"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -60,6 +60,25 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
   openManagedCreateDialog: vi.fn(),
 }))
 
+vi.mock("@/components/app/screens/work-item-detail-screen", () => ({
+  WorkItemDetailSidebarSurface: ({
+    currentItem,
+    onClose,
+    variant = "docked",
+  }: {
+    currentItem: { title: string }
+    onClose?: () => void
+    variant?: "docked" | "floating"
+  }) => (
+    <div data-testid={`${variant}-detail`}>
+      <button type="button" onClick={onClose}>
+        Close detail
+      </button>
+      <span>{currentItem.title}</span>
+    </div>
+  ),
+}))
+
 import {
   BoardView,
   CalendarView,
@@ -75,6 +94,7 @@ import { getTimelineMovePatchForDrag } from "@/components/app/screens/work-surfa
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { formatLocalCalendarDate } from "@/lib/calendar-date"
+import { useAppStore } from "@/lib/store/app-store"
 import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
@@ -555,6 +575,11 @@ function createCrossTeamEpicGroupedCreateData(): AppData {
 }
 
 describe("CalendarView", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    useAppStore.setState(createEmptyState())
+  })
+
   it("renders multi-day all-day work as one spanning event", () => {
     const today = startOfDay(new Date())
     const item = createWorkItem({
@@ -614,6 +639,101 @@ describe("CalendarView", () => {
     expect(
       screen.getByText(format(addMonths(today, 1), "MMMM yyyy"))
     ).toBeInTheDocument()
+  })
+
+  it("clears floating detail after leaving a hovered calendar item", () => {
+    vi.useFakeTimers()
+    const today = startOfDay(new Date())
+    const item = createWorkItem({
+      id: "hover-item",
+      title: "Hover planning",
+      startDate: formatLocalCalendarDate(today),
+      targetDate: formatLocalCalendarDate(today),
+    })
+    const data = {
+      ...createData(),
+      workItems: [item],
+    }
+
+    render(<CalendarView data={data} items={[item]} editable />)
+
+    const itemButton = screen.getByRole("button", { name: "Hover planning" })
+    fireEvent.mouseEnter(itemButton)
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    expect(screen.getByTestId("floating-detail")).toBeInTheDocument()
+
+    fireEvent.mouseLeave(itemButton)
+    act(() => {
+      vi.advanceTimersByTime(150)
+    })
+
+    expect(screen.queryByTestId("floating-detail")).not.toBeInTheDocument()
+  })
+
+  it("clears timed drag state on pointer cancellation", () => {
+    const today = startOfDay(new Date())
+    const date = formatLocalCalendarDate(today)
+    const item = createWorkItem({
+      id: "drag-item",
+      title: "Drag planning",
+      startDate: date,
+      targetDate: date,
+      startTime: "09:00",
+      endTime: "10:00",
+      scheduleTimeZone: "Europe/London",
+    })
+    const data = {
+      ...createData(),
+      workItems: [item],
+    }
+
+    useAppStore.setState(data)
+    const updateWorkItemSpy = vi.spyOn(
+      useAppStore.getState(),
+      "updateWorkItem"
+    )
+
+    render(<CalendarView data={data} items={[item]} editable />)
+
+    const timedGrid = screen.getByTestId("calendar-timed-grid")
+    timedGrid.getBoundingClientRect = () =>
+      ({
+        bottom: 1536,
+        height: 1536,
+        left: 0,
+        right: 700,
+        top: 0,
+        width: 700,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect
+
+    const eventCard = screen.getByText("Drag planning").parentElement
+
+    expect(eventCard).toBeTruthy()
+
+    fireEvent.pointerDown(eventCard!, {
+      clientX: 120,
+      clientY: 576,
+      pointerId: 7,
+    })
+    fireEvent.pointerCancel(eventCard!, {
+      clientX: 120,
+      clientY: 576,
+      pointerId: 7,
+    })
+    fireEvent.pointerUp(timedGrid, {
+      clientX: 260,
+      clientY: 720,
+      pointerId: 7,
+    })
+
+    expect(updateWorkItemSpy).not.toHaveBeenCalled()
+    updateWorkItemSpy.mockRestore()
   })
 })
 

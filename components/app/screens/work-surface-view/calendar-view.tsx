@@ -90,6 +90,7 @@ const ALL_DAY_EVENT_HEIGHT = 26
 const ALL_DAY_EVENT_GAP = 4
 const MIN_TIMED_DURATION_MINUTES = 15
 const HOVER_DETAIL_DELAY_MS = 1000
+const HOVER_DETAIL_CLEAR_DELAY_MS = 150
 const HOVER_DETAIL_WIDTH = 420
 const HOVER_DETAIL_MAX_HEIGHT = 680
 const HOVER_DETAIL_MARGIN = 12
@@ -406,12 +407,20 @@ export function CalendarView({
     }, HOVER_DETAIL_DELAY_MS)
   }
 
+  function scheduleHoverDetailClear() {
+    clearHoverTimer()
+    hoverTimerRef.current = setTimeout(
+      clearHoverDetail,
+      HOVER_DETAIL_CLEAR_DELAY_MS
+    )
+  }
+
   function getCalendarItemInteractionProps(itemId: string) {
     return {
       onClick: () => setSelectedItemId(itemId),
       onMouseEnter: (event: MouseEvent<HTMLButtonElement>) =>
         scheduleHover(itemId, event),
-      onMouseLeave: clearHoverTimer,
+      onMouseLeave: scheduleHoverDetailClear,
     }
   }
 
@@ -449,10 +458,14 @@ export function CalendarView({
 
   function commitDrag(event: PointerEvent) {
     const drag = dragStateRef.current
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return
+    }
+
     const slot = getPointerSlot(event.clientX, event.clientY)
     dragStateRef.current = null
 
-    if (!drag || !slot || !editable) {
+    if (!slot || !editable) {
       return
     }
 
@@ -501,7 +514,7 @@ export function CalendarView({
     }
 
     event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
+    event.currentTarget.setPointerCapture?.(event.pointerId)
 
     dragStateRef.current = {
       action,
@@ -515,6 +528,27 @@ export function CalendarView({
       durationMinutes: entry.endMinutes - entry.startMinutes,
       moved: false,
     }
+  }
+
+  function updateDragMovement(event: PointerEvent) {
+    const drag = dragStateRef.current
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return
+    }
+
+    drag.moved =
+      drag.moved ||
+      Math.abs(event.clientX - drag.originX) > 3 ||
+      Math.abs(event.clientY - drag.originY) > 3
+  }
+
+  function cancelDrag(event: PointerEvent) {
+    const drag = dragStateRef.current
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return
+    }
+
+    dragStateRef.current = null
   }
 
   function moveAllDayItem(entry: AllDayCalendarEntry, targetDate: string) {
@@ -866,21 +900,16 @@ export function CalendarView({
                 </div>
                 <div
                   ref={timedGridRef}
+                  data-testid="calendar-timed-grid"
                   className="relative col-span-full col-start-2 grid"
                   style={{
                     gridTemplateColumns: `repeat(${dayKeys.length}, minmax(0, 1fr))`,
                     height: HOUR_HEIGHT * 24,
                   }}
-                  onPointerMove={(event) => {
-                    const drag = dragStateRef.current
-                    if (!drag) {
-                      return
-                    }
-                    drag.moved =
-                      drag.moved ||
-                      Math.abs(event.clientX - drag.originX) > 3 ||
-                      Math.abs(event.clientY - drag.originY) > 3
-                  }}
+                  onPointerMove={(event) =>
+                    updateDragMovement(event.nativeEvent)
+                  }
+                  onPointerCancel={(event) => cancelDrag(event.nativeEvent)}
                   onPointerUp={(event) => commitDrag(event.nativeEvent)}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={(event: DragEvent<HTMLDivElement>) => {
@@ -954,7 +983,7 @@ export function CalendarView({
                         onMouseEnter={(event) =>
                           scheduleHover(entry.item.id, event)
                         }
-                        onMouseLeave={clearHoverTimer}
+                        onMouseLeave={scheduleHoverDetailClear}
                       >
                         <button
                           type="button"

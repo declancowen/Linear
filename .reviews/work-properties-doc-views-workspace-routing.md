@@ -28,11 +28,60 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 04:25 BST |
-| **Total turns**       | 20                   |
+| **Last reviewed**     | 2026-05-20 04:48 BST |
+| **Total turns**       | 21                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 46                   |
+| **Resolved findings** | 48                   |
 | **Accepted findings** | 0                    |
+
+## Turn 21 — 2026-05-20 04:48 BST
+
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| **Scope**       | Current-head Codex review feedback for calendar hover and drag cancel |
+| **Review type** | External finding triage + targeted interaction fix + gate rerun       |
+| **Reviewer**    | Codex CLI                                                             |
+| **Outcome**     | 2 live current-head Codex review findings fixed locally               |
+
+### Commands run
+
+- `gh pr view 36 --json headRefOid,reviews,comments` — confirmed current-head review on `9060a63f`
+- `gh api repos/declancowen/Linear/pulls/36/comments --paginate` — fetched current-head inline findings
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 28 tests
+- `pnpm typecheck` — initially failed on ignored duplicate `.next/types/* 2.ts` / `* 3.ts` generated files; passed after removing only those generated duplicates
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta, branch-total diff, and analyzer evidence recorded
+
+### Branch-totality proof
+
+- **External findings triaged:** current-head Codex review found two live Medium issues in `CalendarView`: hover detail could remain stuck after leaving an event, and pointer cancellation could leave timed drag state live.
+- **Bug classes / invariants checked:** lifecycle/transient container for hover detail, atomicity/transient input cancellation for drag state, pointer identity for active drag commits.
+- **Sibling closure:** all calendar item hover paths now use the same delayed detail clear; timed move, resize-start, and resize-end share pointer-id guarded movement, commit, and cancellation through the timed grid.
+- **Architecture rule applied:** the interaction state remains owned by `CalendarView`; tests assert user-observable behavior instead of exposing drag state internals.
+- **Why this is enough:** the weak variants from the review are directly covered: leaving an item after the floating detail opens clears it, and `pointercancel` prevents a later `pointerup` from committing a stale drag.
+
+### Resolved / Carried / New findings
+
+#### WPDV-47 — resolved — floating calendar detail could remain stuck after pointer leaves an item
+
+- **Severity:** medium
+- **Evidence:** item `onMouseLeave` only cleared the open timer and did not clear an already-open `hoveredItemId`.
+- **Fix:** calendar item mouse-leave now schedules a short delayed detail clear, while the floating detail itself still cancels that timer on entry so users can hover into it.
+- **Prevention:** Added a fake-timer regression test that opens the floating detail, leaves the item, advances the clear delay, and verifies the floating detail is gone.
+
+#### WPDV-48 — resolved — cancelled timed drags could commit on a later pointer-up
+
+- **Severity:** medium
+- **Evidence:** timed drag state was cleared on `pointerup` only; `pointercancel` left `dragStateRef` populated, and movement/commit did not check `pointerId`.
+- **Fix:** timed drag movement, cancellation, and commit now guard on the active `pointerId`; `pointercancel` clears the drag state.
+- **Prevention:** Added a timed calendar drag regression test that starts a drag, dispatches `pointercancel`, then dispatches `pointerup` and asserts no work item update is requested.
+
+### Residual risk
+
+- Browser smoke was not rerun for this narrow interaction delta; the calendar interaction paths are covered by focused component tests and will be rechecked by CI after push.
 
 ## Turn 20 — 2026-05-20 04:25 BST
 
