@@ -28,11 +28,51 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 14:06 BST |
-| **Total turns**       | 30                   |
+| **Last reviewed**     | 2026-05-20 14:19 BST |
+| **Total turns**       | 31                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 60                   |
+| **Resolved findings** | 61                   |
 | **Accepted findings** | 0                    |
+
+## Turn 31 — 2026-05-20 14:19 BST
+
+| Field           | Value                                                                  |
+| --------------- | ---------------------------------------------------------------------- |
+| **Scope**       | PR #37 Codex feedback for manual hidden-weekend day anchors            |
+| **Review type** | External PR feedback triage + calendar anchor fix + gate rerun         |
+| **Reviewer**    | Codex CLI                                                              |
+| **Outcome**     | 1 live PR finding fixed locally; no local open findings                |
+
+### Commands run
+
+- GitHub connector `fetch_pr_comments` for PR #37 — fetched the latest Codex review feedback
+- `pnpm vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 53 tests
+- `pnpm exec eslint components/app/screens/work-surface-view/calendar-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm lint` — passed
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** current PR feedback had one live P2 issue: manual anchor updates from the date picker or Today button could set a hidden-weekend day anchor while day rendering skipped to Monday.
+- **Bug classes / invariants checked:** date picker anchor normalization, Today button anchor normalization, hidden-weekend day mode, and preserved weekday/weekend-visible behavior.
+- **Sibling closure:** Turn 30 fixed the weekend toggle path; this pass applies the same calendar-owned normalization to every manual anchor write.
+- **Architecture rule applied:** manual anchor writes now reuse the same pure weekend visibility helper instead of duplicating visibility policy in toolbar/date-picker code.
+- **Why this is enough:** component coverage now asserts that clicking Today while the clock is on Saturday with weekends hidden lands the day view on Monday `2026-05-25`.
+
+### Resolved / Carried / New findings
+
+#### WPDV-61 — resolved — manual day anchors could stay on hidden weekends
+
+- **Severity:** medium
+- **Evidence:** `setCalendarAnchorDate` reset expansion and wrote the selected date directly; with hidden weekends in day mode, a Saturday/Sunday selected through the date picker or Today button diverged from the visible rendered day.
+- **Fix:** `setCalendarAnchorDate` now normalizes all manual day anchors through the weekend visibility helper before storing them.
+- **Prevention:** Added a Today-button regression test for hidden-weekend day mode and reran calendar tests, lint, typecheck, and Fallow.
+
+### Residual risk
+
+- I did not resolve or reply to the GitHub review thread; the branch will be pushed with the fix for Codex to re-review.
 
 ## Turn 30 — 2026-05-20 14:06 BST
 

@@ -3704,7 +3704,15 @@ function useCalendarViewControls({
 
   function setCalendarAnchorDate(next: Date | ((current: Date) => Date)) {
     resetAllDayExpansion()
-    setAnchorDate(next)
+    setAnchorDate((current) => {
+      const nextAnchor = typeof next === "function" ? next(current) : next
+
+      return getCalendarWeekendVisibilityAnchorDate({
+        anchorDate: nextAnchor,
+        mode,
+        nextShowWeekends: showWeekends,
+      })
+    })
   }
 
   function handleCalendarModeChange(nextMode: CalendarMode) {

@@ -880,6 +880,29 @@ describe("CalendarView", () => {
     expect(formatLocalCalendarDate(nextAnchor)).toBe("2026-05-23")
   })
 
+  it("normalizes Today clicks away from hidden-weekend day anchors", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 4, 20, 9))
+
+    render(
+      <CalendarView
+        data={createData()}
+        items={[]}
+        editable={false}
+        mode="day"
+        showWeekends={false}
+      />
+    )
+
+    expect(screen.getByText("20 May 2026")).toBeInTheDocument()
+
+    vi.setSystemTime(new Date(2026, 4, 23, 9))
+    fireEvent.click(screen.getByRole("button", { name: "Today" }))
+
+    expect(screen.getByText("25 May 2026")).toBeInTheDocument()
+    expect(screen.queryByText("23 May 2026")).not.toBeInTheDocument()
+  })
+
   it("keeps trackpad wheel events as native calendar scrolling", () => {
     const today = startOfDay(new Date())
 
