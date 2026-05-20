@@ -28,11 +28,52 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 05:34 BST |
-| **Total turns**       | 23                   |
+| **Last reviewed**     | 2026-05-20 05:47 BST |
+| **Total turns**       | 24                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 52                   |
+| **Resolved findings** | 53                   |
 | **Accepted findings** | 0                    |
+
+## Turn 24 — 2026-05-20 05:47 BST
+
+| Field           | Value                                                                             |
+| --------------- | --------------------------------------------------------------------------------- |
+| **Scope**       | Current-head Codex review feedback for timed calendar drag click suppression      |
+| **Review type** | External finding triage + calendar interaction fix + targeted gate rerun          |
+| **Reviewer**    | Codex CLI                                                                         |
+| **Outcome**     | 1 live current-head Codex finding fixed locally; no local open findings           |
+
+### Commands run
+
+- `gh pr view 36 --json latestReviews` — confirmed Codex reviewed pushed head `26e89ed9`
+- `gh api graphql ... reviewThreads(first: 100)` — fetched current-head inline review threads
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 32 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm fallow:gate` — passed: dead code `0`, production health findings `0`, duplication `0`
+- `pnpm audit:deps` — passed at `high` threshold; remaining advisories are low/moderate
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **External findings triaged:** current-head Codex review found one live Medium issue: moved/resized timed calendar events could still receive the subsequent click event and open the detail sidebar.
+- **Bug classes / invariants checked:** pointer gesture lifecycle, click-vs-drag classification, transient interaction state handoff after drag commit.
+- **Sibling closure:** timed move and resize paths share the same `commitDrag` path, so moved drags now suppress the next emitted click regardless of which timed action triggered the commit. Non-moved pointer clicks still open details normally.
+- **Architecture rule applied:** drag/click coordination remains local to `CalendarView`, the owner of the calendar interaction state; no store or sidebar API change was needed.
+- **Why this is enough:** the exact pointer-down, pointer-move, pointer-up, click sequence is covered by a component regression test, and the focused test file plus type/lint/static gates are clean.
+
+### Resolved / Carried / New findings
+
+#### WPDV-53 — resolved — timed drag click events could still open item detail
+
+- **Severity:** medium
+- **Evidence:** `commitDrag` nulled `dragStateRef` before React's click handler ran, so the click guard saw no moved drag and opened the docked detail sidebar after a drag.
+- **Fix:** moved timed drags now set a one-click suppression flag before clearing drag state; the next emitted click clears that flag and does not open detail.
+- **Prevention:** Added a regression test that performs pointer-down, pointer-move, pointer-up on the event card, emits click, and verifies the item updates without opening the detail sidebar.
+
+### Residual risk
+
+- Browser smoke was not rerun for this narrow pointer-event delta; the interaction is covered by focused component tests and CI will rerun after push.
 
 ## Turn 23 — 2026-05-20 05:34 BST
 

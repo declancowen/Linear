@@ -338,6 +338,7 @@ export function CalendarView({
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const timedGridRef = useRef<HTMLDivElement | null>(null)
   const dragStateRef = useRef<CalendarDragState | null>(null)
+  const suppressNextClickRef = useRef(false)
   const days = useMemo(
     () => getVisibleDays(anchorDate, mode),
     [anchorDate, mode]
@@ -469,7 +470,12 @@ export function CalendarView({
     }
 
     const slot = getPointerSlot(event.clientX, event.clientY)
+    const shouldSuppressClick = drag.moved
     dragStateRef.current = null
+
+    if (shouldSuppressClick) {
+      suppressNextClickForDrag()
+    }
 
     if (!slot || !isItemEditable(drag.item)) {
       return
@@ -558,6 +564,13 @@ export function CalendarView({
     }
 
     dragStateRef.current = null
+  }
+
+  function suppressNextClickForDrag() {
+    suppressNextClickRef.current = true
+    window.setTimeout(() => {
+      suppressNextClickRef.current = false
+    }, 0)
   }
 
   function moveAllDayItem(entry: AllDayCalendarEntry, targetDate: string) {
@@ -984,10 +997,12 @@ export function CalendarView({
                           beginTimedDrag(event, entry, "move")
                         }
                         onClick={() => {
-                          const drag = dragStateRef.current
-                          if (!drag?.moved) {
-                            setSelectedItemId(entry.item.id)
+                          if (suppressNextClickRef.current) {
+                            suppressNextClickRef.current = false
+                            return
                           }
+
+                          setSelectedItemId(entry.item.id)
                         }}
                         onMouseEnter={(event) =>
                           scheduleHover(entry.item.id, event)

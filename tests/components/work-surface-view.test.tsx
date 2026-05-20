@@ -843,6 +843,43 @@ describe("CalendarView", () => {
     )
     updateWorkItemSpy.mockRestore()
   })
+
+  it("suppresses the click emitted after a timed calendar drag", () => {
+    vi.useFakeTimers()
+    const item = createTimedCalendarItem({
+      id: "drag-click-item",
+      title: "Drag click planning",
+      startTime: "10:00",
+      endTime: "11:00",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } =
+      renderTimedCalendarItem({ item })
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 120,
+      clientY: 640,
+      pointerId: 13,
+    })
+    fireEvent.pointerMove(timedGrid, {
+      clientX: 120,
+      clientY: 704,
+      pointerId: 13,
+    })
+    fireEvent.pointerUp(eventCard, {
+      clientX: 120,
+      clientY: 704,
+      pointerId: 13,
+    })
+    fireEvent.click(eventCard)
+
+    expect(updateWorkItemSpy).toHaveBeenCalled()
+    expect(screen.queryByTestId("docked-detail")).not.toBeInTheDocument()
+
+    act(() => {
+      vi.runOnlyPendingTimers()
+    })
+    updateWorkItemSpy.mockRestore()
+  })
 })
 
 describe("TimelineView primitives", () => {
