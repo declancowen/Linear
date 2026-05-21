@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+import { setMockDesktopAuthBridge } from "@/tests/lib/fixtures/electron-app"
 
 class EventSourceMock {
   static instances: EventSourceMock[] = []
@@ -7,14 +9,15 @@ class EventSourceMock {
   onerror: ((event: Event) => void) | null = null
   closed = false
 
-  constructor(readonly url: string) {
+  constructor(
+    readonly url: string,
+    readonly options?: EventSourceInit
+  ) {
     EventSourceMock.instances.push(this)
   }
 
   addEventListener(type: string, listener: (event: MessageEvent<string>) => void) {
-    const listeners = this.listeners.get(type) ?? new Set()
-    listeners.add(listener)
-    this.listeners.set(type, listeners)
+    this.listenersFor(type).add(listener)
   }
 
   removeEventListener(
@@ -37,6 +40,19 @@ class EventSourceMock {
       listener(event)
     }
   }
+
+  private listenersFor(type: string) {
+    const listeners = this.listeners.get(type)
+
+    if (listeners) {
+      return listeners
+    }
+
+    const nextListeners = new Set<(event: MessageEvent<string>) => void>()
+    this.listeners.set(type, nextListeners)
+
+    return nextListeners
+  }
 }
 
 describe("openScopedInvalidationStream", () => {
@@ -44,6 +60,15 @@ describe("openScopedInvalidationStream", () => {
     vi.resetModules()
     EventSourceMock.instances = []
     vi.stubGlobal("EventSource", EventSourceMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+    Object.defineProperty(window, "electronApp", {
+      configurable: true,
+      value: undefined,
+    })
   })
 
   it("shares one EventSource across subscribers and filters invalidations", async () => {
@@ -116,5 +141,60 @@ describe("openScopedInvalidationStream", () => {
       code: "SCOPED_READ_MODELS_UNAVAILABLE",
       message: "Scoped read model versions are unavailable",
     })
+  })
+
+  it("opens scoped streams against the configured public API base URL", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://teams.example.com/")
+    const { openScopedInvalidationStream } = await import(
+      "@/lib/scoped-sync/client"
+    )
+
+    openScopedInvalidationStream({
+      scopeKeys: ["scope:a"],
+    })
+
+    await Promise.resolve()
+
+    expect(EventSourceMock.instances).toHaveLength(1)
+    expect(EventSourceMock.instances[0].url).toBe(
+      "https://teams.example.com/api/events/scoped?scopeKey=scope%3Aa"
+    )
+    expect(EventSourceMock.instances[0].options).toEqual({
+      withCredentials: true,
+    })
+  })
+
+  it("uses fetch-backed desktop auth when native EventSource cannot attach headers", async () => {
+    vi.stubGlobal("EventSource", undefined)
+    setMockDesktopAuthBridge()
+    const stream = new ReadableStream<Uint8Array>()
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(stream, {
+        status: 200,
+      })
+    )
+    const { openScopedInvalidationStream } = await import(
+      "@/lib/scoped-sync/client"
+    )
+
+    const close = openScopedInvalidationStream({
+      scopeKeys: ["scope:a"],
+    })
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled()
+    })
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/events/scoped?scopeKey=scope%3Aa"
+    )
+    expect(headers).toBeInstanceOf(Headers)
+    expect((headers as Headers).get("Authorization")).toBe(
+      "Bearer desktop_token"
+    )
+
+    close()
   })
 })

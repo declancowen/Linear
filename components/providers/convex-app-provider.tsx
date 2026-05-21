@@ -1,8 +1,17 @@
 "use client"
 
 import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react"
-import { useTheme } from "next-themes"
 
+import {
+  buildPublicApiUrl,
+  getPublicApiEventSourceInit,
+} from "@/lib/api/public-url"
+import { useAppTheme } from "@/lib/browser/app-theme"
+import {
+  canCreateAuthenticatedEventSource,
+  createAuthenticatedEventSource,
+  type AuthenticatedEventSource,
+} from "@/lib/browser/authenticated-event-source"
 import {
   reportBootstrapModeDiagnostic,
   reportSnapshotApplyDiagnostic,
@@ -56,7 +65,7 @@ function ConvexStateSync({
 }: ConvexAppProviderProps) {
   const replaceDomainData = useAppStore((state) => state.replaceDomainData)
   const mergeReadModelData = useAppStore((state) => state.mergeReadModelData)
-  const { setTheme } = useTheme()
+  const { setTheme } = useAppTheme()
   const applyThemeFromSnapshotData = useEffectEvent(
     (data: Partial<AppSnapshot>) => {
       const currentUserId = data.currentUserId ?? null
@@ -110,7 +119,7 @@ function ConvexStateSync({
     let cancelled = false
     let syncInFlight = false
     let syncQueued = false
-    let stream: EventSource | null = null
+    let stream: AuthenticatedEventSource | null = null
     let streamReconnectDelay = STREAM_RECONNECT_BASE_DELAY_MS
     let streamReconnectTimeoutId: number | null = null
     let bootstrapRetryDelay = INITIAL_BOOTSTRAP_RETRY_BASE_DELAY_MS
@@ -285,11 +294,14 @@ function ConvexStateSync({
         return
       }
 
-      if (typeof EventSource !== "function") {
+      if (!canCreateAuthenticatedEventSource()) {
         return
       }
 
-      const nextStream = new EventSource("/api/snapshot/events")
+      const nextStream = createAuthenticatedEventSource(
+        buildPublicApiUrl("/api/snapshot/events"),
+        getPublicApiEventSourceInit()
+      )
       stream = nextStream
 
       const handleVersionEvent = (event: MessageEvent<string>) => {

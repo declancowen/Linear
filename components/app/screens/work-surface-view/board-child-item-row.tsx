@@ -1,4 +1,4 @@
-import Link from "next/link"
+import { AppLink } from "@/lib/browser/app-navigation"
 import type {
   DraggableAttributes,
   DraggableSyntheticListeners,
@@ -48,13 +48,13 @@ export function BoardChildItemRow({
   }
 
   return (
-    <Link
+    <AppLink
       href={href}
       className={className}
       {...dragAttributes}
       {...dragListeners}
     >
       {content}
-    </Link>
+    </AppLink>
   )
 }

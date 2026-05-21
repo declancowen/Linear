@@ -1,9 +1,5 @@
-import { saveSession } from "@workos-inc/authkit-nextjs"
-
-import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
-import { getRequestMetadata } from "@/lib/server/auth-request"
 import { redirectToRoute } from "@/lib/server/route-response"
-import { getWorkOSClient } from "@/lib/server/workos"
+import { authenticateWorkOSCallbackCode } from "@/lib/server/workos-auth-callback"
 import {
   buildAuthPageHref,
   type AuthMode,
@@ -66,21 +62,6 @@ function buildCallbackAuthFailure(
   }
 }
 
-async function authenticateCallbackCode(request: Request, code: string) {
-  const authenticationResponse =
-    await getWorkOSClient().userManagement.authenticateWithCode({
-      clientId: process.env.WORKOS_CLIENT_ID,
-      code,
-      ...getRequestMetadata(request),
-    })
-
-  await saveSession(authenticationResponse, request.url)
-  await reconcileAuthenticatedAppContext(
-    authenticationResponse.user,
-    authenticationResponse.organizationId
-  )
-}
-
 export async function GET(request: Request) {
   const url = new URL(request.url)
   const code = url.searchParams.get("code")
@@ -99,7 +80,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    await authenticateCallbackCode(request, code ?? "")
+    await authenticateWorkOSCallbackCode(request, code ?? "")
     return redirectToRoute(request, buildPostAuthPath(state?.nextPath))
   } catch {
     return redirectToCallbackAuthPage(request, {

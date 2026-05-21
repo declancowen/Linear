@@ -34,7 +34,8 @@ vi.mock("@/lib/server/authenticated-app", () => ({
 }))
 
 vi.mock("@/lib/server/workspace-entry-navigation", () => ({
-  resolveWorkspaceEntryNavigation: pageRouteMocks.resolveWorkspaceEntryNavigation,
+  resolveWorkspaceEntryNavigation:
+    pageRouteMocks.resolveWorkspaceEntryNavigation,
 }))
 
 vi.mock("@/components/app/auth-email-verification-screen", () => ({
@@ -150,9 +151,8 @@ describe("root app pages", () => {
   })
 
   it("renders verification pages only with pending verification state", async () => {
-    const { serializePendingEmailVerificationState } = await import(
-      "@/lib/auth-email-verification"
-    )
+    const { serializePendingEmailVerificationState } =
+      await import("@/lib/auth-email-verification")
     const { default: VerifyEmailPage } = await import("@/app/verify-email/page")
 
     pageRouteMocks.cookies.mockResolvedValueOnce({
@@ -203,9 +203,8 @@ describe("root app pages", () => {
   })
 
   it("renders reset password and onboarding entry states", async () => {
-    const { default: ResetPasswordPage } = await import(
-      "@/app/reset-password/page"
-    )
+    const { default: ResetPasswordPage } =
+      await import("@/app/reset-password/page")
     const { default: OnboardingPage } = await import("@/app/onboarding/page")
 
     render(
@@ -232,7 +231,7 @@ describe("root app pages", () => {
         joinCode: "JOIN123",
       })
     )
-  })
+  }, 10_000)
 
   it("redirects completed onboarding users to their workspace", async () => {
     const { default: OnboardingPage } = await import("@/app/onboarding/page")

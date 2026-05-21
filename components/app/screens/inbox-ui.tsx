@@ -1,6 +1,6 @@
 "use client"
 
-import Link from "next/link"
+import { AppLink } from "@/lib/browser/app-navigation"
 import { isToday, isYesterday } from "date-fns"
 import {
   Archive,
@@ -659,7 +659,7 @@ function InboxPrimaryAction({
     <div className="flex items-center gap-2">
       {action.kind === "link" ? (
         <Button size="sm" asChild>
-          <Link href={action.href}>{action.label}</Link>
+          <AppLink href={action.href}>{action.label}</AppLink>
         </Button>
       ) : (
         <Button size="sm" disabled={action.loading} onClick={action.onClick}>

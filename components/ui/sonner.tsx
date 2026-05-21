@@ -1,10 +1,8 @@
 "use client"
 
 import type { CSSProperties } from "react"
-import { useTheme } from "next-themes"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import {
-  Bell,
   CheckCircleIcon,
   InfoIcon,
   WarningIcon,
@@ -12,8 +10,10 @@ import {
   SpinnerIcon,
 } from "@phosphor-icons/react"
 
+import { useAppTheme } from "@/lib/browser/app-theme"
+
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { resolvedTheme = "light" } = useTheme()
+  const { resolvedTheme = "light" } = useAppTheme()
 
   return (
     <Sonner
@@ -65,9 +65,5 @@ const Toaster = ({ ...props }: ToasterProps) => {
     />
   )
 }
-
-export const NotificationToastIcon = () => (
-  <Bell weight="fill" className="size-[15px]" />
-)
 
 export { Toaster }

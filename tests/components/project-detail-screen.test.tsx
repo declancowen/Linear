@@ -64,15 +64,21 @@ vi.mock("@/components/app/screens/work-surface-view", () => ({
   TimelineView: () => <div>Timeline layout</div>,
 }))
 
-vi.mock("@phosphor-icons/react", () => ({
-  ArrowSquareOut: () => null,
-  CaretRight: () => null,
-  PencilSimple: () => null,
-  Plus: () => null,
-  SidebarSimple: () => null,
-  Trash: () => null,
-  XIcon: () => null,
-}))
+vi.mock("@phosphor-icons/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@phosphor-icons/react")>()
+  const Icon = () => null
+  const icons = {
+    ...actual,
+    ArrowSquareOut: Icon,
+    CaretRight: Icon,
+    PencilSimple: Icon,
+    Plus: Icon,
+    SidebarSimple: Icon,
+    Trash: Icon,
+    XIcon: Icon,
+  }
+  return icons
+})
 
 function seedState() {
   useAppStore.setState({

@@ -1,12 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { SpinnerGap } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import { syncJoinTeam } from "@/lib/convex/client"
+import { AppLink, useAppRouter } from "@/lib/browser/app-navigation"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { resolveImageAssetSource } from "@/lib/utils"
@@ -73,7 +72,7 @@ function useJoinTeamAction({
   joinCode,
   teamName,
 }: Pick<OnboardingJoinCardProps, "alreadyJoined" | "joinCode" | "teamName">) {
-  const router = useRouter()
+  const router = useAppRouter()
   const [submitting, setSubmitting] = useState(false)
 
   async function handleJoinTeam() {
@@ -148,10 +147,10 @@ function OnboardingJoinActions({
     return (
       <div className="flex gap-2">
         <Button asChild variant="ghost" size="lg" className="h-11 flex-1">
-          <Link href={loginHref}>Sign in</Link>
+          <AppLink href={loginHref}>Sign in</AppLink>
         </Button>
         <Button asChild size="lg" className="h-11 flex-1">
-          <Link href={signupHref}>Create account</Link>
+          <AppLink href={signupHref}>Create account</AppLink>
         </Button>
       </div>
     )

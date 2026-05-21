@@ -1,6 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createFormRouteRequest } from "@/tests/lib/fixtures/api-routes"
+import {
+  createFormRouteRequest,
+  createJsonRouteRequest,
+} from "@/tests/lib/fixtures/api-routes"
 import {
   pendingEmailVerificationCookieName,
   serializePendingEmailVerificationState,
@@ -13,6 +16,7 @@ import {
 const saveSessionMock = vi.fn()
 const reconcileAuthenticatedAppContextMock = vi.fn()
 const authenticateWithCodeMock = vi.fn()
+const getAuthorizationUrlMock = vi.fn()
 const authenticateWithEmailVerificationMock = vi.fn()
 const authenticateWithPasswordMock = vi.fn()
 const authenticateWithOrganizationSelectionMock = vi.fn()
@@ -35,6 +39,7 @@ vi.mock("@/lib/server/workos", () => ({
   getWorkOSClient: () => ({
     userManagement: {
       authenticateWithCode: authenticateWithCodeMock,
+      getAuthorizationUrl: getAuthorizationUrlMock,
       authenticateWithEmailVerification: authenticateWithEmailVerificationMock,
       authenticateWithPassword: authenticateWithPasswordMock,
       authenticateWithOrganizationSelection:
@@ -83,11 +88,84 @@ function buildAuthState(input: { mode: "login" | "signup"; nextPath: string }) {
   return JSON.stringify(input)
 }
 
+function expectSavedWorkOSSession(
+  authResponse: {
+    organizationId: string
+    user: unknown
+  },
+  callbackPath: string
+) {
+  expect(authenticateWithCodeMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      code: "abc123",
+    })
+  )
+  expect(saveSessionMock).toHaveBeenCalledWith(
+    authResponse,
+    expect.stringContaining(callbackPath)
+  )
+  expect(reconcileAuthenticatedAppContextMock).toHaveBeenCalledWith(
+    authResponse.user,
+    authResponse.organizationId
+  )
+}
+
+function expectDesktopHandoffRedirect(
+  redirectUrl: URL,
+  expectedNextPath: string
+) {
+  expect(redirectUrl.protocol).toBe("recipe-room:")
+  expect(redirectUrl.hostname).toBe("open")
+  expect(redirectUrl.searchParams.get("path")).toEqual(
+    expect.stringContaining("/auth/desktop/complete?ticket=")
+  )
+  expect(redirectUrl.searchParams.get("path")).toEqual(
+    expect.stringContaining(`next=${encodeURIComponent(expectedNextPath)}`)
+  )
+}
+
+async function postDesktopPasswordLogin() {
+  const { POST } = await import("@/app/auth/desktop/login/route")
+
+  return POST(
+    createFormRouteRequest("http://localhost/auth/desktop/login", {
+      email: "declan@reciperoom.io",
+      password: "password-123",
+      next: "/workspace/chats",
+    })
+  )
+}
+
+async function getCallbackSuccessRedirect(input: {
+  loadRoute: () => Promise<{
+    GET: (request: Request) => Promise<Response>
+  }>
+  routePath: string
+}) {
+  const { GET } = await input.loadRoute()
+  const state = buildAuthState({
+    mode: "login",
+    nextPath: "/workspace/settings",
+  })
+  const response = await GET(
+    new Request(
+      `http://localhost${input.routePath}?code=abc123&state=${encodeURIComponent(state)}`
+    )
+  )
+
+  return {
+    redirectUrl: getRedirectPath(response),
+    response,
+  }
+}
+
 function resetAuthRouteMocks() {
   vi.restoreAllMocks()
   saveSessionMock.mockReset()
   reconcileAuthenticatedAppContextMock.mockReset()
   authenticateWithCodeMock.mockReset()
+  getAuthorizationUrlMock.mockReset()
+  getAuthorizationUrlMock.mockReturnValue("https://auth.workos.com/oauth")
   authenticateWithEmailVerificationMock.mockReset()
   authenticateWithPasswordMock.mockReset()
   authenticateWithOrganizationSelectionMock.mockReset()
@@ -152,16 +230,13 @@ function createEmailVerificationRequest(
   }> = {},
   cookieValue?: string
 ) {
-  const request = createFormRouteRequest(
-    "http://localhost/auth/verify-email",
-    {
-      code: "123456",
-      email: "alex@example.com",
-      mode: "login",
-      next: "/workspace/docs",
-      ...entries,
-    }
-  ) as Request & {
+  const request = createFormRouteRequest("http://localhost/auth/verify-email", {
+    code: "123456",
+    email: "alex@example.com",
+    mode: "login",
+    next: "/workspace/docs",
+    ...entries,
+  }) as Request & {
     cookies: {
       get: ReturnType<typeof vi.fn>
     }
@@ -256,32 +331,13 @@ describe("auth callback route", () => {
       organizationId: "org_123",
     }
     authenticateWithCodeMock.mockResolvedValue(authResponse)
-    const { GET } = await import("@/app/auth/callback/route")
-    const state = buildAuthState({
-      mode: "login",
-      nextPath: "/workspace/settings",
+    const { redirectUrl, response } = await getCallbackSuccessRedirect({
+      loadRoute: () => import("@/app/auth/callback/route"),
+      routePath: "/auth/callback",
     })
-    const response = await GET(
-      new Request(
-        `http://localhost/auth/callback?code=abc123&state=${encodeURIComponent(state)}`
-      )
-    )
-    const redirectUrl = getRedirectPath(response)
 
     expect(response.status).toBe(307)
-    expect(authenticateWithCodeMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        code: "abc123",
-      })
-    )
-    expect(saveSessionMock).toHaveBeenCalledWith(
-      authResponse,
-      expect.stringContaining("/auth/callback")
-    )
-    expect(reconcileAuthenticatedAppContextMock).toHaveBeenCalledWith(
-      authResponse.user,
-      "org_123"
-    )
+    expectSavedWorkOSSession(authResponse, "/auth/callback")
     expect(redirectUrl.pathname).toBe("/workspace/settings")
   })
 
@@ -296,6 +352,188 @@ describe("auth callback route", () => {
       response,
       "We couldn't complete authentication with that provider."
     )
+  })
+})
+
+describe("desktop auth routes", () => {
+  const originalAppUrl = process.env.APP_URL
+  const originalDesktopRedirectUri = process.env.DESKTOP_WORKOS_REDIRECT_URI
+  const originalDesktopDeepLinkScheme = process.env.DESKTOP_DEEP_LINK_SCHEME
+  const originalDesktopSessionSecret = process.env.DESKTOP_SESSION_SECRET
+
+  beforeEach(() => {
+    resetAuthRouteMocks()
+    process.env.APP_URL = "https://teams.example.com"
+    delete process.env.DESKTOP_WORKOS_REDIRECT_URI
+    process.env.DESKTOP_DEEP_LINK_SCHEME = "recipe-room"
+    process.env.DESKTOP_SESSION_SECRET = "x".repeat(32)
+  })
+
+  afterEach(() => {
+    process.env.APP_URL = originalAppUrl
+    process.env.DESKTOP_WORKOS_REDIRECT_URI = originalDesktopRedirectUri
+    process.env.DESKTOP_DEEP_LINK_SCHEME = originalDesktopDeepLinkScheme
+    process.env.DESKTOP_SESSION_SECRET = originalDesktopSessionSecret
+  })
+
+  it("starts desktop auth through hosted WorkOS with a desktop callback", async () => {
+    const { GET } = await import("@/app/auth/desktop/start/route")
+    const response = await GET(
+      new Request(
+        "http://localhost/auth/desktop/start?mode=signup&next=/workspace/docs"
+      )
+    )
+    const redirectUrl = getRedirectPath(response)
+    const state = JSON.parse(getAuthorizationUrlMock.mock.calls[0][0].state)
+
+    expect(response.status).toBe(307)
+    expect(redirectUrl.toString()).toBe("https://auth.workos.com/oauth")
+    expect(getAuthorizationUrlMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "authkit",
+        redirectUri: "https://teams.example.com/auth/desktop/callback",
+        screenHint: "sign-up",
+      })
+    )
+    expect(state).toMatchObject({
+      mode: "signup",
+      nextPath: "/workspace/docs",
+      surface: "desktop",
+    })
+  })
+
+  it("starts desktop Google auth through the hosted desktop callback", async () => {
+    const { GET } = await import("@/app/auth/desktop/start/route")
+    const response = await GET(
+      new Request(
+        "http://localhost/auth/desktop/start?mode=login&provider=google&next=/workspace/docs"
+      )
+    )
+    const state = JSON.parse(getAuthorizationUrlMock.mock.calls[0][0].state)
+
+    expect(response.status).toBe(307)
+    expect(getAuthorizationUrlMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "GoogleOAuth",
+        redirectUri: "https://teams.example.com/auth/desktop/callback",
+        screenHint: undefined,
+      })
+    )
+    expect(state).toMatchObject({
+      mode: "login",
+      nextPath: "/workspace/docs",
+      surface: "desktop",
+    })
+  })
+
+  it("saves the hosted session then redirects back to the desktop app", async () => {
+    const authResponse = {
+      user: { id: "workos_user", email: "alex@example.com" },
+      organizationId: "org_123",
+    }
+    authenticateWithCodeMock.mockResolvedValue(authResponse)
+    const { redirectUrl, response } = await getCallbackSuccessRedirect({
+      loadRoute: () => import("@/app/auth/desktop/callback/route"),
+      routePath: "/auth/desktop/callback",
+    })
+
+    expect(response.status).toBe(307)
+    expectSavedWorkOSSession(authResponse, "/auth/desktop/callback")
+    expectDesktopHandoffRedirect(redirectUrl, "/workspace/settings")
+  })
+
+  it("turns desktop password login into a desktop session handoff", async () => {
+    const authResponse = {
+      user: { id: "workos_user", email: "alex@example.com" },
+      organizationId: "org_123",
+    }
+    authenticateWithPasswordMock.mockResolvedValue(authResponse)
+    const response = await postDesktopPasswordLogin()
+    const redirectUrl = getRedirectPath(response)
+
+    expect(response.status).toBe(303)
+    expect(authenticateWithPasswordMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "declan@reciperoom.io",
+        password: "password-123",
+      })
+    )
+    expect(saveSessionMock).toHaveBeenCalledWith(
+      authResponse,
+      expect.stringContaining("/auth/desktop/login")
+    )
+    expect(reconcileAuthenticatedAppContextMock).toHaveBeenCalledWith(
+      authResponse.user,
+      "org_123"
+    )
+    expectDesktopHandoffRedirect(redirectUrl, "/workspace/chats")
+  })
+
+  it("redirects desktop password login failures back into the packaged renderer", async () => {
+    authenticateWithPasswordMock.mockRejectedValue({
+      rawData: { error: "invalid_credentials" },
+    })
+    const response = await postDesktopPasswordLogin()
+    const redirectUrl = getRedirectPath(response)
+    const handoffPath = redirectUrl.searchParams.get("path") ?? ""
+    const localUrl = new URL(handoffPath, "https://desktop.local")
+
+    expect(response.status).toBe(303)
+    expect(redirectUrl.protocol).toBe("recipe-room:")
+    expect(localUrl.pathname).toBe("/login")
+    expect(localUrl.searchParams.get("error")).toBe(
+      "Invalid email or password."
+    )
+  })
+
+  it("exchanges desktop handoff tickets for user-scoped desktop session tokens", async () => {
+    const { createDesktopHandoffTicket, verifyDesktopSessionToken } =
+      await import("@/lib/server/desktop-session")
+    const { POST } = await import("@/app/api/auth/desktop/session/route")
+    const { ticket } = createDesktopHandoffTicket({
+      organizationId: "org_123",
+      user: {
+        id: "workos_user",
+        email: "alex@example.com",
+      },
+    })
+    const response = await POST(
+      createJsonRouteRequest(
+        "http://localhost/api/auth/desktop/session",
+        "POST",
+        { ticket }
+      )
+    )
+    const payload = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(payload).toMatchObject({
+      expiresAt: expect.any(Number),
+      token: expect.any(String),
+    })
+    expect(verifyDesktopSessionToken(payload.token)).toMatchObject({
+      email: "alex@example.com",
+      organizationId: "org_123",
+      sub: "workos_user",
+      typ: "desktop-session",
+    })
+  })
+
+  it("rejects invalid desktop handoff tickets", async () => {
+    const { POST } = await import("@/app/api/auth/desktop/session/route")
+    const response = await POST(
+      createJsonRouteRequest(
+        "http://localhost/api/auth/desktop/session",
+        "POST",
+        { ticket: "not-a-real-ticket" }
+      )
+    )
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toMatchObject({
+      code: "DESKTOP_AUTH_TICKET_INVALID",
+      message: "Invalid desktop authentication ticket",
+    })
   })
 })
 

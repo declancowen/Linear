@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
-import { useRouter } from "next/navigation"
+import { useAppRouter } from "@/lib/browser/app-navigation"
 import { useShallow } from "zustand/react/shallow"
 import { ArrowSquareOut, PencilSimple, Trash } from "@phosphor-icons/react"
 
@@ -110,7 +110,7 @@ export function ViewContextMenu({
   view: ViewDefinition
   children: ReactNode
 }) {
-  const router = useRouter()
+  const router = useAppRouter()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const renameView = useAppStore((state) => state.renameView)
   const deleteView = useAppStore((state) => state.deleteView)
@@ -202,7 +202,7 @@ export function ProjectContextMenu({
   project: Project
   children: ReactNode
 }) {
-  const router = useRouter()
+  const router = useAppRouter()
   const renameProject = useAppStore((state) => state.renameProject)
   const deleteProject = useAppStore((state) => state.deleteProject)
   const [editOpen, setEditOpen] = useState(false)

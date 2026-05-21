@@ -19,7 +19,7 @@ It is intentionally practical. The goal is to remove ambiguity from the flows th
 | Command | Purpose | Mutates shared state | Notes |
 |--------|--------|--------|--------|
 | `pnpm convex:codegen` | refresh generated Convex bindings | no | must leave `convex/_generated` clean in CI |
-| `pnpm convex:deploy` | deploy Convex functions/schema to the configured environment | yes | run only after confirming env target |
+| `pnpm convex:deploy` | deploy Convex functions/schema to production | yes | loads `.vercel/.env.production.local` so the prod deploy key is explicit |
 | `pnpm partykit:deploy:dev` | deploy hosted PartyKit collaboration runtime to the dev Cloudflare service | yes | targets `linear-collaboration-dev` |
 | `pnpm partykit:deploy:prod` | deploy hosted PartyKit collaboration runtime to the prod Cloudflare service | yes | targets `linear-collaboration-prod` |
 | `pnpm partykit:tail:dev` | tail logs from the dev hosted PartyKit service | no | operational verification for `linear-collaboration-dev` |
@@ -30,11 +30,12 @@ It is intentionally practical. The goal is to remove ambiguity from the flows th
 | `pnpm notifications:send-digests` | send unread-notification digest emails | yes | supports `DRY_RUN=1`; digest claims are now enforced |
 | `pnpm emails:send-jobs` | send queued outbound email jobs from the durable outbox | yes | claim-safe delivery worker; safe to re-run |
 | `pnpm desktop:dev` | run Electron against the local dev server | no | development-only runtime lane |
-| `pnpm desktop:start` | run Electron against the packaged production build | no | smoke path for desktop runtime |
+| `pnpm desktop:start` | run Electron against the explicit desktop renderer URL or packaged runtime config | no | transition hosted-renderer smoke path |
+| `pnpm desktop:start:local-server` | run Electron against a local standalone Next server | no | legacy smoke path; sets `ELECTRON_LOCAL_SERVER=1` |
 
 ## Environment contract
 
-These commands depend on `.env.local` or equivalent environment injection.
+These commands depend on `.env.local` or equivalent environment injection. Production Convex deploys use `.vercel/.env.production.local` through `pnpm convex:deploy`.
 
 Minimum high-risk variables:
 
@@ -137,11 +138,16 @@ Desktop is a supported runtime and should be validated explicitly.
 
 Minimum expectation today:
 
-1. `pnpm build`
-2. `pnpm desktop:start`
-3. verify the shell launches and the packaged server comes up successfully
+1. `pnpm desktop:start`
+2. verify the shell launches and reaches the configured renderer
+3. for legacy local standalone coverage, run `pnpm build` and `pnpm desktop:start:local-server`
 
-This is only a smoke baseline. Packaging, signing, update, and release ownership remain part of the mandatory desktop/runtime architecture stream.
+This is only a smoke baseline. The target real-user architecture is a packaged
+Electron frontend calling hosted Vercel API routes and hosted provider services;
+private server keys must not be bundled into Electron. Packaging, signing,
+updates, deep links, native notifications, desktop auth/session transport, and
+release ownership remain part of the mandatory desktop/runtime architecture
+stream.
 
 ## Release ownership
 

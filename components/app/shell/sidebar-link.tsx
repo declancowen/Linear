@@ -1,7 +1,6 @@
 "use client"
 
-import Link from "next/link"
-
+import { AppLink } from "@/lib/browser/app-navigation"
 import {
   SidebarMenuBadge,
   SidebarMenuButton,
@@ -24,10 +23,10 @@ export function SidebarLink({
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={active}>
-        <Link href={href}>
+        <AppLink href={href}>
           {icon}
           <span>{label}</span>
-        </Link>
+        </AppLink>
       </SidebarMenuButton>
       {badge ? <SidebarMenuBadge>{badge}</SidebarMenuBadge> : null}
     </SidebarMenuItem>

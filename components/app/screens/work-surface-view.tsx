@@ -1,6 +1,6 @@
 "use client"
 
-import Link from "next/link"
+import { AppLink } from "@/lib/browser/app-navigation"
 import {
   memo,
   useMemo,
@@ -1772,12 +1772,12 @@ function ListRowLinkSlot({
   }
 
   return (
-    <Link
+    <AppLink
       href={`/items/${itemId}`}
       className="flex min-w-0 flex-1 items-center overflow-hidden"
     >
       {children}
-    </Link>
+    </AppLink>
   )
 }
 
@@ -2119,7 +2119,7 @@ const BoardCardBody = memo(function BoardCardBody({
         {...dragAttributes}
         {...dragListeners}
       >
-        <Link
+        <AppLink
           href={itemHref}
           aria-label={`Open ${item.title}`}
           className="absolute inset-0 rounded-[8px] focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
@@ -2230,7 +2230,7 @@ function WorkItemChildDisclosure({
                 assignee={childAssignee}
               />
             ) : (
-              <Link
+              <AppLink
                 key={child.id}
                 href={`/items/${child.id}`}
                 className="flex items-center gap-2 rounded-md px-1.5 py-1 text-[12px] transition-colors hover:bg-surface-3"
@@ -2248,7 +2248,7 @@ function WorkItemChildDisclosure({
                     className="size-4"
                   />
                 ) : null}
-              </Link>
+              </AppLink>
             )
           })}
         </div>

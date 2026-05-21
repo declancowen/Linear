@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useAppRouter } from "@/lib/browser/app-navigation"
 import { toast } from "sonner"
 import { useShallow } from "zustand/react/shallow"
 
@@ -666,7 +666,7 @@ function useWorkspaceOwnerRedirect(
   workspaceId: string | null,
   canManageWorkspace: boolean
 ) {
-  const router = useRouter()
+  const router = useAppRouter()
 
   useEffect(() => {
     if (!workspaceId || canManageWorkspace) {
@@ -823,7 +823,7 @@ function useWorkspaceSettingsActions({
   name: string
   workspace: WorkspaceSettingsWorkspace
 }) {
-  const router = useRouter()
+  const router = useAppRouter()
   const [saving, setSaving] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingWorkspace, setDeletingWorkspace] = useState(false)

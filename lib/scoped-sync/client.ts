@@ -1,5 +1,11 @@
 "use client"
 
+import { getPublicApiEventSourceInit } from "@/lib/api/public-url"
+import {
+  canCreateAuthenticatedEventSource,
+  createAuthenticatedEventSource,
+  type AuthenticatedEventSource,
+} from "@/lib/browser/authenticated-event-source"
 import { buildScopedInvalidationStreamUrl } from "@/lib/convex/client"
 
 export type ScopedInvalidationEntry = {
@@ -27,7 +33,7 @@ type ScopedInvalidationSubscriber = {
 
 let nextSubscriberId = 1
 const subscribers = new Map<number, ScopedInvalidationSubscriber>()
-let activeEventSource: EventSource | null = null
+let activeEventSource: AuthenticatedEventSource | null = null
 let activeScopeSignature = ""
 let lastReadyEnvelope: ScopedInvalidationEnvelope | null = null
 let rebuildScheduled = false
@@ -103,7 +109,7 @@ function closeActiveEventSource() {
 }
 
 function rebuildScopedInvalidationStream() {
-  if (typeof EventSource === "undefined") {
+  if (!canCreateAuthenticatedEventSource()) {
     return
   }
 
@@ -120,7 +126,10 @@ function rebuildScopedInvalidationStream() {
     return
   }
 
-  const eventSource = new EventSource(buildScopedInvalidationStreamUrl(scopeKeys))
+  const eventSource = createAuthenticatedEventSource(
+    buildScopedInvalidationStreamUrl(scopeKeys),
+    getPublicApiEventSourceInit()
+  )
 
   eventSource.addEventListener("ready", (event: MessageEvent<string>) => {
     try {
@@ -173,7 +182,7 @@ export function openScopedInvalidationStream(input: {
   onUnavailable?: (envelope: ScopedInvalidationUnavailableEnvelope) => void
   onError?: (error: Event) => void
 }) {
-  if (typeof EventSource === "undefined") {
+  if (!canCreateAuthenticatedEventSource()) {
     return () => {}
   }
 

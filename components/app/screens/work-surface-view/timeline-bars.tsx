@@ -1,5 +1,9 @@
-import Link from "next/link"
-import { memo, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
+import { AppLink } from "@/lib/browser/app-navigation"
+import {
+  memo,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react"
 import { useDraggable } from "@dnd-kit/core"
 import { CSS } from "@dnd-kit/utilities"
 
@@ -56,12 +60,12 @@ export const TimelineLabelRow = memo(function TimelineLabelRow({
           style={{ ...style, background: "var(--cal-accent)" }}
         />
         <div className="min-w-0 flex-1">
-          <Link
+          <AppLink
             className="block truncate text-xs hover:underline"
             href={`/items/${item.id}`}
           >
             {item.title}
-          </Link>
+          </AppLink>
         </div>
         <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
         {assignees[0] ? (

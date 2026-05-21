@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
+import { type AppRouter, useAppRouter } from "@/lib/browser/app-navigation"
 import { useShallow } from "zustand/react/shallow"
 
 import {
@@ -447,7 +447,7 @@ function useTeamSettingsActions({
   router,
   team,
 }: {
-  router: ReturnType<typeof useRouter>
+  router: AppRouter
   team: ReturnType<typeof useRetainedTeamBySlug>["team"]
 }) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -564,7 +564,7 @@ function useTeamSettingsActions({
 function useTeamSettingsAccessRedirect(input: {
   canManageTeam: boolean
   liveTeam: TeamSettingsTeam | null
-  router: ReturnType<typeof useRouter>
+  router: AppRouter
 }) {
   useEffect(() => {
     if (!input.liveTeam || input.canManageTeam) {
@@ -738,7 +738,7 @@ function TeamSettingsReadyContent({
 }
 
 export function TeamSettingsScreen({ teamSlug }: { teamSlug: string }) {
-  const router = useRouter()
+  const router = useAppRouter()
   const { liveTeam, team } = useRetainedTeamBySlug(teamSlug)
   const teamId = team?.id ?? null
   const canManageTeam = useCanManageTeam(teamId)

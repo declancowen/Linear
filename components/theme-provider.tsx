@@ -1,17 +1,17 @@
 "use client"
 
 import * as React from "react"
-import { usePathname } from "next/navigation"
-import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes"
 
+import { useAppPathname } from "@/lib/browser/app-navigation"
+import { AppThemeProvider, useAppTheme } from "@/lib/browser/app-theme"
 import { syncBrowserThemeMetadata } from "@/lib/browser/browser-theme-metadata"
 
 function ThemeProvider({
   children,
   ...props
-}: React.ComponentProps<typeof NextThemesProvider>) {
+}: React.ComponentProps<typeof AppThemeProvider>) {
   return (
-    <NextThemesProvider
+    <AppThemeProvider
       attribute="class"
       defaultTheme="light"
       enableSystem
@@ -22,7 +22,7 @@ function ThemeProvider({
     >
       <ThemeBrowserChromeSync />
       {children}
-    </NextThemesProvider>
+    </AppThemeProvider>
   )
 }
 
@@ -37,8 +37,8 @@ function resolveActiveBrowserTheme(
 }
 
 function ThemeBrowserChromeSync() {
-  const pathname = usePathname()
-  const { resolvedTheme } = useTheme()
+  const pathname = useAppPathname()
+  const { resolvedTheme } = useAppTheme()
 
   React.useLayoutEffect(() => {
     syncBrowserThemeMetadata(resolveActiveBrowserTheme(resolvedTheme))

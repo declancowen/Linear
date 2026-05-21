@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import type { useRouter } from "next/navigation"
 
+import type { AppRouter } from "@/lib/browser/app-navigation"
 import {
   getTextInputLimitState,
   optionalTeamSummaryConstraints,
@@ -89,7 +89,7 @@ export function useTeamSettingsDraft({
   team,
 }: {
   experience: TeamExperienceType
-  router: ReturnType<typeof useRouter>
+  router: AppRouter
   team: ReturnType<typeof useRetainedTeamBySlug>["team"]
 }) {
   const [saving, setSaving] = useState(false)

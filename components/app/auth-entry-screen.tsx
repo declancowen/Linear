@@ -1,7 +1,9 @@
-import Link from "next/link"
 import { GoogleLogo } from "@phosphor-icons/react/dist/ssr"
+import type { FormEventHandler } from "react"
 
 import { AuthLogo } from "@/components/app/auth-logo"
+import { DesktopAwareAuthAnchor } from "@/components/app/desktop-aware-auth-anchor"
+import { AppLink } from "@/lib/browser/app-navigation"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -24,6 +26,9 @@ type AuthEntryScreenProps = {
   mode: "login" | "signup"
   nextPath: string
   error?: string
+  formActionBaseUrl?: string | null
+  formActionPath?: string | null
+  onPasswordSubmit?: FormEventHandler<HTMLFormElement>
   notice?: string
   initialEmail?: string
   initialFirstName?: string
@@ -133,7 +138,7 @@ function AuthPasswordField({
       <div className="flex items-center justify-between gap-3">
         <FieldLabel htmlFor="password">Password</FieldLabel>
         {isLogin ? (
-          <Link
+          <AppLink
             href={`/forgot-password?${new URLSearchParams({
               next: nextPath,
               ...(initialEmail ? { email: initialEmail } : {}),
@@ -141,7 +146,7 @@ function AuthPasswordField({
             className="text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             Forgot password?
-          </Link>
+          </AppLink>
         ) : null}
       </div>
       <Input
@@ -173,13 +178,22 @@ function AuthFeedback({ error, notice }: { error?: string; notice?: string }) {
   )
 }
 
-function GoogleAuthButton({ googleHref }: { googleHref: string }) {
+function GoogleAuthButton({
+  desktopGoogleHref,
+  googleHref,
+}: {
+  desktopGoogleHref: string
+  googleHref: string
+}) {
   return (
     <Button asChild variant="outline" type="button">
-      <a href={googleHref}>
+      <DesktopAwareAuthAnchor
+        desktopHref={desktopGoogleHref}
+        webHref={googleHref}
+      >
         <GoogleLogo data-icon="inline-start" />
         Continue with Google
-      </a>
+      </DesktopAwareAuthAnchor>
     </Button>
   )
 }
@@ -196,15 +210,24 @@ function AlternateAuthLink({
   return (
     <FieldDescription className="text-center">
       {copy.alternatePrompt}{" "}
-      <Link href={alternateHref}>{copy.alternateLabel}</Link>
+      <AppLink href={alternateHref}>{copy.alternateLabel}</AppLink>
     </FieldDescription>
   )
+}
+
+function buildAuthFormAction(path: string, baseUrl?: string | null) {
+  const trimmedBaseUrl = baseUrl?.trim().replace(/\/+$/, "")
+
+  return trimmedBaseUrl ? `${trimmedBaseUrl}${path}` : path
 }
 
 export function AuthEntryScreen({
   mode,
   nextPath,
   error,
+  formActionBaseUrl,
+  formActionPath,
+  onPasswordSubmit,
   notice,
   initialEmail,
   initialFirstName,
@@ -215,11 +238,20 @@ export function AuthEntryScreen({
     next: nextPath,
     mode,
   }).toString()}`
+  const desktopGoogleHref = `/auth/desktop/start?${new URLSearchParams({
+    next: nextPath,
+    mode,
+    provider: "google",
+  }).toString()}`
   const alternateMode = isLogin ? "signup" : "login"
   const alternateHref = `/${alternateMode}?${new URLSearchParams({
     next: nextPath,
   }).toString()}`
   const copy = getAuthModeCopy(mode)
+  const formAction = buildAuthFormAction(
+    formActionPath ?? (isLogin ? "/auth/login" : "/auth/signup"),
+    formActionBaseUrl
+  )
 
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
@@ -230,10 +262,7 @@ export function AuthEntryScreen({
           <AuthEntryHeader mode={mode} />
 
           <CardContent>
-            <form
-              action={isLogin ? "/auth/login" : "/auth/signup"}
-              method="post"
-            >
+            <form action={formAction} method="post" onSubmit={onPasswordSubmit}>
               <input type="hidden" name="next" value={nextPath} />
 
               <FieldGroup>
@@ -267,7 +296,10 @@ export function AuthEntryScreen({
 
                 <FieldSeparator>Or continue with</FieldSeparator>
 
-                <GoogleAuthButton googleHref={googleHref} />
+                <GoogleAuthButton
+                  desktopGoogleHref={desktopGoogleHref}
+                  googleHref={googleHref}
+                />
 
                 <AlternateAuthLink alternateHref={alternateHref} mode={mode} />
               </FieldGroup>

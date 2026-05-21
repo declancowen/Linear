@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useAppSearchParams } from "@/lib/browser/app-navigation"
 import { useShallow } from "zustand/react/shallow"
 import { Plus } from "@phosphor-icons/react"
 
@@ -959,7 +959,7 @@ export function WorkSurface({
   hiddenFilters?: ViewFilterKey[]
 }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
-  const searchParams = useSearchParams()
+  const searchParams = useAppSearchParams()
   const requestedViewId = searchParams.get("view")
   const editable = team
     ? canEditTeam(data, team.id)

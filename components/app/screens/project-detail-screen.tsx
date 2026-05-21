@@ -1,6 +1,9 @@
 "use client"
 
-import { useSearchParams } from "next/navigation"
+import {
+  type AppSearchParams,
+  useAppSearchParams,
+} from "@/lib/browser/app-navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { Plus } from "@phosphor-icons/react"
@@ -529,7 +532,7 @@ function useActiveProjectItemViewSelection({
   projectId: string
   projectRoute: string | null
   savedProjectItemViews: ViewDefinition[]
-  searchParams: ReturnType<typeof useSearchParams>
+  searchParams: AppSearchParams
 }) {
   const [activeBuiltinProjectViewId, setActiveBuiltinProjectViewId] = useState<
     string | null
@@ -975,7 +978,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       },
     ]),
   })
-  const searchParams = useSearchParams()
+  const searchParams = useAppSearchParams()
   const projectModel = getProjectDetailModel(data, projectId)
   const projectRoute = projectModel?.detailHref ?? null
   const savedProjectItemViews = useSavedProjectItemViews(

@@ -1,8 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 
+import { type AppRouter, useAppRouter } from "@/lib/browser/app-navigation"
 import {
   getTextInputLimitState,
   teamNameConstraints,
@@ -136,7 +136,7 @@ function useCreateTeamDraft() {
 
 async function createTeamFromDraft(input: {
   draft: ReturnType<typeof useCreateTeamDraft>
-  router: ReturnType<typeof useRouter>
+  router: AppRouter
 }) {
   input.draft.setSaving(true)
   const created = await useAppStore.getState().createTeam({
@@ -154,7 +154,7 @@ async function createTeamFromDraft(input: {
 }
 
 export function CreateTeamScreen() {
-  const router = useRouter()
+  const router = useAppRouter()
   const workspace = useAppStore(getCurrentWorkspace)
   const canCreateTeam = useAppStore(selectCanCreateTeam)
   const draft = useCreateTeamDraft()

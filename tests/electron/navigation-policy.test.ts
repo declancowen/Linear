@@ -1,0 +1,53 @@
+import { describe, expect, it } from "vitest"
+
+describe("electron navigation policy", () => {
+  it("trusts the default hosted app for packaged file renderer auth flows", async () => {
+    const { getTrustedHostedAppHostnames, isTrustedInAppUrl } =
+      await import("@/electron/navigation-policy.cjs")
+
+    expect(
+      getTrustedHostedAppHostnames({ NODE_ENV: "test" }).has(
+        "teams.reciperoom.io"
+      )
+    ).toBe(true)
+    expect(
+      isTrustedInAppUrl(
+        "https://teams.reciperoom.io/auth/desktop/start?provider=google",
+        "null",
+        { env: { NODE_ENV: "test" } }
+      )
+    ).toBe(true)
+  })
+
+  it("keeps WorkOS and Google identity hosts inside the auth window", async () => {
+    const { isTrustedInAppUrl } =
+      await import("@/electron/navigation-policy.cjs")
+
+    expect(
+      isTrustedInAppUrl("https://api.workos.com/sso/authorize", "null", {
+        env: { NODE_ENV: "test" },
+      })
+    ).toBe(true)
+    expect(
+      isTrustedInAppUrl(
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        "null",
+        {
+          env: { NODE_ENV: "test" },
+        }
+      )
+    ).toBe(true)
+  })
+
+  it("does not trust arbitrary external https hosts as app navigation", async () => {
+    const { isAllowedExternalUrl, isTrustedInAppUrl } =
+      await import("@/electron/navigation-policy.cjs")
+
+    expect(
+      isTrustedInAppUrl("https://example.com/docs", "null", {
+        env: { NODE_ENV: "test" },
+      })
+    ).toBe(false)
+    expect(isAllowedExternalUrl("https://example.com/docs")).toBe(true)
+  })
+})

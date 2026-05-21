@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, type CSSProperties } from "react"
-import { useRouter } from "next/navigation"
+import { useAppRouter } from "@/lib/browser/app-navigation"
 import { ArrowSquareOut, PencilSimple, Trash } from "@phosphor-icons/react"
 
 import type { AppData, Document, DocumentPresenceViewer } from "@/lib/domain/types"
@@ -44,7 +44,7 @@ function DocumentActionMenuContent({
   onRequestRename: () => void
   onRequestDelete: () => void
 }) {
-  const router = useRouter()
+  const router = useAppRouter()
 
   return (
     <>

@@ -1,7 +1,6 @@
 "use client"
 
-import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { AppLink, useAppSearchParams } from "@/lib/browser/app-navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
@@ -195,7 +194,7 @@ function useCollectionLayout(routeKey: string, views: ViewDefinition[]) {
   const selectedView = selectedViewId
     ? (views.find((view) => view.id === selectedViewId) ?? null)
     : null
-  const searchParams = useSearchParams()
+  const searchParams = useAppSearchParams()
   const hasSelectedView = Boolean(selectedView)
   const activeBaseView = selectedView ?? views[0] ?? null
   const activeOverride = useAppStore((state) => {
@@ -1320,7 +1319,7 @@ function ProjectRow({ data, project, displayProps }: ProjectPreviewProps) {
 
   return (
     <ProjectContextMenu data={data} project={project}>
-      <Link
+      <AppLink
         className="group relative flex items-center gap-4 border-b border-line-soft py-3 pr-7 pl-7 transition-colors hover:bg-surface-2"
         href={preview.href}
       >
@@ -1376,7 +1375,7 @@ function ProjectRow({ data, project, displayProps }: ProjectPreviewProps) {
             </div>
           </div>
         </div>
-      </Link>
+      </AppLink>
     </ProjectContextMenu>
   )
 }
@@ -1390,7 +1389,7 @@ function ProjectCard({ data, project, displayProps }: ProjectPreviewProps) {
 
   return (
     <ProjectContextMenu data={data} project={project}>
-      <Link
+      <AppLink
         className="group relative flex h-full min-h-[252px] flex-col overflow-hidden rounded-xl border border-line bg-surface transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-md"
         href={preview.href}
       >
@@ -1468,7 +1467,7 @@ function ProjectCard({ data, project, displayProps }: ProjectPreviewProps) {
             )}
           </div>
         </div>
-      </Link>
+      </AppLink>
     </ProjectContextMenu>
   )
 }
@@ -1794,7 +1793,7 @@ function SavedViewRow({
 
   return (
     <ViewContextMenu view={view}>
-      <Link
+      <AppLink
         className="group relative flex items-center gap-3 border-b border-line-soft py-2.5 pr-6 pl-6 transition-colors hover:bg-surface-2 sm:pr-7 sm:pl-7"
         href={getViewHref(view)}
       >
@@ -1841,7 +1840,7 @@ function SavedViewRow({
             updatedLabel={updatedLabel}
           />
         </div>
-      </Link>
+      </AppLink>
     </ViewContextMenu>
   )
 }
@@ -1866,7 +1865,7 @@ function SavedViewCard({
 
   return (
     <ViewContextMenu view={view}>
-      <Link
+      <AppLink
         className="group relative flex h-full min-h-[212px] flex-col overflow-hidden rounded-xl border border-line bg-surface transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-md"
         href={getViewHref(view)}
       >
@@ -1893,7 +1892,7 @@ function SavedViewCard({
             updatedLabel={updatedLabel}
           />
         </div>
-      </Link>
+      </AppLink>
     </ViewContextMenu>
   )
 }

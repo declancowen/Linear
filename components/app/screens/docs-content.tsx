@@ -1,4 +1,4 @@
-import Link from "next/link"
+import { AppLink } from "@/lib/browser/app-navigation"
 import { FileText } from "@phosphor-icons/react"
 import { format } from "date-fns"
 
@@ -58,7 +58,7 @@ function DocumentListRow({
 
   return (
     <DocumentContextMenu data={data} document={document}>
-      <Link
+      <AppLink
         className="group flex items-start gap-3 border-b border-line-soft px-7 py-3 transition-colors hover:bg-surface-2"
         href={`/docs/${document.id}`}
       >
@@ -80,7 +80,7 @@ function DocumentListRow({
           </div>
           <DocumentListMobileMeta meta={meta} />
         </div>
-      </Link>
+      </AppLink>
     </DocumentContextMenu>
   )
 }

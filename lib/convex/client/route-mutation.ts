@@ -1,5 +1,8 @@
 "use client"
 
+import { buildPublicApiRequestInput } from "@/lib/api/public-url"
+import { buildDesktopAuthHeaders } from "@/lib/browser/desktop-auth-token"
+
 import { RouteMutationError } from "./route-mutation-error"
 
 const ROUTE_ERROR_PAYLOAD_KEYS = [
@@ -114,7 +117,13 @@ function getFailedRouteMutationOptions(
 
 async function fetchRouteMutation(input: RequestInfo | URL, init: RequestInit) {
   try {
-    return await fetch(input, init)
+    const headers = await buildDesktopAuthHeaders(init.headers)
+
+    return await fetch(buildPublicApiRequestInput(input), {
+      credentials: "include",
+      ...init,
+      headers,
+    })
   } catch (error) {
     throw createNetworkRouteMutationError(error)
   }

@@ -11,6 +11,7 @@ import { SpinnerGap } from "@phosphor-icons/react"
 
 import { OnboardingJoinCard } from "@/components/app/onboarding-join-card"
 import { Input } from "@/components/ui/input"
+import { buildPublicApiUrl } from "@/lib/api/public-url"
 
 const FULL_JOIN_CODE_LENGTH = 12
 
@@ -65,7 +66,10 @@ function getJoinWorkspaceStatusLabel(input: {
 
 async function fetchJoinWorkspaceLookup(nextCode: string) {
   const response = await fetch(
-    `/api/teams/lookup?code=${encodeURIComponent(nextCode)}`
+    buildPublicApiUrl(`/api/teams/lookup?code=${encodeURIComponent(nextCode)}`),
+    {
+      credentials: "include",
+    }
   )
   const payload = (await response.json().catch(() => null)) as
     | (JoinWorkspaceLookupResult & { error?: string })

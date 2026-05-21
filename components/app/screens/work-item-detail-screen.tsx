@@ -2,8 +2,11 @@
 
 import type { Editor } from "@tiptap/react"
 import { format, formatDistanceToNow } from "date-fns"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
+import {
+  AppLink,
+  type AppRouter,
+  useAppRouter,
+} from "@/lib/browser/app-navigation"
 import {
   useCallback,
   useEffect,
@@ -604,7 +607,7 @@ function DetailChildWorkItemRow({
         variant === "sidebar" ? "gap-y-1.5" : "gap-y-2"
       )}
     >
-      <Link
+      <AppLink
         href={`/items/${item.id}`}
         className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
       >
@@ -617,7 +620,7 @@ function DetailChildWorkItemRow({
         >
           {item.title}
         </span>
-      </Link>
+      </AppLink>
       <DetailChildPropertyChips
         data={data}
         item={item}
@@ -1783,7 +1786,7 @@ type DetailUploadAttachmentHandler = NonNullable<
   ComponentProps<typeof RichTextEditor>["onUploadAttachment"]
 >
 type DetailFlushCollaboration = DetailCollaborationState["flush"]
-type DetailRouter = ReturnType<typeof useRouter>
+type DetailRouter = AppRouter
 type DetailRequestWorkItemUpdate = ReturnType<
   typeof useWorkItemProjectCascadeConfirmation
 >["requestUpdate"]
@@ -2764,12 +2767,12 @@ function WorkItemDetailBreadcrumb({
       <span className="mr-2 font-mono text-[12px] text-fg-3">
         {currentItem.key}
       </span>
-      <Link
+      <AppLink
         href={`/team/${team?.slug}/work`}
         className="text-fg-3 hover:text-foreground"
       >
         {team?.name}
-      </Link>
+      </AppLink>
       <CaretRight className="size-3 text-fg-4" />
       <span className="truncate">{currentItem.title}</span>
     </div>
@@ -2998,7 +3001,7 @@ function WorkItemParentPill({
 
   return (
     <div className="mb-6">
-      <Link
+      <AppLink
         href={`/items/${parentItem.id}`}
         className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-2.5 py-1 text-[11.5px] text-fg-2 transition-colors hover:border-fg-4 hover:bg-surface-3 hover:text-foreground"
       >
@@ -3009,7 +3012,7 @@ function WorkItemParentPill({
           {parentItem.key}
         </span>
         <span className="max-w-[20rem] truncate">{parentItem.title}</span>
-      </Link>
+      </AppLink>
     </div>
   )
 }
@@ -4055,7 +4058,7 @@ function WorkItemRelationsSection({
     <DetailSidebarSection title="Relations">
       <div className="flex flex-col gap-1.5">
         {selectedProject ? (
-          <Link
+          <AppLink
             href={
               getProjectHref(data, selectedProject) ??
               `/projects/${selectedProject.id}`
@@ -4067,10 +4070,10 @@ function WorkItemRelationsSection({
             <b className="font-medium text-foreground">
               {selectedProject.name}
             </b>
-          </Link>
+          </AppLink>
         ) : null}
         {linkedProjects.map((project) => (
-          <Link
+          <AppLink
             key={project.id}
             href={getProjectHref(data, project) ?? `/projects/${project.id}`}
             className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
@@ -4078,10 +4081,10 @@ function WorkItemRelationsSection({
             <FolderSimple className="size-3" />
             <span>Linked project</span>
             <b className="font-medium text-foreground">{project.name}</b>
-          </Link>
+          </AppLink>
         ))}
         {linkedDocuments.map((document) => (
-          <Link
+          <AppLink
             key={document.id}
             href={`/docs/${document.id}`}
             className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
@@ -4089,7 +4092,7 @@ function WorkItemRelationsSection({
             <LinkSimple className="size-3" />
             <span>Linked doc</span>
             <b className="font-medium text-foreground">{document.title}</b>
-          </Link>
+          </AppLink>
         ))}
       </div>
     </DetailSidebarSection>
@@ -4375,7 +4378,7 @@ export function WorkItemDetailSidebarSurface({
 }
 
 export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
-  const router = useRouter()
+  const router = useAppRouter()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const currentUserId = useAppStore((state) => state.currentUserId)
   const currentUser = getUser(data, currentUserId) ?? null

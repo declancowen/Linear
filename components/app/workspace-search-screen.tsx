@@ -1,6 +1,6 @@
 "use client"
 
-import Link from "next/link"
+import { AppLink } from "@/lib/browser/app-navigation"
 import { useDeferredValue, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { MagnifyingGlass, X } from "@phosphor-icons/react"
@@ -82,7 +82,7 @@ function WorkspaceSearchResultRow({
   const metadata = getSearchResultMetadata(result, team)
 
   return (
-    <Link
+    <AppLink
       key={result.id}
       className="flex items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/50"
       href={result.href}
@@ -103,7 +103,7 @@ function WorkspaceSearchResultRow({
           {metadata}
         </div>
       ) : null}
-    </Link>
+    </AppLink>
   )
 }
 

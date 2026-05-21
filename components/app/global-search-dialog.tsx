@@ -1,7 +1,7 @@
 "use client"
 
 import { useDeferredValue, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useAppRouter } from "@/lib/browser/app-navigation"
 import { useShallow } from "zustand/react/shallow"
 import {
   FrameCorners,
@@ -113,7 +113,7 @@ export function GlobalSearchDialog({
   onSelectCreateAction: (action: GlobalCreateAction) => void
   fullSearchShortcutKeys: string[]
 }) {
-  const router = useRouter()
+  const router = useAppRouter()
   const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
   const currentUserId = useAppStore((state) => state.currentUserId)
   useScopedReadModelRefresh({
