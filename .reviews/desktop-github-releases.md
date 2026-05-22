@@ -4,8 +4,8 @@
 
 | Field         | Value                |
 | ------------- | -------------------- |
-| Last reviewed | 2026-05-22 13:39 BST |
-| Total turns   | 3                    |
+| Last reviewed | 2026-05-22 13:54 BST |
+| Total turns   | 4                    |
 | Open findings | 0                    |
 
 ## Hotspots
@@ -15,6 +15,42 @@
 - Desktop/web compatibility depends on hosted API contract compatibility across at least one previous desktop release.
 - Mac release artifacts must stay pinned to the stable arm64 asset contract until universal/x64 distribution is intentionally designed.
 - Draft and prerelease publishes must not take over the stable `/releases/latest/...` download URL.
+- Server-side minimum-version policy must treat prerelease app versions as lower precedence than matching stable versions.
+- Manual update failures must force the persistent desktop update toast back into view.
+
+## Turn 4 - 2026-05-22 13:54 BST
+
+**Outcome:** No open Critical/High findings after importing the latest Codex PR review and fixing the two live compatibility/update-feedback issues.
+
+**Risk:** High. The findings touched the minimum supported desktop version gate and the user-visible recovery path for failed manual updater actions.
+
+**Archetypes:** external PR finding import, semver compatibility, renderer/main-process IPC feedback, persistent update notification recovery.
+
+**Finding import:**
+
+| Source          | Finding                                                                                        | Current status | Bug class                                          | Missed invariant / variant                                                                                   | Action                                                                                                                                                                           |
+| --------------- | ---------------------------------------------------------------------------------------------- | -------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex PR review | Prerelease app versions like `1.2.0-beta.1` compared as newer than `1.2.0`                     | Resolved       | Contract Encoding / Compatibility                  | A prerelease for the same core version must remain below the stable release in the hosted compatibility gate | Replaced the numeric-fragment parser with semver-style core/prerelease comparison and added regression coverage for prerelease, numeric prerelease ordering, and build metadata. |
+| Codex PR review | Renderer-triggered Download/Restart failures moved update state to `error` without `showToast` | Resolved       | Lifecycle And Transient Containers / Compatibility | Failed manual update actions must reopen the persistent toast so users keep a recovery/download path         | Main-process download/install handlers now force-broadcast error results with `showToast: true`; update manager tests cover failed manual actions requiring visible feedback.    |
+
+**Architecture review:** Version precedence remains in the pure desktop update-policy module used by the hosted policy UI. Manual updater feedback remains in the Electron infrastructure boundary: the manager owns update state, and `electron/main.cjs` owns renderer IPC broadcasts.
+
+**Branch-totality and sibling closure:** Rechecked policy comparison, unsupported-version gating, download and install IPC handlers, manager error states, toast force semantics, and the prior release-channel findings. Earlier publisher feedback is now outdated/fixed in GitHub thread state; the arm64 thread still appears unresolved in GitHub UI but is fixed in current code.
+
+**Static/analyzer evidence:** `diff-review` preflight and `fallow audit --changed-since origin/main --format compact --quiet` were rerun. A new duplicate test setup block was removed. Fallow still reports existing release-script clone groups and advisory complexity in release/update code; CI treats Fallow as advisory.
+
+**Verification:**
+
+- `pnpm vitest run tests/lib/desktop-update-policy.test.ts tests/electron/desktop-updates.test.ts tests/scripts/publish-electron-github-release.test.ts`
+- `pnpm vitest run tests/electron/desktop-updates.test.ts tests/lib/desktop-update-policy.test.ts`
+- `pnpm exec eslint lib/desktop/update-policy.ts tests/lib/desktop-update-policy.test.ts electron/desktop-updates.cjs electron/main.cjs tests/electron/desktop-updates.test.ts --max-warnings 0`
+- `pnpm lint`
+- `pnpm typecheck`
+- `git diff --check`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- `pnpm exec fallow audit --changed-since origin/main --format compact --quiet`
+
+**Residual risk:** No release was published and no Electron app was rebuilt in this feedback loop. Final release validation and artifact publication remain post-merge work from merged `main`.
 
 ## Turn 3 - 2026-05-22 13:39 BST
 

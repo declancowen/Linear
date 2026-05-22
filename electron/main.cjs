@@ -28,7 +28,10 @@ const {
 const {
   createDesktopNotificationBridge,
 } = require("./desktop-notifications.cjs")
-const { createDesktopUpdateManager } = require("./desktop-updates.cjs")
+const {
+  createDesktopUpdateManager,
+  shouldForceDesktopUpdateToastForActionResult,
+} = require("./desktop-updates.cjs")
 const {
   createDesktopAuthStore,
   shouldPersistDesktopAuthTokens,
@@ -751,7 +754,7 @@ function registerDesktopUpdateHandlers() {
 
     return result
   })
-  ipcMain.handle("desktop-updates:download", (event) => {
+  ipcMain.handle("desktop-updates:download", async (event) => {
     if (!isTrustedDesktopBridgeEvent(event)) {
       return {
         accepted: false,
@@ -760,7 +763,17 @@ function registerDesktopUpdateHandlers() {
       }
     }
 
-    return updateManager.downloadUpdate()
+    const result = await updateManager.downloadUpdate()
+
+    if (shouldForceDesktopUpdateToastForActionResult(result)) {
+      broadcastDesktopUpdateState({
+        showToast: true,
+        source: "renderer",
+        state: result.state ?? updateManager.getState(),
+      })
+    }
+
+    return result
   })
   ipcMain.handle("desktop-updates:install", (event) => {
     if (!isTrustedDesktopBridgeEvent(event)) {
@@ -771,7 +784,17 @@ function registerDesktopUpdateHandlers() {
       }
     }
 
-    return updateManager.installUpdate()
+    const result = updateManager.installUpdate()
+
+    if (shouldForceDesktopUpdateToastForActionResult(result)) {
+      broadcastDesktopUpdateState({
+        showToast: true,
+        source: "renderer",
+        state: result.state ?? updateManager.getState(),
+      })
+    }
+
+    return result
   })
 }
 

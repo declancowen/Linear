@@ -99,6 +99,10 @@ function getUpdateVersion(info) {
     : null
 }
 
+function shouldForceDesktopUpdateToastForActionResult(result) {
+  return Boolean(result?.error)
+}
+
 function createDesktopUpdateManager({
   app,
   autoUpdater,
@@ -403,4 +407,5 @@ module.exports = {
   hasPackagedUpdateConfig,
   normalizeGitHubRepository,
   resolveGitHubUpdatePublishConfig,
+  shouldForceDesktopUpdateToastForActionResult,
 }

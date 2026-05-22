@@ -5,10 +5,17 @@ import { describe, expect, it, vi } from "vitest"
 
 type DesktopUpdateTestManager = {
   configure: () => DesktopUpdateState
+  downloadUpdate: () => Promise<{
+    accepted: boolean
+    completed: boolean
+    error?: string
+    state: DesktopUpdateState
+  }>
   getState: () => DesktopUpdateState
   installUpdate: () => {
     accepted: boolean
     completed: boolean
+    error?: string
     state: DesktopUpdateState
   }
 }
@@ -36,6 +43,9 @@ type DesktopUpdatesModule = {
     releaseType: string
     repo: string
   } | null
+  shouldForceDesktopUpdateToastForActionResult: (result: {
+    error?: string
+  }) => boolean
 }
 
 const require = createRequire(import.meta.url)
@@ -44,6 +54,7 @@ const {
   getDesktopAutoUpdateDisabledReason,
   normalizeGitHubRepository,
   resolveGitHubUpdatePublishConfig,
+  shouldForceDesktopUpdateToastForActionResult,
 } = require("../../electron/desktop-updates.cjs") as DesktopUpdatesModule
 
 function createAutoUpdaterMock() {
@@ -64,6 +75,28 @@ function createAutoUpdaterMock() {
   emitter.setFeedURL = vi.fn()
 
   return emitter
+}
+
+function createConfiguredUpdateManager(autoUpdater = createAutoUpdaterMock()) {
+  const manager = createDesktopUpdateManager({
+    app: { isPackaged: true },
+    autoUpdater,
+    env: {
+      DESKTOP_UPDATE_REPOSITORY: "declancowen/Linear",
+    },
+    resourcesPath: "/missing-resources-path",
+    timers: {
+      setInterval: vi.fn(),
+      setTimeout: vi.fn(),
+    } as unknown as typeof globalThis,
+  })
+
+  manager.configure()
+
+  return {
+    autoUpdater,
+    manager,
+  }
 }
 
 describe("desktop updates", () => {
@@ -163,25 +196,35 @@ describe("desktop updates", () => {
   })
 
   it("installs a downloaded update when requested by the renderer", () => {
-    const autoUpdater = createAutoUpdaterMock()
-    const manager = createDesktopUpdateManager({
-      app: { isPackaged: true },
-      autoUpdater,
-      env: {
-        DESKTOP_UPDATE_REPOSITORY: "declancowen/Linear",
-      },
-      resourcesPath: "/missing-resources-path",
-      timers: {
-        setInterval: vi.fn(),
-        setTimeout: vi.fn(),
-      } as unknown as typeof globalThis,
-    })
+    const { autoUpdater, manager } = createConfiguredUpdateManager()
 
-    manager.configure()
     expect(manager.installUpdate()).toMatchObject({
       accepted: true,
       completed: false,
     })
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true)
+  })
+
+  it("marks failed manual update actions as requiring visible feedback", async () => {
+    const { autoUpdater, manager } = createConfiguredUpdateManager()
+
+    autoUpdater.downloadUpdate.mockRejectedValueOnce(new Error("asset missing"))
+
+    const result = await manager.downloadUpdate()
+
+    expect(result).toMatchObject({
+      accepted: true,
+      completed: false,
+      error: "asset missing",
+      state: {
+        status: "error",
+      },
+    })
+    expect(shouldForceDesktopUpdateToastForActionResult(result)).toBe(true)
+    expect(
+      shouldForceDesktopUpdateToastForActionResult({
+        error: undefined,
+      })
+    ).toBe(false)
   })
 })
