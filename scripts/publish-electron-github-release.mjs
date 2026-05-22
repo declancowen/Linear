@@ -141,7 +141,7 @@ async function findReleaseAssets(outputDir) {
 
 async function releaseExists(tag, repo, dryRun) {
   if (dryRun) {
-    return false
+    return process.env.DESKTOP_RELEASE_DRY_RUN_EXISTS === "1"
   }
 
   try {
@@ -154,6 +154,17 @@ async function releaseExists(tag, repo, dryRun) {
 
     throw error
   }
+}
+
+function getReleaseStateArgs(options) {
+  return [
+    ...(options.draft ? ["--draft"] : []),
+    ...(options.prerelease ? ["--prerelease"] : []),
+  ]
+}
+
+function getLatestArgs(options) {
+  return options.draft || options.prerelease ? ["--latest=false"] : ["--latest"]
 }
 
 async function main() {
@@ -176,9 +187,18 @@ async function main() {
       ["release", "upload", tag, ...assets, "--clobber", ...repoArgs],
       { dryRun }
     )
-    await run("gh", ["release", "edit", tag, "--latest", ...repoArgs], {
-      dryRun,
-    })
+    await run(
+      "gh",
+      [
+        "release",
+        "edit",
+        tag,
+        ...getReleaseStateArgs(options),
+        ...getLatestArgs(options),
+        ...repoArgs,
+      ],
+      { dryRun }
+    )
     console.log(`Uploaded ${assets.length} assets to existing release ${tag}.`)
     return
   }
@@ -193,9 +213,8 @@ async function main() {
       "--title",
       releaseName,
       "--generate-notes",
-      "--latest",
-      ...(options.draft ? ["--draft"] : []),
-      ...(options.prerelease ? ["--prerelease"] : []),
+      ...getLatestArgs(options),
+      ...getReleaseStateArgs(options),
       ...repoArgs,
     ],
     { dryRun }

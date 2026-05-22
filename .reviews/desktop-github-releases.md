@@ -4,8 +4,8 @@
 
 | Field         | Value                |
 | ------------- | -------------------- |
-| Last reviewed | 2026-05-22 13:24 BST |
-| Total turns   | 2                    |
+| Last reviewed | 2026-05-22 13:39 BST |
+| Total turns   | 3                    |
 | Open findings | 0                    |
 
 ## Hotspots
@@ -14,6 +14,40 @@
 - Public macOS auto-install still requires Developer ID signing and notarization.
 - Desktop/web compatibility depends on hosted API contract compatibility across at least one previous desktop release.
 - Mac release artifacts must stay pinned to the stable arm64 asset contract until universal/x64 distribution is intentionally designed.
+- Draft and prerelease publishes must not take over the stable `/releases/latest/...` download URL.
+
+## Turn 3 - 2026-05-22 13:39 BST
+
+**Outcome:** No open Critical/High findings after importing the latest Codex PR review and fixing the live publisher issue.
+
+**Risk:** High. The new finding affected the public stable download/update URL contract.
+
+**Archetypes:** external PR finding import, release channel contract, publisher script hardening, documentation/policy alignment.
+
+**Finding import:**
+
+| Source          | Finding                                                                                                     | Current status | Bug class                         | Missed invariant / variant                                                            | Action                                                                                                                                                                        |
+| --------------- | ----------------------------------------------------------------------------------------------------------- | -------------- | --------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex PR review | `--prerelease` publishes still passed `--latest`, allowing RC/beta builds to become GitHub's latest release | Resolved       | Contract Encoding / Compatibility | Stable `/releases/latest/...` must never point at a draft or prerelease desktop build | Publisher now emits `--latest=false` for draft/prerelease creates and existing-release edits, keeps `--latest` only for stable releases, and has dry-run regression coverage. |
+
+**Architecture review:** Release-channel policy remains owned by the publisher script and release policy document. The app/updater code still depends on a single stable latest URL; prerelease channel support is not introduced by this branch.
+
+**Branch-totality and sibling closure:** Rechecked new-release create, existing-release upload/edit, docs, and release policy. The earlier app-info finding is outdated/fixed in current GitHub thread state; the arm64 thread is still unresolved in GitHub UI but current code now passes `--arm64`.
+
+**Static/analyzer evidence:** `diff-review` preflight was rerun after this fix. Fallow remains advisory on this branch; the current turn does not add meaningful branch pressure beyond two small argument builders in the publisher script.
+
+**Verification:**
+
+- `pnpm vitest run tests/scripts/publish-electron-github-release.test.ts tests/lib/browser/desktop-auth-token.test.ts tests/lib/desktop-update-policy.test.ts`
+- `pnpm vitest run tests/scripts/publish-electron-github-release.test.ts`
+- `pnpm exec eslint scripts/publish-electron-github-release.mjs tests/scripts/publish-electron-github-release.test.ts --max-warnings 0`
+- `pnpm lint`
+- `pnpm typecheck`
+- `node scripts/publish-electron-github-release.mjs --dry-run --prerelease --output-dir dist/electron --version 9.9.9`
+- `git diff --check`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+
+**Residual risk:** No release was published and no Electron app was rebuilt in this feedback loop. The final release artifact should still be rebuilt from merged `main` before publishing.
 
 ## Turn 2 - 2026-05-22 13:24 BST
 
@@ -25,10 +59,10 @@
 
 **Finding import:**
 
-| Source | Finding | Current status | Bug class | Missed invariant / variant | Action |
-| ------ | ------- | -------------- | --------- | -------------------------- | ------ |
-| Codex PR review | Release packaging used `--mac` without an explicit architecture while public asset names and URLs are arm64-specific | Resolved | Contract Encoding / Compatibility | The published artifact architecture must match the stable updater/download contract on every build host | Added `--arm64` to the `electron-builder` invocation and rebuilt the release path once to confirm `arch=arm64` artifacts. |
-| Codex PR review | A transient `getDesktopAppInfo()` bridge rejection cached a rejected promise for the rest of the session | Resolved | Lifecycle And Transient Containers / Compatibility | Desktop version/platform header discovery must retry after transient IPC failure | Reset the cached app-info promise on rejection and added a regression test proving the second request recovers and sends version/platform headers. |
+| Source          | Finding                                                                                                              | Current status | Bug class                                          | Missed invariant / variant                                                                              | Action                                                                                                                                             |
+| --------------- | -------------------------------------------------------------------------------------------------------------------- | -------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex PR review | Release packaging used `--mac` without an explicit architecture while public asset names and URLs are arm64-specific | Resolved       | Contract Encoding / Compatibility                  | The published artifact architecture must match the stable updater/download contract on every build host | Added `--arm64` to the `electron-builder` invocation and rebuilt the release path once to confirm `arch=arm64` artifacts.                          |
+| Codex PR review | A transient `getDesktopAppInfo()` bridge rejection cached a rejected promise for the rest of the session             | Resolved       | Lifecycle And Transient Containers / Compatibility | Desktop version/platform header discovery must retry after transient IPC failure                        | Reset the cached app-info promise on rejection and added a regression test proving the second request recovers and sends version/platform headers. |
 
 **Architecture review:** The arm64 guarantee belongs in the packaging script because the script owns the release artifact contract. The retry fix stays in `lib/browser/desktop-auth-token.ts`, the narrow browser bridge boundary that assembles desktop API headers. No server secrets or update policy rules moved into the Electron bundle.
 

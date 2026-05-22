@@ -16,7 +16,7 @@ The release build writes these assets to `dist/electron`:
 - `Recipe-Room-mac-arm64.zip.blockmap`
 - `latest-mac.yml`
 
-The publish script creates or updates the `v<version>` GitHub Release, uploads those assets with `--clobber`, and marks that release as GitHub's latest release. Older releases remain available in the GitHub Releases list.
+The publish script creates or updates the `v<version>` GitHub Release and uploads those assets with `--clobber`. Stable releases are marked as GitHub's latest release. Drafts and prereleases explicitly use `--latest=false` so `/releases/latest/...` continues to point at the stable desktop build.
 
 The stable public download URL is:
 
