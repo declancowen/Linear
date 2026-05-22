@@ -1786,8 +1786,12 @@ describe("TimelineView primitives", () => {
 
     const timelineBar = screen.getByRole("button", { name: item.key })
 
-    fireEvent.pointerDown(timelineBar, { clientX: 0, clientY: 0 })
-    fireEvent.pointerUp(timelineBar, { clientX: 0, clientY: 0 })
+    fireEvent.pointerDown(timelineBar, {
+      clientX: 0,
+      clientY: 0,
+      pointerId: 42,
+    })
+    fireEvent.pointerUp(window, { clientX: 0, clientY: 0, pointerId: 42 })
     fireEvent.click(timelineBar, { clientX: 0, clientY: 0 })
 
     expect(screen.getByTestId("timeline-detail-slot")).toContainElement(
@@ -1893,6 +1897,17 @@ describe("TimelineView primitives", () => {
 
     fireEvent.pointerDown(timelineBar, { clientX: 0, clientY: 0 })
     fireEvent.pointerUp(timelineBar, { clientX: 0, clientY: 0 })
+    fireEvent.click(timelineBar, { clientX: 0, clientY: 0 })
+    expect(onSelectItem).toHaveBeenCalledWith(item.id)
+    expect(onSelectItem).toHaveBeenCalledTimes(1)
+
+    onSelectItem.mockClear()
+    fireEvent.pointerDown(timelineBar, {
+      clientX: 0,
+      clientY: 0,
+      pointerId: 42,
+    })
+    fireEvent.pointerUp(window, { clientX: 0, clientY: 0, pointerId: 42 })
     fireEvent.click(timelineBar, { clientX: 0, clientY: 0 })
     expect(onSelectItem).toHaveBeenCalledWith(item.id)
     expect(onSelectItem).toHaveBeenCalledTimes(1)

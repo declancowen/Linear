@@ -4932,7 +4932,7 @@ export function CalendarView({
         {selectedItem ? (
           <div
             data-testid="calendar-detail-slot"
-            className="flex h-full min-h-0 shrink-0 overflow-hidden"
+            className="flex h-full min-h-0 w-[26.25rem] shrink-0 overflow-hidden"
           >
             <WorkItemDetailSidebarSurface
               data={data}

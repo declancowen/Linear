@@ -1,6 +1,7 @@
 import { AppLink } from "@/lib/browser/app-navigation"
 import {
   memo,
+  useEffect,
   useRef,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
@@ -152,8 +153,20 @@ export const TimelineBar = memo(function TimelineBar({
       id: item.id,
     })
   const style = getTimelineBarStyle(item, accentMode, accentIndex, labelsById)
-  const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null)
+  const pointerDownPositionRef = useRef<{
+    pointerId: number
+    x: number
+    y: number
+  } | null>(null)
   const didSelectOnPointerUpRef = useRef(false)
+  const clearWindowPointerListenersRef = useRef<(() => void) | null>(null)
+
+  function clearWindowPointerListeners() {
+    clearWindowPointerListenersRef.current?.()
+    clearWindowPointerListenersRef.current = null
+  }
+
+  useEffect(() => clearWindowPointerListeners, [])
 
   function didPointerMovePastClickThreshold(clientX: number, clientY: number) {
     const pointerDownPosition = pointerDownPositionRef.current
@@ -176,20 +189,23 @@ export const TimelineBar = memo(function TimelineBar({
     return event.button === 0
   }
 
-  function selectItemFromPointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+  function selectItemFromPointerRelease(input: {
+    clientX: number
+    clientY: number
+    pointerId: number
+  }) {
+    const pointerDownPosition = pointerDownPositionRef.current
+
     if (
-      !isPrimaryPointerButton(event) ||
-      isResizeHandleEventTarget(event.target)
+      pointerDownPosition === null ||
+      pointerDownPosition.pointerId !== input.pointerId
     ) {
-      pointerDownPositionRef.current = null
       return
     }
 
-    if (pointerDownPositionRef.current === null) {
-      return
-    }
+    clearWindowPointerListeners()
 
-    if (didPointerMovePastClickThreshold(event.clientX, event.clientY)) {
+    if (didPointerMovePastClickThreshold(input.clientX, input.clientY)) {
       pointerDownPositionRef.current = null
       return
     }
@@ -197,6 +213,60 @@ export const TimelineBar = memo(function TimelineBar({
     didSelectOnPointerUpRef.current = true
     pointerDownPositionRef.current = null
     onSelectItem?.(item.id)
+  }
+
+  function registerWindowPointerReleaseListener(pointerId: number) {
+    clearWindowPointerListeners()
+
+    const handlePointerUp = (event: PointerEvent) => {
+      selectItemFromPointerRelease({
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pointerId: event.pointerId,
+      })
+    }
+    const handlePointerCancel = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) {
+        return
+      }
+
+      clearWindowPointerListeners()
+      pointerDownPositionRef.current = null
+    }
+
+    window.addEventListener("pointerup", handlePointerUp, {
+      capture: true,
+      once: true,
+    })
+    window.addEventListener("pointercancel", handlePointerCancel, {
+      capture: true,
+      once: true,
+    })
+    clearWindowPointerListenersRef.current = () => {
+      window.removeEventListener("pointerup", handlePointerUp, {
+        capture: true,
+      })
+      window.removeEventListener("pointercancel", handlePointerCancel, {
+        capture: true,
+      })
+    }
+  }
+
+  function selectItemFromPointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (
+      !isPrimaryPointerButton(event) ||
+      isResizeHandleEventTarget(event.target)
+    ) {
+      clearWindowPointerListeners()
+      pointerDownPositionRef.current = null
+      return
+    }
+
+    selectItemFromPointerRelease({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pointerId: event.pointerId,
+    })
   }
 
   return (
@@ -235,9 +305,11 @@ export const TimelineBar = memo(function TimelineBar({
           }
 
           pointerDownPositionRef.current = {
+            pointerId: event.pointerId,
             x: event.clientX,
             y: event.clientY,
           }
+          registerWindowPointerReleaseListener(event.pointerId)
           onCaptureDragOffset(item, span, event)
         }}
         onPointerUpCapture={selectItemFromPointerUp}
