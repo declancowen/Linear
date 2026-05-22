@@ -152,6 +152,12 @@ export function TimelineView({
   )
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? null
 
+  function toggleSelectedItem(itemId: string) {
+    setSelectedItemId((currentItemId) =>
+      currentItemId === itemId ? null : itemId
+    )
+  }
+
   return (
     <DndContext
       collisionDetection={pointerWithin}
@@ -174,7 +180,7 @@ export function TimelineView({
             onBodyHorizontalScroll={handleTimelineBodyHorizontalScroll}
             onCaptureDragOffset={captureDragOffset}
             onLabelColumnResizeStart={handleResizeStart}
-            onSelectItem={setSelectedItemId}
+            onSelectItem={toggleSelectedItem}
             onTimelineBarResizeStart={handleTimelineBarResizeStart}
             resizeDraft={resizeDraft}
             timelineCanvasWidth={timelineCanvasWidth}

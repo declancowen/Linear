@@ -197,8 +197,9 @@ export function useAppSearchParams() {
     getBrowserRoute,
     getServerRoute
   )
+  const search = getSearchFromRoute(route)
 
-  return new URLSearchParams(getSearchFromRoute(route))
+  return useMemo(() => new URLSearchParams(search), [search])
 }
 
 export type AppRouter = ReturnType<typeof useAppRouter>

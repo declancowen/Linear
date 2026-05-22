@@ -13,10 +13,44 @@
 
 | Field | Value |
 |-------|-------|
-| Last reviewed | `2026-05-22 09:41 BST` |
+| Last reviewed | `2026-05-22 10:10 BST` |
 | Risk | High |
 | Open findings | `0` |
-| Residual risks | Internal/ad-hoc mac signing only; desktop token persistence intentionally disabled by default pending a non-blocking keychain strategy; desktop preflight still reports hosted env/WorkOS checks as pending when those values are not visible locally; local full Vitest can hit default 5s per-test timeouts under parallel load, but the timed-out files pass with an explicit 15s timeout |
+| Residual risks | Internal/ad-hoc mac signing only; desktop token persistence intentionally disabled by default pending a non-blocking keychain strategy; desktop preflight still reports hosted env/WorkOS checks as pending when those values are not visible locally; diff preflight's production-dead-code lens reports 17 test-covered helper exports while the configured full dead-code gate is clean; local full Vitest can hit default 5s per-test timeouts under parallel load, but the timed-out files pass with an explicit 15s timeout |
+
+---
+
+## Turn 5 - 2026-05-22 10:10 BST
+
+**Outcome:** No open Critical/High findings after applying the latest PR review feedback and re-running the diff-review loop with architecture/static-analysis evidence.
+
+**Current-turn changes reviewed:**
+- Calendar and timeline inline detail panels now toggle closed when the selected item is clicked again.
+- Calendar timezone selector sits to the left of the Day/Week/Month control, and the calendar date row/detail header row use the same shorter height.
+- Timeline bars now open the inline detail panel from the bar itself, while drag movement, resize handles, non-primary pointer buttons, and stray pointer-up events are guarded so they do not toggle selection.
+- Desktop search params are memoized by the route search string so desktop effects depending on `useAppSearchParams()` do not loop when the query string is unchanged.
+
+**External finding triage:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Codex PR review on commit `9c03dca435` | `useAppSearchParams` returned a fresh object every render | Fixed this turn | React identity / effect lifecycle | Query-param object identity should change only when serialized search changes | Memoized by search string and added desktop renderer regression |
+| Codex PR review older open threads | Handoff replay, fetch SSE reconnect, desktop signup handoff, opaque-origin navigation, notification click URL | Already fixed/stale in current tree | Authority, fallback parity, contract encoding, runtime compatibility | Current-tree behavior must be checked, not GitHub thread resolution state | Reverified owning paths and prior tests; no new code change needed |
+
+**Architecture/static-analysis pass:** Work-surface presentation state remains owned by the calendar/timeline view components; the Electron navigation adapter remains a thin renderer boundary over browser routing. The final preflight still reports 17 production-only unused exports that are test-covered helper exports from this branch, while `pnpm fallow:gate` passes the repo-configured full dead-code, production-health, and duplication gates. No new production export was added in this turn.
+
+**Branch totality / sibling closure:** Rechecked calendar event cards, all-day/timed click selection, timeline label links, timeline bars, drag and resize pointer variants, desktop route search-param consumers, and the stale PR-review hotspots from previous turns.
+
+**Validation:**
+- `pnpm vitest run tests/components/work-surface-view.test.tsx tests/desktop/renderer-smoke.test.tsx` -> `2 passed`, `68 passed`
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm fallow:gate`
+- `git diff --check`
+- `pnpm desktop:renderer:smoke` -> renderer build plus `8 passed`
+- `pnpm build`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh`
 
 ---
 

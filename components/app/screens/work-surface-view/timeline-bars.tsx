@@ -153,6 +153,51 @@ export const TimelineBar = memo(function TimelineBar({
     })
   const style = getTimelineBarStyle(item, accentMode, accentIndex, labelsById)
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null)
+  const didSelectOnPointerUpRef = useRef(false)
+
+  function didPointerMovePastClickThreshold(clientX: number, clientY: number) {
+    const pointerDownPosition = pointerDownPositionRef.current
+
+    return (
+      pointerDownPosition !== null &&
+      (Math.abs(clientX - pointerDownPosition.x) > 4 ||
+        Math.abs(clientY - pointerDownPosition.y) > 4)
+    )
+  }
+
+  function isResizeHandleEventTarget(target: EventTarget | null) {
+    return (
+      target instanceof Element &&
+      target.closest("[data-timeline-resize-handle]") !== null
+    )
+  }
+
+  function isPrimaryPointerButton(event: ReactPointerEvent<HTMLButtonElement>) {
+    return event.button === 0
+  }
+
+  function selectItemFromPointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (
+      !isPrimaryPointerButton(event) ||
+      isResizeHandleEventTarget(event.target)
+    ) {
+      pointerDownPositionRef.current = null
+      return
+    }
+
+    if (pointerDownPositionRef.current === null) {
+      return
+    }
+
+    if (didPointerMovePastClickThreshold(event.clientX, event.clientY)) {
+      pointerDownPositionRef.current = null
+      return
+    }
+
+    didSelectOnPointerUpRef.current = true
+    pointerDownPositionRef.current = null
+    onSelectItem?.(item.id)
+  }
 
   return (
     <IssueContextMenu data={data} item={item}>
@@ -168,26 +213,34 @@ export const TimelineBar = memo(function TimelineBar({
           transform: isDragging ? undefined : CSS.Translate.toString(transform),
         }}
         onClick={(event) => {
-          const pointerDownPosition = pointerDownPositionRef.current
-          pointerDownPositionRef.current = null
+          if (didSelectOnPointerUpRef.current) {
+            didSelectOnPointerUpRef.current = false
+            return
+          }
 
-          if (
-            pointerDownPosition &&
-            (Math.abs(event.clientX - pointerDownPosition.x) > 4 ||
-              Math.abs(event.clientY - pointerDownPosition.y) > 4)
-          ) {
+          if (didPointerMovePastClickThreshold(event.clientX, event.clientY)) {
+            pointerDownPositionRef.current = null
             return
           }
 
           onSelectItem?.(item.id)
         }}
         onPointerDownCapture={(event) => {
+          if (
+            !isPrimaryPointerButton(event) ||
+            isResizeHandleEventTarget(event.target)
+          ) {
+            pointerDownPositionRef.current = null
+            return
+          }
+
           pointerDownPositionRef.current = {
             x: event.clientX,
             y: event.clientY,
           }
           onCaptureDragOffset(item, span, event)
         }}
+        onPointerUpCapture={selectItemFromPointerUp}
         {...listeners}
         {...attributes}
       >

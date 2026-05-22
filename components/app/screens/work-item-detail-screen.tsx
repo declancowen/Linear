@@ -189,7 +189,7 @@ function isAlreadyDeliveredMentionConflict(error: unknown) {
 }
 
 const detailIconButtonClassName =
-  "inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
+  "inline-grid size-6 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
 
 function formatDetailDate(value: string | null) {
   if (!value) {
@@ -4205,7 +4205,7 @@ function WorkItemDetailSidebar({
 
   const content = (
     <>
-      <div className="flex items-center gap-1 border-b border-line-soft px-3 py-2">
+      <div className="flex h-9 items-center gap-1 border-b border-line-soft px-3">
         <span className="mr-2 font-mono text-[12px] text-fg-3">
           {currentItem.key}
         </span>

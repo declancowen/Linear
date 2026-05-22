@@ -1376,6 +1376,10 @@ describe("CalendarView", () => {
       screen.getByTestId("inline-detail")
     )
     expect(screen.getByTestId("calendar-main-surface")).toBeInTheDocument()
+
+    fireEvent.click(eventCard)
+
+    expect(screen.queryByTestId("inline-detail")).not.toBeInTheDocument()
     updateWorkItemSpy.mockRestore()
   })
 
@@ -1751,11 +1755,17 @@ describe("TimelineView primitives", () => {
       />
     )
 
-    fireEvent.click(screen.getByRole("link", { name: "Timeline detail" }))
+    const timelineLink = screen.getByRole("link", { name: "Timeline detail" })
+
+    fireEvent.click(timelineLink)
 
     expect(screen.getByTestId("timeline-detail-slot")).toContainElement(
       screen.getByTestId("inline-detail")
     )
+
+    fireEvent.click(timelineLink)
+
+    expect(screen.queryByTestId("inline-detail")).not.toBeInTheDocument()
   })
 
   it("computes drag patches and rejects invalid timeline drops", () => {
@@ -1815,6 +1825,8 @@ describe("TimelineView primitives", () => {
       title: "Long timeline item",
       status: "in-progress",
     })
+    const onCaptureDragOffset = vi.fn()
+    const onResizeStart = vi.fn()
     const onSelectItem = vi.fn()
 
     const { container } = render(
@@ -1833,9 +1845,9 @@ describe("TimelineView primitives", () => {
           accentIndex={0}
           labelsById={null}
           span={1}
-          onCaptureDragOffset={vi.fn()}
+          onCaptureDragOffset={onCaptureDragOffset}
           onSelectItem={onSelectItem}
-          onResizeStart={vi.fn()}
+          onResizeStart={onResizeStart}
         />
       </>
     )
@@ -1844,6 +1856,21 @@ describe("TimelineView primitives", () => {
     expect(screen.getByText("Alex")).toBeInTheDocument()
 
     const timelineBar = screen.getByRole("button")
+    fireEvent.pointerUp(timelineBar, { clientX: 0, clientY: 0 })
+    expect(onSelectItem).not.toHaveBeenCalled()
+
+    fireEvent.pointerDown(timelineBar, { button: 2, clientX: 0, clientY: 0 })
+    fireEvent.pointerUp(timelineBar, { button: 2, clientX: 0, clientY: 0 })
+    expect(onCaptureDragOffset).not.toHaveBeenCalled()
+    expect(onSelectItem).not.toHaveBeenCalled()
+
+    fireEvent.pointerDown(timelineBar, { clientX: 0, clientY: 0 })
+    fireEvent.pointerUp(timelineBar, { clientX: 0, clientY: 0 })
+    fireEvent.click(timelineBar, { clientX: 0, clientY: 0 })
+    expect(onSelectItem).toHaveBeenCalledWith(item.id)
+    expect(onSelectItem).toHaveBeenCalledTimes(1)
+
+    onSelectItem.mockClear()
     fireEvent.pointerDown(timelineBar, { clientX: 0, clientY: 0 })
     fireEvent.click(timelineBar, { clientX: 8, clientY: 0 })
     expect(onSelectItem).not.toHaveBeenCalled()
@@ -1857,6 +1884,14 @@ describe("TimelineView primitives", () => {
     }
 
     fireEvent.click(startResizeHandle)
+    expect(onSelectItem).not.toHaveBeenCalled()
+
+    onCaptureDragOffset.mockClear()
+    fireEvent.pointerDown(startResizeHandle, { clientX: 0, clientY: 0 })
+    fireEvent.pointerUp(startResizeHandle, { clientX: 0, clientY: 0 })
+    fireEvent.click(startResizeHandle, { clientX: 0, clientY: 0 })
+    expect(onCaptureDragOffset).not.toHaveBeenCalled()
+    expect(onResizeStart).toHaveBeenCalledWith(item, "start", 0)
     expect(onSelectItem).not.toHaveBeenCalled()
   })
 })

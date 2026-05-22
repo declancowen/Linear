@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { useEffect } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const { fetchSnapshotStateMock } = vi.hoisted(() => ({
@@ -52,6 +53,7 @@ vi.mock("@/lib/convex/client", () => ({
 }))
 
 import { DesktopApp } from "@/desktop/renderer/desktop-app"
+import { useAppSearchParams } from "@/lib/browser/app-navigation"
 
 describe("desktop packaged renderer app smoke", () => {
   const originalElectronApp = window.electronApp
@@ -85,6 +87,32 @@ describe("desktop packaged renderer app smoke", () => {
     expect(await screen.findByText("Welcome back")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument()
     expect(fetchSnapshotStateMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps desktop search params stable while the query string is unchanged", () => {
+    const seenSearchParams: URLSearchParams[] = []
+
+    function SearchParamsProbe() {
+      const searchParams = useAppSearchParams()
+
+      useEffect(() => {
+        seenSearchParams.push(searchParams)
+      }, [searchParams])
+
+      return <div>{searchParams.get("view")}</div>
+    }
+
+    window.history.replaceState(null, "", "/workspace/projects?view=view_1")
+
+    const { rerender } = render(<SearchParamsProbe />)
+
+    expect(screen.getByText("view_1")).toBeInTheDocument()
+    expect(seenSearchParams).toHaveLength(1)
+
+    rerender(<SearchParamsProbe />)
+
+    expect(seenSearchParams).toHaveLength(1)
+    expect(seenSearchParams[0]?.get("view")).toBe("view_1")
   })
 
   it("uses the desktop signup route as auth mode", async () => {

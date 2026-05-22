@@ -2078,6 +2078,10 @@ function CalendarToolbar({
           getTodayDate={getTodayDate}
         />
       </div>
+      <CalendarTimeZoneSelect
+        timeZone={timeZone}
+        onTimeZoneChange={onTimeZoneChange}
+      />
       <div className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-surface-3/70 p-0.5">
         {(["day", "week", "month"] as const).map((option) => (
           <ViewTab
@@ -2090,10 +2094,6 @@ function CalendarToolbar({
           </ViewTab>
         ))}
       </div>
-      <CalendarTimeZoneSelect
-        timeZone={timeZone}
-        onTimeZoneChange={onTimeZoneChange}
-      />
       <div className="inline-flex shrink-0 items-center gap-1">
         <Button
           variant="ghost"
@@ -2554,7 +2554,7 @@ function CalendarDayHeader({
             <div
               key={dayState.dayKey}
               className={cn(
-                "flex items-center justify-center gap-1.5 border-l border-line-soft px-3 py-2 text-center",
+                "flex h-9 items-center justify-center gap-1.5 border-l border-line-soft px-3 text-center",
                 dayState.isWeekend && "bg-surface-2/30"
               )}
             >
@@ -3941,6 +3941,13 @@ export function CalendarView({
   const selectionDraftRef = useRef<CalendarSelectionDraft | null>(null)
   const pendingMoveDragRef = useRef<PendingCalendarMoveDrag | null>(null)
   const suppressNextClickRef = useRef(false)
+
+  function toggleSelectedItem(itemId: string) {
+    setSelectedItemId((currentItemId) =>
+      currentItemId === itemId ? null : itemId
+    )
+  }
+
   const {
     clearHoverDetail,
     clearHoverTimer,
@@ -3954,7 +3961,7 @@ export function CalendarView({
       Boolean(
         dragStateRef.current || pendingMoveDragRef.current || dragPreview
       ),
-    onSelectItem: setSelectedItemId,
+    onSelectItem: toggleSelectedItem,
   })
   const dayKeySet = useMemo(() => new Set(dayKeys), [dayKeys])
   const labelsById = useMemo(
@@ -4837,7 +4844,7 @@ export function CalendarView({
     handleTimedGridBlankClick,
     handleTimedGridBlankDoubleClick,
     isItemEditable,
-    onSelectItem: setSelectedItemId,
+    onSelectItem: toggleSelectedItem,
     scheduleHover,
     scheduleHoverDetailClear,
   }
