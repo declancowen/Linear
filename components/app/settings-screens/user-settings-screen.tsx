@@ -1,10 +1,10 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
-import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
+import { type AppRouter, useAppRouter } from "@/lib/browser/app-navigation"
+import { type AppThemeController, useAppTheme } from "@/lib/browser/app-theme"
 import { submitLogoutForm } from "@/lib/browser/logout"
 import {
   getTextInputLimitState,
@@ -25,7 +25,11 @@ import {
 import { getCurrentUser } from "@/lib/domain/selectors"
 import { type ThemePreference, type UserProfile } from "@/lib/domain/types"
 import { useAppStore, type AppStore } from "@/lib/store/app-store"
-import { getSupportedTimeZones, normalizeTimeZone } from "@/lib/time-zone"
+import {
+  formatTimeZoneLabel,
+  getSupportedTimeZones,
+  normalizeTimeZone,
+} from "@/lib/time-zone"
 import { cn } from "@/lib/utils"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
@@ -522,7 +526,7 @@ function TimeZoneSettingsSection({
             >
               {timeZones.map((option) => (
                 <option key={option} value={option}>
-                  {option.replaceAll("_", " ")}
+                  {formatTimeZoneLabel(option)}
                 </option>
               ))}
             </select>
@@ -802,7 +806,7 @@ function useUserAccountActions({
 }: {
   currentUser: UserProfile | null
   email: string
-  router: ReturnType<typeof useRouter>
+  router: AppRouter
 }) {
   const [changingEmail, setChangingEmail] = useState(false)
   const [sendingPasswordReset, setSendingPasswordReset] = useState(false)
@@ -1044,8 +1048,8 @@ function useUserProfilePersistence({
 }: {
   currentUser: UserProfile | null
   draft: UserProfileDraft
-  router: ReturnType<typeof useRouter>
-  setTheme: ReturnType<typeof useTheme>["setTheme"]
+  router: AppRouter
+  setTheme: AppThemeController["setTheme"]
 }) {
   const profileSaveQueueRef = useRef(Promise.resolve())
   const latestThemeRequestIdRef = useRef(0)
@@ -1226,8 +1230,8 @@ function useUserProfilePersistence({
 }
 
 export function UserSettingsScreen() {
-  const router = useRouter()
-  const { setTheme } = useTheme()
+  const router = useAppRouter()
+  const { setTheme } = useAppTheme()
   const currentUser = useAppStore(getCurrentUser)
   const draft = useUserProfileDraft(currentUser)
   const persistence = useUserProfilePersistence({

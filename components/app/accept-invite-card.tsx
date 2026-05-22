@@ -1,11 +1,10 @@
 "use client"
 
-import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useEffect, useEffectEvent, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { syncAcceptInvite, syncDeclineInvite } from "@/lib/convex/client"
+import { AppLink, useAppRouter } from "@/lib/browser/app-navigation"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
@@ -175,10 +174,10 @@ function InviteAuthActions({
   return (
     <>
       <Button asChild variant="ghost" size="sm">
-        <Link href={loginHref}>Sign in</Link>
+        <AppLink href={loginHref}>Sign in</AppLink>
       </Button>
       <Button asChild size="sm">
-        <Link href={signupHref}>Sign up</Link>
+        <AppLink href={signupHref}>Sign up</AppLink>
       </Button>
     </>
   )
@@ -248,7 +247,7 @@ export function AcceptInviteCard({
   autoAccept = false,
   className,
 }: AcceptInviteCardProps) {
-  const router = useRouter()
+  const router = useAppRouter()
   const [loading, setLoading] = useState(false)
   const [declining, setDeclining] = useState(false)
   const autoAcceptStarted = useRef(false)

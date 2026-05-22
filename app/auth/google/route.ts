@@ -1,9 +1,6 @@
 import { getWorkOSClient } from "@/lib/server/workos"
-import {
-  buildAuthPageHref,
-  normalizeAuthNextPath,
-  parseAuthMode,
-} from "@/lib/auth-routing"
+import { buildAuthPageHref } from "@/lib/auth-routing"
+import { getAuthStartContext } from "@/lib/server/auth-start"
 import { redirectToRoute } from "@/lib/server/route-response"
 
 function isLocalRedirectUri(redirectUri: string) {
@@ -14,9 +11,7 @@ function isLocalRedirectUri(redirectUri: string) {
 }
 
 export async function GET(request: Request) {
-  const url = new URL(request.url)
-  const mode = parseAuthMode(url.searchParams.get("mode")) ?? "login"
-  const nextPath = normalizeAuthNextPath(url.searchParams.get("next"))
+  const { mode, nextPath } = getAuthStartContext(request)
   const redirectUri = process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI
 
   if (!redirectUri) {

@@ -35,7 +35,14 @@ import {
 } from "./route-contract-fixtures"
 
 describe("route client compatibility contracts", () => {
+  const originalElectronApp = window.electronApp
+
   afterEach(() => {
+    Object.defineProperty(window, "electronApp", {
+      configurable: true,
+      value: originalElectronApp,
+    })
+    vi.unstubAllEnvs()
     vi.restoreAllMocks()
   })
 
@@ -428,6 +435,69 @@ describe("route client compatibility contracts", () => {
         teamId: "team_1",
       },
     } satisfies Partial<RouteMutationError>)
+  })
+
+  it("sends route mutations to the configured public API base URL", async () => {
+    vi.resetModules()
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://teams.example.com/")
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+    )
+    const { runRouteMutation: runConfiguredRouteMutation } = await import(
+      "@/lib/convex/client/route-mutation"
+    )
+
+    await runConfiguredRouteMutation("/api/test", {
+      method: "POST",
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://teams.example.com/api/test",
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+      })
+    )
+  })
+
+  it("attaches Electron desktop bearer tokens to route mutations", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+    )
+
+    Object.defineProperty(window, "electronApp", {
+      configurable: true,
+      value: {
+        getDesktopAuthToken: vi.fn().mockResolvedValue("desktop_token"),
+        isElectron: true,
+        platform: "darwin",
+      },
+    })
+
+    await runRouteMutation("/api/test", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers
+
+    expect(headers).toBeInstanceOf(Headers)
+    expect((headers as Headers).get("Authorization")).toBe(
+      "Bearer desktop_token"
+    )
+    expect((headers as Headers).get("Content-Type")).toBe("application/json")
   })
 
   it("sends workspace branding updates with optional logo image actions", async () => {

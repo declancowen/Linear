@@ -1,6 +1,6 @@
 "use client"
 
-import Link from "next/link"
+import { AppLink } from "@/lib/browser/app-navigation"
 import { format } from "date-fns"
 import {
   ArrowSquareOut,
@@ -164,7 +164,7 @@ function ProjectBoardCard({
 
   return (
     <ProjectContextMenu data={data} project={project}>
-      <Link
+      <AppLink
         className="group flex min-h-[168px] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"
         href={getProjectHref(data, project) ?? "/workspace/projects"}
       >
@@ -191,7 +191,7 @@ function ProjectBoardCard({
           leadName={lead?.name ?? "Unassigned"}
           progressScope={progress.scope}
         />
-      </Link>
+      </AppLink>
     </ProjectContextMenu>
   )
 }
@@ -329,7 +329,7 @@ export function SavedViewsBoard({
 
         return (
           <ViewContextMenu key={view.id} view={view}>
-            <Link
+            <AppLink
               className="group flex h-full min-h-[168px] flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-sm"
               href={getViewHref(view)}
             >
@@ -379,7 +379,7 @@ export function SavedViewsBoard({
                 ) : null}
                 <span className="ml-auto truncate">{scopeLabel}</span>
               </div>
-            </Link>
+            </AppLink>
           </ViewContextMenu>
         )
       })}
@@ -472,7 +472,7 @@ export function DocumentBoard({
             data={data}
             document={document}
           >
-            <Link
+            <AppLink
               className="group flex min-h-[228px] flex-col self-start overflow-hidden rounded-xl border border-line bg-surface transition-all hover:-translate-y-0.5 hover:border-fg-4 hover:shadow-md"
               href={`/docs/${document.id}`}
             >
@@ -505,7 +505,7 @@ export function DocumentBoard({
                   </span>
                 </div>
               </div>
-            </Link>
+            </AppLink>
           </DocumentContextMenu>
         )
       })}

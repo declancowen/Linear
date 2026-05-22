@@ -87,15 +87,21 @@ profiles.
 - `WORKOS_CLIENT_ID`: WorkOS client ID
 - `WORKOS_API_KEY`: WorkOS server API key
 - `WORKOS_COOKIE_PASSWORD`: cookie encryption secret
+- `DESKTOP_SESSION_SECRET`: server-only secret used by hosted routes to issue desktop session tokens
 - `WORKOS_COOKIE_DOMAIN`: shared auth cookie domain, usually blank on localhost
 - `NEXT_PUBLIC_WORKOS_REDIRECT_URI`: WorkOS callback URL
+- `DESKTOP_WORKOS_REDIRECT_URI`: hosted WorkOS callback URL for desktop browser handoff
+- `DESKTOP_DEEP_LINK_SCHEME`: custom desktop URL scheme used after hosted auth completes
+- `DESKTOP_API_ALLOWED_ORIGINS`: optional comma-separated desktop renderer origins allowed to call hosted API routes; include `null` for the packaged `file://` renderer
 
 ### Vercel / App hosting
 
 - `APP_URL`: base app URL used by the app and email links
 - `NEXT_PUBLIC_APP_URL`: public app origin fallback used by email and script helpers
 - `TEAMS_URL`: app/team entry URL used in auth routing
+- `NEXT_PUBLIC_API_BASE_URL`: optional hosted Vercel API origin for packaged desktop builds; leave blank for same-origin web dev
 - `NEXT_DEV_SERVER_URL`: optional Electron dev-server override
+- `ELECTRON_RENDERER_URL`: explicit Electron renderer URL override for development and transition builds
 
 ### Email
 
@@ -233,6 +239,7 @@ pnpm maintenance:backfill-lookups
 pnpm maintenance:backfill-workspace-memberships
 pnpm desktop:dev
 pnpm desktop:start
+pnpm desktop:start:local-server
 pnpm desktop:smoke
 pnpm desktop:package:mac
 ```
@@ -265,18 +272,70 @@ Collaboration-specific architecture and operations:
 
 For web-only work, `pnpm dev` is enough.
 
+The real-user desktop target is a packaged Electron frontend that calls hosted
+Vercel API routes and hosted provider services. Private server keys stay on
+Vercel, Convex, PartyKit, WorkOS, Resend, and 100ms; Electron packages only
+public client config and desktop code.
+
+Desktop auth stores only user-scoped session tokens. Electron persists them
+with `safeStorage` when OS encryption is available and falls back to in-memory
+storage for the current run when it is not.
+
+Native notifications are issued through a narrow Electron IPC bridge. The
+renderer does not receive broad browser notification permission.
+
 If you need the Electron shell in development:
 
 ```bash
 pnpm desktop:dev
 ```
 
-For a production-style desktop run:
+The transitional hosted-renderer shell run is:
+
+```bash
+pnpm desktop:start
+```
+
+The mac package defaults to hosted-renderer transition mode:
+
+```bash
+pnpm desktop:package:mac
+```
+
+Build the local packaged renderer with:
+
+```bash
+pnpm desktop:renderer:build
+```
+
+Build the mac package with the packaged renderer copied into Electron:
+
+```bash
+pnpm desktop:package:mac:packaged-renderer
+```
+
+Check packaged-renderer coverage with:
+
+```bash
+pnpm desktop:renderer:readiness
+```
+
+Inspect the packaged app for release blockers with:
+
+```bash
+pnpm desktop:release:preflight
+```
+
+The legacy local standalone smoke path is:
 
 ```bash
 pnpm build
-pnpm desktop:start
+pnpm desktop:start:local-server
 ```
+
+The local standalone path is for smoke coverage and is not the target real-user
+desktop architecture. The package/frontend migration plan lives in
+[docs/architecture/electron-packaged-frontend-plan.md](docs/architecture/electron-packaged-frontend-plan.md).
 
 ## Notes for contributors
 

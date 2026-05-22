@@ -53,28 +53,34 @@ vi.mock("@/components/ui/context-menu", () => ({
   ),
 }))
 
-vi.mock("@phosphor-icons/react", () => ({
-  ArrowSquareOut: () => null,
-  CalendarBlank: () => null,
-  CalendarDots: () => null,
-  CaretDown: () => null,
-  ChartBarHorizontal: () => null,
-  Check: () => null,
-  DotsSixVertical: () => null,
-  Eye: () => null,
-  FadersHorizontal: () => null,
-  FunnelSimple: () => null,
-  GearSix: () => null,
-  Kanban: () => null,
-  MagnifyingGlass: () => null,
-  PencilSimple: () => null,
-  Rows: () => null,
-  SortAscending: () => null,
-  SquaresFour: () => null,
-  Stack: () => null,
-  Trash: () => null,
-  TreeStructure: () => null,
-}))
+vi.mock("@phosphor-icons/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@phosphor-icons/react")>()
+  const Icon = () => null
+  const icons = {
+    ...actual,
+    ArrowSquareOut: Icon,
+    CalendarBlank: Icon,
+    CalendarDots: Icon,
+    CaretDown: Icon,
+    ChartBarHorizontal: Icon,
+    Check: Icon,
+    DotsSixVertical: Icon,
+    Eye: Icon,
+    FadersHorizontal: Icon,
+    FunnelSimple: Icon,
+    GearSix: Icon,
+    Kanban: Icon,
+    MagnifyingGlass: Icon,
+    PencilSimple: Icon,
+    Rows: Icon,
+    SortAscending: Icon,
+    SquaresFour: Icon,
+    Stack: Icon,
+    Trash: Icon,
+    TreeStructure: Icon,
+  }
+  return icons
+})
 
 import {
   ProjectContextMenu,

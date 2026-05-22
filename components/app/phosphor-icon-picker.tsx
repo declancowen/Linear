@@ -1,7 +1,58 @@
 "use client"
 
-import * as PhosphorIcons from "@phosphor-icons/react"
-import { CaretDown, MagnifyingGlass } from "@phosphor-icons/react"
+import {
+  Archive,
+  Article,
+  Bell,
+  BookOpen,
+  BookmarkSimple,
+  Briefcase,
+  BugBeetle,
+  CalendarBlank,
+  Cards,
+  CaretDown,
+  ChartBar,
+  ChatCircle,
+  CheckCircle,
+  ClipboardText,
+  Clock,
+  Code,
+  CodesandboxLogo,
+  Database,
+  File,
+  FileText,
+  Flag,
+  FolderSimple,
+  Gauge,
+  Globe,
+  Hash,
+  House,
+  IdentificationCard,
+  Kanban,
+  Lightbulb,
+  LinkSimple,
+  ListBullets,
+  LockSimple,
+  MagnifyingGlass,
+  MapPin,
+  Note,
+  NumberCircleOne,
+  Paperclip,
+  PencilSimple,
+  Pulse,
+  Robot,
+  RocketLaunch,
+  SealCheck,
+  ShieldCheck,
+  Sparkle,
+  SquaresFour,
+  Tag,
+  Target,
+  TextAa,
+  Timer,
+  User,
+  UsersThree,
+} from "@phosphor-icons/react"
 import { createElement, useState, type ComponentType } from "react"
 
 import {
@@ -28,12 +79,60 @@ const MissingIcon: IconComponent = ({ className }) => (
   <span aria-hidden className={className} />
 )
 
+const iconComponents: Record<PhosphorIconName, IconComponent> = {
+  Archive,
+  Article,
+  Bell,
+  BookOpen,
+  BookmarkSimple,
+  Briefcase,
+  BugBeetle,
+  CalendarBlank,
+  Cards,
+  ChartBar,
+  ChatCircle,
+  CheckCircle,
+  ClipboardText,
+  Clock,
+  Code,
+  CodesandboxLogo,
+  Database,
+  File,
+  FileText,
+  Flag,
+  FolderSimple,
+  Gauge,
+  Globe,
+  Hash,
+  House,
+  IdentificationCard,
+  Kanban,
+  Lightbulb,
+  LinkSimple,
+  ListBullets,
+  LockSimple,
+  MapPin,
+  Note,
+  NumberCircleOne,
+  Paperclip,
+  PencilSimple,
+  Pulse,
+  Robot,
+  RocketLaunch,
+  SealCheck,
+  ShieldCheck,
+  Sparkle,
+  SquaresFour,
+  Tag,
+  Target,
+  TextAa,
+  Timer,
+  User,
+  UsersThree,
+}
+
 function getIconComponent(icon: string): IconComponent {
-  return (
-    (PhosphorIcons as unknown as Record<string, IconComponent>)[
-      resolvePhosphorIconName(icon)
-    ] ?? MissingIcon
-  )
+  return iconComponents[resolvePhosphorIconName(icon)] ?? MissingIcon
 }
 
 function getIconLabel(icon: string) {

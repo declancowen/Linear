@@ -9,20 +9,7 @@ import sharp from "sharp"
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const repoRoot = path.resolve(__dirname, "..")
-const sourcePngPath = path.join(
-  repoRoot,
-  "dist",
-  "electron-stage",
-  "electron",
-  "app-icon.png"
-)
-const sourceIcnsPath = path.join(
-  repoRoot,
-  "dist",
-  "electron-stage",
-  "electron",
-  "app-icon.icns"
-)
+const sourcePngPath = path.join(repoRoot, "app-icon.png")
 
 const svgTargets = [
   path.join(repoRoot, "app-icon.svg"),
@@ -64,6 +51,10 @@ async function renderPng(inputBuffer, size, outputPath) {
 async function copyToTargets(sourcePath, targets) {
   await Promise.all(
     targets.map(async (targetPath) => {
+      if (path.resolve(sourcePath) === path.resolve(targetPath)) {
+        return
+      }
+
       await ensureParent(targetPath)
       await fs.copyFile(sourcePath, targetPath)
     })
@@ -119,9 +110,6 @@ async function main() {
     await fs.writeFile(faviconPath, icoBuffer)
     await copyToTargets(faviconPath, faviconTargets)
     await copyToTargets(faviconPath, appIconIcoTargets)
-
-    const icnsPath = path.join(repoRoot, "electron", "app-icon.icns")
-    await copyToTargets(sourceIcnsPath, [icnsPath])
 
     console.log("Generated app icons")
   } finally {

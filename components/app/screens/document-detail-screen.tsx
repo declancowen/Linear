@@ -1,7 +1,10 @@
 "use client"
 import type { Editor } from "@tiptap/react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
+import {
+  AppLink,
+  type AppRouter,
+  useAppRouter,
+} from "@/lib/browser/app-navigation"
 import {
   useCallback,
   useEffect,
@@ -100,7 +103,6 @@ type DocumentMentionQueueAction = Parameters<
   typeof reduceDocumentMentionQueue
 >[1]
 type DocumentMentionQueueDispatch = (action: DocumentMentionQueueAction) => void
-type AppRouter = ReturnType<typeof useRouter>
 
 function formatMentionCountLabel(count: number) {
   return `${count} ${count === 1 ? "mention" : "mentions"}`
@@ -389,12 +391,12 @@ function DocumentDetailHeader({
     <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 py-2">
       <div className="flex min-w-0 items-center gap-1.5 text-sm">
         <SidebarTrigger className="size-5 shrink-0" />
-        <Link
+        <AppLink
           href={backHref}
           className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
         >
           Docs
-        </Link>
+        </AppLink>
         <span className="text-muted-foreground/50">/</span>
         {editable && !isCollaborationBootstrapping ? (
           isEditingTitle ? (
@@ -1540,7 +1542,7 @@ function useDocumentEditorContentLifecycle({
 }
 
 export function DocumentDetailScreen({ documentId }: { documentId: string }) {
-  const router = useRouter()
+  const router = useAppRouter()
   const { currentWorkspaceId, currentUser, currentUserId, document, team } =
     useDocumentDetailStoreSelection(documentId)
   const editable = useDocumentEditable(document)

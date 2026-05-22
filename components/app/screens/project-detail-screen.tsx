@@ -1,6 +1,9 @@
 "use client"
 
-import { useSearchParams } from "next/navigation"
+import {
+  type AppSearchParams,
+  useAppSearchParams,
+} from "@/lib/browser/app-navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { Plus } from "@phosphor-icons/react"
@@ -529,7 +532,7 @@ function useActiveProjectItemViewSelection({
   projectId: string
   projectRoute: string | null
   savedProjectItemViews: ViewDefinition[]
-  searchParams: ReturnType<typeof useSearchParams>
+  searchParams: AppSearchParams
 }) {
   const [activeBuiltinProjectViewId, setActiveBuiltinProjectViewId] = useState<
     string | null
@@ -962,20 +965,33 @@ function resolveDefaultProjectPresentation({
   )
 }
 
+function getMissingProjectDetailContent(hasLoadedProjectReadModel: boolean) {
+  if (!hasLoadedProjectReadModel) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        Loading project...
+      </div>
+    )
+  }
+
+  return <MissingState title="Project not found" />
+}
+
 export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
-  useScopedReadModelRefresh({
-    enabled: true,
-    scopeKeys: [createProjectDetailScopeKey(projectId)],
-    fetchLatest: () => fetchProjectDetailReadModel(projectId),
-    notFoundResult: createMissingScopedReadModelResult([
-      {
-        kind: "project-detail",
-        projectId,
-      },
-    ]),
-  })
-  const searchParams = useSearchParams()
+  const { hasLoadedOnce: hasLoadedProjectReadModel } =
+    useScopedReadModelRefresh({
+      enabled: true,
+      scopeKeys: [createProjectDetailScopeKey(projectId)],
+      fetchLatest: () => fetchProjectDetailReadModel(projectId),
+      notFoundResult: createMissingScopedReadModelResult([
+        {
+          kind: "project-detail",
+          projectId,
+        },
+      ]),
+    })
+  const searchParams = useAppSearchParams()
   const projectModel = getProjectDetailModel(data, projectId)
   const projectRoute = projectModel?.detailHref ?? null
   const savedProjectItemViews = useSavedProjectItemViews(
@@ -1030,7 +1046,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   })
 
   if (!projectModel) {
-    return <MissingState title="Project not found" />
+    return getMissingProjectDetailContent(hasLoadedProjectReadModel)
   }
 
   const { project, team, items, detailHref } = projectModel

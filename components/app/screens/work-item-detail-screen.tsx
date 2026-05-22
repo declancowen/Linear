@@ -2,8 +2,12 @@
 
 import type { Editor } from "@tiptap/react"
 import { format, formatDistanceToNow } from "date-fns"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
+import {
+  AppLink,
+  type AppRouter,
+  useAppRouter,
+} from "@/lib/browser/app-navigation"
+import { getAppOrigin } from "@/lib/auth-routing"
 import {
   useCallback,
   useEffect,
@@ -185,7 +189,7 @@ function isAlreadyDeliveredMentionConflict(error: unknown) {
 }
 
 const detailIconButtonClassName =
-  "inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
+  "inline-grid size-6 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
 
 function formatDetailDate(value: string | null) {
   if (!value) {
@@ -604,7 +608,7 @@ function DetailChildWorkItemRow({
         variant === "sidebar" ? "gap-y-1.5" : "gap-y-2"
       )}
     >
-      <Link
+      <AppLink
         href={`/items/${item.id}`}
         className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
       >
@@ -617,7 +621,7 @@ function DetailChildWorkItemRow({
         >
           {item.title}
         </span>
-      </Link>
+      </AppLink>
       <DetailChildPropertyChips
         data={data}
         item={item}
@@ -1783,7 +1787,7 @@ type DetailUploadAttachmentHandler = NonNullable<
   ComponentProps<typeof RichTextEditor>["onUploadAttachment"]
 >
 type DetailFlushCollaboration = DetailCollaborationState["flush"]
-type DetailRouter = ReturnType<typeof useRouter>
+type DetailRouter = AppRouter
 type DetailRequestWorkItemUpdate = ReturnType<
   typeof useWorkItemProjectCascadeConfirmation
 >["requestUpdate"]
@@ -2212,9 +2216,40 @@ async function deleteWorkItemAndNavigate({
   router.replace(team?.slug ? `/team/${team.slug}/work` : "/inbox")
 }
 
+function getCurrentRoutePath() {
+  if (window.location.protocol === "file:" && window.location.hash) {
+    const hashPath = window.location.hash.slice(1)
+    return hashPath.startsWith("/") ? hashPath : `/${hashPath}`
+  }
+
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`
+}
+
+function getCopyableCurrentItemLink() {
+  if (window.electronApp?.isElectron) {
+    return new URL(getCurrentRoutePath(), getAppOrigin()).toString()
+  }
+
+  return window.location.href
+}
+
+async function writeClipboardText(value: string) {
+  if (window.electronApp?.writeClipboardText) {
+    const didWrite = await window.electronApp.writeClipboardText(value)
+
+    if (!didWrite) {
+      throw new Error("Failed to copy item link")
+    }
+
+    return
+  }
+
+  await navigator.clipboard.writeText(value)
+}
+
 async function copyCurrentItemLink() {
   try {
-    await navigator.clipboard.writeText(window.location.href)
+    await writeClipboardText(getCopyableCurrentItemLink())
     toast.success("Item link copied")
   } catch (error) {
     toast.error(
@@ -2764,12 +2799,12 @@ function WorkItemDetailBreadcrumb({
       <span className="mr-2 font-mono text-[12px] text-fg-3">
         {currentItem.key}
       </span>
-      <Link
+      <AppLink
         href={`/team/${team?.slug}/work`}
         className="text-fg-3 hover:text-foreground"
       >
         {team?.name}
-      </Link>
+      </AppLink>
       <CaretRight className="size-3 text-fg-4" />
       <span className="truncate">{currentItem.title}</span>
     </div>
@@ -2998,7 +3033,7 @@ function WorkItemParentPill({
 
   return (
     <div className="mb-6">
-      <Link
+      <AppLink
         href={`/items/${parentItem.id}`}
         className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-2.5 py-1 text-[11.5px] text-fg-2 transition-colors hover:border-fg-4 hover:bg-surface-3 hover:text-foreground"
       >
@@ -3009,7 +3044,7 @@ function WorkItemParentPill({
           {parentItem.key}
         </span>
         <span className="max-w-[20rem] truncate">{parentItem.title}</span>
-      </Link>
+      </AppLink>
     </div>
   )
 }
@@ -4055,7 +4090,7 @@ function WorkItemRelationsSection({
     <DetailSidebarSection title="Relations">
       <div className="flex flex-col gap-1.5">
         {selectedProject ? (
-          <Link
+          <AppLink
             href={
               getProjectHref(data, selectedProject) ??
               `/projects/${selectedProject.id}`
@@ -4067,10 +4102,10 @@ function WorkItemRelationsSection({
             <b className="font-medium text-foreground">
               {selectedProject.name}
             </b>
-          </Link>
+          </AppLink>
         ) : null}
         {linkedProjects.map((project) => (
-          <Link
+          <AppLink
             key={project.id}
             href={getProjectHref(data, project) ?? `/projects/${project.id}`}
             className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
@@ -4078,10 +4113,10 @@ function WorkItemRelationsSection({
             <FolderSimple className="size-3" />
             <span>Linked project</span>
             <b className="font-medium text-foreground">{project.name}</b>
-          </Link>
+          </AppLink>
         ))}
         {linkedDocuments.map((document) => (
-          <Link
+          <AppLink
             key={document.id}
             href={`/docs/${document.id}`}
             className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
@@ -4089,14 +4124,14 @@ function WorkItemRelationsSection({
             <LinkSimple className="size-3" />
             <span>Linked doc</span>
             <b className="font-medium text-foreground">{document.title}</b>
-          </Link>
+          </AppLink>
         ))}
       </div>
     </DetailSidebarSection>
   )
 }
 
-type WorkItemDetailSidebarVariant = "docked" | "floating"
+type WorkItemDetailSidebarVariant = "docked" | "floating" | "inline"
 
 function WorkItemDetailSidebar({
   open,
@@ -4122,6 +4157,7 @@ function WorkItemDetailSidebar({
   linkedDocuments,
   currentUserId,
   variant = "docked",
+  headerClassName,
   onCopyItemLink,
   onClose,
   onStatusChange,
@@ -4160,6 +4196,7 @@ function WorkItemDetailSidebar({
   linkedDocuments: AppDocument[]
   currentUserId: string
   variant?: WorkItemDetailSidebarVariant
+  headerClassName?: string
   onCopyItemLink: () => void
   onClose?: () => void
   onToggleChildComposer: () => void
@@ -4170,7 +4207,12 @@ function WorkItemDetailSidebar({
 
   const content = (
     <>
-      <div className="flex items-center gap-1 border-b border-line-soft px-3 py-2">
+      <div
+        className={cn(
+          "flex items-center gap-1 border-b border-line-soft px-3",
+          headerClassName ?? "h-9"
+        )}
+      >
         <span className="mr-2 font-mono text-[12px] text-fg-3">
           {currentItem.key}
         </span>
@@ -4275,6 +4317,14 @@ function WorkItemDetailSidebar({
     )
   }
 
+  if (variant === "inline") {
+    return (
+      <aside className="flex h-full min-h-0 w-[26.25rem] shrink-0 flex-col overflow-hidden border-l border-line bg-surface">
+        {content}
+      </aside>
+    )
+  }
+
   return (
     <CollapsibleRightSidebar
       open={open}
@@ -4290,6 +4340,7 @@ export function WorkItemDetailSidebarSurface({
   data,
   currentItem,
   editable,
+  headerClassName,
   open = true,
   variant = "docked",
   onClose,
@@ -4298,6 +4349,7 @@ export function WorkItemDetailSidebarSurface({
   data: AppData
   currentItem: WorkItem
   editable: boolean
+  headerClassName?: string
   open?: boolean
   variant?: WorkItemDetailSidebarVariant
   onClose?: () => void
@@ -4361,6 +4413,7 @@ export function WorkItemDetailSidebarSurface({
         linkedDocuments={detailModel.linkedDocuments}
         currentUserId={data.currentUserId}
         variant={variant}
+        headerClassName={headerClassName}
         onClose={onClose}
         onCopyItemLink={handleCopyItemLink}
         {...propertyHandlers}
@@ -4375,7 +4428,7 @@ export function WorkItemDetailSidebarSurface({
 }
 
 export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
-  const router = useRouter()
+  const router = useAppRouter()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const currentUserId = useAppStore((state) => state.currentUserId)
   const currentUser = getUser(data, currentUserId) ?? null

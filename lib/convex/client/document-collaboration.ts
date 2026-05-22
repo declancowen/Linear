@@ -4,6 +4,7 @@ import type { JSONContent } from "@tiptap/core"
 
 import type { CollaborationLimits } from "@/lib/collaboration/limits"
 import type { CollaborationSessionRole } from "@/lib/collaboration/transport"
+import { buildPublicApiUrl } from "@/lib/api/public-url"
 
 import { runRouteMutation } from "./shared"
 
@@ -44,6 +45,8 @@ export function buildScopedInvalidationStreamUrl(scopeKeys: string[]) {
   }
 
   const query = searchParams.toString()
+  const path =
+    query.length > 0 ? `/api/events/scoped?${query}` : "/api/events/scoped"
 
-  return query.length > 0 ? `/api/events/scoped?${query}` : "/api/events/scoped"
+  return buildPublicApiUrl(path)
 }

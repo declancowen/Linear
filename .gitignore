@@ -18,7 +18,9 @@
 
 # production
 /build
+/dist/desktop-renderer/
 /dist/electron/
+/dist/electron-stage/
 
 # misc
 .DS_Store

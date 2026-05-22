@@ -1,10 +1,11 @@
 "use client"
 
 import { useState, useTransition } from "react"
-import Image from "next/image"
-import { useRouter } from "next/navigation"
+import { AppImage } from "@/lib/browser/app-image"
+import { useAppRouter } from "@/lib/browser/app-navigation"
 import { SpinnerGap } from "@phosphor-icons/react"
 
+import { runRouteMutation } from "@/lib/convex/client"
 import { cn, isImageAssetSource, resolveImageAssetSource } from "@/lib/utils"
 
 type WorkspaceSelectorWorkspace = {
@@ -32,7 +33,7 @@ function WorkspaceLogo({
 
   if (logoImageSrc && logoImageSrc !== failedLogoImageSrc) {
     return (
-      <Image
+      <AppImage
         alt=""
         src={logoImageSrc}
         width={32}
@@ -59,7 +60,7 @@ export function WorkspaceSelectorPage({
 }: {
   workspaces: WorkspaceSelectorWorkspace[]
 }) {
-  const router = useRouter()
+  const router = useAppRouter()
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string | null>(
     null
   )
@@ -71,17 +72,13 @@ export function WorkspaceSelectorPage({
     setPendingWorkspaceId(workspaceId)
     startTransition(async () => {
       try {
-        const response = await fetch("/api/workspace/current/selection", {
+        await runRouteMutation("/api/workspace/current/selection", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ workspaceId }),
         })
-
-        if (!response.ok) {
-          throw new Error("Failed to select workspace")
-        }
 
         router.push("/workspace/projects")
         router.refresh()

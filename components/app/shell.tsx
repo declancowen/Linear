@@ -1,7 +1,5 @@
 "use client"
 
-import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   type PointerEvent as ReactPointerEvent,
   type MutableRefObject,
@@ -71,9 +69,19 @@ import {
   type GlobalCreateAction,
 } from "@/lib/domain/search-create-actions"
 import {
+  AppLink,
+  type AppRouter,
+  type AppSearchParams,
+  useAppPathname,
+  useAppRouter,
+  useAppSearchParams,
+} from "@/lib/browser/app-navigation"
+import {
   openManagedCreateDialog,
   openTopLevelDialog,
 } from "@/lib/browser/dialog-transitions"
+import { showDesktopNotification } from "@/lib/browser/desktop-notifications"
+import { navigateToLogout } from "@/lib/browser/logout"
 import {
   optionalWorkspaceDescriptionConstraints,
   workspaceAccentConstraints,
@@ -163,7 +171,6 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { NotificationToastIcon } from "@/components/ui/sonner"
 import { Textarea } from "@/components/ui/textarea"
 
 type AppShellProps = {
@@ -363,8 +370,8 @@ function useShellNotificationToasts(input: {
   notificationRouteData: ShellNotificationRouteData
   notificationToastCandidates: Notification[]
   pathname: string
-  router: ReturnType<typeof useRouter>
-  searchParams: ReturnType<typeof useSearchParams>
+  router: AppRouter
+  searchParams: AppSearchParams
 }) {
   const {
     currentHash,
@@ -444,22 +451,33 @@ function useShellNotificationToasts(input: {
       return
     }
 
-    toast("New notification", {
-      id: `notification-${nextNotification.id}`,
-      description: nextNotification.message,
-      icon: <NotificationToastIcon />,
-      duration: NOTIFICATION_TOAST_DURATION_MS,
-      position: "bottom-right",
-      className: "group-[.toaster]:[--toast-accent:var(--brand)]",
-      action: href
-        ? {
-            label: "Open",
-            onClick: () => {
-              useAppStore.getState().markNotificationRead(nextNotification.id)
-              router.push(href)
-            },
-          }
-        : undefined,
+    toast.custom(
+      (toastId) => (
+        <NotificationToastContent
+          notification={nextNotification}
+          onDismiss={() => toast.dismiss(toastId)}
+          onOpen={() => {
+            toast.dismiss(toastId)
+
+            if (!href) {
+              return
+            }
+
+            useAppStore.getState().markNotificationRead(nextNotification.id)
+            router.push(href)
+          }}
+        />
+      ),
+      {
+        id: `notification-${nextNotification.id}`,
+        duration: NOTIFICATION_TOAST_DURATION_MS,
+        position: "bottom-right",
+      }
+    )
+    void showDesktopNotification({
+      title: "New notification",
+      body: nextNotification.message,
+      path: href,
     })
 
     notificationToastFlushTimeoutRef.current = window.setTimeout(() => {
@@ -519,7 +537,7 @@ function getShellCreateActions(input: {
   })
 }
 
-function useShellSearchController(router: ReturnType<typeof useRouter>) {
+function useShellSearchController(router: AppRouter) {
   const [searchOpen, setSearchOpen] = useState(false)
   const searchQueryRef = useRef("")
   const searchShortcutModifierLabel = useShortcutModifierLabel()
@@ -585,7 +603,7 @@ function useShellSearchController(router: ReturnType<typeof useRouter>) {
 
 function useShellLeaveDialogs(input: {
   pathname: string
-  router: ReturnType<typeof useRouter>
+  router: AppRouter
 }) {
   const [teamPendingLeave, setTeamPendingLeave] = useState<{
     id: string
@@ -669,9 +687,9 @@ function useShellLeaveDialogs(input: {
 }
 
 function useShellLocationState() {
-  const pathname = usePathname()
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  const pathname = useAppPathname()
+  const router = useAppRouter()
+  const searchParams = useAppSearchParams()
   const [currentHash, setCurrentHash] = useState("")
 
   useEffect(() => {
@@ -1139,6 +1157,56 @@ function ShellFrameFallback() {
   )
 }
 
+function NotificationToastContent({
+  notification,
+  onDismiss,
+  onOpen,
+}: {
+  notification: Notification
+  onDismiss: () => void
+  onOpen: () => void
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="flex w-[min(360px,calc(100vw-2rem))] cursor-pointer items-start gap-3 rounded-lg border border-line/60 bg-background/95 p-3 text-left text-foreground shadow-[0_8px_30px_-12px_rgba(0,0,0,0.22)] backdrop-blur-xl transition-colors outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+          return
+        }
+
+        event.preventDefault()
+        onOpen()
+      }}
+    >
+      <span className="bg-brand/10 text-brand mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md">
+        <Bell className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] leading-5 font-medium">
+          New notification
+        </span>
+        <span className="line-clamp-2 block text-[12px] leading-4 text-fg-3">
+          {notification.message}
+        </span>
+      </span>
+      <button
+        type="button"
+        aria-label="Dismiss notification"
+        className="flex size-6 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+        onClick={(event) => {
+          event.stopPropagation()
+          onDismiss()
+        }}
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+  )
+}
+
 function ActiveCreateDialogs({
   activeCreateDialog,
   onCloseCreateDialog,
@@ -1456,14 +1524,14 @@ function ShellWorkspaceMenu({
                     <DropdownMenuGroup>
                       {canOpenWorkspaceSettings ? (
                         <DropdownMenuItem asChild>
-                          <Link href="/workspace/settings">
+                          <AppLink href="/workspace/settings">
                             <Gear />
                             Workspace settings
-                          </Link>
+                          </AppLink>
                         </DropdownMenuItem>
                       ) : null}
                       <DropdownMenuItem asChild>
-                        <Link
+                        <AppLink
                           href="/invites"
                           className="flex w-full items-center justify-between gap-3"
                         >
@@ -1476,7 +1544,7 @@ function ShellWorkspaceMenu({
                               {pendingInviteCount}
                             </span>
                           ) : null}
-                        </Link>
+                        </AppLink>
                       </DropdownMenuItem>
                       <DropdownMenuItem onSelect={onOpenWorkspaceInviteDialog}>
                         <PaperPlaneTilt />
@@ -1720,10 +1788,10 @@ function TeamSidebarActionsMenu({
             ) : null}
             {canManage ? (
               <DropdownMenuItem asChild>
-                <Link href={`/team/${team.slug}/settings`}>
+                <AppLink href={`/team/${team.slug}/settings`}>
                   <Gear />
                   Team settings
-                </Link>
+                </AppLink>
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuGroup>
@@ -1773,10 +1841,10 @@ function TeamSidebarSubLinks({
             asChild
             isActive={pathname.startsWith(`/team/${team.slug}/chat`)}
           >
-            <Link href={`/team/${team.slug}/chat`}>
+            <AppLink href={`/team/${team.slug}/chat`}>
               <ChatCircleDots className="size-4" />
               <span>Chat</span>
-            </Link>
+            </AppLink>
           </SidebarMenuSubButton>
         </SidebarMenuSubItem>
       ) : null}
@@ -1787,10 +1855,10 @@ function TeamSidebarSubLinks({
             asChild
             isActive={pathname.startsWith(`/team/${team.slug}/channel`)}
           >
-            <Link href={`/team/${team.slug}/channel`}>
+            <AppLink href={`/team/${team.slug}/channel`}>
               <HashStraight className="size-4" />
               <span>Channel</span>
-            </Link>
+            </AppLink>
           </SidebarMenuSubButton>
         </SidebarMenuSubItem>
       ) : null}
@@ -1801,10 +1869,10 @@ function TeamSidebarSubLinks({
             asChild
             isActive={pathname.startsWith(`/team/${team.slug}/work`)}
           >
-            <Link href={`/team/${team.slug}/work`}>
+            <AppLink href={`/team/${team.slug}/work`}>
               <CodesandboxLogo className="size-4" />
               <span>{workSurfaceLabel}</span>
-            </Link>
+            </AppLink>
           </SidebarMenuSubButton>
         </SidebarMenuSubItem>
       ) : null}
@@ -1815,10 +1883,10 @@ function TeamSidebarSubLinks({
             asChild
             isActive={pathname.startsWith(`/team/${team.slug}/projects`)}
           >
-            <Link href={`/team/${team.slug}/projects`}>
+            <AppLink href={`/team/${team.slug}/projects`}>
               <Kanban className="size-4" />
               <span>Projects</span>
-            </Link>
+            </AppLink>
           </SidebarMenuSubButton>
         </SidebarMenuSubItem>
       ) : null}
@@ -1829,10 +1897,10 @@ function TeamSidebarSubLinks({
             asChild
             isActive={pathname.startsWith(`/team/${team.slug}/views`)}
           >
-            <Link href={`/team/${team.slug}/views`}>
+            <AppLink href={`/team/${team.slug}/views`}>
               <SquaresFour className="size-4" />
               <span>Views</span>
-            </Link>
+            </AppLink>
           </SidebarMenuSubButton>
         </SidebarMenuSubItem>
       ) : null}
@@ -1843,10 +1911,10 @@ function TeamSidebarSubLinks({
             asChild
             isActive={pathname.startsWith(`/team/${team.slug}/docs`)}
           >
-            <Link href={`/team/${team.slug}/docs`}>
+            <AppLink href={`/team/${team.slug}/docs`}>
               <FileText className="size-4" />
               <span>Docs</span>
-            </Link>
+            </AppLink>
           </SidebarMenuSubButton>
         </SidebarMenuSubItem>
       ) : null}
@@ -1983,10 +2051,10 @@ function ShellTeamsSection({
             variant="ghost"
             className="pointer-events-none size-6 opacity-0 transition-opacity group-focus-within/teams-header:pointer-events-auto group-focus-within/teams-header:opacity-100 group-hover/teams-header:pointer-events-auto group-hover/teams-header:opacity-100"
           >
-            <Link href="/workspace/create-team">
+            <AppLink href="/workspace/create-team">
               <Plus className="size-3.5" />
               <span className="sr-only">Create team</span>
-            </Link>
+            </AppLink>
           </Button>
         ) : null}
       </div>
@@ -2121,15 +2189,15 @@ function ShellUserFooter({
                 ) : null}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/settings/profile">
+                  <AppLink href="/settings/profile">
                     <UserCircle />
                     User settings
-                  </Link>
+                  </AppLink>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault()
-                    window.location.assign("/auth/logout")
+                    navigateToLogout()
                   }}
                 >
                   <SignOut />

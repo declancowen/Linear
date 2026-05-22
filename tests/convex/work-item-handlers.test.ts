@@ -227,6 +227,7 @@ describe("work item handlers", () => {
       "workItems",
       expect.objectContaining({
         assigneeId: null,
+        key: "PVT-001",
         primaryProjectId: null,
         visibility: "private",
       })

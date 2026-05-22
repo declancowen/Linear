@@ -1,136 +1,28 @@
-import { saveSession } from "@workos-inc/authkit-nextjs"
-
 import {
   pendingEmailVerificationCookieName,
   pendingEmailVerificationCookieOptions,
   serializePendingEmailVerificationState,
 } from "@/lib/auth-email-verification"
-import { reconcileAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import {
   buildAuthPageHref,
   buildEmailVerificationPageHref,
   buildPostAuthPath,
   normalizeAuthNextPath,
 } from "@/lib/auth-routing"
-import { getPasswordAuthFormFields } from "@/lib/auth-form"
 import { logProviderError } from "@/lib/server/provider-errors"
-import { getRequestMetadata } from "@/lib/server/auth-request"
-import { redirectToRoute } from "@/lib/server/route-response"
 import {
-  getWorkOSAuthErrorCode,
-  getWorkOSAuthErrorMessage,
-  getWorkOSClient,
-  getWorkOSPendingAuthentication,
-} from "@/lib/server/workos"
-
-function mapSignupError(error: unknown) {
-  const code = getWorkOSAuthErrorCode(error)
-  const message =
-    getWorkOSAuthErrorMessage(error) ??
-    (typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-      ? error.message
-      : null)
-
-  if (code && /already|exists|duplicate|conflict/i.test(code)) {
-    return "Account already created. Please sign in."
-  }
-
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    error.status === 409
-  ) {
-    return "An account already exists for that email."
-  }
-
-  if (
-    message &&
-    /already exists|already in use|already associated/i.test(message)
-  ) {
-    return "An account already exists for that email."
-  }
-
-  if (message) {
-    return message.replace(/\s+/g, " ").trim()
-  }
-
-  return "We couldn't create that account."
-}
-
-function isSignupConflict(error: unknown) {
-  const code = getWorkOSAuthErrorCode(error)
-
-  if (code && /already|exists|duplicate|conflict/i.test(code)) {
-    return true
-  }
-
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    error.status === 409
-  ) {
-    return true
-  }
-
-  const message =
-    getWorkOSAuthErrorMessage(error) ??
-    (typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-      ? error.message
-      : null)
-
-  return Boolean(
-    message && /already exists|already in use|already associated/i.test(message)
-  )
-}
-
-function withSignupProfileParams(
-  path: string,
-  firstName: string,
-  lastName: string
-) {
-  const [pathname, existingQuery = ""] = path.split("?", 2)
-  const searchParams = new URLSearchParams(existingQuery)
-  searchParams.set("firstName", firstName)
-  searchParams.set("lastName", lastName)
-  const query = searchParams.toString()
-
-  return query ? `${pathname}?${query}` : pathname
-}
-
-type SignupFormFields = {
-  email: string
-  firstName: string
-  lastName: string
-  nextPath: string
-  password: string
-}
-
-async function getSignupFormFields(
-  request: Request
-): Promise<SignupFormFields> {
-  const formData = await request.formData()
-  const passwordFields = getPasswordAuthFormFields(formData)
-
-  return {
-    firstName: String(formData.get("firstName") ?? "").trim(),
-    lastName: String(formData.get("lastName") ?? "").trim(),
-    ...passwordFields,
-  }
-}
-
-function isSignupFormComplete(fields: SignupFormFields) {
-  return Boolean(
-    fields.firstName && fields.lastName && fields.email && fields.password
-  )
-}
+  authenticateSignupPassword,
+  createSignupUser,
+  getPendingSignupEmailVerification,
+  getSignupAuthenticationErrorMessage,
+  getSignupFormFields,
+  isSignupConflict,
+  isSignupFormComplete,
+  mapSignupError,
+  type PendingSignupAuthentication,
+  type SignupFormFields,
+} from "@/lib/server/password-signup"
+import { redirectToRoute } from "@/lib/server/route-response"
 
 function redirectToSignupError(
   request: Request,
@@ -139,16 +31,14 @@ function redirectToSignupError(
 ) {
   return redirectToRoute(
     request,
-    withSignupProfileParams(
-      buildAuthPageHref("signup", {
-        nextPath: fields.nextPath,
-        email: fields.email,
-        error,
-        notice: null,
-      }),
-      fields.firstName,
-      fields.lastName
-    )
+    buildAuthPageHref("signup", {
+      nextPath: fields.nextPath,
+      email: fields.email,
+      firstName: fields.firstName,
+      lastName: fields.lastName,
+      error,
+      notice: null,
+    })
   )
 }
 
@@ -159,15 +49,13 @@ function redirectToSignupFailure(
 ) {
   return redirectToRoute(
     request,
-    withSignupProfileParams(
-      buildAuthPageHref("signup", {
-        nextPath: fields.nextPath,
-        email: fields.email,
-        error: mapSignupError(error),
-      }),
-      fields.firstName,
-      fields.lastName
-    )
+    buildAuthPageHref("signup", {
+      nextPath: fields.nextPath,
+      email: fields.email,
+      firstName: fields.firstName,
+      lastName: fields.lastName,
+      error: mapSignupError(error),
+    })
   )
 }
 
@@ -183,15 +71,6 @@ function redirectToExistingAccountLogin(
       notice: "Account already created. Please sign in.",
     })
   )
-}
-
-async function createSignupUser(fields: SignupFormFields) {
-  await getWorkOSClient().userManagement.createUser({
-    email: fields.email,
-    password: fields.password,
-    firstName: fields.firstName,
-    lastName: fields.lastName,
-  })
 }
 
 async function handleSignupUserCreation(
@@ -214,9 +93,7 @@ async function handleSignupUserCreation(
 function redirectToSignupEmailVerification(
   request: Request,
   fields: SignupFormFields,
-  pendingAuthentication: NonNullable<
-    ReturnType<typeof getWorkOSPendingAuthentication>
-  >
+  pendingAuthentication: PendingSignupAuthentication
 ) {
   const email = pendingAuthentication.email ?? fields.email
   const response = redirectToRoute(
@@ -244,39 +121,17 @@ function redirectToSignupEmailVerification(
   return response
 }
 
-function getSignupAuthenticationErrorMessage(error: unknown) {
-  return getWorkOSAuthErrorCode(error) === "invalid_password"
-    ? "That password does not meet the current requirements."
-    : mapSignupError(error)
-}
-
 async function authenticateCreatedSignupUser(
   request: Request,
   fields: SignupFormFields
 ) {
   try {
-    const authenticationResponse =
-      await getWorkOSClient().userManagement.authenticateWithPassword({
-        clientId: process.env.WORKOS_CLIENT_ID,
-        email: fields.email,
-        password: fields.password,
-        ...getRequestMetadata(request),
-      })
-
-    await saveSession(authenticationResponse, request.url)
-    await reconcileAuthenticatedAppContext(
-      authenticationResponse.user,
-      authenticationResponse.organizationId
-    )
-
+    await authenticateSignupPassword(request, fields)
     return redirectToRoute(request, buildPostAuthPath(fields.nextPath))
   } catch (error) {
-    const pendingAuthentication = getWorkOSPendingAuthentication(error)
+    const pendingAuthentication = getPendingSignupEmailVerification(error)
 
-    if (
-      getWorkOSAuthErrorCode(error) === "email_verification_required" &&
-      pendingAuthentication
-    ) {
+    if (pendingAuthentication) {
       return redirectToSignupEmailVerification(
         request,
         fields,

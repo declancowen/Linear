@@ -9,12 +9,22 @@ import {
   buildContentSecurityPolicy,
   generateCspNonce,
 } from "@/lib/server/security-headers"
+import {
+  applyApiCorsHeaders,
+  createApiCorsPreflightResponse,
+} from "@/lib/server/api-cors"
 
 const isProduction = process.env.NODE_ENV === "production"
 const authkitRedirectUri =
   process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI ?? process.env.WORKOS_REDIRECT_URI
 
 export default async function proxy(request: NextRequest) {
+  const corsPreflightResponse = createApiCorsPreflightResponse(request)
+
+  if (corsPreflightResponse) {
+    return corsPreflightResponse
+  }
+
   const { headers: authkitHeaders } = await authkit(request, {
     redirectUri: authkitRedirectUri,
   })
@@ -43,7 +53,7 @@ export default async function proxy(request: NextRequest) {
     })
   )
 
-  return response
+  return applyApiCorsHeaders(response, request)
 }
 
 export const config = {
@@ -56,6 +66,7 @@ export const config = {
     "/forgot-password",
     "/reset-password",
     "/auth/callback",
+    "/auth/desktop/:path*",
     "/auth/forgot-password",
     "/auth/google",
     "/auth/login",
@@ -79,6 +90,7 @@ export const config = {
     "/docs/:path*",
     "/join/:path*",
     "/api/account/:path*",
+    "/api/auth/:path*",
     "/api/attachments/:path*",
     "/api/calls/:path*",
     "/api/collaboration/:path*",

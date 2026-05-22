@@ -1,6 +1,6 @@
 "use client"
 
-import { useRouter } from "next/navigation"
+import { type AppRouter, useAppRouter } from "@/lib/browser/app-navigation"
 import {
   useEffect,
   useMemo,
@@ -320,7 +320,7 @@ function getInviteAcceptErrorMessage(error: unknown) {
 }
 
 function navigateToAcceptedInvite(
-  router: ReturnType<typeof useRouter>,
+  router: AppRouter,
   payload: Awaited<ReturnType<typeof syncAcceptInvite>>
 ) {
   router.push(getAcceptedInviteHref(payload))
@@ -341,7 +341,7 @@ function useInboxNotificationActions({
   activeNotification: Notification | null
   hasPendingActiveInvite: boolean
   inboxTab: InboxTab
-  router: ReturnType<typeof useRouter>
+  router: AppRouter
   visibleNotifications: Notification[]
 }) {
   const [acceptingInvite, setAcceptingInvite] = useState(false)
@@ -456,7 +456,7 @@ function useInboxNotificationActions({
 }
 
 function useInboxScreenController() {
-  const router = useRouter()
+  const router = useAppRouter()
   const currentUserId = useAppStore((state) => state.currentUserId)
   const { hasLoadedOnce: hasLoadedInbox } = useInboxReadModel(currentUserId)
   const { activeInboxNotificationId } = useAppStore(

@@ -562,6 +562,10 @@ describe("settings screen helpers", () => {
 
     render(createElement(UserSettingsScreen))
 
+    expect(
+      screen.getByRole("option", { name: "UTC (UTC+00:00)" })
+    ).toBeInTheDocument()
+
     fireEvent.click(screen.getByRole("button", { name: "Change email" }))
     expect(userSettingsMocks.toastError).toHaveBeenCalledWith(
       "Enter a different email address"

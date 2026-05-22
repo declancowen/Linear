@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactElement } from "react"
-import { useRouter } from "next/navigation"
+import { useAppRouter } from "@/lib/browser/app-navigation"
 import {
   ChatCircle,
   CopySimple,
@@ -364,7 +364,7 @@ export function UserHoverCard({
   currentUserId?: string | null
   workspaceId?: string | null
 }) {
-  const router = useRouter()
+  const router = useAppRouter()
   const hasActiveWorkspaceAccess = useAppStore((state) => {
     if (!userId || !workspaceId) {
       return false

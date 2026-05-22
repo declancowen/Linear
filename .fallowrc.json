@@ -1,6 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "entry": [
+    "desktop/renderer/adapters/app-image.tsx",
+    "desktop/renderer/adapters/app-navigation.tsx",
+    "desktop/renderer/adapters/app-theme.tsx",
+    "desktop/renderer/main.tsx",
+    "electron/after-pack.cjs",
     "electron/preload.cjs",
     "services/partykit/server.ts"
   ],

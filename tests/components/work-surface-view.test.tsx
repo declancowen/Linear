@@ -64,17 +64,20 @@ vi.mock("@/components/app/screens/work-item-detail-screen", () => ({
   WorkItemDetailSidebarSurface: ({
     currentItem,
     editable,
+    headerClassName,
     onClose,
     variant = "docked",
   }: {
     currentItem: { title: string }
     editable?: boolean
+    headerClassName?: string
     onClose?: () => void
-    variant?: "docked" | "floating"
+    variant?: "docked" | "floating" | "inline"
   }) => (
     <div
       data-testid={`${variant}-detail`}
       data-editable={String(Boolean(editable))}
+      data-header-class-name={headerClassName}
     >
       <button type="button" onClick={onClose}>
         Close detail
@@ -177,6 +180,24 @@ function createView(
 
 function clickAddItem() {
   fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+}
+
+function clickTimelineBarAfterPointerRelease(
+  target: Element,
+  options: {
+    pointerId?: number
+    releaseTarget?: Element | Window
+  } = {}
+) {
+  const pointerOptions = {
+    clientX: 0,
+    clientY: 0,
+    ...(options.pointerId ? { pointerId: options.pointerId } : {}),
+  }
+
+  fireEvent.pointerDown(target, pointerOptions)
+  fireEvent.pointerUp(options.releaseTarget ?? target, pointerOptions)
+  fireEvent.click(target, { clientX: 0, clientY: 0 })
 }
 
 function expectEmptyOptionalPillsHidden() {
@@ -1214,7 +1235,7 @@ describe("CalendarView", () => {
     )
 
     expect(screen.getByTestId("calendar-all-day-lane")).toHaveStyle({
-      minHeight: "68px",
+      height: "68px",
     })
     expect(screen.queryByText(/more/)).not.toBeInTheDocument()
   })
@@ -1305,7 +1326,7 @@ describe("CalendarView", () => {
     fireEvent.click(eventCard)
 
     expect(updateWorkItemSpy).not.toHaveBeenCalled()
-    expect(screen.getByTestId("docked-detail")).toHaveAttribute(
+    expect(screen.getByTestId("inline-detail")).toHaveAttribute(
       "data-editable",
       "false"
     )
@@ -1371,7 +1392,20 @@ describe("CalendarView", () => {
     fireEvent.click(eventCard)
 
     expect(updateWorkItemSpy).not.toHaveBeenCalled()
-    expect(screen.getByTestId("docked-detail")).toBeInTheDocument()
+    expect(screen.getByTestId("inline-detail")).toBeInTheDocument()
+    expect(screen.getByTestId("calendar-detail-slot")).toContainElement(
+      screen.getByTestId("inline-detail")
+    )
+    expect(screen.getByTestId("calendar-detail-slot")).toHaveClass("h-full")
+    expect(screen.getByTestId("inline-detail")).toHaveAttribute(
+      "data-header-class-name",
+      "h-[37px]"
+    )
+    expect(screen.getByTestId("calendar-main-surface")).toBeInTheDocument()
+
+    fireEvent.click(eventCard)
+
+    expect(screen.queryByTestId("inline-detail")).not.toBeInTheDocument()
     updateWorkItemSpy.mockRestore()
   })
 
@@ -1388,11 +1422,11 @@ describe("CalendarView", () => {
 
     fireEvent.click(eventCard)
 
-    expect(screen.getByTestId("docked-detail")).toBeInTheDocument()
+    expect(screen.getByTestId("inline-detail")).toBeInTheDocument()
 
     fireEvent.click(timedGrid)
 
-    expect(screen.queryByTestId("docked-detail")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("inline-detail")).not.toBeInTheDocument()
     updateWorkItemSpy.mockRestore()
   })
 
@@ -1660,12 +1694,38 @@ describe("CalendarView", () => {
     fireEvent.click(eventCard)
 
     expect(updateWorkItemSpy).toHaveBeenCalled()
-    expect(screen.queryByTestId("docked-detail")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("inline-detail")).not.toBeInTheDocument()
 
     act(() => {
       vi.runOnlyPendingTimers()
     })
     updateWorkItemSpy.mockRestore()
+  })
+
+  it("lets the expanded all-day lane scroll separately while keeping days in sync", () => {
+    const today = startOfDay(new Date())
+    const date = formatLocalCalendarDate(today)
+    const items = createAllDayCalendarItems({
+      count: 36,
+      date,
+      idPrefix: "all-day-overflow",
+      titlePrefix: "Overflow all-day",
+    })
+    const data = createCalendarDataWithItems(items)
+
+    render(<CalendarView data={data} items={items} editable={false} />)
+
+    fireEvent.click(screen.getAllByText(/\+ \d+ more/)[0])
+
+    const allDayArea = screen.getByTestId("calendar-all-day-scroll-area")
+    const dayScrollContainer = screen.getByTestId("calendar-day-scroll-container")
+
+    expect(allDayArea).toHaveStyle({ height: "192px" })
+
+    allDayArea.scrollLeft = 240
+    fireEvent.scroll(allDayArea)
+
+    expect(dayScrollContainer.scrollLeft).toBe(240)
   })
 })
 
@@ -1695,6 +1755,63 @@ describe("TimelineView primitives", () => {
     })
 
     expect(screen.getByText("T 21")).toHaveClass("text-primary")
+  })
+
+  it("opens timeline item details inline with the timeline rows", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 4, 22, 8))
+    const item = createWorkItem({
+      id: "timeline-detail-item",
+      title: "Timeline detail",
+      status: "todo",
+      startDate: "2026-05-22T00:00:00.000Z",
+      targetDate: "2026-05-23T00:00:00.000Z",
+    })
+    const data = {
+      ...createData(),
+      workItems: [item],
+    }
+
+    render(
+      <TimelineView
+        data={data}
+        items={[item]}
+        view={createView("timeline")}
+        editable={false}
+      />
+    )
+
+    const timelineLink = screen.getByRole("link", { name: "Timeline detail" })
+
+    fireEvent.click(timelineLink)
+
+    expect(screen.getByTestId("timeline-detail-slot")).toContainElement(
+      screen.getByTestId("inline-detail")
+    )
+    expect(screen.getByTestId("timeline-detail-slot")).toHaveClass("h-full")
+    expect(screen.getByTestId("timeline-main-surface")).toBeInTheDocument()
+    expect(screen.getByTestId("timeline-view")).toContainElement(
+      screen.getByTestId("timeline-detail-slot")
+    )
+    expect(screen.getByTestId("inline-detail")).toHaveAttribute(
+      "data-header-class-name",
+      "h-8"
+    )
+
+    fireEvent.click(timelineLink)
+
+    expect(screen.queryByTestId("inline-detail")).not.toBeInTheDocument()
+
+    const timelineBar = screen.getByRole("button", { name: item.key })
+
+    clickTimelineBarAfterPointerRelease(timelineBar, {
+      pointerId: 42,
+      releaseTarget: window,
+    })
+
+    expect(screen.getByTestId("timeline-detail-slot")).toContainElement(
+      screen.getByTestId("inline-detail")
+    )
   })
 
   it("computes drag patches and rejects invalid timeline drops", () => {
@@ -1754,8 +1871,11 @@ describe("TimelineView primitives", () => {
       title: "Long timeline item",
       status: "in-progress",
     })
+    const onCaptureDragOffset = vi.fn()
+    const onResizeStart = vi.fn()
+    const onSelectItem = vi.fn()
 
-    render(
+    const { container } = render(
       <>
         <TimelineLabelRow
           data={data}
@@ -1771,14 +1891,60 @@ describe("TimelineView primitives", () => {
           accentIndex={0}
           labelsById={null}
           span={1}
-          onCaptureDragOffset={vi.fn()}
-          onResizeStart={vi.fn()}
+          onCaptureDragOffset={onCaptureDragOffset}
+          onSelectItem={onSelectItem}
+          onResizeStart={onResizeStart}
         />
       </>
     )
 
     expect(screen.getByText("TES-1")).toBeInTheDocument()
     expect(screen.getByText("Alex")).toBeInTheDocument()
+
+    const timelineBar = screen.getByRole("button")
+    fireEvent.pointerUp(timelineBar, { clientX: 0, clientY: 0 })
+    expect(onSelectItem).not.toHaveBeenCalled()
+
+    fireEvent.pointerDown(timelineBar, { button: 2, clientX: 0, clientY: 0 })
+    fireEvent.pointerUp(timelineBar, { button: 2, clientX: 0, clientY: 0 })
+    expect(onCaptureDragOffset).not.toHaveBeenCalled()
+    expect(onSelectItem).not.toHaveBeenCalled()
+
+    clickTimelineBarAfterPointerRelease(timelineBar)
+    expect(onSelectItem).toHaveBeenCalledWith(item.id)
+    expect(onSelectItem).toHaveBeenCalledTimes(1)
+
+    onSelectItem.mockClear()
+    clickTimelineBarAfterPointerRelease(timelineBar, {
+      pointerId: 42,
+      releaseTarget: window,
+    })
+    expect(onSelectItem).toHaveBeenCalledWith(item.id)
+    expect(onSelectItem).toHaveBeenCalledTimes(1)
+
+    onSelectItem.mockClear()
+    fireEvent.pointerDown(timelineBar, { clientX: 0, clientY: 0 })
+    fireEvent.click(timelineBar, { clientX: 8, clientY: 0 })
+    expect(onSelectItem).not.toHaveBeenCalled()
+
+    const startResizeHandle = container.querySelector(
+      '[data-timeline-resize-handle="start"]'
+    )
+
+    if (!startResizeHandle) {
+      throw new Error("Expected start resize handle")
+    }
+
+    fireEvent.click(startResizeHandle)
+    expect(onSelectItem).not.toHaveBeenCalled()
+
+    onCaptureDragOffset.mockClear()
+    fireEvent.pointerDown(startResizeHandle, { clientX: 0, clientY: 0 })
+    fireEvent.pointerUp(startResizeHandle, { clientX: 0, clientY: 0 })
+    fireEvent.click(startResizeHandle, { clientX: 0, clientY: 0 })
+    expect(onCaptureDragOffset).not.toHaveBeenCalled()
+    expect(onResizeStart).toHaveBeenCalledWith(item, "start", 0)
+    expect(onSelectItem).not.toHaveBeenCalled()
   })
 })
 

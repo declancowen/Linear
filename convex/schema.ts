@@ -36,6 +36,13 @@ export default defineSchema({
     key: v.literal("singleton"),
     snapshotVersion: v.optional(v.number()),
   }).index("by_key", ["key"]),
+  desktopHandoffTickets: defineTable({
+    ticketId: v.string(),
+    expiresAt: v.number(),
+    consumedAt: v.number(),
+  })
+    .index("by_ticket_id", ["ticketId"])
+    .index("by_expires_at", ["expiresAt"]),
   auditEvents: defineTable(auditEventFields)
     .index("by_type_occurred_at", ["type", "occurredAt"])
     .index("by_workspace_occurred_at", ["workspaceId", "occurredAt"])

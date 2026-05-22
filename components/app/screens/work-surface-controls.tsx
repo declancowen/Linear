@@ -2453,8 +2453,13 @@ export function PropertiesChipPopover({
         />
       </PopoverTrigger>
       <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[420px] overflow-hidden p-0")}
+        align="end"
+        collisionPadding={16}
+        sideOffset={8}
+        className={cn(
+          PROPERTY_POPOVER_CLASS,
+          "w-[min(420px,calc(100vw-2rem))] overflow-hidden p-0"
+        )}
       >
         <PropertyPopoverSearch
           icon={<MagnifyingGlass className="size-3.5" />}

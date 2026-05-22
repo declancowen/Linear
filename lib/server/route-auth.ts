@@ -2,6 +2,7 @@ import { withAuth } from "@workos-inc/authkit-nextjs"
 
 import { ensureAuthenticatedAppContext } from "@/lib/server/authenticated-app"
 import { ensureConvexUserReadyServer } from "@/lib/server/convex"
+import { getDesktopSessionFromRequestHeaders } from "@/lib/server/desktop-session"
 import { jsonError } from "@/lib/server/route-response"
 import { toAuthenticatedAppUser } from "@/lib/workos/auth"
 
@@ -38,6 +39,12 @@ export async function requireSession(): Promise<
   const session = await withAuth()
 
   if (!session.user) {
+    const desktopSession = await getDesktopSessionFromRequestHeaders()
+
+    if (desktopSession) {
+      return desktopSession as AuthenticatedSession
+    }
+
     return jsonError("Unauthorized", 401, {
       code: "AUTH_UNAUTHORIZED",
     })

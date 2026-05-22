@@ -9,7 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useAppRouter, useAppSearchParams } from "@/lib/browser/app-navigation"
 import { Plus } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
@@ -349,8 +349,8 @@ function WorkspaceChatDetailsSheet({
 }
 
 export function WorkspaceChatsScreen() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  const router = useAppRouter()
+  const searchParams = useAppSearchParams()
   const {
     currentUserId,
     workspace,

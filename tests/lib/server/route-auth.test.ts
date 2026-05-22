@@ -1,12 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const withAuthMock = vi.fn()
+const nextHeadersMock = vi.fn()
 const ensureAuthenticatedAppContextMock = vi.fn()
 const ensureConvexUserReadyServerMock = vi.fn()
 const toAuthenticatedAppUserMock = vi.fn()
 
 vi.mock("@workos-inc/authkit-nextjs", () => ({
   withAuth: withAuthMock,
+}))
+
+vi.mock("next/headers", () => ({
+  headers: nextHeadersMock,
 }))
 
 vi.mock("@/lib/server/authenticated-app", () => ({
@@ -22,11 +27,20 @@ vi.mock("@/lib/workos/auth", () => ({
 }))
 
 describe("route auth helpers", () => {
+  const originalDesktopSessionSecret = process.env.DESKTOP_SESSION_SECRET
+
   beforeEach(() => {
     withAuthMock.mockReset()
+    nextHeadersMock.mockReset()
+    nextHeadersMock.mockResolvedValue(new Headers())
     ensureAuthenticatedAppContextMock.mockReset()
     ensureConvexUserReadyServerMock.mockReset()
     toAuthenticatedAppUserMock.mockReset()
+    process.env.DESKTOP_SESSION_SECRET = "x".repeat(32)
+  })
+
+  afterEach(() => {
+    process.env.DESKTOP_SESSION_SECRET = originalDesktopSessionSecret
   })
 
   it("returns a 401 response when no session user exists", async () => {
@@ -66,6 +80,44 @@ describe("route auth helpers", () => {
         email: "person@example.com",
       },
       organizationId: "org_123",
+    })
+  })
+
+  it("falls back to a desktop bearer session when AuthKit cookies are absent", async () => {
+    const {
+      createDesktopHandoffTicket,
+      createDesktopSessionTokenFromHandoffTicket,
+    } = await import("@/lib/server/desktop-session")
+    const { requireSession } = await import("@/lib/server/route-auth")
+    const { ticket } = createDesktopHandoffTicket({
+      organizationId: "org_desktop",
+      user: {
+        id: "workos_desktop",
+        email: "desktop@example.com",
+      },
+    })
+    const session = await createDesktopSessionTokenFromHandoffTicket(ticket, {
+      consumeHandoffTicket: async () => ({ consumed: true }),
+    })
+
+    withAuthMock.mockResolvedValue({
+      user: null,
+      organizationId: null,
+    })
+    nextHeadersMock.mockResolvedValue(
+      new Headers({
+        Authorization: `Bearer ${session?.token}`,
+      })
+    )
+
+    await expect(requireSession()).resolves.toEqual({
+      organizationId: "org_desktop",
+      user: {
+        email: "desktop@example.com",
+        firstName: null,
+        id: "workos_desktop",
+        lastName: null,
+      },
     })
   })
 

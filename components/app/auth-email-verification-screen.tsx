@@ -1,6 +1,5 @@
-import Link from "next/link"
-
 import { AuthLogo } from "@/components/app/auth-logo"
+import { AppLink } from "@/lib/browser/app-navigation"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -134,7 +133,7 @@ export function AuthEmailVerificationScreen({
 
                 <FieldDescription className="text-center">
                   Need a different account?{" "}
-                  <Link href={returnHref}>{copy.actionLabel}</Link>
+                  <AppLink href={returnHref}>{copy.actionLabel}</AppLink>
                 </FieldDescription>
               </FieldGroup>
             </form>

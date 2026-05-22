@@ -64,15 +64,21 @@ vi.mock("@/components/app/screens/work-surface-view", () => ({
   TimelineView: () => <div>Timeline layout</div>,
 }))
 
-vi.mock("@phosphor-icons/react", () => ({
-  ArrowSquareOut: () => null,
-  CaretRight: () => null,
-  PencilSimple: () => null,
-  Plus: () => null,
-  SidebarSimple: () => null,
-  Trash: () => null,
-  XIcon: () => null,
-}))
+vi.mock("@phosphor-icons/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@phosphor-icons/react")>()
+  const Icon = () => null
+  const icons = {
+    ...actual,
+    ArrowSquareOut: Icon,
+    CaretRight: Icon,
+    PencilSimple: Icon,
+    Plus: Icon,
+    SidebarSimple: Icon,
+    Trash: Icon,
+    XIcon: Icon,
+  }
+  return icons
+})
 
 function seedState() {
   useAppStore.setState({
@@ -234,6 +240,19 @@ describe("ProjectDetailScreen", () => {
         defaultProjectId: "project_1",
       })
     )
+  })
+
+  it("shows a loading state before a missing project detail read model finishes", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      projects: [],
+      workItems: [],
+    }))
+
+    render(<ProjectDetailScreen projectId="project_1" />)
+
+    expect(screen.getByText("Loading project...")).toBeInTheDocument()
+    expect(screen.queryByText("Project not found")).not.toBeInTheDocument()
   })
 
   it("opens the shared create-view modal with the current project preselected", () => {

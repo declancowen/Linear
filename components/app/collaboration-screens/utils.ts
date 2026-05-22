@@ -1,4 +1,5 @@
 import { format, isToday, isYesterday } from "date-fns"
+import { buildPublicApiUrl } from "@/lib/api/public-url"
 import { trimTrailingRichTextDisplayWhitespace } from "@/lib/content/rich-text-security"
 import { escapeHtml } from "@/lib/html"
 
@@ -44,7 +45,7 @@ export function buildCallJoinHref(callId: string) {
     callId,
   })
 
-  return `/api/calls/join?${query.toString()}`
+  return buildPublicApiUrl(`/api/calls/join?${query.toString()}`)
 }
 
 export function parseCallInviteMessage(content: string) {
@@ -63,7 +64,7 @@ export function parseCallInviteMessage(content: string) {
   }
 
   return {
-    href: match[1],
+    href: buildPublicApiUrl(match[1]),
     title: "Started a call",
   }
 }

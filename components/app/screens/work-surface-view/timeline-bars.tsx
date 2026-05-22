@@ -1,5 +1,11 @@
-import Link from "next/link"
-import { memo, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
+import { AppLink } from "@/lib/browser/app-navigation"
+import {
+  memo,
+  useEffect,
+  useRef,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react"
 import { useDraggable } from "@dnd-kit/core"
 import { CSS } from "@dnd-kit/utilities"
 
@@ -33,12 +39,14 @@ export const TimelineLabelRow = memo(function TimelineLabelRow({
   accentMode,
   accentIndex,
   labelsById,
+  onSelectItem,
 }: {
   data: AppData
   item: WorkItem
   accentMode: EventAccentMode
   accentIndex: number
   labelsById: EventAccentLabelLookup | null
+  onSelectItem?: (itemId: string) => void
 }) {
   const assignees = getItemAssignees(data, [item])
   const style = getTimelineBarStyle(item, accentMode, accentIndex, labelsById)
@@ -56,12 +64,20 @@ export const TimelineLabelRow = memo(function TimelineLabelRow({
           style={{ ...style, background: "var(--cal-accent)" }}
         />
         <div className="min-w-0 flex-1">
-          <Link
+          <AppLink
             className="block truncate text-xs hover:underline"
             href={`/items/${item.id}`}
+            onClick={(event) => {
+              if (!onSelectItem) {
+                return
+              }
+
+              event.preventDefault()
+              onSelectItem(item.id)
+            }}
           >
             {item.title}
-          </Link>
+          </AppLink>
         </div>
         <WorkItemTypeBadge data={data} item={item} className="shrink-0" />
         {assignees[0] ? (
@@ -112,6 +128,7 @@ export const TimelineBar = memo(function TimelineBar({
   labelsById,
   onCaptureDragOffset,
   onResizeStart,
+  onSelectItem,
 }: {
   data: AppData
   item: WorkItem
@@ -129,12 +146,128 @@ export const TimelineBar = memo(function TimelineBar({
     edge: "start" | "end",
     clientX: number
   ) => void
+  onSelectItem?: (itemId: string) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: item.id,
     })
   const style = getTimelineBarStyle(item, accentMode, accentIndex, labelsById)
+  const pointerDownPositionRef = useRef<{
+    pointerId: number
+    x: number
+    y: number
+  } | null>(null)
+  const didSelectOnPointerUpRef = useRef(false)
+  const clearWindowPointerListenersRef = useRef<(() => void) | null>(null)
+
+  function clearWindowPointerListeners() {
+    clearWindowPointerListenersRef.current?.()
+    clearWindowPointerListenersRef.current = null
+  }
+
+  useEffect(() => clearWindowPointerListeners, [])
+
+  function didPointerMovePastClickThreshold(clientX: number, clientY: number) {
+    const pointerDownPosition = pointerDownPositionRef.current
+
+    return (
+      pointerDownPosition !== null &&
+      (Math.abs(clientX - pointerDownPosition.x) > 4 ||
+        Math.abs(clientY - pointerDownPosition.y) > 4)
+    )
+  }
+
+  function isResizeHandleEventTarget(target: EventTarget | null) {
+    return (
+      target instanceof Element &&
+      target.closest("[data-timeline-resize-handle]") !== null
+    )
+  }
+
+  function isPrimaryPointerButton(event: ReactPointerEvent<HTMLButtonElement>) {
+    return event.button === 0
+  }
+
+  function selectItemFromPointerRelease(input: {
+    clientX: number
+    clientY: number
+    pointerId: number
+  }) {
+    const pointerDownPosition = pointerDownPositionRef.current
+
+    if (
+      pointerDownPosition === null ||
+      pointerDownPosition.pointerId !== input.pointerId
+    ) {
+      return
+    }
+
+    clearWindowPointerListeners()
+
+    if (didPointerMovePastClickThreshold(input.clientX, input.clientY)) {
+      pointerDownPositionRef.current = null
+      return
+    }
+
+    didSelectOnPointerUpRef.current = true
+    pointerDownPositionRef.current = null
+    onSelectItem?.(item.id)
+  }
+
+  function registerWindowPointerReleaseListener(pointerId: number) {
+    clearWindowPointerListeners()
+
+    const handlePointerUp = (event: PointerEvent) => {
+      selectItemFromPointerRelease({
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pointerId: event.pointerId,
+      })
+    }
+    const handlePointerCancel = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) {
+        return
+      }
+
+      clearWindowPointerListeners()
+      pointerDownPositionRef.current = null
+    }
+
+    window.addEventListener("pointerup", handlePointerUp, {
+      capture: true,
+      once: true,
+    })
+    window.addEventListener("pointercancel", handlePointerCancel, {
+      capture: true,
+      once: true,
+    })
+    clearWindowPointerListenersRef.current = () => {
+      window.removeEventListener("pointerup", handlePointerUp, {
+        capture: true,
+      })
+      window.removeEventListener("pointercancel", handlePointerCancel, {
+        capture: true,
+      })
+    }
+  }
+
+  function selectItemFromPointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (
+      !isPrimaryPointerButton(event) ||
+      isResizeHandleEventTarget(event.target)
+    ) {
+      clearWindowPointerListeners()
+      pointerDownPositionRef.current = null
+      return
+    }
+
+    selectItemFromPointerRelease({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pointerId: event.pointerId,
+    })
+  }
 
   return (
     <IssueContextMenu data={data} item={item}>
@@ -149,7 +282,37 @@ export const TimelineBar = memo(function TimelineBar({
           ...style,
           transform: isDragging ? undefined : CSS.Translate.toString(transform),
         }}
-        onPointerDownCapture={(event) => onCaptureDragOffset(item, span, event)}
+        onClick={(event) => {
+          if (didSelectOnPointerUpRef.current) {
+            didSelectOnPointerUpRef.current = false
+            return
+          }
+
+          if (didPointerMovePastClickThreshold(event.clientX, event.clientY)) {
+            pointerDownPositionRef.current = null
+            return
+          }
+
+          onSelectItem?.(item.id)
+        }}
+        onPointerDownCapture={(event) => {
+          if (
+            !isPrimaryPointerButton(event) ||
+            isResizeHandleEventTarget(event.target)
+          ) {
+            pointerDownPositionRef.current = null
+            return
+          }
+
+          pointerDownPositionRef.current = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+          }
+          registerWindowPointerReleaseListener(event.pointerId)
+          onCaptureDragOffset(item, span, event)
+        }}
+        onPointerUpCapture={selectItemFromPointerUp}
         {...listeners}
         {...attributes}
       >
@@ -160,6 +323,7 @@ export const TimelineBar = memo(function TimelineBar({
         <span
           data-timeline-resize-handle="start"
           className="absolute inset-y-0 left-0 z-10 w-2.5 cursor-ew-resize opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
+          onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => {
             event.preventDefault()
             event.stopPropagation()
@@ -170,6 +334,7 @@ export const TimelineBar = memo(function TimelineBar({
         <span
           data-timeline-resize-handle="end"
           className="absolute inset-y-0 right-0 z-10 w-2.5 cursor-ew-resize opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
+          onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => {
             event.preventDefault()
             event.stopPropagation()

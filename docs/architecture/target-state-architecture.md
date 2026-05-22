@@ -55,7 +55,7 @@ Microservices are an **optional future extraction mechanism**, not the desired e
 - `Next.js` remains the web and route shell.
 - `Convex` remains the system of record and real-time backend.
 - `WorkOS`, `Resend`, and `100ms` remain edge integrations behind adapters.
-- `Electron` remains a shell over the web app, not an independent business surface.
+- `Electron` remains a desktop distribution of the same product UI, not an independent business surface.
 
 ### Desktop platform position
 
@@ -65,13 +65,15 @@ This is an intentional repo-level decision, not an accident of the current imple
 
 Why:
 
-- the current desktop runtime already packages and manages the Next standalone server successfully
+- the current product already depends on browser-grade web UI and hosted provider integrations
 - the highest-value architecture work is still in read models, commands, jobs, lifecycle, and governance
 - a Tauri move would be a platform migration, not a cleanup
 
 Therefore:
 
 - desktop remains a **mandatory** architecture surface
+- the target real-user desktop shape is a packaged frontend that calls hosted API/provider surfaces
+- server-only secrets stay in hosted infrastructure and are never bundled into Electron
 - Electron runtime hardening, release, update, verification, and observability are part of the target state
 - a Tauri migration is deferred unless the product later proves a strong need for:
   - materially smaller footprint or faster startup

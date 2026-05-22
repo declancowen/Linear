@@ -59,6 +59,7 @@ import {
   listWorkspacesForSyncHandler,
   lookupTeamByJoinCodeHandler,
 } from "./app/auth_bootstrap"
+import { consumeDesktopHandoffTicketHandler } from "./app/desktop_auth"
 import { getCollaborationDocumentHandler } from "./app/collaboration_documents"
 import {
   archiveNotificationHandler,
@@ -446,6 +447,16 @@ export const lookupTeamByJoinCode = query({
     code: v.string(),
   },
   handler: lookupTeamByJoinCodeHandler,
+})
+
+export const consumeDesktopHandoffTicket = mutation({
+  args: {
+    ...serverAccessArgs,
+    ticketId: v.string(),
+    expiresAt: v.number(),
+    consumedAt: v.number(),
+  },
+  handler: consumeDesktopHandoffTicketHandler,
 })
 
 export const listWorkspacesForSync = query({

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   formatWorkItemKey,
   normalizeWorkItemKeyNumberPadding,
+  PRIVATE_WORK_ITEM_KEY_PREFIX,
 } from "@/lib/domain/work-item-key"
 
 describe("work item keys", () => {
@@ -11,6 +12,10 @@ describe("work item keys", () => {
     expect(formatWorkItemKey("PL", 42)).toBe("PL-042")
     expect(formatWorkItemKey("PL", 400)).toBe("PL-400")
     expect(formatWorkItemKey("PL", 4000)).toBe("PL-4000")
+  })
+
+  it("uses a compact private work item prefix", () => {
+    expect(formatWorkItemKey(PRIVATE_WORK_ITEM_KEY_PREFIX, 1)).toBe("PVT-001")
   })
 
   it("normalizes existing work item keys with short numeric suffixes", () => {

@@ -496,6 +496,8 @@ describe("read model route contracts", () => {
     await expect(response.json()).resolves.toMatchObject({
       data: {
         projects: [{ id: "project_1" }],
+        teams: [{ id: "team_1" }],
+        workspaces: [{ id: "workspace_1" }],
       },
     })
   })
