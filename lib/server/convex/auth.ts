@@ -105,6 +105,19 @@ export async function listWorkspacesForSyncServer() {
   )
 }
 
+export async function consumeDesktopHandoffTicketServer(input: {
+  ticketId: string
+  expiresAt: number
+  consumedAt: number
+}) {
+  return runConvexRequestWithRetry("consumeDesktopHandoffTicketServer", () =>
+    getConvexServerClient().mutation(
+      api.app.consumeDesktopHandoffTicket,
+      withServerToken(input)
+    )
+  )
+}
+
 export async function getSnapshotServer(input?: {
   workosUserId?: string
   email?: string

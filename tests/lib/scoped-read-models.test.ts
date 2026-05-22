@@ -13,6 +13,8 @@ import {
   selectDocumentDetailReadModel,
   selectDocumentIndexReadModel,
   selectProjectDetailReadModel,
+  selectProjectIndexReadModel,
+  selectViewCatalogReadModel,
   selectWorkItemDetailReadModel,
   selectWorkIndexReadModel,
 } from "@/lib/scoped-sync/read-models"
@@ -28,6 +30,21 @@ function createSnapshotFixture(): AppSnapshot {
     ...createEmptyState(),
     currentUserId: "user_1",
     currentWorkspaceId: "workspace_1",
+    workspaces: [
+      {
+        id: "workspace_1",
+        slug: "workspace-1",
+        name: "Workspace 1",
+        logoUrl: "",
+        logoImageUrl: null,
+        createdBy: "user_1",
+        workosOrganizationId: null,
+        settings: {
+          accent: "indigo",
+          description: "",
+        },
+      },
+    ],
     teams: [createScopedReadModelTeam()],
     teamMemberships: [
       {
@@ -212,6 +229,47 @@ function createSnapshotFixture(): AppSnapshot {
   } as unknown as AppSnapshot
 }
 
+function addCrossWorkspaceTeamFixture(snapshot: AppSnapshot) {
+  snapshot.workspaces.push({
+    id: "workspace_2",
+    slug: "workspace-2",
+    name: "Workspace 2",
+    logoUrl: "",
+    logoImageUrl: null,
+    createdBy: "user_1",
+    workosOrganizationId: null,
+    settings: {
+      accent: "green",
+      description: "",
+    },
+  })
+  snapshot.teams.push(
+    createScopedReadModelTeam({
+      id: "team_2",
+      slug: "team-2",
+      name: "Team 2",
+    }),
+    createScopedReadModelTeam({
+      id: "team_3",
+      workspaceId: "workspace_2",
+      slug: "team-3",
+      name: "Team 3",
+    })
+  )
+  snapshot.teamMemberships.push(
+    {
+      teamId: "team_2",
+      userId: "user_2",
+      role: "member",
+    },
+    {
+      teamId: "team_3",
+      userId: "user_1",
+      role: "member",
+    }
+  )
+}
+
 describe("scoped read model selectors", () => {
   it("selects the document detail subset", () => {
     const snapshot = createSnapshotFixture()
@@ -241,6 +299,112 @@ describe("scoped read model selectors", () => {
       workItems: [{ id: "item_1" }],
       teams: [{ id: "team_1" }],
     })
+  })
+
+  it("limits workspace project indexes to teams the current user can access", () => {
+    const snapshot = createSnapshotFixture()
+    addCrossWorkspaceTeamFixture(snapshot)
+    snapshot.projects.push(
+      createScopedReadModelProject({
+        id: "project_2",
+        scopeId: "team_2",
+        name: "Inaccessible Team Project",
+      }),
+      createScopedReadModelProject({
+        id: "project_3",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        name: "Workspace Project",
+      })
+    )
+    snapshot.workItems.push(
+      {
+        ...snapshot.workItems[0],
+        id: "item_2",
+        key: "TEAM-2",
+        teamId: "team_2",
+        primaryProjectId: "project_2",
+        linkedProjectIds: [],
+      },
+      {
+        ...snapshot.workItems[0],
+        id: "item_3",
+        key: "TEAM-3",
+        teamId: "team_2",
+        primaryProjectId: "project_3",
+        linkedProjectIds: [],
+      },
+      {
+        ...snapshot.workItems[0],
+        id: "item_4",
+        key: "TEAM-4",
+        primaryProjectId: "project_3",
+        linkedProjectIds: [],
+      },
+      {
+        ...snapshot.workItems[0],
+        id: "item_5",
+        key: "TEAM-5",
+        teamId: "team_3",
+        primaryProjectId: "project_3",
+        linkedProjectIds: [],
+      }
+    )
+
+    const patch = selectProjectIndexReadModel(
+      snapshot,
+      "workspace",
+      "workspace_1"
+    )
+
+    expect(patch.projects?.map((project) => project.id).sort()).toEqual([
+      "project_1",
+      "project_3",
+    ])
+    expect(patch.teams?.map((team) => team.id)).toEqual(["team_1"])
+    expect(patch.workItems?.map((item) => item.id).sort()).toEqual([
+      "item_1",
+      "item_4",
+    ])
+  })
+
+  it("limits workspace view catalogs to teamspace views the current user can access", () => {
+    const snapshot = createSnapshotFixture()
+    addCrossWorkspaceTeamFixture(snapshot)
+    snapshot.views = [
+      createScopedReadModelView({
+        id: "workspace_view",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+      }),
+      createScopedReadModelView({
+        id: "accessible_team_view",
+        scopeType: "team",
+        scopeId: "team_1",
+      }),
+      createScopedReadModelView({
+        id: "inaccessible_team_view",
+        scopeType: "team",
+        scopeId: "team_2",
+      }),
+      createScopedReadModelView({
+        id: "other_workspace_team_view",
+        scopeType: "team",
+        scopeId: "team_3",
+      }),
+    ]
+
+    const patch = selectViewCatalogReadModel(
+      snapshot,
+      "workspace",
+      "workspace_1"
+    )
+
+    expect(patch.views?.map((view) => view.id).sort()).toEqual([
+      "accessible_team_view",
+      "workspace_view",
+    ])
+    expect(patch.teams?.map((team) => team.id)).toEqual(["team_1"])
   })
 
   it("selects the work item detail subset and related project scopes", () => {
@@ -416,6 +580,8 @@ describe("scoped read model selectors", () => {
 
     expect(patch).toMatchObject({
       projects: [{ id: "project_1" }],
+      teams: [{ id: "team_1" }],
+      workspaces: [{ id: "workspace_1" }],
       workItems: [{ id: "item_1" }],
       milestones: [{ id: "milestone_1" }],
       projectUpdates: [{ id: "update_1" }],
@@ -429,6 +595,47 @@ describe("scoped read model selectors", () => {
     expect(getProjectDetailScopeKeys("project_1")).toEqual([
       "project-detail:project_1",
     ])
+  })
+
+  it("includes item team context for workspace project detail subsets", () => {
+    const snapshot = createSnapshotFixture()
+    snapshot.teams.push(
+      createScopedReadModelTeam({
+        id: "team_2",
+        slug: "team-2",
+        name: "Team 2",
+      })
+    )
+    snapshot.teamMemberships.push({
+      teamId: "team_2",
+      userId: "user_1",
+      role: "member",
+    })
+    snapshot.projects.push(
+      createScopedReadModelProject({
+        id: "project_2",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        name: "Workspace Project",
+      })
+    )
+    snapshot.workItems.push({
+      ...snapshot.workItems[0],
+      id: "item_2",
+      key: "TEAM-2",
+      teamId: "team_2",
+      primaryProjectId: "project_2",
+      linkedProjectIds: [],
+    })
+
+    const patch = selectProjectDetailReadModel(snapshot, "project_2")
+
+    expect(patch).toMatchObject({
+      projects: [{ id: "project_2" }],
+      teams: [{ id: "team_2" }],
+      workspaces: [{ id: "workspace_1" }],
+      workItems: [{ id: "item_2" }],
+    })
   })
 
   it("selects workspace membership invites by workspace or pending user email", () => {

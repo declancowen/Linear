@@ -4,6 +4,8 @@ import { buildDesktopAuthHeaders } from "@/lib/browser/desktop-auth-token"
 
 type EventSourceListener = (event: MessageEvent<string>) => void
 
+const FETCH_EVENT_SOURCE_RECONNECT_DELAY_MS = 1000
+
 export type AuthenticatedEventSource = {
   addEventListener: (type: string, listener: EventSourceListener) => void
   close: () => void
@@ -30,9 +32,10 @@ function normalizeSseLine(line: string) {
 }
 
 class FetchAuthenticatedEventSource implements AuthenticatedEventSource {
-  private readonly abortController = new AbortController()
   private readonly listeners = new Map<string, Set<EventSourceListener>>()
+  private abortController: AbortController | null = null
   private closed = false
+  private reconnectTimer: number | null = null
   onerror: ((event: Event) => void) | null = null
 
   constructor(private readonly url: string) {
@@ -51,7 +54,9 @@ class FetchAuthenticatedEventSource implements AuthenticatedEventSource {
 
   close() {
     this.closed = true
-    this.abortController.abort()
+    this.abortController?.abort()
+    this.abortController = null
+    this.clearReconnectTimer()
     this.listeners.clear()
   }
 
@@ -71,27 +76,63 @@ class FetchAuthenticatedEventSource implements AuthenticatedEventSource {
     }
   }
 
+  private clearReconnectTimer() {
+    if (this.reconnectTimer === null) {
+      return
+    }
+
+    window.clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
+  }
+
+  private scheduleReconnect() {
+    if (this.closed || this.reconnectTimer !== null) {
+      return
+    }
+
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null
+      void this.open()
+    }, FETCH_EVENT_SOURCE_RECONNECT_DELAY_MS)
+  }
+
+  private dispatchErrorAndReconnect() {
+    this.dispatchError()
+    this.scheduleReconnect()
+  }
+
   private async open() {
+    if (this.closed) {
+      return
+    }
+
+    const abortController = new AbortController()
+    this.abortController = abortController
+
     try {
       const response = await fetch(this.url, {
         credentials: "include",
         headers: await buildDesktopAuthHeaders(),
-        signal: this.abortController.signal,
+        signal: abortController.signal,
       })
 
       if (!response.ok || !response.body) {
-        this.dispatchError()
+        this.dispatchErrorAndReconnect()
         return
       }
 
       await this.readStream(response.body)
 
       if (!this.closed) {
-        this.dispatchError()
+        this.dispatchErrorAndReconnect()
       }
     } catch {
-      if (!this.closed && !this.abortController.signal.aborted) {
-        this.dispatchError()
+      if (!this.closed && !abortController.signal.aborted) {
+        this.dispatchErrorAndReconnect()
+      }
+    } finally {
+      if (this.abortController === abortController) {
+        this.abortController = null
       }
     }
   }

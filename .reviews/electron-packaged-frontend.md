@@ -13,10 +13,41 @@
 
 | Field | Value |
 |-------|-------|
-| Last reviewed | `2026-05-21 20:17 BST` |
+| Last reviewed | `2026-05-22 07:58 BST` |
 | Risk | High |
 | Open findings | `0` |
-| Residual risks | Internal/ad-hoc mac signing only; desktop token persistence intentionally disabled by default pending a non-blocking keychain strategy |
+| Residual risks | Internal/ad-hoc mac signing only; desktop token persistence intentionally disabled by default pending a non-blocking keychain strategy; desktop preflight still reports hosted env/WorkOS checks as pending when those values are not visible locally |
+
+---
+
+## Turn 2 - 2026-05-22 07:58 BST
+
+**Outcome:** No open Critical/High findings after importing the Codex review and rerunning the branch diff/architecture pass.
+
+**External findings addressed:**
+- P1 desktop handoff tickets were replayable inside their TTL. Added Convex-backed one-time ticket consumption keyed by handoff `jti`, with expired-ticket cleanup and route-level unavailable handling.
+- P2 fetch-backed desktop SSE streams stopped after transient disconnects. Added retry scheduling with per-attempt abort controllers and a reconnect regression test.
+
+**Additional coverage fixes made during review:**
+- Project detail no longer flashes `Project not found` before the scoped read model finishes loading.
+- Workspace project detail read models now include owning workspace/team context and only aggregate items from teams the viewer can access in that workspace.
+- Workspace project indexes and workspace view catalogs now exclude inaccessible teamspaces and accessible teams from other workspaces.
+
+**Architecture pass:** Server-only desktop ticket consumption remains behind `lib/server/convex/auth.ts` and a Convex server-token mutation; Electron/renderer code still receives no server secrets. Scoped read-model access filtering stays centralized in `lib/scoped-sync/read-models.ts`, with route contracts and selector tests covering workspace aggregation boundaries.
+
+**Validation:**
+- `pnpm convex:codegen`
+- `pnpm vitest run tests/lib/server/desktop-session.test.ts tests/lib/server/route-auth.test.ts tests/app/auth-route-contracts.test.ts tests/lib/browser/authenticated-event-source.test.ts tests/components/project-detail-screen.test.tsx tests/lib/scoped-read-models.test.ts tests/app/api/read-model-route-contracts.test.ts`
+- `pnpm vitest run tests/lib/scoped-read-models.test.ts tests/app/api/read-model-route-contracts.test.ts tests/lib/domain/view-directory.test.ts`
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm test` -> `198 passed`, `1137 passed`
+- `pnpm build`
+- `pnpm fallow:gate`
+- `pnpm desktop:renderer:smoke`
+- `pnpm desktop:package:mac:packaged-renderer`
+- `pnpm desktop:release:preflight` -> `19 pass, 0 warn, 7 pending, 0 fail`
+- `node --env-file=/Users/declancowen/Documents/GitHub/Linear/.env.local scripts/desktop-release-preflight.mjs` -> `20 pass, 0 warn, 6 pending, 0 fail`
 
 ---
 

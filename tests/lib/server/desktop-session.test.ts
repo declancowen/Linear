@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 describe("desktop session tokens", () => {
   const originalSecret = process.env.DESKTOP_SESSION_SECRET
+  const consumeHandoffTicket = async () => ({ consumed: true })
 
   beforeEach(() => {
     process.env.DESKTOP_SESSION_SECRET = "x".repeat(32)
@@ -28,7 +29,10 @@ describe("desktop session tokens", () => {
         lastName: "Lee",
       },
     })
-    const session = createDesktopSessionTokenFromHandoffTicket(ticket, now + 1000)
+    const session = await createDesktopSessionTokenFromHandoffTicket(ticket, {
+      consumeHandoffTicket,
+      now: now + 1000,
+    })
 
     expect(session).toEqual({
       expiresAt: now + 1000 + 7 * 24 * 60 * 60 * 1000,
@@ -61,8 +65,29 @@ describe("desktop session tokens", () => {
     })
 
     expect(
-      createDesktopSessionTokenFromHandoffTicket(ticket, now + 2 * 60 * 1000)
+      await createDesktopSessionTokenFromHandoffTicket(ticket, {
+        consumeHandoffTicket,
+        now: now + 2 * 60 * 1000,
+      })
     ).toBeNull()
+  })
+
+  it("rejects replayed handoff tickets", async () => {
+    const {
+      createDesktopHandoffTicket,
+      createDesktopSessionTokenFromHandoffTicket,
+    } = await import("@/lib/server/desktop-session")
+    const { ticket } = createDesktopHandoffTicket({
+      user: {
+        id: "workos_user",
+        email: "alex@example.com",
+      },
+    })
+    const session = await createDesktopSessionTokenFromHandoffTicket(ticket, {
+      consumeHandoffTicket: async () => ({ consumed: false }),
+    })
+
+    expect(session).toBeNull()
   })
 
   it("rejects tampered session tokens", async () => {
@@ -77,7 +102,9 @@ describe("desktop session tokens", () => {
         email: "alex@example.com",
       },
     })
-    const session = createDesktopSessionTokenFromHandoffTicket(ticket)
+    const session = await createDesktopSessionTokenFromHandoffTicket(ticket, {
+      consumeHandoffTicket,
+    })
 
     expect(
       verifyDesktopSessionToken(`${session?.token ?? ""}tampered`)
@@ -97,7 +124,9 @@ describe("desktop session tokens", () => {
         email: "alex@example.com",
       },
     })
-    const session = createDesktopSessionTokenFromHandoffTicket(ticket)
+    const session = await createDesktopSessionTokenFromHandoffTicket(ticket, {
+      consumeHandoffTicket,
+    })
 
     await expect(
       getDesktopSessionFromRequestHeaders(

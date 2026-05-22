@@ -2,6 +2,8 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto"
 
 import { headers } from "next/headers"
 
+import { consumeDesktopHandoffTicketServer } from "@/lib/server/convex/auth"
+
 const DESKTOP_HANDOFF_TOKEN_TYPE = "desktop-handoff"
 const DESKTOP_SESSION_TOKEN_TYPE = "desktop-session"
 const DESKTOP_HANDOFF_TTL_MS = 2 * 60 * 1000
@@ -34,6 +36,17 @@ type DesktopTokenPayload = {
 export type DesktopSessionTokenResult = {
   expiresAt: number
   token: string
+}
+
+type DesktopHandoffTicketConsumer = (input: {
+  ticketId: string
+  expiresAt: number
+  consumedAt: number
+}) => Promise<{ consumed: boolean }> | { consumed: boolean }
+
+type DesktopSessionExchangeOptions = {
+  consumeHandoffTicket?: DesktopHandoffTicketConsumer
+  now?: number
 }
 
 function base64UrlEncode(value: string | Buffer) {
@@ -188,10 +201,29 @@ export function createDesktopHandoffTicket(input: {
   }
 }
 
-export function createDesktopSessionTokenFromHandoffTicket(
+function normalizeDesktopSessionExchangeOptions(
+  value?: number | DesktopSessionExchangeOptions
+): Required<DesktopSessionExchangeOptions> {
+  if (typeof value === "number") {
+    return {
+      consumeHandoffTicket: consumeDesktopHandoffTicketServer,
+      now: value,
+    }
+  }
+
+  return {
+    consumeHandoffTicket:
+      value?.consumeHandoffTicket ?? consumeDesktopHandoffTicketServer,
+    now: value?.now ?? Date.now(),
+  }
+}
+
+export async function createDesktopSessionTokenFromHandoffTicket(
   ticket: string,
-  now = Date.now()
-): DesktopSessionTokenResult | null {
+  options?: number | DesktopSessionExchangeOptions
+): Promise<DesktopSessionTokenResult | null> {
+  const { consumeHandoffTicket, now } =
+    normalizeDesktopSessionExchangeOptions(options)
   const handoffPayload = verifyDesktopToken(
     ticket,
     DESKTOP_HANDOFF_TOKEN_TYPE,
@@ -199,6 +231,16 @@ export function createDesktopSessionTokenFromHandoffTicket(
   )
 
   if (!handoffPayload) {
+    return null
+  }
+
+  const consumptionResult = await consumeHandoffTicket({
+    consumedAt: now,
+    expiresAt: handoffPayload.exp,
+    ticketId: handoffPayload.jti,
+  })
+
+  if (!consumptionResult.consumed) {
     return null
   }
 

@@ -26,6 +26,7 @@ const resetWorkOSPasswordMock = vi.fn()
 const requestWorkOSPasswordResetMock = vi.fn()
 const mapWorkOSAccountErrorMock = vi.fn()
 const listWorkspacesForSyncServerMock = vi.fn()
+const consumeDesktopHandoffTicketServerMock = vi.fn()
 
 vi.mock("@workos-inc/authkit-nextjs", () => ({
   saveSession: saveSessionMock,
@@ -56,6 +57,7 @@ vi.mock("@/lib/server/workos", () => ({
 }))
 
 vi.mock("@/lib/server/convex/auth", () => ({
+  consumeDesktopHandoffTicketServer: consumeDesktopHandoffTicketServerMock,
   listWorkspacesForSyncServer: listWorkspacesForSyncServerMock,
 }))
 
@@ -177,6 +179,10 @@ function resetAuthRouteMocks() {
   mapWorkOSAccountErrorMock.mockReturnValue("Provider account error")
   listWorkspacesForSyncServerMock.mockReset()
   listWorkspacesForSyncServerMock.mockResolvedValue([])
+  consumeDesktopHandoffTicketServerMock.mockReset()
+  consumeDesktopHandoffTicketServerMock.mockResolvedValue({
+    consumed: true,
+  })
 }
 
 function createForgotPasswordRequest(
@@ -526,6 +532,37 @@ describe("desktop auth routes", () => {
         "http://localhost/api/auth/desktop/session",
         "POST",
         { ticket: "not-a-real-ticket" }
+      )
+    )
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toMatchObject({
+      code: "DESKTOP_AUTH_TICKET_INVALID",
+      message: "Invalid desktop authentication ticket",
+    })
+  })
+
+  it("rejects replayed desktop handoff tickets", async () => {
+    const { createDesktopHandoffTicket } = await import(
+      "@/lib/server/desktop-session"
+    )
+    const { POST } = await import("@/app/api/auth/desktop/session/route")
+    const { ticket } = createDesktopHandoffTicket({
+      user: {
+        id: "workos_user",
+        email: "alex@example.com",
+      },
+    })
+
+    consumeDesktopHandoffTicketServerMock.mockResolvedValueOnce({
+      consumed: false,
+    })
+
+    const response = await POST(
+      createJsonRouteRequest(
+        "http://localhost/api/auth/desktop/session",
+        "POST",
+        { ticket }
       )
     )
 

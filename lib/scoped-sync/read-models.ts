@@ -300,7 +300,11 @@ function selectViewCatalogViews(
     )
   }
 
-  const accessibleTeamIds = getAccessibleTeamIds(snapshot)
+  const accessibleTeamIds = new Set(
+    selectAccessibleTeamsForScope(snapshot, "workspace", scopeId).map(
+      (team) => team.id
+    )
+  )
 
   return snapshot.views.filter((view) => {
     if (view.containerType) {
@@ -334,7 +338,11 @@ function selectProjectsForScope(
     )
   }
 
-  const accessibleTeamIds = getAccessibleTeamIds(snapshot)
+  const accessibleTeamIds = new Set(
+    selectAccessibleTeamsForScope(snapshot, "workspace", scopeId).map(
+      (team) => team.id
+    )
+  )
 
   return snapshot.projects.filter((project) => {
     if (project.scopeType === "workspace") {
@@ -1152,12 +1160,53 @@ export function selectProjectDetailReadModel(
     return null
   }
 
+  const accessibleTeamIds = getAccessibleTeamIds(snapshot)
+  const projectTeam =
+    project.scopeType === "team"
+      ? (snapshot.teams.find(
+          (team) =>
+            team.id === project.scopeId && accessibleTeamIds.has(team.id)
+        ) ?? null)
+      : null
+  const inaccessibleTeamProject =
+    project.scopeType === "team" && projectTeam === null
+
+  if (inaccessibleTeamProject) {
+    return null
+  }
+
+  const projectWorkspaceId =
+    project.scopeType === "workspace"
+      ? project.scopeId
+      : (projectTeam?.workspaceId ?? null)
+  const accessibleProjectTeamIds =
+    project.scopeType === "workspace"
+      ? new Set(
+          selectAccessibleTeamsForScope(
+            snapshot,
+            "workspace",
+            project.scopeId
+          ).map((team) => team.id)
+        )
+      : accessibleTeamIds
   const items = snapshot.workItems.filter(
     (item) =>
-      item.primaryProjectId === project.id ||
-      item.linkedProjectIds.includes(project.id)
+      accessibleProjectTeamIds.has(item.teamId) &&
+      (item.primaryProjectId === project.id ||
+        item.linkedProjectIds.includes(project.id))
   )
-  const projectTeamIds = new Set(items.map((item) => item.teamId))
+  const projectTeamIds = new Set([
+    ...items.map((item) => item.teamId),
+    ...(projectTeam ? [projectTeam.id] : []),
+  ])
+  const teams = snapshot.teams.filter((team) => projectTeamIds.has(team.id))
+  const workspaceIds = new Set([
+    ...(projectWorkspaceId ? [projectWorkspaceId] : []),
+    ...teams.map((team) => team.workspaceId),
+  ])
+  const workspaces = snapshot.workspaces.filter((workspace) =>
+    workspaceIds.has(workspace.id)
+  )
   const projectWorkItemIds = new Set(items.map((item) => item.id))
   const customPropertyDefinitions = selectCustomPropertyDefinitionsForTeamIds(
     snapshot,
@@ -1208,6 +1257,8 @@ export function selectProjectDetailReadModel(
 
   return {
     projects: [project],
+    teams,
+    workspaces,
     milestones,
     projectUpdates: updates as ProjectUpdate[],
     workItems: items,
@@ -1236,15 +1287,21 @@ export function selectProjectIndexReadModel(
 ): ScopedReadModelPatch {
   const projects = selectProjectsForScope(snapshot, scopeType, scopeId)
   const projectIds = new Set(projects.map((project) => project.id))
+  const accessibleTeamIds = new Set(
+    selectAccessibleTeamsForScope(snapshot, scopeType, scopeId).map(
+      (team) => team.id
+    )
+  )
   const workItems = snapshot.workItems.filter(
     (item) =>
-      (item.primaryProjectId && projectIds.has(item.primaryProjectId)) ||
-      item.linkedProjectIds.some((projectId) => projectIds.has(projectId))
+      accessibleTeamIds.has(item.teamId) &&
+      ((item.primaryProjectId && projectIds.has(item.primaryProjectId)) ||
+        item.linkedProjectIds.some((projectId) => projectIds.has(projectId)))
   )
   const workItemIds = new Set(workItems.map((item) => item.id))
   const teams =
     scopeType === "workspace"
-      ? snapshot.teams.filter((team) => team.workspaceId === scopeId)
+      ? selectAccessibleTeamsForScope(snapshot, scopeType, scopeId)
       : snapshot.teams.filter((team) => team.id === scopeId)
   const users = selectUsers(
     snapshot,

@@ -965,19 +965,32 @@ function resolveDefaultProjectPresentation({
   )
 }
 
+function getMissingProjectDetailContent(hasLoadedProjectReadModel: boolean) {
+  if (!hasLoadedProjectReadModel) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        Loading project...
+      </div>
+    )
+  }
+
+  return <MissingState title="Project not found" />
+}
+
 export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
-  useScopedReadModelRefresh({
-    enabled: true,
-    scopeKeys: [createProjectDetailScopeKey(projectId)],
-    fetchLatest: () => fetchProjectDetailReadModel(projectId),
-    notFoundResult: createMissingScopedReadModelResult([
-      {
-        kind: "project-detail",
-        projectId,
-      },
-    ]),
-  })
+  const { hasLoadedOnce: hasLoadedProjectReadModel } =
+    useScopedReadModelRefresh({
+      enabled: true,
+      scopeKeys: [createProjectDetailScopeKey(projectId)],
+      fetchLatest: () => fetchProjectDetailReadModel(projectId),
+      notFoundResult: createMissingScopedReadModelResult([
+        {
+          kind: "project-detail",
+          projectId,
+        },
+      ]),
+    })
   const searchParams = useAppSearchParams()
   const projectModel = getProjectDetailModel(data, projectId)
   const projectRoute = projectModel?.detailHref ?? null
@@ -1033,7 +1046,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   })
 
   if (!projectModel) {
-    return <MissingState title="Project not found" />
+    return getMissingProjectDetailContent(hasLoadedProjectReadModel)
   }
 
   const { project, team, items, detailHref } = projectModel

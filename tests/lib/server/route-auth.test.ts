@@ -96,7 +96,9 @@ describe("route auth helpers", () => {
         email: "desktop@example.com",
       },
     })
-    const session = createDesktopSessionTokenFromHandoffTicket(ticket)
+    const session = await createDesktopSessionTokenFromHandoffTicket(ticket, {
+      consumeHandoffTicket: async () => ({ consumed: true }),
+    })
 
     withAuthMock.mockResolvedValue({
       user: null,

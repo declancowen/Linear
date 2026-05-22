@@ -2,7 +2,10 @@ import { z } from "zod"
 
 import { parseJsonBody } from "@/lib/server/route-body"
 import { jsonError, jsonOk } from "@/lib/server/route-response"
-import { createDesktopSessionTokenFromHandoffTicket } from "@/lib/server/desktop-session"
+import {
+  createDesktopSessionTokenFromHandoffTicket,
+  type DesktopSessionTokenResult,
+} from "@/lib/server/desktop-session"
 
 const desktopSessionBodySchema = z.object({
   ticket: z.string().min(1),
@@ -19,7 +22,19 @@ export async function POST(request: Request) {
     return parsed
   }
 
-  const sessionToken = createDesktopSessionTokenFromHandoffTicket(parsed.ticket)
+  let sessionToken: DesktopSessionTokenResult | null
+
+  try {
+    sessionToken = await createDesktopSessionTokenFromHandoffTicket(
+      parsed.ticket
+    )
+  } catch (error) {
+    console.error("Failed to exchange desktop authentication ticket", error)
+
+    return jsonError("Desktop authentication is temporarily unavailable", 503, {
+      code: "DESKTOP_AUTH_TICKET_EXCHANGE_UNAVAILABLE",
+    })
+  }
 
   if (!sessionToken) {
     return jsonError("Invalid desktop authentication ticket", 401, {

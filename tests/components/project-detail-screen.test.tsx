@@ -242,6 +242,19 @@ describe("ProjectDetailScreen", () => {
     )
   })
 
+  it("shows a loading state before a missing project detail read model finishes", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      projects: [],
+      workItems: [],
+    }))
+
+    render(<ProjectDetailScreen projectId="project_1" />)
+
+    expect(screen.getByText("Loading project...")).toBeInTheDocument()
+    expect(screen.queryByText("Project not found")).not.toBeInTheDocument()
+  })
+
   it("opens the shared create-view modal with the current project preselected", () => {
     render(<ProjectDetailScreen projectId="project_1" />)
 

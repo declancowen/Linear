@@ -30,6 +30,7 @@ describe("authenticated event source", () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     Object.defineProperty(window, "electronApp", {
       configurable: true,
       value: originalElectronApp,
@@ -110,6 +111,51 @@ describe("authenticated event source", () => {
           data: '{"versions":[]}',
         })
       )
+    })
+
+    source.close()
+  })
+
+  it("reconnects fetch-backed desktop event streams after disconnect", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("EventSource", undefined)
+    setMockDesktopAuthBridge()
+
+    const closedStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close()
+      },
+    })
+    const openStream = new ReadableStream<Uint8Array>()
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(closedStream, {
+          status: 200,
+        })
+      )
+      .mockResolvedValue(
+        new Response(openStream, {
+          status: 200,
+        })
+      )
+    const { createAuthenticatedEventSource } = await import(
+      "@/lib/browser/authenticated-event-source"
+    )
+    const source = createAuthenticatedEventSource("/api/events/scoped")
+    const onError = vi.fn()
+
+    source.onerror = onError
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(onError).toHaveBeenCalledTimes(1)
+    })
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
     source.close()
