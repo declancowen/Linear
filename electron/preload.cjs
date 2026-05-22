@@ -16,4 +16,17 @@ contextBridge.exposeInMainWorld("electronApp", {
     ipcRenderer.invoke("desktop-auth:submit-password-login", payload),
   submitDesktopPasswordSignup: (payload) =>
     ipcRenderer.invoke("desktop-auth:submit-password-signup", payload),
+  getDesktopAppInfo: () => ipcRenderer.invoke("desktop-updates:get-app-info"),
+  getUpdateState: () => ipcRenderer.invoke("desktop-updates:get-state"),
+  checkForUpdate: () => ipcRenderer.invoke("desktop-updates:check"),
+  downloadUpdate: () => ipcRenderer.invoke("desktop-updates:download"),
+  installUpdate: () => ipcRenderer.invoke("desktop-updates:install"),
+  onUpdateState: (listener) => {
+    const wrappedListener = (_event, payload) => listener(payload)
+    ipcRenderer.on("desktop-updates:state", wrappedListener)
+
+    return () => {
+      ipcRenderer.removeListener("desktop-updates:state", wrappedListener)
+    }
+  },
 })

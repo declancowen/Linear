@@ -1,13 +1,14 @@
 {
-  "channel": "internal",
-  "distribution": "local-zip",
-  "signing": "ad-hoc",
-  "notarization": "not-required-for-internal-builds",
-  "updates": "manual-rebuild-and-repackage",
+  "channel": "github-release",
+  "distribution": "github-release-dmg",
+  "signing": "developer-id-required-for-public-releases",
+  "notarization": "required-for-public-releases",
+  "updates": "electron-updater-github-releases",
   "publicReleaseRequires": [
     "Developer ID Application signing identity",
     "Apple notarization credentials",
     "Gatekeeper accepted app bundle",
-    "owned auto-update feed or explicit external distribution process"
+    "GitHub release assets: DMG, ZIP, latest-mac.yml",
+    "latest GitHub release marked as latest"
   ]
 }
