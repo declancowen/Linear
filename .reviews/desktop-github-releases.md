@@ -4,8 +4,8 @@
 
 | Field         | Value                |
 | ------------- | -------------------- |
-| Last reviewed | 2026-05-22 14:15 BST |
-| Total turns   | 5                    |
+| Last reviewed | 2026-05-22 14:30 BST |
+| Total turns   | 6                    |
 | Open findings | 0                    |
 
 ## Hotspots
@@ -19,6 +19,40 @@
 - Manual update failures must force the persistent desktop update toast back into view.
 - Startup update-policy enforcement must not be skipped by a failed, non-policy Electron IPC call.
 - Existing-release edits must explicitly clear draft/prerelease state when publishing stable builds.
+- The web download CTA must not advertise arm64-only artifacts to unsupported or unknown Mac architectures.
+
+## Turn 6 - 2026-05-22 14:30 BST
+
+**Outcome:** No open Critical/High findings after importing the latest Codex PR review and fixing the live desktop-download eligibility bug.
+
+**Risk:** Medium. The bug was a user-facing distribution compatibility issue for Intel Macs, not an update-security or server-secret boundary.
+
+**Archetypes:** external PR finding import, browser capability detection, release artifact compatibility, workspace menu CTA gating.
+
+**Finding import:**
+
+| Source          | Finding                                                                                 | Current status | Bug class                         | Missed invariant / variant                                                          | Action                                                                                                                                       |
+| --------------- | --------------------------------------------------------------------------------------- | -------------- | --------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex PR review | The desktop download CTA appeared for any macOS browser despite arm64-only Mac artifacts | Resolved       | Contract Encoding / Compatibility | Web download eligibility must match the published Mac artifact architecture contract | CTA now requires a positive Apple Silicon signal from user-agent client hints or explicit arm64/aarch64 UA text, and excludes iPad/Electron. |
+
+**Architecture review:** The release artifact contract remains arm64-only. The browser shell now delegates eligibility to `lib/browser/desktop-download-eligibility.ts`, keeping architecture detection separate from workspace menu rendering. Unknown Mac architecture is treated as unsupported rather than risking an incompatible installer.
+
+**Branch-totality and sibling closure:** Rechecked the workspace dropdown CTA path, Electron exclusion, iPad desktop-UA exclusion, Intel Mac rejection, Apple Silicon acceptance, and the earlier arm64 artifact contract thread.
+
+**Static/analyzer evidence:** `diff-review` preflight and `fallow audit --changed-since origin/main --format compact --quiet` were rerun. Fallow still reports the pre-existing intra-package-script clone group and advisory complexity in release/update code; CI treats Fallow as advisory. The new eligibility helper did not add clone findings.
+
+**Verification:**
+
+- `pnpm vitest run tests/lib/browser/desktop-download-eligibility.test.ts`
+- `pnpm vitest run tests/lib/browser/desktop-download-eligibility.test.ts tests/components/desktop-update-controller.test.tsx tests/scripts/publish-electron-github-release.test.ts tests/lib/desktop-update-policy.test.ts tests/electron/desktop-updates.test.ts`
+- `pnpm exec eslint components/app/shell.tsx lib/browser/desktop-download-eligibility.ts tests/lib/browser/desktop-download-eligibility.test.ts --max-warnings 0`
+- `pnpm lint`
+- `pnpm typecheck`
+- `git diff --check`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- `pnpm exec fallow audit --changed-since origin/main --format compact --quiet`
+
+**Residual risk:** Safari and other browsers that do not expose architecture may hide the CTA on Apple Silicon until we either ship a universal artifact or add a stronger supported detection path. This is intentional for the current arm64-only release contract.
 
 ## Turn 5 - 2026-05-22 14:15 BST
 

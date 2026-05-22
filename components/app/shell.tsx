@@ -82,6 +82,7 @@ import {
   openTopLevelDialog,
 } from "@/lib/browser/dialog-transitions"
 import { showDesktopNotification } from "@/lib/browser/desktop-notifications"
+import { isSupportedMacDesktopDownloadBrowser } from "@/lib/browser/desktop-download-eligibility"
 import { navigateToLogout } from "@/lib/browser/logout"
 import {
   optionalWorkspaceDescriptionConstraints,
@@ -190,35 +191,21 @@ const DESKTOP_MAC_DOWNLOAD_URL =
   process.env.NEXT_PUBLIC_DESKTOP_MAC_DOWNLOAD_URL ??
   DEFAULT_DESKTOP_MAC_DOWNLOAD_URL
 
-function isMacDesktopBrowser() {
-  if (typeof window === "undefined" || window.electronApp?.isElectron) {
-    return false
-  }
-
-  const navigatorWithUserAgentData = window.navigator as Navigator & {
-    userAgentData?: { platform?: string }
-  }
-  const platform =
-    navigatorWithUserAgentData.userAgentData?.platform ??
-    window.navigator.platform ??
-    ""
-  const userAgent = window.navigator.userAgent
-  const isAppleMobileTablet =
-    /iPad|iPhone|iPod/u.test(userAgent) ||
-    (platform === "MacIntel" && window.navigator.maxTouchPoints > 1)
-
-  return /Mac|macOS|MacIntel/u.test(platform) && !isAppleMobileTablet
-}
-
 function useShowMacDesktopDownload() {
   const [showDownload, setShowDownload] = useState(false)
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setShowDownload(isMacDesktopBrowser())
-    }, 0)
+    let isMounted = true
 
-    return () => window.clearTimeout(timeout)
+    void isSupportedMacDesktopDownloadBrowser().then((isSupported) => {
+      if (isMounted) {
+        setShowDownload(isSupported)
+      }
+    })
+
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   return showDownload
