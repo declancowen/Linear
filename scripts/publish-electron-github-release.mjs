@@ -1,12 +1,14 @@
-import { spawn } from "node:child_process"
+import { execFile } from "node:child_process"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const repoRoot = path.resolve(__dirname, "..")
 const defaultOutputDir = path.join(repoRoot, "dist", "electron")
+const execFileAsync = promisify(execFile)
 
 function parseArgs(argv) {
   const options = {
@@ -45,48 +47,24 @@ function parseArgs(argv) {
 }
 
 function run(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    if (options.dryRun) {
-      console.log([command, ...args].map(JSON.stringify).join(" "))
-      resolve("")
-      return
+  if (options.dryRun) {
+    console.log([command, ...args].map(JSON.stringify).join(" "))
+    return Promise.resolve("")
+  }
+
+  return execFileAsync(command, args, { cwd: repoRoot }).then(
+    ({ stdout }) => stdout,
+    (error) => {
+      const output = error.stdout || ""
+      const errorOutput = error.stderr || output
+      const exitCode = error.code
+      const processError = new Error(
+        `${command} exited with code ${exitCode}: ${errorOutput}`
+      )
+      processError.exitCode = exitCode
+      throw processError
     }
-
-    const child = spawn(command, args, {
-      cwd: repoRoot,
-      stdio: ["ignore", "pipe", "pipe"],
-    })
-    const stdout = []
-    const stderr = []
-
-    child.stdout.on("data", (chunk) => {
-      stdout.push(chunk)
-    })
-    child.stderr.on("data", (chunk) => {
-      stderr.push(chunk)
-    })
-    child.on("error", reject)
-    child.on("exit", (code, signal) => {
-      if (signal) {
-        reject(new Error(`${command} exited with signal ${signal}`))
-        return
-      }
-
-      const output = Buffer.concat(stdout).toString("utf8")
-      const errorOutput = Buffer.concat(stderr).toString("utf8")
-
-      if (code !== 0) {
-        const error = new Error(
-          `${command} exited with code ${code}: ${errorOutput || output}`
-        )
-        error.exitCode = code
-        reject(error)
-        return
-      }
-
-      resolve(output)
-    })
-  })
+  )
 }
 
 async function pathExists(filePath) {
@@ -156,10 +134,22 @@ async function releaseExists(tag, repo, dryRun) {
   }
 }
 
-function getReleaseStateArgs(options) {
+function getBooleanFlagArgs(flag, enabled, explicitFalse) {
+  if (enabled) {
+    return [flag]
+  }
+
+  if (explicitFalse) {
+    return [`${flag}=false`]
+  }
+
+  return []
+}
+
+function getReleaseStateArgs(options, { explicitFalse = false } = {}) {
   return [
-    ...(options.draft ? ["--draft"] : []),
-    ...(options.prerelease ? ["--prerelease"] : []),
+    ...getBooleanFlagArgs("--draft", options.draft, explicitFalse),
+    ...getBooleanFlagArgs("--prerelease", options.prerelease, explicitFalse),
   ]
 }
 
@@ -193,7 +183,7 @@ async function main() {
         "release",
         "edit",
         tag,
-        ...getReleaseStateArgs(options),
+        ...getReleaseStateArgs(options, { explicitFalse: true }),
         ...getLatestArgs(options),
         ...repoArgs,
       ],

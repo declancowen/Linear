@@ -102,7 +102,19 @@ describe("publish Electron GitHub release script", () => {
 
     expect(stdout).toContain('"release" "upload"')
     expect(stdout).toContain('"release" "edit"')
+    expect(stdout).toContain('"--draft=false"')
     expect(stdout).toContain('"--prerelease"')
     expect(stdout).toContain('"--latest=false"')
+  })
+
+  it("clears draft and prerelease state when updating existing stable releases", async () => {
+    const { stdout } = await runPublisher([], {
+      DESKTOP_RELEASE_DRY_RUN_EXISTS: "1",
+    })
+
+    expect(stdout).toContain('"release" "edit"')
+    expect(stdout).toContain('"--draft=false"')
+    expect(stdout).toContain('"--prerelease=false"')
+    expect(stdout).toContain('"--latest"')
   })
 })

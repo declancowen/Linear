@@ -50,19 +50,55 @@ function isDesktopRuntimeAvailable() {
 }
 
 async function fetchDesktopUpdatePolicy(apiBaseUrl?: string | null) {
-  const response = await fetch(
-    buildPublicApiUrl("/api/desktop/update-policy", { baseUrl: apiBaseUrl }),
-    {
-      cache: "no-store",
-      credentials: "include",
-    }
-  )
+  const updatePolicyPath = "/api/desktop/update-policy"
+  const trimmedApiBaseUrl = apiBaseUrl?.trim()
+  const updatePolicyUrl = trimmedApiBaseUrl
+    ? buildPublicApiUrl(updatePolicyPath, { baseUrl: trimmedApiBaseUrl })
+    : buildPublicApiUrl(updatePolicyPath)
+
+  const response = await fetch(updatePolicyUrl, {
+    cache: "no-store",
+    credentials: "include",
+  })
 
   if (!response.ok) {
     return null
   }
 
   return (await response.json()) as DesktopUpdatePolicy
+}
+
+async function readDesktopAppInfo(
+  electronApp: Window["electronApp"]
+): Promise<DesktopAppInfo | null> {
+  return (await electronApp?.getDesktopAppInfo?.().catch(() => null)) ?? null
+}
+
+async function readDesktopUpdateState(
+  electronApp: Window["electronApp"]
+): Promise<DesktopUpdateState | null> {
+  return (await electronApp?.getUpdateState?.().catch(() => null)) ?? null
+}
+
+function shouldBlockForUnsupportedPolicy({
+  appInfo,
+  policy,
+}: {
+  appInfo: DesktopAppInfo | null
+  policy: DesktopUpdatePolicy | null
+}) {
+  if (!policy?.minSupportedVersion) {
+    return false
+  }
+
+  if (!appInfo) {
+    return true
+  }
+
+  return isDesktopVersionUnsupported({
+    currentVersion: appInfo.version,
+    minSupportedVersion: policy.minSupportedVersion,
+  })
 }
 
 function openDownloadUrl(url: string) {
@@ -270,16 +306,15 @@ export function DesktopUpdateController() {
     const electronApp = window.electronApp
 
     async function loadInitialState() {
-      const [info, updateState] = await Promise.all([
-        electronApp?.getDesktopAppInfo?.(),
-        electronApp?.getUpdateState?.(),
+      const [nextAppInfo, updateState] = await Promise.all([
+        readDesktopAppInfo(electronApp),
+        readDesktopUpdateState(electronApp),
       ])
 
       if (cancelled) {
         return
       }
 
-      const nextAppInfo = info ?? null
       setAppInfo(nextAppInfo)
 
       const nextPolicy = await fetchDesktopUpdatePolicy(
@@ -294,9 +329,9 @@ export function DesktopUpdateController() {
       setPolicy(nextPolicy)
 
       if (
-        isDesktopVersionUnsupported({
-          currentVersion: nextAppInfo?.version,
-          minSupportedVersion: nextPolicy?.minSupportedVersion,
+        shouldBlockForUnsupportedPolicy({
+          appInfo: nextAppInfo,
+          policy: nextPolicy,
         })
       ) {
         setUnsupportedPolicy(nextPolicy)
@@ -327,11 +362,12 @@ export function DesktopUpdateController() {
     }
   }, [])
 
-  if (!unsupportedPolicy || !appInfo) {
+  if (!unsupportedPolicy) {
     return null
   }
 
   const downloadUrl = getDesktopMacDownloadUrl(policy)
+  const minSupportedVersion = unsupportedPolicy.minSupportedVersion
 
   return (
     <Dialog open onOpenChange={() => {}}>
@@ -344,10 +380,12 @@ export function DesktopUpdateController() {
         <DialogHeader>
           <DialogTitle>Update Recipe Room to continue</DialogTitle>
           <DialogDescription>
-            {unsupportedPolicy.unsupportedMessage} You are running version{" "}
-            {appInfo.version}
-            {unsupportedPolicy.minSupportedVersion
-              ? ` and version ${unsupportedPolicy.minSupportedVersion} or newer is required.`
+            {unsupportedPolicy.unsupportedMessage}{" "}
+            {appInfo
+              ? `You are running version ${appInfo.version}`
+              : "Recipe Room could not verify this desktop app version"}
+            {minSupportedVersion
+              ? ` and version ${minSupportedVersion} or newer is required.`
               : "."}
           </DialogDescription>
         </DialogHeader>

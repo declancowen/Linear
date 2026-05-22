@@ -4,8 +4,8 @@
 
 | Field         | Value                |
 | ------------- | -------------------- |
-| Last reviewed | 2026-05-22 13:54 BST |
-| Total turns   | 4                    |
+| Last reviewed | 2026-05-22 14:15 BST |
+| Total turns   | 5                    |
 | Open findings | 0                    |
 
 ## Hotspots
@@ -17,6 +17,43 @@
 - Draft and prerelease publishes must not take over the stable `/releases/latest/...` download URL.
 - Server-side minimum-version policy must treat prerelease app versions as lower precedence than matching stable versions.
 - Manual update failures must force the persistent desktop update toast back into view.
+- Startup update-policy enforcement must not be skipped by a failed, non-policy Electron IPC call.
+- Existing-release edits must explicitly clear draft/prerelease state when publishing stable builds.
+
+## Turn 5 - 2026-05-22 14:15 BST
+
+**Outcome:** No open Critical/High findings after importing the latest Codex PR review and fixing the two live release/update-policy findings.
+
+**Risk:** High. The findings touched startup enforcement of the server-driven minimum desktop version and the stable GitHub Release channel state.
+
+**Archetypes:** external PR finding import, startup IPC partial failure, compatibility policy enforcement, GitHub Release state contract, analyzer cleanup.
+
+**Finding import:**
+
+| Source          | Finding                                                                                                      | Current status | Bug class                                          | Missed invariant / variant                                                                                         | Action                                                                                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------------------------ | -------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex PR review | `loadInitialState` used `Promise.all`, so a failed `getUpdateState` IPC skipped policy fetch/version gating | Resolved       | Lifecycle And Transient Containers / Compatibility | Non-policy updater IPC failures must not disable the hosted minimum-version gate                                    | Desktop app-info and update-state startup reads now fail independently; policy fetch still runs, and missing app-info with a minimum policy fails closed.    |
+| Codex PR review | Existing release edits did not send `--draft=false` / `--prerelease=false` for stable publishes              | Resolved       | Contract Encoding / Compatibility                  | Re-running the publisher for a stable tag must clear prior draft/prerelease state so stable auto-updaters can see it | Existing-release edits now emit explicit false flags for stable state, while draft/prerelease publishes still avoid GitHub latest.                            |
+| Codex PR review | Arm64 release build thread remains unresolved in GitHub UI                                                   | Already fixed  | Contract Encoding / Compatibility                  | Stable artifact names and builder architecture must match                                                           | Current `scripts/package-electron-mac.mjs` still passes `--arm64`; no new code change needed.                                                               |
+
+**Architecture review:** Startup compatibility policy remains a hosted API decision rendered by the app-level desktop controller. Electron IPC is treated as an unreliable transport at startup, so update-state failure no longer blocks policy enforcement. Release channel ownership remains in the publisher script; Electron updater clients still consume the stable GitHub release channel only.
+
+**Branch-totality and sibling closure:** Rechecked desktop controller startup, unsupported-version rendering with app-info present/missing, update-state toast handling, release create/edit command construction, and the stale/open PR threads from earlier turns.
+
+**Static/analyzer evidence:** `diff-review` preflight and `fallow audit --changed-since origin/main --format compact --quiet` were rerun. A newly introduced duplicate test setup block was removed, and the publisher no longer clones the package script's spawn/capture helper. Fallow still reports the pre-existing intra-package-script clone group and advisory complexity in release/update code; CI treats Fallow as advisory.
+
+**Verification:**
+
+- `pnpm vitest run tests/components/desktop-update-controller.test.tsx tests/scripts/publish-electron-github-release.test.ts`
+- `pnpm vitest run tests/components/desktop-update-controller.test.tsx tests/scripts/publish-electron-github-release.test.ts tests/lib/desktop-update-policy.test.ts tests/electron/desktop-updates.test.ts`
+- `pnpm exec eslint components/app/desktop-update-controller.tsx tests/components/desktop-update-controller.test.tsx scripts/publish-electron-github-release.mjs tests/scripts/publish-electron-github-release.test.ts --max-warnings 0`
+- `pnpm lint`
+- `pnpm typecheck`
+- `git diff --check`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- `pnpm exec fallow audit --changed-since origin/main --format compact --quiet`
+
+**Residual risk:** No Electron app was rebuilt and no GitHub Release was published in this feedback loop, per the merge-first release plan. Final release validation remains post-merge work from merged `main`.
 
 ## Turn 4 - 2026-05-22 13:54 BST
 
