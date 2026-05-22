@@ -7,6 +7,7 @@ import {
   type AppRouter,
   useAppRouter,
 } from "@/lib/browser/app-navigation"
+import { getAppOrigin } from "@/lib/auth-routing"
 import {
   useCallback,
   useEffect,
@@ -2215,9 +2216,40 @@ async function deleteWorkItemAndNavigate({
   router.replace(team?.slug ? `/team/${team.slug}/work` : "/inbox")
 }
 
+function getCurrentRoutePath() {
+  if (window.location.protocol === "file:" && window.location.hash) {
+    const hashPath = window.location.hash.slice(1)
+    return hashPath.startsWith("/") ? hashPath : `/${hashPath}`
+  }
+
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`
+}
+
+function getCopyableCurrentItemLink() {
+  if (window.electronApp?.isElectron) {
+    return new URL(getCurrentRoutePath(), getAppOrigin()).toString()
+  }
+
+  return window.location.href
+}
+
+async function writeClipboardText(value: string) {
+  if (window.electronApp?.writeClipboardText) {
+    const didWrite = await window.electronApp.writeClipboardText(value)
+
+    if (!didWrite) {
+      throw new Error("Failed to copy item link")
+    }
+
+    return
+  }
+
+  await navigator.clipboard.writeText(value)
+}
+
 async function copyCurrentItemLink() {
   try {
-    await navigator.clipboard.writeText(window.location.href)
+    await writeClipboardText(getCopyableCurrentItemLink())
     toast.success("Item link copied")
   } catch (error) {
     toast.error(
@@ -4099,7 +4131,7 @@ function WorkItemRelationsSection({
   )
 }
 
-type WorkItemDetailSidebarVariant = "docked" | "floating"
+type WorkItemDetailSidebarVariant = "docked" | "floating" | "inline"
 
 function WorkItemDetailSidebar({
   open,
@@ -4273,6 +4305,14 @@ function WorkItemDetailSidebar({
   if (variant === "floating") {
     return (
       <aside className="flex max-h-[min(680px,calc(100vh-24px))] min-h-0 w-full flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-xl">
+        {content}
+      </aside>
+    )
+  }
+
+  if (variant === "inline") {
+    return (
+      <aside className="flex h-full min-h-0 w-[26.25rem] shrink-0 flex-col overflow-hidden border-l border-line bg-surface">
         {content}
       </aside>
     )

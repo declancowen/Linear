@@ -11,7 +11,10 @@ import {
   buildAssignmentEmailJobs,
   type AssignmentEmail,
 } from "../../lib/email/builders"
-import { formatWorkItemKey } from "../../lib/domain/work-item-key"
+import {
+  formatWorkItemKey,
+  PRIVATE_WORK_ITEM_KEY_PREFIX,
+} from "../../lib/domain/work-item-key"
 import {
   buildWorkItemAssignmentNotificationMessage,
   buildWorkItemStatusChangeNotificationMessage,
@@ -1354,7 +1357,9 @@ async function getCreateWorkItemNumbering(
     : teamItems.filter((item) => (item.visibility ?? "team") !== "private")
 
   return {
-    prefix: isPrivate ? "PRIVATE" : toTeamKeyPrefix(team.name, args.teamId),
+    prefix: isPrivate
+      ? PRIVATE_WORK_ITEM_KEY_PREFIX
+      : toTeamKeyPrefix(team.name, args.teamId),
     nextNumber: isPrivate ? matchingItems.length + 1 : 1 + matchingItems.length + 100,
   }
 }

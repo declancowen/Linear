@@ -65,8 +65,9 @@ describe("desktop notifications", () => {
       createWindow: vi.fn(),
       focusWindow,
       getMainWindow: vi.fn(() => window),
-      getRendererOrigin: vi.fn(() => "https://teams.example.com"),
       NativeNotification: MockNotification,
+      resolveRendererTargetUrl: (path: string) =>
+        new URL(path, "https://teams.example.com").toString(),
     })
 
     expect(
@@ -93,6 +94,38 @@ describe("desktop notifications", () => {
     expect(focusWindow).toHaveBeenCalledWith(window)
   })
 
+  it("opens packaged file renderer paths through the resolved renderer target", async () => {
+    MockNotification.instances = []
+    MockNotification.supported = true
+    const loadURL = vi.fn().mockResolvedValue(undefined)
+    const window = {
+      isDestroyed: vi.fn(() => false),
+      loadURL,
+    }
+    const bridge = createDesktopNotificationBridge({
+      createWindow: vi.fn(),
+      focusWindow: vi.fn(),
+      getMainWindow: vi.fn(() => window),
+      NativeNotification: MockNotification,
+      resolveRendererTargetUrl: (path: string) =>
+        `file:///Applications/Recipe%20Room.app/index.html#${path}`,
+    })
+
+    expect(
+      bridge.show({
+        path: "/items/item_1",
+        title: "Assigned",
+      })
+    ).toBe(true)
+
+    MockNotification.instances[0].click()
+    await vi.waitFor(() => {
+      expect(loadURL).toHaveBeenCalledWith(
+        "file:///Applications/Recipe%20Room.app/index.html#/items/item_1"
+      )
+    })
+  })
+
   it("does not show notifications when the platform reports unsupported", () => {
     MockNotification.instances = []
     MockNotification.supported = false
@@ -100,8 +133,9 @@ describe("desktop notifications", () => {
       createWindow: vi.fn(),
       focusWindow: vi.fn(),
       getMainWindow: vi.fn(),
-      getRendererOrigin: vi.fn(() => "https://teams.example.com"),
       NativeNotification: MockNotification,
+      resolveRendererTargetUrl: (path: string) =>
+        new URL(path, "https://teams.example.com").toString(),
     })
 
     expect(bridge.show({ title: "New notification" })).toBe(false)

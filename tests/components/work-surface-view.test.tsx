@@ -70,7 +70,7 @@ vi.mock("@/components/app/screens/work-item-detail-screen", () => ({
     currentItem: { title: string }
     editable?: boolean
     onClose?: () => void
-    variant?: "docked" | "floating"
+    variant?: "docked" | "floating" | "inline"
   }) => (
     <div
       data-testid={`${variant}-detail`}
@@ -1214,7 +1214,7 @@ describe("CalendarView", () => {
     )
 
     expect(screen.getByTestId("calendar-all-day-lane")).toHaveStyle({
-      minHeight: "68px",
+      height: "68px",
     })
     expect(screen.queryByText(/more/)).not.toBeInTheDocument()
   })
@@ -1305,7 +1305,7 @@ describe("CalendarView", () => {
     fireEvent.click(eventCard)
 
     expect(updateWorkItemSpy).not.toHaveBeenCalled()
-    expect(screen.getByTestId("docked-detail")).toHaveAttribute(
+    expect(screen.getByTestId("inline-detail")).toHaveAttribute(
       "data-editable",
       "false"
     )
@@ -1371,7 +1371,11 @@ describe("CalendarView", () => {
     fireEvent.click(eventCard)
 
     expect(updateWorkItemSpy).not.toHaveBeenCalled()
-    expect(screen.getByTestId("docked-detail")).toBeInTheDocument()
+    expect(screen.getByTestId("inline-detail")).toBeInTheDocument()
+    expect(screen.getByTestId("calendar-detail-slot")).toContainElement(
+      screen.getByTestId("inline-detail")
+    )
+    expect(screen.getByTestId("calendar-main-surface")).toBeInTheDocument()
     updateWorkItemSpy.mockRestore()
   })
 
@@ -1388,11 +1392,11 @@ describe("CalendarView", () => {
 
     fireEvent.click(eventCard)
 
-    expect(screen.getByTestId("docked-detail")).toBeInTheDocument()
+    expect(screen.getByTestId("inline-detail")).toBeInTheDocument()
 
     fireEvent.click(timedGrid)
 
-    expect(screen.queryByTestId("docked-detail")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("inline-detail")).not.toBeInTheDocument()
     updateWorkItemSpy.mockRestore()
   })
 
@@ -1660,12 +1664,38 @@ describe("CalendarView", () => {
     fireEvent.click(eventCard)
 
     expect(updateWorkItemSpy).toHaveBeenCalled()
-    expect(screen.queryByTestId("docked-detail")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("inline-detail")).not.toBeInTheDocument()
 
     act(() => {
       vi.runOnlyPendingTimers()
     })
     updateWorkItemSpy.mockRestore()
+  })
+
+  it("lets the expanded all-day lane scroll separately while keeping days in sync", () => {
+    const today = startOfDay(new Date())
+    const date = formatLocalCalendarDate(today)
+    const items = createAllDayCalendarItems({
+      count: 36,
+      date,
+      idPrefix: "all-day-overflow",
+      titlePrefix: "Overflow all-day",
+    })
+    const data = createCalendarDataWithItems(items)
+
+    render(<CalendarView data={data} items={items} editable={false} />)
+
+    fireEvent.click(screen.getAllByText(/\+ \d+ more/)[0])
+
+    const allDayArea = screen.getByTestId("calendar-all-day-scroll-area")
+    const dayScrollContainer = screen.getByTestId("calendar-day-scroll-container")
+
+    expect(allDayArea).toHaveStyle({ height: "192px" })
+
+    allDayArea.scrollLeft = 240
+    fireEvent.scroll(allDayArea)
+
+    expect(dayScrollContainer.scrollLeft).toBe(240)
   })
 })
 
@@ -1695,6 +1725,37 @@ describe("TimelineView primitives", () => {
     })
 
     expect(screen.getByText("T 21")).toHaveClass("text-primary")
+  })
+
+  it("opens timeline item details inline with the timeline rows", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 4, 22, 8))
+    const item = createWorkItem({
+      id: "timeline-detail-item",
+      title: "Timeline detail",
+      status: "todo",
+      startDate: "2026-05-22T00:00:00.000Z",
+      targetDate: "2026-05-23T00:00:00.000Z",
+    })
+    const data = {
+      ...createData(),
+      workItems: [item],
+    }
+
+    render(
+      <TimelineView
+        data={data}
+        items={[item]}
+        view={createView("timeline")}
+        editable={false}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("link", { name: "Timeline detail" }))
+
+    expect(screen.getByTestId("timeline-detail-slot")).toContainElement(
+      screen.getByTestId("inline-detail")
+    )
   })
 
   it("computes drag patches and rejects invalid timeline drops", () => {
@@ -1754,8 +1815,9 @@ describe("TimelineView primitives", () => {
       title: "Long timeline item",
       status: "in-progress",
     })
+    const onSelectItem = vi.fn()
 
-    render(
+    const { container } = render(
       <>
         <TimelineLabelRow
           data={data}
@@ -1772,6 +1834,7 @@ describe("TimelineView primitives", () => {
           labelsById={null}
           span={1}
           onCaptureDragOffset={vi.fn()}
+          onSelectItem={onSelectItem}
           onResizeStart={vi.fn()}
         />
       </>
@@ -1779,6 +1842,22 @@ describe("TimelineView primitives", () => {
 
     expect(screen.getByText("TES-1")).toBeInTheDocument()
     expect(screen.getByText("Alex")).toBeInTheDocument()
+
+    const timelineBar = screen.getByRole("button")
+    fireEvent.pointerDown(timelineBar, { clientX: 0, clientY: 0 })
+    fireEvent.click(timelineBar, { clientX: 8, clientY: 0 })
+    expect(onSelectItem).not.toHaveBeenCalled()
+
+    const startResizeHandle = container.querySelector(
+      '[data-timeline-resize-handle="start"]'
+    )
+
+    if (!startResizeHandle) {
+      throw new Error("Expected start resize handle")
+    }
+
+    fireEvent.click(startResizeHandle)
+    expect(onSelectItem).not.toHaveBeenCalled()
   })
 })
 

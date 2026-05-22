@@ -1,6 +1,7 @@
 import { AppLink } from "@/lib/browser/app-navigation"
 import {
   memo,
+  useRef,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react"
@@ -37,12 +38,14 @@ export const TimelineLabelRow = memo(function TimelineLabelRow({
   accentMode,
   accentIndex,
   labelsById,
+  onSelectItem,
 }: {
   data: AppData
   item: WorkItem
   accentMode: EventAccentMode
   accentIndex: number
   labelsById: EventAccentLabelLookup | null
+  onSelectItem?: (itemId: string) => void
 }) {
   const assignees = getItemAssignees(data, [item])
   const style = getTimelineBarStyle(item, accentMode, accentIndex, labelsById)
@@ -63,6 +66,14 @@ export const TimelineLabelRow = memo(function TimelineLabelRow({
           <AppLink
             className="block truncate text-xs hover:underline"
             href={`/items/${item.id}`}
+            onClick={(event) => {
+              if (!onSelectItem) {
+                return
+              }
+
+              event.preventDefault()
+              onSelectItem(item.id)
+            }}
           >
             {item.title}
           </AppLink>
@@ -116,6 +127,7 @@ export const TimelineBar = memo(function TimelineBar({
   labelsById,
   onCaptureDragOffset,
   onResizeStart,
+  onSelectItem,
 }: {
   data: AppData
   item: WorkItem
@@ -133,12 +145,14 @@ export const TimelineBar = memo(function TimelineBar({
     edge: "start" | "end",
     clientX: number
   ) => void
+  onSelectItem?: (itemId: string) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: item.id,
     })
   const style = getTimelineBarStyle(item, accentMode, accentIndex, labelsById)
+  const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null)
 
   return (
     <IssueContextMenu data={data} item={item}>
@@ -153,7 +167,27 @@ export const TimelineBar = memo(function TimelineBar({
           ...style,
           transform: isDragging ? undefined : CSS.Translate.toString(transform),
         }}
-        onPointerDownCapture={(event) => onCaptureDragOffset(item, span, event)}
+        onClick={(event) => {
+          const pointerDownPosition = pointerDownPositionRef.current
+          pointerDownPositionRef.current = null
+
+          if (
+            pointerDownPosition &&
+            (Math.abs(event.clientX - pointerDownPosition.x) > 4 ||
+              Math.abs(event.clientY - pointerDownPosition.y) > 4)
+          ) {
+            return
+          }
+
+          onSelectItem?.(item.id)
+        }}
+        onPointerDownCapture={(event) => {
+          pointerDownPositionRef.current = {
+            x: event.clientX,
+            y: event.clientY,
+          }
+          onCaptureDragOffset(item, span, event)
+        }}
         {...listeners}
         {...attributes}
       >
@@ -164,6 +198,7 @@ export const TimelineBar = memo(function TimelineBar({
         <span
           data-timeline-resize-handle="start"
           className="absolute inset-y-0 left-0 z-10 w-2.5 cursor-ew-resize opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
+          onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => {
             event.preventDefault()
             event.stopPropagation()
@@ -174,6 +209,7 @@ export const TimelineBar = memo(function TimelineBar({
         <span
           data-timeline-resize-handle="end"
           className="absolute inset-y-0 right-0 z-10 w-2.5 cursor-ew-resize opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
+          onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => {
             event.preventDefault()
             event.stopPropagation()

@@ -50,4 +50,19 @@ describe("electron navigation policy", () => {
     ).toBe(false)
     expect(isAllowedExternalUrl("https://example.com/docs")).toBe(true)
   })
+
+  it("does not trust opaque-origin urls for packaged file renderer navigation", async () => {
+    const { isAllowedExternalUrl, isTrustedInAppUrl } =
+      await import("@/electron/navigation-policy.cjs")
+
+    for (const url of [
+      "data:text/html,<h1>Bad</h1>",
+      "javascript:alert(1)",
+      "mailto:team@example.com",
+    ]) {
+      expect(isTrustedInAppUrl(url, "null")).toBe(false)
+    }
+
+    expect(isAllowedExternalUrl("mailto:team@example.com")).toBe(true)
+  })
 })

@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("electronApp", {
     ipcRenderer.invoke("desktop-auth:set-token", token),
   showNotification: (payload) =>
     ipcRenderer.invoke("desktop-notifications:show", payload),
+  writeClipboardText: (value) =>
+    ipcRenderer.invoke("desktop-clipboard:write-text", value),
   submitDesktopPasswordLogin: (payload) =>
     ipcRenderer.invoke("desktop-auth:submit-password-login", payload),
   submitDesktopPasswordSignup: (payload) =>

@@ -13,10 +13,51 @@
 
 | Field | Value |
 |-------|-------|
-| Last reviewed | `2026-05-22 08:36 BST` |
+| Last reviewed | `2026-05-22 09:41 BST` |
 | Risk | High |
 | Open findings | `0` |
-| Residual risks | Internal/ad-hoc mac signing only; desktop token persistence intentionally disabled by default pending a non-blocking keychain strategy; desktop preflight still reports hosted env/WorkOS checks as pending when those values are not visible locally |
+| Residual risks | Internal/ad-hoc mac signing only; desktop token persistence intentionally disabled by default pending a non-blocking keychain strategy; desktop preflight still reports hosted env/WorkOS checks as pending when those values are not visible locally; local full Vitest can hit default 5s per-test timeouts under parallel load, but the timed-out files pass with an explicit 15s timeout |
+
+---
+
+## Turn 4 - 2026-05-22 09:41 BST
+
+**Outcome:** No open Critical/High findings after importing the latest Codex PR review, adding the requested calendar/timeline/settings/desktop polish, and rerunning the branch diff/architecture pass.
+
+**UI and desktop changes reviewed:**
+- Calendar detail now opens inline beside the calendar grid, below the toolbar, so the date header/timed grid resize with the detail surface instead of the sidebar covering the shell.
+- Timeline detail now opens inline beside the timeline rows, with click selection from row labels and bars; drag and resize interactions are guarded so they do not also open the detail panel.
+- Calendar toolbar now includes a timezone selector near Day/Week/Month, and user settings timezone options show formatted offsets such as `UTC (UTC+00:00)`.
+- Calendar all-day rows now have independent vertical overflow with horizontal day-scroll sync to the timed area.
+- Properties popover now aligns inside the work-surface toolbar with viewport padding instead of overflowing off the right edge.
+- Desktop item-link copy now uses the Electron clipboard bridge and copies hosted URLs for packaged `file://` renderer routes.
+- Private task codes now use `PVT` via a shared domain constant used by the store and Convex work-item numbering.
+
+**External finding triage:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Codex PR review | Desktop handoff tickets replayable | Already fixed in current tree | Authority / replay | Handoff `jti` must be single-use at the hosted server boundary | Verified `consumeDesktopHandoffTicketServer` path and replay tests |
+| Codex PR review | Fetch-backed desktop SSE does not reconnect | Already fixed in current tree | Lifecycle / fallback parity | Electron fetch fallback must preserve native `EventSource` reconnect semantics | Verified reconnect scheduling and regression test |
+| Codex PR review | Desktop signup bypasses auth handoff | Stale/already fixed in current tree | Affordance parity / contract encoding | Login and signup desktop password flows must both exchange hosted handoff tickets | Verified `/auth/desktop/signup`, IPC bridge, renderer smoke, and route-contract tests |
+| Codex PR review | Opaque-origin URLs trusted when packaged renderer origin is `null` | Fixed this turn | Security / contract encoding | Only concrete HTTP(S) same-origin URLs may bypass hosted allowlist | Added protocol/origin guards and opaque-origin regression test |
+| Codex PR review | Notification click URL built from `origin` instead of renderer URL | Fixed this turn | Runtime compatibility / route resolution | Packaged `file://` renderer navigation must resolve through the full renderer URL/hash route | Notification bridge now accepts resolved target URLs; packaged file renderer regression added |
+
+**Architecture pass:** The implementation keeps the same ownership boundaries: Electron owns native bridges and packaged URL resolution; hosted Vercel routes/server helpers own WorkOS/session secrets and desktop handoff tickets; domain key formatting owns the private work-item prefix; work-surface components own presentation state for inline detail surfaces and scroll synchronization. No server secrets, WorkOS private keys, or hosted API keys move into Electron.
+
+**Branch totality / sibling closure:** Rechecked the prior PR-review hotspots, desktop navigation/notification/copy sibling paths, calendar month/day/week detail variants, timeline label/bar click variants, private numbering in both optimistic store and Convex persistence paths, and settings/calendar timezone rendering.
+
+**Validation:**
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm fallow:gate`
+- `pnpm vitest run tests/components/work-surface-view.test.tsx tests/components/settings-screen-helpers.test.ts tests/components/work-item-detail-screen.test.tsx tests/electron/navigation-policy.test.ts tests/electron/desktop-notifications.test.ts tests/lib/browser/authenticated-event-source.test.ts tests/lib/server/desktop-session.test.ts tests/app/auth-route-contracts.test.ts tests/lib/domain/work-item-key.test.ts tests/lib/store/work-item-actions.test.ts tests/convex/work-item-handlers.test.ts` -> `11 passed`, `168 passed`
+- `pnpm vitest run tests/components/create-dialogs.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/settings-screen-helpers.test.ts tests/components/work-surface-view.test.tsx --testTimeout 15000` -> `4 passed`, `123 passed`
+- `pnpm desktop:renderer:smoke` -> renderer build plus `7 passed`
+- `pnpm build`
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- `pnpm test` was rerun twice and hit local default 5s Vitest timeouts in UI-heavy files under full parallel load; the same timed-out files passed directly with a 15s timeout, so this is recorded as a local timing caveat rather than a branch behavior failure.
 
 ---
 

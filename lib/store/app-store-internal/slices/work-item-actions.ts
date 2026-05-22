@@ -16,7 +16,10 @@ import {
   shiftCalendarDate,
 } from "@/lib/calendar-date"
 import { getLabelsForWorkspace } from "@/lib/domain/selectors"
-import { formatWorkItemKey } from "@/lib/domain/work-item-key"
+import {
+  formatWorkItemKey,
+  PRIVATE_WORK_ITEM_KEY_PREFIX,
+} from "@/lib/domain/work-item-key"
 import {
   buildWorkItemAssignmentNotificationMessage,
   buildWorkItemStatusChangeNotificationMessage,
@@ -170,7 +173,9 @@ function resolveCreateWorkItemScope(
   )
 
   return {
-    keyPrefix: isPrivate ? "PRIVATE" : toTeamKeyPrefix(team?.name, input.teamId),
+    keyPrefix: isPrivate
+      ? PRIVATE_WORK_ITEM_KEY_PREFIX
+      : toTeamKeyPrefix(team?.name, input.teamId),
     nextNumber: isPrivate ? teamItems.length + 1 : 1 + teamItems.length + 100,
     parent,
     resolvedPrimaryProjectId: parent

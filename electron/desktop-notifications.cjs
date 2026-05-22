@@ -55,13 +55,13 @@ function createDesktopNotificationBridge({
   createWindow,
   focusWindow,
   getMainWindow,
-  getRendererOrigin,
   NativeNotification,
+  resolveRendererTargetUrl,
 }) {
   async function openNotificationPath(targetPath) {
-    const rendererOrigin = getRendererOrigin()
+    const targetUrl = resolveRendererTargetUrl(targetPath)
 
-    if (!rendererOrigin) {
+    if (!targetUrl) {
       return
     }
 
@@ -71,7 +71,7 @@ function createDesktopNotificationBridge({
       return
     }
 
-    await window.loadURL(new URL(targetPath, rendererOrigin).toString())
+    await window.loadURL(targetUrl)
     focusWindow(window)
   }
 

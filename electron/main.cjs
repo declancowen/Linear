@@ -16,6 +16,7 @@ const path = require("node:path")
 const {
   app,
   BrowserWindow,
+  clipboard,
   ipcMain,
   nativeImage,
   Notification: NativeNotification,
@@ -538,13 +539,24 @@ function registerDesktopNotificationHandlers() {
     createWindow: () => createWindow(desktopIconPath),
     focusWindow,
     getMainWindow: getExistingMainWindow,
-    getRendererOrigin: () => rendererOrigin,
     NativeNotification,
+    resolveRendererTargetUrl,
   })
 
   ipcMain.handle("desktop-notifications:show", (_event, value) =>
     desktopNotificationBridge.show(value)
   )
+}
+
+function registerDesktopClipboardHandlers() {
+  ipcMain.handle("desktop-clipboard:write-text", (_event, value) => {
+    if (typeof value !== "string" || value.length === 0) {
+      return false
+    }
+
+    clipboard.writeText(value)
+    return true
+  })
 }
 
 function openDevToolsForDevelopment(window) {
@@ -656,6 +668,7 @@ if (!hasSingleInstanceLock) {
     registerDesktopAuthHandlers()
     logDesktopStartup("app.register-notification-handlers-start")
     registerDesktopNotificationHandlers()
+    registerDesktopClipboardHandlers()
 
     await createWindow(desktopIconPath)
 

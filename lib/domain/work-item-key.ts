@@ -1,5 +1,7 @@
 const WORK_ITEM_KEY_PATTERN = /^(.+)-(\d+)$/
 
+export const PRIVATE_WORK_ITEM_KEY_PREFIX = "PVT"
+
 function formatWorkItemKeyNumber(value: number) {
   return String(value).padStart(3, "0")
 }

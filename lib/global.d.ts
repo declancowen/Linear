@@ -13,6 +13,7 @@ declare global {
         path?: string | null
         title: string
       }) => Promise<boolean>
+      writeClipboardText?: (value: string) => Promise<boolean>
       submitDesktopPasswordLogin?: (payload: {
         email: string
         nextPath: string

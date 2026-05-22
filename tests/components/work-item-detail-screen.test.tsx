@@ -924,6 +924,47 @@ describe("work item detail screen", () => {
     expect(screen.queryByText("19 December 2030")).not.toBeInTheDocument()
   })
 
+  it("copies hosted item links through the desktop clipboard bridge", async () => {
+    const originalElectronApp = window.electronApp
+    const writeClipboardText = vi.fn().mockResolvedValue(true)
+    const data = useAppStore.getState()
+    const item = data.workItems.find((candidate) => candidate.id === "item_1")
+
+    if (!item) {
+      throw new Error("Expected seeded work item")
+    }
+
+    Object.defineProperty(window, "electronApp", {
+      configurable: true,
+      value: {
+        isElectron: true,
+        platform: "darwin",
+        writeClipboardText,
+      },
+    })
+    window.history.pushState({}, "", "/items/item_1")
+
+    try {
+      render(
+        <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
+      )
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy item link" }))
+
+      await waitFor(() =>
+        expect(writeClipboardText).toHaveBeenCalledWith(
+          "https://teams.reciperoom.io/items/item_1"
+        )
+      )
+    } finally {
+      Object.defineProperty(window, "electronApp", {
+        configurable: true,
+        value: originalElectronApp,
+      })
+      window.history.pushState({}, "", "/")
+    }
+  })
+
   it.each([
     ["Start", "startTime"],
     ["Due", "endTime"],

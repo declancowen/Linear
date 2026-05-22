@@ -25,7 +25,11 @@ import {
 import { getCurrentUser } from "@/lib/domain/selectors"
 import { type ThemePreference, type UserProfile } from "@/lib/domain/types"
 import { useAppStore, type AppStore } from "@/lib/store/app-store"
-import { getSupportedTimeZones, normalizeTimeZone } from "@/lib/time-zone"
+import {
+  formatTimeZoneLabel,
+  getSupportedTimeZones,
+  normalizeTimeZone,
+} from "@/lib/time-zone"
 import { cn } from "@/lib/utils"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { Button } from "@/components/ui/button"
@@ -522,7 +526,7 @@ function TimeZoneSettingsSection({
             >
               {timeZones.map((option) => (
                 <option key={option} value={option}>
-                  {option.replaceAll("_", " ")}
+                  {formatTimeZoneLabel(option)}
                 </option>
               ))}
             </select>

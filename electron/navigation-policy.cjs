@@ -56,11 +56,23 @@ function isTrustedInAppHttpsHost(hostname, options = {}) {
   )
 }
 
+function isHttpProtocol(protocol) {
+  return protocol === "https:" || protocol === "http:"
+}
+
+function isConcreteOrigin(origin) {
+  return typeof origin === "string" && origin.length > 0 && origin !== "null"
+}
+
 function isTrustedInAppUrl(url, rendererOrigin, options = {}) {
   try {
     const parsed = new URL(url)
 
-    if (parsed.origin === rendererOrigin) {
+    if (
+      isHttpProtocol(parsed.protocol) &&
+      isConcreteOrigin(rendererOrigin) &&
+      parsed.origin === rendererOrigin
+    ) {
       return true
     }
 

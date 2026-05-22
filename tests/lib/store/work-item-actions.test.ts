@@ -390,13 +390,13 @@ describe("work item actions", () => {
     const state = createState()
     state.workItems = [
       createTestWorkItem("private-team-item", {
-        key: "PRIVATE-001",
+        key: "PVT-001",
         teamId: "team_1",
         creatorId: "user_1",
         visibility: "private",
       }),
       createTestWorkItem("other-team-private-item", {
-        key: "PRIVATE-001",
+        key: "PVT-001",
         teamId: "team_2",
         creatorId: "user_1",
         visibility: "private",
@@ -417,7 +417,7 @@ describe("work item actions", () => {
     expect(createdItemId).toBeTruthy()
     expect(harness.state.workItems[0]).toMatchObject({
       id: createdItemId,
-      key: "PRIVATE-002",
+      key: "PVT-002",
       teamId: "team_1",
       visibility: "private",
     })
