@@ -75,6 +75,7 @@ describe("desktop packaged renderer app smoke", () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     Object.defineProperty(window, "electronApp", {
       configurable: true,
       value: originalElectronApp,
@@ -236,5 +237,53 @@ describe("desktop packaged renderer app smoke", () => {
     await waitFor(() => {
       expect(screen.getByText("Invalid email or password.")).toBeInTheDocument()
     })
+  })
+
+  it("routes back to login when workspace bootstrap fails after ticket exchange", async () => {
+    const setDesktopAuthToken = vi.fn().mockResolvedValue(true)
+
+    window.history.replaceState(
+      null,
+      "",
+      "/auth/desktop/complete?ticket=ticket_123&next=/workspace/docs"
+    )
+    Object.defineProperty(window, "electronApp", {
+      configurable: true,
+      value: {
+        getDesktopAuthToken: vi.fn().mockResolvedValue(null),
+        isElectron: true,
+        platform: "darwin",
+        setDesktopAuthToken,
+        submitDesktopPasswordLogin: vi.fn().mockResolvedValue({ ok: true }),
+        submitDesktopPasswordSignup: vi.fn().mockResolvedValue({ ok: true }),
+      },
+    })
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          expiresAt: 1_700_000_000_000,
+          token: "desktop_token",
+        }),
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+          status: 200,
+        }
+      )
+    )
+    fetchSnapshotStateMock.mockRejectedValue(new Error("Snapshot unavailable"))
+
+    render(<DesktopApp />)
+
+    await waitFor(() => {
+      expect(setDesktopAuthToken).toHaveBeenCalledWith("desktop_token")
+      expect(window.location.pathname).toBe("/login")
+    })
+    expect(
+      await screen.findByText(
+        "Desktop sign-in completed, but we couldn't load your workspace. Try again."
+      )
+    ).toBeInTheDocument()
   })
 })

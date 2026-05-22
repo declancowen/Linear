@@ -64,6 +64,26 @@ function isConcreteOrigin(origin) {
   return typeof origin === "string" && origin.length > 0 && origin !== "null"
 }
 
+function isSameFileDocumentUrl(url, rendererUrl) {
+  if (!rendererUrl) {
+    return false
+  }
+
+  try {
+    const parsedUrl = new URL(url)
+    const parsedRendererUrl = new URL(rendererUrl)
+
+    return (
+      parsedUrl.protocol === "file:" &&
+      parsedRendererUrl.protocol === "file:" &&
+      parsedUrl.host === parsedRendererUrl.host &&
+      parsedUrl.pathname === parsedRendererUrl.pathname
+    )
+  } catch {
+    return false
+  }
+}
+
 function isTrustedInAppUrl(url, rendererOrigin, options = {}) {
   try {
     const parsed = new URL(url)
@@ -79,6 +99,27 @@ function isTrustedInAppUrl(url, rendererOrigin, options = {}) {
     return (
       parsed.protocol === "https:" &&
       isTrustedInAppHttpsHost(parsed.hostname, options)
+    )
+  } catch {
+    return false
+  }
+}
+
+function isTrustedDesktopBridgeSenderUrl(
+  url,
+  { rendererOrigin, rendererUrl } = {}
+) {
+  try {
+    const parsed = new URL(url)
+
+    if (isSameFileDocumentUrl(url, rendererUrl)) {
+      return true
+    }
+
+    return (
+      isHttpProtocol(parsed.protocol) &&
+      isConcreteOrigin(rendererOrigin) &&
+      parsed.origin === rendererOrigin
     )
   } catch {
     return false
@@ -102,5 +143,6 @@ function isAllowedExternalUrl(url) {
 module.exports = {
   getTrustedHostedAppHostnames,
   isAllowedExternalUrl,
+  isTrustedDesktopBridgeSenderUrl,
   isTrustedInAppUrl,
 }

@@ -8,6 +8,7 @@ import {
   pendingEmailVerificationCookieName,
   serializePendingEmailVerificationState,
 } from "@/lib/auth-email-verification"
+import { desktopAuthStateCookieName } from "@/lib/server/desktop-auth"
 import {
   getMockWorkOSAuthErrorCode,
   getMockWorkOSAuthErrorMessage,
@@ -92,6 +93,21 @@ function expectForgotPasswordRedirect(response: Response) {
 
 function buildAuthState(input: { mode: "login" | "signup"; nextPath: string }) {
   return JSON.stringify(input)
+}
+
+function buildDesktopCallbackState(input: {
+  mode: "login" | "signup"
+  nextPath: string
+  nonce: string
+}) {
+  return JSON.stringify({
+    ...input,
+    surface: "desktop",
+  })
+}
+
+function buildDesktopAuthCookie(nonce: string) {
+  return `${desktopAuthStateCookieName}=${encodeURIComponent(nonce)}`
 }
 
 function expectSavedWorkOSSession(
@@ -182,15 +198,26 @@ async function getCallbackSuccessRedirect(input: {
     GET: (request: Request) => Promise<Response>
   }>
   routePath: string
+  state?: string
+  cookie?: string
 }) {
   const { GET } = await input.loadRoute()
-  const state = buildAuthState({
-    mode: "login",
-    nextPath: "/workspace/settings",
-  })
+  const state =
+    input.state ??
+    buildAuthState({
+      mode: "login",
+      nextPath: "/workspace/settings",
+    })
   const response = await GET(
     new Request(
-      `http://localhost${input.routePath}?code=abc123&state=${encodeURIComponent(state)}`
+      `http://localhost${input.routePath}?code=abc123&state=${encodeURIComponent(state)}`,
+      input.cookie
+        ? {
+            headers: {
+              cookie: input.cookie,
+            },
+          }
+        : undefined
     )
   )
 
@@ -444,8 +471,12 @@ describe("desktop auth routes", () => {
     expect(state).toMatchObject({
       mode: "signup",
       nextPath: "/workspace/docs",
+      nonce: expect.any(String),
       surface: "desktop",
     })
+    expect(response.headers.get("set-cookie")).toContain(
+      `${desktopAuthStateCookieName}=`
+    )
   })
 
   it("starts desktop Google auth through the hosted desktop callback", async () => {
@@ -468,11 +499,16 @@ describe("desktop auth routes", () => {
     expect(state).toMatchObject({
       mode: "login",
       nextPath: "/workspace/docs",
+      nonce: expect.any(String),
       surface: "desktop",
     })
+    expect(response.headers.get("set-cookie")).toContain(
+      `${desktopAuthStateCookieName}=`
+    )
   })
 
   it("saves the hosted session then redirects back to the desktop app", async () => {
+    const stateNonce = "desktop_state_nonce"
     const authResponse = {
       user: { id: "workos_user", email: "alex@example.com" },
       organizationId: "org_123",
@@ -481,11 +517,47 @@ describe("desktop auth routes", () => {
     const { redirectUrl, response } = await getCallbackSuccessRedirect({
       loadRoute: () => import("@/app/auth/desktop/callback/route"),
       routePath: "/auth/desktop/callback",
+      state: buildDesktopCallbackState({
+        mode: "login",
+        nextPath: "/workspace/settings",
+        nonce: stateNonce,
+      }),
+      cookie: buildDesktopAuthCookie(stateNonce),
     })
 
     expect(response.status).toBe(307)
+    expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
     expectSavedWorkOSSession(authResponse, "/auth/desktop/callback")
     expectDesktopHandoffRedirect(redirectUrl, "/workspace/settings")
+  })
+
+  it("rejects desktop provider callbacks without the matching state cookie", async () => {
+    const { GET } = await import("@/app/auth/desktop/callback/route")
+    const state = buildDesktopCallbackState({
+      mode: "login",
+      nextPath: "/workspace/settings",
+      nonce: "state_nonce",
+    })
+    const response = await GET(
+      new Request(
+        `http://localhost/auth/desktop/callback?code=abc123&state=${encodeURIComponent(state)}`,
+        {
+          headers: {
+            cookie: buildDesktopAuthCookie("different_nonce"),
+          },
+        }
+      )
+    )
+    const redirectUrl = getRedirectPath(response)
+    const handoffPath = redirectUrl.searchParams.get("path") ?? ""
+    const localUrl = new URL(handoffPath, "https://desktop.local")
+
+    expect(response.status).toBe(307)
+    expect(localUrl.pathname).toBe("/login")
+    expect(localUrl.searchParams.get("error")).toBe(
+      "Desktop sign-in request expired. Start sign-in again."
+    )
+    expect(authenticateWithCodeMock).not.toHaveBeenCalled()
   })
 
   it("turns desktop password login into a desktop session handoff", async () => {

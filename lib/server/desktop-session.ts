@@ -267,7 +267,11 @@ export async function createDesktopSessionTokenFromHandoffTicket(
 }
 
 export function verifyDesktopSessionToken(token: string, now = Date.now()) {
-  return verifyDesktopToken(token, DESKTOP_SESSION_TOKEN_TYPE, now)
+  try {
+    return verifyDesktopToken(token, DESKTOP_SESSION_TOKEN_TYPE, now)
+  } catch {
+    return null
+  }
 }
 
 function parseBearerToken(value: string | null) {

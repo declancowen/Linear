@@ -182,6 +182,24 @@ function clickAddItem() {
   fireEvent.click(screen.getByRole("button", { name: "Add item" }))
 }
 
+function clickTimelineBarAfterPointerRelease(
+  target: Element,
+  options: {
+    pointerId?: number
+    releaseTarget?: Element | Window
+  } = {}
+) {
+  const pointerOptions = {
+    clientX: 0,
+    clientY: 0,
+    ...(options.pointerId ? { pointerId: options.pointerId } : {}),
+  }
+
+  fireEvent.pointerDown(target, pointerOptions)
+  fireEvent.pointerUp(options.releaseTarget ?? target, pointerOptions)
+  fireEvent.click(target, { clientX: 0, clientY: 0 })
+}
+
 function expectEmptyOptionalPillsHidden() {
   expect(
     screen.queryByRole("button", { name: "Assignee" })
@@ -1786,13 +1804,10 @@ describe("TimelineView primitives", () => {
 
     const timelineBar = screen.getByRole("button", { name: item.key })
 
-    fireEvent.pointerDown(timelineBar, {
-      clientX: 0,
-      clientY: 0,
+    clickTimelineBarAfterPointerRelease(timelineBar, {
       pointerId: 42,
+      releaseTarget: window,
     })
-    fireEvent.pointerUp(window, { clientX: 0, clientY: 0, pointerId: 42 })
-    fireEvent.click(timelineBar, { clientX: 0, clientY: 0 })
 
     expect(screen.getByTestId("timeline-detail-slot")).toContainElement(
       screen.getByTestId("inline-detail")
@@ -1895,20 +1910,15 @@ describe("TimelineView primitives", () => {
     expect(onCaptureDragOffset).not.toHaveBeenCalled()
     expect(onSelectItem).not.toHaveBeenCalled()
 
-    fireEvent.pointerDown(timelineBar, { clientX: 0, clientY: 0 })
-    fireEvent.pointerUp(timelineBar, { clientX: 0, clientY: 0 })
-    fireEvent.click(timelineBar, { clientX: 0, clientY: 0 })
+    clickTimelineBarAfterPointerRelease(timelineBar)
     expect(onSelectItem).toHaveBeenCalledWith(item.id)
     expect(onSelectItem).toHaveBeenCalledTimes(1)
 
     onSelectItem.mockClear()
-    fireEvent.pointerDown(timelineBar, {
-      clientX: 0,
-      clientY: 0,
+    clickTimelineBarAfterPointerRelease(timelineBar, {
       pointerId: 42,
+      releaseTarget: window,
     })
-    fireEvent.pointerUp(window, { clientX: 0, clientY: 0, pointerId: 42 })
-    fireEvent.click(timelineBar, { clientX: 0, clientY: 0 })
     expect(onSelectItem).toHaveBeenCalledWith(item.id)
     expect(onSelectItem).toHaveBeenCalledTimes(1)
 

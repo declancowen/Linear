@@ -13,10 +13,47 @@
 
 | Field | Value |
 |-------|-------|
-| Last reviewed | `2026-05-22 10:10 BST` |
+| Last reviewed | `2026-05-22 11:20 BST` |
 | Risk | High |
 | Open findings | `0` |
-| Residual risks | Internal/ad-hoc mac signing only; desktop token persistence intentionally disabled by default pending a non-blocking keychain strategy; desktop preflight still reports hosted env/WorkOS checks as pending when those values are not visible locally; diff preflight's production-dead-code lens reports 17 test-covered helper exports while the configured full dead-code gate is clean; local full Vitest can hit default 5s per-test timeouts under parallel load, but the timed-out files pass with an explicit 15s timeout |
+| Residual risks | Internal/ad-hoc mac signing only; desktop preflight still reports hosted env/WorkOS checks as pending when those values are not visible locally; diff preflight's production-dead-code lens reports test-covered helper exports while the configured full dead-code gate is clean; GitHub review thread resolution can lag until the pushed branch is re-reviewed |
+
+---
+
+## Turn 6 - 2026-05-22 11:20 BST
+
+**Outcome:** No open Critical/High findings after re-importing all unresolved PR review comments, validating them against the existing diff-review log, fixing the missed live findings, and rerunning the review loop.
+
+**External finding triage:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Codex PR review | Desktop handoff tickets replayable / consume tickets as single-use credentials | Already fixed in current tree | Authority / replay | Hosted handoff `jti` must be consumed once at the server boundary | Reverified Convex-backed `consumeDesktopHandoffTicketServer` path and route tests |
+| Codex PR review | Fetch-backed desktop SSE stream does not reconnect after disconnects | Already fixed in current tree | Lifecycle / fallback parity | Electron fetch fallback must preserve native `EventSource` reconnect semantics | Reverified reconnect scheduling and regression tests |
+| Codex PR review | Desktop signup bypasses auth handoff | Stale/already fixed in current tree | Contract parity | Login and signup desktop password flows must both exchange hosted handoff tickets | Reverified `/auth/desktop/signup`, IPC bridge, renderer smoke, and route-contract tests |
+| Codex PR review | Opaque-origin URLs trusted, notification URL target built from origin, unstable desktop search params | Stale/already fixed in current tree | Security / runtime compatibility / React identity | Packaged `file://` routes, external auth pages, and search-param identity need dedicated coverage | Reverified navigation, notification, and renderer smoke regressions |
+| Codex PR review | Persist desktop auth tokens by default | Fixed this turn | Desktop session durability | Production desktop login must survive app restarts using OS-backed storage unless explicitly disabled | Token persistence now defaults on; env opt-out remains covered by tests |
+| Codex PR review | Handle bootstrap failures after ticket exchange | Fixed this turn | Auth lifecycle / error recovery | A failed post-handoff bootstrap must not leave the packaged renderer blank or stuck | Desktop auth completion now catches bootstrap failures and routes back to login/error |
+| Codex PR review | Restrict Electron bridge APIs to trusted app origins | Fixed this turn | Privilege boundary | Main-process IPC handlers must authorize the sender URL, not only rely on preload comments | Privileged auth, notification, and clipboard IPC handlers now validate trusted renderer senders |
+| Codex PR review | Bind desktop OAuth state to a per-request nonce | Fixed this turn | CSRF / login initiation integrity | Callback state must be bound to the browser request that initiated desktop OAuth | Desktop start/callback routes now set, validate, and clear an HttpOnly nonce cookie |
+| Codex PR review | Treat missing `DESKTOP_SESSION_SECRET` as unauthorized / bearer fallback should fail closed | Fixed this turn | Secret handling / request auth | Missing hosted desktop session config must not turn request auth into a 500 | Desktop session verification now catches config/signing errors and returns unauthorized |
+
+**Architecture pass:** Hosted Vercel/server routes still own WorkOS OAuth state, desktop session secrets, handoff ticket creation/consumption, and bearer fallback. Electron owns native bridge authorization and OS-backed token storage, but does not receive server secrets. The renderer only handles UI/bootstrap recovery and does not mint or validate server credentials. The IPC sender check was moved into the main-process trust boundary so desktop bridge access is enforced where the privileged APIs actually run.
+
+**Diff-review reconciliation:** The earlier log correctly covered the stale replay/SSE/signup/navigation/notification/search-param comments, but missed or underweighted the latest live review findings around token persistence, IPC sender authorization, OAuth state binding, bootstrap failure recovery, and fail-closed secret handling. Those are now fixed in code and represented in this review log; no live GitHub comment remains accepted as residual risk.
+
+**Validation:**
+- `pnpm vitest run tests/app/auth-route-contracts.test.ts tests/lib/server/desktop-session.test.ts tests/electron/desktop-auth-store.test.ts tests/electron/navigation-policy.test.ts tests/desktop/renderer-smoke.test.tsx` -> `5 passed`, `53 passed`
+- `pnpm vitest run tests/components/work-surface-view.test.tsx tests/components/work-item-detail-screen.test.tsx` -> `2 passed`, `80 passed`
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm fallow:gate`
+- `git diff --check`
+- `pnpm desktop:renderer:smoke` -> renderer build plus `9 passed`
+- `pnpm build`
+- `pnpm vitest run --testTimeout 15000` -> `198 passed`, `1154 passed`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh`
 
 ---
 

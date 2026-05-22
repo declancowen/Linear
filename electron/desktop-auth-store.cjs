@@ -26,6 +26,12 @@ function canUseSafeStorage(safeStorage, persistTokens) {
   }
 }
 
+function shouldPersistDesktopAuthTokens(env = process.env) {
+  const value = env.DESKTOP_ENABLE_AUTH_TOKEN_PERSISTENCE?.trim().toLowerCase()
+
+  return value !== "0" && value !== "false"
+}
+
 function createDesktopAuthStore({ app, persistTokens = true, safeStorage }) {
   let desktopAuthToken = null
 
@@ -102,4 +108,5 @@ module.exports = {
   DESKTOP_AUTH_TOKEN_FILE,
   createDesktopAuthStore,
   normalizeDesktopAuthToken,
+  shouldPersistDesktopAuthTokens,
 }

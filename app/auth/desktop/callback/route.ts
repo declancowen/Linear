@@ -1,5 +1,8 @@
-import { parseAuthState } from "@/lib/auth-routing"
-import { buildDesktopAuthCompleteUrl } from "@/lib/server/desktop-auth"
+import {
+  buildDesktopAuthCompleteUrl,
+  clearDesktopAuthStateCookie,
+  validateDesktopAuthCallbackState,
+} from "@/lib/server/desktop-auth"
 import { createDesktopHandoffTicket } from "@/lib/server/desktop-session"
 import { redirectToRoute } from "@/lib/server/route-response"
 import { authenticateWorkOSCallbackCode } from "@/lib/server/workos-auth-callback"
@@ -19,9 +22,23 @@ function getDesktopCallbackError(input: {
   return input.code ? null : "Missing authorization code from WorkOS."
 }
 
+function redirectToDesktopAuthComplete(
+  request: Request,
+  input: Parameters<typeof buildDesktopAuthCompleteUrl>[0]
+) {
+  const response = redirectToRoute(request, buildDesktopAuthCompleteUrl(input))
+
+  clearDesktopAuthStateCookie(response, request)
+
+  return response
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url)
-  const state = parseAuthState(url.searchParams.get("state") ?? undefined)
+  const state = validateDesktopAuthCallbackState(
+    request,
+    url.searchParams.get("state")
+  )
   const code = url.searchParams.get("code")
   const error = getDesktopCallbackError({
     code,
@@ -29,15 +46,18 @@ export async function GET(request: Request) {
     errorDescription: url.searchParams.get("error_description"),
   })
 
+  if (!state) {
+    return redirectToDesktopAuthComplete(request, {
+      error: "Desktop sign-in request expired. Start sign-in again.",
+    })
+  }
+
   if (error) {
-    return redirectToRoute(
-      request,
-      buildDesktopAuthCompleteUrl({
-        mode: state?.mode,
-        nextPath: state?.nextPath,
-        error,
-      })
-    )
+    return redirectToDesktopAuthComplete(request, {
+      mode: state.mode,
+      nextPath: state.nextPath,
+      error,
+    })
   }
 
   try {
@@ -50,21 +70,15 @@ export async function GET(request: Request) {
       user: authenticationResponse.user,
     })
 
-    return redirectToRoute(
-      request,
-      buildDesktopAuthCompleteUrl({
-        nextPath: state?.nextPath,
-        ticket,
-      })
-    )
+    return redirectToDesktopAuthComplete(request, {
+      nextPath: state.nextPath,
+      ticket,
+    })
   } catch {
-    return redirectToRoute(
-      request,
-      buildDesktopAuthCompleteUrl({
-        mode: state?.mode,
-        nextPath: state?.nextPath,
-        error: "We couldn't complete desktop authentication with that provider.",
-      })
-    )
+    return redirectToDesktopAuthComplete(request, {
+      mode: state.mode,
+      nextPath: state.nextPath,
+      error: "We couldn't complete desktop authentication with that provider.",
+    })
   }
 }

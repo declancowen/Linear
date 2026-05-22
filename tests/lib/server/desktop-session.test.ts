@@ -111,6 +111,24 @@ describe("desktop session tokens", () => {
     ).toBeNull()
   })
 
+  it("fails closed when desktop session verification is not configured", async () => {
+    const {
+      getDesktopSessionFromRequestHeaders,
+      verifyDesktopSessionToken,
+    } = await import("@/lib/server/desktop-session")
+
+    delete process.env.DESKTOP_SESSION_SECRET
+
+    expect(verifyDesktopSessionToken("not-a-token")).toBeNull()
+    await expect(
+      getDesktopSessionFromRequestHeaders(
+        new Headers({
+          Authorization: "Bearer not-a-token",
+        })
+      )
+    ).resolves.toBeNull()
+  })
+
   it("creates an authenticated session from authorization headers", async () => {
     const {
       createDesktopHandoffTicket,

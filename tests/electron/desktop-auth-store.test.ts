@@ -10,6 +10,7 @@ const {
   DESKTOP_AUTH_TOKEN_FILE,
   createDesktopAuthStore,
   normalizeDesktopAuthToken,
+  shouldPersistDesktopAuthTokens,
 } = require("../../electron/desktop-auth-store.cjs") as typeof import("../../electron/desktop-auth-store.cjs")
 
 function createMockApp(userDataPath: string) {
@@ -64,6 +65,20 @@ describe("desktop auth store", () => {
     expect(normalizeDesktopAuthToken(" token ")).toBe("token")
     expect(normalizeDesktopAuthToken("")).toBeNull()
     expect(normalizeDesktopAuthToken("x".repeat(8193))).toBeNull()
+  })
+
+  it("persists desktop auth tokens by default unless explicitly disabled", () => {
+    expect(shouldPersistDesktopAuthTokens({} as NodeJS.ProcessEnv)).toBe(true)
+    expect(
+      shouldPersistDesktopAuthTokens({
+        DESKTOP_ENABLE_AUTH_TOKEN_PERSISTENCE: "1",
+      } as unknown as NodeJS.ProcessEnv)
+    ).toBe(true)
+    expect(
+      shouldPersistDesktopAuthTokens({
+        DESKTOP_ENABLE_AUTH_TOKEN_PERSISTENCE: "0",
+      } as unknown as NodeJS.ProcessEnv)
+    ).toBe(false)
   })
 
   it("persists accepted tokens through Electron safeStorage", () => {

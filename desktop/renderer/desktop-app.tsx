@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import {
+  buildAuthPageHref,
   getAppOrigin,
   normalizeAuthNextPath,
   parseAuthMode,
@@ -119,6 +120,13 @@ function isUnauthorizedRouteError(error: unknown) {
   return error instanceof RouteMutationError && error.status === 401
 }
 
+function buildDesktopBootstrapFailureRedirect(nextPath: string) {
+  return buildAuthPageHref("login", {
+    error: "Desktop sign-in completed, but we couldn't load your workspace. Try again.",
+    nextPath,
+  })
+}
+
 function DesktopAuthScreen() {
   const pathname = useAppPathname()
   const searchParams = useAppSearchParams()
@@ -207,8 +215,18 @@ function DesktopAuthCompleteScreen({
       }
 
       if (result.kind === "authenticated") {
-        await onAuthenticated(result.nextPath)
-        router.replace(result.nextPath)
+        try {
+          await onAuthenticated(result.nextPath)
+
+          if (!cancelled) {
+            router.replace(result.nextPath)
+          }
+        } catch {
+          if (!cancelled) {
+            setMessage("Sign-in failed. Redirecting...")
+            router.replace(buildDesktopBootstrapFailureRedirect(result.nextPath))
+          }
+        }
       } else {
         setMessage("Sign-in failed. Redirecting...")
         router.replace(result.href)

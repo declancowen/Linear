@@ -65,4 +65,36 @@ describe("electron navigation policy", () => {
 
     expect(isAllowedExternalUrl("mailto:team@example.com")).toBe(true)
   })
+
+  it("restricts privileged bridge senders to the configured renderer document", async () => {
+    const { isTrustedDesktopBridgeSenderUrl } =
+      await import("@/electron/navigation-policy.cjs")
+    const rendererUrl =
+      "file:///Applications/Recipe%20Room.app/Contents/Resources/desktop-renderer/index.html"
+
+    expect(
+      isTrustedDesktopBridgeSenderUrl(
+        `${rendererUrl}#/auth/desktop/complete?ticket=abc`,
+        {
+          rendererOrigin: "null",
+          rendererUrl,
+        }
+      )
+    ).toBe(true)
+    expect(
+      isTrustedDesktopBridgeSenderUrl("https://api.workos.com/sso/authorize", {
+        rendererOrigin: "null",
+        rendererUrl,
+      })
+    ).toBe(false)
+    expect(
+      isTrustedDesktopBridgeSenderUrl(
+        "https://teams.reciperoom.io/workspace/projects",
+        {
+          rendererOrigin: "https://teams.reciperoom.io",
+          rendererUrl: "https://teams.reciperoom.io",
+        }
+      )
+    ).toBe(true)
+  })
 })

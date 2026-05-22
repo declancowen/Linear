@@ -1,3 +1,5 @@
+import { randomBytes, timingSafeEqual } from "node:crypto"
+
 import {
   type AuthMode,
   buildAuthPageHref,
@@ -7,6 +9,8 @@ import {
 
 const DEFAULT_DESKTOP_DEEP_LINK_SCHEME = "recipe-room"
 const DESKTOP_DEEP_LINK_OPEN_HOST = "open"
+const DESKTOP_AUTH_STATE_COOKIE_MAX_AGE_SECONDS = 10 * 60
+export const desktopAuthStateCookieName = "desktop_auth_state"
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "")
@@ -57,15 +61,163 @@ export function getDesktopWorkOSRedirectUri() {
   return new URL("/auth/desktop/callback", getAppOrigin()).toString()
 }
 
-export function buildDesktopAuthState(input: {
+function createDesktopAuthStateNonce() {
+  return randomBytes(32).toString("base64url")
+}
+
+function secretsMatch(actual: string, expected: string) {
+  const actualBuffer = Buffer.from(actual)
+  const expectedBuffer = Buffer.from(expected)
+
+  return (
+    actualBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(actualBuffer, expectedBuffer)
+  )
+}
+
+function parseCookieHeader(value: string | null) {
+  const cookies = new Map<string, string>()
+
+  if (!value) {
+    return cookies
+  }
+
+  for (const part of value.split(";")) {
+    const separatorIndex = part.indexOf("=")
+
+    if (separatorIndex === -1) {
+      continue
+    }
+
+    const name = part.slice(0, separatorIndex).trim()
+    const rawValue = part.slice(separatorIndex + 1).trim()
+
+    if (!name) {
+      continue
+    }
+
+    try {
+      cookies.set(name, decodeURIComponent(rawValue))
+    } catch {
+      cookies.set(name, rawValue)
+    }
+  }
+
+  return cookies
+}
+
+function buildDesktopAuthStateCookie(
+  request: Request,
+  value: string,
+  maxAge: number
+) {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : ""
+
+  return [
+    `${desktopAuthStateCookieName}=${encodeURIComponent(value)}`,
+    "HttpOnly",
+    "SameSite=Lax",
+    "Path=/",
+    `Max-Age=${maxAge}`,
+  ].join("; ") + secure
+}
+
+export function setDesktopAuthStateCookie(
+  response: Response,
+  request: Request,
+  nonce: string
+) {
+  response.headers.append(
+    "Set-Cookie",
+    buildDesktopAuthStateCookie(
+      request,
+      nonce,
+      DESKTOP_AUTH_STATE_COOKIE_MAX_AGE_SECONDS
+    )
+  )
+}
+
+export function clearDesktopAuthStateCookie(
+  response: Response,
+  request: Request
+) {
+  response.headers.append(
+    "Set-Cookie",
+    buildDesktopAuthStateCookie(request, "", 0)
+  )
+}
+
+export function createDesktopAuthState(input: {
   mode: "login" | "signup"
   nextPath?: string | null
 }) {
-  return JSON.stringify({
-    mode: input.mode,
-    nextPath: normalizeAuthNextPath(input.nextPath),
-    surface: "desktop",
-  })
+  const nonce = createDesktopAuthStateNonce()
+
+  return {
+    nonce,
+    state: JSON.stringify({
+      mode: input.mode,
+      nextPath: normalizeAuthNextPath(input.nextPath),
+      nonce,
+      surface: "desktop",
+    }),
+  }
+}
+
+function parseDesktopAuthState(
+  state: string | null | undefined
+):
+  | {
+      mode: AuthMode
+      nextPath: string
+      nonce: string
+    }
+  | null {
+  if (!state) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(state) as {
+      mode?: string
+      nextPath?: string
+      nonce?: string
+      surface?: string
+    }
+
+    if (
+      (parsed.mode !== "login" && parsed.mode !== "signup") ||
+      parsed.surface !== "desktop" ||
+      typeof parsed.nonce !== "string" ||
+      parsed.nonce.length === 0
+    ) {
+      return null
+    }
+
+    return {
+      mode: parsed.mode,
+      nextPath: normalizeAuthNextPath(parsed.nextPath),
+      nonce: parsed.nonce,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function validateDesktopAuthCallbackState(
+  request: Request,
+  state: string | null | undefined
+) {
+  const parsedState = parseDesktopAuthState(state)
+  const cookieNonce = parseCookieHeader(request.headers.get("cookie")).get(
+    desktopAuthStateCookieName
+  )
+
+  if (!parsedState || !cookieNonce) {
+    return null
+  }
+
+  return secretsMatch(cookieNonce, parsedState.nonce) ? parsedState : null
 }
 
 export function buildDesktopAuthCompleteUrl(input: {

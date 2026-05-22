@@ -27,7 +27,10 @@ const {
 const {
   createDesktopNotificationBridge,
 } = require("./desktop-notifications.cjs")
-const { createDesktopAuthStore } = require("./desktop-auth-store.cjs")
+const {
+  createDesktopAuthStore,
+  shouldPersistDesktopAuthTokens,
+} = require("./desktop-auth-store.cjs")
 const {
   submitDesktopPasswordLogin,
   submitDesktopPasswordSignup,
@@ -41,6 +44,7 @@ const {
 const { findAvailablePort, waitForUrl } = require("./local-server.cjs")
 const {
   isAllowedExternalUrl,
+  isTrustedDesktopBridgeSenderUrl,
   isTrustedInAppUrl,
 } = require("./navigation-policy.cjs")
 const {
@@ -67,7 +71,7 @@ let rendererUrl = null
 let desktopApiBaseUrl = null
 const desktopAuthStore = createDesktopAuthStore({
   app,
-  persistTokens: process.env.DESKTOP_ENABLE_AUTH_TOKEN_PERSISTENCE === "1",
+  persistTokens: shouldPersistDesktopAuthTokens(process.env),
   safeStorage,
 })
 
@@ -450,9 +454,30 @@ function registerDefaultSessionGuards() {
   )
 }
 
+function getIpcSenderUrl(event) {
+  return event.senderFrame?.url ?? event.sender?.getURL?.() ?? ""
+}
+
+function isTrustedDesktopBridgeEvent(event) {
+  return isTrustedDesktopBridgeSenderUrl(getIpcSenderUrl(event), {
+    rendererOrigin,
+    rendererUrl,
+  })
+}
+
 function registerDesktopAuthHandlers() {
-  ipcMain.handle("desktop-auth:get-token", () => desktopAuthStore.getToken())
-  ipcMain.handle("desktop-auth:set-token", (_event, value) => {
+  ipcMain.handle("desktop-auth:get-token", (event) => {
+    if (!isTrustedDesktopBridgeEvent(event)) {
+      return null
+    }
+
+    return desktopAuthStore.getToken()
+  })
+  ipcMain.handle("desktop-auth:set-token", (event, value) => {
+    if (!isTrustedDesktopBridgeEvent(event)) {
+      return false
+    }
+
     const didSetToken = desktopAuthStore.setToken(value)
     logDesktopStartup("desktop-auth.set-token", {
       didSetToken,
@@ -460,10 +485,21 @@ function registerDesktopAuthHandlers() {
 
     return didSetToken
   })
-  ipcMain.handle("desktop-auth:clear-token", () =>
-    desktopAuthStore.clearToken()
-  )
-  ipcMain.handle("desktop-auth:submit-password-login", async (_event, value) => {
+  ipcMain.handle("desktop-auth:clear-token", (event) => {
+    if (!isTrustedDesktopBridgeEvent(event)) {
+      return false
+    }
+
+    return desktopAuthStore.clearToken()
+  })
+  ipcMain.handle("desktop-auth:submit-password-login", async (event, value) => {
+    if (!isTrustedDesktopBridgeEvent(event)) {
+      return {
+        error: "Desktop sign-in is unavailable from this page.",
+        ok: false,
+      }
+    }
+
     logDesktopStartup("desktop-auth.submit-password-login", {
       apiBaseUrl: desktopApiBaseUrl,
       hasEmail: typeof value?.email === "string" && value.email.length > 0,
@@ -496,7 +532,14 @@ function registerDesktopAuthHandlers() {
   })
   ipcMain.handle(
     "desktop-auth:submit-password-signup",
-    async (_event, value) => {
+    async (event, value) => {
+      if (!isTrustedDesktopBridgeEvent(event)) {
+        return {
+          error: "Desktop sign-up is unavailable from this page.",
+          ok: false,
+        }
+      }
+
       logDesktopStartup("desktop-auth.submit-password-signup", {
         apiBaseUrl: desktopApiBaseUrl,
         hasEmail: typeof value?.email === "string" && value.email.length > 0,
@@ -543,13 +586,21 @@ function registerDesktopNotificationHandlers() {
     resolveRendererTargetUrl,
   })
 
-  ipcMain.handle("desktop-notifications:show", (_event, value) =>
-    desktopNotificationBridge.show(value)
-  )
+  ipcMain.handle("desktop-notifications:show", (event, value) => {
+    if (!isTrustedDesktopBridgeEvent(event)) {
+      return false
+    }
+
+    return desktopNotificationBridge.show(value)
+  })
 }
 
 function registerDesktopClipboardHandlers() {
-  ipcMain.handle("desktop-clipboard:write-text", (_event, value) => {
+  ipcMain.handle("desktop-clipboard:write-text", (event, value) => {
+    if (!isTrustedDesktopBridgeEvent(event)) {
+      return false
+    }
+
     if (typeof value !== "string" || value.length === 0) {
       return false
     }
