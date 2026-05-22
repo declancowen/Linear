@@ -18,6 +18,7 @@ const {
   BrowserWindow,
   clipboard,
   ipcMain,
+  Menu,
   nativeImage,
   Notification: NativeNotification,
   safeStorage,
@@ -27,6 +28,10 @@ const {
 const {
   createDesktopNotificationBridge,
 } = require("./desktop-notifications.cjs")
+const {
+  createDesktopUpdateManager,
+  shouldForceDesktopUpdateToastForActionResult,
+} = require("./desktop-updates.cjs")
 const {
   createDesktopAuthStore,
   shouldPersistDesktopAuthTokens,
@@ -51,6 +56,7 @@ const {
   resolveDesktopApiBaseUrl,
   resolvePackagedRendererUrl,
 } = require("./runtime-config.cjs")
+const { autoUpdater } = require("electron-updater")
 
 const appName = "Recipe Room"
 const desktopStartupLogPath = process.env.DESKTOP_STARTUP_LOG
@@ -69,6 +75,7 @@ let desktopIconPath = null
 let rendererOrigin = null
 let rendererUrl = null
 let desktopApiBaseUrl = null
+let desktopUpdateManager = null
 const desktopAuthStore = createDesktopAuthStore({
   app,
   persistTokens: shouldPersistDesktopAuthTokens(process.env),
@@ -465,6 +472,131 @@ function isTrustedDesktopBridgeEvent(event) {
   })
 }
 
+function getDesktopUpdateManager() {
+  if (!desktopUpdateManager) {
+    desktopUpdateManager = createDesktopUpdateManager({
+      app,
+      autoUpdater,
+      log: logDesktopStartup,
+      onStateChange: (state) => {
+        broadcastDesktopUpdateState({ state })
+      },
+    })
+  }
+
+  return desktopUpdateManager
+}
+
+function broadcastDesktopUpdateState({
+  showToast = false,
+  source = "state",
+  state,
+}) {
+  const window = getExistingMainWindow()
+
+  if (!window) {
+    return
+  }
+
+  window.webContents.send("desktop-updates:state", {
+    showToast,
+    source,
+    state: state ?? getDesktopUpdateManager().getState(),
+  })
+}
+
+async function checkDesktopUpdatesFromMenu() {
+  const updateManager = getDesktopUpdateManager()
+  const result = await updateManager.checkForUpdates("menu")
+
+  broadcastDesktopUpdateState({
+    showToast: true,
+    source: "menu",
+    state: result.state ?? updateManager.getState(),
+  })
+}
+
+function registerApplicationMenu() {
+  const appMenu =
+    process.platform === "darwin"
+      ? [
+          {
+            label: appName,
+            submenu: [
+              { role: "about" },
+              { type: "separator" },
+              {
+                label: "Check for Updates...",
+                click: () => {
+                  void checkDesktopUpdatesFromMenu()
+                },
+              },
+              { type: "separator" },
+              { role: "services" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideOthers" },
+              { role: "unhide" },
+              { type: "separator" },
+              { role: "quit" },
+            ],
+          },
+        ]
+      : []
+
+  const template = [
+    ...appMenu,
+    {
+      label: "File",
+      submenu: [
+        process.platform === "darwin" ? { role: "close" } : { role: "quit" },
+      ],
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        ...(process.platform === "darwin"
+          ? [{ type: "separator" }, { role: "front" }]
+          : [{ role: "close" }]),
+      ],
+    },
+    {
+      role: "help",
+      submenu: [],
+    },
+  ]
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 function registerDesktopAuthHandlers() {
   ipcMain.handle("desktop-auth:get-token", (event) => {
     if (!isTrustedDesktopBridgeEvent(event)) {
@@ -575,6 +707,95 @@ function registerDesktopAuthHandlers() {
       }
     }
   )
+}
+
+function registerDesktopUpdateHandlers() {
+  const updateManager = getDesktopUpdateManager()
+
+  ipcMain.handle("desktop-updates:get-app-info", (event) => {
+    if (!isTrustedDesktopBridgeEvent(event)) {
+      return null
+    }
+
+    return {
+      apiBaseUrl: desktopApiBaseUrl,
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      version: app.getVersion(),
+    }
+  })
+
+  ipcMain.handle("desktop-updates:get-state", (event) => {
+    if (!isTrustedDesktopBridgeEvent(event)) {
+      return {
+        configured: false,
+        disabledReason: "Desktop updates are unavailable from this page.",
+        status: "disabled",
+      }
+    }
+
+    return updateManager.getState()
+  })
+  ipcMain.handle("desktop-updates:check", async (event) => {
+    if (!isTrustedDesktopBridgeEvent(event)) {
+      return {
+        checked: false,
+        reason: "Desktop updates are unavailable from this page.",
+        state: updateManager.getState(),
+      }
+    }
+
+    const result = await updateManager.checkForUpdates("renderer")
+    broadcastDesktopUpdateState({
+      showToast: true,
+      source: "renderer",
+      state: result.state ?? updateManager.getState(),
+    })
+
+    return result
+  })
+  ipcMain.handle("desktop-updates:download", async (event) => {
+    if (!isTrustedDesktopBridgeEvent(event)) {
+      return {
+        accepted: false,
+        completed: false,
+        state: updateManager.getState(),
+      }
+    }
+
+    const result = await updateManager.downloadUpdate()
+
+    if (shouldForceDesktopUpdateToastForActionResult(result)) {
+      broadcastDesktopUpdateState({
+        showToast: true,
+        source: "renderer",
+        state: result.state ?? updateManager.getState(),
+      })
+    }
+
+    return result
+  })
+  ipcMain.handle("desktop-updates:install", (event) => {
+    if (!isTrustedDesktopBridgeEvent(event)) {
+      return {
+        accepted: false,
+        completed: false,
+        state: updateManager.getState(),
+      }
+    }
+
+    const result = updateManager.installUpdate()
+
+    if (shouldForceDesktopUpdateToastForActionResult(result)) {
+      broadcastDesktopUpdateState({
+        showToast: true,
+        source: "renderer",
+        state: result.state ?? updateManager.getState(),
+      })
+    }
+
+    return result
+  })
 }
 
 function registerDesktopNotificationHandlers() {
@@ -688,49 +909,56 @@ if (!hasSingleInstanceLock) {
     void handleDesktopDeepLink(url)
   })
 
-  app.whenReady().then(async () => {
-    logDesktopStartup("app.ready", {
-      appPath: app.getAppPath(),
-      isPackaged: app.isPackaged,
-      remoteDebuggingEnabled: /^\d+$/.test(desktopRemoteDebuggingPort ?? ""),
-    })
-    desktopApiBaseUrl = resolveDesktopApiBaseUrl(app.getAppPath())
-    logDesktopStartup("app.desktop-api-base-url", {
-      desktopApiBaseUrl,
-    })
-    logDesktopStartup("app.resolve-icon-start")
-    const desktopIcon = resolveDesktopIcon()
-    desktopIconPath = desktopIcon?.iconPath
-    logDesktopStartup("app.resolve-icon-complete", {
-      hasIcon: Boolean(desktopIconPath),
-    })
+  app
+    .whenReady()
+    .then(async () => {
+      logDesktopStartup("app.ready", {
+        appPath: app.getAppPath(),
+        isPackaged: app.isPackaged,
+        remoteDebuggingEnabled: /^\d+$/.test(desktopRemoteDebuggingPort ?? ""),
+      })
+      desktopApiBaseUrl = resolveDesktopApiBaseUrl(app.getAppPath())
+      logDesktopStartup("app.desktop-api-base-url", {
+        desktopApiBaseUrl,
+      })
+      logDesktopStartup("app.resolve-icon-start")
+      const desktopIcon = resolveDesktopIcon()
+      desktopIconPath = desktopIcon?.iconPath
+      logDesktopStartup("app.resolve-icon-complete", {
+        hasIcon: Boolean(desktopIconPath),
+      })
 
-    app.setAboutPanelOptions({
-      applicationName: appName,
-    })
-    logDesktopStartup("app.register-session-guards-start")
-    registerDefaultSessionGuards()
-    logDesktopStartup("app.load-auth-token-start")
-    desktopAuthStore.loadToken()
-    logDesktopStartup("app.load-auth-token-complete", {
-      hasToken: Boolean(desktopAuthStore.getToken()),
-    })
-    logDesktopStartup("app.register-auth-handlers-start")
-    registerDesktopAuthHandlers()
-    logDesktopStartup("app.register-notification-handlers-start")
-    registerDesktopNotificationHandlers()
-    registerDesktopClipboardHandlers()
+      app.setAboutPanelOptions({
+        applicationName: appName,
+      })
+      registerApplicationMenu()
+      logDesktopStartup("app.register-session-guards-start")
+      registerDefaultSessionGuards()
+      logDesktopStartup("app.load-auth-token-start")
+      desktopAuthStore.loadToken()
+      logDesktopStartup("app.load-auth-token-complete", {
+        hasToken: Boolean(desktopAuthStore.getToken()),
+      })
+      logDesktopStartup("app.register-auth-handlers-start")
+      registerDesktopAuthHandlers()
+      logDesktopStartup("app.register-notification-handlers-start")
+      registerDesktopNotificationHandlers()
+      logDesktopStartup("app.register-update-handlers-start")
+      registerDesktopUpdateHandlers()
+      registerDesktopClipboardHandlers()
 
-    await createWindow(desktopIconPath)
+      await createWindow(desktopIconPath)
+      getDesktopUpdateManager().configure()
 
-    app.on("activate", async () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        await createWindow(desktopIconPath)
-      }
+      app.on("activate", async () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          await createWindow(desktopIconPath)
+        }
+      })
     })
-  }).catch((error) => {
-    logDesktopStartupError("app.ready-error", error)
-  })
+    .catch((error) => {
+      logDesktopStartupError("app.ready-error", error)
+    })
 }
 
 app.on("before-quit", () => {

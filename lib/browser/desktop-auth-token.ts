@@ -14,16 +14,52 @@ async function getElectronDesktopAuthToken() {
   }
 }
 
-export async function buildDesktopAuthHeaders(headersInit?: HeadersInit) {
-  const headers = new Headers(headersInit)
+type DesktopAppInfo = Awaited<
+  ReturnType<
+    NonNullable<NonNullable<Window["electronApp"]>["getDesktopAppInfo"]>
+  >
+>
 
-  if (headers.has("Authorization")) {
-    return headers
+let desktopAppInfoPromise: Promise<DesktopAppInfo> | null = null
+
+async function getElectronDesktopAppInfo() {
+  if (
+    typeof window === "undefined" ||
+    window.electronApp?.isElectron !== true ||
+    typeof window.electronApp.getDesktopAppInfo !== "function"
+  ) {
+    return null
   }
 
-  const token = await getElectronDesktopAuthToken()
+  desktopAppInfoPromise ??= window.electronApp
+    .getDesktopAppInfo()
+    .catch((error) => {
+      desktopAppInfoPromise = null
+      throw error
+    })
 
-  if (token) {
+  return desktopAppInfoPromise.catch(() => null)
+}
+
+export async function buildDesktopAuthHeaders(headersInit?: HeadersInit) {
+  const headers = new Headers(headersInit)
+  const appInfo = await getElectronDesktopAppInfo()
+
+  if (appInfo?.version) {
+    headers.set("X-Recipe-Room-Desktop-Version", appInfo.version)
+  }
+
+  if (appInfo?.platform) {
+    headers.set("X-Recipe-Room-Desktop-Platform", appInfo.platform)
+  }
+
+  if (!headers.has("Authorization")) {
+    const token = await getElectronDesktopAuthToken()
+
+    if (!token) {
+      return headers
+    }
+
     headers.set("Authorization", `Bearer ${token}`)
   }
 

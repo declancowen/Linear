@@ -12,13 +12,18 @@ const require = createRequire(import.meta.url)
 const { resolveDeepLinkScheme } = require("../electron/deep-links.cjs")
 
 const repoRoot = path.resolve(__dirname, "..")
-const appBundlePath = path.join(repoRoot, "dist", "electron", "Recipe Room.app")
-const archivePath = path.join(
-  repoRoot,
-  "dist",
-  "electron",
+const electronOutputDir = path.join(repoRoot, "dist", "electron")
+const appBundlePath = path.join(electronOutputDir, "Recipe Room.app")
+const releaseArchivePath = path.join(
+  electronOutputDir,
+  "Recipe-Room-mac-arm64.zip"
+)
+const legacyArchivePath = path.join(
+  electronOutputDir,
   "Recipe Room-mac-arm64.zip"
 )
+const releaseDmgPath = path.join(electronOutputDir, "Recipe-Room-mac-arm64.dmg")
+const releaseUpdateManifestPath = path.join(electronOutputDir, "latest-mac.yml")
 const rendererDir = path.join(repoRoot, "dist", "desktop-renderer")
 const rendererIndexPath = path.join(rendererDir, "index.html")
 const rendererAssetsDir = path.join(rendererDir, "assets")
@@ -336,6 +341,27 @@ function isInternalReleasePolicy(releasePolicy) {
   return releasePolicy?.channel === "internal" && !publicReleaseMode
 }
 
+function expectsGitHubReleaseArtifacts(releasePolicy) {
+  return (
+    process.env.DESKTOP_RELEASE_ARTIFACTS === "1" ||
+    publicReleaseMode ||
+    releasePolicy?.distribution === "github-release-dmg" ||
+    releasePolicy?.updates === "electron-updater-github-releases"
+  )
+}
+
+async function resolveDesktopArchivePath() {
+  for (const candidatePath of [releaseArchivePath, legacyArchivePath]) {
+    if (await pathExists(candidatePath)) {
+      return candidatePath
+    }
+  }
+
+  return expectsGitHubReleaseArtifacts(await loadReleasePolicy())
+    ? releaseArchivePath
+    : legacyArchivePath
+}
+
 function getUsableEnvValue(env, key) {
   const entry = env.get(key)
 
@@ -346,12 +372,20 @@ function getUsableEnvValue(env, key) {
   return entry.value
 }
 
-async function checkArtifactPresence() {
+async function checkArtifactPresence(releasePolicy) {
+  const archivePath = await resolveDesktopArchivePath()
   const artifactChecks = [
     ["Packaged app bundle", appBundlePath],
     ["Desktop archive", archivePath],
     ["Packaged renderer entry", rendererIndexPath],
   ]
+
+  if (expectsGitHubReleaseArtifacts(releasePolicy)) {
+    artifactChecks.push(
+      ["Desktop DMG", releaseDmgPath],
+      ["macOS updater manifest", releaseUpdateManifestPath]
+    )
+  }
 
   for (const [name, artifactPath] of artifactChecks) {
     if (await pathExists(artifactPath)) {
@@ -498,6 +532,8 @@ async function checkInfoPlist() {
 }
 
 async function extractArchiveForVerification() {
+  const archivePath = await resolveDesktopArchivePath()
+
   if (!(await pathExists(archivePath))) {
     return {
       error: `${path.relative(repoRoot, archivePath)} is missing`,
@@ -670,8 +706,9 @@ async function checkMacSigning(releasePolicy) {
 }
 
 function collectRootAbsoluteAssetReferences(indexHtml) {
-  return [...indexHtml.matchAll(/\b(?:src|href)=["']\/assets\/[^"']+["']/gu)]
-    .map((match) => match[0])
+  return [
+    ...indexHtml.matchAll(/\b(?:src|href)=["']\/assets\/[^"']+["']/gu),
+  ].map((match) => match[0])
 }
 
 function checkRendererAssetUrls(indexHtml) {
@@ -1332,7 +1369,7 @@ const env = await loadEnvSnapshot()
 const releasePolicy = await loadReleasePolicy()
 const vercelProductionEnvNames = await loadVercelProductionEnvNames()
 
-await checkArtifactPresence()
+await checkArtifactPresence(releasePolicy)
 await checkInfoPlist()
 await checkMacSigning(releasePolicy)
 await checkRendererBundle()

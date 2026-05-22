@@ -1,6 +1,15 @@
 export {}
 
 declare global {
+  type DesktopUpdateState = {
+    availableVersion?: string | null
+    configured: boolean
+    disabledReason?: string | null
+    downloadedVersion?: string | null
+    message?: string | null
+    status: string
+  }
+
   interface Window {
     electronApp?: {
       clearDesktopAuthToken?: () => Promise<boolean>
@@ -32,6 +41,38 @@ declare global {
         error?: string
         ok: boolean
       }>
+      getDesktopAppInfo?: () => Promise<{
+        apiBaseUrl?: string | null
+        isPackaged: boolean
+        platform: string
+        version: string
+      } | null>
+      getUpdateState?: () => Promise<DesktopUpdateState>
+      checkForUpdate?: () => Promise<{
+        checked: boolean
+        error?: string
+        reason?: string
+        state: DesktopUpdateState
+      }>
+      downloadUpdate?: () => Promise<{
+        accepted: boolean
+        completed: boolean
+        error?: string
+        state?: DesktopUpdateState
+      }>
+      installUpdate?: () => Promise<{
+        accepted: boolean
+        completed: boolean
+        error?: string
+        state?: DesktopUpdateState
+      }>
+      onUpdateState?: (
+        listener: (payload: {
+          showToast?: boolean
+          source?: string
+          state: DesktopUpdateState
+        }) => void
+      ) => () => void
     }
   }
 }

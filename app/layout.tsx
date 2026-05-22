@@ -4,6 +4,7 @@ import { headers } from "next/headers"
 import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components"
 
 import "./globals.css"
+import { DesktopUpdateController } from "@/components/app/desktop-update-controller"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner"
@@ -67,6 +68,7 @@ export default async function RootLayout({
           <ThemeProvider nonce={nonce}>
             <TooltipProvider>
               {children}
+              <DesktopUpdateController />
               <Toaster />
             </TooltipProvider>
           </ThemeProvider>

@@ -16,6 +16,9 @@ const {
   resolveConfiguredDesktopApiBaseUrl,
   resolveConfiguredRendererUrl,
 } = require("../electron/renderer-url-config.cjs")
+const {
+  resolveGitHubUpdatePublishConfig,
+} = require("../electron/desktop-updates.cjs")
 const repoRoot = path.resolve(__dirname, "..")
 const VERCEL_PRODUCTION_ENV_FILE = ".env.vercel.production.local"
 const outputDir = path.join(repoRoot, "dist", "electron")
@@ -29,6 +32,8 @@ const shouldForceCodeSigning =
 const shouldUseHardenedRuntime =
   isReleaseBuild || process.env.DESKTOP_HARDENED_RUNTIME === "1"
 const shouldNotarize = isReleaseBuild || process.env.DESKTOP_NOTARIZE === "1"
+const shouldBuildReleaseArtifacts =
+  isReleaseBuild || process.env.DESKTOP_RELEASE_ARTIFACTS === "1"
 const configuredMacIdentity = process.env.DESKTOP_MAC_IDENTITY?.trim()
 const macIdentity = isReleaseBuild
   ? configuredMacIdentity || undefined
@@ -73,6 +78,42 @@ function run(command, args, options = {}) {
       }
 
       resolve()
+    })
+  })
+}
+
+function runCapture(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      ...options,
+    })
+    const stdout = []
+    const stderr = []
+
+    child.stdout.on("data", (chunk) => {
+      stdout.push(chunk)
+    })
+    child.stderr.on("data", (chunk) => {
+      stderr.push(chunk)
+    })
+    child.on("error", reject)
+    child.on("exit", (code, signal) => {
+      if (signal) {
+        reject(new Error(`${command} exited with signal ${signal}`))
+        return
+      }
+
+      if (code !== 0) {
+        reject(
+          new Error(
+            `${command} exited with code ${code}: ${Buffer.concat(stderr).toString("utf8")}`
+          )
+        )
+        return
+      }
+
+      resolve(Buffer.concat(stdout).toString("utf8"))
     })
   })
 }
@@ -165,12 +206,90 @@ async function stripMacFileExtendedAttributes(targetPath) {
   await removeMacExtendedAttribute(targetPath, "com.apple.ResourceFork")
 }
 
+async function readGitRemoteOriginUrl() {
+  try {
+    const value = await runCapture(
+      "git",
+      ["config", "--get", "remote.origin.url"],
+      {
+        cwd: repoRoot,
+      }
+    )
+
+    return value.trim() || null
+  } catch {
+    return null
+  }
+}
+
+async function resolveDesktopUpdatePublishConfigForBuild() {
+  const updateRepository =
+    process.env.DESKTOP_UPDATE_REPOSITORY?.trim() ||
+    process.env.GITHUB_REPOSITORY?.trim() ||
+    (await readGitRemoteOriginUrl())
+
+  return resolveGitHubUpdatePublishConfig({
+    ...process.env,
+    DESKTOP_UPDATE_REPOSITORY: updateRepository ?? "",
+  })
+}
+
+async function copyReleaseArtifacts(sourceDir, targetDir) {
+  const releaseExtensions = new Set([".blockmap", ".dmg", ".yml", ".zip"])
+  const copiedPaths = []
+  const entries = await fs.readdir(sourceDir, { withFileTypes: true })
+
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue
+    }
+
+    const sourcePath = path.join(sourceDir, entry.name)
+    const extension = path.extname(entry.name)
+    const isMacUpdateManifest = entry.name === "latest-mac.yml"
+
+    if (
+      !releaseExtensions.has(extension) ||
+      (extension === ".yml" && !isMacUpdateManifest)
+    ) {
+      continue
+    }
+
+    const targetPath = path.join(targetDir, entry.name)
+    await fs.copyFile(sourcePath, targetPath)
+    await stripMacFileExtendedAttributes(targetPath)
+    copiedPaths.push(targetPath)
+  }
+
+  const hasDmg = copiedPaths.some((filePath) => filePath.endsWith(".dmg"))
+  const hasZip = copiedPaths.some((filePath) => filePath.endsWith(".zip"))
+  const hasMacUpdateManifest = copiedPaths.some(
+    (filePath) => path.basename(filePath) === "latest-mac.yml"
+  )
+
+  if (!hasDmg || !hasZip || !hasMacUpdateManifest) {
+    throw new Error(
+      "Release artifact build must produce a DMG, ZIP, and latest-mac.yml for GitHub updates."
+    )
+  }
+
+  return copiedPaths
+}
+
 async function main() {
   const desktopPackageEnv = await loadDesktopPackageEnv()
+  const desktopUpdatePublishConfig =
+    await resolveDesktopUpdatePublishConfigForBuild()
 
   if (isReleaseBuild && !hasNotarizationCredentials(process.env)) {
     throw new Error(
       "DESKTOP_RELEASE=1 requires Apple notarization credentials. Set APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER; or APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID; or APPLE_KEYCHAIN and APPLE_KEYCHAIN_PROFILE."
+    )
+  }
+
+  if (shouldBuildReleaseArtifacts && !desktopUpdatePublishConfig) {
+    throw new Error(
+      "DESKTOP_RELEASE_ARTIFACTS=1 requires a GitHub update repository. Set DESKTOP_UPDATE_REPOSITORY=owner/repo or configure the git origin as a GitHub remote."
     )
   }
 
@@ -229,9 +348,17 @@ async function main() {
       author: "Recipe Room",
       main: "electron/main.cjs",
       type: "module",
+      dependencies: {
+        "electron-updater":
+          rootPackageJson.dependencies["electron-updater"] ??
+          rootPackageJson.devDependencies["electron-updater"],
+      },
       build: {
         appId: "io.reciperoom.desktop",
         productName: "Recipe Room",
+        artifactName: shouldBuildReleaseArtifacts
+          ? "Recipe-Room-mac-${arch}.${ext}"
+          : "Recipe Room-${version}-${arch}.${ext}",
         electronVersion: rootPackageJson.devDependencies.electron.replace(
           /^\^/,
           ""
@@ -256,11 +383,14 @@ async function main() {
             schemes: [desktopDeepLinkScheme],
           },
         ],
+        ...(desktopUpdatePublishConfig
+          ? { publish: [desktopUpdatePublishConfig] }
+          : {}),
         extraMetadata: {
           main: "electron/main.cjs",
         },
         mac: {
-          target: ["dir"],
+          target: shouldBuildReleaseArtifacts ? ["dmg", "zip"] : ["dir"],
           icon: "electron/app-icon.icns",
           category: "public.app-category.productivity",
           identity: macIdentity,
@@ -282,6 +412,21 @@ async function main() {
               },
             },
           },
+        },
+        dmg: {
+          contents: [
+            {
+              x: 150,
+              y: 220,
+            },
+            {
+              path: "/Applications",
+              type: "link",
+              x: 410,
+              y: 220,
+            },
+          ],
+          title: "Recipe Room ${version}",
         },
       },
     }
@@ -306,7 +451,7 @@ async function main() {
         "--projectDir",
         stageDir,
         "--mac",
-        "dir",
+        "--arm64",
         "--publish",
         "never",
       ],
@@ -333,30 +478,42 @@ async function main() {
       await stripMacExtendedAttributes(installedAppPath)
     }
 
-    const archivePath = path.join(outputDir, "Recipe Room-mac-arm64.zip")
-    await run(
-      "ditto",
-      [
-        "-c",
-        "-k",
-        "--sequesterRsrc",
-        "--keepParent",
-        "--noextattr",
-        "--noqtn",
-        appPath,
-        archivePath,
-      ],
-      {
-        cwd: repoRoot,
-      }
-    )
-    await stripMacFileExtendedAttributes(archivePath)
+    let releaseArtifactPaths = []
+
+    if (shouldBuildReleaseArtifacts) {
+      releaseArtifactPaths = await copyReleaseArtifacts(
+        stageOutputDir,
+        outputDir
+      )
+    } else {
+      const archivePath = path.join(outputDir, "Recipe Room-mac-arm64.zip")
+      await run(
+        "ditto",
+        [
+          "-c",
+          "-k",
+          "--sequesterRsrc",
+          "--keepParent",
+          "--noextattr",
+          "--noqtn",
+          appPath,
+          archivePath,
+        ],
+        {
+          cwd: repoRoot,
+        }
+      )
+      await stripMacFileExtendedAttributes(archivePath)
+      releaseArtifactPaths = [archivePath]
+    }
 
     console.log(`Built desktop app: ${outputAppPath}`)
     if (shouldInstallBuiltApp) {
       console.log(`Installed desktop app: ${installedAppPath}`)
     }
-    console.log(`Built desktop archive: ${archivePath}`)
+    for (const artifactPath of releaseArtifactPaths) {
+      console.log(`Built desktop artifact: ${artifactPath}`)
+    }
   } finally {
     await fs.rm(stageRoot, { force: true, recursive: true })
   }

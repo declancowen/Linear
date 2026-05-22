@@ -10,6 +10,7 @@ import {
   useState,
 } from "react"
 import {
+  AppleLogo,
   Bell,
   CalendarBlank,
   CaretDown,
@@ -81,6 +82,7 @@ import {
   openTopLevelDialog,
 } from "@/lib/browser/dialog-transitions"
 import { showDesktopNotification } from "@/lib/browser/desktop-notifications"
+import { isSupportedMacDesktopDownloadBrowser } from "@/lib/browser/desktop-download-eligibility"
 import { navigateToLogout } from "@/lib/browser/logout"
 import {
   optionalWorkspaceDescriptionConstraints,
@@ -172,6 +174,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { Textarea } from "@/components/ui/textarea"
+import { DEFAULT_DESKTOP_MAC_DOWNLOAD_URL } from "@/lib/desktop/update-policy"
 
 type AppShellProps = {
   children: ReactNode
@@ -184,6 +187,29 @@ type ShellNotificationRouteData = Pick<
 
 const SHELL_CONTEXT_GRACE_PERIOD_MS = 1000
 const NOTIFICATION_TOAST_DURATION_MS = 5000
+const DESKTOP_MAC_DOWNLOAD_URL =
+  process.env.NEXT_PUBLIC_DESKTOP_MAC_DOWNLOAD_URL ??
+  DEFAULT_DESKTOP_MAC_DOWNLOAD_URL
+
+function useShowMacDesktopDownload() {
+  const [showDownload, setShowDownload] = useState(false)
+
+  useEffect(() => {
+    let isMounted = true
+
+    void isSupportedMacDesktopDownloadBrowser().then((isSupported) => {
+      if (isMounted) {
+        setShowDownload(isSupported)
+      }
+    })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  return showDownload
+}
 
 function isUnreadNotificationForCurrentUser(
   notification: Notification,
@@ -601,10 +627,7 @@ function useShellSearchController(router: AppRouter) {
   }
 }
 
-function useShellLeaveDialogs(input: {
-  pathname: string
-  router: AppRouter
-}) {
+function useShellLeaveDialogs(input: { pathname: string; router: AppRouter }) {
   const [teamPendingLeave, setTeamPendingLeave] = useState<{
     id: string
     slug: string
@@ -1496,6 +1519,7 @@ function ShellWorkspaceMenu({
   onSwitchWorkspace: (workspaceId: string) => void
 }) {
   const [editWorkspaceOpen, setEditWorkspaceOpen] = useState(false)
+  const showMacDesktopDownload = useShowMacDesktopDownload()
 
   return (
     <>
@@ -1591,6 +1615,21 @@ function ShellWorkspaceMenu({
                           >
                             <SignOut />
                             Leave workspace
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
+                      {showMacDesktopDownload ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem asChild>
+                            <a
+                              href={DESKTOP_MAC_DOWNLOAD_URL}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              <AppleLogo className="text-fg-3" weight="fill" />
+                              Download desktop app
+                            </a>
                           </DropdownMenuItem>
                         </>
                       ) : null}
