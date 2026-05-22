@@ -14,9 +14,13 @@ async function getElectronDesktopAuthToken() {
   }
 }
 
-let desktopAppInfoPromise: ReturnType<
-  NonNullable<NonNullable<Window["electronApp"]>["getDesktopAppInfo"]>
-> | null = null
+type DesktopAppInfo = Awaited<
+  ReturnType<
+    NonNullable<NonNullable<Window["electronApp"]>["getDesktopAppInfo"]>
+  >
+>
+
+let desktopAppInfoPromise: Promise<DesktopAppInfo> | null = null
 
 async function getElectronDesktopAppInfo() {
   if (
@@ -27,7 +31,12 @@ async function getElectronDesktopAppInfo() {
     return null
   }
 
-  desktopAppInfoPromise ??= window.electronApp.getDesktopAppInfo()
+  desktopAppInfoPromise ??= window.electronApp
+    .getDesktopAppInfo()
+    .catch((error) => {
+      desktopAppInfoPromise = null
+      throw error
+    })
 
   return desktopAppInfoPromise.catch(() => null)
 }

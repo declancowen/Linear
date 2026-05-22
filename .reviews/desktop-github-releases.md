@@ -4,8 +4,8 @@
 
 | Field         | Value                |
 | ------------- | -------------------- |
-| Last reviewed | 2026-05-22 12:54 BST |
-| Total turns   | 1                    |
+| Last reviewed | 2026-05-22 13:24 BST |
+| Total turns   | 2                    |
 | Open findings | 0                    |
 
 ## Hotspots
@@ -13,6 +13,43 @@
 - macOS update feed requires both GitHub release assets and packaged `app-update.yml`.
 - Public macOS auto-install still requires Developer ID signing and notarization.
 - Desktop/web compatibility depends on hosted API contract compatibility across at least one previous desktop release.
+- Mac release artifacts must stay pinned to the stable arm64 asset contract until universal/x64 distribution is intentionally designed.
+
+## Turn 2 - 2026-05-22 13:24 BST
+
+**Outcome:** No open Critical/High findings after importing the Codex PR review and fixing the two live review items.
+
+**Risk:** High. The external findings touched the macOS release contract and the desktop/API compatibility headers that support server-driven minimum-version policy.
+
+**Archetypes:** external PR finding import, release artifact contract, transient IPC failure recovery, desktop/web compatibility, operational preflight.
+
+**Finding import:**
+
+| Source | Finding | Current status | Bug class | Missed invariant / variant | Action |
+| ------ | ------- | -------------- | --------- | -------------------------- | ------ |
+| Codex PR review | Release packaging used `--mac` without an explicit architecture while public asset names and URLs are arm64-specific | Resolved | Contract Encoding / Compatibility | The published artifact architecture must match the stable updater/download contract on every build host | Added `--arm64` to the `electron-builder` invocation and rebuilt the release path once to confirm `arch=arm64` artifacts. |
+| Codex PR review | A transient `getDesktopAppInfo()` bridge rejection cached a rejected promise for the rest of the session | Resolved | Lifecycle And Transient Containers / Compatibility | Desktop version/platform header discovery must retry after transient IPC failure | Reset the cached app-info promise on rejection and added a regression test proving the second request recovers and sends version/platform headers. |
+
+**Architecture review:** The arm64 guarantee belongs in the packaging script because the script owns the release artifact contract. The retry fix stays in `lib/browser/desktop-auth-token.ts`, the narrow browser bridge boundary that assembles desktop API headers. No server secrets or update policy rules moved into the Electron bundle.
+
+**Branch-totality and sibling closure:** Rechecked the release script, publisher/preflight expectations, desktop update policy headers, preload app-info IPC shape, and the prior desktop GitHub release hotspots. The same app-info helper is used by route mutations and fetch-backed event streams, so both recover from the retry fix.
+
+**Static/analyzer evidence:** `diff-review` and `architecture-standards` preflights were rerun. `fallow audit --changed-since origin/main` still reports advisory complexity/duplication in the broader desktop release scripts and Electron main process; this is not a zero-static-debt branch, and CI currently treats Fallow as advisory (`continue-on-error`). The latest PR review fixes did not add new branchy logic beyond resetting the cached promise on failure and pinning the builder architecture.
+
+**Verification:**
+
+- `pnpm vitest run tests/lib/browser/desktop-auth-token.test.ts tests/electron/desktop-updates.test.ts tests/desktop/renderer-smoke.test.tsx tests/lib/desktop-update-policy.test.ts`
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm desktop:release:mac` - ran once before the merge-only rebuild policy was clarified; confirmed electron-builder used `arch=arm64` and emitted the stable `Recipe-Room-mac-arm64.*` artifacts.
+- `DESKTOP_RELEASE_ARTIFACTS=1 pnpm desktop:release:preflight`
+- `pnpm build`
+- `git diff --check`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh`
+- `pnpm exec fallow audit --changed-since origin/main --format compact --quiet`
+
+**Residual risk:** No GitHub Release was published and no final Electron distribution artifact should be treated as release-ready until after PR merge and a fresh main-branch rebuild. Preflight still reports the expected public-release pending items for Developer ID signing, Gatekeeper acceptance, notarization, and hosted/dashboard checks.
 
 ## Turn 1 - 2026-05-22 12:54 BST
 

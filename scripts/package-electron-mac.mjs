@@ -451,6 +451,7 @@ async function main() {
         "--projectDir",
         stageDir,
         "--mac",
+        "--arm64",
         "--publish",
         "never",
       ],
