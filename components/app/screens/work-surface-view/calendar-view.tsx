@@ -4930,11 +4930,15 @@ export function CalendarView({
         </div>
 
         {selectedItem ? (
-          <div data-testid="calendar-detail-slot" className="min-h-0 shrink-0">
+          <div
+            data-testid="calendar-detail-slot"
+            className="flex h-full min-h-0 shrink-0 overflow-hidden"
+          >
             <WorkItemDetailSidebarSurface
               data={data}
               currentItem={selectedItem}
               editable={isItemEditable(selectedItem)}
+              headerClassName="h-[37px]"
               variant="inline"
               onClose={() => setSelectedItemId(null)}
             />

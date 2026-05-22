@@ -64,17 +64,20 @@ vi.mock("@/components/app/screens/work-item-detail-screen", () => ({
   WorkItemDetailSidebarSurface: ({
     currentItem,
     editable,
+    headerClassName,
     onClose,
     variant = "docked",
   }: {
     currentItem: { title: string }
     editable?: boolean
+    headerClassName?: string
     onClose?: () => void
     variant?: "docked" | "floating" | "inline"
   }) => (
     <div
       data-testid={`${variant}-detail`}
       data-editable={String(Boolean(editable))}
+      data-header-class-name={headerClassName}
     >
       <button type="button" onClick={onClose}>
         Close detail
@@ -1375,6 +1378,11 @@ describe("CalendarView", () => {
     expect(screen.getByTestId("calendar-detail-slot")).toContainElement(
       screen.getByTestId("inline-detail")
     )
+    expect(screen.getByTestId("calendar-detail-slot")).toHaveClass("h-full")
+    expect(screen.getByTestId("inline-detail")).toHaveAttribute(
+      "data-header-class-name",
+      "h-[37px]"
+    )
     expect(screen.getByTestId("calendar-main-surface")).toBeInTheDocument()
 
     fireEvent.click(eventCard)
@@ -1762,10 +1770,29 @@ describe("TimelineView primitives", () => {
     expect(screen.getByTestId("timeline-detail-slot")).toContainElement(
       screen.getByTestId("inline-detail")
     )
+    expect(screen.getByTestId("timeline-detail-slot")).toHaveClass("h-full")
+    expect(screen.getByTestId("timeline-main-surface")).toBeInTheDocument()
+    expect(screen.getByTestId("timeline-view")).toContainElement(
+      screen.getByTestId("timeline-detail-slot")
+    )
+    expect(screen.getByTestId("inline-detail")).toHaveAttribute(
+      "data-header-class-name",
+      "h-8"
+    )
 
     fireEvent.click(timelineLink)
 
     expect(screen.queryByTestId("inline-detail")).not.toBeInTheDocument()
+
+    const timelineBar = screen.getByRole("button", { name: item.key })
+
+    fireEvent.pointerDown(timelineBar, { clientX: 0, clientY: 0 })
+    fireEvent.pointerUp(timelineBar, { clientX: 0, clientY: 0 })
+    fireEvent.click(timelineBar, { clientX: 0, clientY: 0 })
+
+    expect(screen.getByTestId("timeline-detail-slot")).toContainElement(
+      screen.getByTestId("inline-detail")
+    )
   })
 
   it("computes drag patches and rejects invalid timeline drops", () => {

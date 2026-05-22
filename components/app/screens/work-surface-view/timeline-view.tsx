@@ -170,7 +170,10 @@ export function TimelineView({
         data-detail-open={selectedItem ? "true" : "false"}
         className="flex h-full min-h-0 w-full min-w-0 overflow-hidden"
       >
-        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div
+          data-testid="timeline-main-surface"
+          className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+        >
           <TimelineFrame
             data={data}
             days={days}
@@ -195,11 +198,15 @@ export function TimelineView({
           />
         </div>
         {selectedItem ? (
-          <div data-testid="timeline-detail-slot" className="min-h-0 shrink-0">
+          <div
+            data-testid="timeline-detail-slot"
+            className="flex h-full min-h-0 shrink-0 overflow-hidden"
+          >
             <WorkItemDetailSidebarSurface
               data={data}
               currentItem={selectedItem}
               editable={editable}
+              headerClassName={TIMELINE_HEADER_TOP_ROW_HEIGHT_CLASS}
               variant="inline"
               onClose={() => setSelectedItemId(null)}
             />

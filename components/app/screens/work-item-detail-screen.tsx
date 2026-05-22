@@ -4157,6 +4157,7 @@ function WorkItemDetailSidebar({
   linkedDocuments,
   currentUserId,
   variant = "docked",
+  headerClassName,
   onCopyItemLink,
   onClose,
   onStatusChange,
@@ -4195,6 +4196,7 @@ function WorkItemDetailSidebar({
   linkedDocuments: AppDocument[]
   currentUserId: string
   variant?: WorkItemDetailSidebarVariant
+  headerClassName?: string
   onCopyItemLink: () => void
   onClose?: () => void
   onToggleChildComposer: () => void
@@ -4205,7 +4207,12 @@ function WorkItemDetailSidebar({
 
   const content = (
     <>
-      <div className="flex h-9 items-center gap-1 border-b border-line-soft px-3">
+      <div
+        className={cn(
+          "flex items-center gap-1 border-b border-line-soft px-3",
+          headerClassName ?? "h-9"
+        )}
+      >
         <span className="mr-2 font-mono text-[12px] text-fg-3">
           {currentItem.key}
         </span>
@@ -4333,6 +4340,7 @@ export function WorkItemDetailSidebarSurface({
   data,
   currentItem,
   editable,
+  headerClassName,
   open = true,
   variant = "docked",
   onClose,
@@ -4341,6 +4349,7 @@ export function WorkItemDetailSidebarSurface({
   data: AppData
   currentItem: WorkItem
   editable: boolean
+  headerClassName?: string
   open?: boolean
   variant?: WorkItemDetailSidebarVariant
   onClose?: () => void
@@ -4404,6 +4413,7 @@ export function WorkItemDetailSidebarSurface({
         linkedDocuments={detailModel.linkedDocuments}
         currentUserId={data.currentUserId}
         variant={variant}
+        headerClassName={headerClassName}
         onClose={onClose}
         onCopyItemLink={handleCopyItemLink}
         {...propertyHandlers}
