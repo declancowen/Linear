@@ -81,6 +81,8 @@ export function buildAuthPageHref(
     error?: string | null
     notice?: string | null
     email?: string | null
+    firstName?: string | null
+    lastName?: string | null
   }
 ) {
   return buildAuthRoutePath(`/${mode}`, {
@@ -88,6 +90,8 @@ export function buildAuthPageHref(
     error: options?.error,
     notice: options?.notice,
     email: options?.email,
+    firstName: options?.firstName,
+    lastName: options?.lastName,
   })
 }
 

@@ -33,6 +33,7 @@ export async function GET(request: Request) {
     return redirectToRoute(
       request,
       buildDesktopAuthCompleteUrl({
+        mode: state?.mode,
         nextPath: state?.nextPath,
         error,
       })
@@ -60,6 +61,7 @@ export async function GET(request: Request) {
     return redirectToRoute(
       request,
       buildDesktopAuthCompleteUrl({
+        mode: state?.mode,
         nextPath: state?.nextPath,
         error: "We couldn't complete desktop authentication with that provider.",
       })

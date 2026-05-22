@@ -67,6 +67,7 @@ describe("desktop packaged renderer app smoke", () => {
         isElectron: true,
         platform: "darwin",
         submitDesktopPasswordLogin: vi.fn().mockResolvedValue({ ok: true }),
+        submitDesktopPasswordSignup: vi.fn().mockResolvedValue({ ok: true }),
       },
     })
   })
@@ -90,16 +91,22 @@ describe("desktop packaged renderer app smoke", () => {
     window.history.replaceState(
       null,
       "",
-      "/signup?next=/workspace/docs&email=chef@example.com"
+      "/signup?next=/workspace/docs&email=chef@example.com&firstName=Taylor&lastName=Morgan"
     )
 
     render(<DesktopApp />)
 
     expect(await screen.findByText("Create your account")).toBeInTheDocument()
     expect(screen.getByDisplayValue("chef@example.com")).toBeInTheDocument()
+    expect(screen.getByDisplayValue("Taylor")).toBeInTheDocument()
+    expect(screen.getByDisplayValue("Morgan")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute(
       "href",
       "/login?next=%2Fworkspace%2Fdocs"
+    )
+    expect(document.querySelector("form")).toHaveAttribute(
+      "action",
+      "https://teams.reciperoom.io/auth/desktop/signup"
     )
   })
 
@@ -148,6 +155,37 @@ describe("desktop packaged renderer app smoke", () => {
       ).toHaveBeenCalledWith({
         email: "chef@example.com",
         nextPath: "/workspace/projects",
+        password: "password-123",
+      })
+    })
+  })
+
+  it("submits desktop password signup through the Electron bridge", async () => {
+    window.history.replaceState(null, "", "/signup?next=/workspace/docs")
+    render(<DesktopApp />)
+
+    fireEvent.change(await screen.findByLabelText("First name"), {
+      target: { value: "Taylor" },
+    })
+    fireEvent.change(screen.getByLabelText("Surname"), {
+      target: { value: "Morgan" },
+    })
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "chef@example.com" },
+    })
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "password-123" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }))
+
+    await waitFor(() => {
+      expect(
+        window.electronApp?.submitDesktopPasswordSignup
+      ).toHaveBeenCalledWith({
+        email: "chef@example.com",
+        firstName: "Taylor",
+        lastName: "Morgan",
+        nextPath: "/workspace/docs",
         password: "password-123",
       })
     })

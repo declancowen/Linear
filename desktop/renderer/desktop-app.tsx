@@ -83,6 +83,14 @@ function getAuthEmailFromSearchParams(searchParams: URLSearchParams) {
   return searchParams.get("email") ?? undefined
 }
 
+function getAuthFirstNameFromSearchParams(searchParams: URLSearchParams) {
+  return searchParams.get("firstName") ?? undefined
+}
+
+function getAuthLastNameFromSearchParams(searchParams: URLSearchParams) {
+  return searchParams.get("lastName") ?? undefined
+}
+
 async function getStoredDesktopToken() {
   try {
     const token = await window.electronApp?.getDesktopAuthToken?.()
@@ -120,7 +128,13 @@ function DesktopAuthScreen() {
   const routeError = getAuthErrorFromSearchParams(searchParams)
 
   async function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
-    if (mode !== "login" || !window.electronApp?.submitDesktopPasswordLogin) {
+    const submitPasswordLogin = window.electronApp?.submitDesktopPasswordLogin
+    const submitPasswordSignup = window.electronApp?.submitDesktopPasswordSignup
+
+    if (
+      (mode === "login" && !submitPasswordLogin) ||
+      (mode === "signup" && !submitPasswordSignup)
+    ) {
       return
     }
 
@@ -128,14 +142,27 @@ function DesktopAuthScreen() {
     setSubmitError(null)
 
     const formData = new FormData(event.currentTarget)
-    const result = await window.electronApp.submitDesktopPasswordLogin({
+    const sharedPayload = {
       email: String(formData.get("email") ?? ""),
       nextPath,
       password: String(formData.get("password") ?? ""),
-    })
+    }
+    const result =
+      mode === "login"
+        ? await submitPasswordLogin?.(sharedPayload)
+        : await submitPasswordSignup?.({
+            ...sharedPayload,
+            firstName: String(formData.get("firstName") ?? ""),
+            lastName: String(formData.get("lastName") ?? ""),
+          })
 
-    if (!result.ok) {
-      setSubmitError(result.error ?? "Desktop sign-in failed.")
+    if (result && !result.ok) {
+      setSubmitError(
+        result.error ??
+          (mode === "login"
+            ? "Desktop sign-in failed."
+            : "Desktop sign-up failed.")
+      )
     }
   }
 
@@ -146,8 +173,12 @@ function DesktopAuthScreen() {
       error={submitError ?? routeError}
       notice={getAuthNoticeFromSearchParams(searchParams)}
       initialEmail={getAuthEmailFromSearchParams(searchParams)}
+      initialFirstName={getAuthFirstNameFromSearchParams(searchParams)}
+      initialLastName={getAuthLastNameFromSearchParams(searchParams)}
       formActionBaseUrl={getAppOrigin()}
-      formActionPath={mode === "login" ? "/auth/desktop/login" : undefined}
+      formActionPath={
+        mode === "login" ? "/auth/desktop/login" : "/auth/desktop/signup"
+      }
       onPasswordSubmit={handlePasswordSubmit}
     />
   )

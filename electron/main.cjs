@@ -27,7 +27,10 @@ const {
   createDesktopNotificationBridge,
 } = require("./desktop-notifications.cjs")
 const { createDesktopAuthStore } = require("./desktop-auth-store.cjs")
-const { submitDesktopPasswordLogin } = require("./desktop-auth-flow.cjs")
+const {
+  submitDesktopPasswordLogin,
+  submitDesktopPasswordSignup,
+} = require("./desktop-auth-flow.cjs")
 const {
   findDesktopDeepLinkUrl,
   isDesktopDeepLinkUrl,
@@ -490,6 +493,44 @@ function registerDesktopAuthHandlers() {
       }
     }
   })
+  ipcMain.handle(
+    "desktop-auth:submit-password-signup",
+    async (_event, value) => {
+      logDesktopStartup("desktop-auth.submit-password-signup", {
+        apiBaseUrl: desktopApiBaseUrl,
+        hasEmail: typeof value?.email === "string" && value.email.length > 0,
+        hasFirstName:
+          typeof value?.firstName === "string" && value.firstName.length > 0,
+        hasLastName:
+          typeof value?.lastName === "string" && value.lastName.length > 0,
+        hasPassword:
+          typeof value?.password === "string" && value.password.length > 0,
+        nextPath: value?.nextPath,
+      })
+
+      try {
+        const result = await submitDesktopPasswordSignup(value, {
+          apiBaseUrl: desktopApiBaseUrl,
+          handleDesktopDeepLink,
+          isDesktopDeepLinkUrl: (url) =>
+            isDesktopDeepLinkUrl(url, desktopDeepLinkScheme),
+        })
+
+        logDesktopStartup("desktop-auth.submit-password-signup-result", result)
+
+        return result
+      } catch (error) {
+        logDesktopStartup("desktop-auth.submit-password-signup-error", {
+          message: error instanceof Error ? error.message : "Unknown error",
+        })
+
+        return {
+          error: "Desktop sign-up failed. Check your connection and try again.",
+          ok: false,
+        }
+      }
+    }
+  )
 }
 
 function registerDesktopNotificationHandlers() {

@@ -1,4 +1,5 @@
 import {
+  type AuthMode,
   buildAuthPageHref,
   getAppOrigin,
   normalizeAuthNextPath,
@@ -69,7 +70,12 @@ export function buildDesktopAuthState(input: {
 
 export function buildDesktopAuthCompleteUrl(input: {
   nextPath?: string | null
+  email?: string | null
   error?: string | null
+  firstName?: string | null
+  lastName?: string | null
+  mode?: AuthMode | null
+  notice?: string | null
   ticket?: string | null
 }) {
   const targetPath = input.ticket
@@ -77,10 +83,14 @@ export function buildDesktopAuthCompleteUrl(input: {
         nextPath: input.nextPath,
         ticket: input.ticket,
       })
-    : input.error
-      ? buildAuthPageHref("login", {
+    : input.error || input.notice || input.mode
+      ? buildAuthPageHref(input.mode ?? "login", {
           nextPath: input.nextPath,
           error: input.error,
+          notice: input.notice,
+          email: input.email,
+          firstName: input.mode === "signup" ? input.firstName : null,
+          lastName: input.mode === "signup" ? input.lastName : null,
         })
       : normalizeAuthNextPath(input.nextPath)
   const url = new URL(

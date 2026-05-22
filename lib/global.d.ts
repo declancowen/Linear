@@ -21,6 +21,16 @@ declare global {
         error?: string
         ok: boolean
       }>
+      submitDesktopPasswordSignup?: (payload: {
+        email: string
+        firstName: string
+        lastName: string
+        nextPath: string
+        password: string
+      }) => Promise<{
+        error?: string
+        ok: boolean
+      }>
     }
   }
 }

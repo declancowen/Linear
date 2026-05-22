@@ -12,4 +12,6 @@ contextBridge.exposeInMainWorld("electronApp", {
     ipcRenderer.invoke("desktop-notifications:show", payload),
   submitDesktopPasswordLogin: (payload) =>
     ipcRenderer.invoke("desktop-auth:submit-password-login", payload),
+  submitDesktopPasswordSignup: (payload) =>
+    ipcRenderer.invoke("desktop-auth:submit-password-signup", payload),
 })

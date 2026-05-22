@@ -13,10 +13,41 @@
 
 | Field | Value |
 |-------|-------|
-| Last reviewed | `2026-05-22 07:58 BST` |
+| Last reviewed | `2026-05-22 08:36 BST` |
 | Risk | High |
 | Open findings | `0` |
 | Residual risks | Internal/ad-hoc mac signing only; desktop token persistence intentionally disabled by default pending a non-blocking keychain strategy; desktop preflight still reports hosted env/WorkOS checks as pending when those values are not visible locally |
+
+---
+
+## Turn 3 - 2026-05-22 08:36 BST
+
+**Outcome:** No open Critical/High findings after importing the latest Codex PR review and re-running the branch diff/architecture pass.
+
+**External finding addressed:**
+- P2 desktop signup bypassed the desktop auth handoff. Added a hosted `/auth/desktop/signup` route that creates the WorkOS user, authenticates on the hosted server, mints the same one-time desktop handoff ticket as login, and redirects the packaged renderer back through the deep-link completion flow.
+
+**Additional coverage fixes made during review:**
+- Extracted shared server-owned signup/password logic into `lib/server/password-signup.ts` so web signup and desktop signup use the same WorkOS/session/reconcile boundary.
+- Routed packaged signup form submits through the Electron bridge and added `submitDesktopPasswordSignup` IPC/preload/main-process support.
+- Kept signup error/profile query serialization at the auth-routing boundary and preserved signup fields on desktop error fallback paths.
+- Removed new duplication caught by the Fallow zero-duplication gate.
+
+**Architecture pass:** WorkOS user creation, password authentication, hosted session save, app-context reconciliation, and desktop handoff ticket creation remain server-owned. Electron only posts form data to hosted Vercel routes and receives a desktop deep-link handoff; no private server keys or WorkOS secrets move into the packaged app. The serialized contract is covered at the form body, route redirect, IPC bridge, and desktop renderer levels.
+
+**Validation:**
+- `pnpm vitest run tests/electron/desktop-auth-flow.test.ts tests/desktop/renderer-smoke.test.tsx tests/app/auth-route-contracts.test.ts tests/lib/server/desktop-auth.test.ts`
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm test` -> `198 passed`, `1142 passed`
+- `pnpm fallow:gate`
+- `pnpm desktop:renderer:smoke`
+- `pnpm build`
+- `pnpm desktop:package:mac:packaged-renderer`
+- `pnpm desktop:release:preflight` -> `19 pass, 0 warn, 7 pending, 0 fail`
+- `node --env-file=/Users/declancowen/Documents/GitHub/Linear/.env.local scripts/desktop-release-preflight.mjs` -> `20 pass, 0 warn, 6 pending, 0 fail`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh`
 
 ---
 

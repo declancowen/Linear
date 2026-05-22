@@ -10,6 +10,7 @@ import {
 } from "@/lib/auth-email-verification"
 import {
   getMockWorkOSAuthErrorCode,
+  getMockWorkOSAuthErrorMessage,
   getMockWorkOSPendingAuthentication,
 } from "@/tests/lib/fixtures/workos-auth-mocks"
 
@@ -20,6 +21,7 @@ const getAuthorizationUrlMock = vi.fn()
 const authenticateWithEmailVerificationMock = vi.fn()
 const authenticateWithPasswordMock = vi.fn()
 const authenticateWithOrganizationSelectionMock = vi.fn()
+const createUserMock = vi.fn()
 const listUsersMock = vi.fn()
 const listOrganizationMembershipsMock = vi.fn()
 const resetWorkOSPasswordMock = vi.fn()
@@ -45,11 +47,13 @@ vi.mock("@/lib/server/workos", () => ({
       authenticateWithPassword: authenticateWithPasswordMock,
       authenticateWithOrganizationSelection:
         authenticateWithOrganizationSelectionMock,
+      createUser: createUserMock,
       listUsers: listUsersMock,
       listOrganizationMemberships: listOrganizationMembershipsMock,
     },
   }),
   getWorkOSAuthErrorCode: getMockWorkOSAuthErrorCode,
+  getWorkOSAuthErrorMessage: getMockWorkOSAuthErrorMessage,
   getWorkOSPendingAuthentication: getMockWorkOSPendingAuthentication,
   resetWorkOSPassword: resetWorkOSPasswordMock,
   requestWorkOSPasswordReset: requestWorkOSPasswordResetMock,
@@ -126,6 +130,18 @@ function expectDesktopHandoffRedirect(
   )
 }
 
+function expectDesktopRendererRedirect(response: Response, expectedPath: string) {
+  const redirectUrl = getRedirectPath(response)
+  const handoffPath = redirectUrl.searchParams.get("path") ?? ""
+  const localUrl = new URL(handoffPath, "https://desktop.local")
+
+  expect(response.status).toBe(303)
+  expect(redirectUrl.protocol).toBe("recipe-room:")
+  expect(localUrl.pathname).toBe(expectedPath)
+
+  return localUrl
+}
+
 async function postDesktopPasswordLogin() {
   const { POST } = await import("@/app/auth/desktop/login/route")
 
@@ -134,6 +150,29 @@ async function postDesktopPasswordLogin() {
       email: "declan@reciperoom.io",
       password: "password-123",
       next: "/workspace/chats",
+    })
+  )
+}
+
+async function postDesktopPasswordSignup(
+  entries: Partial<{
+    email: string
+    firstName: string
+    lastName: string
+    password: string
+    next: string
+  }> = {}
+) {
+  const { POST } = await import("@/app/auth/desktop/signup/route")
+
+  return POST(
+    createFormRouteRequest("http://localhost/auth/desktop/signup", {
+      email: "alex@example.com",
+      firstName: "Alex",
+      lastName: "Morgan",
+      password: "password-123",
+      next: "/workspace/docs",
+      ...entries,
     })
   )
 }
@@ -171,6 +210,7 @@ function resetAuthRouteMocks() {
   authenticateWithEmailVerificationMock.mockReset()
   authenticateWithPasswordMock.mockReset()
   authenticateWithOrganizationSelectionMock.mockReset()
+  createUserMock.mockReset()
   listUsersMock.mockReset()
   listOrganizationMembershipsMock.mockReset()
   resetWorkOSPasswordMock.mockReset()
@@ -480,16 +520,68 @@ describe("desktop auth routes", () => {
       rawData: { error: "invalid_credentials" },
     })
     const response = await postDesktopPasswordLogin()
-    const redirectUrl = getRedirectPath(response)
-    const handoffPath = redirectUrl.searchParams.get("path") ?? ""
-    const localUrl = new URL(handoffPath, "https://desktop.local")
+    const localUrl = expectDesktopRendererRedirect(response, "/login")
 
-    expect(response.status).toBe(303)
-    expect(redirectUrl.protocol).toBe("recipe-room:")
-    expect(localUrl.pathname).toBe("/login")
     expect(localUrl.searchParams.get("error")).toBe(
       "Invalid email or password."
     )
+  })
+
+  it("turns desktop password signup into a desktop session handoff", async () => {
+    const authResponse = {
+      user: { id: "workos_user", email: "alex@example.com" },
+      organizationId: "org_123",
+    }
+    authenticateWithPasswordMock.mockResolvedValue(authResponse)
+    const response = await postDesktopPasswordSignup()
+    const redirectUrl = getRedirectPath(response)
+
+    expect(response.status).toBe(303)
+    expect(createUserMock).toHaveBeenCalledWith({
+      email: "alex@example.com",
+      firstName: "Alex",
+      lastName: "Morgan",
+      password: "password-123",
+    })
+    expect(authenticateWithPasswordMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "alex@example.com",
+        password: "password-123",
+      })
+    )
+    expect(saveSessionMock).toHaveBeenCalledWith(
+      authResponse,
+      expect.stringContaining("/auth/desktop/signup")
+    )
+    expect(reconcileAuthenticatedAppContextMock).toHaveBeenCalledWith(
+      authResponse.user,
+      "org_123"
+    )
+    expectDesktopHandoffRedirect(redirectUrl, "/workspace/docs")
+  })
+
+  it("redirects incomplete desktop password signup back to signup in the packaged renderer", async () => {
+    const response = await postDesktopPasswordSignup({ firstName: "" })
+    const localUrl = expectDesktopRendererRedirect(response, "/signup")
+
+    expect(localUrl.searchParams.get("email")).toBe("alex@example.com")
+    expect(localUrl.searchParams.get("lastName")).toBe("Morgan")
+    expect(localUrl.searchParams.get("error")).toBe(
+      "Complete every field to create your account."
+    )
+    expect(createUserMock).not.toHaveBeenCalled()
+  })
+
+  it("redirects existing desktop signup accounts back to desktop login", async () => {
+    createUserMock.mockRejectedValue({ status: 409 })
+    const response = await postDesktopPasswordSignup()
+    const localUrl = expectDesktopRendererRedirect(response, "/login")
+
+    expect(localUrl.searchParams.get("email")).toBe("alex@example.com")
+    expect(localUrl.searchParams.get("notice")).toBe(
+      "Account already created. Please sign in."
+    )
+    expect(authenticateWithPasswordMock).not.toHaveBeenCalled()
   })
 
   it("exchanges desktop handoff tickets for user-scoped desktop session tokens", async () => {

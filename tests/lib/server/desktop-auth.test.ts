@@ -54,5 +54,17 @@ describe("desktop auth helpers", () => {
     ).toBe(
       "recipe-room://open?path=%2Flogin%3Fnext%3D%252Fworkspace%252Fprojects%26error%3DDenied"
     )
+    expect(
+      buildDesktopAuthCompleteUrl({
+        mode: "signup",
+        nextPath: "/workspace/projects",
+        email: "chef@example.com",
+        firstName: "Alex",
+        lastName: "Morgan",
+        error: "Complete every field to create your account.",
+      })
+    ).toBe(
+      "recipe-room://open?path=%2Fsignup%3Fnext%3D%252Fworkspace%252Fprojects%26error%3DComplete%2Bevery%2Bfield%2Bto%2Bcreate%2Byour%2Baccount.%26email%3Dchef%2540example.com%26firstName%3DAlex%26lastName%3DMorgan"
+    )
   })
 })

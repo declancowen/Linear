@@ -1,7 +1,11 @@
 "use client"
 
 import { buildPublicApiUrl } from "@/lib/api/public-url"
-import { buildAuthPageHref, normalizeAuthNextPath } from "@/lib/auth-routing"
+import {
+  buildAuthPageHref,
+  normalizeAuthNextPath,
+  parseAuthMode,
+} from "@/lib/auth-routing"
 
 type DesktopSessionResponse = {
   expiresAt: number
@@ -56,12 +60,16 @@ export async function completeDesktopAuthFromSearchParams(
 ): Promise<DesktopAuthCompleteResult> {
   const nextPath = normalizeAuthNextPath(searchParams.get("next"))
   const error = searchParams.get("error")
+  const mode = parseAuthMode(searchParams.get("mode")) ?? "login"
 
   if (error) {
     return {
-      href: buildAuthPageHref("login", {
+      href: buildAuthPageHref(mode, {
         error,
         nextPath,
+        email: searchParams.get("email"),
+        firstName: searchParams.get("firstName"),
+        lastName: searchParams.get("lastName"),
       }),
       kind: "redirect",
     }

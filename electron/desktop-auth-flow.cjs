@@ -25,25 +25,44 @@ function getDesktopPasswordLoginUrl(baseUrl = DEFAULT_RENDERER_URL) {
   return new URL("/auth/desktop/login", baseUrl).toString()
 }
 
+function getDesktopPasswordSignupUrl(baseUrl = DEFAULT_RENDERER_URL) {
+  return new URL("/auth/desktop/signup", baseUrl).toString()
+}
+
 function createDesktopPasswordLoginBody(input) {
   const body = new URLSearchParams()
 
-  body.set("email", normalizeText(input?.email))
-  body.set(
-    "password",
-    typeof input?.password === "string" ? input.password : ""
-  )
-  body.set("next", normalizeNextPath(input?.nextPath))
+  setDesktopPasswordBodyFields(body, input)
 
   return body
 }
 
-async function submitDesktopPasswordLogin(input, options = {}) {
+function setDesktopPasswordBodyFields(body, input) {
+  body.set("email", normalizeText(input?.email))
+  body.set("password", readPassword(input))
+  body.set("next", normalizeNextPath(input?.nextPath))
+}
+
+function readPassword(input) {
+  return typeof input?.password === "string" ? input.password : ""
+}
+
+function createDesktopPasswordSignupBody(input) {
+  const body = new URLSearchParams()
+
+  body.set("firstName", normalizeText(input?.firstName))
+  body.set("lastName", normalizeText(input?.lastName))
+  setDesktopPasswordBodyFields(body, input)
+
+  return body
+}
+
+async function submitDesktopPasswordAuth(input, options, config) {
   const fetchImpl = options.fetchImpl ?? fetch
-  const loginUrl =
-    options.loginUrl ?? getDesktopPasswordLoginUrl(options.apiBaseUrl)
-  const response = await fetchImpl(loginUrl, {
-    body: createDesktopPasswordLoginBody(input),
+  const url =
+    options[config.urlOptionName] ?? config.getUrl(options.apiBaseUrl)
+  const response = await fetchImpl(url, {
+    body: config.createBody(input),
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
     },
@@ -58,8 +77,8 @@ async function submitDesktopPasswordLogin(input, options = {}) {
     return {
       error:
         status === 404
-          ? "Desktop sign-in is not deployed on the configured hosted API."
-          : "Desktop sign-in did not return an authentication handoff.",
+          ? `Desktop ${config.actionLabel} is not deployed on the configured hosted API.`
+          : `Desktop ${config.actionLabel} did not return an authentication handoff.`,
       ok: false,
     }
   }
@@ -71,14 +90,35 @@ async function submitDesktopPasswordLogin(input, options = {}) {
   }
 
   return {
-    error: "Desktop sign-in returned an unexpected authentication destination.",
+    error: `Desktop ${config.actionLabel} returned an unexpected authentication destination.`,
     ok: false,
   }
 }
 
+async function submitDesktopPasswordLogin(input, options = {}) {
+  return submitDesktopPasswordAuth(input, options, {
+    actionLabel: "sign-in",
+    createBody: createDesktopPasswordLoginBody,
+    getUrl: getDesktopPasswordLoginUrl,
+    urlOptionName: "loginUrl",
+  })
+}
+
+async function submitDesktopPasswordSignup(input, options = {}) {
+  return submitDesktopPasswordAuth(input, options, {
+    actionLabel: "sign-up",
+    createBody: createDesktopPasswordSignupBody,
+    getUrl: getDesktopPasswordSignupUrl,
+    urlOptionName: "signupUrl",
+  })
+}
+
 module.exports = {
   createDesktopPasswordLoginBody,
+  createDesktopPasswordSignupBody,
   getDesktopPasswordLoginUrl,
+  getDesktopPasswordSignupUrl,
   normalizeNextPath,
   submitDesktopPasswordLogin,
+  submitDesktopPasswordSignup,
 }
