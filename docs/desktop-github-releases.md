@@ -5,8 +5,24 @@ Recipe Room desktop is a packaged Electron frontend that calls the hosted Recipe
 ## Release Flow
 
 1. Bump `package.json` version for a new desktop release.
-2. Run `pnpm desktop:release:mac`.
-3. Run `node scripts/publish-electron-github-release.mjs`.
+2. Create and push a stable tag such as `v0.0.2`, or run the `Desktop Release`
+   workflow manually with that version.
+
+The GitHub workflow builds a signed and notarized macOS release, runs release
+preflight, and publishes the GitHub Release assets.
+
+Local releases use the same build path:
+
+```bash
+DESKTOP_UPDATE_REPOSITORY=declancowen/Linear pnpm desktop:release:mac
+node scripts/publish-electron-github-release.mjs
+```
+
+`pnpm desktop:release:mac` sets `DESKTOP_RELEASE=1`, so it fails unless Apple
+signing and notarization credentials are available. This is intentional:
+macOS auto-update installation requires Developer ID signing, and the stable
+app signature also gives Electron safeStorage a consistent app identity for
+persisted desktop auth.
 
 The release build writes these assets to `dist/electron`:
 
@@ -37,7 +53,18 @@ Update state is shown inside the app with persistent bottom-right toasts:
 - downloaded: user can close or restart to install
 - checking again reopens the relevant state if the user closed the toast
 
-Unsigned/ad-hoc builds can verify the release flow, but public auto-update installation on macOS requires Developer ID signing and notarization.
+Unsigned/ad-hoc builds can verify local packaging, but public auto-update
+installation on macOS requires Developer ID signing and notarization.
+
+## macOS Signing Secrets
+
+Configure these GitHub Actions secrets before running `Desktop Release`:
+
+- `CSC_LINK`: base64-encoded Developer ID Application certificate (`.p12`)
+- `CSC_KEY_PASSWORD`: password for the `.p12`
+- `APPLE_API_KEY`: App Store Connect API key contents (`.p8`)
+- `APPLE_API_KEY_ID`: App Store Connect key ID
+- `APPLE_API_ISSUER`: App Store Connect issuer ID
 
 ## Desktop/Web Compatibility
 

@@ -1,0 +1,127 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "!v*.*.*-*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 0.0.2 or v0.0.2"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish macOS release
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Resolve release version
+        id: release_meta
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            raw="${INPUT_VERSION}"
+          else
+            raw="${GITHUB_REF_NAME}"
+          fi
+
+          version="${raw#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid stable release version: $raw" >&2
+            echo "Stable desktop releases must use x.y.z or vx.y.z." >&2
+            exit 1
+          fi
+
+          tag="v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release_name=Recipe Room $tag" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./package.json').version")"
+          if [[ "$package_version" != "${{ steps.release_meta.outputs.version }}" ]]; then
+            echo "package.json version ($package_version) must match ${{ steps.release_meta.outputs.version }}." >&2
+            exit 1
+          fi
+
+      - name: Build signed desktop release
+        shell: bash
+        env:
+          DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+
+          has_all() {
+            for value in "$@"; do
+              if [[ -z "$value" ]]; then
+                return 1
+              fi
+            done
+            return 0
+          }
+
+          if ! has_all "$CSC_LINK" "$CSC_KEY_PASSWORD" "$APPLE_API_KEY" "$APPLE_API_KEY_ID" "$APPLE_API_ISSUER"; then
+            echo "macOS signing secrets are required for desktop releases." >&2
+            echo "Missing one or more of CSC_LINK, CSC_KEY_PASSWORD, APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER." >&2
+            echo "Unsigned macOS builds can download updates, but Squirrel.Mac rejects them during install." >&2
+            exit 1
+          fi
+
+          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "$APPLE_API_KEY" > "$key_path"
+          export APPLE_API_KEY="$key_path"
+
+          pnpm desktop:release:mac
+
+      - name: Release preflight
+        run: pnpm desktop:release:preflight
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          name: ${{ steps.release_meta.outputs.release_name }}
+          generate_release_notes: true
+          make_latest: true
+          files: |
+            dist/electron/*.dmg
+            dist/electron/*.zip
+            dist/electron/*.blockmap
+            dist/electron/latest-mac.yml
+          fail_on_unmatched_files: true
+          token: ${{ secrets.GITHUB_TOKEN }}

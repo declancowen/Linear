@@ -181,12 +181,11 @@ update-path ownership. Normal mode fails only on local provable blockers.
 Run with `DESKTOP_RELEASE_STRICT=1` before shipping to treat warnings and
 pending provider/manual checks as release blockers.
 
-Release macOS packaging remains internal/ad-hoc by default. A release build
-must be produced with Developer ID signing and notarization credentials, for
-example:
+Release macOS packaging is signed and notarized by default. A release build
+must be produced with Developer ID signing and notarization credentials:
 
 ```bash
-DESKTOP_RELEASE=1 DESKTOP_RENDERER_MODE=packaged pnpm desktop:package:mac
+pnpm desktop:release:mac
 ```
 
 `DESKTOP_RELEASE=1` fails fast unless Apple notarization credentials are

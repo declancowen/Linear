@@ -30,7 +30,7 @@
     "desktop:renderer:build": "vite build --config desktop/renderer/vite.config.mjs",
     "desktop:package:mac": "pnpm icons:generate && node scripts/package-electron-mac.mjs",
     "desktop:package:mac:packaged-renderer": "pnpm desktop:renderer:build && cross-env DESKTOP_RENDERER_MODE=packaged pnpm desktop:package:mac",
-    "desktop:release:mac": "pnpm desktop:renderer:build && cross-env DESKTOP_RENDERER_MODE=packaged DESKTOP_RELEASE_ARTIFACTS=1 pnpm desktop:package:mac",
+    "desktop:release:mac": "pnpm desktop:renderer:build && cross-env DESKTOP_RENDERER_MODE=packaged DESKTOP_RELEASE=1 DESKTOP_RELEASE_ARTIFACTS=1 pnpm desktop:package:mac",
     "desktop:release:github": "pnpm desktop:release:mac && node scripts/publish-electron-github-release.mjs",
     "desktop:renderer:readiness": "node scripts/desktop-renderer-readiness.mjs",
     "desktop:renderer:smoke": "pnpm desktop:renderer:build && vitest run tests/desktop/renderer-smoke.test.tsx",
