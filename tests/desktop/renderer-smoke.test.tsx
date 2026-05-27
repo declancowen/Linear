@@ -2,8 +2,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { useEffect } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { fetchSnapshotStateMock } = vi.hoisted(() => ({
+const { fetchSnapshotStateMock, runRouteMutationMock } = vi.hoisted(() => ({
   fetchSnapshotStateMock: vi.fn(),
+  runRouteMutationMock: vi.fn(),
 }))
 
 vi.mock("@/components/app/shell", () => ({
@@ -42,6 +43,7 @@ vi.mock("@/lib/browser/app-navigation", async () => {
 
 vi.mock("@/lib/convex/client", () => ({
   fetchSnapshotState: fetchSnapshotStateMock,
+  runRouteMutation: runRouteMutationMock,
   RouteMutationError: class RouteMutationError extends Error {
     status: number
 
@@ -60,6 +62,11 @@ describe("desktop packaged renderer app smoke", () => {
 
   beforeEach(() => {
     fetchSnapshotStateMock.mockReset()
+    runRouteMutationMock.mockReset()
+    runRouteMutationMock.mockResolvedValue({
+      expiresAt: 1_700_000_000_000,
+      token: "refreshed_desktop_token",
+    })
     document.body.innerHTML = ""
     window.history.replaceState(null, "", "/")
     Object.defineProperty(window, "electronApp", {

@@ -235,6 +235,34 @@ const DELETE_CHANNEL_POST_ERROR_MAPPINGS = [
   },
 ] as const
 
+const DELETE_CHANNEL_POST_COMMENT_ERROR_MAPPINGS = [
+  {
+    match: "Post not found",
+    status: 404,
+    code: "CHANNEL_POST_NOT_FOUND",
+  },
+  {
+    match: "Comment not found",
+    status: 404,
+    code: "CHANNEL_POST_COMMENT_NOT_FOUND",
+  },
+  {
+    match: isCollaborationAccessDeniedMessage,
+    status: 403,
+    code: "CHANNEL_ACCESS_DENIED",
+  },
+  {
+    match: "Your current role is read-only",
+    status: 403,
+    code: "CHANNEL_READ_ONLY",
+  },
+  {
+    match: "You can only delete your own comments",
+    status: 403,
+    code: "CHANNEL_POST_COMMENT_DELETE_FORBIDDEN",
+  },
+] as const
+
 const TOGGLE_CHANNEL_POST_REACTION_ERROR_MAPPINGS = [
   {
     match: "Post not found",
@@ -550,6 +578,25 @@ export async function deleteChannelPostServer(input: {
     throw (
       coerceApplicationError(error, [...DELETE_CHANNEL_POST_ERROR_MAPPINGS]) ??
       error
+    )
+  }
+}
+
+export async function deleteChannelPostCommentServer(input: {
+  currentUserId: string
+  postId: string
+  commentId: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.deleteChannelPostComment,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [
+        ...DELETE_CHANNEL_POST_COMMENT_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }

@@ -1,18 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 
+const { pushMock } = vi.hoisted(() => ({
+  pushMock: vi.fn(),
+}))
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: pushMock,
+  }),
+}))
+
 vi.mock("@/components/ui/confirm-dialog", () => ({
-  ConfirmDialog: ({
-    open,
-    title,
-  }: {
-    open: boolean
-    title: string
-  }) => (open ? <div>{title}</div> : null),
+  ConfirmDialog: ({ open, title }: { open: boolean; title: string }) =>
+    open ? <div>{title}</div> : null,
 }))
 
 vi.mock("@/components/app/entity-icons", () => ({
-  ProjectTemplateGlyph: () => <span>Project icon</span>,
+  ProjectIconGlyph: () => <span>Project icon</span>,
 }))
 
 vi.mock("@/components/app/screens/work-item-ui", () => ({
@@ -32,8 +37,7 @@ vi.mock("@/components/ui/context-menu", async () =>
 )
 
 vi.mock("@phosphor-icons/react", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@phosphor-icons/react")>()
+  const actual = await importOriginal<typeof import("@phosphor-icons/react")>()
 
   return {
     ...actual,
@@ -169,6 +173,7 @@ describe("work item menus", () => {
       })) as never,
       deleteWorkItem: vi.fn(async () => true) as never,
     })
+    pushMock.mockReset()
   })
 
   afterEach(() => {
@@ -178,12 +183,7 @@ describe("work item menus", () => {
   it("keeps project confirmation mounted from the action menu", () => {
     const { data, item } = createMenuData()
 
-    render(
-      <IssueActionMenu
-        data={data}
-        item={item}
-      />
-    )
+    render(<IssueActionMenu data={data} item={item} />)
 
     fireEvent.click(screen.getByText("Roadmap"))
 
@@ -202,5 +202,74 @@ describe("work item menus", () => {
     fireEvent.click(screen.getByText("Roadmap"))
 
     expect(screen.getByText("Update project for hierarchy")).toBeInTheDocument()
+  })
+
+  it("opens item routes from the context menu", () => {
+    const { data, item } = createMenuData()
+
+    render(
+      <IssueContextMenu data={data} item={item}>
+        <button type="button">Open menu</button>
+      </IssueContextMenu>
+    )
+
+    fireEvent.click(screen.getByText("Open item"))
+
+    expect(pushMock).toHaveBeenCalledWith("/items/item_1")
+  })
+
+  it("opens item editing from the context menu when an edit handler is provided", () => {
+    const { data, item } = createMenuData()
+    const onEditItem = vi.fn()
+
+    render(
+      <IssueContextMenu data={data} item={item} onEditItem={onEditItem}>
+        <button type="button">Open menu</button>
+      </IssueContextMenu>
+    )
+
+    fireEvent.click(screen.getByText("Edit item"))
+
+    expect(onEditItem).toHaveBeenCalledWith("item_1")
+  })
+
+  it("shows icons for open, edit, status, priority, assignee, and project actions", () => {
+    const { data, item } = createMenuData()
+
+    render(
+      <IssueContextMenu data={data} item={item} onEditItem={vi.fn()}>
+        <button type="button">Open menu</button>
+      </IssueContextMenu>
+    )
+
+    for (const label of [
+      "Open item",
+      "Edit item",
+      "Status",
+      "Priority",
+      "Assignee",
+      "Project",
+    ]) {
+      expect(screen.getByText(label).parentElement).toContainHTML("<svg")
+    }
+  })
+
+  it("hides assignee and project actions for private tasks", () => {
+    const { data, item } = createMenuData()
+    const privateItem = {
+      ...item,
+      type: "task" as const,
+      visibility: "private" as const,
+    }
+
+    render(
+      <IssueContextMenu data={data} item={privateItem}>
+        <button type="button">Open menu</button>
+      </IssueContextMenu>
+    )
+
+    expect(screen.queryByText("Assignee")).not.toBeInTheDocument()
+    expect(screen.queryByText("Project")).not.toBeInTheDocument()
+    expect(screen.queryByText("Roadmap")).not.toBeInTheDocument()
   })
 })

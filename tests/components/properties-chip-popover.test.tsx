@@ -107,12 +107,17 @@ describe("PropertiesChipPopover", () => {
     expect(onToggleDisplayProperty).toHaveBeenCalledWith("dueDate")
   })
 
-  it("does not expose assignee as a private task display property", () => {
-    render(<PropertiesChipPopover view={createPrivateTaskView(["assignee"])} />)
+  it("does not expose assignee or project as private task display properties", () => {
+    render(
+      <PropertiesChipPopover
+        view={createPrivateTaskView(["assignee", "project"])}
+      />
+    )
 
     fireEvent.click(screen.getByRole("button", { name: /properties/i }))
 
     expect(screen.queryByText("Assignee")).not.toBeInTheDocument()
+    expect(screen.queryByText("Project")).not.toBeInTheDocument()
     expect(screen.getByText("Visible · 0")).toBeInTheDocument()
   })
 })

@@ -61,6 +61,8 @@ const {
 const { autoUpdater } = require("electron-updater")
 
 const appName = "Recipe Room"
+const desktopMainWindowWidth = 1220
+const desktopMainWindowMinWidth = 1180
 const desktopStartupLogPath = process.env.DESKTOP_STARTUP_LOG
 const desktopDeepLinkScheme = resolveDeepLinkScheme(process.env)
 const isDevelopment = !app.isPackaged && process.env.NODE_ENV === "development"
@@ -373,9 +375,9 @@ async function handleDesktopDeepLink(url) {
 
 function createMainBrowserWindow(iconPath) {
   return new BrowserWindow({
-    width: 1220,
+    width: desktopMainWindowWidth,
     height: 820,
-    minWidth: 1024,
+    minWidth: desktopMainWindowMinWidth,
     minHeight: 680,
     backgroundColor: "#f7f6f2",
     ...(process.platform !== "darwin" && iconPath ? { icon: iconPath } : {}),

@@ -52,7 +52,7 @@ export const TimelineLabelRow = memo(function TimelineLabelRow({
   const style = getTimelineBarStyle(item, accentMode, accentIndex, labelsById)
 
   return (
-    <IssueContextMenu data={data} item={item}>
+    <IssueContextMenu data={data} item={item} onEditItem={onSelectItem}>
       <div
         className={cn(
           "flex items-center gap-2.5 border-b bg-background px-3",
@@ -185,7 +185,7 @@ export const TimelineBar = memo(function TimelineBar({
     )
   }
 
-  function isPrimaryPointerButton(event: ReactPointerEvent<HTMLButtonElement>) {
+  function isPrimaryPointerButton(event: ReactPointerEvent<HTMLElement>) {
     return event.button === 0
   }
 
@@ -252,7 +252,9 @@ export const TimelineBar = memo(function TimelineBar({
     }
   }
 
-  function selectItemFromPointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+  function selectItemFromPointerUp(
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) {
     if (
       !isPrimaryPointerButton(event) ||
       isResizeHandleEventTarget(event.target)
@@ -270,7 +272,7 @@ export const TimelineBar = memo(function TimelineBar({
   }
 
   return (
-    <IssueContextMenu data={data} item={item}>
+    <IssueContextMenu data={data} item={item} onEditItem={onSelectItem}>
       <button
         ref={setNodeRef}
         type="button"
@@ -325,6 +327,10 @@ export const TimelineBar = memo(function TimelineBar({
           className="absolute inset-y-0 left-0 z-10 w-2.5 cursor-ew-resize opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => {
+            if (!isPrimaryPointerButton(event)) {
+              return
+            }
+
             event.preventDefault()
             event.stopPropagation()
             onResizeStart(item, "start", event.clientX)
@@ -336,6 +342,10 @@ export const TimelineBar = memo(function TimelineBar({
           className="absolute inset-y-0 right-0 z-10 w-2.5 cursor-ew-resize opacity-0 transition-opacity group-hover/timeline-bar:opacity-100 hover:bg-black/10"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => {
+            if (!isPrimaryPointerButton(event)) {
+              return
+            }
+
             event.preventDefault()
             event.stopPropagation()
             onResizeStart(item, "end", event.clientX)

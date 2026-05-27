@@ -779,7 +779,10 @@ function TimelineBody({
   labelsById,
 }: TimelineBodyProps) {
   return (
-    <div className="col-span-2 min-h-0 overflow-y-auto overscroll-contain">
+    <div
+      data-testid="timeline-body-scroll"
+      className="col-span-2 no-scrollbar min-h-0 overflow-y-auto overscroll-contain"
+    >
       <div className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)]">
         <TimelineLabelGroupsColumn
           data={data}
@@ -918,7 +921,8 @@ const TimelineGridGroups = memo(function TimelineGridGroups({
 }: TimelineGridGroupsProps) {
   return (
     <div
-      className="min-w-0 overflow-x-auto overscroll-x-contain"
+      data-testid="timeline-grid-scroll"
+      className="no-scrollbar min-w-0 overflow-x-auto overscroll-x-contain"
       onScroll={onBodyHorizontalScroll}
     >
       <div

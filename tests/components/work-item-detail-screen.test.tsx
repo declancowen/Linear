@@ -1039,7 +1039,7 @@ describe("work item detail screen", () => {
     }
   )
 
-  it("hides assignee configuration for private tasks", () => {
+  it("hides assignee and project configuration for private tasks", () => {
     act(() => {
       useAppStore.setState((state) => ({
         ...state,
@@ -1050,6 +1050,7 @@ describe("work item detail screen", () => {
                 visibility: "private",
                 creatorId: state.currentUserId,
                 assigneeId: "user_1",
+                primaryProjectId: "project_1",
               }
             : item
         ),
@@ -1061,6 +1062,9 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Status" })).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Assignee" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Project" })
     ).not.toBeInTheDocument()
   })
 

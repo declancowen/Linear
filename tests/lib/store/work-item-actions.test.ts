@@ -355,12 +355,13 @@ describe("work item actions", () => {
     expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(2)
   })
 
-  it("suppresses private work item assignee updates and notifications", async () => {
+  it("suppresses private work item assignee and project updates", async () => {
     const state = createState()
     state.workItems = [
       createTestWorkItem("private-task", {
         creatorId: "user_1",
         assigneeId: "user_1",
+        primaryProjectId: null,
         visibility: "private",
         status: "todo",
       }),
@@ -369,11 +370,13 @@ describe("work item actions", () => {
 
     harness.actions.updateWorkItem("private-task", {
       assigneeId: "user_2",
+      primaryProjectId: "project_1",
       status: "done",
     })
 
     expect(harness.state.workItems[0]).toMatchObject({
       assigneeId: "user_1",
+      primaryProjectId: null,
       status: "done",
     })
     expect(harness.state.notifications).toHaveLength(0)

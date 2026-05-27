@@ -233,15 +233,18 @@ function expectRenameDeleteVisibility(
   entity: "view" | "project",
   visibility: "visible" | "hidden"
 ) {
+  const edit = `Edit ${entity}`
   const rename = `Rename ${entity}`
   const deleteLabel = `Delete ${entity}`
 
   if (visibility === "visible") {
+    expect(screen.getByText(edit)).toBeInTheDocument()
     expect(screen.getByText(rename)).toBeInTheDocument()
     expect(screen.getByText(deleteLabel)).toBeInTheDocument()
     return
   }
 
+  expect(screen.queryByText(edit)).not.toBeInTheDocument()
   expect(screen.queryByText(rename)).not.toBeInTheDocument()
   expect(screen.queryByText(deleteLabel)).not.toBeInTheDocument()
 }
@@ -346,6 +349,23 @@ describe("ViewContextMenu", () => {
     expectRenameDeleteVisibility("view", "visible")
   })
 
+  it("opens the saved-view create dialog in edit mode", async () => {
+    renderViewContextMenu({
+      id: "view_1",
+      name: "Platform board",
+      route: "/team/platform/work",
+    })
+
+    fireEvent.click(screen.getByText("Edit view"))
+
+    await waitFor(() => {
+      expect(useAppStore.getState().ui.activeCreateDialog).toMatchObject({
+        kind: "view",
+        editViewId: "view_1",
+      })
+    })
+  })
+
   it("allows custom views that reuse a system label", () => {
     useAppStore.setState((state) => ({
       ...state,
@@ -425,5 +445,27 @@ describe("ProjectContextMenu", () => {
     )
 
     expectRenameDeleteVisibility("project", "visible")
+  })
+
+  it("opens the project create dialog in edit mode", async () => {
+    render(
+      <ProjectContextMenu
+        data={useAppStore.getState()}
+        project={createProject({
+          id: "project_workspace",
+          name: "Workspace roadmap",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+        })}
+      >
+        <button type="button">Open</button>
+      </ProjectContextMenu>
+    )
+
+    fireEvent.click(screen.getByText("Edit project"))
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Edit project").length).toBeGreaterThan(1)
+    })
   })
 })

@@ -86,6 +86,7 @@ import {
   createChannelHandler,
   createChannelPostHandler,
   createWorkspaceChatHandler,
+  deleteChannelPostCommentHandler,
   deleteChannelPostHandler,
   ensureTeamChatHandler,
   finalizeCallJoinHandler,
@@ -1596,6 +1597,16 @@ export const deleteChannelPost = mutation({
     postId: v.string(),
   },
   handler: deleteChannelPostHandler,
+})
+
+export const deleteChannelPostComment = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    postId: v.string(),
+    commentId: v.string(),
+  },
+  handler: deleteChannelPostCommentHandler,
 })
 
 export const toggleChannelPostReaction = mutation({

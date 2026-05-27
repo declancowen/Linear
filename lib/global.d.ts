@@ -21,6 +21,7 @@ declare global {
       showNotification?: (payload: {
         body?: string
         path?: string | null
+        silent?: boolean
         title: string
       }) => Promise<boolean>
       writeClipboardText?: (value: string) => Promise<boolean>

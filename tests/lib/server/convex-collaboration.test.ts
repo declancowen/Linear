@@ -228,6 +228,7 @@ describe("convex collaboration server wrappers", () => {
 
   it("maps channel-post mutation and call lifecycle failures to typed application errors", async () => {
     const {
+      deleteChannelPostCommentServer,
       deleteChannelPostServer,
       markCallJoinedServer,
       setCallRoomServer,
@@ -238,6 +239,7 @@ describe("convex collaboration server wrappers", () => {
 
     mutationMock
       .mockRejectedValueOnce(new Error("You can only delete your own posts"))
+      .mockRejectedValueOnce(new Error("You can only delete your own comments"))
       .mockRejectedValueOnce(new Error("Message not found"))
       .mockRejectedValueOnce(new Error("Your current role is read-only"))
       .mockRejectedValueOnce(new Error("Call has already ended"))
@@ -252,6 +254,17 @@ describe("convex collaboration server wrappers", () => {
     ).rejects.toMatchObject({
       status: 403,
       code: "CHANNEL_POST_DELETE_FORBIDDEN",
+    })
+
+    await expect(
+      deleteChannelPostCommentServer({
+        currentUserId: "user_1",
+        postId: "post_1",
+        commentId: "comment_1",
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "CHANNEL_POST_COMMENT_DELETE_FORBIDDEN",
     })
 
     await expect(

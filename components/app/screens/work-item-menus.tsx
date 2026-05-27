@@ -6,8 +6,17 @@ import {
   type ReactNode,
   type SyntheticEvent,
 } from "react"
-import { DotsThree, Trash } from "@phosphor-icons/react"
+import {
+  ArrowSquareOut,
+  DotsThree,
+  Flag,
+  FolderSimple,
+  PencilSimple,
+  Plus,
+  Trash,
+} from "@phosphor-icons/react"
 
+import { useAppRouter } from "@/lib/browser/app-navigation"
 import {
   canEditTeam,
   getStatusOrderForTeam,
@@ -22,9 +31,10 @@ import {
   type AppData,
   type Priority,
   type WorkItem,
+  type WorkStatus,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
-import { ProjectTemplateGlyph } from "@/components/app/entity-icons"
+import { ProjectIconGlyph } from "@/components/app/entity-icons"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
   ContextMenu,
@@ -62,15 +72,274 @@ export function stopDragPropagation(event: SyntheticEvent) {
   event.stopPropagation()
 }
 
+type WorkItemMenuComponents = {
+  MenuItem: ElementType
+  MenuLabel: ElementType
+  MenuSeparator: ElementType
+  MenuSub: ElementType
+  MenuSubContent: ElementType
+  MenuSubTrigger: ElementType
+}
+
+function getWorkItemMenuComponents(
+  kind: "dropdown" | "context"
+): WorkItemMenuComponents {
+  return {
+    MenuItem: kind === "dropdown" ? DropdownMenuItem : ContextMenuItem,
+    MenuLabel: kind === "dropdown" ? DropdownMenuLabel : ContextMenuLabel,
+    MenuSeparator:
+      kind === "dropdown" ? DropdownMenuSeparator : ContextMenuSeparator,
+    MenuSub: kind === "dropdown" ? DropdownMenuSub : ContextMenuSub,
+    MenuSubContent:
+      kind === "dropdown" ? DropdownMenuSubContent : ContextMenuSubContent,
+    MenuSubTrigger:
+      kind === "dropdown" ? DropdownMenuSubTrigger : ContextMenuSubTrigger,
+  }
+}
+
+function WorkItemContextActions({
+  itemId,
+  menu,
+  onEditItem,
+  onOpenItem,
+}: {
+  itemId: string
+  menu: WorkItemMenuComponents
+  onEditItem?: (itemId: string) => void
+  onOpenItem?: (itemId: string) => void
+}) {
+  const { MenuItem, MenuSeparator } = menu
+
+  return (
+    <>
+      <MenuItem onSelect={() => onOpenItem?.(itemId)}>
+        <ArrowSquareOut className="size-4" />
+        Open item
+      </MenuItem>
+      {onEditItem ? (
+        <MenuItem onSelect={() => onEditItem(itemId)}>
+          <PencilSimple className="size-4" />
+          Edit item
+        </MenuItem>
+      ) : null}
+      <MenuSeparator />
+    </>
+  )
+}
+
+function WorkItemStatusMenuSection({
+  editable,
+  item,
+  menu,
+  statusOptions,
+}: {
+  editable: boolean
+  item: WorkItem
+  menu: WorkItemMenuComponents
+  statusOptions: WorkStatus[]
+}) {
+  const { MenuItem, MenuSub, MenuSubContent, MenuSubTrigger } = menu
+
+  return (
+    <MenuSub>
+      <MenuSubTrigger disabled={!editable}>
+        <StatusIcon status={item.status} />
+        <span>Status</span>
+      </MenuSubTrigger>
+      <MenuSubContent>
+        {statusOptions.map((status) => (
+          <MenuItem
+            key={`${item.id}-${status}`}
+            onSelect={() =>
+              useAppStore.getState().updateWorkItem(item.id, { status })
+            }
+          >
+            <StatusIcon status={status} />
+            <span>{statusMeta[status].label}</span>
+          </MenuItem>
+        ))}
+      </MenuSubContent>
+    </MenuSub>
+  )
+}
+
+function WorkItemPriorityMenuSection({
+  editable,
+  item,
+  menu,
+}: {
+  editable: boolean
+  item: WorkItem
+  menu: WorkItemMenuComponents
+}) {
+  const { MenuItem, MenuSub, MenuSubContent, MenuSubTrigger } = menu
+
+  return (
+    <MenuSub>
+      <MenuSubTrigger disabled={!editable}>
+        <Flag className="size-4" />
+        <span>Priority</span>
+      </MenuSubTrigger>
+      <MenuSubContent>
+        {Object.entries(priorityMeta).map(([priority, meta]) => (
+          <MenuItem
+            key={`${item.id}-${priority}`}
+            onSelect={() =>
+              useAppStore.getState().updateWorkItem(item.id, {
+                priority: priority as Priority,
+              })
+            }
+          >
+            <PriorityIcon priority={priority as Priority} />
+            <span>{meta.label}</span>
+          </MenuItem>
+        ))}
+      </MenuSubContent>
+    </MenuSub>
+  )
+}
+
+function WorkItemAssigneeMenuSection({
+  assigneeMenuMembers,
+  currentUser,
+  currentUserId,
+  editable,
+  item,
+  menu,
+}: {
+  assigneeMenuMembers: AppData["users"]
+  currentUser: AppData["users"][number] | null
+  currentUserId: string
+  editable: boolean
+  item: WorkItem
+  menu: WorkItemMenuComponents
+}) {
+  const { MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger } =
+    menu
+
+  return (
+    <MenuSub>
+      <MenuSubTrigger disabled={!editable}>
+        <Plus className="size-4" />
+        <span>Assignee</span>
+      </MenuSubTrigger>
+      <MenuSubContent>
+        <MenuItem
+          onSelect={() =>
+            useAppStore.getState().updateWorkItem(item.id, {
+              assigneeId: null,
+            })
+          }
+        >
+          <span className="text-fg-3">Unassigned</span>
+        </MenuItem>
+        <MenuItem
+          onSelect={() =>
+            useAppStore.getState().updateWorkItem(item.id, {
+              assigneeId: currentUserId,
+            })
+          }
+        >
+          {currentUser ? (
+            <WorkItemAssigneeAvatar
+              user={currentUser}
+              className="size-4 data-[size=sm]:size-4"
+            />
+          ) : null}
+          <span>Assign to me</span>
+        </MenuItem>
+        <MenuSeparator />
+        {assigneeMenuMembers.map((member) => (
+          <MenuItem
+            key={`${item.id}-${member.id}`}
+            onSelect={() =>
+              useAppStore.getState().updateWorkItem(item.id, {
+                assigneeId: member.id,
+              })
+            }
+          >
+            <WorkItemAssigneeAvatar
+              user={member}
+              className="size-4 data-[size=sm]:size-4"
+            />
+            <span>{member.name}</span>
+          </MenuItem>
+        ))}
+      </MenuSubContent>
+    </MenuSub>
+  )
+}
+
+function WorkItemProjectMenuSection({
+  editable,
+  item,
+  menu,
+  requestConfirmedWorkItemUpdate,
+  teamProjects,
+}: {
+  editable: boolean
+  item: WorkItem
+  menu: WorkItemMenuComponents
+  requestConfirmedWorkItemUpdate: ReturnType<
+    typeof useWorkItemProjectCascadeConfirmation
+  >["requestUpdate"]
+  teamProjects: AppData["projects"]
+}) {
+  const { MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger } =
+    menu
+
+  return (
+    <MenuSub>
+      <MenuSubTrigger disabled={!editable}>
+        <FolderSimple className="size-4" />
+        <span>Project</span>
+      </MenuSubTrigger>
+      <MenuSubContent>
+        <MenuItem
+          onSelect={() =>
+            requestConfirmedWorkItemUpdate(item.id, {
+              primaryProjectId: null,
+            })
+          }
+        >
+          <FolderSimple className="size-4 text-fg-3" />
+          <span className="text-fg-3">No project</span>
+        </MenuItem>
+        {teamProjects.length > 0 ? <MenuSeparator /> : null}
+        {teamProjects.map((project) => (
+          <MenuItem
+            key={`${item.id}-${project.id}`}
+            onSelect={() =>
+              requestConfirmedWorkItemUpdate(item.id, {
+                primaryProjectId: project.id,
+              })
+            }
+          >
+            <ProjectIconGlyph
+              project={project}
+              className="size-4 text-fg-3"
+            />
+            <span>{project.name}</span>
+          </MenuItem>
+        ))}
+      </MenuSubContent>
+    </MenuSub>
+  )
+}
+
 function IssueActionMenuContent({
   data,
   item,
   kind,
+  onEditItem,
+  onOpenItem,
   requestConfirmedWorkItemUpdate,
 }: {
   data: AppData
   item: WorkItem
   kind: "dropdown" | "context"
+  onEditItem?: (itemId: string) => void
+  onOpenItem?: (itemId: string) => void
   requestConfirmedWorkItemUpdate: ReturnType<
     typeof useWorkItemProjectCascadeConfirmation
   >["requestUpdate"]
@@ -82,7 +351,8 @@ function IssueActionMenuContent({
     team?.settings.experience
   ).toLowerCase()
   const teamMembers = team ? getTeamMembers(data, team.id) : []
-  const currentUser = getUser(data, data.currentUserId)
+  const currentUser = getUser(data, data.currentUserId) ?? null
+  const isPrivateItem = item.visibility === "private"
   const assigneeMenuMembers = teamMembers.filter(
     (member) => member.id !== data.currentUserId
   )
@@ -92,18 +362,8 @@ function IssueActionMenuContent({
     item.primaryProjectId
   )
   const statusOptions = getStatusOrderForTeam(team)
-  const MenuLabel: ElementType =
-    kind === "dropdown" ? DropdownMenuLabel : ContextMenuLabel
-  const MenuSeparator: ElementType =
-    kind === "dropdown" ? DropdownMenuSeparator : ContextMenuSeparator
-  const MenuSub: ElementType =
-    kind === "dropdown" ? DropdownMenuSub : ContextMenuSub
-  const MenuSubTrigger: ElementType =
-    kind === "dropdown" ? DropdownMenuSubTrigger : ContextMenuSubTrigger
-  const MenuSubContent: ElementType =
-    kind === "dropdown" ? DropdownMenuSubContent : ContextMenuSubContent
-  const MenuItem: ElementType =
-    kind === "dropdown" ? DropdownMenuItem : ContextMenuItem
+  const menu = getWorkItemMenuComponents(kind)
+  const { MenuItem, MenuLabel, MenuSeparator } = menu
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   async function handleDelete() {
@@ -115,117 +375,44 @@ function IssueActionMenuContent({
     <>
       <MenuLabel>{item.key}</MenuLabel>
       <MenuSeparator />
-      <MenuSub>
-        <MenuSubTrigger disabled={!editable}>Status</MenuSubTrigger>
-        <MenuSubContent>
-          {statusOptions.map((status) => (
-            <MenuItem
-              key={`${item.id}-${status}`}
-              onSelect={() =>
-                useAppStore.getState().updateWorkItem(item.id, { status })
-              }
-            >
-              <StatusIcon status={status} />
-              <span>{statusMeta[status].label}</span>
-            </MenuItem>
-          ))}
-        </MenuSubContent>
-      </MenuSub>
-      <MenuSub>
-        <MenuSubTrigger disabled={!editable}>Priority</MenuSubTrigger>
-        <MenuSubContent>
-          {Object.entries(priorityMeta).map(([priority, meta]) => (
-            <MenuItem
-              key={`${item.id}-${priority}`}
-              onSelect={() =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  priority: priority as Priority,
-                })
-              }
-            >
-              <PriorityIcon priority={priority as Priority} />
-              <span>{meta.label}</span>
-            </MenuItem>
-          ))}
-        </MenuSubContent>
-      </MenuSub>
-      <MenuSub>
-        <MenuSubTrigger disabled={!editable}>Assignee</MenuSubTrigger>
-        <MenuSubContent>
-          <MenuItem
-            onSelect={() =>
-              useAppStore.getState().updateWorkItem(item.id, {
-                assigneeId: null,
-              })
-            }
-          >
-            <span className="text-fg-3">Unassigned</span>
-          </MenuItem>
-          <MenuItem
-            onSelect={() =>
-              useAppStore.getState().updateWorkItem(item.id, {
-                assigneeId: data.currentUserId,
-              })
-            }
-          >
-            {currentUser ? (
-              <WorkItemAssigneeAvatar
-                user={currentUser}
-                className="size-4 data-[size=sm]:size-4"
-              />
-            ) : null}
-            <span>Assign to me</span>
-          </MenuItem>
-          <MenuSeparator />
-          {assigneeMenuMembers.map((member) => (
-            <MenuItem
-              key={`${item.id}-${member.id}`}
-              onSelect={() =>
-                useAppStore.getState().updateWorkItem(item.id, {
-                  assigneeId: member.id,
-                })
-              }
-            >
-              <WorkItemAssigneeAvatar
-                user={member}
-                className="size-4 data-[size=sm]:size-4"
-              />
-              <span>{member.name}</span>
-            </MenuItem>
-          ))}
-        </MenuSubContent>
-      </MenuSub>
-      <MenuSub>
-        <MenuSubTrigger disabled={!editable}>Project</MenuSubTrigger>
-        <MenuSubContent>
-          <MenuItem
-            onSelect={() =>
-              requestConfirmedWorkItemUpdate(item.id, {
-                primaryProjectId: null,
-              })
-            }
-          >
-            <span className="text-fg-3">No project</span>
-          </MenuItem>
-          {teamProjects.length > 0 ? <MenuSeparator /> : null}
-          {teamProjects.map((project) => (
-            <MenuItem
-              key={`${item.id}-${project.id}`}
-              onSelect={() =>
-                requestConfirmedWorkItemUpdate(item.id, {
-                  primaryProjectId: project.id,
-                })
-              }
-            >
-              <ProjectTemplateGlyph
-                templateType={project.templateType}
-                className="size-4 text-fg-3"
-              />
-              <span>{project.name}</span>
-            </MenuItem>
-          ))}
-        </MenuSubContent>
-      </MenuSub>
+      {kind === "context" ? (
+        <WorkItemContextActions
+          itemId={item.id}
+          menu={menu}
+          onEditItem={onEditItem}
+          onOpenItem={onOpenItem}
+        />
+      ) : null}
+      <WorkItemStatusMenuSection
+        editable={editable}
+        item={item}
+        menu={menu}
+        statusOptions={statusOptions}
+      />
+      <WorkItemPriorityMenuSection
+        editable={editable}
+        item={item}
+        menu={menu}
+      />
+      {isPrivateItem ? null : (
+        <WorkItemAssigneeMenuSection
+          assigneeMenuMembers={assigneeMenuMembers}
+          currentUser={currentUser}
+          currentUserId={data.currentUserId}
+          editable={editable}
+          item={item}
+          menu={menu}
+        />
+      )}
+      {isPrivateItem ? null : (
+        <WorkItemProjectMenuSection
+          editable={editable}
+          item={item}
+          menu={menu}
+          requestConfirmedWorkItemUpdate={requestConfirmedWorkItemUpdate}
+          teamProjects={teamProjects}
+        />
+      )}
       {editable ? (
         <>
           <MenuSeparator />
@@ -296,14 +483,21 @@ export function IssueActionMenu({
 export function IssueContextMenu({
   data,
   item,
+  onEditItem,
+  onOpenItem,
   children,
 }: {
   data: AppData
   item: WorkItem
+  onEditItem?: (itemId: string) => void
+  onOpenItem?: (itemId: string) => void
   children: ReactNode
 }) {
+  const router = useAppRouter()
   const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
     useWorkItemProjectCascadeConfirmation()
+  const handleOpenItem =
+    onOpenItem ?? ((itemId: string) => router.push(`/items/${itemId}`))
 
   return (
     <>
@@ -314,6 +508,8 @@ export function IssueContextMenu({
             data={data}
             item={item}
             kind="context"
+            onEditItem={onEditItem}
+            onOpenItem={handleOpenItem}
             requestConfirmedWorkItemUpdate={requestConfirmedWorkItemUpdate}
           />
         </ContextMenuContent>

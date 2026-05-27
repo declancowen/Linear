@@ -412,7 +412,7 @@ export function InboxListPane({
   onResizeStart,
   onResetWidth,
 }: {
-  width: number
+  width: number | null
   resizing: boolean
   inboxTab: InboxTab
   activeId: string | null
@@ -429,13 +429,15 @@ export function InboxListPane({
 }) {
   const grouped = groupEntries(entries)
   const tabs = getInboxListTabs({ archivedCount, unreadCount })
+  const paneWidth = width === null ? "50%" : `${width}px`
 
   return (
     <div
+      data-inbox-list-pane
       className="relative flex min-h-0 shrink-0 flex-col border-r"
       style={{
-        width: `${width}px`,
-        flexBasis: `${width}px`,
+        width: paneWidth,
+        flexBasis: paneWidth,
       }}
     >
       <InboxListHeader

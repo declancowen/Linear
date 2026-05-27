@@ -40,6 +40,7 @@ function normalizeDesktopNotificationPayload(value) {
     title,
     body: normalizeString(value.body, MAX_NOTIFICATION_BODY_LENGTH) ?? "",
     path: normalizeNotificationPath(value.path),
+    silent: typeof value.silent === "boolean" ? value.silent : false,
   }
 }
 
@@ -86,6 +87,7 @@ function createDesktopNotificationBridge({
       const notification = new NativeNotification({
         title: payload.title,
         body: payload.body,
+        silent: payload.silent,
       })
 
       if (payload.path) {

@@ -1,6 +1,6 @@
 "use client"
 
-import { AppLink } from "@/lib/browser/app-navigation"
+import { AppLink, useAppRouter } from "@/lib/browser/app-navigation"
 import {
   memo,
   useMemo,
@@ -825,6 +825,83 @@ const workItemDisplayPropertyRenderers: Partial<
   assignee: (context) => renderInlineWorkItemProperty(context, "assignee"),
 }
 
+function isDisplayCustomPropertyDefinition(
+  context: WorkItemDisplayPropertyContext,
+  entry: AppData["customPropertyDefinitions"][number],
+  customPropertyId: string
+) {
+  return (
+    entry.id === customPropertyId &&
+    isCustomPropertyDefinitionForWorkItem(
+      entry,
+      context.item,
+      context.data.currentUserId
+    )
+  )
+}
+
+function getDisplayCustomPropertyDefinition(
+  context: WorkItemDisplayPropertyContext,
+  customPropertyId: string
+) {
+  return context.data.customPropertyDefinitions.find((entry) =>
+    isDisplayCustomPropertyDefinition(context, entry, customPropertyId)
+  )
+}
+
+function getDisplayCustomPropertyValue(
+  context: WorkItemDisplayPropertyContext,
+  propertyId: string
+) {
+  return (
+    context.data.customPropertyValues.find(
+      (entry) =>
+        entry.workItemId === context.item.id && entry.propertyId === propertyId
+    ) ?? null
+  )
+}
+
+function renderCustomWorkItemDisplayProperty(
+  context: WorkItemDisplayPropertyContext,
+  customPropertyId: string
+) {
+  const definition = getDisplayCustomPropertyDefinition(
+    context,
+    customPropertyId
+  )
+
+  if (!definition) {
+    return null
+  }
+
+  const value = getDisplayCustomPropertyValue(context, definition.id)
+
+  if (!value) {
+    return null
+  }
+
+  return (
+    <CustomPropertyValueControl
+      data={context.data}
+      definition={definition}
+      item={context.item}
+      value={value}
+      editable
+      variant="chip"
+    />
+  )
+}
+
+function renderBuiltinWorkItemDisplayProperty(
+  context: WorkItemDisplayPropertyContext
+) {
+  return (
+    workItemDisplayPropertyRenderers[
+      context.property as BuiltinDisplayProperty
+    ]?.(context) ?? null
+  )
+}
+
 function renderWorkItemDisplayProperty(
   context: WorkItemDisplayPropertyContext
 ) {
@@ -833,48 +910,10 @@ function renderWorkItemDisplayProperty(
   )
 
   if (customPropertyId) {
-    const definition = context.data.customPropertyDefinitions.find(
-      (entry) =>
-        entry.id === customPropertyId &&
-        isCustomPropertyDefinitionForWorkItem(
-          entry,
-          context.item,
-          context.data.currentUserId
-        )
-    )
-
-    if (!definition) {
-      return null
-    }
-
-    const value =
-      context.data.customPropertyValues.find(
-        (entry) =>
-          entry.workItemId === context.item.id &&
-          entry.propertyId === definition.id
-      ) ?? null
-
-    if (!value) {
-      return null
-    }
-
-    return (
-      <CustomPropertyValueControl
-        data={context.data}
-        definition={definition}
-        item={context.item}
-        value={value}
-        editable
-        variant="chip"
-      />
-    )
+    return renderCustomWorkItemDisplayProperty(context, customPropertyId)
   }
 
-  return (
-    workItemDisplayPropertyRenderers[
-      context.property as BuiltinDisplayProperty
-    ]?.(context) ?? null
-  )
+  return renderBuiltinWorkItemDisplayProperty(context)
 }
 
 function renderWorkItemDisplayProperties({
@@ -1838,8 +1877,14 @@ function ListRowContextMenuSlot({
   interactive: boolean
   item: WorkItem
 }) {
+  const router = useAppRouter()
+
   return interactive ? (
-    <IssueContextMenu data={data} item={item}>
+    <IssueContextMenu
+      data={data}
+      item={item}
+      onEditItem={() => router.push(`/items/${item.id}`)}
+    >
       {children}
     </IssueContextMenu>
   ) : (
@@ -2099,6 +2144,7 @@ const BoardCardBody = memo(function BoardCardBody({
   dragAttributes?: DraggableBindings["attributes"]
   dragListeners?: DraggableBindings["listeners"]
 }) {
+  const router = useAppRouter()
   const { idProperty, subCount, visibleProperties } =
     getWorkSurfaceItemDisplayState({
       childCountOverride,
@@ -2110,7 +2156,11 @@ const BoardCardBody = memo(function BoardCardBody({
   const itemHref = `/items/${item.id}`
 
   return (
-    <IssueContextMenu data={data} item={item}>
+    <IssueContextMenu
+      data={data}
+      item={item}
+      onEditItem={() => router.push(itemHref)}
+    >
       <div
         className={cn(
           "group/card relative flex cursor-grab touch-none flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm active:cursor-grabbing",

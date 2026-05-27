@@ -175,19 +175,27 @@ function getCompatibleActiveView(
       : null
   const displayProps = getCompatibleWorkSurfaceDisplayProps(view)
   const displayPropsChanged = displayProps.length !== view.displayProps.length
+  const filters = getCompatibleWorkSurfaceFilters(view)
+  const filtersChanged = filters !== view.filters
+  const layout = isPrivateTaskView(view) ? "board" : view.layout
+  const layoutChanged = layout !== view.layout
 
   if (
     grouping === view.grouping &&
     subGrouping === (view.subGrouping ?? null) &&
-    !displayPropsChanged
+    !displayPropsChanged &&
+    !filtersChanged &&
+    !layoutChanged
   ) {
     return view
   }
 
   return {
     ...view,
+    layout,
     grouping,
     subGrouping,
+    filters,
     displayProps,
   }
 }
@@ -198,19 +206,42 @@ function isPrivateTaskView(view: ViewDefinition | null) {
   )
 }
 
+const PRIVATE_TASK_EXCLUDED_GROUP_OPTIONS = new Set<ViewDefinition["grouping"]>(
+  ["assignee", "project"]
+)
+
+const PRIVATE_TASK_EXCLUDED_DISPLAY_PROPERTIES = new Set<
+  ViewDefinition["displayProps"][number]
+>(["assignee", "project"])
+
 function getCompatibleGroupOptions(
   view: ViewDefinition | null,
   groupOptions: ViewDefinition["grouping"][]
 ) {
   return isPrivateTaskView(view)
-    ? groupOptions.filter((option) => option !== "assignee")
+    ? groupOptions.filter(
+        (option) => !PRIVATE_TASK_EXCLUDED_GROUP_OPTIONS.has(option)
+      )
     : groupOptions
 }
 
 function getCompatibleWorkSurfaceDisplayProps(view: ViewDefinition) {
   return isPrivateTaskView(view)
-    ? view.displayProps.filter((property) => property !== "assignee")
+    ? view.displayProps.filter(
+        (property) => !PRIVATE_TASK_EXCLUDED_DISPLAY_PROPERTIES.has(property)
+      )
     : view.displayProps
+}
+
+function getCompatibleWorkSurfaceFilters(view: ViewDefinition) {
+  if (!isPrivateTaskView(view) || view.filters.projectIds.length === 0) {
+    return view.filters
+  }
+
+  return {
+    ...view.filters,
+    projectIds: [],
+  }
 }
 
 function getActiveBaseWorkSurfaceView({
@@ -470,11 +501,12 @@ function WorkSurfaceViewbar({
 }) {
   return (
     <Viewbar
-      className={
+      className={cn(
+        "work-surface-viewbar",
         view.layout === "timeline" || view.layout === "calendar"
           ? undefined
           : "border-b-0"
-      }
+      )}
     >
       <LayoutTabs view={view} onUpdateView={onUpdateViewerView} />
       <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />

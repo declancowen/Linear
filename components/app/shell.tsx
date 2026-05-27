@@ -10,7 +10,6 @@ import {
   useState,
 } from "react"
 import {
-  AppleLogo,
   Bell,
   CalendarBlank,
   CaretDown,
@@ -19,6 +18,7 @@ import {
   CheckCircle,
   CodesandboxLogo,
   DotsThree,
+  DownloadSimple,
   FileText,
   Gear,
   HashStraight,
@@ -1627,7 +1627,7 @@ function ShellWorkspaceMenu({
                               rel="noreferrer"
                               target="_blank"
                             >
-                              <AppleLogo className="text-fg-3" weight="fill" />
+                              <DownloadSimple className="text-fg-3" />
                               Download desktop app
                             </a>
                           </DropdownMenuItem>
@@ -2185,7 +2185,7 @@ function ShellUserFooter({
               <DropdownMenuGroup>
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
-                    <UserStatusDot status={currentUserStatus} />
+                    <UserCircle className="size-4" />
                     Set status
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="w-52">

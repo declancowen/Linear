@@ -40,24 +40,119 @@ Files and areas reviewed across all turns:
 - `convex/app/auth_bootstrap.ts`, `convex/app/data.ts`, `convex/app/workspace_team_handlers.ts`, `convex/app/core.ts` — slug uniqueness recheck for retained-team routing assumptions
 - `app/api/notifications/route.ts`, `lib/server/convex/notifications.ts`, `lib/store/app-store-internal/slices/notifications.ts`, `components/app/screens/inbox-screen.tsx` — notification batch-update recheck
 - `tests/components/work-item-detail-screen.test.tsx`, `tests/components/work-surface-view.test.tsx`, `tests/components/chat-thread.test.tsx`, `tests/components/entity-context-menus.test.tsx` — current regression coverage for reviewed surfaces
+- `components/app/screens/work-surface-view/calendar-view.tsx`, `components/app/screens/work-surface-view/timeline-bars.tsx`, `components/app/screens/work-surface-view/timeline-view.tsx` — calendar/timeline item menus, hover positioning, all-day layout, and hidden scrollbars
+- `components/app/screens/inbox-screen.tsx`, `components/app/screens/inbox-ui.tsx` — inbox split-pane default sizing
+- `components/app/shell.tsx`, `electron/main.cjs`, `desktop/renderer/desktop-app.tsx`, `lib/server/desktop-session.ts` — desktop app min-width, auth persistence, notification behavior, and app-download icon
+- `app/api/auth/desktop/session/refresh/route.ts`, `app/api/channel-posts/[postId]/comments/[commentId]/route.ts`, `convex/app/collaboration_handlers.ts`, `lib/server/convex/collaboration.ts` — new desktop refresh and channel comment-delete route contracts
+- `package.json`, `pnpm-lock.yaml`, `vitest.config.ts` — CI dependency audit remediation and full-suite timeout stability
 
 ## Hotspots (cumulative — updated as recurring risk families emerge)
 
 - `hierarchy mutation side-effects` — new UI affordances now hit `updateWorkItem` directly on fields that can cascade across parent/child trees
 - `presentation/domain validation drift` — shared input constraints exist, but submit gating still diverges across sibling surfaces
+- `context-menu drag initiation parity` — added Turn 9 after Codex PR review caught right-click calendar drags arming move state
 
 ## Review status (updated every turn)
 
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-04-24 19:13:19 BST` |
-| **Total turns** | `7` |
+| **Last reviewed** | `2026-05-27 18:08:27 BST` |
+| **Total turns** | `9` |
 | **Open findings** | `0` |
-| **Resolved findings** | `14` |
+| **Resolved findings** | `16` |
 | **Accepted findings** | `19` |
 
 ---
+
+## Turn 9 — 2026-05-27 18:08:27 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `pending Turn 9 commit` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Imported the CI failure and the first Codex PR review thread for PR #40. Two live issues were fixed: the high-severity `tmp <0.2.6` audit failure from the Electron packaging dependency chain, and right-click/context-menu pointer starts on timed calendar events arming move drag state. I also hardened the sibling timeline resize path and moved the normal Vitest timeout to the same 15s budget already used by coverage runs, because the full suite timed out three otherwise-passing long UI tests under parallel load.
+
+**Outcome:** all clear after fixes
+**Risk score:** high — the branch is a broad presentation/platform PR and this turn touched CI dependency policy plus calendar/timeline drag affordances
+**Change archetypes:** PR-review import, dependency-security gate, shared interaction affordance, test harness stability
+**Intended change:** close CI and Codex review findings without changing product semantics or adding new bypasses
+**Intent vs actual:** package-manager overrides now force the vulnerable transitive `tmp` dependency to the patched version; calendar move/resize and timeline resize initiation now ignore non-primary pointer buttons so context menus do not schedule edits
+**Confidence:** high — the exact PR-review variant and a sibling timeline resize variant have regression coverage, the audit gate now exits cleanly, and the full `pnpm check` gate passed
+**Coverage note:** reviewed the current PR review thread via thread-aware GitHub fetch, the failed CI audit logs, calendar timed drag initiation, calendar resize handles, timeline bar pointer capture/resize handles, package override lockfile shape, Vitest timeout config, and the current branch diff/preflight output
+**Finding triage:** one Codex PR review thread remains unresolved on GitHub until this fix is pushed, but the current local tree resolves the behavior; the CI failure is resolved locally and will rerun after push
+**Static/analyzer evidence:** `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed new-only gates with introduced dead code `0`, introduced complexity `0`, introduced duplication `0`; diff-review/architecture preflights still show inherited advisory Fallow debt outside this turn
+**Architecture impact:** interaction rules stay owned by the calendar/timeline presentation components that own drag initiation; dependency remediation is encoded at the package-manager boundary instead of weakening CI
+**Bug classes / invariants checked:** Affordance Parity, Preservation, Lifecycle/Transient Containers, third-party dependency exposure; non-primary pointer actions must not mutate schedule state, and high-severity dependency audit failures must be fixed at dependency resolution
+**Branch totality:** rechecked the current branch state after the local fixes, including prior context-menu/calendar/timeline hotspots and CI gate parity
+**Sibling closure:** calendar timed move, calendar resize start/end, timeline bar drag capture, and timeline resize start/end were checked for non-primary pointer behavior
+**Remediation impact surface:** patched `calendar-view.tsx`, `timeline-bars.tsx`, `package.json`, `pnpm-lock.yaml`, `vitest.config.ts`, and added regression coverage in `work-surface-view.test.tsx`
+**Residual risk / unknowns:** GitHub CI and the Codex review thread need to refresh after push; Fallow preflight still reports inherited advisory inventory, but the changed-file/new-only gate passed
+
+| Source | Finding | Current status | Bug class | Missed invariant / variant | Action |
+|--------|---------|----------------|-----------|----------------------------|--------|
+| GitHub CI | `pnpm audit:deps` failed on `tmp <0.2.6` via `electron-builder > app-builder-lib > @malept/flatpak-bundler > tmp-promise > tmp` | Resolved locally | dependency-security gate | High-severity dependency audit failures must be fixed at resolution, not ignored in CI | Added targeted `tmp-promise>tmp: 0.2.6` pnpm override and regenerated lockfile |
+| Codex PR review | Right-clicking a timed calendar event could schedule a move drag while opening the context menu | Resolved locally | Affordance Parity / Preservation | Non-primary pointer actions must not arm schedule mutation paths | Gated calendar move/resize initiation on primary button and added right-click regression test |
+| Local sibling sweep | Timeline resize handles also accepted non-primary pointer starts | Hardened | Affordance Parity | Context-menu pointer variants should not start resize behavior | Gated timeline resize handles and added sibling regression check |
+
+### Validation
+
+- `python3 .../gh-address-comments/scripts/fetch_comments.py` — passed; one unresolved Codex PR review thread imported
+- `gh run view 26525473909 --log-failed` — passed; CI failure identified as `pnpm audit:deps`
+- `pnpm audit:deps` — passed; only low/moderate advisories remain
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx --reporter verbose` — passed (`65` tests)
+- `pnpm exec prettier --check components/app/screens/work-surface-view/calendar-view.tsx components/app/screens/work-surface-view/timeline-bars.tsx tests/components/work-surface-view.test.tsx vitest.config.ts package.json pnpm-lock.yaml` — passed
+- `git diff --check` — passed
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` — passed new-only gate
+- `pnpm check` — passed: lint, typecheck, full Vitest (`204` files, `1196` tests), build, desktop smoke
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; no new blocking finding
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; no new branch-specific architecture blocker
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** CI workflow gate order, package overrides, PR review thread state, calendar/timeline drag helpers, work-surface regression tests, Vitest config
+- **Prior open findings rechecked:** no prior open local findings; PR review thread is resolved in the local tree and pending push
+- **Prior resolved/adjacent areas revalidated:** context-menu wrapping for calendar/timeline items remains intact; calendar click, drag, resize, and timeline selection tests still pass
+- **Hotspots or sibling paths revisited:** right-click timed event, timed resize handles, timeline resize handles, timeline non-primary bar pointer capture, dependency audit gate
+- **Dependency/adjacent surfaces revalidated:** `pnpm why tmp` confirmed `tmp@0.2.6` after local install; `pnpm audit:deps` confirmed the high advisory is gone
+- **Why this is enough:** the live review bug was at the pointer-to-drag boundary, and every sibling path that starts the same class of schedule edit now rejects non-primary pointer starts with regression coverage
+
+### Challenger pass
+
+- `done` — assumed the fix only covered the exact reviewed line and searched for sibling drag/resize starts; this found and hardened calendar resize and timeline resize starts as well.
+
+### Resolved / Carried / New findings
+
+#### Resolved
+
+- `T9-01` — CI high dependency audit failure
+  - Fingerprint: `package-manager override / tmp-promise>tmp / high audit GHSA-ph9p-34f9-6g65`
+  - Evidence: `pnpm audit:deps` exits `0`; lockfile resolves `tmp@0.2.6`
+  - Verification: `pnpm audit:deps`, `pnpm check`
+- `T9-02` — Codex PR review timed calendar right-click drag
+  - Fingerprint: `calendar timed event / non-primary pointer / scheduleTimedMoveDrag`
+  - Evidence: `scheduleTimedMoveDrag` and `beginTimedDrag` reject `event.button !== 0`
+  - Verification: `tests/components/work-surface-view.test.tsx` right-click timed drag regression
+- `T9-03` — sibling timeline resize non-primary pointer start
+  - Fingerprint: `timeline resize handle / non-primary pointer / onResizeStart`
+  - Evidence: timeline resize handlers reject non-primary pointer starts
+  - Verification: `tests/components/work-surface-view.test.tsx` timeline resize sibling check
+
+#### Carried
+
+- None.
+
+#### New
+
+- None.
+
+### Recommendations
+
+1. **Fix first:** push this turn so GitHub CI and Codex review refresh against the fixed commit.
+2. **Patterns noticed:** adding context-menu wrappers around draggable surfaces needs a pointer-button audit on every drag/resize entrypoint, not only the visible card body.
+3. **Suggested approach:** keep drag initiation guards local to the presentation components that own pointer interactions, and keep dependency audit fixes in pnpm overrides until upstream packages ship patched transitive ranges.
+4. **Defer on purpose:** inherited Fallow advisory inventory and moderate/low dependency advisories remain outside this PR-review fix loop.
 
 ## Turn 1 — 2026-04-24 14:50:14 BST
 
@@ -478,3 +573,62 @@ Sweep all `RichTextEditor` call sites using `showStats={false}` plus `minPlainTe
 #### Resolved
 
 - `B7-01` — pending optimistic view overrides are now cleared on successful `updateViewConfig` completion as well as on failure. This prevents `reconcilePendingViews()` from reapplying stale local patches forever when the eventual server state differs from the optimistic patch. The existing pending token guard still protects newer edits from older completions. Evidence: `lib/store/app-store-internal/slices/views.ts`, `tests/lib/store/view-slice.test.ts`, `tests/lib/app-store-read-model-merge.test.ts`.
+
+---
+
+## Turn 8 — 2026-05-27 17:46:30 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `d88d288d326dad7dc7eacc5b6cef476a982bc391` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Repeated the review loop for the large work-surface, collaboration, desktop-auth, and responsive-layout batch. No live blocking bug remains in the current tree. The implementation now preserves the existing ownership boundaries: work-item context menus still use the shared work-item mutation and project-cascade confirmation path, view/project editing stays in the managed create-dialog boundary, channel comment deletion is enforced at the route/Convex/store layers, desktop session refresh is owned by the desktop-session server helper plus renderer adapter, and responsive calendar/timeline/inbox changes remain presentation-local.
+
+**Outcome:** all clear
+**Risk score:** high — this batch touches shared UI actions, calendar/timeline/list/board interaction paths, channel mutation contracts, desktop auth/session persistence, and Electron shell behavior
+**Change archetypes:** shared-ui, route-contract, optimistic-state, desktop-auth, presentation-layout, static-fitness
+**Intended change:** implement the requested right-click edit/open actions, view editing, channel delete behavior, desktop session persistence, calendar/timeline positioning/layout fixes, private-task defaults, inbox split sizing, sidebar/status icon fixes, and Electron min-width/download/notification polish
+**Intent vs actual:** aligned after remediation; the latest right-click clarification is covered with `Open item` and `Edit item`, fixed label icons on menu triggers, actual state/project/user icons in option rows, and edit handlers wired on list, board, timeline, and calendar surfaces
+**Confidence:** high for targeted behavior and contracts; medium-high for visual polish because no manual browser screenshot pass was run in this review turn
+**Coverage note:** re-read the high-risk implementation paths after fixes: `work-item-menus`, list/board/timeline/calendar context-menu wrappers, channel comment delete route/store/Convex paths, desktop token refresh flow, inbox split pane, work-surface controls, and calendar hover/all-day layout
+**Finding triage:** no new live findings after the final loop. Fallow changed-file audit passes with `0` introduced dead-code, duplication, or complexity findings; remaining Fallow complexity findings are inherited Electron findings outside this batch.
+**Branch totality:** reviewed the current working tree after all final edits, not just the last icon patch
+**Hotspot ledger:** revisited; no open hotspot family remains for this batch
+**Sibling closure:** checked list, board, timeline, calendar, private-task, channel post/comment, desktop renderer, app route, and Electron shell siblings for the requested behaviors
+**Remediation impact surface:** verified UI action wiring, optimistic store updates, route/server wrappers, Convex handler ownership checks, desktop token lifecycle, and responsive layout classes/tests
+**Challenger pass:** completed — challenged likely weak spots around project/view edit regression, private-task hidden project/assignee paths, context-menu edit vs open behavior, app-session persistence failure handling, and route contract/ownership bypasses
+**Weakest-evidence areas:** visual layout still deserves manual QA in the running app for all viewport extremes, even though targeted tests/build/static checks pass
+
+| Status | Count |
+|--------|-------|
+| Findings | 0 |
+
+### Validation
+
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — passed
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — passed
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` — passed; introduced findings `0`, duplication clone groups `0`, dead code `0`
+- `pnpm lint` — passed
+- `pnpm typecheck` — passed
+- `git diff --check` — passed
+- `pnpm build` — passed
+- `pnpm exec vitest run tests/components/work-item-menus.test.tsx tests/components/group-chip-popover.test.tsx tests/components/work-surface-view.test.tsx tests/components/inbox-ui.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/entity-context-menus.test.tsx tests/components/views-screen.test.tsx tests/components/properties-chip-popover.test.tsx tests/components/create-dialogs.test.tsx tests/lib/domain/default-views.test.ts tests/lib/store/work-item-actions.test.ts tests/lib/store/collaboration-channel-actions.test.ts tests/lib/server/convex-collaboration.test.ts tests/app/api/platform-route-contracts.test.ts tests/app/auth-route-contracts.test.ts tests/electron/desktop-notifications.test.ts tests/electron/desktop-updates.test.ts tests/lib/browser/desktop-notifications.test.ts tests/desktop/renderer-smoke.test.tsx` — passed (`19/19` files, `247/247` tests)
+
+### Resolution ledger
+
+#### Confirmed all-clear requirements
+
+- View editing is wired through the same managed create-dialog path as project editing, and project editing remains covered.
+- Work-item context menus expose `Open item` and `Edit item`; edit is available on list, board, timeline, and calendar entries.
+- Timeline and calendar views use the shared work-item context menu rather than bespoke one-off actions.
+- Private-task views default to board layout and hide project/assignee affordances.
+- Channel comments can be deleted by owners through the UI, store, route, and Convex mutation; unauthorized delete attempts are rejected.
+- Desktop sessions can be refreshed from bearer tokens so the Electron app can stay signed in across restarts.
+- Calendar/timeline popovers and overlays stay within the main surface and hidden-scrollbar/all-day layout behavior is covered by targeted tests.
+- Responsive toolbar chips hide overflowing values at narrow widths, and the Electron main window has a minimum width to preserve primary controls.
+
+#### Accepted / non-blocking observations
+
+- Fallow still reports inherited Electron complexity in `electron/main.cjs`, but the changed-file gate has `0` introduced complexity findings.
+- No manual browser/screenshot pass was run for this final batch; rely on the focused React/component tests, build, and static checks for this PR, with manual QA recommended for calendar/timeline edge viewports.

@@ -1,5 +1,7 @@
 "use client"
 
+import { Trash } from "@phosphor-icons/react"
+
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
 import { formatTimestamp } from "@/components/app/collaboration-screens/utils"
@@ -55,13 +57,17 @@ export function ForumPostAuthorLine({
 }
 
 export function ForumPostCommentItem({
+  canDelete = false,
   comment,
   currentUserId,
+  onDelete,
   usersById,
   workspaceId,
 }: {
+  canDelete?: boolean
   comment: ForumPostComment
   currentUserId: string
+  onDelete?: (commentId: string) => void
   usersById: UsersById
   workspaceId: string | null
 }) {
@@ -69,8 +75,8 @@ export function ForumPostCommentItem({
 
   return (
     <div
-      className="grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
-      style={{ gridTemplateColumns: "24px 1fr" }}
+      className="group/comment grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
+      style={{ gridTemplateColumns: "24px minmax(0,1fr) auto" }}
     >
       <div className="mt-[2px]">
         <UserAvatar
@@ -94,6 +100,16 @@ export function ForumPostCommentItem({
           className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
         />
       </div>
+      {canDelete ? (
+        <button
+          type="button"
+          aria-label="Delete comment"
+          className="mt-0.5 grid size-6 place-items-center rounded-md text-fg-3 opacity-0 transition hover:bg-surface-3 hover:text-foreground group-hover/comment:opacity-100 focus-visible:opacity-100"
+          onClick={() => onDelete?.(comment.id)}
+        >
+          <Trash className="size-3.5" />
+        </button>
+      ) : null}
     </div>
   )
 }
