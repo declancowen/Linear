@@ -17,6 +17,7 @@ const {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -512,10 +513,27 @@ async function checkDesktopUpdatesFromMenu() {
   const result = await updateManager.checkForUpdates("menu")
   const state = result.state ?? updateManager.getState()
 
+  if (state.status === "idle") {
+    await showDesktopNoUpdatesDialog(state)
+    return
+  }
+
   broadcastDesktopUpdateState({
     showToast: true,
     source: "menu",
     state,
+  })
+}
+
+async function showDesktopNoUpdatesDialog(state) {
+  const currentVersion = state.currentVersion ?? app.getVersion()
+
+  await dialog.showMessageBox({
+    buttons: ["OK"],
+    detail: `You are currently running ${appName} ${currentVersion}.`,
+    message: `${appName} ${currentVersion} is the latest version.`,
+    title: "No updates available",
+    type: "info",
   })
 }
 
