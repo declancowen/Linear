@@ -278,10 +278,17 @@ function showDesktopUpdateToast({
   }
 
   if (force && state.status === "idle") {
-    toast.success(state.message ?? "Recipe Room is up to date", {
-      duration: 4000,
-      id: DESKTOP_UPDATE_TOAST_ID,
-    })
+    toast.custom(
+      () => (
+        <DesktopUpdateToastContent
+          description={state.message ?? "Recipe Room is up to date."}
+          icon="success"
+          onDismiss={dismiss}
+          title="You're on the latest version"
+        />
+      ),
+      { duration: 4000, id: DESKTOP_UPDATE_TOAST_ID }
+    )
     return
   }
 
