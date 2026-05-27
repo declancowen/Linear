@@ -1453,6 +1453,47 @@ describe("CalendarView", () => {
     updateWorkItemSpy.mockRestore()
   })
 
+  it("ignores non-primary pointer starts for timed calendar drags", () => {
+    vi.useFakeTimers()
+    const item = createTimedCalendarItem({
+      id: "right-click-calendar-item",
+      title: "Right click planning",
+      startTime: "10:00",
+      endTime: "11:00",
+    })
+    const { eventCard, timedGrid, updateWorkItemSpy } = renderTimedCalendarItem(
+      { item }
+    )
+
+    fireEvent.pointerDown(eventCard, {
+      button: 2,
+      clientX: 120,
+      clientY: 640,
+      pointerId: 17,
+    })
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    fireEvent.pointerMove(timedGrid, {
+      button: 2,
+      clientX: 240,
+      clientY: 720,
+      pointerId: 17,
+    })
+    fireEvent.pointerUp(timedGrid, {
+      button: 2,
+      clientX: 240,
+      clientY: 720,
+      pointerId: 17,
+    })
+
+    expect(updateWorkItemSpy).not.toHaveBeenCalled()
+    expect(
+      screen.queryByTestId("calendar-drag-preview")
+    ).not.toBeInTheDocument()
+    updateWorkItemSpy.mockRestore()
+  })
+
   it("keeps timed event duration when a move is clamped late in the day", () => {
     const item = createTimedCalendarItem({
       id: "late-day-drag-item",
@@ -2090,6 +2131,14 @@ describe("TimelineView primitives", () => {
     expect(onCaptureDragOffset).not.toHaveBeenCalled()
     expect(onResizeStart).toHaveBeenCalledWith(item, "start", 0)
     expect(onSelectItem).not.toHaveBeenCalled()
+
+    onResizeStart.mockClear()
+    fireEvent.pointerDown(startResizeHandle, {
+      button: 2,
+      clientX: 0,
+      clientY: 0,
+    })
+    expect(onResizeStart).not.toHaveBeenCalled()
   })
 })
 

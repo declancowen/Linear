@@ -44,24 +44,115 @@ Files and areas reviewed across all turns:
 - `components/app/screens/inbox-screen.tsx`, `components/app/screens/inbox-ui.tsx` — inbox split-pane default sizing
 - `components/app/shell.tsx`, `electron/main.cjs`, `desktop/renderer/desktop-app.tsx`, `lib/server/desktop-session.ts` — desktop app min-width, auth persistence, notification behavior, and app-download icon
 - `app/api/auth/desktop/session/refresh/route.ts`, `app/api/channel-posts/[postId]/comments/[commentId]/route.ts`, `convex/app/collaboration_handlers.ts`, `lib/server/convex/collaboration.ts` — new desktop refresh and channel comment-delete route contracts
+- `package.json`, `pnpm-lock.yaml`, `vitest.config.ts` — CI dependency audit remediation and full-suite timeout stability
 
 ## Hotspots (cumulative — updated as recurring risk families emerge)
 
 - `hierarchy mutation side-effects` — new UI affordances now hit `updateWorkItem` directly on fields that can cascade across parent/child trees
 - `presentation/domain validation drift` — shared input constraints exist, but submit gating still diverges across sibling surfaces
+- `context-menu drag initiation parity` — added Turn 9 after Codex PR review caught right-click calendar drags arming move state
 
 ## Review status (updated every turn)
 
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-05-27 17:46:30 BST` |
-| **Total turns** | `8` |
+| **Last reviewed** | `2026-05-27 18:08:27 BST` |
+| **Total turns** | `9` |
 | **Open findings** | `0` |
-| **Resolved findings** | `14` |
+| **Resolved findings** | `16` |
 | **Accepted findings** | `19` |
 
 ---
+
+## Turn 9 — 2026-05-27 18:08:27 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `pending Turn 9 commit` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Imported the CI failure and the first Codex PR review thread for PR #40. Two live issues were fixed: the high-severity `tmp <0.2.6` audit failure from the Electron packaging dependency chain, and right-click/context-menu pointer starts on timed calendar events arming move drag state. I also hardened the sibling timeline resize path and moved the normal Vitest timeout to the same 15s budget already used by coverage runs, because the full suite timed out three otherwise-passing long UI tests under parallel load.
+
+**Outcome:** all clear after fixes
+**Risk score:** high — the branch is a broad presentation/platform PR and this turn touched CI dependency policy plus calendar/timeline drag affordances
+**Change archetypes:** PR-review import, dependency-security gate, shared interaction affordance, test harness stability
+**Intended change:** close CI and Codex review findings without changing product semantics or adding new bypasses
+**Intent vs actual:** package-manager overrides now force the vulnerable transitive `tmp` dependency to the patched version; calendar move/resize and timeline resize initiation now ignore non-primary pointer buttons so context menus do not schedule edits
+**Confidence:** high — the exact PR-review variant and a sibling timeline resize variant have regression coverage, the audit gate now exits cleanly, and the full `pnpm check` gate passed
+**Coverage note:** reviewed the current PR review thread via thread-aware GitHub fetch, the failed CI audit logs, calendar timed drag initiation, calendar resize handles, timeline bar pointer capture/resize handles, package override lockfile shape, Vitest timeout config, and the current branch diff/preflight output
+**Finding triage:** one Codex PR review thread remains unresolved on GitHub until this fix is pushed, but the current local tree resolves the behavior; the CI failure is resolved locally and will rerun after push
+**Static/analyzer evidence:** `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed new-only gates with introduced dead code `0`, introduced complexity `0`, introduced duplication `0`; diff-review/architecture preflights still show inherited advisory Fallow debt outside this turn
+**Architecture impact:** interaction rules stay owned by the calendar/timeline presentation components that own drag initiation; dependency remediation is encoded at the package-manager boundary instead of weakening CI
+**Bug classes / invariants checked:** Affordance Parity, Preservation, Lifecycle/Transient Containers, third-party dependency exposure; non-primary pointer actions must not mutate schedule state, and high-severity dependency audit failures must be fixed at dependency resolution
+**Branch totality:** rechecked the current branch state after the local fixes, including prior context-menu/calendar/timeline hotspots and CI gate parity
+**Sibling closure:** calendar timed move, calendar resize start/end, timeline bar drag capture, and timeline resize start/end were checked for non-primary pointer behavior
+**Remediation impact surface:** patched `calendar-view.tsx`, `timeline-bars.tsx`, `package.json`, `pnpm-lock.yaml`, `vitest.config.ts`, and added regression coverage in `work-surface-view.test.tsx`
+**Residual risk / unknowns:** GitHub CI and the Codex review thread need to refresh after push; Fallow preflight still reports inherited advisory inventory, but the changed-file/new-only gate passed
+
+| Source | Finding | Current status | Bug class | Missed invariant / variant | Action |
+|--------|---------|----------------|-----------|----------------------------|--------|
+| GitHub CI | `pnpm audit:deps` failed on `tmp <0.2.6` via `electron-builder > app-builder-lib > @malept/flatpak-bundler > tmp-promise > tmp` | Resolved locally | dependency-security gate | High-severity dependency audit failures must be fixed at resolution, not ignored in CI | Added targeted `tmp-promise>tmp: 0.2.6` pnpm override and regenerated lockfile |
+| Codex PR review | Right-clicking a timed calendar event could schedule a move drag while opening the context menu | Resolved locally | Affordance Parity / Preservation | Non-primary pointer actions must not arm schedule mutation paths | Gated calendar move/resize initiation on primary button and added right-click regression test |
+| Local sibling sweep | Timeline resize handles also accepted non-primary pointer starts | Hardened | Affordance Parity | Context-menu pointer variants should not start resize behavior | Gated timeline resize handles and added sibling regression check |
+
+### Validation
+
+- `python3 .../gh-address-comments/scripts/fetch_comments.py` — passed; one unresolved Codex PR review thread imported
+- `gh run view 26525473909 --log-failed` — passed; CI failure identified as `pnpm audit:deps`
+- `pnpm audit:deps` — passed; only low/moderate advisories remain
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx --reporter verbose` — passed (`65` tests)
+- `pnpm exec prettier --check components/app/screens/work-surface-view/calendar-view.tsx components/app/screens/work-surface-view/timeline-bars.tsx tests/components/work-surface-view.test.tsx vitest.config.ts package.json pnpm-lock.yaml` — passed
+- `git diff --check` — passed
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` — passed new-only gate
+- `pnpm check` — passed: lint, typecheck, full Vitest (`204` files, `1196` tests), build, desktop smoke
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; no new blocking finding
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; no new branch-specific architecture blocker
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** CI workflow gate order, package overrides, PR review thread state, calendar/timeline drag helpers, work-surface regression tests, Vitest config
+- **Prior open findings rechecked:** no prior open local findings; PR review thread is resolved in the local tree and pending push
+- **Prior resolved/adjacent areas revalidated:** context-menu wrapping for calendar/timeline items remains intact; calendar click, drag, resize, and timeline selection tests still pass
+- **Hotspots or sibling paths revisited:** right-click timed event, timed resize handles, timeline resize handles, timeline non-primary bar pointer capture, dependency audit gate
+- **Dependency/adjacent surfaces revalidated:** `pnpm why tmp` confirmed `tmp@0.2.6` after local install; `pnpm audit:deps` confirmed the high advisory is gone
+- **Why this is enough:** the live review bug was at the pointer-to-drag boundary, and every sibling path that starts the same class of schedule edit now rejects non-primary pointer starts with regression coverage
+
+### Challenger pass
+
+- `done` — assumed the fix only covered the exact reviewed line and searched for sibling drag/resize starts; this found and hardened calendar resize and timeline resize starts as well.
+
+### Resolved / Carried / New findings
+
+#### Resolved
+
+- `T9-01` — CI high dependency audit failure
+  - Fingerprint: `package-manager override / tmp-promise>tmp / high audit GHSA-ph9p-34f9-6g65`
+  - Evidence: `pnpm audit:deps` exits `0`; lockfile resolves `tmp@0.2.6`
+  - Verification: `pnpm audit:deps`, `pnpm check`
+- `T9-02` — Codex PR review timed calendar right-click drag
+  - Fingerprint: `calendar timed event / non-primary pointer / scheduleTimedMoveDrag`
+  - Evidence: `scheduleTimedMoveDrag` and `beginTimedDrag` reject `event.button !== 0`
+  - Verification: `tests/components/work-surface-view.test.tsx` right-click timed drag regression
+- `T9-03` — sibling timeline resize non-primary pointer start
+  - Fingerprint: `timeline resize handle / non-primary pointer / onResizeStart`
+  - Evidence: timeline resize handlers reject non-primary pointer starts
+  - Verification: `tests/components/work-surface-view.test.tsx` timeline resize sibling check
+
+#### Carried
+
+- None.
+
+#### New
+
+- None.
+
+### Recommendations
+
+1. **Fix first:** push this turn so GitHub CI and Codex review refresh against the fixed commit.
+2. **Patterns noticed:** adding context-menu wrappers around draggable surfaces needs a pointer-button audit on every drag/resize entrypoint, not only the visible card body.
+3. **Suggested approach:** keep drag initiation guards local to the presentation components that own pointer interactions, and keep dependency audit fixes in pnpm overrides until upstream packages ship patched transitive ranges.
+4. **Defer on purpose:** inherited Fallow advisory inventory and moderate/low dependency advisories remain outside this PR-review fix loop.
 
 ## Turn 1 — 2026-04-24 14:50:14 BST
 

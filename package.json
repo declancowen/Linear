@@ -134,6 +134,7 @@
     "overrides": {
       "miniflare>undici": "6.24.0",
       "plist>@xmldom/xmldom": "0.8.13",
+      "tmp-promise>tmp": "0.2.6",
       "fast-uri": "3.1.2"
     }
   }

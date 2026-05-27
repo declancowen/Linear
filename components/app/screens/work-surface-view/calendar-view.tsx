@@ -1111,6 +1111,10 @@ function CalendarTimedEntryResizeHandle({
         action === "resize-start" ? "top-0" : "bottom-0"
       )}
       onPointerDown={(event) => {
+        if (event.button !== 0) {
+          return
+        }
+
         event.stopPropagation()
         beginTimedDrag(event, entry, action)
       }}
@@ -1206,11 +1210,7 @@ function CalendarTimedEntryBlock({
   }
 
   return (
-    <IssueContextMenu
-      data={data}
-      item={entry.item}
-      onEditItem={onSelectItem}
-    >
+    <IssueContextMenu data={data} item={entry.item} onEditItem={onSelectItem}>
       <div
         data-calendar-timed-event={entry.item.id}
         className={getTimedEntryClassName({
@@ -4543,6 +4543,10 @@ export function CalendarView({
     entry: TimedCalendarEntry,
     action: DragAction
   ) {
+    if (event.button !== 0) {
+      return
+    }
+
     clearPendingMoveDrag()
     event.preventDefault()
     event.currentTarget.setPointerCapture?.(event.pointerId)
@@ -4553,7 +4557,7 @@ export function CalendarView({
     event: ReactPointerEvent<HTMLElement>,
     entry: TimedCalendarEntry
   ) {
-    if (!isItemEditable(entry.item)) {
+    if (event.button !== 0 || !isItemEditable(entry.item)) {
       return
     }
 
