@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
-import { InboxDetailPane } from "@/components/app/screens/inbox-ui"
+import {
+  InboxDetailPane,
+  InboxListPane,
+} from "@/components/app/screens/inbox-ui"
 import { InboxRowAvatar } from "@/components/app/screens/inbox-display"
 import { InboxRow } from "@/components/app/screens/inbox-row"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -29,6 +32,34 @@ function createNotification(overrides = {}) {
 }
 
 describe("Inbox row primitives", () => {
+  it("uses an equal split for the default inbox list pane width", () => {
+    render(
+      <TooltipProvider>
+        <InboxListPane
+          activeId={null}
+          archivedCount={0}
+          entries={[]}
+          inboxTab="inbox"
+          resizing={false}
+          unreadCount={0}
+          width={null}
+          onMarkAllRead={vi.fn()}
+          onMoveAll={vi.fn()}
+          onResetWidth={vi.fn()}
+          onResizeStart={vi.fn()}
+          onSelectNotification={vi.fn()}
+          onTabChange={vi.fn()}
+          onToggleArchive={vi.fn()}
+        />
+      </TooltipProvider>
+    )
+
+    expect(document.querySelector("[data-inbox-list-pane]")).toHaveStyle({
+      flexBasis: "50%",
+      width: "50%",
+    })
+  })
+
   it("renders unread rows and routes row actions through callbacks", () => {
     const onSelect = vi.fn()
     const onToggleArchive = vi.fn()
@@ -52,7 +83,9 @@ describe("Inbox row primitives", () => {
     )
 
     fireEvent.click(screen.getByRole("button", { name: /Maya/ }))
-    fireEvent.click(screen.getByRole("button", { name: "Archive notification" }))
+    fireEvent.click(
+      screen.getByRole("button", { name: "Archive notification" })
+    )
 
     expect(screen.getAllByText("Maya")).toHaveLength(2)
     expect(screen.getByText("Commented on Test item")).toBeInTheDocument()
@@ -107,17 +140,18 @@ describe("Inbox row primitives", () => {
     )
 
     fireEvent.click(screen.getByRole("button", { name: "Mark as read" }))
-    fireEvent.click(screen.getByRole("button", { name: "Archive notification" }))
+    fireEvent.click(
+      screen.getByRole("button", { name: "Archive notification" })
+    )
     fireEvent.click(screen.getByRole("button", { name: "Delete notification" }))
 
     expect(screen.getByText("Work item")).toBeInTheDocument()
     expect(screen.getByText("Unread")).toBeInTheDocument()
     expect(screen.getAllByText("Maya")).toHaveLength(2)
     expect(screen.getByText("Maya commented on Test item")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Open work item" })).toHaveAttribute(
-      "href",
-      "/items/item_1"
-    )
+    expect(
+      screen.getByRole("link", { name: "Open work item" })
+    ).toHaveAttribute("href", "/items/item_1")
     expect(onToggleRead).toHaveBeenCalledWith(
       expect.objectContaining({ id: "notification_1" })
     )

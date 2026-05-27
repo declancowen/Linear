@@ -18,7 +18,10 @@ import {
   getProjectHref,
 } from "@/lib/domain/selectors"
 import { type Notification } from "@/lib/domain/types"
-import { fetchNotificationInboxReadModel, syncAcceptInvite } from "@/lib/convex/client"
+import {
+  fetchNotificationInboxReadModel,
+  syncAcceptInvite,
+} from "@/lib/convex/client"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import { getNotificationInboxScopeKeys } from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
@@ -33,9 +36,10 @@ import {
 } from "@/components/app/screens/inbox-ui"
 
 const INBOX_LIST_WIDTH_STORAGE_KEY = "inbox-list-width"
-const INBOX_LIST_DEFAULT_WIDTH = 288
 const INBOX_LIST_MIN_WIDTH = 240
 const INBOX_LIST_MAX_WIDTH = 420
+
+type InboxListWidth = number | null
 
 type AppStoreState = ReturnType<typeof useAppStore.getState>
 type InboxUser = AppStoreState["users"][number]
@@ -46,16 +50,33 @@ function clampInboxListWidth(value: number) {
 
 function getInitialInboxListWidth() {
   if (typeof window === "undefined") {
-    return INBOX_LIST_DEFAULT_WIDTH
+    return null
   }
 
-  const parsedWidth = Number(
-    window.localStorage.getItem(INBOX_LIST_WIDTH_STORAGE_KEY)
-  )
+  const storedWidth = window.localStorage.getItem(INBOX_LIST_WIDTH_STORAGE_KEY)
 
-  return Number.isFinite(parsedWidth)
-    ? clampInboxListWidth(parsedWidth)
-    : INBOX_LIST_DEFAULT_WIDTH
+  if (!storedWidth) {
+    return null
+  }
+
+  const parsedWidth = Number(storedWidth)
+
+  return Number.isFinite(parsedWidth) ? clampInboxListWidth(parsedWidth) : null
+}
+
+function getInboxListResizeStartWidth(
+  event: ReactPointerEvent<HTMLButtonElement>,
+  fallbackWidth: InboxListWidth
+) {
+  if (fallbackWidth !== null) {
+    return fallbackWidth
+  }
+
+  return (
+    event.currentTarget
+      .closest<HTMLElement>("[data-inbox-list-pane]")
+      ?.getBoundingClientRect().width ?? INBOX_LIST_MIN_WIDTH
+  )
 }
 
 function selectCurrentUserInboxNotifications(state: AppStoreState) {
@@ -167,7 +188,9 @@ function getInboxActiveProjectHref(
 
   const project = getProject(state, notification.entityId)
 
-  return project ? (getProjectHref(state, project) ?? "/workspace/projects") : null
+  return project
+    ? (getProjectHref(state, project) ?? "/workspace/projects")
+    : null
 }
 
 function isPendingInvite(
@@ -179,24 +202,25 @@ function isPendingInvite(
 ) {
   return Boolean(
     invite &&
-      !invite.acceptedAt &&
-      !invite.declinedAt &&
-      new Date(invite.expiresAt).getTime() >= Date.now()
+    !invite.acceptedAt &&
+    !invite.declinedAt &&
+    new Date(invite.expiresAt).getTime() >= Date.now()
   )
 }
 
 function useInboxReadModel(currentUserId: string | null) {
   return useScopedReadModelRefresh({
     enabled: Boolean(currentUserId),
-    scopeKeys: currentUserId ? getNotificationInboxScopeKeys(currentUserId) : [],
+    scopeKeys: currentUserId
+      ? getNotificationInboxScopeKeys(currentUserId)
+      : [],
     fetchLatest: () => fetchNotificationInboxReadModel(currentUserId ?? ""),
   })
 }
 
 function useInboxListWidthController() {
-  const [notificationListWidth, setNotificationListWidth] = useState(
-    getInitialInboxListWidth
-  )
+  const [notificationListWidth, setNotificationListWidth] =
+    useState<InboxListWidth>(getInitialInboxListWidth)
   const [notificationListResizing, setNotificationListResizing] =
     useState(false)
   const notificationListDragRef = useRef<{
@@ -206,6 +230,11 @@ function useInboxListWidthController() {
 
   useEffect(() => {
     if (typeof window === "undefined") {
+      return
+    }
+
+    if (notificationListWidth === null) {
+      window.localStorage.removeItem(INBOX_LIST_WIDTH_STORAGE_KEY)
       return
     }
 
@@ -267,7 +296,7 @@ function useInboxListWidthController() {
     event.preventDefault()
     notificationListDragRef.current = {
       startX: event.clientX,
-      startWidth: notificationListWidth,
+      startWidth: getInboxListResizeStartWidth(event, notificationListWidth),
     }
     setNotificationListResizing(true)
     document.body.style.cursor = "col-resize"
@@ -277,8 +306,7 @@ function useInboxListWidthController() {
   return {
     notificationListResizing,
     notificationListWidth,
-    resetNotificationListWidth: () =>
-      setNotificationListWidth(INBOX_LIST_DEFAULT_WIDTH),
+    resetNotificationListWidth: () => setNotificationListWidth(null),
     setNotificationListWidth,
     startNotificationListResize: handleNotificationListResizeStart,
   }
@@ -312,7 +340,9 @@ function getPendingInviteToken(
 function getAcceptedInviteHref(
   payload: Awaited<ReturnType<typeof syncAcceptInvite>>
 ) {
-  return payload?.teamSlug ? `/team/${payload.teamSlug}/work` : "/workspace/projects"
+  return payload?.teamSlug
+    ? `/team/${payload.teamSlug}/work`
+    : "/workspace/projects"
 }
 
 function getInviteAcceptErrorMessage(error: unknown) {
@@ -588,7 +618,9 @@ function InboxScreenLayout({
               onMarkAllRead={markAllVisibleNotificationsRead}
               onMoveAll={moveAllVisibleNotifications}
               onSelectNotification={(notificationId) => {
-                useAppStore.getState().setActiveInboxNotification(notificationId)
+                useAppStore
+                  .getState()
+                  .setActiveInboxNotification(notificationId)
                 useAppStore.getState().markNotificationRead(notificationId)
               }}
               onToggleArchive={(notification) => {

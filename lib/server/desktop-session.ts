@@ -7,7 +7,7 @@ import { consumeDesktopHandoffTicketServer } from "@/lib/server/convex/auth"
 const DESKTOP_HANDOFF_TOKEN_TYPE = "desktop-handoff"
 const DESKTOP_SESSION_TOKEN_TYPE = "desktop-session"
 const DESKTOP_HANDOFF_TTL_MS = 2 * 60 * 1000
-const DESKTOP_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const DESKTOP_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const DESKTOP_SESSION_SECRET_MIN_LENGTH = 32
 
 type DesktopTokenType =
@@ -274,6 +274,37 @@ export function verifyDesktopSessionToken(token: string, now = Date.now()) {
   }
 }
 
+export function refreshDesktopSessionToken(
+  token: string,
+  now = Date.now()
+): DesktopSessionTokenResult | null {
+  const payload = verifyDesktopSessionToken(token, now)
+
+  if (!payload) {
+    return null
+  }
+
+  const expiresAt = now + DESKTOP_SESSION_TTL_MS
+
+  return {
+    expiresAt,
+    token: signTokenPayload(
+      createDesktopTokenPayload({
+        expiresAt,
+        issuedAt: now,
+        organizationId: payload.organizationId,
+        type: DESKTOP_SESSION_TOKEN_TYPE,
+        user: {
+          id: payload.sub,
+          email: payload.email,
+          firstName: payload.firstName,
+          lastName: payload.lastName,
+        },
+      })
+    ),
+  }
+}
+
 function parseBearerToken(value: string | null) {
   const match = value?.match(/^Bearer\s+(.+)$/i)
   const token = match?.[1]?.trim()
@@ -314,4 +345,12 @@ export async function getDesktopSessionFromRequestHeaders(
   const payload = verifyDesktopSessionToken(token)
 
   return payload ? createDesktopAuthenticatedSession(payload) : null
+}
+
+export async function getDesktopSessionTokenFromRequestHeaders(
+  requestHeaders?: Headers | null
+) {
+  const resolvedHeaders = requestHeaders ?? (await getNextRequestHeaders())
+
+  return parseBearerToken(resolvedHeaders?.get("authorization") ?? null)
 }

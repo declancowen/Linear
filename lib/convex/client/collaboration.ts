@@ -129,6 +129,18 @@ export function syncDeleteChannelPost(postId: string) {
   })
 }
 
+export function syncDeleteChannelPostComment(
+  postId: string,
+  commentId: string
+) {
+  return runRouteMutation<{ ok: true }>(
+    `/api/channel-posts/${postId}/comments/${commentId}`,
+    {
+      method: "DELETE",
+    }
+  )
+}
+
 export function syncToggleChannelPostReaction(postId: string, emoji: string) {
   return runRouteMutation<{ ok: true }>(
     `/api/channel-posts/${postId}/reactions`,

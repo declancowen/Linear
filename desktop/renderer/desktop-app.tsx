@@ -19,7 +19,11 @@ import {
   useAppRouter,
   useAppSearchParams,
 } from "@/lib/browser/app-navigation"
-import { fetchSnapshotState, RouteMutationError } from "@/lib/convex/client"
+import {
+  fetchSnapshotState,
+  RouteMutationError,
+  runRouteMutation,
+} from "@/lib/convex/client"
 import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import type { AppSnapshot } from "@/lib/domain/types"
 
@@ -28,6 +32,8 @@ const DesktopSignedInApp = lazy(() =>
     default: module.DesktopSignedInApp,
   }))
 )
+
+const DESKTOP_SESSION_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000
 
 type DesktopBootstrapState =
   | {
@@ -114,6 +120,19 @@ async function loadAuthenticatedDesktopState() {
     initialShellSeed: createInitialShellSeed(snapshotState.snapshot),
     initialWorkspaceId,
   }
+}
+
+async function refreshStoredDesktopSessionToken() {
+  const result = await runRouteMutation<{ expiresAt: number; token: string }>(
+    "/api/auth/desktop/session/refresh",
+    {
+      method: "POST",
+    }
+  )
+
+  await window.electronApp?.setDesktopAuthToken?.(result.token)
+
+  return result
 }
 
 function isUnauthorizedRouteError(error: unknown) {
@@ -278,6 +297,7 @@ function DesktopAppBody() {
       }
 
       try {
+        await refreshStoredDesktopSessionToken()
         const authenticatedState = await loadAuthenticatedDesktopState()
 
         if (!cancelled) {
@@ -314,6 +334,32 @@ function DesktopAppBody() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (state.kind !== "signed-in") {
+      return
+    }
+
+    let cancelled = false
+    const intervalId = window.setInterval(() => {
+      void refreshStoredDesktopSessionToken().catch(async (error) => {
+        if (!isUnauthorizedRouteError(error) || cancelled) {
+          return
+        }
+
+        await window.electronApp?.clearDesktopAuthToken?.()
+
+        if (!cancelled) {
+          setState({ kind: "signed-out" })
+        }
+      })
+    }, DESKTOP_SESSION_REFRESH_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [state.kind])
 
   if (pathname === "/auth/desktop/complete") {
     return (

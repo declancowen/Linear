@@ -191,7 +191,7 @@ export const PROJECT_DISPLAY_PROPERTY_OPTIONS: DisplayProperty[] = [
 ]
 
 const chipBase =
-  "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+  "inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
 
 const chipDefault =
   "border-line bg-surface text-fg-2 hover:text-foreground hover:bg-surface-3"
@@ -266,18 +266,23 @@ const ViewChipTrigger = forwardRef<
     <button
       ref={ref}
       type={type}
-      className={cn(chipBase, getChipToneClass(tone), className)}
+      className={cn(
+        chipBase,
+        "work-view-chip",
+        getChipToneClass(tone),
+        className
+      )}
       {...props}
     >
-      {icon}
-      {showLabel ? <span>{label}</span> : null}
+      <span className="shrink-0">{icon}</span>
+      {showLabel ? <span className="shrink-0">{label}</span> : null}
       {showValue ? (
-        <span className="font-semibold">
+        <span className="work-view-chip-value font-semibold">
           {valuePrefix}
           {value}
         </span>
       ) : null}
-      <CaretDown className="size-3 opacity-70" />
+      <CaretDown className="size-3 shrink-0 opacity-70" />
     </button>
   )
 })
@@ -310,7 +315,9 @@ function getDisplayPropertyOptionsForView(
     return propertyOptions
   }
 
-  return propertyOptions.filter((property) => property !== "assignee")
+  return propertyOptions.filter(
+    (property) => property !== "assignee" && property !== "project"
+  )
 }
 
 const DISPLAY_PROPERTY_LABELS: Record<BuiltinDisplayProperty, string> = {
@@ -617,17 +624,26 @@ function getWorkFilterChipClass({
   chipTone: ChipTone | "adaptive"
   dashedWhenEmpty: boolean
 }) {
-  if (chipTone === "adaptive") {
-    return activeCount > 0
-      ? chipSelected
-      : dashedWhenEmpty
-        ? chipDashed
-        : chipGhost
+  if (activeCount === 0) {
+    return getInactiveWorkFilterChipClass(chipTone, dashedWhenEmpty)
   }
 
-  return activeCount === 0 && dashedWhenEmpty
-    ? chipDashed
-    : getChipToneClass(chipTone)
+  return getActiveWorkFilterChipClass(chipTone)
+}
+
+function getInactiveWorkFilterChipClass(
+  chipTone: ChipTone | "adaptive",
+  dashedWhenEmpty: boolean
+) {
+  if (dashedWhenEmpty) {
+    return chipDashed
+  }
+
+  return chipTone === "adaptive" ? chipGhost : getChipToneClass(chipTone)
+}
+
+function getActiveWorkFilterChipClass(chipTone: ChipTone | "adaptive") {
+  return chipTone === "adaptive" ? chipSelected : getChipToneClass(chipTone)
 }
 
 function toggleFilterValueOrDelegate<TKey extends ViewFilterKey>({
@@ -684,10 +700,12 @@ const FilterTriggerButton = forwardRef<
   if (variant === "chip") {
     return (
       <button ref={ref} type={type} className={className} {...props}>
-        {icon ?? <FunnelSimple className="size-3.5" />}
-        <span>{label}</span>
+        <span className="shrink-0">
+          {icon ?? <FunnelSimple className="size-3.5" />}
+        </span>
+        <span className="shrink-0">{label}</span>
         {activeCount > 0 ? (
-          <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
+          <span className="ml-0.5 shrink-0 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
             {activeCount}
           </span>
         ) : null}
@@ -984,7 +1002,7 @@ function ProjectFilterSection({
   query: string
   view: ViewDefinition
 }) {
-  if (hidden || projects.length === 0) {
+  if (hidden || isPrivateTaskView(view) || projects.length === 0) {
     return null
   }
 
@@ -1010,6 +1028,35 @@ function ProjectFilterSection({
   )
 }
 
+function getParentFilterActiveCount(view: ViewDefinition) {
+  return view.filters.parentIds?.length ?? 0
+}
+
+function ParentEmptyFilterRow({
+  onToggleFilterValue,
+  query,
+  view,
+}: {
+  onToggleFilterValue: ToggleWorkFilterValue
+  query: string
+  view: ViewDefinition
+}) {
+  if (!matchesQuery("Is empty", query)) {
+    return null
+  }
+
+  return (
+    <FilterRow
+      icon={<TreeStructure className="size-3" />}
+      label="Is empty"
+      active={Boolean(
+        view.filters.parentIds?.includes(EMPTY_PARENT_FILTER_VALUE)
+      )}
+      onClick={() => onToggleFilterValue("parentIds", EMPTY_PARENT_FILTER_VALUE)}
+    />
+  )
+}
+
 function ParentFilterSection({
   hidden,
   onToggleFilterValue,
@@ -1026,22 +1073,12 @@ function ParentFilterSection({
   }
 
   return (
-    <FilterSection
-      label="Parent"
-      activeCount={view.filters.parentIds?.length ?? 0}
-    >
-      {matchesQuery("Is empty", query) ? (
-        <FilterRow
-          icon={<TreeStructure className="size-3" />}
-          label="Is empty"
-          active={Boolean(
-            view.filters.parentIds?.includes(EMPTY_PARENT_FILTER_VALUE)
-          )}
-          onClick={() =>
-            onToggleFilterValue("parentIds", EMPTY_PARENT_FILTER_VALUE)
-          }
-        />
-      ) : null}
+    <FilterSection label="Parent" activeCount={getParentFilterActiveCount(view)}>
+      <ParentEmptyFilterRow
+        query={query}
+        view={view}
+        onToggleFilterValue={onToggleFilterValue}
+      />
     </FilterSection>
   )
 }
@@ -1206,7 +1243,12 @@ export function FilterPopover({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
+        collisionPadding={16}
+        sideOffset={8}
+        className={cn(
+          PROPERTY_POPOVER_CLASS,
+          "w-[min(280px,calc(100vw-2rem))]"
+        )}
       >
         <WorkFilterHeader
           activeCount={activeCount}
@@ -1770,6 +1812,12 @@ function updateViewConfig(
   useAppStore.getState().updateViewConfig(view.id, patch)
 }
 
+type ViewLayoutOption = {
+  value: ViewDefinition["layout"]
+  label: string
+  icon: ReactNode
+}
+
 function ViewLayoutTabsControl({
   view,
   onUpdateView,
@@ -1777,11 +1825,7 @@ function ViewLayoutTabsControl({
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
-  options: Array<{
-    value: ViewDefinition["layout"]
-    label: string
-    icon: ReactNode
-  }>
+  options: ViewLayoutOption[]
 }) {
   return (
     <div className="flex items-center gap-1">
@@ -1801,6 +1845,66 @@ function ViewLayoutTabsControl({
   )
 }
 
+function getActiveViewLayoutOption(
+  options: ViewLayoutOption[],
+  layout: ViewDefinition["layout"]
+) {
+  return options.find((option) => option.value === layout) ?? options[0] ?? null
+}
+
+const ViewLayoutChipTrigger = forwardRef<
+  HTMLButtonElement,
+  ComponentPropsWithoutRef<"button"> & {
+    activeOption: ViewLayoutOption | null
+    tone: ChipTone
+  }
+>(function ViewLayoutChipTrigger(
+  { activeOption, className, tone, ...props },
+  ref
+) {
+  return (
+    <button
+      ref={ref}
+      type="button"
+      className={cn(chipBase, getChipToneClass(tone), className)}
+      {...props}
+    >
+      <span className="shrink-0">{activeOption?.icon}</span>
+      <span className="shrink-0">{activeOption?.label ?? "Layout"}</span>
+      <CaretDown className="size-3 shrink-0 opacity-70" />
+    </button>
+  )
+})
+
+function ViewLayoutPopoverItem({
+  active,
+  onUpdateView,
+  option,
+  view,
+}: {
+  active: boolean
+  onUpdateView?: (patch: ViewConfigPatch) => void
+  option: ViewLayoutOption
+  view: ViewDefinition
+}) {
+  return (
+    <PropertyPopoverItem
+      selected={active}
+      onClick={() =>
+        updateViewConfig(view, onUpdateView, {
+          layout: option.value,
+        })
+      }
+      trailing={active ? <Check className="size-3.5 text-accent-fg" /> : null}
+    >
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        {option.icon}
+      </span>
+      <span>{option.label}</span>
+    </PropertyPopoverItem>
+  )
+}
+
 function ViewLayoutChipPopover({
   view,
   onUpdateView,
@@ -1810,23 +1914,14 @@ function ViewLayoutChipPopover({
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
   tone: ChipTone
-  options: Array<{
-    value: ViewDefinition["layout"]
-    label: string
-    icon: ReactNode
-  }>
+  options: ViewLayoutOption[]
 }) {
-  const activeOption =
-    options.find((option) => option.value === view.layout) ?? options[0]
+  const activeOption = getActiveViewLayoutOption(options, view.layout)
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
-          {activeOption?.icon}
-          <span>{activeOption?.label ?? "Layout"}</span>
-          <CaretDown className="size-3 opacity-70" />
-        </button>
+        <ViewLayoutChipTrigger activeOption={activeOption} tone={tone} />
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -1837,23 +1932,13 @@ function ViewLayoutChipPopover({
           {options.map((option) => {
             const active = view.layout === option.value
             return (
-              <PropertyPopoverItem
+              <ViewLayoutPopoverItem
                 key={option.value}
-                selected={active}
-                onClick={() =>
-                  updateViewConfig(view, onUpdateView, {
-                    layout: option.value,
-                  })
-                }
-                trailing={
-                  active ? <Check className="size-3.5 text-accent-fg" /> : null
-                }
-              >
-                <span className="flex size-4 shrink-0 items-center justify-center">
-                  {option.icon}
-                </span>
-                <span>{option.label}</span>
-              </PropertyPopoverItem>
+                active={active}
+                option={option}
+                view={view}
+                onUpdateView={onUpdateView}
+              />
             )
           })}
         </PropertyPopoverList>
@@ -1884,15 +1969,20 @@ function ViewSortChipPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={cn(chipBase, getChipToneClass(tone))}>
-          <SortAscending className="size-3.5" />
-          <span>{label ?? ORDERING_LABELS[view.ordering]}</span>
+        <button
+          type="button"
+          className={cn(chipBase, "work-view-chip", getChipToneClass(tone))}
+        >
+          <SortAscending className="size-3.5 shrink-0" />
+          <span className="shrink-0">
+            {label ?? ORDERING_LABELS[view.ordering]}
+          </span>
           {showValue ? (
-            <span className="font-semibold">
+            <span className="work-view-chip-value font-semibold">
               {label ? `· ${ORDERING_LABELS[view.ordering]}` : null}
             </span>
           ) : null}
-          <CaretDown className="size-3 opacity-70" />
+          <CaretDown className="size-3 shrink-0 opacity-70" />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -2237,10 +2327,10 @@ const PropertiesChipTrigger = forwardRef<
         className
       )}
     >
-      <Eye className="size-3.5" />
-      <span>{label}</span>
+      <Eye className="size-3.5 shrink-0" />
+      <span className="shrink-0">{label}</span>
       {showCount ? (
-        <span className="ml-0.5 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
+        <span className="ml-0.5 shrink-0 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
           {count}
         </span>
       ) : null}
@@ -2595,6 +2685,56 @@ function SortableDisplayPropertyRow({
   )
 }
 
+const privateTaskLevelOptions = ["task"] satisfies WorkItemType[]
+
+function getBaseItemLevelOptions({
+  isPrivateTaskView,
+  team,
+}: {
+  isPrivateTaskView: boolean
+  team: Team | null
+}) {
+  if (isPrivateTaskView) {
+    return privateTaskLevelOptions
+  }
+
+  if (team) {
+    return getDefaultWorkItemTypesForTeamExperience(team.settings.experience)
+  }
+
+  return workItemTypes
+}
+
+function includeCurrentItemLevel(
+  itemLevelOptions: readonly WorkItemType[],
+  itemLevel: WorkItemType | null
+) {
+  if (!itemLevel || itemLevelOptions.includes(itemLevel)) {
+    return itemLevelOptions
+  }
+
+  return [itemLevel, ...itemLevelOptions]
+}
+
+function getLevelChipItemOptions({
+  isPrivateTaskView,
+  team,
+  view,
+}: {
+  isPrivateTaskView: boolean
+  team: Team | null
+  view: ViewDefinition
+}) {
+  if (view.entityKind !== "items") {
+    return []
+  }
+
+  return includeCurrentItemLevel(
+    getBaseItemLevelOptions({ isPrivateTaskView, team }),
+    view.itemLevel ?? null
+  )
+}
+
 export function LevelChipPopover({
   view,
   onUpdateView,
@@ -2613,28 +2753,17 @@ export function LevelChipPopover({
   const team = useAppStore((state) =>
     view.scopeType === "team" ? getTeam(state, view.scopeId) : null
   )
-  const isPrivateTaskView =
+  const isPrivateTaskView = Boolean(
     view.entityKind === "items" && view.filters.visibility?.includes("private")
+  )
   const itemLevelExperience = isPrivateTaskView
     ? "project-management"
     : team?.settings.experience
-  const itemLevelOptions = useMemo(() => {
-    if (view.entityKind !== "items") {
-      return []
-    }
-
-    if (isPrivateTaskView) {
-      return ["task"] satisfies WorkItemType[]
-    }
-
-    const baseOptions = team
-      ? getDefaultWorkItemTypesForTeamExperience(team.settings.experience)
-      : workItemTypes
-
-    return view.itemLevel && !baseOptions.includes(view.itemLevel)
-      ? [view.itemLevel, ...baseOptions]
-      : baseOptions
-  }, [isPrivateTaskView, team, view.entityKind, view.itemLevel])
+  const itemLevelOptions = getLevelChipItemOptions({
+    isPrivateTaskView,
+    team,
+    view,
+  })
 
   if (view.entityKind !== "items" || itemLevelOptions.length === 0) {
     return null

@@ -16,7 +16,9 @@ class MockNotification {
   readonly listeners = new Map<string, () => void>()
   readonly show = vi.fn()
 
-  constructor(readonly options: { body?: string; title: string }) {
+  constructor(
+    readonly options: { body?: string; silent?: boolean; title: string }
+  ) {
     MockNotification.instances.push(this)
   }
 
@@ -47,6 +49,7 @@ describe("desktop notifications", () => {
     ).toEqual({
       body: "Body",
       path: "/workspace/docs",
+      silent: false,
       title: "Title",
     })
     expect(normalizeDesktopNotificationPayload({ title: "" })).toBeNull()
@@ -81,6 +84,7 @@ describe("desktop notifications", () => {
     expect(MockNotification.instances).toHaveLength(1)
     expect(MockNotification.instances[0].options).toEqual({
       body: "New mention",
+      silent: false,
       title: "New notification",
     })
     expect(MockNotification.instances[0].show).toHaveBeenCalled()

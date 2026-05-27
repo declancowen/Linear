@@ -6,6 +6,7 @@ import {
   syncAddChannelPostComment,
   syncCreateChannelPost,
   syncDeleteChannelPost,
+  syncDeleteChannelPostComment,
   syncToggleChannelPostReaction,
 } from "@/lib/convex/client"
 import { prepareRichTextMessageForStorage } from "@/lib/content/rich-text-security"
@@ -32,7 +33,13 @@ import type { AppStore } from "../types"
 
 type ChannelConversation = AppStore["conversations"][number]
 type ChannelPost = AppStore["channelPosts"][number]
+type ChannelPostComment = AppStore["channelPostComments"][number]
 type NotificationRecord = AppStore["notifications"][number]
+type DeleteChannelPostCommentResult = {
+  error: string | null
+  shouldSync: boolean
+  state: AppStore
+}
 
 function getChannelConversation(
   state: AppStore,
@@ -110,6 +117,90 @@ function getEditableChannelConversation(
   )
     ? conversation
     : null
+}
+
+function isTargetChannelPostComment(
+  entry: ChannelPostComment,
+  postId: string,
+  commentId: string
+) {
+  return entry.id === commentId && entry.postId === postId
+}
+
+function updatePostAfterCommentDelete(
+  posts: ChannelPost[],
+  post: ChannelPost | null,
+  now: string
+) {
+  if (!post) {
+    return posts
+  }
+
+  return posts.map((entry) =>
+    entry.id === post.id ? { ...entry, updatedAt: now } : entry
+  )
+}
+
+function updateConversationAfterCommentDelete(
+  conversations: ChannelConversation[],
+  post: ChannelPost | null,
+  now: string
+) {
+  if (!post) {
+    return conversations
+  }
+
+  return conversations.map((entry) =>
+    entry.id === post.conversationId
+      ? {
+          ...entry,
+          updatedAt: now,
+          lastActivityAt: now,
+        }
+      : entry
+  )
+}
+
+function getDeleteChannelPostCommentResult(
+  state: AppStore,
+  postId: string,
+  commentId: string
+): DeleteChannelPostCommentResult {
+  const comment = state.channelPostComments.find((entry) =>
+    isTargetChannelPostComment(entry, postId, commentId)
+  )
+
+  if (!comment) {
+    return { error: null, shouldSync: false, state }
+  }
+
+  if (comment.createdBy !== state.currentUserId) {
+    return {
+      error: "You can only delete your own comments",
+      shouldSync: false,
+      state,
+    }
+  }
+
+  const post = state.channelPosts.find((entry) => entry.id === postId) ?? null
+  const now = getNow()
+
+  return {
+    error: null,
+    shouldSync: true,
+    state: {
+      ...state,
+      channelPostComments: state.channelPostComments.filter(
+        (entry) => entry.id !== commentId
+      ),
+      channelPosts: updatePostAfterCommentDelete(state.channelPosts, post, now),
+      conversations: updateConversationAfterCommentDelete(
+        state.conversations,
+        post,
+        now
+      ),
+    },
+  }
 }
 
 function getChannelMentionUserIds(
@@ -266,6 +357,7 @@ export function createCollaborationChannelActions({
   | "createChannelPost"
   | "addChannelPostComment"
   | "deleteChannelPost"
+  | "deleteChannelPostComment"
   | "toggleChannelPostReaction"
 > {
   return {
@@ -453,6 +545,37 @@ export function createCollaborationChannelActions({
       )
 
       toast.success("Post deleted")
+    },
+    deleteChannelPostComment(postId, commentId) {
+      let deleteError: string | null = null
+      let shouldSync = false
+
+      set((state) => {
+        const result = getDeleteChannelPostCommentResult(
+          state,
+          postId,
+          commentId
+        )
+        deleteError = result.error
+        shouldSync = result.shouldSync
+
+        return result.state
+      })
+
+      if (deleteError) {
+        toast.error(deleteError)
+      }
+
+      if (!shouldSync) {
+        return
+      }
+
+      runtime.syncInBackground(
+        syncDeleteChannelPostComment(postId, commentId),
+        "Failed to delete comment"
+      )
+
+      toast.success("Comment deleted")
     },
     toggleChannelPostReaction(postId, emoji) {
       const nextEmoji = emoji.trim()

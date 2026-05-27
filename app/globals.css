@@ -464,4 +464,21 @@
     width: 0;
     height: 0;
   }
+
+  .work-view-chip-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .work-surface-viewbar {
+    container: work-surface-viewbar / inline-size;
+  }
+
+  @container work-surface-viewbar (max-width: 58rem) {
+    .work-view-chip-value {
+      display: none;
+    }
+  }
 }

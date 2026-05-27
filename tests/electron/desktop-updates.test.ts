@@ -5,6 +5,12 @@ import { describe, expect, it, vi } from "vitest"
 
 type DesktopUpdateTestManager = {
   configure: () => DesktopUpdateState
+  checkForUpdates: (reason?: string) => Promise<{
+    checked: boolean
+    error?: string
+    reason?: string
+    state: DesktopUpdateState
+  }>
   downloadUpdate: () => Promise<{
     accepted: boolean
     completed: boolean

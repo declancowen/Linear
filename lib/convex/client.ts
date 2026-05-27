@@ -42,6 +42,7 @@ export {
   syncCreateChannelPost,
   syncCreateWorkspaceChat,
   syncDeleteChannelPost,
+  syncDeleteChannelPostComment,
   syncEnsureTeamChat,
   syncSendChatMessage,
   syncStartConversationCall,

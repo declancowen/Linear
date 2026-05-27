@@ -35,7 +35,7 @@ describe("desktop session tokens", () => {
     })
 
     expect(session).toEqual({
-      expiresAt: now + 1000 + 7 * 24 * 60 * 60 * 1000,
+      expiresAt: now + 1000 + 30 * 24 * 60 * 60 * 1000,
       token: expect.any(String),
     })
     expect(verifyDesktopSessionToken(session?.token ?? "", now + 1000)).toMatchObject(
@@ -48,6 +48,46 @@ describe("desktop session tokens", () => {
         typ: "desktop-session",
       }
     )
+  })
+
+  it("refreshes valid desktop session tokens for another inactive window", async () => {
+    const {
+      createDesktopHandoffTicket,
+      createDesktopSessionTokenFromHandoffTicket,
+      refreshDesktopSessionToken,
+      verifyDesktopSessionToken,
+    } = await import("@/lib/server/desktop-session")
+    const now = 1_700_000_000_000
+    const { ticket } = createDesktopHandoffTicket({
+      now,
+      organizationId: "org_123",
+      user: {
+        id: "workos_user",
+        email: "alex@example.com",
+      },
+    })
+    const session = await createDesktopSessionTokenFromHandoffTicket(ticket, {
+      consumeHandoffTicket,
+      now,
+    })
+    const refreshedAt = now + 5 * 24 * 60 * 60 * 1000
+    const refreshed = refreshDesktopSessionToken(
+      session?.token ?? "",
+      refreshedAt
+    )
+
+    expect(refreshed).toEqual({
+      expiresAt: refreshedAt + 30 * 24 * 60 * 60 * 1000,
+      token: expect.any(String),
+    })
+    expect(
+      verifyDesktopSessionToken(refreshed?.token ?? "", refreshedAt)
+    ).toMatchObject({
+      email: "alex@example.com",
+      organizationId: "org_123",
+      sub: "workos_user",
+      typ: "desktop-session",
+    })
   })
 
   it("rejects expired handoff tickets", async () => {

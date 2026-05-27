@@ -189,11 +189,13 @@ function ForumPostReactions({
 function ForumPostCommentList({
   comments,
   currentUserId,
+  onDeleteComment,
   usersById,
   workspaceId,
 }: {
   comments: ForumPostComment[]
   currentUserId: string
+  onDeleteComment: (comment: ForumPostComment) => void
   usersById: UsersById
   workspaceId: string | null
 }) {
@@ -206,8 +208,10 @@ function ForumPostCommentList({
       {comments.map((comment) => (
         <ForumPostCommentItem
           key={comment.id}
+          canDelete={comment.createdBy === currentUserId}
           comment={comment}
           currentUserId={currentUserId}
+          onDelete={() => onDeleteComment(comment)}
           usersById={usersById}
           workspaceId={workspaceId}
         />
@@ -360,6 +364,9 @@ function useForumPostCardController(postId: string) {
     useAppStore.getState().deleteChannelPost(post.id)
     setDeletePostOpen(false)
   }
+  const handleDeleteComment = (comment: ForumPostComment) => {
+    useAppStore.getState().deleteChannelPostComment(post.id, comment.id)
+  }
   const handleInsertReplyEmoji = (emoji: string) => {
     replyEditorRef.current?.chain().focus().insertContent(emoji).run()
   }
@@ -376,6 +383,7 @@ function useForumPostCardController(postId: string) {
     currentWorkspaceId,
     deletePostOpen,
     earlierComments,
+    handleDeleteComment,
     handleDeletePost,
     handleInsertReplyEmoji,
     handleReply,
@@ -442,6 +450,7 @@ function EarlierForumPostComments({
   currentWorkspaceId,
   earlierComments,
   hiddenCount,
+  onDeleteComment,
   showReplies,
   usersById,
 }: Pick<
@@ -452,7 +461,9 @@ function EarlierForumPostComments({
   | "hiddenCount"
   | "showReplies"
   | "usersById"
->) {
+> & {
+  onDeleteComment: (comment: ForumPostComment) => void
+}) {
   if (!showReplies || hiddenCount <= 0) {
     return null
   }
@@ -462,6 +473,7 @@ function EarlierForumPostComments({
       <ForumPostCommentList
         comments={earlierComments}
         currentUserId={currentUserId}
+        onDeleteComment={onDeleteComment}
         usersById={usersById}
         workspaceId={currentWorkspaceId}
       />
@@ -505,6 +517,7 @@ function ForumPostRepliesSection({
   showReplies,
   usersById,
   onInsertEmoji,
+  onDeleteComment,
   onReply,
   onReplyChange,
   onSetReplyOpen,
@@ -525,6 +538,7 @@ function ForumPostRepliesSection({
   | "usersById"
 > & {
   onInsertEmoji: (emoji: string) => void
+  onDeleteComment: (comment: ForumPostComment) => void
   onReply: () => void
   onReplyChange: (value: string) => void
   onSetReplyOpen: (open: boolean) => void
@@ -551,6 +565,7 @@ function ForumPostRepliesSection({
         currentWorkspaceId={currentWorkspaceId}
         earlierComments={earlierComments}
         hiddenCount={hiddenCount}
+        onDeleteComment={onDeleteComment}
         showReplies={showReplies}
         usersById={usersById}
       />
@@ -558,6 +573,7 @@ function ForumPostRepliesSection({
       <ForumPostCommentList
         comments={previewComments}
         currentUserId={currentUserId}
+        onDeleteComment={onDeleteComment}
         usersById={usersById}
         workspaceId={currentWorkspaceId}
       />
@@ -592,6 +608,7 @@ function ForumPostCardLayout({
   deletePostOpen,
   earlierComments,
   handleDeletePost,
+  handleDeleteComment,
   handleInsertReplyEmoji,
   handleReply,
   hiddenCount,
@@ -633,6 +650,7 @@ function ForumPostCardLayout({
         showReplies={showReplies}
         usersById={usersById}
         onDelete={() => setDeletePostOpen(true)}
+        onDeleteComment={handleDeleteComment}
         onInsertReplyEmoji={handleInsertReplyEmoji}
         onReply={handleReply}
         onReplyChange={setReply}
@@ -673,6 +691,7 @@ function ForumPostBody({
   showReplies,
   usersById,
   onDelete,
+  onDeleteComment,
   onInsertReplyEmoji,
   onReply,
   onReplyChange,
@@ -697,6 +716,7 @@ function ForumPostBody({
   | "usersById"
 > & {
   onDelete: () => void
+  onDeleteComment: (comment: ForumPostComment) => void
   onInsertReplyEmoji: (emoji: string) => void
   onReply: () => void
   onReplyChange: (reply: string) => void
@@ -748,6 +768,7 @@ function ForumPostBody({
         replyOpen={replyOpen}
         showReplies={showReplies}
         usersById={usersById}
+        onDeleteComment={onDeleteComment}
         onInsertEmoji={onInsertReplyEmoji}
         onReply={onReply}
         onReplyChange={onReplyChange}

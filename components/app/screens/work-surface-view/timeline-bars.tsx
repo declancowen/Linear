@@ -52,7 +52,7 @@ export const TimelineLabelRow = memo(function TimelineLabelRow({
   const style = getTimelineBarStyle(item, accentMode, accentIndex, labelsById)
 
   return (
-    <IssueContextMenu data={data} item={item}>
+    <IssueContextMenu data={data} item={item} onEditItem={onSelectItem}>
       <div
         className={cn(
           "flex items-center gap-2.5 border-b bg-background px-3",
@@ -270,7 +270,7 @@ export const TimelineBar = memo(function TimelineBar({
   }
 
   return (
-    <IssueContextMenu data={data} item={item}>
+    <IssueContextMenu data={data} item={item} onEditItem={onSelectItem}>
       <button
         ref={setNodeRef}
         type="button"

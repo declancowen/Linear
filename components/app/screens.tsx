@@ -61,6 +61,7 @@ import {
   type ViewDefinition,
   type ViewerDirectoryConfig,
   type WorkItem,
+  type Workspace,
 } from "@/lib/domain/types"
 import {
   buildAssignedWorkViews,
@@ -863,6 +864,60 @@ function getDocsEmptyTitle(isWorkspaceDocs: boolean, activeTab: DocsTab) {
   return activeTab === "workspace"
     ? "No workspace documents yet"
     : "No private documents yet"
+}
+
+function isWorkspaceDocsScope(
+  scopeType: "team" | "workspace",
+  team?: Team | null
+) {
+  return scopeType === "workspace" && !team
+}
+
+function selectTeamDocViews(
+  state: AppData,
+  scopeId: string,
+  team?: Team | null
+) {
+  if (!team) {
+    return []
+  }
+
+  return getViewsForScope(state, "team", scopeId, "docs")
+}
+
+function selectWorkspaceDocViews(
+  state: AppData,
+  input: {
+    scopeId: string
+    scopeType: "team" | "workspace"
+    team?: Team | null
+  }
+) {
+  if (!isWorkspaceDocsScope(input.scopeType, input.team)) {
+    return []
+  }
+
+  return getViewsForScope(state, "workspace", input.scopeId, "docs")
+}
+
+function getPersistedDocsViews({
+  isWorkspaceDocs,
+  persistedTeamDocViews,
+  persistedWorkspaceDocViews,
+}: {
+  isWorkspaceDocs: boolean
+  persistedTeamDocViews: ViewDefinition[]
+  persistedWorkspaceDocViews: ViewDefinition[]
+}) {
+  return isWorkspaceDocs ? persistedWorkspaceDocViews : persistedTeamDocViews
+}
+
+function selectDocsEditable(state: AppData, team?: Team | null) {
+  return team ? canEditTeam(state, team.id) : true
+}
+
+function isTeamDocsDisabled(team?: Team | null) {
+  return Boolean(team && !teamHasFeature(team, "docs"))
 }
 
 const DOCS_CHIP_BASE =
@@ -3303,24 +3358,45 @@ function ProjectsContent({
 /*  Screen components                                                  */
 /* ------------------------------------------------------------------ */
 
-export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
-  const { team } = useRetainedTeamBySlug(teamSlug)
-  const { hasLoadedOnce } = useScopedReadModelRefresh({
-    enabled: Boolean(team?.id),
-    scopeKeys: team ? getWorkIndexScopeKeys("team", team.id) : [],
-    fetchLatest: () => fetchWorkIndexReadModel("team", team?.id ?? ""),
-  })
-  const views = useAppStore(
-    useShallow((state) =>
-      team ? getViewsForScope(state, "team", team.id, "items") : []
-    )
-  )
-  const items = useAppStore(
-    useShallow((state) =>
-      team ? getVisibleWorkItems(state, { teamId: team.id }) : []
-    )
-  )
+function getTeamWorkScopeKeys(team?: Team | null) {
+  if (!team) {
+    return []
+  }
 
+  return getWorkIndexScopeKeys("team", team.id)
+}
+
+function fetchTeamWorkReadModel(team?: Team | null) {
+  return fetchWorkIndexReadModel("team", team?.id ?? "")
+}
+
+function selectTeamWorkViews(state: AppData, team?: Team | null) {
+  if (!team) {
+    return []
+  }
+
+  return getViewsForScope(state, "team", team.id, "items")
+}
+
+function selectTeamWorkItems(state: AppData, team?: Team | null) {
+  if (!team) {
+    return []
+  }
+
+  return getVisibleWorkItems(state, { teamId: team.id })
+}
+
+function TeamWorkScreenContent({
+  hasLoadedOnce,
+  items,
+  team,
+  views,
+}: {
+  hasLoadedOnce: boolean
+  items: WorkItem[]
+  team?: Team | null
+  views: ViewDefinition[]
+}) {
   if (!team) {
     return <MissingState title="Team not found" />
   }
@@ -3345,41 +3421,90 @@ export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
   )
 }
 
-export function WorkspaceItemsScreen() {
-  const workspace = useAppStore(getCurrentWorkspace)
-  const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
+export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
+  const { team } = useRetainedTeamBySlug(teamSlug)
   const { hasLoadedOnce } = useScopedReadModelRefresh({
-    enabled: Boolean(workspace?.id),
-    scopeKeys: workspace
-      ? getWorkIndexScopeKeys("workspace", workspace.id)
-      : [],
-    fetchLatest: () =>
-      fetchWorkIndexReadModel("workspace", workspace?.id ?? ""),
+    enabled: Boolean(team?.id),
+    scopeKeys: getTeamWorkScopeKeys(team),
+    fetchLatest: () => fetchTeamWorkReadModel(team),
   })
   const views = useAppStore(
-    useShallow((state) =>
-      workspace
-        ? getViewsForScope(state, "workspace", workspace.id, "items")
-        : []
-    )
+    useShallow((state) => selectTeamWorkViews(state, team))
   )
   const items = useAppStore(
-    useShallow((state) =>
-      workspace ? getVisibleWorkItems(state, { workspaceId: workspace.id }) : []
-    )
+    useShallow((state) => selectTeamWorkItems(state, team))
   )
-  const workspaceExperience = useAppStore((state) => {
-    if (!workspace) {
-      return null
-    }
 
-    return getSharedTeamExperience(
-      getAccessibleTeams(state)
-        .filter((team) => team.workspaceId === workspace.id)
-        .map((team) => team.settings.experience)
-    )
-  })
+  return (
+    <TeamWorkScreenContent
+      hasLoadedOnce={hasLoadedOnce}
+      items={items}
+      team={team}
+      views={views}
+    />
+  )
+}
 
+function getWorkspaceItemsScopeKeys(workspaceId: string | null) {
+  if (!workspaceId) {
+    return []
+  }
+
+  return getWorkIndexScopeKeys("workspace", workspaceId)
+}
+
+function fetchWorkspaceItemsReadModel(workspaceId: string | null) {
+  return fetchWorkIndexReadModel("workspace", workspaceId ?? "")
+}
+
+function selectWorkspaceItemViews(state: AppData, workspaceId: string | null) {
+  if (!workspaceId) {
+    return []
+  }
+
+  return getViewsForScope(state, "workspace", workspaceId, "items")
+}
+
+function selectWorkspaceVisibleItems(
+  state: AppData,
+  workspaceId: string | null
+) {
+  if (!workspaceId) {
+    return []
+  }
+
+  return getVisibleWorkItems(state, { workspaceId })
+}
+
+function selectWorkspaceItemsExperience(state: AppData) {
+  const workspace = getCurrentWorkspace(state)
+
+  if (!workspace) {
+    return null
+  }
+
+  return getSharedTeamExperience(
+    getAccessibleTeams(state)
+      .filter((team) => team.workspaceId === workspace.id)
+      .map((team) => team.settings.experience)
+  )
+}
+
+function WorkspaceItemsScreenContent({
+  activeTeamId,
+  hasLoadedOnce,
+  items,
+  views,
+  workspace,
+  workspaceExperience,
+}: {
+  activeTeamId: string | null
+  hasLoadedOnce: boolean
+  items: WorkItem[]
+  views: ViewDefinition[]
+  workspace: Workspace | null
+  workspaceExperience: ReturnType<typeof getSharedTeamExperience>
+}) {
   if (!workspace) {
     return <MissingState title="Workspace not found" />
   }
@@ -3399,6 +3524,35 @@ export function WorkspaceItemsScreen() {
       emptyLabel={workCopy.emptyLabel}
       isLoading={!hasLoadedOnce && items.length === 0}
       loadingLabel="Loading workspace items..."
+    />
+  )
+}
+
+export function WorkspaceItemsScreen() {
+  const workspace = useAppStore(getCurrentWorkspace) ?? null
+  const workspaceId = workspace?.id ?? null
+  const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(workspaceId),
+    scopeKeys: getWorkspaceItemsScopeKeys(workspaceId),
+    fetchLatest: () => fetchWorkspaceItemsReadModel(workspaceId),
+  })
+  const views = useAppStore(
+    useShallow((state) => selectWorkspaceItemViews(state, workspaceId))
+  )
+  const items = useAppStore(
+    useShallow((state) => selectWorkspaceVisibleItems(state, workspaceId))
+  )
+  const workspaceExperience = useAppStore(selectWorkspaceItemsExperience)
+
+  return (
+    <WorkspaceItemsScreenContent
+      activeTeamId={activeTeamId}
+      hasLoadedOnce={hasLoadedOnce}
+      items={items}
+      views={views}
+      workspace={workspace}
+      workspaceExperience={workspaceExperience}
     />
   )
 }
@@ -3476,6 +3630,143 @@ export function AssignedScreen() {
   )
 }
 
+function getPersonalWorkScopeKeys(currentUserId: string | null) {
+  if (!currentUserId) {
+    return []
+  }
+
+  return getWorkIndexScopeKeys("personal", currentUserId)
+}
+
+function fetchPersonalWorkReadModel(currentUserId: string | null) {
+  return fetchWorkIndexReadModel("personal", currentUserId ?? "")
+}
+
+function createUserCalendarFilterView({
+  currentUserId,
+  filters,
+}: {
+  currentUserId: string | null
+  filters: ViewDefinition["filters"]
+}): ViewDefinition {
+  return {
+    id: "user-calendar-filters",
+    name: "Calendar",
+    description: "",
+    scopeType: "personal",
+    scopeId: currentUserId ?? "current-user",
+    entityKind: "items",
+    itemLevel: null,
+    showChildItems: true,
+    layout: "calendar",
+    filters,
+    grouping: "status",
+    subGrouping: null,
+    ordering: "targetDate",
+    displayProps: [],
+    hiddenState: { groups: [], subgroups: [] },
+    isShared: false,
+    route: "/calendar",
+    createdAt: "",
+    updatedAt: "",
+  }
+}
+
+function getUserCalendarItemsForView({
+  data,
+  items,
+  view,
+}: {
+  data: AppData
+  items: WorkItem[]
+  view: ViewDefinition
+}) {
+  return items.filter((item) =>
+    workItemMatchesView(data, item, view, {
+      ignoreItemLevel: true,
+    })
+  )
+}
+
+function getDefaultUserCalendarCreateTeamId(data: AppData) {
+  return (
+    data.teams.find(
+      (team) => teamHasFeature(team, "issues") && canEditTeam(data, team.id)
+    )?.id ?? null
+  )
+}
+
+function UserCalendarFilterAccessory({
+  items,
+  onClearFilters,
+  onToggleFilterValue,
+  view,
+}: {
+  items: WorkItem[]
+  onClearFilters: () => void
+  onToggleFilterValue: (key: ViewFilterKey, value: string) => void
+  view: ViewDefinition
+}) {
+  return (
+    <FilterPopover
+      view={view}
+      items={items}
+      onToggleFilterValue={onToggleFilterValue}
+      onClearFilters={onClearFilters}
+      triggerIcon={<FunnelSimple className="size-3.5" />}
+      variant="icon"
+    />
+  )
+}
+
+function UserCalendarScreenContent({
+  calendarFilterView,
+  calendarItems,
+  canEditCalendarItem,
+  data,
+  defaultCreateTeamId,
+  filteredCalendarItems,
+  hasLoadedOnce,
+  onClearFilters,
+  onToggleFilterValue,
+}: {
+  calendarFilterView: ViewDefinition
+  calendarItems: WorkItem[]
+  canEditCalendarItem: (item: WorkItem) => boolean
+  data: AppData
+  defaultCreateTeamId: string | null
+  filteredCalendarItems: WorkItem[]
+  hasLoadedOnce: boolean
+  onClearFilters: () => void
+  onToggleFilterValue: (key: ViewFilterKey, value: string) => void
+}) {
+  if (!hasLoadedOnce && calendarItems.length === 0) {
+    return <ScopedScreenLoading label="Loading calendar..." />
+  }
+
+  return (
+    <CalendarView
+      data={data}
+      items={filteredCalendarItems}
+      editable
+      canEditItem={canEditCalendarItem}
+      toolbarAccessory={
+        <UserCalendarFilterAccessory
+          view={calendarFilterView}
+          items={calendarItems}
+          onToggleFilterValue={onToggleFilterValue}
+          onClearFilters={onClearFilters}
+        />
+      }
+      createContext={{
+        defaultTeamId: defaultCreateTeamId,
+        defaultProjectId: null,
+        defaultVisibility: "private",
+      }}
+    />
+  )
+}
+
 export function UserCalendarScreen() {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const [calendarFilters, setCalendarFilters] = useState(() =>
@@ -3488,10 +3779,8 @@ export function UserCalendarScreen() {
   )
   const { hasLoadedOnce } = useScopedReadModelRefresh({
     enabled: Boolean(currentUserId),
-    scopeKeys: currentUserId
-      ? getWorkIndexScopeKeys("personal", currentUserId)
-      : [],
-    fetchLatest: () => fetchWorkIndexReadModel("personal", currentUserId ?? ""),
+    scopeKeys: getPersonalWorkScopeKeys(currentUserId),
+    fetchLatest: () => fetchPersonalWorkReadModel(currentUserId),
   })
   const calendarItems = useAppStore(
     useShallow((state) =>
@@ -3499,78 +3788,45 @@ export function UserCalendarScreen() {
     )
   )
   const calendarFilterView = useMemo<ViewDefinition>(
-    () => ({
-      id: "user-calendar-filters",
-      name: "Calendar",
-      description: "",
-      scopeType: "personal",
-      scopeId: currentUserId ?? "current-user",
-      entityKind: "items",
-      itemLevel: null,
-      showChildItems: true,
-      layout: "calendar",
-      filters: calendarFilters,
-      grouping: "status",
-      subGrouping: null,
-      ordering: "targetDate",
-      displayProps: [],
-      hiddenState: { groups: [], subgroups: [] },
-      isShared: false,
-      route: "/calendar",
-      createdAt: "",
-      updatedAt: "",
-    }),
+    () =>
+      createUserCalendarFilterView({
+        currentUserId,
+        filters: calendarFilters,
+      }),
     [calendarFilters, currentUserId]
   )
   const filteredCalendarItems = useMemo(() => {
-    return calendarItems.filter((item) =>
-      workItemMatchesView(data, item, calendarFilterView, {
-        ignoreItemLevel: true,
-      })
-    )
+    return getUserCalendarItemsForView({
+      data,
+      items: calendarItems,
+      view: calendarFilterView,
+    })
   }, [calendarFilterView, calendarItems, data])
   const canEditCalendarItem = useMemo(
     () => (item: WorkItem) => canEditTeam(data, item.teamId),
     [data]
   )
-  const defaultCreateTeamId =
-    data.teams.find(
-      (team) => teamHasFeature(team, "issues") && canEditTeam(data, team.id)
-    )?.id ?? null
-
-  if (!hasLoadedOnce && calendarItems.length === 0) {
-    return <ScopedScreenLoading label="Loading calendar..." />
-  }
+  const defaultCreateTeamId = getDefaultUserCalendarCreateTeamId(data)
 
   return (
-    <CalendarView
+    <UserCalendarScreenContent
+      calendarFilterView={calendarFilterView}
+      calendarItems={calendarItems}
+      canEditCalendarItem={canEditCalendarItem}
       data={data}
-      items={filteredCalendarItems}
-      editable
-      canEditItem={canEditCalendarItem}
-      toolbarAccessory={
-        <FilterPopover
-          view={calendarFilterView}
-          items={calendarItems}
-          onToggleFilterValue={(key, value) =>
-            setCalendarFilters((current) =>
-              toggleViewFilterValue(current, key, value)
-            )
-          }
-          onClearFilters={() =>
-            setCalendarFilters((current) =>
-              clearViewFiltersPreservingCompletion(current)
-            )
-          }
-          triggerIcon={<FunnelSimple className="size-3.5" />}
-          variant="icon"
-        />
+      defaultCreateTeamId={defaultCreateTeamId}
+      filteredCalendarItems={filteredCalendarItems}
+      hasLoadedOnce={hasLoadedOnce}
+      onToggleFilterValue={(key, value) =>
+        setCalendarFilters((current) =>
+          toggleViewFilterValue(current, key, value)
+        )
       }
-      createContext={{
-        defaultTeamId: defaultCreateTeamId,
-        defaultProjectId: null,
-        defaultVisibility: "private",
-      }}
+      onClearFilters={() =>
+        setCalendarFilters((current) =>
+          clearViewFiltersPreservingCompletion(current)
+        )
+      }
     />
   )
 }
@@ -3605,12 +3861,9 @@ function useProjectsScreenReadModel(input: {
   )
   const projectViews = useAppStore(
     useShallow((state) =>
-      getViewsForScope(
-        state,
-        input.scopeType === "team" ? "team" : "workspace",
-        input.scopeId,
-        "projects"
-      )
+      input.scopeType === "workspace"
+        ? getWorkspaceDirectoryViews(state, input.scopeId, "projects")
+        : getViewsForScope(state, "team", input.scopeId, "projects")
     )
   )
 
@@ -4051,18 +4304,14 @@ export function DocsScreen({
   })
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
   const persistedTeamDocViews = useAppStore(
-    useShallow((state) =>
-      team ? getViewsForScope(state, "team", scopeId, "docs") : []
-    )
+    useShallow((state) => selectTeamDocViews(state, scopeId, team))
   )
   const persistedWorkspaceDocViews = useAppStore(
     useShallow((state) =>
-      scopeType === "workspace" && !team
-        ? getViewsForScope(state, "workspace", scopeId, "docs")
-        : []
+      selectWorkspaceDocViews(state, { scopeId, scopeType, team })
     )
   )
-  const isWorkspaceDocs = scopeType === "workspace" && !team
+  const isWorkspaceDocs = isWorkspaceDocsScope(scopeType, team)
   const [dialogOpen, setDialogOpen] = useState(false)
   const routeKey = getDocsRouteKey(scopeType, team)
   const systemDocViews = useMemo(
@@ -4079,7 +4328,11 @@ export function DocsScreen({
     () =>
       mergeDocsViews(
         systemDocViews,
-        isWorkspaceDocs ? persistedWorkspaceDocViews : persistedTeamDocViews
+        getPersistedDocsViews({
+          isWorkspaceDocs,
+          persistedTeamDocViews,
+          persistedWorkspaceDocViews,
+        })
       ),
     [
       isWorkspaceDocs,
@@ -4116,12 +4369,10 @@ export function DocsScreen({
     scopeId,
     team,
   })
-  const editable = useAppStore((state) =>
-    team ? canEditTeam(state, team.id) : true
-  )
+  const editable = useAppStore((state) => selectDocsEditable(state, team))
   const emptyTitle = getDocsEmptyTitle(isWorkspaceDocs, activeTab)
 
-  if (team && !teamHasFeature(team, "docs")) {
+  if (isTeamDocsDisabled(team)) {
     return <MissingState title="Docs are disabled for this team" />
   }
 

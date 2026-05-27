@@ -7,6 +7,7 @@ const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
 const requireConvexUserMock = vi.fn()
 const deleteChannelPostServerMock = vi.fn()
+const deleteChannelPostCommentServerMock = vi.fn()
 const toggleChatMessageReactionServerMock = vi.fn()
 const toggleChannelPostReactionServerMock = vi.fn()
 const bumpScopedReadModelVersionsServerMock = vi.fn()
@@ -26,6 +27,7 @@ vi.mock("@/lib/server/route-auth", () => ({
 
 vi.mock("@/lib/server/convex", () => ({
   deleteChannelPostServer: deleteChannelPostServerMock,
+  deleteChannelPostCommentServer: deleteChannelPostCommentServerMock,
   toggleChatMessageReactionServer: toggleChatMessageReactionServerMock,
   toggleChannelPostReactionServer: toggleChannelPostReactionServerMock,
   bumpScopedReadModelVersionsServer: bumpScopedReadModelVersionsServerMock,
@@ -64,6 +66,7 @@ describe("platform route contracts", () => {
     requireAppContextMock.mockReset()
     requireConvexUserMock.mockReset()
     deleteChannelPostServerMock.mockReset()
+    deleteChannelPostCommentServerMock.mockReset()
     toggleChatMessageReactionServerMock.mockReset()
     toggleChannelPostReactionServerMock.mockReset()
     bumpScopedReadModelVersionsServerMock.mockReset()
@@ -204,6 +207,44 @@ describe("platform route contracts", () => {
       code: "CHANNEL_POST_NOT_FOUND",
     })
     expect(logProviderErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("deletes channel-post comments through the owning user context", async () => {
+    const deleteCommentRoute = await import(
+      "@/app/api/channel-posts/[postId]/comments/[commentId]/route"
+    )
+
+    deleteChannelPostCommentServerMock.mockResolvedValue({
+      ok: true,
+    })
+
+    const response = await deleteCommentRoute.DELETE(
+      new Request(
+        "http://localhost/api/channel-posts/post_1/comments/comment_1",
+        {
+          method: "DELETE",
+        }
+      ) as never,
+      {
+        params: Promise.resolve({
+          postId: "post_1",
+          commentId: "comment_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+    })
+    expect(deleteChannelPostCommentServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      postId: "post_1",
+      commentId: "comment_1",
+    })
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
+      scopeKeys: ["channel-post:post_1"],
+    })
   })
 
   it("maps snapshot failures to typed error responses", async () => {

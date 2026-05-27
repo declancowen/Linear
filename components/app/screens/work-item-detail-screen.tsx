@@ -526,7 +526,8 @@ function DetailChildPropertyChips({
   const showMainAssignee =
     (item.visibility ?? "team") !== "private" && item.assigneeId !== null
   const showMainPriority = item.priority !== "none"
-  const showMainProject = item.primaryProjectId !== null
+  const showMainProject =
+    (item.visibility ?? "team") !== "private" && item.primaryProjectId !== null
 
   if (selectedDisplayProps.length === 0) {
     return null
@@ -1607,6 +1608,10 @@ function WorkItemSidebarProjectRow({
   teamProjects: Project[]
   onProjectChange: (value: string) => void
 }) {
+  if ((currentItem.visibility ?? "team") === "private") {
+    return null
+  }
+
   return (
     <DetailSidebarSelectRow
       label="Project"
@@ -1853,6 +1858,10 @@ function getActiveDescriptionViewers({
 }
 
 function getSelectedWorkItemProject(data: AppData, currentItem: WorkItem) {
+  if ((currentItem.visibility ?? "team") === "private") {
+    return null
+  }
+
   if (!currentItem.primaryProjectId) {
     return null
   }
@@ -1897,6 +1906,10 @@ function getWorkItemParentOptions(data: AppData, currentItem: WorkItem) {
 }
 
 function getLinkedWorkItemProjects(data: AppData, currentItem: WorkItem) {
+  if ((currentItem.visibility ?? "team") === "private") {
+    return []
+  }
+
   return currentItem.linkedProjectIds
     .map(
       (projectId) =>
@@ -3888,6 +3901,28 @@ const WORK_DETAIL_SUBITEM_DEFAULT_PROPS: ViewDefinition["displayProps"] = [
   "dueDate",
 ]
 
+function getWorkDetailSubitemScope(data: AppData, currentItem: WorkItem) {
+  if (currentItem.visibility === "private") {
+    return {
+      scopeId: data.currentUserId,
+      scopeType: "personal" as const,
+      visibility: ["private"] as NonNullable<ViewDefinition["filters"]["visibility"]>,
+    }
+  }
+
+  return {
+    scopeId: currentItem.teamId,
+    scopeType: "team" as const,
+    visibility: [] as NonNullable<ViewDefinition["filters"]["visibility"]>,
+  }
+}
+
+function getWorkDetailSubitemDisplayProps(
+  override: AppData["ui"]["viewerViewConfigByRoute"][string] | undefined
+) {
+  return override?.displayProps ?? WORK_DETAIL_SUBITEM_DEFAULT_PROPS
+}
+
 function getWorkDetailSubitemView(
   data: AppData,
   currentItem: WorkItem
@@ -3898,17 +3933,14 @@ function getWorkDetailSubitemView(
     WORK_DETAIL_SUBITEM_VIEW_ID
   )
   const override = data.ui.viewerViewConfigByRoute[key]
+  const scope = getWorkDetailSubitemScope(data, currentItem)
 
   return {
     id: WORK_DETAIL_SUBITEM_VIEW_ID,
     name: "Sub-items",
     description: "",
-    scopeType:
-      (currentItem.visibility ?? "team") === "private" ? "personal" : "team",
-    scopeId:
-      (currentItem.visibility ?? "team") === "private"
-        ? data.currentUserId
-        : currentItem.teamId,
+    scopeType: scope.scopeType,
+    scopeId: scope.scopeId,
     entityKind: "items",
     route: WORK_DETAIL_SUBITEM_SURFACE_KEY,
     layout: "list",
@@ -3919,10 +3951,9 @@ function getWorkDetailSubitemView(
     showChildItems: false,
     filters: {
       ...createEmptyViewFilters(),
-      visibility:
-        (currentItem.visibility ?? "team") === "private" ? ["private"] : [],
+      visibility: scope.visibility,
     },
-    displayProps: override?.displayProps ?? WORK_DETAIL_SUBITEM_DEFAULT_PROPS,
+    displayProps: getWorkDetailSubitemDisplayProps(override),
     hiddenState: { groups: [], subgroups: [] },
     isShared: false,
     createdAt: "",
@@ -4158,6 +4189,7 @@ function WorkItemDetailSidebar({
   currentUserId,
   variant = "docked",
   headerClassName,
+  floatingMaxHeight,
   onCopyItemLink,
   onClose,
   onStatusChange,
@@ -4197,6 +4229,7 @@ function WorkItemDetailSidebar({
   currentUserId: string
   variant?: WorkItemDetailSidebarVariant
   headerClassName?: string
+  floatingMaxHeight?: number
   onCopyItemLink: () => void
   onClose?: () => void
   onToggleChildComposer: () => void
@@ -4311,7 +4344,10 @@ function WorkItemDetailSidebar({
 
   if (variant === "floating") {
     return (
-      <aside className="flex max-h-[min(680px,calc(100vh-24px))] min-h-0 w-full flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-xl">
+      <aside
+        className="flex max-h-[min(680px,calc(100vh-24px))] min-h-0 w-full flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-xl"
+        style={floatingMaxHeight ? { maxHeight: floatingMaxHeight } : undefined}
+      >
         {content}
       </aside>
     )
@@ -4343,6 +4379,7 @@ export function WorkItemDetailSidebarSurface({
   headerClassName,
   open = true,
   variant = "docked",
+  floatingMaxHeight,
   onClose,
   onCopyItemLink,
 }: {
@@ -4352,6 +4389,7 @@ export function WorkItemDetailSidebarSurface({
   headerClassName?: string
   open?: boolean
   variant?: WorkItemDetailSidebarVariant
+  floatingMaxHeight?: number
   onClose?: () => void
   onCopyItemLink?: () => void
 }) {
@@ -4414,6 +4452,7 @@ export function WorkItemDetailSidebarSurface({
         currentUserId={data.currentUserId}
         variant={variant}
         headerClassName={headerClassName}
+        floatingMaxHeight={floatingMaxHeight}
         onClose={onClose}
         onCopyItemLink={handleCopyItemLink}
         {...propertyHandlers}

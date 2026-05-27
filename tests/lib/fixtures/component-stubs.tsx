@@ -185,6 +185,7 @@ export function createDialogStubModule({
 
       return <div {...props}>{children}</div>
     },
+    DialogClose: ChildrenFragmentStub,
     DialogDescription: ChildrenDivStub,
     DialogHeader: ChildrenDivStub,
     DialogTitle: ChildrenDivStub,

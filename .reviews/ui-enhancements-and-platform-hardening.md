@@ -40,6 +40,10 @@ Files and areas reviewed across all turns:
 - `convex/app/auth_bootstrap.ts`, `convex/app/data.ts`, `convex/app/workspace_team_handlers.ts`, `convex/app/core.ts` — slug uniqueness recheck for retained-team routing assumptions
 - `app/api/notifications/route.ts`, `lib/server/convex/notifications.ts`, `lib/store/app-store-internal/slices/notifications.ts`, `components/app/screens/inbox-screen.tsx` — notification batch-update recheck
 - `tests/components/work-item-detail-screen.test.tsx`, `tests/components/work-surface-view.test.tsx`, `tests/components/chat-thread.test.tsx`, `tests/components/entity-context-menus.test.tsx` — current regression coverage for reviewed surfaces
+- `components/app/screens/work-surface-view/calendar-view.tsx`, `components/app/screens/work-surface-view/timeline-bars.tsx`, `components/app/screens/work-surface-view/timeline-view.tsx` — calendar/timeline item menus, hover positioning, all-day layout, and hidden scrollbars
+- `components/app/screens/inbox-screen.tsx`, `components/app/screens/inbox-ui.tsx` — inbox split-pane default sizing
+- `components/app/shell.tsx`, `electron/main.cjs`, `desktop/renderer/desktop-app.tsx`, `lib/server/desktop-session.ts` — desktop app min-width, auth persistence, notification behavior, and app-download icon
+- `app/api/auth/desktop/session/refresh/route.ts`, `app/api/channel-posts/[postId]/comments/[commentId]/route.ts`, `convex/app/collaboration_handlers.ts`, `lib/server/convex/collaboration.ts` — new desktop refresh and channel comment-delete route contracts
 
 ## Hotspots (cumulative — updated as recurring risk families emerge)
 
@@ -51,8 +55,8 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-04-24 19:13:19 BST` |
-| **Total turns** | `7` |
+| **Last reviewed** | `2026-05-27 17:46:30 BST` |
+| **Total turns** | `8` |
 | **Open findings** | `0` |
 | **Resolved findings** | `14` |
 | **Accepted findings** | `19` |
@@ -478,3 +482,62 @@ Sweep all `RichTextEditor` call sites using `showStats={false}` plus `minPlainTe
 #### Resolved
 
 - `B7-01` — pending optimistic view overrides are now cleared on successful `updateViewConfig` completion as well as on failure. This prevents `reconcilePendingViews()` from reapplying stale local patches forever when the eventual server state differs from the optimistic patch. The existing pending token guard still protects newer edits from older completions. Evidence: `lib/store/app-store-internal/slices/views.ts`, `tests/lib/store/view-slice.test.ts`, `tests/lib/app-store-read-model-merge.test.ts`.
+
+---
+
+## Turn 8 — 2026-05-27 17:46:30 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `d88d288d326dad7dc7eacc5b6cef476a982bc391` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Repeated the review loop for the large work-surface, collaboration, desktop-auth, and responsive-layout batch. No live blocking bug remains in the current tree. The implementation now preserves the existing ownership boundaries: work-item context menus still use the shared work-item mutation and project-cascade confirmation path, view/project editing stays in the managed create-dialog boundary, channel comment deletion is enforced at the route/Convex/store layers, desktop session refresh is owned by the desktop-session server helper plus renderer adapter, and responsive calendar/timeline/inbox changes remain presentation-local.
+
+**Outcome:** all clear
+**Risk score:** high — this batch touches shared UI actions, calendar/timeline/list/board interaction paths, channel mutation contracts, desktop auth/session persistence, and Electron shell behavior
+**Change archetypes:** shared-ui, route-contract, optimistic-state, desktop-auth, presentation-layout, static-fitness
+**Intended change:** implement the requested right-click edit/open actions, view editing, channel delete behavior, desktop session persistence, calendar/timeline positioning/layout fixes, private-task defaults, inbox split sizing, sidebar/status icon fixes, and Electron min-width/download/notification polish
+**Intent vs actual:** aligned after remediation; the latest right-click clarification is covered with `Open item` and `Edit item`, fixed label icons on menu triggers, actual state/project/user icons in option rows, and edit handlers wired on list, board, timeline, and calendar surfaces
+**Confidence:** high for targeted behavior and contracts; medium-high for visual polish because no manual browser screenshot pass was run in this review turn
+**Coverage note:** re-read the high-risk implementation paths after fixes: `work-item-menus`, list/board/timeline/calendar context-menu wrappers, channel comment delete route/store/Convex paths, desktop token refresh flow, inbox split pane, work-surface controls, and calendar hover/all-day layout
+**Finding triage:** no new live findings after the final loop. Fallow changed-file audit passes with `0` introduced dead-code, duplication, or complexity findings; remaining Fallow complexity findings are inherited Electron findings outside this batch.
+**Branch totality:** reviewed the current working tree after all final edits, not just the last icon patch
+**Hotspot ledger:** revisited; no open hotspot family remains for this batch
+**Sibling closure:** checked list, board, timeline, calendar, private-task, channel post/comment, desktop renderer, app route, and Electron shell siblings for the requested behaviors
+**Remediation impact surface:** verified UI action wiring, optimistic store updates, route/server wrappers, Convex handler ownership checks, desktop token lifecycle, and responsive layout classes/tests
+**Challenger pass:** completed — challenged likely weak spots around project/view edit regression, private-task hidden project/assignee paths, context-menu edit vs open behavior, app-session persistence failure handling, and route contract/ownership bypasses
+**Weakest-evidence areas:** visual layout still deserves manual QA in the running app for all viewport extremes, even though targeted tests/build/static checks pass
+
+| Status | Count |
+|--------|-------|
+| Findings | 0 |
+
+### Validation
+
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — passed
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — passed
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` — passed; introduced findings `0`, duplication clone groups `0`, dead code `0`
+- `pnpm lint` — passed
+- `pnpm typecheck` — passed
+- `git diff --check` — passed
+- `pnpm build` — passed
+- `pnpm exec vitest run tests/components/work-item-menus.test.tsx tests/components/group-chip-popover.test.tsx tests/components/work-surface-view.test.tsx tests/components/inbox-ui.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/entity-context-menus.test.tsx tests/components/views-screen.test.tsx tests/components/properties-chip-popover.test.tsx tests/components/create-dialogs.test.tsx tests/lib/domain/default-views.test.ts tests/lib/store/work-item-actions.test.ts tests/lib/store/collaboration-channel-actions.test.ts tests/lib/server/convex-collaboration.test.ts tests/app/api/platform-route-contracts.test.ts tests/app/auth-route-contracts.test.ts tests/electron/desktop-notifications.test.ts tests/electron/desktop-updates.test.ts tests/lib/browser/desktop-notifications.test.ts tests/desktop/renderer-smoke.test.tsx` — passed (`19/19` files, `247/247` tests)
+
+### Resolution ledger
+
+#### Confirmed all-clear requirements
+
+- View editing is wired through the same managed create-dialog path as project editing, and project editing remains covered.
+- Work-item context menus expose `Open item` and `Edit item`; edit is available on list, board, timeline, and calendar entries.
+- Timeline and calendar views use the shared work-item context menu rather than bespoke one-off actions.
+- Private-task views default to board layout and hide project/assignee affordances.
+- Channel comments can be deleted by owners through the UI, store, route, and Convex mutation; unauthorized delete attempts are rejected.
+- Desktop sessions can be refreshed from bearer tokens so the Electron app can stay signed in across restarts.
+- Calendar/timeline popovers and overlays stay within the main surface and hidden-scrollbar/all-day layout behavior is covered by targeted tests.
+- Responsive toolbar chips hide overflowing values at narrow widths, and the Electron main window has a minimum width to preserve primary controls.
+
+#### Accepted / non-blocking observations
+
+- Fallow still reports inherited Electron complexity in `electron/main.cjs`, but the changed-file gate has `0` introduced complexity findings.
+- No manual browser/screenshot pass was run for this final batch; rely on the focused React/component tests, build, and static checks for this PR, with manual QA recommended for calendar/timeline edge viewports.

@@ -3,6 +3,7 @@
 type DesktopNotificationPayload = {
   body?: string
   path?: string | null
+  silent?: boolean
   title: string
 }
 

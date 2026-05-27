@@ -159,6 +159,12 @@ type DeleteChannelPostArgs = ServerAccessArgs & {
   postId: string
 }
 
+type DeleteChannelPostCommentArgs = ServerAccessArgs & {
+  currentUserId: string
+  postId: string
+  commentId: string
+}
+
 type ToggleChannelPostReactionArgs = ServerAccessArgs & {
   currentUserId: string
   postId: string
@@ -1663,6 +1669,37 @@ export async function deleteChannelPostHandler(
   await ctx.db.patch(conversation._id, {
     updatedAt: getNow(),
     lastActivityAt: getNow(),
+  })
+
+  return {
+    ok: true,
+  }
+}
+
+export async function deleteChannelPostCommentHandler(
+  ctx: MutationCtx,
+  args: DeleteChannelPostCommentArgs
+) {
+  assertServerToken(args.serverToken)
+  const { conversation, post } = await requireChannelPostWriteScope(ctx, args)
+  const comment = await ctx.db
+    .query("channelPostComments")
+    .withIndex("by_domain_id", (q) => q.eq("id", args.commentId))
+    .unique()
+
+  if (!comment || comment.postId !== post.id) {
+    throw new Error("Comment not found")
+  }
+
+  if (comment.createdBy !== args.currentUserId) {
+    throw new Error("You can only delete your own comments")
+  }
+
+  await ctx.db.delete(comment._id)
+  await touchChannelPostCommentThread(ctx, {
+    conversation,
+    now: getNow(),
+    post,
   })
 
   return {

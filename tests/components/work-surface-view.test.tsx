@@ -28,7 +28,18 @@ vi.mock("@/components/ui/scroll-area", () => ({
 
 vi.mock("@/components/app/screens/work-item-menus", () => ({
   IssueActionMenu: () => null,
-  IssueContextMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
+  IssueContextMenu: ({
+    children,
+    item,
+  }: {
+    children: ReactNode
+    item: { id: string }
+  }) => (
+    <>
+      {children}
+      <span data-testid={`issue-context-${item.id}`} />
+    </>
+  ),
   stopMenuEvent: (event: {
     preventDefault?: () => void
     stopPropagation?: () => void
@@ -64,12 +75,14 @@ vi.mock("@/components/app/screens/work-item-detail-screen", () => ({
   WorkItemDetailSidebarSurface: ({
     currentItem,
     editable,
+    floatingMaxHeight,
     headerClassName,
     onClose,
     variant = "docked",
   }: {
     currentItem: { title: string }
     editable?: boolean
+    floatingMaxHeight?: number
     headerClassName?: string
     onClose?: () => void
     variant?: "docked" | "floating" | "inline"
@@ -77,6 +90,7 @@ vi.mock("@/components/app/screens/work-item-detail-screen", () => ({
     <div
       data-testid={`${variant}-detail`}
       data-editable={String(Boolean(editable))}
+      data-floating-max-height={floatingMaxHeight}
       data-header-class-name={headerClassName}
     >
       <button type="button" onClick={onClose}>
@@ -786,6 +800,35 @@ describe("CalendarView", () => {
     expect(screen.getByText("Timed planning")).toBeInTheDocument()
   })
 
+  it("wraps calendar events in the shared work-item context menu", () => {
+    const today = startOfDay(new Date())
+    const allDayItem = createWorkItem({
+      id: "calendar-all-day-context",
+      title: "All-day context",
+      startDate: formatLocalCalendarDate(today),
+      targetDate: formatLocalCalendarDate(today),
+    })
+    const timedItem = createTimedCalendarItem({
+      id: "calendar-timed-context",
+      title: "Timed context",
+    })
+    const data = {
+      ...createData(),
+      workItems: [allDayItem, timedItem],
+    }
+
+    render(
+      <CalendarView data={data} items={[allDayItem, timedItem]} editable />
+    )
+
+    expect(
+      screen.getAllByTestId("issue-context-calendar-all-day-context").length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getAllByTestId("issue-context-calendar-timed-context").length
+    ).toBeGreaterThan(0)
+  })
+
   it("renders cross-midnight timed work in hourly columns", () => {
     const today = startOfDay(new Date())
     const startDate = formatLocalCalendarDate(today)
@@ -1240,6 +1283,32 @@ describe("CalendarView", () => {
     expect(screen.queryByText(/more/)).not.toBeInTheDocument()
   })
 
+  it("grows the collapsed all-day lane to fit visible rows", () => {
+    const items = createAllDayCalendarItems({
+      count: 8,
+      idPrefix: "all-day-visible",
+      titlePrefix: "All-day visible",
+    })
+    const data = createCalendarDataWithItems(items)
+
+    render(
+      <CalendarView
+        data={data}
+        items={items}
+        editable={false}
+        maxAllDayEvents={8}
+      />
+    )
+
+    expect(screen.getByTestId("calendar-all-day-lane")).toHaveStyle({
+      height: "248px",
+    })
+    expect(screen.getByTestId("calendar-all-day-scroll-area")).toHaveStyle({
+      height: "248px",
+    })
+    expect(screen.queryByText(/more/)).not.toBeInTheDocument()
+  })
+
   it("clears floating detail after leaving a hovered calendar item", () => {
     vi.useFakeTimers()
     const today = startOfDay(new Date())
@@ -1270,6 +1339,57 @@ describe("CalendarView", () => {
     })
 
     expect(screen.queryByTestId("floating-detail")).not.toBeInTheDocument()
+  })
+
+  it("positions floating calendar details near the cursor inside the calendar surface", () => {
+    vi.useFakeTimers()
+    const today = startOfDay(new Date())
+    const item = createWorkItem({
+      id: "hover-position-item",
+      title: "Hover position planning",
+      startDate: formatLocalCalendarDate(today),
+      targetDate: formatLocalCalendarDate(today),
+    })
+    const data = {
+      ...createData(),
+      workItems: [item],
+    }
+
+    render(<CalendarView data={data} items={[item]} editable />)
+
+    const calendarSurface = screen.getByTestId("calendar-main-surface")
+    vi.spyOn(calendarSurface, "getBoundingClientRect").mockReturnValue({
+      bottom: 650,
+      height: 600,
+      left: 100,
+      right: 900,
+      top: 50,
+      width: 800,
+      x: 100,
+      y: 50,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.mouseEnter(
+      screen.getByRole("button", { name: "Hover position planning" }),
+      {
+        clientX: 180,
+        clientY: 120,
+      }
+    )
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    const floatingDetail = screen.getByTestId("floating-detail")
+
+    expect(floatingDetail.parentElement).toHaveStyle({
+      left: "192px",
+      maxHeight: "506px",
+      top: "132px",
+      width: "420px",
+    })
+    expect(floatingDetail).toHaveAttribute("data-floating-max-height", "506")
   })
 
   it("clears timed drag state on pointer cancellation", () => {
@@ -1718,9 +1838,13 @@ describe("CalendarView", () => {
     fireEvent.click(screen.getAllByText(/\+ \d+ more/)[0])
 
     const allDayArea = screen.getByTestId("calendar-all-day-scroll-area")
-    const dayScrollContainer = screen.getByTestId("calendar-day-scroll-container")
+    const dayScrollContainer = screen.getByTestId(
+      "calendar-day-scroll-container"
+    )
 
-    expect(allDayArea).toHaveStyle({ height: "192px" })
+    expect(allDayArea).toHaveStyle({ height: "184px" })
+    expect(allDayArea).toHaveClass("no-scrollbar")
+    expect(dayScrollContainer).toHaveClass("no-scrollbar")
 
     allDayArea.scrollLeft = 240
     fireEvent.scroll(allDayArea)
@@ -1732,6 +1856,24 @@ describe("CalendarView", () => {
 describe("TimelineView primitives", () => {
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it("hides scrollbar chrome on timeline scroll containers", () => {
+    render(
+      <TimelineView
+        data={createData()}
+        items={[]}
+        view={createView("timeline")}
+        editable={false}
+      />
+    )
+
+    expect(screen.getByTestId("timeline-body-scroll")).toHaveClass(
+      "no-scrollbar"
+    )
+    expect(screen.getByTestId("timeline-grid-scroll")).toHaveClass(
+      "no-scrollbar"
+    )
   })
 
   it("updates timeline anchors after the local date changes", () => {
@@ -1793,6 +1935,9 @@ describe("TimelineView primitives", () => {
     expect(screen.getByTestId("timeline-view")).toContainElement(
       screen.getByTestId("timeline-detail-slot")
     )
+    expect(
+      screen.getAllByTestId("issue-context-timeline-detail-item").length
+    ).toBeGreaterThanOrEqual(2)
     expect(screen.getByTestId("inline-detail")).toHaveAttribute(
       "data-header-class-name",
       "h-8"

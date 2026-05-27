@@ -14,6 +14,7 @@ export type CollaborationSlice = Pick<
   | "createChannelPost"
   | "addChannelPostComment"
   | "deleteChannelPost"
+  | "deleteChannelPostComment"
   | "toggleChannelPostReaction"
   | "createInvite"
   | "cancelInvite"

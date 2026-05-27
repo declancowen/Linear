@@ -158,6 +158,27 @@ function expectDesktopRendererRedirect(response: Response, expectedPath: string)
   return localUrl
 }
 
+async function expectDesktopSessionTokenResponse(response: Response) {
+  const { verifyDesktopSessionToken } = await import(
+    "@/lib/server/desktop-session"
+  )
+  const payload = await response.json()
+
+  expect(response.status).toBe(200)
+  expect(payload).toMatchObject({
+    expiresAt: expect.any(Number),
+    token: expect.any(String),
+  })
+  expect(verifyDesktopSessionToken(payload.token)).toMatchObject({
+    email: "alex@example.com",
+    organizationId: "org_123",
+    sub: "workos_user",
+    typ: "desktop-session",
+  })
+
+  return payload
+}
+
 async function postDesktopPasswordLogin() {
   const { POST } = await import("@/app/auth/desktop/login/route")
 
@@ -657,8 +678,9 @@ describe("desktop auth routes", () => {
   })
 
   it("exchanges desktop handoff tickets for user-scoped desktop session tokens", async () => {
-    const { createDesktopHandoffTicket, verifyDesktopSessionToken } =
-      await import("@/lib/server/desktop-session")
+    const { createDesktopHandoffTicket } = await import(
+      "@/lib/server/desktop-session"
+    )
     const { POST } = await import("@/app/api/auth/desktop/session/route")
     const { ticket } = createDesktopHandoffTicket({
       organizationId: "org_123",
@@ -674,19 +696,39 @@ describe("desktop auth routes", () => {
         { ticket }
       )
     )
-    const payload = await response.json()
 
-    expect(response.status).toBe(200)
-    expect(payload).toMatchObject({
-      expiresAt: expect.any(Number),
-      token: expect.any(String),
-    })
-    expect(verifyDesktopSessionToken(payload.token)).toMatchObject({
-      email: "alex@example.com",
+    await expectDesktopSessionTokenResponse(response)
+  })
+
+  it("refreshes valid desktop session tokens from bearer auth", async () => {
+    const {
+      createDesktopHandoffTicket,
+      createDesktopSessionTokenFromHandoffTicket,
+    } = await import("@/lib/server/desktop-session")
+    const { POST } = await import(
+      "@/app/api/auth/desktop/session/refresh/route"
+    )
+    const { ticket } = createDesktopHandoffTicket({
       organizationId: "org_123",
-      sub: "workos_user",
-      typ: "desktop-session",
+      user: {
+        id: "workos_user",
+        email: "alex@example.com",
+      },
     })
+    const session = await createDesktopSessionTokenFromHandoffTicket(ticket, {
+      consumeHandoffTicket: async () => ({ consumed: true }),
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/auth/desktop/session/refresh", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session?.token}`,
+        },
+      })
+    )
+
+    await expectDesktopSessionTokenResponse(response)
   })
 
   it("rejects invalid desktop handoff tickets", async () => {

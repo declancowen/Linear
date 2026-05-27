@@ -335,6 +335,16 @@ function renderTeamProjectsScreen() {
   )
 }
 
+function renderWorkspaceProjectsScreen() {
+  render(
+    <ProjectsScreen
+      scopeId="workspace_1"
+      scopeType="workspace"
+      title="Workspace projects"
+    />
+  )
+}
+
 describe("ViewsScreen", () => {
   beforeEach(() => {
     seedState()
@@ -560,6 +570,23 @@ describe("ViewsScreen", () => {
         name: "Props:id,status,assignee,priority,updated,dueDate",
       })
     ).toBeInTheDocument()
+  })
+
+  it("wires workspace project screens to workspace directory project views", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      projects: [createLaunchProject()],
+    }))
+
+    renderWorkspaceProjectsScreen()
+
+    expect(
+      screen.getByRole("button", { name: "Workspace roadmap" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Platform board" })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Design board" })).toBeNull()
   })
 
   it("renders and updates saved project layouts from the active saved view", () => {

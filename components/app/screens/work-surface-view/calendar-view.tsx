@@ -70,6 +70,7 @@ import {
 import { ViewTab } from "@/components/ui/template-primitives"
 import { cn } from "@/lib/utils"
 import { WorkItemDetailSidebarSurface } from "../work-item-detail-screen"
+import { IssueContextMenu } from "../work-item-menus"
 import {
   createEventAccentLabelLookup,
   getEventAccent,
@@ -202,6 +203,7 @@ type CalendarTimedEntryBlockProps = {
     action: DragAction
   ) => void
   colorMode: CalendarColorMode
+  data: AppData
   dayKeys: string[]
   dragPreview: CalendarDragPreview | null
   entry: TimedCalendarEntry
@@ -218,11 +220,13 @@ type CalendarTimedEntryBlockProps = {
   selectedItemId: string | null
   suppressNextClickRef: RefObject<boolean>
   timedEntryLayouts: Map<string, TimedEntryLayout[]>
+  updateHoverPosition: (itemId: string, event: MouseEvent<HTMLElement>) => void
 }
 
 type CalendarItemInteractionPropsGetter = (itemId: string) => {
   onClick: () => void
-  onMouseEnter: (event: MouseEvent<HTMLButtonElement>) => void
+  onMouseEnter: (event: MouseEvent<HTMLElement>) => void
+  onMouseMove: (event: MouseEvent<HTMLElement>) => void
   onMouseLeave: () => void
 }
 
@@ -235,6 +239,7 @@ type CalendarTimedInteractionProps = {
   selectionPreview: CalendarSelectionPreview | null
   suppressNextClickRef: RefObject<boolean>
   todayDate: Date
+  updateHoverPosition: (itemId: string, event: MouseEvent<HTMLElement>) => void
 }
 
 type CalendarToolbarProps = {
@@ -270,6 +275,7 @@ type CalendarMonthSharedProps = {
   anchorDate: Date
   collapseAllDayRange: (rangeKey: string) => void
   colorMode: CalendarColorMode
+  data: AppData
   getCalendarItemInteractionProps: CalendarItemInteractionPropsGetter
   handleMonthBlankClick: (event: MouseEvent<HTMLDivElement>) => void
   handleMonthBlankDoubleClick: (
@@ -295,6 +301,7 @@ type CalendarMonthWeekRowProps = CalendarMonthSharedProps & {
 }
 
 type CalendarAllDaySurfaceProps = {
+  data: AppData
   dayKeys: string[]
   days: Date[]
   dragPreview: CalendarDragPreview | null
@@ -388,7 +395,7 @@ const HOUR_HEIGHT = 64
 const ALL_DAY_EVENT_HEIGHT = 26
 const ALL_DAY_EVENT_GAP = 4
 const ALL_DAY_LANE_MIN_HEIGHT = 44
-const ALL_DAY_LANE_MAX_HEIGHT = 192
+const ALL_DAY_EXPANDED_MAX_VISIBLE_ROWS = 5
 const ALL_DAY_LANE_TOP_PADDING = 6
 const ALL_DAY_LANE_BOTTOM_PADDING = 6
 const ALL_DAY_MORE_BUTTON_HEIGHT = 22
@@ -762,11 +769,13 @@ export function getCalendarWeekendVisibilityAnchorDate({
     return startOfDay(anchorDate)
   }
 
-  return getVisibleDaySequence({
-    count: 1,
-    showWeekends: false,
-    start: anchorDate,
-  })[0] ?? startOfDay(anchorDate)
+  return (
+    getVisibleDaySequence({
+      count: 1,
+      showWeekends: false,
+      start: anchorDate,
+    })[0] ?? startOfDay(anchorDate)
+  )
 }
 
 function getModeTitle(anchorDate: Date, mode: CalendarMode) {
@@ -1153,6 +1162,7 @@ function CalendarTimedEntryContent({
 function CalendarTimedEntryBlock({
   beginTimedDrag,
   colorMode,
+  data,
   dayKeys,
   dragPreview,
   entry,
@@ -1166,6 +1176,7 @@ function CalendarTimedEntryBlock({
   selectedItemId,
   suppressNextClickRef,
   timedEntryLayouts,
+  updateHoverPosition,
 }: CalendarTimedEntryBlockProps) {
   const geometry = getTimedEntryGeometry({
     dayKeys,
@@ -1195,57 +1206,63 @@ function CalendarTimedEntryBlock({
   }
 
   return (
-    <div
-      key={`${entry.item.id}-${entry.date}-${entry.startMinutes}-${entry.endMinutes}`}
-      data-calendar-timed-event={entry.item.id}
-      className={getTimedEntryClassName({
-        editable: entryEditable,
-        isDragging,
-        isSelected,
-      })}
-      style={{
-        ...getCalendarItemStyle(accent),
-        left: `calc(${geometry.leftPercent}% + ${geometry.offsetPx}px)`,
-        width: `calc(${geometry.widthPercent}% - ${
-          geometry.offsetPx + geometry.rightOffsetPx
-        }px)`,
-        top: geometry.top,
-        height: geometry.height,
-        zIndex: isSelected ? 15 : 10 + geometry.columnIndex,
-      }}
-      onPointerDown={(event) =>
-        entryEditable ? scheduleTimedMoveDrag(event, entry) : undefined
-      }
-      onClick={handleClick}
-      onMouseEnter={(event) => scheduleHover(entry.item.id, event)}
-      onMouseLeave={scheduleHoverDetailClear}
+    <IssueContextMenu
+      data={data}
+      item={entry.item}
+      onEditItem={onSelectItem}
     >
-      {!isSelected ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-0 w-[4px] bg-[color:var(--cal-accent)]"
-        />
-      ) : null}
-      {entryEditable ? (
-        <CalendarTimedEntryResizeHandle
-          action="resize-start"
-          beginTimedDrag={beginTimedDrag}
+      <div
+        data-calendar-timed-event={entry.item.id}
+        className={getTimedEntryClassName({
+          editable: entryEditable,
+          isDragging,
+          isSelected,
+        })}
+        style={{
+          ...getCalendarItemStyle(accent),
+          left: `calc(${geometry.leftPercent}% + ${geometry.offsetPx}px)`,
+          width: `calc(${geometry.widthPercent}% - ${
+            geometry.offsetPx + geometry.rightOffsetPx
+          }px)`,
+          top: geometry.top,
+          height: geometry.height,
+          zIndex: isSelected ? 15 : 10 + geometry.columnIndex,
+        }}
+        onPointerDown={(event) =>
+          entryEditable ? scheduleTimedMoveDrag(event, entry) : undefined
+        }
+        onClick={handleClick}
+        onMouseEnter={(event) => scheduleHover(entry.item.id, event)}
+        onMouseMove={(event) => updateHoverPosition(entry.item.id, event)}
+        onMouseLeave={scheduleHoverDetailClear}
+      >
+        {!isSelected ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 w-[4px] bg-[color:var(--cal-accent)]"
+          />
+        ) : null}
+        {entryEditable ? (
+          <CalendarTimedEntryResizeHandle
+            action="resize-start"
+            beginTimedDrag={beginTimedDrag}
+            entry={entry}
+          />
+        ) : null}
+        <CalendarTimedEntryContent
           entry={entry}
+          isSelected={isSelected}
+          isShort={isShortEntry}
         />
-      ) : null}
-      <CalendarTimedEntryContent
-        entry={entry}
-        isSelected={isSelected}
-        isShort={isShortEntry}
-      />
-      {entryEditable ? (
-        <CalendarTimedEntryResizeHandle
-          action="resize-end"
-          beginTimedDrag={beginTimedDrag}
-          entry={entry}
-        />
-      ) : null}
-    </div>
+        {entryEditable ? (
+          <CalendarTimedEntryResizeHandle
+            action="resize-end"
+            beginTimedDrag={beginTimedDrag}
+            entry={entry}
+          />
+        ) : null}
+      </div>
+    </IssueContextMenu>
   )
 }
 
@@ -1852,6 +1869,33 @@ function getAllDayLaneHeightForRows(
   )
 }
 
+function getAllDayLaneViewportHeight({
+  contentHeight,
+  expanded,
+  hasOverflowControl,
+  visibleRowCount,
+}: {
+  contentHeight: number
+  expanded: boolean
+  hasOverflowControl: boolean
+  visibleRowCount: number
+}) {
+  if (!expanded) {
+    return contentHeight
+  }
+
+  const maxVisibleRows = Math.min(
+    visibleRowCount,
+    ALL_DAY_EXPANDED_MAX_VISIBLE_ROWS
+  )
+  const expandedMaxHeight = getAllDayLaneHeightForRows(
+    maxVisibleRows,
+    hasOverflowControl
+  )
+
+  return Math.min(contentHeight, expandedMaxHeight)
+}
+
 function getAllDayEventTop(rowIndex: number) {
   return (
     ALL_DAY_LANE_TOP_PADDING +
@@ -2145,6 +2189,7 @@ function CalendarToolbar({
 
 function CalendarMonthTimedEntryButton({
   colorMode,
+  data,
   entry,
   getCalendarItemInteractionProps,
   index,
@@ -2152,6 +2197,7 @@ function CalendarMonthTimedEntryButton({
   labelsById,
 }: {
   colorMode: CalendarColorMode
+  data: AppData
   entry: MonthCalendarEntry
   getCalendarItemInteractionProps: CalendarItemInteractionPropsGetter
   index: number
@@ -2159,37 +2205,44 @@ function CalendarMonthTimedEntryButton({
   labelsById: EventAccentLabelLookup
 }) {
   const accent = getCalendarItemAccent(entry.item, colorMode, index, labelsById)
+  const interactionProps = getCalendarItemInteractionProps(entry.item.id)
 
   return (
-    <button
-      data-calendar-timed-event={entry.item.id}
-      className={cn(
-        "relative flex w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-md py-1 pr-2 pl-[14px] text-left text-[12px] transition-colors",
-        isSelected
-          ? "bg-[color:var(--cal-accent)] text-white shadow-sm"
-          : "bg-[color:var(--cal-accent-tint)] text-foreground hover:bg-[color:var(--cal-accent-tint-hover)]"
-      )}
-      style={getCalendarItemStyle(accent)}
-      {...getCalendarItemInteractionProps(entry.item.id)}
+    <IssueContextMenu
+      data={data}
+      item={entry.item}
+      onEditItem={interactionProps.onClick}
     >
-      {!isSelected ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-0 w-[4px] bg-[color:var(--cal-accent)]"
-        />
-      ) : null}
-      {entry.timeLabel ? (
-        <span
-          className={cn(
-            "shrink-0 text-[11px]",
-            isSelected ? "text-white/85" : "text-fg-3"
-          )}
-        >
-          {entry.timeLabel}
-        </span>
-      ) : null}
-      <span className="truncate">{entry.item.title}</span>
-    </button>
+      <button
+        data-calendar-timed-event={entry.item.id}
+        className={cn(
+          "relative flex w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-md py-1 pr-2 pl-[14px] text-left text-[12px] transition-colors",
+          isSelected
+            ? "bg-[color:var(--cal-accent)] text-white shadow-sm"
+            : "bg-[color:var(--cal-accent-tint)] text-foreground hover:bg-[color:var(--cal-accent-tint-hover)]"
+        )}
+        style={getCalendarItemStyle(accent)}
+        {...interactionProps}
+      >
+        {!isSelected ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 w-[4px] bg-[color:var(--cal-accent)]"
+          />
+        ) : null}
+        {entry.timeLabel ? (
+          <span
+            className={cn(
+              "shrink-0 text-[11px]",
+              isSelected ? "text-white/85" : "text-fg-3"
+            )}
+          >
+            {entry.timeLabel}
+          </span>
+        ) : null}
+        <span className="truncate">{entry.item.title}</span>
+      </button>
+    </IssueContextMenu>
   )
 }
 
@@ -2197,6 +2250,7 @@ function CalendarMonthDayCell({
   allDayAreaHeight,
   anchorDate,
   colorMode,
+  data,
   day,
   dayKey,
   getCalendarItemInteractionProps,
@@ -2211,6 +2265,7 @@ function CalendarMonthDayCell({
   allDayAreaHeight: number
   anchorDate: Date
   colorMode: CalendarColorMode
+  data: AppData
   day: Date
   dayKey: string
   getCalendarItemInteractionProps: CalendarItemInteractionPropsGetter
@@ -2246,6 +2301,7 @@ function CalendarMonthDayCell({
           <CalendarMonthTimedEntryButton
             key={entry.item.id}
             colorMode={colorMode}
+            data={data}
             entry={entry}
             getCalendarItemInteractionProps={getCalendarItemInteractionProps}
             index={index}
@@ -2274,6 +2330,7 @@ function CalendarMonthDayCell({
 function CalendarMonthAllDaySpanButton({
   colorMode,
   columnCount,
+  data,
   getCalendarItemInteractionProps,
   index,
   labelsById,
@@ -2282,6 +2339,7 @@ function CalendarMonthAllDaySpanButton({
 }: {
   colorMode: CalendarColorMode
   columnCount: number
+  data: AppData
   getCalendarItemInteractionProps: CalendarItemInteractionPropsGetter
   index: number
   labelsById: EventAccentLabelLookup
@@ -2296,33 +2354,40 @@ function CalendarMonthAllDaySpanButton({
     colorMode,
     labelsById,
   })
+  const interactionProps = getCalendarItemInteractionProps(span.entry.item.id)
 
   return (
-    <button
-      data-calendar-all-day-event={span.entry.item.id}
-      className={cn(
-        "absolute z-10 truncate overflow-hidden rounded-md pr-2 pl-[14px] text-left text-[12px] leading-[26px] font-medium transition-colors",
-        isSelected
-          ? "bg-[color:var(--cal-accent)] text-white shadow-sm"
-          : "bg-[color:var(--cal-accent-tint)] text-foreground hover:bg-[color:var(--cal-accent-tint-hover)]"
-      )}
-      style={{
-        ...getCalendarItemStyle(accent),
-        left,
-        width,
-        top: 30 + getAllDayEventTop(span.rowIndex),
-        height: ALL_DAY_EVENT_HEIGHT,
-      }}
-      {...getCalendarItemInteractionProps(span.entry.item.id)}
+    <IssueContextMenu
+      data={data}
+      item={span.entry.item}
+      onEditItem={interactionProps.onClick}
     >
-      {!isSelected ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-0 w-[4px] bg-[color:var(--cal-accent)]"
-        />
-      ) : null}
-      {span.entry.item.title}
-    </button>
+      <button
+        data-calendar-all-day-event={span.entry.item.id}
+        className={cn(
+          "absolute z-10 truncate overflow-hidden rounded-md pr-2 pl-[14px] text-left text-[12px] leading-[26px] font-medium transition-colors",
+          isSelected
+            ? "bg-[color:var(--cal-accent)] text-white shadow-sm"
+            : "bg-[color:var(--cal-accent-tint)] text-foreground hover:bg-[color:var(--cal-accent-tint-hover)]"
+        )}
+        style={{
+          ...getCalendarItemStyle(accent),
+          left,
+          width,
+          top: 30 + getAllDayEventTop(span.rowIndex),
+          height: ALL_DAY_EVENT_HEIGHT,
+        }}
+        {...interactionProps}
+      >
+        {!isSelected ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 w-[4px] bg-[color:var(--cal-accent)]"
+          />
+        ) : null}
+        {span.entry.item.title}
+      </button>
+    </IssueContextMenu>
   )
 }
 
@@ -2331,6 +2396,7 @@ function CalendarMonthWeekRow({
   anchorDate,
   collapseAllDayRange,
   colorMode,
+  data,
   getCalendarItemInteractionProps,
   handleMonthBlankClick,
   handleMonthBlankDoubleClick,
@@ -2401,6 +2467,7 @@ function CalendarMonthWeekRow({
             allDayAreaHeight={monthAllDayAreaHeight}
             anchorDate={anchorDate}
             colorMode={colorMode}
+            data={data}
             day={day}
             dayKey={dayKey}
             getCalendarItemInteractionProps={getCalendarItemInteractionProps}
@@ -2421,6 +2488,7 @@ function CalendarMonthWeekRow({
             key={span.entry.item.id}
             colorMode={colorMode}
             columnCount={weekColumnCount}
+            data={data}
             getCalendarItemInteractionProps={getCalendarItemInteractionProps}
             index={index}
             labelsById={labelsById}
@@ -2476,6 +2544,7 @@ function CalendarMonthView({
   anchorDate,
   collapseAllDayRange,
   colorMode,
+  data,
   getCalendarItemInteractionProps,
   handleMonthBlankClick,
   handleMonthBlankDoubleClick,
@@ -2492,7 +2561,7 @@ function CalendarMonthView({
   return (
     <div
       ref={monthGridRef}
-      className="grid min-h-0 flex-1 overflow-auto overscroll-none"
+      className="no-scrollbar grid min-h-0 flex-1 overflow-auto overscroll-none"
     >
       {monthWeeks.map((weekDays) => {
         const weekDayKeys = weekDays.map(getDateKey)
@@ -2504,6 +2573,7 @@ function CalendarMonthView({
             anchorDate={anchorDate}
             collapseAllDayRange={collapseAllDayRange}
             colorMode={colorMode}
+            data={data}
             getCalendarItemInteractionProps={getCalendarItemInteractionProps}
             handleMonthBlankClick={handleMonthBlankClick}
             handleMonthBlankDoubleClick={handleMonthBlankDoubleClick}
@@ -2595,6 +2665,7 @@ function getCalendarDayDisplayState(day: Date, todayDate: Date) {
 function CalendarAllDaySpanButton({
   colorMode,
   columnCount,
+  data,
   dayKeys,
   getCalendarItemInteractionProps,
   index,
@@ -2606,6 +2677,7 @@ function CalendarAllDaySpanButton({
 }: {
   colorMode: CalendarColorMode
   columnCount: number
+  data: AppData
   dayKeys: string[]
   getCalendarItemInteractionProps: CalendarItemInteractionPropsGetter
   index: number
@@ -2625,43 +2697,51 @@ function CalendarAllDaySpanButton({
   })
   const startsBeforeView = span.entry.startDate < dayKeys[span.startIndex]
   const endsAfterView = span.entry.endDate > dayKeys[span.endIndex]
+  const interactionProps = getCalendarItemInteractionProps(span.entry.item.id)
 
   return (
-    <button
-      data-calendar-all-day-event={span.entry.item.id}
-      draggable={isItemEditable(span.entry.item)}
-      className={cn(
-        "absolute z-10 truncate text-left text-[12px] leading-[26px] font-medium transition-colors",
-        "overflow-hidden",
-        startsBeforeView ? "rounded-l-none pl-2" : "rounded-l-md pl-[12px]",
-        endsAfterView ? "rounded-r-none pr-2" : "rounded-r-md pr-2",
-        isItemEditable(span.entry.item) && "cursor-grab active:cursor-grabbing",
-        isSelected
-          ? "bg-[color:var(--cal-accent)] text-white shadow-sm"
-          : "bg-[color:var(--cal-accent-tint)] text-foreground hover:bg-[color:var(--cal-accent-tint-hover)]"
-      )}
-      style={{
-        ...getCalendarItemStyle(accent),
-        left,
-        width,
-        top: getAllDayEventTop(span.rowIndex),
-        height: ALL_DAY_EVENT_HEIGHT,
-      }}
-      onDragStart={(event) => {
-        onDragStart()
-        event.dataTransfer.effectAllowed = "move"
-        event.dataTransfer.setData("text/calendar-item", span.entry.item.id)
-      }}
-      {...getCalendarItemInteractionProps(span.entry.item.id)}
+    <IssueContextMenu
+      data={data}
+      item={span.entry.item}
+      onEditItem={interactionProps.onClick}
     >
-      {!isSelected && !startsBeforeView ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-0 w-[4px] bg-[color:var(--cal-accent)]"
-        />
-      ) : null}
-      {span.entry.item.title}
-    </button>
+      <button
+        data-calendar-all-day-event={span.entry.item.id}
+        draggable={isItemEditable(span.entry.item)}
+        className={cn(
+          "absolute z-10 truncate text-left text-[12px] leading-[26px] font-medium transition-colors",
+          "overflow-hidden",
+          startsBeforeView ? "rounded-l-none pl-2" : "rounded-l-md pl-[12px]",
+          endsAfterView ? "rounded-r-none pr-2" : "rounded-r-md pr-2",
+          isItemEditable(span.entry.item) &&
+            "cursor-grab active:cursor-grabbing",
+          isSelected
+            ? "bg-[color:var(--cal-accent)] text-white shadow-sm"
+            : "bg-[color:var(--cal-accent-tint)] text-foreground hover:bg-[color:var(--cal-accent-tint-hover)]"
+        )}
+        style={{
+          ...getCalendarItemStyle(accent),
+          left,
+          width,
+          top: getAllDayEventTop(span.rowIndex),
+          height: ALL_DAY_EVENT_HEIGHT,
+        }}
+        onDragStart={(event) => {
+          onDragStart()
+          event.dataTransfer.effectAllowed = "move"
+          event.dataTransfer.setData("text/calendar-item", span.entry.item.id)
+        }}
+        {...interactionProps}
+      >
+        {!isSelected && !startsBeforeView ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 w-[4px] bg-[color:var(--cal-accent)]"
+          />
+        ) : null}
+        {span.entry.item.title}
+      </button>
+    </IssueContextMenu>
   )
 }
 
@@ -2779,7 +2859,7 @@ const CalendarAllDayScrollArea = forwardRef<
     <div
       ref={ref}
       data-testid="calendar-all-day-scroll-area"
-      className="overflow-auto overscroll-contain border-b border-line-soft bg-background"
+      className="no-scrollbar overflow-auto overscroll-contain border-b border-line-soft bg-background"
       style={{ height: props.allDayLaneViewportHeight }}
       onScroll={props.handleAllDayScroll}
     >
@@ -2813,6 +2893,7 @@ const CalendarAllDayScrollArea = forwardRef<
             key={span.entry.item.id}
             colorMode={props.colorMode}
             columnCount={props.dayKeys.length}
+            data={props.data}
             dayKeys={props.dayKeys}
             getCalendarItemInteractionProps={
               props.getCalendarItemInteractionProps
@@ -3088,6 +3169,7 @@ function CalendarTimedGrid({
   commitCalendarSelection,
   commitDrag,
   convertAllDayItemToTimed,
+  data,
   dayColumnsContentWidth,
   dayColumnsGridTemplateColumns,
   dayKeys,
@@ -3107,6 +3189,7 @@ function CalendarTimedGrid({
   selectionPreview,
   suppressNextClickRef,
   todayDate,
+  updateHoverPosition,
   timeRows,
   timedEntryLayouts,
   timedGridRef,
@@ -3126,6 +3209,7 @@ function CalendarTimedGrid({
     clientX: number,
     clientY: number
   ) => void
+  data: AppData
   dayColumnsContentWidth: string
   dayColumnsGridTemplateColumns: string
   dayKeys: string[]
@@ -3200,6 +3284,7 @@ function CalendarTimedGrid({
           key={`${entry.item.id}-${entry.date}-${entry.startMinutes}-${entry.endMinutes}`}
           beginTimedDrag={beginTimedDrag}
           colorMode={colorMode}
+          data={data}
           dayKeys={dayKeys}
           dragPreview={dragPreview}
           entry={entry}
@@ -3213,6 +3298,7 @@ function CalendarTimedGrid({
           selectedItemId={selectedItemId}
           suppressNextClickRef={suppressNextClickRef}
           timedEntryLayouts={timedEntryLayouts}
+          updateHoverPosition={updateHoverPosition}
         />
       ))}
       <CalendarDragPreviewBlock
@@ -3240,6 +3326,7 @@ function CalendarDayWeekView({
   commitCalendarSelection,
   commitDrag,
   convertAllDayItemToTimed,
+  data,
   dayAllDayScrollRef,
   dayBodyScrollRef,
   dayColumnsContentWidth,
@@ -3272,6 +3359,7 @@ function CalendarDayWeekView({
   selectionPreview,
   suppressNextClickRef,
   todayDate,
+  updateHoverPosition,
   timeRailContentRef,
   timeRows,
   timedEntryLayouts,
@@ -3281,50 +3369,51 @@ function CalendarDayWeekView({
   visibleAllDayRowCount,
   visibleAllDaySpans,
   visibleTimedEntries,
-}: CalendarAllDaySurfaceProps & CalendarTimedInteractionProps & {
-  allDayLaneHeight: number
-  allDayLaneViewportHeight: number
-  allDayRangeExpanded: boolean
-  allDayRangeKey: string
-  beginCalendarSelection: (event: ReactPointerEvent<HTMLDivElement>) => void
-  beginTimedDrag: CalendarTimedEntryBlockProps["beginTimedDrag"]
-  cancelCalendarSelection: (event: PointerEvent) => boolean
-  cancelDrag: (event: PointerEvent) => void
-  collapseAllDayRange: (rangeKey: string) => void
-  colorMode: CalendarColorMode
-  commitCalendarSelection: (event: PointerEvent) => boolean
-  commitDrag: (event: PointerEvent) => void
-  convertAllDayItemToTimed: (
-    itemId: string,
-    clientX: number,
-    clientY: number
-  ) => void
-  dayAllDayScrollRef: RefObject<HTMLDivElement | null>
-  dayBodyScrollRef: RefObject<HTMLDivElement | null>
-  dayColumnsContentWidth: string
-  dayColumnsGridTemplateColumns: string
-  dayHeaderScrollRef: RefObject<HTMLDivElement | null>
-  handleAllDayScroll: (event: ReactUIEvent<HTMLDivElement>) => void
-  handleDayBodyScroll: (event: ReactUIEvent<HTMLDivElement>) => void
-  handleTimedGridBlankClick: (event: MouseEvent<HTMLDivElement>) => void
-  handleTimedGridBlankDoubleClick: (event: MouseEvent<HTMLDivElement>) => void
-  hiddenAllDayCounts: number[]
-  isItemEditable: (item: WorkItem) => boolean
-  labelsById: EventAccentLabelLookup
-  nowDayIndex: number
-  nowTop: number
-  nowWallTime: CalendarWallTime
-  onAllDayDragStart: () => void
-  timeRailContentRef: RefObject<HTMLDivElement | null>
-  timeRows: CalendarTimeRow[]
-  timedEntryLayouts: Map<string, TimedEntryLayout[]>
-  timedGridRef: RefObject<HTMLDivElement | null>
-  updateCalendarSelection: (event: PointerEvent) => void
-  updateDragMovement: (event: PointerEvent) => void
-  visibleAllDayRowCount: number
-  visibleAllDaySpans: AllDayCalendarSpan[]
-  visibleTimedEntries: TimedCalendarEntry[]
-}) {
+}: CalendarAllDaySurfaceProps &
+  CalendarTimedInteractionProps & {
+    allDayLaneHeight: number
+    allDayLaneViewportHeight: number
+    allDayRangeExpanded: boolean
+    allDayRangeKey: string
+    beginCalendarSelection: (event: ReactPointerEvent<HTMLDivElement>) => void
+    beginTimedDrag: CalendarTimedEntryBlockProps["beginTimedDrag"]
+    cancelCalendarSelection: (event: PointerEvent) => boolean
+    cancelDrag: (event: PointerEvent) => void
+    collapseAllDayRange: (rangeKey: string) => void
+    colorMode: CalendarColorMode
+    commitCalendarSelection: (event: PointerEvent) => boolean
+    commitDrag: (event: PointerEvent) => void
+    convertAllDayItemToTimed: (
+      itemId: string,
+      clientX: number,
+      clientY: number
+    ) => void
+    dayAllDayScrollRef: RefObject<HTMLDivElement | null>
+    dayBodyScrollRef: RefObject<HTMLDivElement | null>
+    dayColumnsContentWidth: string
+    dayColumnsGridTemplateColumns: string
+    dayHeaderScrollRef: RefObject<HTMLDivElement | null>
+    handleAllDayScroll: (event: ReactUIEvent<HTMLDivElement>) => void
+    handleDayBodyScroll: (event: ReactUIEvent<HTMLDivElement>) => void
+    handleTimedGridBlankClick: (event: MouseEvent<HTMLDivElement>) => void
+    handleTimedGridBlankDoubleClick: (event: MouseEvent<HTMLDivElement>) => void
+    hiddenAllDayCounts: number[]
+    isItemEditable: (item: WorkItem) => boolean
+    labelsById: EventAccentLabelLookup
+    nowDayIndex: number
+    nowTop: number
+    nowWallTime: CalendarWallTime
+    onAllDayDragStart: () => void
+    timeRailContentRef: RefObject<HTMLDivElement | null>
+    timeRows: CalendarTimeRow[]
+    timedEntryLayouts: Map<string, TimedEntryLayout[]>
+    timedGridRef: RefObject<HTMLDivElement | null>
+    updateCalendarSelection: (event: PointerEvent) => void
+    updateDragMovement: (event: PointerEvent) => void
+    visibleAllDayRowCount: number
+    visibleAllDaySpans: AllDayCalendarSpan[]
+    visibleTimedEntries: TimedCalendarEntry[]
+  }) {
   const timedGridPointerProps = {
     beginCalendarSelection,
     cancelCalendarSelection,
@@ -3344,6 +3433,7 @@ function CalendarDayWeekView({
   }
   const timedGridRenderProps = {
     colorMode,
+    data,
     dayColumnsContentWidth,
     dayColumnsGridTemplateColumns,
     dayKeys,
@@ -3358,6 +3448,7 @@ function CalendarDayWeekView({
     onSelectItem,
     scheduleHover,
     scheduleHoverDetailClear,
+    updateHoverPosition,
   }
   const timedGridEntryProps = {
     nowDayIndex,
@@ -3375,6 +3466,7 @@ function CalendarDayWeekView({
     allDayRangeKey,
     collapseAllDayRange,
     colorMode,
+    data,
     dayColumnsContentWidth,
     dayColumnsGridTemplateColumns,
     dayKeys,
@@ -3432,7 +3524,7 @@ function CalendarDayWeekView({
       <div
         ref={dayBodyScrollRef}
         data-testid="calendar-day-scroll-container"
-        className="min-h-0 overflow-auto overscroll-none"
+        className="no-scrollbar min-h-0 overflow-auto overscroll-none"
         onScroll={handleDayBodyScroll}
       >
         <CalendarTimedGrid
@@ -3447,41 +3539,76 @@ function CalendarDayWeekView({
   )
 }
 
-function getHoverAnchorFromElement(element: HTMLElement) {
-  const rect = element.getBoundingClientRect()
+function getHoverBoundaryRect(boundary: DOMRect | null) {
   const viewportWidth =
     typeof window === "undefined" ? HOVER_DETAIL_WIDTH : window.innerWidth
   const viewportHeight =
     typeof window === "undefined" ? 720 : window.innerHeight
-  const width = Math.min(
-    HOVER_DETAIL_WIDTH,
-    Math.max(240, viewportWidth - HOVER_DETAIL_MARGIN * 2)
+
+  return (
+    boundary ?? {
+      bottom: viewportHeight,
+      height: viewportHeight,
+      left: 0,
+      right: viewportWidth,
+      top: 0,
+      width: viewportWidth,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }
   )
+}
+
+function getHoverAnchorFromPointer(input: {
+  boundary: DOMRect | null
+  clientX: number
+  clientY: number
+}) {
+  const boundary = getHoverBoundaryRect(input.boundary)
+  const availableWidth = Math.max(160, boundary.width - HOVER_DETAIL_MARGIN * 2)
+  const width = Math.min(HOVER_DETAIL_WIDTH, availableWidth)
+  const spaceRight = boundary.right - input.clientX - HOVER_DETAIL_MARGIN
+  const spaceLeft = input.clientX - boundary.left - HOVER_DETAIL_MARGIN
+  const topBoundary = boundary.top + HOVER_DETAIL_MARGIN
+  const bottomBoundary = boundary.bottom - HOVER_DETAIL_MARGIN
+  const availableBelow = Math.max(
+    0,
+    bottomBoundary - (input.clientY + HOVER_DETAIL_MARGIN)
+  )
+  const availableAbove = Math.max(
+    0,
+    input.clientY - HOVER_DETAIL_MARGIN - topBoundary
+  )
+  const shouldOpenRight = spaceRight >= width || spaceRight >= spaceLeft
+  const preferredHeight = Math.min(HOVER_DETAIL_MAX_HEIGHT, 320)
+  const shouldOpenBelow =
+    availableBelow >= preferredHeight || availableBelow >= availableAbove
+  const sideLeft = shouldOpenRight
+    ? input.clientX + HOVER_DETAIL_MARGIN
+    : input.clientX - width - HOVER_DETAIL_MARGIN
+  const directionalHeight = shouldOpenBelow ? availableBelow : availableAbove
   const maxHeight = Math.min(
     HOVER_DETAIL_MAX_HEIGHT,
-    Math.max(160, viewportHeight - HOVER_DETAIL_MARGIN * 2)
+    Math.max(160, directionalHeight)
   )
-  const spaceRight = viewportWidth - rect.right
-  const spaceLeft = rect.left
-  const shouldOpenRight =
-    spaceRight >= width + HOVER_DETAIL_MARGIN || spaceRight >= spaceLeft
-  const sideLeft = shouldOpenRight
-    ? rect.right + HOVER_DETAIL_MARGIN
-    : rect.left - width - HOVER_DETAIL_MARGIN
+  const sideTop = shouldOpenBelow
+    ? input.clientY + HOVER_DETAIL_MARGIN
+    : input.clientY - maxHeight - HOVER_DETAIL_MARGIN
 
   return {
     left: clampNumber(
       sideLeft,
-      HOVER_DETAIL_MARGIN,
-      Math.max(HOVER_DETAIL_MARGIN, viewportWidth - width - HOVER_DETAIL_MARGIN)
+      boundary.left + HOVER_DETAIL_MARGIN,
+      Math.max(
+        boundary.left + HOVER_DETAIL_MARGIN,
+        boundary.right - width - HOVER_DETAIL_MARGIN
+      )
     ),
     top: clampNumber(
-      rect.top + rect.height / 2 - maxHeight / 2,
-      HOVER_DETAIL_MARGIN,
-      Math.max(
-        HOVER_DETAIL_MARGIN,
-        viewportHeight - maxHeight - HOVER_DETAIL_MARGIN
-      )
+      sideTop,
+      topBoundary,
+      Math.max(topBoundary, bottomBoundary - maxHeight)
     ),
     width,
     maxHeight,
@@ -3489,15 +3616,21 @@ function getHoverAnchorFromElement(element: HTMLElement) {
 }
 
 function useCalendarHoverDetail({
+  getHoverBoundary,
   isInteractionActive,
   onSelectItem,
 }: {
+  getHoverBoundary: () => DOMRect | null
   isInteractionActive: () => boolean
   onSelectItem: (itemId: string) => void
 }) {
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null)
   const [hoverAnchor, setHoverAnchor] = useState<HoverDetailAnchor | null>(null)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingHoverRef = useRef<{
+    anchor: HoverDetailAnchor
+    itemId: string
+  } | null>(null)
 
   function clearHoverTimer() {
     if (hoverTimerRef.current) {
@@ -3508,21 +3641,48 @@ function useCalendarHoverDetail({
 
   function clearHoverDetail() {
     clearHoverTimer()
+    pendingHoverRef.current = null
     setHoveredItemId(null)
     setHoverAnchor(null)
   }
 
-  function scheduleHover(itemId: string, event: MouseEvent<HTMLElement>) {
+  function getHoverAnchorFromEvent(event: MouseEvent<HTMLElement>) {
+    return getHoverAnchorFromPointer({
+      boundary: getHoverBoundary(),
+      clientX: event.clientX,
+      clientY: event.clientY,
+    })
+  }
+
+  function updateHoverPosition(itemId: string, event: MouseEvent<HTMLElement>) {
     if (isInteractionActive()) {
       clearHoverDetail()
       return
     }
 
-    const nextAnchor = getHoverAnchorFromElement(event.currentTarget)
+    const nextAnchor = getHoverAnchorFromEvent(event)
+    pendingHoverRef.current = {
+      anchor: nextAnchor,
+      itemId,
+    }
+
+    if (hoveredItemId === itemId) {
+      setHoverAnchor(nextAnchor)
+    }
+  }
+
+  function scheduleHover(itemId: string, event: MouseEvent<HTMLElement>) {
+    updateHoverPosition(itemId, event)
     clearHoverTimer()
     hoverTimerRef.current = setTimeout(() => {
-      setHoverAnchor(nextAnchor)
-      setHoveredItemId(itemId)
+      const pending = pendingHoverRef.current
+
+      if (!pending) {
+        return
+      }
+
+      setHoverAnchor(pending.anchor)
+      setHoveredItemId(pending.itemId)
     }, HOVER_DETAIL_DELAY_MS)
   }
 
@@ -3537,8 +3697,10 @@ function useCalendarHoverDetail({
   function getCalendarItemInteractionProps(itemId: string) {
     return {
       onClick: () => onSelectItem(itemId),
-      onMouseEnter: (event: MouseEvent<HTMLButtonElement>) =>
+      onMouseEnter: (event: MouseEvent<HTMLElement>) =>
         scheduleHover(itemId, event),
+      onMouseMove: (event: MouseEvent<HTMLElement>) =>
+        updateHoverPosition(itemId, event),
       onMouseLeave: scheduleHoverDetailClear,
     }
   }
@@ -3551,6 +3713,7 @@ function useCalendarHoverDetail({
     hoveredItemId,
     scheduleHover,
     scheduleHoverDetailClear,
+    updateHoverPosition,
   }
 }
 
@@ -3937,6 +4100,7 @@ export function CalendarView({
   const dayAllDayScrollRef = useRef<HTMLDivElement | null>(null)
   const timeRailContentRef = useRef<HTMLDivElement | null>(null)
   const timedGridRef = useRef<HTMLDivElement | null>(null)
+  const calendarMainSurfaceRef = useRef<HTMLDivElement | null>(null)
   const dragStateRef = useRef<CalendarDragState | null>(null)
   const selectionDraftRef = useRef<CalendarSelectionDraft | null>(null)
   const pendingMoveDragRef = useRef<PendingCalendarMoveDrag | null>(null)
@@ -3956,7 +4120,10 @@ export function CalendarView({
     hoveredItemId,
     scheduleHover,
     scheduleHoverDetailClear,
+    updateHoverPosition,
   } = useCalendarHoverDetail({
+    getHoverBoundary: () =>
+      calendarMainSurfaceRef.current?.getBoundingClientRect() ?? null,
     isInteractionActive: () =>
       Boolean(
         dragStateRef.current || pendingMoveDragRef.current || dragPreview
@@ -4699,10 +4866,12 @@ export function CalendarView({
     visibleAllDayRowCount,
     hasHiddenAllDayItems || canCollapseAllDayItems
   )
-  const allDayLaneViewportHeight = Math.min(
-    allDayLaneHeight,
-    ALL_DAY_LANE_MAX_HEIGHT
-  )
+  const allDayLaneViewportHeight = getAllDayLaneViewportHeight({
+    contentHeight: allDayLaneHeight,
+    expanded: allDayRangeExpanded,
+    hasOverflowControl: hasHiddenAllDayItems || canCollapseAllDayItems,
+    visibleRowCount: visibleAllDayRowCount,
+  })
   const dayColumnsGridTemplateColumns = `repeat(${dayKeys.length}, minmax(0, 1fr))`
   const dayColumnsContentWidth =
     mode === "day"
@@ -4822,6 +4991,7 @@ export function CalendarView({
   }
   const dayWeekRenderProps = {
     colorMode,
+    data,
     dayColumnsContentWidth,
     dayColumnsGridTemplateColumns,
     dayKeys,
@@ -4847,6 +5017,7 @@ export function CalendarView({
     onSelectItem: toggleSelectedItem,
     scheduleHover,
     scheduleHoverDetailClear,
+    updateHoverPosition,
   }
   const dayWeekEntryProps = {
     nowDayIndex,
@@ -4893,6 +5064,7 @@ export function CalendarView({
         className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
       >
         <div
+          ref={calendarMainSurfaceRef}
           data-testid="calendar-main-surface"
           className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
         >
@@ -4902,6 +5074,7 @@ export function CalendarView({
               anchorDate={anchorDate}
               collapseAllDayRange={collapseAllDayRange}
               colorMode={colorMode}
+              data={data}
               getCalendarItemInteractionProps={getCalendarItemInteractionProps}
               handleMonthBlankClick={handleMonthBlankClick}
               handleMonthBlankDoubleClick={handleMonthBlankDoubleClick}
@@ -4962,6 +5135,7 @@ export function CalendarView({
             data={data}
             currentItem={hoveredItem}
             editable={isItemEditable(hoveredItem)}
+            floatingMaxHeight={hoverAnchor.maxHeight}
             variant="floating"
             onClose={clearHoverDetail}
           />
