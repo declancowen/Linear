@@ -17,6 +17,7 @@ const {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -510,12 +511,109 @@ function broadcastDesktopUpdateState({
 async function checkDesktopUpdatesFromMenu() {
   const updateManager = getDesktopUpdateManager()
   const result = await updateManager.checkForUpdates("menu")
+  const state = result.state ?? updateManager.getState()
 
   broadcastDesktopUpdateState({
     showToast: true,
     source: "menu",
-    state: result.state ?? updateManager.getState(),
+    state,
   })
+
+  await showDesktopUpdateMenuResult(state, result.reason)
+}
+
+async function showDesktopUpdateMenuResult(state, reason) {
+  if (state.status === "idle") {
+    await dialog.showMessageBox({
+      buttons: ["OK"],
+      message: state.message ?? `${appName} ${app.getVersion()} is up to date.`,
+      title: "No updates available",
+      type: "info",
+    })
+    return
+  }
+
+  if (state.status === "disabled") {
+    await dialog.showMessageBox({
+      buttons: ["OK"],
+      detail:
+        state.disabledReason ??
+        reason ??
+        "Automatic updates are unavailable right now.",
+      message: "Automatic updates are unavailable.",
+      title: "Updates unavailable",
+      type: "info",
+    })
+    return
+  }
+
+  if (state.status === "error") {
+    await dialog.showMessageBox({
+      buttons: ["OK"],
+      detail: state.message ?? "An unknown error occurred.",
+      message: "Could not check for updates.",
+      title: "Update check failed",
+      type: "warning",
+    })
+    return
+  }
+
+  if (state.status === "available") {
+    const versionText = state.availableVersion
+      ? `${appName} ${state.availableVersion} is available.`
+      : `A new ${appName} update is available.`
+    const response = await dialog.showMessageBox({
+      buttons: ["Download", "Later"],
+      cancelId: 1,
+      defaultId: 0,
+      message: versionText,
+      title: "Update available",
+      type: "info",
+    })
+
+    if (response.response !== 0) {
+      return
+    }
+
+    const downloadResult = await getDesktopUpdateManager().downloadUpdate()
+    const nextState =
+      downloadResult.state ?? getDesktopUpdateManager().getState()
+
+    broadcastDesktopUpdateState({
+      showToast: true,
+      source: "menu",
+      state: nextState,
+    })
+
+    if (nextState.status === "downloaded") {
+      await showDesktopDownloadedUpdateDialog(nextState)
+    } else if (nextState.status === "error") {
+      await showDesktopUpdateMenuResult(nextState)
+    }
+    return
+  }
+
+  if (state.status === "downloaded") {
+    await showDesktopDownloadedUpdateDialog(state)
+  }
+}
+
+async function showDesktopDownloadedUpdateDialog(state) {
+  const versionText = state.downloadedVersion
+    ? `${appName} ${state.downloadedVersion} is ready to install.`
+    : `${appName} update is ready to install.`
+  const response = await dialog.showMessageBox({
+    buttons: ["Restart", "Later"],
+    cancelId: 1,
+    defaultId: 0,
+    message: versionText,
+    title: "Update ready",
+    type: "info",
+  })
+
+  if (response.response === 0) {
+    getDesktopUpdateManager().installUpdate()
+  }
 }
 
 function registerApplicationMenu() {
