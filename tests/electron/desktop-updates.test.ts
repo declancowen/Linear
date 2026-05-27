@@ -22,7 +22,7 @@ type DesktopUpdateTestManager = {
 
 type DesktopUpdatesModule = {
   createDesktopUpdateManager: (options: {
-    app: { isPackaged: boolean }
+    app: { getVersion?: () => string; isPackaged: boolean }
     autoUpdater: ReturnType<typeof createAutoUpdaterMock>
     env?: Record<string, string>
     onStateChange?: (state: DesktopUpdateState) => void
@@ -79,7 +79,7 @@ function createAutoUpdaterMock() {
 
 function createConfiguredUpdateManager(autoUpdater = createAutoUpdaterMock()) {
   const manager = createDesktopUpdateManager({
-    app: { isPackaged: true },
+    app: { getVersion: () => "0.0.1", isPackaged: true },
     autoUpdater,
     env: {
       DESKTOP_UPDATE_REPOSITORY: "declancowen/Linear",
@@ -152,7 +152,7 @@ describe("desktop updates", () => {
     }
     const onStateChange = vi.fn()
     const manager = createDesktopUpdateManager({
-      app: { isPackaged: true },
+      app: { getVersion: () => "0.0.1", isPackaged: true },
       autoUpdater,
       env: {
         DESKTOP_UPDATE_CHECK_DELAY_MS: "10",
@@ -183,6 +183,7 @@ describe("desktop updates", () => {
     autoUpdater.emit("update-available", { version: "0.0.2" })
     expect(manager.getState()).toMatchObject({
       availableVersion: "0.0.2",
+      currentVersion: "0.0.1",
       status: "available",
     })
     expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled()
@@ -193,6 +194,23 @@ describe("desktop updates", () => {
       status: "downloaded",
     })
     expect(onStateChange).toHaveBeenCalled()
+  })
+
+  it("reports the current version when no update is available", async () => {
+    const { autoUpdater, manager } = createConfiguredUpdateManager()
+
+    autoUpdater.checkForUpdates.mockImplementationOnce(async () => {
+      autoUpdater.emit("update-not-available")
+    })
+
+    await expect(manager.checkForUpdates("renderer")).resolves.toMatchObject({
+      checked: true,
+      state: {
+        currentVersion: "0.0.1",
+        message: "Recipe Room 0.0.1 is up to date.",
+        status: "idle",
+      },
+    })
   })
 
   it("installs a downloaded update when requested by the renderer", () => {

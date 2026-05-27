@@ -4,6 +4,7 @@ declare global {
   type DesktopUpdateState = {
     availableVersion?: string | null
     configured: boolean
+    currentVersion?: string | null
     disabledReason?: string | null
     downloadedVersion?: string | null
     message?: string | null

@@ -10,8 +10,11 @@ const {
   DESKTOP_AUTH_TOKEN_FILE,
   createDesktopAuthStore,
   normalizeDesktopAuthToken,
+  normalizeDesktopAuthTokenStorageMode,
+  resolveDesktopAuthTokenStorageMode,
   shouldPersistDesktopAuthTokens,
-} = require("../../electron/desktop-auth-store.cjs") as typeof import("../../electron/desktop-auth-store.cjs")
+} =
+  require("../../electron/desktop-auth-store.cjs") as typeof import("../../electron/desktop-auth-store.cjs")
 
 function createMockApp(userDataPath: string) {
   return {
@@ -37,11 +40,14 @@ function createMockSafeStorage(available = true) {
   }
 }
 
-function expectMemoryOnlyToken(userDataPath: string, store: {
-  getToken: () => string | null
-  loadToken: () => string | null
-  setToken: (value: string) => boolean
-}) {
+function expectMemoryOnlyToken(
+  userDataPath: string,
+  store: {
+    getToken: () => string | null
+    loadToken: () => string | null
+    setToken: (value: string) => boolean
+  }
+) {
   expect(store.setToken("desktop_token")).toBe(true)
   expect(store.getToken()).toBe("desktop_token")
   expect(fs.existsSync(path.join(userDataPath, DESKTOP_AUTH_TOKEN_FILE))).toBe(
@@ -67,6 +73,21 @@ describe("desktop auth store", () => {
     expect(normalizeDesktopAuthToken("x".repeat(8193))).toBeNull()
   })
 
+  it("defaults desktop auth token storage to local files", () => {
+    expect(normalizeDesktopAuthTokenStorageMode(undefined)).toBe("local")
+    expect(normalizeDesktopAuthTokenStorageMode("safe")).toBe("safe")
+    expect(normalizeDesktopAuthTokenStorageMode("memory")).toBe("memory")
+    expect(normalizeDesktopAuthTokenStorageMode("unknown")).toBe("local")
+    expect(resolveDesktopAuthTokenStorageMode({} as NodeJS.ProcessEnv)).toBe(
+      "local"
+    )
+    expect(
+      resolveDesktopAuthTokenStorageMode({
+        DESKTOP_AUTH_TOKEN_STORAGE: "safe",
+      } as unknown as NodeJS.ProcessEnv)
+    ).toBe("safe")
+  })
+
   it("persists desktop auth tokens by default unless explicitly disabled", () => {
     expect(shouldPersistDesktopAuthTokens({} as NodeJS.ProcessEnv)).toBe(true)
     expect(
@@ -81,11 +102,34 @@ describe("desktop auth store", () => {
     ).toBe(false)
   })
 
-  it("persists accepted tokens through Electron safeStorage", () => {
+  it("persists accepted tokens to a local app file by default", () => {
     const safeStorage = createMockSafeStorage()
     const store = createDesktopAuthStore({
       app: createMockApp(userDataPath),
       safeStorage,
+    })
+    const tokenFilePath = path.join(userDataPath, DESKTOP_AUTH_TOKEN_FILE)
+
+    expect(store.setToken(" desktop_token ")).toBe(true)
+    expect(store.getToken()).toBe("desktop_token")
+    expect(fs.existsSync(tokenFilePath)).toBe(true)
+    expect(safeStorage.encryptString).not.toHaveBeenCalled()
+
+    const reloadedStore = createDesktopAuthStore({
+      app: createMockApp(userDataPath),
+      safeStorage,
+    })
+
+    expect(reloadedStore.loadToken()).toBe("desktop_token")
+    expect(reloadedStore.getToken()).toBe("desktop_token")
+  })
+
+  it("can persist accepted tokens through Electron safeStorage", () => {
+    const safeStorage = createMockSafeStorage()
+    const store = createDesktopAuthStore({
+      app: createMockApp(userDataPath),
+      safeStorage,
+      storageMode: "safe",
     })
     const tokenFilePath = path.join(userDataPath, DESKTOP_AUTH_TOKEN_FILE)
 
@@ -97,17 +141,19 @@ describe("desktop auth store", () => {
     const reloadedStore = createDesktopAuthStore({
       app: createMockApp(userDataPath),
       safeStorage,
+      storageMode: "safe",
     })
 
     expect(reloadedStore.loadToken()).toBe("desktop_token")
     expect(reloadedStore.getToken()).toBe("desktop_token")
   })
 
-  it("falls back to memory-only storage when OS encryption is unavailable", () => {
+  it("falls back to memory-only storage when safe storage is requested but unavailable", () => {
     const safeStorage = createMockSafeStorage(false)
     const store = createDesktopAuthStore({
       app: createMockApp(userDataPath),
       safeStorage,
+      storageMode: "safe",
     })
 
     expectMemoryOnlyToken(userDataPath, store)

@@ -34,6 +34,7 @@ const {
 } = require("./desktop-updates.cjs")
 const {
   createDesktopAuthStore,
+  resolveDesktopAuthTokenStorageMode,
   shouldPersistDesktopAuthTokens,
 } = require("./desktop-auth-store.cjs")
 const {
@@ -80,6 +81,7 @@ const desktopAuthStore = createDesktopAuthStore({
   app,
   persistTokens: shouldPersistDesktopAuthTokens(process.env),
   safeStorage,
+  storageMode: resolveDesktopAuthTokenStorageMode(process.env),
 })
 
 app.setName(appName)

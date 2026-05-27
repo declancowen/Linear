@@ -99,6 +99,22 @@ function getUpdateVersion(info) {
     : null
 }
 
+function getAppVersion(app) {
+  try {
+    return typeof app?.getVersion === "function" ? app.getVersion() : null
+  } catch {
+    return null
+  }
+}
+
+function getUpToDateMessage(app) {
+  const version = getAppVersion(app)
+
+  return version
+    ? `Recipe Room ${version} is up to date.`
+    : "Recipe Room is up to date."
+}
+
 function shouldForceDesktopUpdateToastForActionResult(result) {
   return Boolean(result?.error)
 }
@@ -152,6 +168,7 @@ function createDesktopUpdateManager({
     return {
       availableVersion,
       configured,
+      currentVersion: getAppVersion(app),
       disabledReason,
       downloadedVersion,
       message,
@@ -341,7 +358,7 @@ function createDesktopUpdateManager({
       log("desktop-updates.available", { version })
     })
     autoUpdater.on("update-not-available", () => {
-      setState({ message: null, status: "idle" })
+      setState({ message: getUpToDateMessage(app), status: "idle" })
       log("desktop-updates.not-available")
     })
     autoUpdater.on("download-progress", (progress) => {

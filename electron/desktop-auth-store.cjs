@@ -3,6 +3,7 @@ const fs = require("node:fs")
 const path = require("node:path")
 
 const DESKTOP_AUTH_TOKEN_FILE = "desktop-auth-token.v1"
+const DESKTOP_AUTH_TOKEN_STORAGE_MODES = new Set(["local", "memory", "safe"])
 
 function normalizeDesktopAuthToken(value) {
   if (typeof value !== "string") {
@@ -14,8 +15,14 @@ function normalizeDesktopAuthToken(value) {
   return token.length > 0 && token.length <= 8192 ? token : null
 }
 
-function canUseSafeStorage(safeStorage, persistTokens) {
-  if (!persistTokens) {
+function normalizeDesktopAuthTokenStorageMode(value) {
+  const mode = value?.trim().toLowerCase()
+
+  return DESKTOP_AUTH_TOKEN_STORAGE_MODES.has(mode) ? mode : "local"
+}
+
+function canUseSafeStorage(safeStorage, persistTokens, storageMode) {
+  if (!persistTokens || storageMode !== "safe") {
     return false
   }
 
@@ -32,36 +39,75 @@ function shouldPersistDesktopAuthTokens(env = process.env) {
   return value !== "0" && value !== "false"
 }
 
-function createDesktopAuthStore({ app, persistTokens = true, safeStorage }) {
+function resolveDesktopAuthTokenStorageMode(env = process.env) {
+  return normalizeDesktopAuthTokenStorageMode(env.DESKTOP_AUTH_TOKEN_STORAGE)
+}
+
+function createDesktopAuthStore({
+  app,
+  persistTokens = true,
+  safeStorage,
+  storageMode = "local",
+}) {
   let desktopAuthToken = null
+  const resolvedStorageMode = normalizeDesktopAuthTokenStorageMode(storageMode)
 
   function getTokenFilePath() {
     return path.join(app.getPath("userData"), DESKTOP_AUTH_TOKEN_FILE)
   }
 
   function readPersistedToken() {
-    if (!canUseSafeStorage(safeStorage, persistTokens)) {
+    if (!persistTokens || resolvedStorageMode === "memory") {
       return null
     }
 
     try {
-      const encryptedToken = fs.readFileSync(getTokenFilePath())
-      return normalizeDesktopAuthToken(
-        safeStorage.decryptString(encryptedToken)
-      )
+      const tokenFile = fs.readFileSync(getTokenFilePath())
+
+      if (resolvedStorageMode === "safe") {
+        if (
+          !canUseSafeStorage(safeStorage, persistTokens, resolvedStorageMode)
+        ) {
+          return null
+        }
+
+        return normalizeDesktopAuthToken(safeStorage.decryptString(tokenFile))
+      }
+
+      const parsed = JSON.parse(tokenFile.toString("utf8"))
+
+      return normalizeDesktopAuthToken(parsed?.token)
     } catch {
       return null
     }
   }
 
   function persistToken(token) {
-    if (!canUseSafeStorage(safeStorage, persistTokens)) {
+    if (!persistTokens || resolvedStorageMode === "memory") {
       return false
     }
 
     try {
       fs.mkdirSync(path.dirname(getTokenFilePath()), { recursive: true })
-      fs.writeFileSync(getTokenFilePath(), safeStorage.encryptString(token))
+
+      if (resolvedStorageMode === "safe") {
+        if (
+          !canUseSafeStorage(safeStorage, persistTokens, resolvedStorageMode)
+        ) {
+          return false
+        }
+
+        fs.writeFileSync(getTokenFilePath(), safeStorage.encryptString(token))
+      } else {
+        fs.writeFileSync(
+          getTokenFilePath(),
+          `${JSON.stringify({ token, version: 1 })}\n`,
+          {
+            mode: 0o600,
+          }
+        )
+      }
+
       return true
     } catch {
       return false
@@ -108,5 +154,7 @@ module.exports = {
   DESKTOP_AUTH_TOKEN_FILE,
   createDesktopAuthStore,
   normalizeDesktopAuthToken,
+  normalizeDesktopAuthTokenStorageMode,
+  resolveDesktopAuthTokenStorageMode,
   shouldPersistDesktopAuthTokens,
 }

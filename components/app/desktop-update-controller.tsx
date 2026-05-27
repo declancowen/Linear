@@ -278,7 +278,7 @@ function showDesktopUpdateToast({
   }
 
   if (force && state.status === "idle") {
-    toast.success("Recipe Room is up to date", {
+    toast.success(state.message ?? "Recipe Room is up to date", {
       duration: 4000,
       id: DESKTOP_UPDATE_TOAST_ID,
     })
