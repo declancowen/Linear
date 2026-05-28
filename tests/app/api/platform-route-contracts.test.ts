@@ -47,9 +47,9 @@ vi.mock("@/lib/server/scoped-read-models", () => ({
 }))
 
 vi.mock("@/lib/server/provider-errors", async () =>
-  (await import("@/tests/lib/fixtures/api-routes")).createProviderErrorsMockModule(
-    logProviderErrorMock
-  )
+  (
+    await import("@/tests/lib/fixtures/api-routes")
+  ).createProviderErrorsMockModule(logProviderErrorMock)
 )
 
 vi.mock("@/lib/server/workos", async () => {
@@ -121,6 +121,32 @@ function createChannelSnapshot(
     ],
     ...overrides,
   }
+}
+
+async function deleteDefaultChannelPostComment() {
+  const deleteCommentRoute =
+    await import("@/app/api/channel-posts/[postId]/comments/[commentId]/route")
+  const response = await deleteCommentRoute.DELETE(
+    new Request(
+      "http://localhost/api/channel-posts/post_1/comments/comment_1",
+      {
+        method: "DELETE",
+      }
+    ) as never,
+    {
+      params: Promise.resolve({
+        postId: "post_1",
+        commentId: "comment_1",
+      }),
+    }
+  )
+
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toEqual({
+    ok: true,
+  })
+
+  return response
 }
 
 describe("platform route contracts", () => {
@@ -277,33 +303,11 @@ describe("platform route contracts", () => {
   })
 
   it("deletes channel-post comments through the owning user context", async () => {
-    const deleteCommentRoute = await import(
-      "@/app/api/channel-posts/[postId]/comments/[commentId]/route"
-    )
-
     deleteChannelPostCommentServerMock.mockResolvedValue({
       ok: true,
     })
 
-    const response = await deleteCommentRoute.DELETE(
-      new Request(
-        "http://localhost/api/channel-posts/post_1/comments/comment_1",
-        {
-          method: "DELETE",
-        }
-      ) as never,
-      {
-        params: Promise.resolve({
-          postId: "post_1",
-          commentId: "comment_1",
-        }),
-      }
-    )
-
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({
-      ok: true,
-    })
+    await deleteDefaultChannelPostComment()
     expect(deleteChannelPostCommentServerMock).toHaveBeenCalledWith({
       currentUserId: "user_1",
       postId: "post_1",
@@ -319,35 +323,13 @@ describe("platform route contracts", () => {
   })
 
   it("treats already-deleted channel-post comments as idempotent success", async () => {
-    const deleteCommentRoute = await import(
-      "@/app/api/channel-posts/[postId]/comments/[commentId]/route"
-    )
-
     loadScopedReadModelSnapshotForSessionMock.mockResolvedValue(
       createChannelSnapshot({
         channelPostComments: [],
       })
     )
 
-    const response = await deleteCommentRoute.DELETE(
-      new Request(
-        "http://localhost/api/channel-posts/post_1/comments/comment_1",
-        {
-          method: "DELETE",
-        }
-      ) as never,
-      {
-        params: Promise.resolve({
-          postId: "post_1",
-          commentId: "comment_1",
-        }),
-      }
-    )
-
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({
-      ok: true,
-    })
+    await deleteDefaultChannelPostComment()
     expect(deleteChannelPostCommentServerMock).not.toHaveBeenCalled()
     expect(bumpScopedReadModelVersionsServerMock).not.toHaveBeenCalled()
   })

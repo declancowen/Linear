@@ -33,6 +33,51 @@ function setElectronApp(
   })
 }
 
+type DesktopUpdateStateListener = Parameters<
+  NonNullable<NonNullable<Window["electronApp"]>["onUpdateState"]>
+>[0]
+type DesktopUpdateStatePayload = Parameters<DesktopUpdateStateListener>[0]
+
+async function renderDesktopUpdateControllerWithMenuListener(
+  overrides: Partial<NonNullable<Window["electronApp"]>> = {}
+) {
+  let updateListener: DesktopUpdateStateListener | null = null
+
+  setElectronApp({
+    getDesktopAppInfo: vi.fn().mockResolvedValue({
+      apiBaseUrl: "https://teams.reciperoom.io",
+      isPackaged: true,
+      platform: "darwin",
+      version: "2.0.0",
+    }),
+    getUpdateState: vi.fn().mockResolvedValue({
+      configured: true,
+      status: "idle",
+    }),
+    ...overrides,
+    onUpdateState: vi.fn((listener) => {
+      updateListener = listener
+      return vi.fn()
+    }),
+  })
+
+  render(<DesktopUpdateController />)
+
+  await waitFor(() => expect(updateListener).not.toBeNull())
+
+  return {
+    emitMenuUpdateState(state: DesktopUpdateStatePayload["state"]) {
+      act(() => {
+        updateListener?.({
+          showToast: true,
+          source: "menu",
+          state,
+        })
+      })
+    },
+  }
+}
+
 describe("DesktopUpdateController", () => {
   const originalElectronApp = window.electronApp
   const originalFetch = globalThis.fetch
@@ -118,43 +163,13 @@ describe("DesktopUpdateController", () => {
   })
 
   it("shows latest-version feedback from a forced native menu check", async () => {
-    let updateListener:
-      | Parameters<
-          NonNullable<NonNullable<Window["electronApp"]>["onUpdateState"]>
-        >[0]
-      | null = null
+    const { emitMenuUpdateState } =
+      await renderDesktopUpdateControllerWithMenuListener()
 
-    setElectronApp({
-      getDesktopAppInfo: vi.fn().mockResolvedValue({
-        apiBaseUrl: "https://teams.reciperoom.io",
-        isPackaged: true,
-        platform: "darwin",
-        version: "2.0.0",
-      }),
-      getUpdateState: vi.fn().mockResolvedValue({
-        configured: true,
-        status: "idle",
-      }),
-      onUpdateState: vi.fn((listener) => {
-        updateListener = listener
-        return vi.fn()
-      }),
-    })
-
-    render(<DesktopUpdateController />)
-
-    await waitFor(() => expect(updateListener).not.toBeNull())
-
-    act(() => {
-      updateListener?.({
-        showToast: true,
-        source: "menu",
-        state: {
-          configured: true,
-          message: "Recipe Room 2.0.0 is up to date.",
-          status: "idle",
-        },
-      })
+    emitMenuUpdateState({
+      configured: true,
+      message: "Recipe Room 2.0.0 is up to date.",
+      status: "idle",
     })
 
     expect(
@@ -166,48 +181,19 @@ describe("DesktopUpdateController", () => {
   })
 
   it("shows update-available feedback from a forced native menu check", async () => {
-    let updateListener:
-      | Parameters<
-          NonNullable<NonNullable<Window["electronApp"]>["onUpdateState"]>
-        >[0]
-      | null = null
     const downloadUpdate = vi.fn().mockResolvedValue({
       accepted: true,
       completed: false,
     })
-
-    setElectronApp({
-      downloadUpdate,
-      getDesktopAppInfo: vi.fn().mockResolvedValue({
-        apiBaseUrl: "https://teams.reciperoom.io",
-        isPackaged: true,
-        platform: "darwin",
-        version: "2.0.0",
-      }),
-      getUpdateState: vi.fn().mockResolvedValue({
-        configured: true,
-        status: "idle",
-      }),
-      onUpdateState: vi.fn((listener) => {
-        updateListener = listener
-        return vi.fn()
-      }),
-    })
-
-    render(<DesktopUpdateController />)
-
-    await waitFor(() => expect(updateListener).not.toBeNull())
-
-    act(() => {
-      updateListener?.({
-        showToast: true,
-        source: "menu",
-        state: {
-          availableVersion: "0.0.8",
-          configured: true,
-          status: "available",
-        },
+    const { emitMenuUpdateState } =
+      await renderDesktopUpdateControllerWithMenuListener({
+        downloadUpdate,
       })
+
+    emitMenuUpdateState({
+      availableVersion: "0.0.8",
+      configured: true,
+      status: "available",
     })
 
     expect(

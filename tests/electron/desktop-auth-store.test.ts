@@ -56,6 +56,43 @@ function expectMemoryOnlyToken(
   expect(store.loadToken()).toBeNull()
 }
 
+function expectPersistedDesktopToken({
+  encrypts,
+  storageMode,
+  userDataPath,
+}: {
+  encrypts: boolean
+  storageMode?: "safe"
+  userDataPath: string
+}) {
+  const safeStorage = createMockSafeStorage()
+  const store = createDesktopAuthStore({
+    app: createMockApp(userDataPath),
+    safeStorage,
+    ...(storageMode ? { storageMode } : {}),
+  })
+  const tokenFilePath = path.join(userDataPath, DESKTOP_AUTH_TOKEN_FILE)
+
+  expect(store.setToken(" desktop_token ")).toBe(true)
+  expect(store.getToken()).toBe("desktop_token")
+  expect(fs.existsSync(tokenFilePath)).toBe(true)
+
+  if (encrypts) {
+    expect(safeStorage.encryptString).toHaveBeenCalledWith("desktop_token")
+  } else {
+    expect(safeStorage.encryptString).not.toHaveBeenCalled()
+  }
+
+  const reloadedStore = createDesktopAuthStore({
+    app: createMockApp(userDataPath),
+    safeStorage,
+    ...(storageMode ? { storageMode } : {}),
+  })
+
+  expect(reloadedStore.loadToken()).toBe("desktop_token")
+  expect(reloadedStore.getToken()).toBe("desktop_token")
+}
+
 describe("desktop auth store", () => {
   let userDataPath: string
 
@@ -103,49 +140,18 @@ describe("desktop auth store", () => {
   })
 
   it("persists accepted tokens to a local app file by default", () => {
-    const safeStorage = createMockSafeStorage()
-    const store = createDesktopAuthStore({
-      app: createMockApp(userDataPath),
-      safeStorage,
+    expectPersistedDesktopToken({
+      encrypts: false,
+      userDataPath,
     })
-    const tokenFilePath = path.join(userDataPath, DESKTOP_AUTH_TOKEN_FILE)
-
-    expect(store.setToken(" desktop_token ")).toBe(true)
-    expect(store.getToken()).toBe("desktop_token")
-    expect(fs.existsSync(tokenFilePath)).toBe(true)
-    expect(safeStorage.encryptString).not.toHaveBeenCalled()
-
-    const reloadedStore = createDesktopAuthStore({
-      app: createMockApp(userDataPath),
-      safeStorage,
-    })
-
-    expect(reloadedStore.loadToken()).toBe("desktop_token")
-    expect(reloadedStore.getToken()).toBe("desktop_token")
   })
 
   it("can persist accepted tokens through Electron safeStorage", () => {
-    const safeStorage = createMockSafeStorage()
-    const store = createDesktopAuthStore({
-      app: createMockApp(userDataPath),
-      safeStorage,
+    expectPersistedDesktopToken({
+      encrypts: true,
       storageMode: "safe",
+      userDataPath,
     })
-    const tokenFilePath = path.join(userDataPath, DESKTOP_AUTH_TOKEN_FILE)
-
-    expect(store.setToken(" desktop_token ")).toBe(true)
-    expect(store.getToken()).toBe("desktop_token")
-    expect(fs.existsSync(tokenFilePath)).toBe(true)
-    expect(safeStorage.encryptString).toHaveBeenCalledWith("desktop_token")
-
-    const reloadedStore = createDesktopAuthStore({
-      app: createMockApp(userDataPath),
-      safeStorage,
-      storageMode: "safe",
-    })
-
-    expect(reloadedStore.loadToken()).toBe("desktop_token")
-    expect(reloadedStore.getToken()).toBe("desktop_token")
   })
 
   it("falls back to memory-only storage when safe storage is requested but unavailable", () => {

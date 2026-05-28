@@ -1,5 +1,11 @@
 import type { ReactNode } from "react"
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react"
 import { addDays, addMonths, format, startOfDay } from "date-fns"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -432,6 +438,38 @@ function getCalendarEventCard(title: string) {
   expect(eventCard).toBeTruthy()
 
   return eventCard!
+}
+
+function createCalendarDragDataTransfer() {
+  const data = new Map<string, string>()
+
+  return {
+    dropEffect: "none",
+    effectAllowed: "uninitialized",
+    getData: vi.fn((format: string) => data.get(format) ?? ""),
+    setData: vi.fn((format: string, value: string) => {
+      data.set(format, value)
+    }),
+  } as unknown as DataTransfer
+}
+
+function fireCalendarDragEvent(
+  target: Element,
+  eventName: "dragOver" | "drop",
+  options: { clientX: number; clientY: number; dataTransfer: DataTransfer }
+) {
+  const event = createEvent[eventName](target, {
+    bubbles: true,
+    cancelable: true,
+    dataTransfer: options.dataTransfer,
+  })
+
+  Object.defineProperties(event, {
+    clientX: { value: options.clientX },
+    clientY: { value: options.clientY },
+  })
+
+  fireEvent(target, event)
 }
 
 function renderTimedCalendarItem({
@@ -1291,9 +1329,9 @@ describe("CalendarView", () => {
 
     expect(screen.getByText("All-day limit 4")).toBeInTheDocument()
     expect(screen.getByText("All-day limit 5")).toBeInTheDocument()
-    expect(screen.getByTestId("calendar-all-day-collapse-bar")).toHaveTextContent(
-      "Collapse events"
-    )
+    expect(
+      screen.getByTestId("calendar-all-day-collapse-bar")
+    ).toHaveTextContent("Collapse events")
 
     fireEvent.click(screen.getByTestId("calendar-all-day-collapse-bar"))
 
@@ -1330,9 +1368,9 @@ describe("CalendarView", () => {
     expect(screen.getByTestId("calendar-all-day-scroll-area")).toHaveStyle({
       height: "334px",
     })
-    expect(screen.getByTestId("calendar-all-day-collapse-bar")).toHaveTextContent(
-      "Collapse events"
-    )
+    expect(
+      screen.getByTestId("calendar-all-day-collapse-bar")
+    ).toHaveTextContent("Collapse events")
   })
 
   it("resets expanded all-day rows after navigating away and back", () => {
@@ -1704,6 +1742,40 @@ describe("CalendarView", () => {
     updateWorkItemSpy.mockRestore()
   })
 
+  it("keeps the anchored day visible when the calendar detail sidebar opens", () => {
+    let scrollWidth = 29000
+    const scrollWidthSpy = vi
+      .spyOn(HTMLElement.prototype, "scrollWidth", "get")
+      .mockImplementation(() => scrollWidth)
+    const item = createTimedCalendarItem({
+      id: "sidebar-anchor-item",
+      title: "Sidebar anchor planning",
+      startTime: "10:00",
+      endTime: "11:00",
+    })
+
+    try {
+      const { eventCard, updateWorkItemSpy } = renderTimedCalendarItem({
+        calendarProps: { mode: "day" },
+        item,
+      })
+      const scrollContainer = screen.getByTestId(
+        "calendar-day-scroll-container"
+      )
+
+      expect(scrollContainer.scrollLeft).toBe(14000)
+
+      scrollWidth = 14500
+      fireEvent.click(eventCard)
+
+      expect(screen.getByTestId("inline-detail")).toBeInTheDocument()
+      expect(scrollContainer.scrollLeft).toBe(7000)
+      updateWorkItemSpy.mockRestore()
+    } finally {
+      scrollWidthSpy.mockRestore()
+    }
+  })
+
   it("closes the calendar detail sidebar when a blank slot is clicked", () => {
     const item = createTimedCalendarItem({
       id: "blank-close-item",
@@ -1954,6 +2026,66 @@ describe("CalendarView", () => {
         startTime: null,
         endTime: null,
         scheduleTimeZone: null,
+      })
+    )
+    updateWorkItemSpy.mockRestore()
+  })
+
+  it("previews all-day items as timed events and resizes the all-day lane while dragging out", () => {
+    const items = createAllDayCalendarItems({
+      count: 2,
+      idPrefix: "all-day-drag",
+      titlePrefix: "All-day drag",
+    })
+    const data = createCalendarDataWithItems(items)
+    useAppStore.setState(data)
+    const updateWorkItemSpy = vi
+      .spyOn(useAppStore.getState(), "updateWorkItem")
+      .mockReturnValue({ status: "updated" })
+
+    render(<CalendarView data={data} items={items} editable />)
+
+    const allDayEvent = screen
+      .getByText("All-day drag 1")
+      .closest<HTMLElement>("[data-calendar-all-day-event]")
+    const dataTransfer = createCalendarDragDataTransfer()
+    const timedGrid = getCalendarTimedGrid()
+
+    expect(allDayEvent).toBeTruthy()
+    expect(screen.getByTestId("calendar-all-day-lane")).toHaveStyle({
+      height: "68px",
+    })
+
+    fireEvent.dragStart(allDayEvent!, { dataTransfer })
+    expect(dataTransfer.setData).toHaveBeenCalledWith(
+      "text/calendar-item",
+      "all-day-drag-1"
+    )
+    fireCalendarDragEvent(timedGrid, "dragOver", {
+      clientX: 120,
+      clientY: 640,
+      dataTransfer,
+    })
+
+    expect(screen.getByTestId("calendar-drag-preview")).toHaveTextContent(
+      "All-day drag 1"
+    )
+    expect(screen.getByTestId("calendar-all-day-lane")).toHaveStyle({
+      height: "44px",
+    })
+
+    fireCalendarDragEvent(timedGrid, "drop", {
+      clientX: 120,
+      clientY: 640,
+      dataTransfer,
+    })
+
+    expect(updateWorkItemSpy).toHaveBeenCalledWith(
+      "all-day-drag-1",
+      expect.objectContaining({
+        startTime: "10:00",
+        endTime: "11:00",
+        scheduleTimeZone: expect.any(String),
       })
     )
     updateWorkItemSpy.mockRestore()

@@ -67,13 +67,9 @@ function run(command, args, options = {}) {
     })
 
     child.on("exit", (code, signal) => {
-      if (signal) {
-        reject(new Error(`${command} exited with signal ${signal}`))
-        return
-      }
-
-      if (code !== 0) {
-        reject(new Error(`${command} exited with code ${code}`))
+      const error = getCommandExitError(command, code, signal)
+      if (error) {
+        reject(error)
         return
       }
 
@@ -99,23 +95,34 @@ function runCapture(command, args, options = {}) {
     })
     child.on("error", reject)
     child.on("exit", (code, signal) => {
-      if (signal) {
-        reject(new Error(`${command} exited with signal ${signal}`))
-        return
-      }
-
-      if (code !== 0) {
-        reject(
-          new Error(
-            `${command} exited with code ${code}: ${Buffer.concat(stderr).toString("utf8")}`
-          )
-        )
+      const error = getCommandExitError(
+        command,
+        code,
+        signal,
+        Buffer.concat(stderr).toString("utf8")
+      )
+      if (error) {
+        reject(error)
         return
       }
 
       resolve(Buffer.concat(stdout).toString("utf8"))
     })
   })
+}
+
+function getCommandExitError(command, code, signal, stderr = "") {
+  if (signal) {
+    return new Error(`${command} exited with signal ${signal}`)
+  }
+
+  if (code !== 0) {
+    return new Error(
+      `${command} exited with code ${code}${stderr ? `: ${stderr}` : ""}`
+    )
+  }
+
+  return null
 }
 
 function runForExitCode(command, args, options = {}) {
@@ -276,11 +283,7 @@ async function copyReleaseArtifacts(sourceDir, targetDir) {
   return copiedPaths
 }
 
-async function main() {
-  const desktopPackageEnv = await loadDesktopPackageEnv()
-  const desktopUpdatePublishConfig =
-    await resolveDesktopUpdatePublishConfigForBuild()
-
+function assertDesktopReleaseEnvironment(desktopUpdatePublishConfig) {
   if (isReleaseBuild && !hasNotarizationCredentials(process.env)) {
     throw new Error(
       "DESKTOP_RELEASE=1 requires Apple notarization credentials. Set APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER; or APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID; or APPLE_KEYCHAIN and APPLE_KEYCHAIN_PROFILE."
@@ -292,17 +295,10 @@ async function main() {
       "DESKTOP_RELEASE_ARTIFACTS=1 requires a GitHub update repository. Set DESKTOP_UPDATE_REPOSITORY=owner/repo or configure the git origin as a GitHub remote."
     )
   }
+}
 
-  const rootPackageJsonPath = path.join(repoRoot, "package.json")
-  const rootPackageJson = JSON.parse(
-    await fs.readFile(rootPackageJsonPath, "utf8")
-  )
-  const stageRoot = await fs.mkdtemp(
-    path.join(os.tmpdir(), "recipe-room-desktop-")
-  )
-  const stageDir = path.join(stageRoot, "app")
-  const stageOutputDir = path.join(stageRoot, "out")
-  const desktopRuntimeConfig = {
+function createDesktopRuntimeConfig(desktopPackageEnv) {
+  return {
     apiBaseUrl:
       resolveConfiguredDesktopApiBaseUrl(desktopPackageEnv) ??
       DEFAULT_RENDERER_URL,
@@ -315,129 +311,166 @@ async function main() {
         }
       : {}),
   }
+}
 
-  try {
-    await fs.mkdir(stageDir, { recursive: true })
-    await fs.cp(
-      path.join(repoRoot, "electron"),
-      path.join(stageDir, "electron"),
-      {
-        recursive: true,
-      }
-    )
-    await fs.copyFile(
-      path.join(repoRoot, "app-icon.png"),
-      path.join(stageDir, "app-icon.png")
-    )
-
-    if (desktopRendererMode === "packaged") {
-      await fs.access(desktopRendererEntryPath).catch(() => {
-        throw new Error(
-          `DESKTOP_RENDERER_MODE=packaged requires ${desktopRendererEntryPath}. Build the desktop renderer assets first.`
-        )
-      })
-      await fs.cp(desktopRendererDir, path.join(stageDir, "desktop-renderer"), {
-        recursive: true,
-      })
-    }
-
-    const stagePackageJson = {
-      name: "recipe-room-desktop",
-      version: rootPackageJson.version,
-      description: "Recipe Room desktop shell",
-      author: "Recipe Room",
-      main: "electron/main.cjs",
-      type: "module",
-      dependencies: {
-        "electron-updater":
-          rootPackageJson.dependencies["electron-updater"] ??
-          rootPackageJson.devDependencies["electron-updater"],
+function createStagePackageJson(
+  rootPackageJson,
+  desktopUpdatePublishConfig,
+  stageOutputDir
+) {
+  return {
+    name: "recipe-room-desktop",
+    version: rootPackageJson.version,
+    description: "Recipe Room desktop shell",
+    author: "Recipe Room",
+    main: "electron/main.cjs",
+    type: "module",
+    dependencies: {
+      "electron-updater":
+        rootPackageJson.dependencies["electron-updater"] ??
+        rootPackageJson.devDependencies["electron-updater"],
+    },
+    build: {
+      appId: "io.reciperoom.desktop",
+      productName: "Recipe Room",
+      artifactName: shouldBuildReleaseArtifacts
+        ? "Recipe-Room-mac-${arch}.${ext}"
+        : "Recipe Room-${version}-${arch}.${ext}",
+      electronVersion: rootPackageJson.devDependencies.electron.replace(
+        /^\^/,
+        ""
+      ),
+      asar: true,
+      afterPack: "electron/after-pack.cjs",
+      directories: {
+        output: stageOutputDir,
+        buildResources: "electron",
       },
-      build: {
-        appId: "io.reciperoom.desktop",
-        productName: "Recipe Room",
-        artifactName: shouldBuildReleaseArtifacts
-          ? "Recipe-Room-mac-${arch}.${ext}"
-          : "Recipe Room-${version}-${arch}.${ext}",
-        electronVersion: rootPackageJson.devDependencies.electron.replace(
-          /^\^/,
-          ""
-        ),
-        asar: true,
-        afterPack: "electron/after-pack.cjs",
-        directories: {
-          output: stageOutputDir,
-          buildResources: "electron",
+      forceCodeSigning: shouldForceCodeSigning,
+      files: [
+        "desktop-runtime.json",
+        "desktop-renderer/**/*",
+        "electron/**/*",
+        "app-icon.png",
+        "package.json",
+      ],
+      protocols: [
+        {
+          name: "Recipe Room",
+          schemes: [desktopDeepLinkScheme],
         },
-        forceCodeSigning: shouldForceCodeSigning,
-        files: [
-          "desktop-runtime.json",
-          "desktop-renderer/**/*",
-          "electron/**/*",
-          "app-icon.png",
-          "package.json",
-        ],
-        protocols: [
-          {
-            name: "Recipe Room",
-            schemes: [desktopDeepLinkScheme],
-          },
-        ],
-        ...(desktopUpdatePublishConfig
-          ? { publish: [desktopUpdatePublishConfig] }
-          : {}),
-        extraMetadata: {
-          main: "electron/main.cjs",
-        },
-        mac: {
-          target: shouldBuildReleaseArtifacts ? ["dmg", "zip"] : ["dir"],
-          icon: "electron/app-icon.icns",
-          category: "public.app-category.productivity",
-          identity: macIdentity,
-          hardenedRuntime: shouldUseHardenedRuntime,
-          notarize: shouldNotarize,
-          extendInfo: {
-            NSAppTransportSecurity: {
-              NSAllowsArbitraryLoads: false,
-              NSAllowsLocalNetworking: true,
-              NSExceptionDomains: {
-                localhost: {
-                  NSExceptionAllowsInsecureHTTPLoads: true,
-                  NSIncludesSubdomains: true,
-                },
-                "127.0.0.1": {
-                  NSExceptionAllowsInsecureHTTPLoads: true,
-                  NSIncludesSubdomains: false,
-                },
+      ],
+      ...(desktopUpdatePublishConfig
+        ? { publish: [desktopUpdatePublishConfig] }
+        : {}),
+      extraMetadata: {
+        main: "electron/main.cjs",
+      },
+      mac: {
+        target: shouldBuildReleaseArtifacts ? ["dmg", "zip"] : ["dir"],
+        icon: "electron/app-icon.icns",
+        category: "public.app-category.productivity",
+        identity: macIdentity,
+        hardenedRuntime: shouldUseHardenedRuntime,
+        notarize: shouldNotarize,
+        extendInfo: {
+          NSAppTransportSecurity: {
+            NSAllowsArbitraryLoads: false,
+            NSAllowsLocalNetworking: true,
+            NSExceptionDomains: {
+              localhost: {
+                NSExceptionAllowsInsecureHTTPLoads: true,
+                NSIncludesSubdomains: true,
+              },
+              "127.0.0.1": {
+                NSExceptionAllowsInsecureHTTPLoads: true,
+                NSIncludesSubdomains: false,
               },
             },
           },
         },
-        dmg: {
-          contents: [
-            {
-              x: 150,
-              y: 220,
-            },
-            {
-              path: "/Applications",
-              type: "link",
-              x: 410,
-              y: 220,
-            },
-          ],
-          title: "Recipe Room ${version}",
-        },
       },
-    }
+      dmg: {
+        contents: [
+          {
+            x: 150,
+            y: 220,
+          },
+          {
+            path: "/Applications",
+            type: "link",
+            x: 410,
+            y: 220,
+          },
+        ],
+        title: "Recipe Room ${version}",
+      },
+    },
+  }
+}
 
-    await fs.writeFile(
-      path.join(stageDir, "package.json"),
-      `${JSON.stringify(stagePackageJson, null, 2)}\n`
+async function writeJsonFile(filePath, value) {
+  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`)
+}
+
+async function copyDesktopStageFiles(stageDir) {
+  await fs.mkdir(stageDir, { recursive: true })
+  await fs.cp(
+    path.join(repoRoot, "electron"),
+    path.join(stageDir, "electron"),
+    {
+      recursive: true,
+    }
+  )
+  await fs.copyFile(
+    path.join(repoRoot, "app-icon.png"),
+    path.join(stageDir, "app-icon.png")
+  )
+
+  if (desktopRendererMode !== "packaged") {
+    return
+  }
+
+  await fs.access(desktopRendererEntryPath).catch(() => {
+    throw new Error(
+      `DESKTOP_RENDERER_MODE=packaged requires ${desktopRendererEntryPath}. Build the desktop renderer assets first.`
     )
-    await fs.writeFile(
+  })
+  await fs.cp(desktopRendererDir, path.join(stageDir, "desktop-renderer"), {
+    recursive: true,
+  })
+}
+
+async function main() {
+  const desktopPackageEnv = await loadDesktopPackageEnv()
+  const desktopUpdatePublishConfig =
+    await resolveDesktopUpdatePublishConfigForBuild()
+
+  assertDesktopReleaseEnvironment(desktopUpdatePublishConfig)
+
+  const rootPackageJsonPath = path.join(repoRoot, "package.json")
+  const rootPackageJson = JSON.parse(
+    await fs.readFile(rootPackageJsonPath, "utf8")
+  )
+  const stageRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "recipe-room-desktop-")
+  )
+  const stageDir = path.join(stageRoot, "app")
+  const stageOutputDir = path.join(stageRoot, "out")
+
+  try {
+    await copyDesktopStageFiles(stageDir)
+    await writeJsonFile(
+      path.join(stageDir, "package.json"),
+      createStagePackageJson(
+        rootPackageJson,
+        desktopUpdatePublishConfig,
+        stageOutputDir
+      )
+    )
+    await writeJsonFile(
       path.join(stageDir, "desktop-runtime.json"),
-      `${JSON.stringify(desktopRuntimeConfig, null, 2)}\n`
+      createDesktopRuntimeConfig(desktopPackageEnv)
     )
 
     await fs.rm(outputDir, { force: true, recursive: true })

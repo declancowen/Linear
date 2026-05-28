@@ -14,6 +14,7 @@
 - `app/**`, `components/app/**`, `convex/**`, `lib/**`, `services/partykit/**`, `tests/**` — added Turn 1
 - Duplicate numeric-suffix local files — added Turn 1
 - Workspace selector route, custom work properties, document views/taskbar, project/view edit flows, inbox/chat layout fixes, drag/drop reset, notification routing, chat reactions, PartyKit persistence guard — added Turn 1
+- Calendar day/week drag performance, all-day to timed conversion preview, inline detail anchoring, shared select dropdown padding, desktop packaging gate cleanup — added Turn 35
 
 ## Hotspots
 
@@ -28,11 +29,65 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-20 15:03 BST |
-| **Total turns**       | 34                   |
+| **Last reviewed**     | 2026-05-28 15:18 BST |
+| **Total turns**       | 35                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 66                   |
+| **Resolved findings** | 69                   |
 | **Accepted findings** | 0                    |
+
+## Turn 35 — 2026-05-28 15:18 BST
+
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| **Scope**       | Calendar drag smoothness, inline detail anchoring, shared select UI, release gates |
+| **Review type** | Local diff review + architecture/static gate cleanup                  |
+| **Reviewer**    | Codex CLI                                                             |
+| **Outcome**     | 3 analyzer findings fixed during review; no local open findings       |
+
+### Commands run
+
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta and review history recorded
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 72 tests
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx tests/app/api/platform-route-contracts.test.ts tests/components/desktop-update-controller.test.tsx tests/electron/desktop-auth-store.test.ts` — passed, 4 files / 90 tests
+- `pnpm lint` — passed
+- `pnpm typecheck` — passed
+- `pnpm build` — passed
+- `pnpm fallow:gate` — initially caught dead export, production-health, and duplication findings; passed after local cleanup
+- `git diff --check` — passed
+
+### Branch-totality proof
+
+- **Bug classes / invariants checked:** all-day native drag lifecycle, all-day-to-timed conversion, timed-to-all-day preservation, drag-preview rendering, calendar width changes while the inline detail sidebar opens, day/header/all-day horizontal scroll sync, and shared select item spacing.
+- **Sibling closure:** timed drag and resize still use the existing pointer-owned `CalendarDragState`; native all-day drag now has a small calendar-owned state/ref bridge instead of a second drag framework. Shared dropdown padding was fixed in `components/ui/select.tsx`, covering calendar time zone and settings selects through the existing primitive.
+- **Architecture rule applied:** calendar interaction policy remains inside `CalendarView`; rendering components receive explicit handlers and do not persist schedule changes directly. The desktop packaging cleanup was kept local to `scripts/package-electron-mac.mjs` with no release contract changes.
+- **Visual smoke note:** no browser smoke was run because the changed calendar surface requires authenticated workspace data locally. Component tests cover the changed interaction/state transitions directly, and the production build validates the Next.js render path.
+
+### Resolved during Turn 35
+
+#### WPDV-67 — resolved — all-day native drag had no timed preview or all-day lane shrink while dragging out
+
+- **Severity:** medium
+- **Evidence:** The previous all-day native drag only set `dataTransfer` and converted on drop, so the timed grid had no live preview and the all-day lane kept the dragged item until the final mutation.
+- **Fix:** Added a calendar-owned all-day drag state/ref, timed-grid drag-over preview, and layout filtering while the native drag target is timed. The existing schedule update path still owns persistence.
+- **Prevention:** Added regression coverage proving all-day drag shows a timed preview, shrinks the all-day lane, and saves timed schedule fields on drop.
+
+#### WPDV-68 — resolved — opening inline calendar details could preserve stale horizontal pixels after the calendar width changed
+
+- **Severity:** medium
+- **Evidence:** The inline detail sidebar reduces the calendar surface width; preserving old `scrollLeft` pixels could shift the visible day range.
+- **Fix:** Added anchor-day scroll recentering through memoized calendar scroll helpers and a width `ResizeObserver`, keeping header, all-day, body, and time rail synced.
+- **Prevention:** Added regression coverage proving the anchored day scroll position is recalculated when the detail sidebar opens.
+
+#### WPDV-69 — resolved — static analyzer gates had local cleanup findings
+
+- **Severity:** low
+- **Evidence:** `pnpm fallow:gate` surfaced an unused export, a production-health finding in the desktop packaging script, and duplicate test/script blocks.
+- **Fix:** Made `ProjectTemplateGlyph` private, split desktop packaging responsibilities into local helpers, and extracted repeated test setup/assertion helpers.
+- **Prevention:** `pnpm fallow:gate` now passes with dead code `0`, production health findings `0`, and duplication `0`.
+
+### Residual risk
+
+- Calendar drag smoothness still depends on browser-native drag event cadence for all-day items; the diff now minimizes React state churn and direct layout jumps, but a manual authenticated browser pass remains useful before treating subjective feel as final.
 
 ## Turn 34 — 2026-05-20 15:03 BST
 

@@ -24,7 +24,7 @@ export function TeamIconGlyph({
   )
 }
 
-export function ProjectTemplateGlyph({
+function ProjectTemplateGlyph({
   templateType,
   className,
 }: {

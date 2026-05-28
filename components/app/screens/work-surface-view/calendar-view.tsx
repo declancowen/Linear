@@ -2,7 +2,9 @@
 
 import {
   forwardRef,
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -142,6 +144,11 @@ type CalendarDragPreview = {
   startMinutes: number
   endMinutes: number
   isAllDay?: boolean
+}
+
+type CalendarAllDayDragState = {
+  itemId: string
+  target: "all-day" | "timed"
 }
 
 type PendingCalendarMoveDrag = {
@@ -314,6 +321,7 @@ type CalendarAllDaySurfaceProps = {
   handleAllDayBlankClick: (event: MouseEvent<HTMLDivElement>) => void
   handleAllDayBlankDoubleClick: (event: MouseEvent<HTMLDivElement>) => void
   handleAllDayDrop: (event: DragEvent<HTMLDivElement>) => void
+  handleAllDayDragOver: (event: DragEvent<HTMLDivElement>) => void
 }
 
 type CalendarAllDayScrollAreaProps = CalendarAllDaySurfaceProps & {
@@ -329,7 +337,8 @@ type CalendarAllDayScrollAreaProps = CalendarAllDaySurfaceProps & {
   hiddenAllDayCounts: number[]
   isItemEditable: (item: WorkItem) => boolean
   labelsById: EventAccentLabelLookup
-  onAllDayDragStart: () => void
+  onAllDayDragEnd: () => void
+  onAllDayDragStart: (entry: AllDayCalendarEntry) => void
   selectedItemId: string | null
   visibleAllDayRowCount: number
   visibleAllDaySpans: AllDayCalendarSpan[]
@@ -1087,7 +1096,7 @@ function getTimedEntryClassName({
   isSelected: boolean
 }) {
   return cn(
-    "group/event absolute overflow-hidden rounded-md text-left text-[12px] transition-[background-color,box-shadow] duration-150",
+    "group/event absolute overflow-hidden rounded-md text-left text-[12px] transition-[background-color,box-shadow] duration-150 will-change-[top,left,width,height]",
     editable
       ? "cursor-grab touch-none select-none active:cursor-grabbing"
       : "cursor-default",
@@ -2705,6 +2714,7 @@ function CalendarAllDaySpanButton({
   index,
   isItemEditable,
   labelsById,
+  onDragEnd,
   onDragStart,
   selectedItemId,
   span,
@@ -2717,7 +2727,8 @@ function CalendarAllDaySpanButton({
   index: number
   isItemEditable: (item: WorkItem) => boolean
   labelsById: EventAccentLabelLookup
-  onDragStart: () => void
+  onDragEnd: () => void
+  onDragStart: (entry: AllDayCalendarEntry) => void
   selectedItemId: string | null
   span: AllDayCalendarSpan
 }) {
@@ -2732,6 +2743,12 @@ function CalendarAllDaySpanButton({
   const startsBeforeView = span.entry.startDate < dayKeys[span.startIndex]
   const endsAfterView = span.entry.endDate > dayKeys[span.endIndex]
   const interactionProps = getCalendarItemInteractionProps(span.entry.item.id)
+  const buttonInteractionProps = {
+    onClick: interactionProps.onClick,
+    onMouseEnter: interactionProps.onMouseEnter,
+    onMouseLeave: interactionProps.onMouseLeave,
+    onMouseMove: interactionProps.onMouseMove,
+  }
 
   return (
     <IssueContextMenu
@@ -2761,11 +2778,12 @@ function CalendarAllDaySpanButton({
           height: ALL_DAY_EVENT_HEIGHT,
         }}
         onDragStart={(event) => {
-          onDragStart()
+          onDragStart(span.entry)
           event.dataTransfer.effectAllowed = "move"
           event.dataTransfer.setData("text/calendar-item", span.entry.item.id)
         }}
-        {...interactionProps}
+        onDragEnd={onDragEnd}
+        {...buttonInteractionProps}
       >
         {!isSelected && !startsBeforeView ? (
           <span
@@ -2811,7 +2829,7 @@ function CalendarAllDayDragPreview({
   return (
     <div
       data-testid="calendar-all-day-drag-preview"
-      className="pointer-events-none absolute z-40 truncate rounded-md border border-[color:var(--cal-accent)] bg-[color:var(--cal-accent)]/25 py-0 pr-2 pl-[14px] text-left text-[12px] leading-[26px] font-medium text-foreground shadow-lg ring-2 ring-[color:var(--cal-accent)]/25"
+      className="pointer-events-none absolute z-40 truncate rounded-md border border-[color:var(--cal-accent)] bg-[color:var(--cal-accent)]/25 py-0 pr-2 pl-[14px] text-left text-[12px] leading-[26px] font-medium text-foreground shadow-lg ring-2 ring-[color:var(--cal-accent)]/25 will-change-[top,left,width,height]"
       style={{
         ...getCalendarItemStyle(accent),
         left: `calc(${dayWidthPercent * dayIndex}% + 6px)`,
@@ -2904,7 +2922,7 @@ const CalendarAllDayScrollArea = forwardRef<
           minHeight: props.allDayLaneHeight,
           width: props.dayColumnsContentWidth,
         }}
-        onDragOver={(event) => event.preventDefault()}
+        onDragOver={props.handleAllDayDragOver}
         onDrop={props.handleAllDayDrop}
         onClick={props.handleAllDayBlankClick}
         onDoubleClick={props.handleAllDayBlankDoubleClick}
@@ -2918,8 +2936,7 @@ const CalendarAllDayScrollArea = forwardRef<
               key={getDateKey(day)}
               className={cn(
                 "border-l border-line-soft",
-                (day.getDay() === 0 || day.getDay() === 6) &&
-                  "bg-surface-2/30"
+                (day.getDay() === 0 || day.getDay() === 6) && "bg-surface-2/30"
               )}
             />
           ))}
@@ -2937,6 +2954,7 @@ const CalendarAllDayScrollArea = forwardRef<
             index={index}
             isItemEditable={props.isItemEditable}
             labelsById={props.labelsById}
+            onDragEnd={props.onAllDayDragEnd}
             onDragStart={props.onAllDayDragStart}
             selectedItemId={props.selectedItemId}
             span={span}
@@ -3158,7 +3176,7 @@ function CalendarDragPreviewBlock({
   return (
     <div
       data-testid="calendar-drag-preview"
-      className="pointer-events-none absolute z-40 overflow-hidden rounded-md bg-[color:var(--cal-accent-tint-hover)] text-left text-[12px] text-foreground shadow-lg"
+      className="pointer-events-none absolute z-40 overflow-hidden rounded-md bg-[color:var(--cal-accent-tint-hover)] text-left text-[12px] text-foreground shadow-lg transition-[top,left,width,height] duration-75 ease-out will-change-[top,left,width,height]"
       style={{
         ...getCalendarItemStyle(accent),
         left: `calc(${dayWidthPercent * dayIndex}% + 4px)`,
@@ -3204,13 +3222,14 @@ function CalendarTimedGrid({
   colorMode,
   commitCalendarSelection,
   commitDrag,
-  convertAllDayItemToTimed,
   data,
   dayColumnsContentWidth,
   dayColumnsGridTemplateColumns,
   dayKeys,
   days,
   dragPreview,
+  handleTimedGridDragOver,
+  handleTimedGridDrop,
   handleTimedGridBlankClick,
   handleTimedGridBlankDoubleClick,
   isItemEditable,
@@ -3241,17 +3260,14 @@ function CalendarTimedGrid({
   colorMode: CalendarColorMode
   commitCalendarSelection: (event: PointerEvent) => boolean
   commitDrag: (event: PointerEvent) => void
-  convertAllDayItemToTimed: (
-    itemId: string,
-    clientX: number,
-    clientY: number
-  ) => void
   data: AppData
   dayColumnsContentWidth: string
   dayColumnsGridTemplateColumns: string
   dayKeys: string[]
   days: Date[]
   dragPreview: CalendarDragPreview | null
+  handleTimedGridDragOver: (event: DragEvent<HTMLDivElement>) => void
+  handleTimedGridDrop: (event: DragEvent<HTMLDivElement>) => void
   handleTimedGridBlankClick: (event: MouseEvent<HTMLDivElement>) => void
   handleTimedGridBlankDoubleClick: (event: MouseEvent<HTMLDivElement>) => void
   isItemEditable: (item: WorkItem) => boolean
@@ -3292,15 +3308,8 @@ function CalendarTimedGrid({
       }}
       onClick={handleTimedGridBlankClick}
       onDoubleClick={handleTimedGridBlankDoubleClick}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        event.preventDefault()
-        const itemId = event.dataTransfer.getData("text/calendar-item")
-
-        if (itemId) {
-          convertAllDayItemToTimed(itemId, event.clientX, event.clientY)
-        }
-      }}
+      onDragOver={handleTimedGridDragOver}
+      onDrop={handleTimedGridDrop}
     >
       <CalendarTimedGridBackground
         days={days}
@@ -3377,11 +3386,14 @@ function CalendarDayWeekView({
   getCalendarItemInteractionProps,
   handleAllDayBlankClick,
   handleAllDayBlankDoubleClick,
+  handleAllDayDragOver,
   handleAllDayDrop,
   handleAllDayScroll,
   handleDayBodyScroll,
   handleTimedGridBlankClick,
   handleTimedGridBlankDoubleClick,
+  handleTimedGridDragOver,
+  handleTimedGridDrop,
   hiddenAllDayCounts,
   isItemEditable,
   labelsById,
@@ -3389,6 +3401,7 @@ function CalendarDayWeekView({
   nowTop,
   nowWallTime,
   onAllDayDragStart,
+  onAllDayDragEnd,
   onSelectItem,
   onEditItem,
   scheduleHover,
@@ -3436,13 +3449,16 @@ function CalendarDayWeekView({
     handleDayBodyScroll: (event: ReactUIEvent<HTMLDivElement>) => void
     handleTimedGridBlankClick: (event: MouseEvent<HTMLDivElement>) => void
     handleTimedGridBlankDoubleClick: (event: MouseEvent<HTMLDivElement>) => void
+    handleTimedGridDragOver: (event: DragEvent<HTMLDivElement>) => void
+    handleTimedGridDrop: (event: DragEvent<HTMLDivElement>) => void
     hiddenAllDayCounts: number[]
     isItemEditable: (item: WorkItem) => boolean
     labelsById: EventAccentLabelLookup
     nowDayIndex: number
     nowTop: number
     nowWallTime: CalendarWallTime
-    onAllDayDragStart: () => void
+    onAllDayDragEnd: () => void
+    onAllDayDragStart: (entry: AllDayCalendarEntry) => void
     timeRailContentRef: RefObject<HTMLDivElement | null>
     timeRows: CalendarTimeRow[]
     timedEntryLayouts: Map<string, TimedEntryLayout[]>
@@ -3483,6 +3499,8 @@ function CalendarDayWeekView({
   const timedGridInteractionProps = {
     handleTimedGridBlankClick,
     handleTimedGridBlankDoubleClick,
+    handleTimedGridDragOver,
+    handleTimedGridDrop,
     isItemEditable,
     onSelectItem,
     onEditItem,
@@ -3516,11 +3534,13 @@ function CalendarDayWeekView({
     getCalendarItemInteractionProps,
     handleAllDayBlankClick,
     handleAllDayBlankDoubleClick,
+    handleAllDayDragOver,
     handleAllDayDrop,
     handleAllDayScroll,
     hiddenAllDayCounts,
     isItemEditable,
     labelsById,
+    onAllDayDragEnd,
     onAllDayDragStart,
     selectedItemId,
     visibleAllDayRowCount,
@@ -4090,6 +4110,8 @@ export function CalendarView({
   const [dragPreview, setDragPreview] = useState<CalendarDragPreview | null>(
     null
   )
+  const [allDayDragState, setAllDayDragState] =
+    useState<CalendarAllDayDragState | null>(null)
   const [selectionPreview, setSelectionPreview] =
     useState<CalendarSelectionPreview | null>(null)
   const [monthGridHeight, setMonthGridHeight] = useState(0)
@@ -4147,6 +4169,7 @@ export function CalendarView({
   const timedGridRef = useRef<HTMLDivElement | null>(null)
   const calendarMainSurfaceRef = useRef<HTMLDivElement | null>(null)
   const dragStateRef = useRef<CalendarDragState | null>(null)
+  const allDayDragEntryRef = useRef<AllDayCalendarEntry | null>(null)
   const selectionDraftRef = useRef<CalendarSelectionDraft | null>(null)
   const pendingMoveDragRef = useRef<PendingCalendarMoveDrag | null>(null)
   const scrollRecenterRef = useRef(false)
@@ -4503,6 +4526,115 @@ export function CalendarView({
     })
   }
 
+  function setNextAllDayDragState(nextState: CalendarAllDayDragState | null) {
+    setAllDayDragState((current) => {
+      if (
+        current &&
+        nextState &&
+        current.itemId === nextState.itemId &&
+        current.target === nextState.target
+      ) {
+        return current
+      }
+
+      if (!current && !nextState) {
+        return current
+      }
+
+      return nextState
+    })
+  }
+
+  function clearAllDayDragPreview() {
+    allDayDragEntryRef.current = null
+    setNextAllDayDragState(null)
+    setNextDragPreview(null)
+  }
+
+  function resolveAllDayDragEntry(itemId?: string | null) {
+    const currentEntry = allDayDragEntryRef.current
+
+    if (currentEntry && (!itemId || currentEntry.item.id === itemId)) {
+      return currentEntry
+    }
+
+    if (!itemId) {
+      return null
+    }
+
+    const entry =
+      visibleAllDayEntries.find((candidate) => candidate.item.id === itemId) ??
+      null
+
+    if (entry) {
+      allDayDragEntryRef.current = entry
+    }
+
+    return entry
+  }
+
+  function beginAllDayDrag(entry: AllDayCalendarEntry) {
+    if (!isItemEditable(entry.item)) {
+      return
+    }
+
+    clearPendingMoveDrag()
+    clearHoverDetail()
+    allDayDragEntryRef.current = entry
+    setNextAllDayDragState({
+      itemId: entry.item.id,
+      target: "all-day",
+    })
+    setNextDragPreview(null)
+  }
+
+  function markAllDayDragOverAllDay() {
+    const entry = resolveAllDayDragEntry()
+
+    if (!entry) {
+      return
+    }
+
+    setNextAllDayDragState({
+      itemId: entry.item.id,
+      target: "all-day",
+    })
+    setNextDragPreview(null)
+  }
+
+  function previewAllDayDragAsTimed(clientX: number, clientY: number) {
+    const entry = resolveAllDayDragEntry()
+
+    if (!entry || !isItemEditable(entry.item)) {
+      return
+    }
+
+    const slot = getPointerSlot(clientX, clientY)
+
+    if (!slot) {
+      return
+    }
+
+    const startMinutes = slot.minutes
+    const endMinutes = Math.min(
+      24 * 60 - 1,
+      startMinutes + Math.max(MIN_TIMED_DURATION_MINUTES, 60)
+    )
+
+    setNextAllDayDragState({
+      itemId: entry.item.id,
+      target: "timed",
+    })
+    setNextDragPreview({
+      action: "move",
+      item: entry.item,
+      date: slot.date,
+      startMinutes,
+      endMinutes,
+      isAllDay: false,
+    })
+  }
+
   function commitDrag(event: PointerEvent) {
     if (pendingMoveDragRef.current?.pointerId === event.pointerId) {
       clearPendingMoveDrag()
@@ -4741,7 +4873,9 @@ export function CalendarView({
   function handleAllDayDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault()
 
-    const itemId = event.dataTransfer.getData("text/calendar-item")
+    const itemId =
+      event.dataTransfer.getData("text/calendar-item") ||
+      allDayDragEntryRef.current?.item.id
     const targetDate = getDayKeyFromHorizontalPosition(
       event.currentTarget,
       event.clientX
@@ -4752,7 +4886,21 @@ export function CalendarView({
 
     if (entry && targetDate) {
       moveAllDayItem(entry, targetDate)
+      suppressNextClickForDrag()
     }
+
+    clearAllDayDragPreview()
+  }
+
+  function handleAllDayDragOver(event: DragEvent<HTMLDivElement>) {
+    const itemId = event.dataTransfer.getData("text/calendar-item")
+
+    if (!resolveAllDayDragEntry(itemId)) {
+      return
+    }
+
+    event.preventDefault()
+    markAllDayDragOverAllDay()
   }
 
   function handleAllDayBlankClick(event: MouseEvent<HTMLDivElement>) {
@@ -4854,12 +5002,39 @@ export function CalendarView({
     })
   }
 
-  function markCalendarScrollRecentering() {
+  function handleTimedGridDragOver(event: DragEvent<HTMLDivElement>) {
+    const itemId = event.dataTransfer.getData("text/calendar-item")
+
+    if (!resolveAllDayDragEntry(itemId)) {
+      return
+    }
+
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "move"
+    previewAllDayDragAsTimed(event.clientX, event.clientY)
+  }
+
+  function handleTimedGridDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+
+    const itemId =
+      event.dataTransfer.getData("text/calendar-item") ||
+      allDayDragEntryRef.current?.item.id
+
+    if (itemId) {
+      convertAllDayItemToTimed(itemId, event.clientX, event.clientY)
+      suppressNextClickForDrag()
+    }
+
+    clearAllDayDragPreview()
+  }
+
+  const markCalendarScrollRecentering = useCallback(() => {
     scrollRecenterRef.current = true
     window.setTimeout(() => {
       scrollRecenterRef.current = false
     }, 100)
-  }
+  }, [])
 
   function shiftCalendarWindow(direction: -1 | 1) {
     if (pendingWindowShiftRef.current || scrollRecenterRef.current) {
@@ -4928,38 +5103,68 @@ export function CalendarView({
     }
   }
 
-  function syncDayGridHorizontalScroll(
-    scrollLeft: number,
-    source: "all-day" | "body"
-  ) {
-    if (source === "body") {
-      dayBodyLastScrollLeftRef.current = scrollLeft
-    } else {
-      dayAllDayLastScrollLeftRef.current = scrollLeft
+  const syncDayGridHorizontalScroll = useCallback(
+    (scrollLeft: number, source: "all-day" | "body") => {
+      if (source === "body") {
+        dayBodyLastScrollLeftRef.current = scrollLeft
+      } else {
+        dayAllDayLastScrollLeftRef.current = scrollLeft
+      }
+
+      if (dayHeaderScrollRef.current) {
+        dayHeaderScrollRef.current.scrollLeft = scrollLeft
+      }
+
+      if (source !== "all-day" && dayAllDayScrollRef.current) {
+        dayAllDayLastScrollLeftRef.current = scrollLeft
+        dayAllDayScrollRef.current.scrollLeft = scrollLeft
+      }
+
+      if (source !== "body" && dayBodyScrollRef.current) {
+        dayBodyLastScrollLeftRef.current = scrollLeft
+        dayBodyScrollRef.current.scrollLeft = scrollLeft
+      }
+    },
+    []
+  )
+
+  const syncDayGridScroll = useCallback(
+    (scrollLeft: number, scrollTop: number) => {
+      syncDayGridHorizontalScroll(scrollLeft, "body")
+
+      if (timeRailContentRef.current) {
+        timeRailContentRef.current.style.transform = `translateY(${-scrollTop}px)`
+      }
+    },
+    [syncDayGridHorizontalScroll]
+  )
+
+  const scrollDayGridToAnchorDay = useCallback(() => {
+    const element = dayBodyScrollRef.current
+
+    if (!element || !scrollAnchorDayKey || dayKeys.length === 0) {
+      return
     }
 
-    if (dayHeaderScrollRef.current) {
-      dayHeaderScrollRef.current.scrollLeft = scrollLeft
+    const anchorIndex = dayKeys.indexOf(scrollAnchorDayKey)
+
+    if (anchorIndex < 0) {
+      return
     }
 
-    if (source !== "all-day" && dayAllDayScrollRef.current) {
-      dayAllDayLastScrollLeftRef.current = scrollLeft
-      dayAllDayScrollRef.current.scrollLeft = scrollLeft
-    }
+    const dayWidth = element.scrollWidth / Math.max(1, dayKeys.length)
+    const nextScrollLeft = anchorIndex * dayWidth
+    const preservedScrollTop = element.scrollTop
 
-    if (source !== "body" && dayBodyScrollRef.current) {
-      dayBodyLastScrollLeftRef.current = scrollLeft
-      dayBodyScrollRef.current.scrollLeft = scrollLeft
-    }
-  }
-
-  function syncDayGridScroll(scrollLeft: number, scrollTop: number) {
-    syncDayGridHorizontalScroll(scrollLeft, "body")
-
-    if (timeRailContentRef.current) {
-      timeRailContentRef.current.style.transform = `translateY(${-scrollTop}px)`
-    }
-  }
+    markCalendarScrollRecentering()
+    syncDayGridScroll(nextScrollLeft, preservedScrollTop)
+    element.scrollLeft = nextScrollLeft
+  }, [
+    dayKeys,
+    markCalendarScrollRecentering,
+    scrollAnchorDayKey,
+    syncDayGridScroll,
+  ])
 
   function handleDayBodyScroll(event: ReactUIEvent<HTMLDivElement>) {
     const scrollLeft = event.currentTarget.scrollLeft
@@ -4994,7 +5199,16 @@ export function CalendarView({
       entry.endDate >= dayKeys[0] &&
       entry.startDate <= dayKeys[dayKeys.length - 1]
   )
-  const allDaySpans = getAllDayCalendarSpans(visibleAllDayEntries, dayKeys)
+  const layoutVisibleAllDayEntries =
+    allDayDragState?.target === "timed"
+      ? visibleAllDayEntries.filter(
+          (entry) => entry.item.id !== allDayDragState.itemId
+        )
+      : visibleAllDayEntries
+  const allDaySpans = getAllDayCalendarSpans(
+    layoutVisibleAllDayEntries,
+    dayKeys
+  )
   const allDayRangeKey = getAllDayRangeKey(
     `${mode}:${maxAllDayEvents}`,
     dayKeys
@@ -5076,48 +5290,50 @@ export function CalendarView({
       return
     }
 
-    const element = dayBodyScrollRef.current
-
-    if (!element || !scrollAnchorDayKey || dayKeys.length === 0) {
-      return
-    }
-
-    const anchorIndex = dayKeys.indexOf(scrollAnchorDayKey)
-
-    if (anchorIndex < 0) {
-      return
-    }
-
-    const dayWidth = element.scrollWidth / Math.max(1, dayKeys.length)
-    const nextScrollLeft = anchorIndex * dayWidth
-    const preservedScrollTop = element.scrollTop
-
-    markCalendarScrollRecentering()
-    element.scrollLeft = nextScrollLeft
-    dayBodyLastScrollLeftRef.current = nextScrollLeft
-
-    if (dayHeaderScrollRef.current) {
-      dayHeaderScrollRef.current.scrollLeft = nextScrollLeft
-    }
-
-    if (dayAllDayScrollRef.current) {
-      dayAllDayScrollRef.current.scrollLeft = nextScrollLeft
-      dayAllDayLastScrollLeftRef.current = nextScrollLeft
-    }
-
-    if (timeRailContentRef.current) {
-      timeRailContentRef.current.style.transform = `translateY(${-preservedScrollTop}px)`
-    }
+    scrollDayGridToAnchorDay()
   }, [
     anchorDate,
-    dayKeys,
+    markCalendarScrollRecentering,
     mode,
     monthBaseRowHeight,
-    scrollAnchorDayKey,
-    showWeekends,
-    weekDayCount,
-    weekStart,
+    scrollDayGridToAnchorDay,
   ])
+
+  useLayoutEffect(() => {
+    if (mode === "month") {
+      return
+    }
+
+    scrollDayGridToAnchorDay()
+  }, [mode, selectedItemId, scrollDayGridToAnchorDay])
+
+  useEffect(() => {
+    if (mode === "month" || typeof ResizeObserver === "undefined") {
+      return
+    }
+
+    const element = calendarMainSurfaceRef.current
+
+    if (!element) {
+      return
+    }
+
+    let observedWidth = element.getBoundingClientRect().width
+    const observer = new ResizeObserver(([entry]) => {
+      const nextWidth = entry?.contentRect.width ?? 0
+
+      if (Math.abs(nextWidth - observedWidth) < 1) {
+        return
+      }
+
+      observedWidth = nextWidth
+      scrollDayGridToAnchorDay()
+    })
+
+    observer.observe(element)
+
+    return () => observer.disconnect()
+  }, [mode, scrollDayGridToAnchorDay])
 
   const dayWeekRangeProps = {
     allDayLaneHeight,
@@ -5167,14 +5383,18 @@ export function CalendarView({
     getCalendarItemInteractionProps,
     handleAllDayBlankClick,
     handleAllDayBlankDoubleClick,
+    handleAllDayDragOver,
     handleAllDayDrop,
     handleAllDayScroll,
     handleDayBodyScroll,
-    onAllDayDragStart: clearHoverDetail,
+    onAllDayDragEnd: clearAllDayDragPreview,
+    onAllDayDragStart: beginAllDayDrag,
   }
   const dayWeekTimedInteractionProps = {
     handleTimedGridBlankClick,
     handleTimedGridBlankDoubleClick,
+    handleTimedGridDragOver,
+    handleTimedGridDrop,
     isItemEditable,
     onEditItem: openSelectedItem,
     onSelectItem: toggleSelectedItem,
