@@ -504,6 +504,7 @@ function useShellNotificationToasts(input: {
       title: "New notification",
       body: nextNotification.message,
       path: href,
+      silent: false,
     })
 
     notificationToastFlushTimeoutRef.current = window.setTimeout(() => {

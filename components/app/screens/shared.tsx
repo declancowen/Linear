@@ -787,7 +787,7 @@ function PropertySelectListbox({
       id={controller.listboxId}
       role="listbox"
       aria-label={controller.resolvedAccessibleLabel}
-      className="flex max-h-[320px] flex-col gap-0.5 overflow-y-auto p-1"
+      className="no-scrollbar flex max-h-[320px] flex-col gap-0.5 overflow-y-auto p-1"
       onKeyDown={controller.handleListboxKeyDown}
     >
       {options.map((option, index) => (
@@ -1052,7 +1052,7 @@ export function WorkItemLabelsEditor({
               <div className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
                 Labels
               </div>
-              <div className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
+              <div className="no-scrollbar flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
                 {availableLabels.length > 0 ? (
                   availableLabels.map((label) => {
                     const selected = item.labelIds.includes(label.id)

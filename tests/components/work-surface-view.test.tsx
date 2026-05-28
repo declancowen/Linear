@@ -31,13 +31,27 @@ vi.mock("@/components/app/screens/work-item-menus", () => ({
   IssueContextMenu: ({
     children,
     item,
+    onEditItem,
   }: {
     children: ReactNode
     item: { id: string }
+    onEditItem?: (itemId: string) => void
   }) => (
     <>
       {children}
       <span data-testid={`issue-context-${item.id}`} />
+      {onEditItem ? (
+        <button
+          type="button"
+          data-testid={`issue-context-edit-${item.id}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onEditItem(item.id)
+          }}
+        >
+          Edit item
+        </button>
+      ) : null}
     </>
   ),
   stopMenuEvent: (event: {
@@ -829,6 +843,39 @@ describe("CalendarView", () => {
     ).toBeGreaterThan(0)
   })
 
+  it("keeps calendar item details open when edit is chosen from the context menu", () => {
+    const item = createTimedCalendarItem({
+      id: "calendar-context-edit",
+      title: "Calendar context edit",
+    })
+    const { eventCard, updateWorkItemSpy } = renderTimedCalendarItem({ item })
+
+    fireEvent.pointerDown(eventCard, {
+      clientX: 120,
+      clientY: 640,
+      pointerId: 24,
+    })
+    fireEvent.pointerUp(eventCard, {
+      clientX: 120,
+      clientY: 640,
+      pointerId: 24,
+    })
+    fireEvent.click(eventCard)
+
+    expect(screen.getByTestId("calendar-detail-slot")).toContainElement(
+      screen.getByTestId("inline-detail")
+    )
+
+    fireEvent.click(
+      screen.getAllByTestId("issue-context-edit-calendar-context-edit")[0]
+    )
+
+    expect(screen.getByTestId("calendar-detail-slot")).toContainElement(
+      screen.getByTestId("inline-detail")
+    )
+    updateWorkItemSpy.mockRestore()
+  })
+
   it("renders cross-midnight timed work in hourly columns", () => {
     const today = startOfDay(new Date())
     const startDate = formatLocalCalendarDate(today)
@@ -1384,12 +1431,12 @@ describe("CalendarView", () => {
     const floatingDetail = screen.getByTestId("floating-detail")
 
     expect(floatingDetail.parentElement).toHaveStyle({
-      left: "192px",
-      maxHeight: "506px",
-      top: "132px",
+      left: "188px",
+      maxHeight: "514px",
+      top: "128px",
       width: "420px",
     })
-    expect(floatingDetail).toHaveAttribute("data-floating-max-height", "506")
+    expect(floatingDetail).toHaveAttribute("data-floating-max-height", "514")
   })
 
   it("clears timed drag state on pointer cancellation", () => {
@@ -1883,7 +1930,7 @@ describe("CalendarView", () => {
       "calendar-day-scroll-container"
     )
 
-    expect(allDayArea).toHaveStyle({ height: "184px" })
+    expect(allDayArea).toHaveStyle({ height: "124px" })
     expect(allDayArea).toHaveClass("no-scrollbar")
     expect(dayScrollContainer).toHaveClass("no-scrollbar")
 
@@ -1994,6 +2041,45 @@ describe("TimelineView primitives", () => {
       pointerId: 42,
       releaseTarget: window,
     })
+
+    expect(screen.getByTestId("timeline-detail-slot")).toContainElement(
+      screen.getByTestId("inline-detail")
+    )
+  })
+
+  it("keeps timeline item details open when edit is chosen from the context menu", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 4, 22, 8))
+    const item = createWorkItem({
+      id: "timeline-context-edit",
+      title: "Timeline context edit",
+      status: "todo",
+      startDate: "2026-05-22T00:00:00.000Z",
+      targetDate: "2026-05-23T00:00:00.000Z",
+    })
+    const data = {
+      ...createData(),
+      workItems: [item],
+    }
+
+    render(
+      <TimelineView
+        data={data}
+        items={[item]}
+        view={createView("timeline")}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("link", { name: "Timeline context edit" }))
+
+    expect(screen.getByTestId("timeline-detail-slot")).toContainElement(
+      screen.getByTestId("inline-detail")
+    )
+
+    fireEvent.click(
+      screen.getAllByTestId("issue-context-edit-timeline-context-edit")[0]
+    )
 
     expect(screen.getByTestId("timeline-detail-slot")).toContainElement(
       screen.getByTestId("inline-detail")

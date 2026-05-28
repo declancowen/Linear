@@ -756,7 +756,7 @@ export function InboxDetailPane({
   })
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+    <div className="no-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
       <InboxDetailToolbar
         notification={notification}
         onDelete={onDelete}

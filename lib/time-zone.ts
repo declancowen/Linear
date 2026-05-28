@@ -22,12 +22,12 @@ export function getSupportedTimeZones() {
       : undefined
 
   if (supportedValuesOf) {
-    return Array.from(
+    return sortTimeZonesByOffset(
       new Set([fallbackTimeZone, ...supportedValuesOf("timeZone")])
     )
   }
 
-  return [
+  return sortTimeZonesByOffset([
     "UTC",
     "Europe/London",
     "Europe/Paris",
@@ -37,7 +37,7 @@ export function getSupportedTimeZones() {
     "Asia/Singapore",
     "Asia/Tokyo",
     "Australia/Sydney",
-  ]
+  ])
 }
 
 export function isValidTimeValue(value: string | null | undefined) {
@@ -104,6 +104,40 @@ function getTimeZoneOffsetMinutes(date: Date, timeZone: string) {
   )
 
   return (zonedTimestamp - date.getTime()) / 60000
+}
+
+function getTimeZoneSortOffsetMinutes(timeZone: string, date: Date) {
+  try {
+    return Math.round(getTimeZoneOffsetMinutes(date, timeZone))
+  } catch {
+    return Number.POSITIVE_INFINITY
+  }
+}
+
+function compareTimeZoneNames(firstTimeZone: string, secondTimeZone: string) {
+  if (firstTimeZone === fallbackTimeZone) {
+    return secondTimeZone === fallbackTimeZone ? 0 : -1
+  }
+
+  if (secondTimeZone === fallbackTimeZone) {
+    return 1
+  }
+
+  return firstTimeZone.localeCompare(secondTimeZone)
+}
+
+function sortTimeZonesByOffset(timeZones: Iterable<string>) {
+  const date = new Date()
+
+  return Array.from(timeZones).sort((firstTimeZone, secondTimeZone) => {
+    const firstOffset = getTimeZoneSortOffsetMinutes(firstTimeZone, date)
+    const secondOffset = getTimeZoneSortOffsetMinutes(secondTimeZone, date)
+
+    return (
+      firstOffset - secondOffset ||
+      compareTimeZoneNames(firstTimeZone, secondTimeZone)
+    )
+  })
 }
 
 function getTimeZoneOffsetLabel(

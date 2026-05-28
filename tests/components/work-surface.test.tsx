@@ -299,6 +299,39 @@ describe("WorkSurface", () => {
     expect(screen.getByText("board-content")).toBeInTheDocument()
   })
 
+  it("does not coerce private task views away from their saved layout", () => {
+    render(
+      <WorkSurface
+        title="My items"
+        routeKey="/assigned"
+        views={[]}
+        fallbackViews={[
+          createView({
+            id: "view_assigned_private_tasks",
+            name: "Private tasks",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            layout: "list",
+            grouping: "status",
+            subGrouping: null,
+            filters: {
+              ...createDefaultViewFilters(),
+              visibility: ["private"],
+            },
+          }),
+        ]}
+        items={[]}
+        team={createTeam()}
+        emptyLabel="Nothing assigned"
+        allowCreateViews={false}
+      />
+    )
+
+    expect(screen.queryByText("board-content")).not.toBeInTheDocument()
+    expect(screen.getByText("group:status/sub:none")).toBeInTheDocument()
+  })
+
   it("matches assigned descendant filters against the assigned rows", () => {
     const assignedItem = {
       id: "story_1",

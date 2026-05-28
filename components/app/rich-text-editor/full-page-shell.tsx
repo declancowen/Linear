@@ -89,10 +89,7 @@ export function FullPageRichTextShell({
 
   return (
     <div
-      className={cn(
-        "relative flex flex-1 flex-col overflow-hidden",
-        className
-      )}
+      className={cn("relative flex flex-1 flex-col overflow-hidden", className)}
     >
       {toolbar ? (
         toolbar
@@ -105,9 +102,12 @@ export function FullPageRichTextShell({
           )}
         />
       ) : null}
-      <div className="flex-1 overflow-y-auto">
+      <div className="no-scrollbar flex-1 overflow-y-auto">
         <div
-          className={cn("relative mx-auto w-full px-6 pt-12 pb-4", widthClassName)}
+          className={cn(
+            "relative mx-auto w-full px-6 pt-12 pb-4",
+            widthClassName
+          )}
           ref={containerRef}
         >
           {children}

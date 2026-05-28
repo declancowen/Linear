@@ -24,6 +24,7 @@ import {
   CalendarBlank,
   CaretDown,
   CaretRight,
+  CircleDashed,
   Clock,
   DotsThree,
   Flag,
@@ -305,7 +306,7 @@ function DetailSidebarSelectRow({
             align="end"
             className="w-[280px] overflow-hidden rounded-lg border border-line bg-surface p-1 shadow-lg"
           >
-            <div className="flex max-h-[320px] flex-col gap-0.5 overflow-y-auto">
+            <div className="no-scrollbar flex max-h-[320px] flex-col gap-0.5 overflow-y-auto">
               {options.map((option, index) =>
                 option.value === PROPERTY_SELECT_SEPARATOR_VALUE ? (
                   <div
@@ -3662,7 +3663,7 @@ function WorkItemMainArticle({
   onCloseMainChildComposer: () => void
 }) {
   return (
-    <div className="min-w-0 flex-1 overflow-y-auto">
+    <div className="no-scrollbar min-w-0 flex-1 overflow-y-auto">
       <article className="mx-auto flex max-w-[60rem] flex-col px-10 pt-12 pb-24">
         <WorkItemParentPill parentItem={parentItem} workCopy={workCopy} />
 
@@ -3782,7 +3783,7 @@ function WorkItemSidebarProperties({
       <dl className="mt-5 grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12.5px]">
         <DetailSidebarSelectRow
           label="Status"
-          icon={<StatusIcon status={currentItem.status} />}
+          icon={<CircleDashed className="size-[13px]" />}
           value={currentItem.status}
           disabled={!sidebarEditable}
           options={statusOptions}
@@ -3906,7 +3907,9 @@ function getWorkDetailSubitemScope(data: AppData, currentItem: WorkItem) {
     return {
       scopeId: data.currentUserId,
       scopeType: "personal" as const,
-      visibility: ["private"] as NonNullable<ViewDefinition["filters"]["visibility"]>,
+      visibility: ["private"] as NonNullable<
+        ViewDefinition["filters"]["visibility"]
+      >,
     }
   }
 
@@ -4277,7 +4280,7 @@ function WorkItemDetailSidebar({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-[22px]">
+      <div className="no-scrollbar flex-1 overflow-y-auto px-6 py-[22px]">
         <h2 className="mb-2.5 text-[22px] leading-[1.25] font-semibold tracking-[-0.012em]">
           {sidebarTitle}
         </h2>

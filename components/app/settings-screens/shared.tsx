@@ -1,11 +1,6 @@
 "use client"
 
-import {
-  useRef,
-  type ElementType,
-  type RefObject,
-  type ReactNode,
-} from "react"
+import { useRef, type ElementType, type RefObject, type ReactNode } from "react"
 import {
   CaretRight,
   Camera,
@@ -35,10 +30,7 @@ function CollectionPaneHeader({
             <span className="truncate text-[13px] text-muted-foreground">
               {breadcrumb}
             </span>
-            <CaretRight
-              className="size-3 shrink-0 text-fg-4"
-              weight="bold"
-            />
+            <CaretRight className="size-3 shrink-0 text-fg-4" weight="bold" />
           </>
         ) : null}
         <h1 className="truncate text-[13px] font-medium text-fg-2">{title}</h1>
@@ -65,7 +57,7 @@ export function SettingsScaffold({
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       <CollectionPaneHeader title={title} breadcrumb={breadcrumb} />
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-6 pt-9 pb-20">
           {hero ? (
             <div className="mb-9">{hero}</div>
@@ -360,7 +352,7 @@ export function SettingsRow({
       )}
     >
       <div className="min-w-0 space-y-1 pt-1">
-        <div className="text-[13px] font-medium leading-tight">{label}</div>
+        <div className="text-[13px] leading-tight font-medium">{label}</div>
         {description ? (
           <p className="text-[12.5px] leading-relaxed text-muted-foreground">
             {description}
@@ -390,7 +382,7 @@ export function SettingsToggleRow({
   return (
     <div className="flex items-start justify-between gap-4 px-5 py-3.5 sm:items-center">
       <div className="min-w-0 space-y-0.5">
-        <div className="text-[13px] font-medium leading-tight">{title}</div>
+        <div className="text-[13px] leading-tight font-medium">{title}</div>
         <div className="text-[12.5px] leading-relaxed text-muted-foreground">
           {description}
         </div>

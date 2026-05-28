@@ -129,6 +129,79 @@ async function fetchRouteMutation(input: RequestInfo | URL, init: RequestInit) {
   }
 }
 
+function isDesktopSessionRefreshRequest(input: RequestInfo | URL) {
+  const inputString =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.pathname
+        : input.url
+
+  return inputString.includes("/api/auth/desktop/session/refresh")
+}
+
+function canRefreshDesktopSession() {
+  return (
+    typeof window !== "undefined" &&
+    window.electronApp?.isElectron === true &&
+    typeof window.electronApp.getDesktopAuthToken === "function" &&
+    typeof window.electronApp.setDesktopAuthToken === "function"
+  )
+}
+
+function isDesktopSessionRetryCandidate(
+  input: RequestInfo | URL,
+  response: Response
+) {
+  return (
+    response.status === 401 &&
+    canRefreshDesktopSession() &&
+    !isDesktopSessionRefreshRequest(input)
+  )
+}
+
+function isDesktopSessionRefreshPayload(
+  value: unknown
+): value is { token: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { token?: unknown }).token === "string" &&
+    (value as { token: string }).token.trim().length > 0
+  )
+}
+
+async function refreshDesktopSessionForRouteRetry() {
+  const currentToken = await window.electronApp?.getDesktopAuthToken?.()
+
+  if (typeof currentToken !== "string" || currentToken.trim().length === 0) {
+    return false
+  }
+
+  const refreshResponse = await fetch(
+    buildPublicApiRequestInput("/api/auth/desktop/session/refresh"),
+    {
+      credentials: "include",
+      headers: await buildDesktopAuthHeaders(),
+      method: "POST",
+    }
+  ).catch(() => null)
+
+  if (!refreshResponse?.ok) {
+    return false
+  }
+
+  const refreshPayload = await refreshResponse.json().catch(() => null)
+
+  if (!isDesktopSessionRefreshPayload(refreshPayload)) {
+    return false
+  }
+
+  await window.electronApp?.setDesktopAuthToken?.(refreshPayload.token)
+
+  return true
+}
+
 export async function runRouteMutation<T>(
   input: RequestInfo | URL,
   init: RequestInit
@@ -140,8 +213,17 @@ export async function runRouteMutation<T>(
     )
   }
 
-  const response = await fetchRouteMutation(input, init)
-  const payload = await parseRouteMutationPayload(response)
+  let response = await fetchRouteMutation(input, init)
+  let payload = await parseRouteMutationPayload(response)
+
+  if (isDesktopSessionRetryCandidate(input, response)) {
+    const didRefresh = await refreshDesktopSessionForRouteRetry()
+
+    if (didRefresh) {
+      response = await fetchRouteMutation(input, init)
+      payload = await parseRouteMutationPayload(response)
+    }
+  }
 
   if (!response.ok) {
     throw createFailedRouteMutationError(response, payload)

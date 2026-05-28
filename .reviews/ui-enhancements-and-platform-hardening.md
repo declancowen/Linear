@@ -43,8 +43,12 @@ Files and areas reviewed across all turns:
 - `components/app/screens/work-surface-view/calendar-view.tsx`, `components/app/screens/work-surface-view/timeline-bars.tsx`, `components/app/screens/work-surface-view/timeline-view.tsx` — calendar/timeline item menus, hover positioning, all-day layout, and hidden scrollbars
 - `components/app/screens/inbox-screen.tsx`, `components/app/screens/inbox-ui.tsx` — inbox split-pane default sizing
 - `components/app/shell.tsx`, `electron/main.cjs`, `desktop/renderer/desktop-app.tsx`, `lib/server/desktop-session.ts` — desktop app min-width, auth persistence, notification behavior, and app-download icon
+- `components/ui/scroll-area.tsx`, `components/app/screens.tsx`, `components/app/screens/work-surface.tsx`, `components/app/collaboration-screens/*.tsx`, `components/app/settings-screens/shared.tsx` — shared hidden-scrollbar presentation boundary and named surface containers
+- `lib/domain/default-views.ts` — My Items/private-task fallback view defaults and personal display-property invariants
+- `scripts/generate-icons.mjs`, `electron/app-icon.png`, `electron/app-icon.icns` — regenerated Electron/app icon pipeline
 - `app/api/auth/desktop/session/refresh/route.ts`, `app/api/channel-posts/[postId]/comments/[commentId]/route.ts`, `convex/app/collaboration_handlers.ts`, `lib/server/convex/collaboration.ts` — new desktop refresh and channel comment-delete route contracts
 - `package.json`, `pnpm-lock.yaml`, `vitest.config.ts` — CI dependency audit remediation and full-suite timeout stability
+- `lib/convex/client/route-mutation.ts`, `lib/time-zone.ts`, `tests/lib/convex/client-contracts.test.ts`, `tests/lib/time-zone.test.ts` — desktop route-mutation session retry and shared time-zone option ordering
 
 ## Hotspots (cumulative — updated as recurring risk families emerge)
 
@@ -57,13 +61,115 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-05-27 18:08:27 BST` |
-| **Total turns** | `9` |
+| **Last reviewed** | `2026-05-28 07:13:28 BST` |
+| **Total turns** | `11` |
 | **Open findings** | `0` |
-| **Resolved findings** | `16` |
+| **Resolved findings** | `22` |
 | **Accepted findings** | `19` |
 
 ---
+
+## Turn 11 — 2026-05-28 07:13:28 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `pending Turn 11 commit` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Re-reviewed the cumulative local diff after the final requirement sweep and the new time-zone ordering request. Six live issues were fixed: Electron route mutations now refresh and retry stale desktop sessions once before failing saves, calendar/timeline `Edit Item` opens the editable detail idempotently instead of toggling it closed, the shared scroll primitive no longer exposes an unused `ScrollBar` export after hidden-scrollbar defaults, timeline prop threading no longer introduces a duplicated type-shape clone, Electron update menu construction no longer introduces new complexity, and shared time-zone options are ordered by current UTC offset instead of zone name.
+
+**Outcome:** all clear after fixes
+**Risk score:** high — the branch remains broad and this turn touched shared route mutation auth, calendar/timeline context-menu behavior, shared time-zone options, Electron main-process menu wiring, and shared UI primitive exports
+**Change archetypes:** desktop auth retry boundary, shared presentation contract, time-zone option source, context-menu action parity, static-analyzer remediation
+**Intended change:** finish the missed requirement loop without scattering one-off fixes across individual settings/calendar/detail surfaces
+**Intent vs actual:** `runRouteMutation` is now the owner of the desktop stale-session retry path for route-backed saves; calendar and timeline context-menu edit actions call an explicit open handler instead of the normal toggle handler; `getSupportedTimeZones()` sorts every consuming surface by current UTC offset; `ScrollArea` keeps scrollbar hiding internal and no longer exports the private scrollbar implementation; Electron update menu state is split into small owner-local builders
+**Confidence:** high for the local tree — targeted regressions, full Vitest, typecheck, lint, build, desktop renderer smoke, diff whitespace, architecture preflight, and changed-file Fallow audit all passed
+**Coverage note:** reviewed the shared callers for settings, calendar settings/header select, create/edit item schedule controls, and work-item detail sidebar; also rechecked the calendar/timeline `IssueContextMenu` variants and route-mutation Electron auth boundary
+**Finding triage:** no live findings remain. The initial targeted `pnpm test tests/lib/time-zone.test.ts tests/components/work-surface-view.test.tsx tests/components/work-item-detail-screen.test.tsx` run hit the existing long work-item-detail timeout with the timeout flag placed after the file path; rerunning that file with `--testTimeout 15000` passed.
+**Static/analyzer evidence:** explicit `pnpm exec fallow audit --format json --quiet --explain` passed with verdict `pass`, introduced dead code `0`, introduced complexity `0`, introduced duplication `0`; remaining complexity findings are inherited Electron inventory
+**Architecture impact:** the durable rules sit at their owners: route mutation edge for desktop auth retry, `lib/time-zone.ts` for shared time-zone ordering, calendar/timeline presentation owners for context-menu open/edit behavior, Electron main for native update menu state, and `ScrollArea` for scrollbar chrome policy
+**Bug classes / invariants checked:** Desktop Session Continuity, Context Menu Action Parity, Shared Option Source Drift, Presentation Boundary, Static Analyzer Regression; edit actions must not close already-open editable detail, route-backed Electron saves should retry after token refresh, and time-zone option order must be consistent across settings/calendar/detail surfaces
+**Branch totality:** rechecked current `main` working tree diff against `origin/main`, prior Turn 10 hotspots, and the new time-zone request
+**Sibling closure:** settings schedule select, calendar settings select, calendar header select, create/edit work-item time controls, work-item detail sidebar date rows, calendar all-day/timed context menus, timeline labels/bars, route-backed save callers, Electron native update menu, and shared scroll-area exports were checked
+**Residual risk / unknowns:** no packaged Electron app launch or authenticated browser visual smoke was run in this turn; Convex production deployment is still outside this local diff review
+
+### Validation
+
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed after refetching a missing local Git blob; explicit changed-file Fallow audit passed after analyzer fixes
+- `pnpm test tests/components/work-surface-view.test.tsx tests/lib/convex/client-contracts.test.ts tests/desktop/renderer-smoke.test.tsx tests/electron/desktop-auth-store.test.ts tests/lib/server/desktop-session.test.ts` — passed (`102` tests)
+- `pnpm typecheck` — passed
+- `pnpm exec vitest run tests/lib/time-zone.test.ts` — passed (`2` tests)
+- `pnpm exec vitest run --testTimeout 15000 tests/components/work-item-detail-screen.test.tsx` — passed (`20` tests)
+- `pnpm exec vitest run --testTimeout 15000 tests/components/work-surface-view.test.tsx` — passed (`67` tests)
+- `pnpm lint` — passed
+- `git diff --check` — passed
+- `pnpm exec fallow audit --format json --quiet --explain` — passed; verdict `pass`, introduced dead code `0`, introduced complexity `0`, introduced duplication `0`
+- `pnpm test` — passed (`204` files, `1200` tests)
+- `pnpm build` — passed
+- `pnpm desktop:renderer:smoke` — passed (`9` tests)
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** shared route mutation client, desktop session refresh route contract/tests, time-zone utility and all requested UI consumers, calendar/timeline context-menu prop paths, Electron menu/update bridge, shared scroll primitive
+- **Prior open findings rechecked:** no open local findings at the end of this turn
+- **Prior resolved/adjacent areas revalidated:** view/project editing remains on the managed create/edit dialog path; work item menus still show fixed status label icons; calendar/timeline context menus still wrap item surfaces; My Items list/default behavior remains covered by prior tests
+- **Hotspots or sibling paths revisited:** route-backed Electron saves, settings/calendar/detail time-zone selects, calendar/timeline editable detail opening, static analyzer changed-file gate
+- **Why this is enough:** the latest requirement is enforced through the single shared time-zone option source, and the review-found issues each have direct regression coverage or analyzer evidence at the owning boundary
+
+### Resolved findings
+
+- `T11-01` — Electron route mutations retried neither token refresh nor the original save after a stale desktop session returned `401`. Fixed in `lib/convex/client/route-mutation.ts` with a one-shot desktop session refresh/retry and route-contract coverage.
+- `T11-02` — Calendar/timeline `Edit Item` reused the normal selection toggle, so choosing edit could close an already-open editable detail panel. Fixed by threading explicit `onEditItem` open handlers and adding regression coverage.
+- `T11-03` — `ScrollArea` still exported the internal `ScrollBar` implementation after scrollbars became hidden by default. Removed the unused public export.
+- `T11-04` — Timeline edit-handler threading introduced a duplicated prop-shape clone. Collapsed the repeated interaction props into an owner-local type.
+- `T11-05` — Electron update menu wiring introduced new complexity inside `registerApplicationMenu`. Split update/file/window menu construction into small main-process helpers.
+- `T11-06` — Settings, calendar, and work-item detail sidebar inherited alphabetic time-zone ordering from `getSupportedTimeZones()`. The shared source now sorts by current UTC offset with deterministic same-offset ordering.
+
+## Turn 10 — 2026-05-28 06:11:40 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `pending Turn 10 commit` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Reviewed the current local diff for the follow-up requirements around My Items defaults, view edit behavior, work item/status menus, calendar all-day and hover behavior, hidden scrollbars across app surfaces, inbox default sizing, channel action positioning, desktop update notifications, and regenerated Electron icon assets. The review pass also caught and fixed the remaining My Items compatibility-layer bug that coerced private-task list views back to board layout.
+
+**Outcome:** all clear after fixes
+**Risk score:** high — the diff touches shared UI primitives, calendar scroll behavior, personal work defaults, and Electron main-process update integration
+**Change archetypes:** shared UI primitive, presentation surface composition, domain default-view invariant, Electron integration bridge, asset pipeline
+**Intended change:** make the missed UI/platform requirements enforceable at the owning boundaries without replacing existing project edit behavior
+**Intent vs actual:** `ScrollArea` now hides scrollbar chrome by default and named raw scroll surfaces use `no-scrollbar`; Group/Level chips no longer expose selected values by default; work status menu/sidebar labels use a fixed generic icon while status options keep actual state icons; My Items private tasks default to list and personal fallback views omit assignee display props; calendar expanded all-day height uses the configured max with viewport reduction and scroll-edge recentering; Electron update menu actions now surface renderer toasts instead of native dialogs; icons regenerate `.icns` from the source icon
+**Confidence:** high for the reviewed local tree — targeted tests, full test suite, typecheck, lint, production build, and desktop renderer smoke passed; browser visual smoke and packaged Electron smoke remain separate acceptance checks
+**Coverage note:** reviewed changed shared primitives and all high-risk caller surfaces in the diff: work menu/status detail, WorkSurface list/board/calendar, calendar all-day/hover/scroll, inbox split, channel post action anchoring, desktop update menu, notification payload, and icon generation
+**Finding triage:** no live review findings remained after the typecheck-caught calendar month prop wiring issue was fixed, the My Items private-task layout coercion was removed, and the affected tests were rerun
+**Architecture impact:** invariants are owned by shared primitives (`ScrollArea`, toolbar chip/menu components), domain fallback view builders (`default-views.ts`), calendar presentation owner, and Electron main bridge rather than one-off screen patches
+**Bug classes / invariants checked:** Affordance Parity, Presentation Boundary, Domain Default Drift, Electron Bridge Contract, Asset Pipeline Consistency; status label icons must not reflect mutable state, personal assigned views should not show redundant assignee props, scrollbar hiding must remove both native chrome and Radix scrollbar containers, update menu actions must round-trip to renderer UI
+**Branch totality:** re-reviewed the cumulative local diff on `main` and the previously hot calendar/context-menu/Electron surfaces
+**Sibling closure:** list/board shared menus, calendar/timeline context menu paths, docs/views/projects/my-items/chats/messages/settings scroll containers, channel post/comment surfaces, and desktop renderer update controller behavior were checked
+**Residual risk / unknowns:** this pass did not package and launch the macOS Electron app or perform a live browser visual smoke; Convex production deployment is still needed if production channel comment deletion is failing because functions are stale
+
+### Validation
+
+- `pnpm icons:generate` — passed; regenerated `electron/app-icon.png` and `electron/app-icon.icns`
+- `pnpm test tests/components/group-chip-popover.test.tsx tests/lib/domain/default-views.test.ts tests/components/work-surface-view.test.tsx tests/components/work-item-menus.test.tsx tests/components/inbox-ui.test.tsx tests/components/channel-ui.test.tsx tests/components/desktop-update-controller.test.tsx tests/electron/desktop-notifications.test.ts tests/electron/desktop-updates.test.ts` — passed (`106` tests)
+- `pnpm typecheck` — passed
+- `pnpm test tests/components/work-surface-view.test.tsx` — passed (`65` tests) after the TypeScript wiring fix
+- `pnpm test tests/components/work-surface.test.tsx tests/lib/domain/default-views.test.ts` — passed (`19` tests) after the My Items layout compatibility fix
+- `pnpm test tests/components/entity-context-menus.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/work-surface.test.tsx tests/components/inbox-screen.test.tsx tests/components/workspace-chats-screen.test.tsx tests/components/chat-thread.test.tsx tests/components/collaboration-screens-loading.test.tsx` — passed (`64` tests)
+- `pnpm lint` — passed
+- `git diff --check` — passed
+- `pnpm build` — passed
+- `pnpm desktop:renderer:smoke` — passed
+- `pnpm test` — passed (`204` files, `1197` tests)
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** entity/view context menus, WorkSurface wrappers, work menu/detail sidebar icons, default assigned views, calendar all-day/hover/scroll logic, Electron update menu/renderer controller, icon generation script, channel UI action placement
+- **Prior open findings rechecked:** no open local findings at the end of this turn
+- **Prior resolved/adjacent areas revalidated:** project edit still uses `CreateProjectDialog`; view edit still opens the managed create/edit view dialog; existing context-menu tests for open/edit/status/priority/assignee/project actions still pass; private-task view compatibility still removes project/assignee fields without overriding the list layout
+- **Hotspots or sibling paths revisited:** shared `ScrollArea`, raw scroll containers on docs/views/projects/messages/chats/settings/search/detail panes, calendar/timeline scrollbar hiding, desktop notification/update bridge
+- **Why this is enough:** the highest-risk edited boundaries have direct tests plus typecheck/lint coverage; remaining risk is visual/package-runtime verification rather than an unreviewed code path in the local diff
 
 ## Turn 9 — 2026-05-27 18:08:27 BST
 

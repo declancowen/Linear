@@ -32,7 +32,9 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 
 type SearchKindFilter = GlobalSearchResult["kind"] | "all"
 type SearchStatusFilter = WorkStatus | "all"
-type WorkspaceSearchTeam = ReturnType<typeof getWorkspaceSearchIndex>["teams"][number]
+type WorkspaceSearchTeam = ReturnType<
+  typeof getWorkspaceSearchIndex
+>["teams"][number]
 
 const kindTabs: Array<{
   label: string
@@ -318,7 +320,7 @@ export function WorkspaceSearchScreen({
         <SidebarTrigger className="size-5 shrink-0" />
         <h1 className="truncate text-sm font-medium">Search</h1>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <div className="flex flex-col gap-4 p-4">
           <WorkspaceSearchFilters
             clearFilters={clearFilters}

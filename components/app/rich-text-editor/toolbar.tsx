@@ -113,7 +113,7 @@ export function RichTextToolbar({
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center gap-0.5 overflow-x-auto",
+        "no-scrollbar flex shrink-0 items-center gap-0.5 overflow-x-auto",
         fullPage ? "mx-auto w-full px-6 py-2" : "pb-1",
         fullPage && toolbarWidthClassName
       )}
@@ -499,10 +499,7 @@ function FullPageToolbarControls({
   setFullPageCanvasWidth,
 }: Pick<
   RichTextToolbarProps,
-  | "editable"
-  | "fullPage"
-  | "fullPageCanvasWidth"
-  | "setFullPageCanvasWidth"
+  "editable" | "fullPage" | "fullPageCanvasWidth" | "setFullPageCanvasWidth"
 >) {
   if (!fullPage) {
     return null

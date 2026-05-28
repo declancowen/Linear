@@ -1052,7 +1052,9 @@ function ParentEmptyFilterRow({
       active={Boolean(
         view.filters.parentIds?.includes(EMPTY_PARENT_FILTER_VALUE)
       )}
-      onClick={() => onToggleFilterValue("parentIds", EMPTY_PARENT_FILTER_VALUE)}
+      onClick={() =>
+        onToggleFilterValue("parentIds", EMPTY_PARENT_FILTER_VALUE)
+      }
     />
   )
 }
@@ -1073,7 +1075,10 @@ function ParentFilterSection({
   }
 
   return (
-    <FilterSection label="Parent" activeCount={getParentFilterActiveCount(view)}>
+    <FilterSection
+      label="Parent"
+      activeCount={getParentFilterActiveCount(view)}
+    >
       <ParentEmptyFilterRow
         query={query}
         view={view}
@@ -1131,7 +1136,7 @@ function WorkFilterSections({
   view: ViewDefinition
 }) {
   return (
-    <div className="flex max-h-[360px] flex-col overflow-y-auto">
+    <div className="no-scrollbar flex max-h-[360px] flex-col overflow-y-auto">
       <StatusFilterSection
         hidden={hiddenFilterSet.has("status")}
         onToggleFilterValue={onToggleFilterValue}
@@ -1547,7 +1552,7 @@ function ProjectFilterSectionList({
   sections: ProjectFilterSectionData[]
 }) {
   return (
-    <div className="flex max-h-[360px] flex-col overflow-y-auto">
+    <div className="no-scrollbar flex max-h-[360px] flex-col overflow-y-auto">
       {sections.map((section) => (
         <FilterSection
           key={section.key}
@@ -2149,7 +2154,7 @@ export function GroupChipPopover({
   groupOptions = DEFAULT_GROUP_OPTIONS,
   onUpdateView,
   tone = "default",
-  showValue = true,
+  showValue = false,
   label = "Group",
   showSubGrouping = true,
   getOptionLabel,
@@ -2195,7 +2200,7 @@ export function GroupChipPopover({
         >
           <div className="flex min-w-0 flex-col">
             <PropertyPopoverGroup>Group by</PropertyPopoverGroup>
-            <div className="flex max-h-[320px] flex-col overflow-y-auto p-1">
+            <div className="no-scrollbar flex max-h-[320px] flex-col overflow-y-auto p-1">
               {groupOptions.map((option) => {
                 const active = view.grouping === option
                 return (
@@ -2218,7 +2223,7 @@ export function GroupChipPopover({
           {showSubGrouping ? (
             <div className="flex min-w-0 flex-col">
               <PropertyPopoverGroup>Sub-group</PropertyPopoverGroup>
-              <div className="flex max-h-[320px] flex-col overflow-y-auto p-1">
+              <div className="no-scrollbar flex max-h-[320px] flex-col overflow-y-auto p-1">
                 <PropertyPopoverItem
                   selected={view.subGrouping === null}
                   muted
@@ -2741,7 +2746,7 @@ export function LevelChipPopover({
   tone = "default",
   label = "Level",
   showLabel = true,
-  showValue = true,
+  showValue = false,
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void

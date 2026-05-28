@@ -126,6 +126,7 @@ export function ViewContextMenu({
           scopeId: view.scopeId,
         }
       : null
+  const shouldLockScope = editableScope !== null
 
   return (
     <>
@@ -142,7 +143,7 @@ export function ViewContextMenu({
             defaultScopeId: editableScope?.scopeId,
             defaultEntityKind: view.entityKind,
             defaultRoute: view.route,
-            lockScope: true,
+            lockScope: shouldLockScope,
             lockEntityKind: true,
             initialConfig: {
               layout: view.layout,

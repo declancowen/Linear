@@ -8,6 +8,7 @@ import {
 } from "react"
 import {
   ArrowSquareOut,
+  CircleDashed,
   DotsThree,
   Flag,
   FolderSimple,
@@ -143,7 +144,7 @@ function WorkItemStatusMenuSection({
   return (
     <MenuSub>
       <MenuSubTrigger disabled={!editable}>
-        <StatusIcon status={item.status} />
+        <CircleDashed className="size-4" />
         <span>Status</span>
       </MenuSubTrigger>
       <MenuSubContent>
@@ -315,10 +316,7 @@ function WorkItemProjectMenuSection({
               })
             }
           >
-            <ProjectIconGlyph
-              project={project}
-              className="size-4 text-fg-3"
-            />
+            <ProjectIconGlyph project={project} className="size-4 text-fg-3" />
             <span>{project.name}</span>
           </MenuItem>
         ))}

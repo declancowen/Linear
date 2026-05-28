@@ -723,7 +723,7 @@ function ChatMessagesPane({
   return (
     <div
       ref={scrollRef}
-      className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
+      className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
     >
       {!loaded && messages.length === 0 ? (
         <div className="mt-auto px-4 py-3">

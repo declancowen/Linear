@@ -158,6 +158,10 @@ export function TimelineView({
     )
   }
 
+  function openSelectedItem(itemId: string) {
+    setSelectedItemId(itemId)
+  }
+
   return (
     <DndContext
       collisionDetection={pointerWithin}
@@ -183,6 +187,7 @@ export function TimelineView({
             onBodyHorizontalScroll={handleTimelineBodyHorizontalScroll}
             onCaptureDragOffset={captureDragOffset}
             onLabelColumnResizeStart={handleResizeStart}
+            onEditItem={openSelectedItem}
             onSelectItem={toggleSelectedItem}
             onTimelineBarResizeStart={handleTimelineBarResizeStart}
             resizeDraft={resizeDraft}
@@ -501,6 +506,7 @@ const TimelineFrame = memo(function TimelineFrame({
   labelColWidth,
   onBodyHorizontalScroll,
   onCaptureDragOffset,
+  onEditItem,
   onLabelColumnResizeStart,
   onSelectItem,
   onTimelineBarResizeStart,
@@ -527,6 +533,7 @@ const TimelineFrame = memo(function TimelineFrame({
     event: ReactPointerEvent<HTMLButtonElement>
   ) => void
   onLabelColumnResizeStart: (event: ReactMouseEvent) => void
+  onEditItem: (itemId: string) => void
   onSelectItem: (itemId: string) => void
   onTimelineBarResizeStart: (
     item: WorkItem,
@@ -565,6 +572,7 @@ const TimelineFrame = memo(function TimelineFrame({
         labelColWidth={labelColWidth}
         onBodyHorizontalScroll={onBodyHorizontalScroll}
         onCaptureDragOffset={onCaptureDragOffset}
+        onEditItem={onEditItem}
         onSelectItem={onSelectItem}
         onTimelineBarResizeStart={onTimelineBarResizeStart}
         resizeDraft={resizeDraft}
@@ -723,16 +731,13 @@ function TimelineDayHeaderCell({ day, today }: { day: Date; today: Date }) {
   )
 }
 
-type TimelineGridInteractionProps = {
-  dayColumnWidth: number
-  days: Date[]
-  gridTemplateColumns: string
-  onBodyHorizontalScroll: (event: ReactUIEvent<HTMLDivElement>) => void
+type TimelineItemInteractionProps = {
   onCaptureDragOffset: (
     item: WorkItem,
     span: number,
     event: ReactPointerEvent<HTMLButtonElement>
   ) => void
+  onEditItem: (itemId: string) => void
   onSelectItem: (itemId: string) => void
   onTimelineBarResizeStart: (
     item: WorkItem,
@@ -740,6 +745,13 @@ type TimelineGridInteractionProps = {
     clientX: number
   ) => void
   resizeDraft: TimelineRangeDraft | null
+}
+
+type TimelineGridInteractionProps = TimelineItemInteractionProps & {
+  dayColumnWidth: number
+  days: Date[]
+  gridTemplateColumns: string
+  onBodyHorizontalScroll: (event: ReactUIEvent<HTMLDivElement>) => void
   timelineCanvasWidth: number
   todayIndex: number
 }
@@ -760,6 +772,15 @@ type TimelineGridGroupsProps = TimelineGridInteractionProps & {
   labelsById: EventAccentLabelLookup
 }
 
+type TimelineGridGroupProps = TimelineItemInteractionProps & {
+  data: AppData
+  days: Date[]
+  gridTemplateColumns: string
+  subgroups: Map<string, WorkItem[]>
+  accentMode: EventAccentMode
+  labelsById: EventAccentLabelLookup
+}
+
 function TimelineBody({
   data,
   dayColumnWidth,
@@ -768,6 +789,7 @@ function TimelineBody({
   labelColWidth,
   onBodyHorizontalScroll,
   onCaptureDragOffset,
+  onEditItem,
   onSelectItem,
   onTimelineBarResizeStart,
   resizeDraft,
@@ -787,6 +809,7 @@ function TimelineBody({
         <TimelineLabelGroupsColumn
           data={data}
           labelColWidth={labelColWidth}
+          onEditItem={onEditItem}
           onSelectItem={onSelectItem}
           view={view}
           visibleGroups={visibleGroups}
@@ -800,6 +823,7 @@ function TimelineBody({
           gridTemplateColumns={gridTemplateColumns}
           onBodyHorizontalScroll={onBodyHorizontalScroll}
           onCaptureDragOffset={onCaptureDragOffset}
+          onEditItem={onEditItem}
           onSelectItem={onSelectItem}
           onTimelineBarResizeStart={onTimelineBarResizeStart}
           resizeDraft={resizeDraft}
@@ -817,6 +841,7 @@ function TimelineBody({
 const TimelineLabelGroupsColumn = memo(function TimelineLabelGroupsColumn({
   data,
   labelColWidth,
+  onEditItem,
   onSelectItem,
   view,
   visibleGroups,
@@ -825,6 +850,7 @@ const TimelineLabelGroupsColumn = memo(function TimelineLabelGroupsColumn({
 }: {
   data: AppData
   labelColWidth: number
+  onEditItem: (itemId: string) => void
   onSelectItem: (itemId: string) => void
   view: ViewDefinition
   visibleGroups: TimelineGroupEntry[]
@@ -841,6 +867,7 @@ const TimelineLabelGroupsColumn = memo(function TimelineLabelGroupsColumn({
           key={groupName}
           data={data}
           groupName={groupName}
+          onEditItem={onEditItem}
           onSelectItem={onSelectItem}
           subgroups={subgroups}
           view={view}
@@ -855,6 +882,7 @@ const TimelineLabelGroupsColumn = memo(function TimelineLabelGroupsColumn({
 const TimelineLabelGroup = memo(function TimelineLabelGroup({
   data,
   groupName,
+  onEditItem,
   onSelectItem,
   subgroups,
   view,
@@ -863,6 +891,7 @@ const TimelineLabelGroup = memo(function TimelineLabelGroup({
 }: {
   data: AppData
   groupName: string
+  onEditItem: (itemId: string) => void
   onSelectItem: (itemId: string) => void
   subgroups: Map<string, WorkItem[]>
   view: ViewDefinition
@@ -896,6 +925,7 @@ const TimelineLabelGroup = memo(function TimelineLabelGroup({
           accentMode={accentMode}
           accentIndex={index}
           labelsById={labelsById}
+          onEditItem={onEditItem}
           onSelectItem={onSelectItem}
         />
       ))}
@@ -910,6 +940,7 @@ const TimelineGridGroups = memo(function TimelineGridGroups({
   gridTemplateColumns,
   onBodyHorizontalScroll,
   onCaptureDragOffset,
+  onEditItem,
   onSelectItem,
   onTimelineBarResizeStart,
   resizeDraft,
@@ -942,6 +973,7 @@ const TimelineGridGroups = memo(function TimelineGridGroups({
               days={days}
               gridTemplateColumns={gridTemplateColumns}
               onCaptureDragOffset={onCaptureDragOffset}
+              onEditItem={onEditItem}
               onSelectItem={onSelectItem}
               onTimelineBarResizeStart={onTimelineBarResizeStart}
               resizeDraft={resizeDraft}
@@ -982,32 +1014,14 @@ const TimelineGridGroup = memo(function TimelineGridGroup({
   days,
   gridTemplateColumns,
   onCaptureDragOffset,
+  onEditItem,
   onSelectItem,
   onTimelineBarResizeStart,
   resizeDraft,
   subgroups,
   accentMode,
   labelsById,
-}: {
-  data: AppData
-  days: Date[]
-  gridTemplateColumns: string
-  onCaptureDragOffset: (
-    item: WorkItem,
-    span: number,
-    event: ReactPointerEvent<HTMLButtonElement>
-  ) => void
-  onSelectItem: (itemId: string) => void
-  onTimelineBarResizeStart: (
-    item: WorkItem,
-    edge: "start" | "end",
-    clientX: number
-  ) => void
-  resizeDraft: TimelineRangeDraft | null
-  subgroups: Map<string, WorkItem[]>
-  accentMode: EventAccentMode
-  labelsById: EventAccentLabelLookup
-}) {
+}: TimelineGridGroupProps) {
   const groupItems = Array.from(subgroups.values()).flat()
 
   return (
@@ -1024,6 +1038,7 @@ const TimelineGridGroup = memo(function TimelineGridGroup({
           gridTemplateColumns={gridTemplateColumns}
           item={item}
           onCaptureDragOffset={onCaptureDragOffset}
+          onEditItem={onEditItem}
           onSelectItem={onSelectItem}
           onResizeStart={onTimelineBarResizeStart}
           rangeOverride={resizeDraft?.itemId === item.id ? resizeDraft : null}
@@ -1075,6 +1090,7 @@ const TimelineGridRow = memo(function TimelineGridRow({
   days,
   gridTemplateColumns,
   onCaptureDragOffset,
+  onEditItem,
   onSelectItem,
   onResizeStart,
   rangeOverride,
@@ -1091,6 +1107,7 @@ const TimelineGridRow = memo(function TimelineGridRow({
     span: number,
     event: ReactPointerEvent<HTMLButtonElement>
   ) => void
+  onEditItem: (itemId: string) => void
   onSelectItem: (itemId: string) => void
   onResizeStart: (
     item: WorkItem,
@@ -1142,6 +1159,7 @@ const TimelineGridRow = memo(function TimelineGridRow({
             accentIndex={accentIndex}
             labelsById={labelsById}
             onCaptureDragOffset={onCaptureDragOffset}
+            onEditItem={onEditItem}
             onSelectItem={onSelectItem}
             onResizeStart={onResizeStart}
           />

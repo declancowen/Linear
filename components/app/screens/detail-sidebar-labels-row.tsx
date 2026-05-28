@@ -97,7 +97,7 @@ export function DetailSidebarLabelsRow({
                 <div className="text-[11.5px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
                   Labels
                 </div>
-                <div className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
+                <div className="no-scrollbar flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
                   {availableLabels.length > 0 ? (
                     availableLabels.map((label) => {
                       const selected = item.labelIds.includes(label.id)
