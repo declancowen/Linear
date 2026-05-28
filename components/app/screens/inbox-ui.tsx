@@ -689,7 +689,7 @@ function InboxDetailBody({
     <div data-inbox-detail-body className="flex w-full flex-col px-6 py-6">
       <Card
         data-inbox-notification-card
-        className="gap-5 rounded-lg bg-muted/50 py-5 shadow-none ring-0"
+        className="gap-5 rounded-lg border border-border bg-muted/50 py-5 shadow-xs ring-0"
       >
         <CardContent className="flex items-center gap-3">
           <UserAvatar

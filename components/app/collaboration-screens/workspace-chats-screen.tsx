@@ -8,6 +8,7 @@ import {
   useEffectEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react"
 import { useAppRouter, useAppSearchParams } from "@/lib/browser/app-navigation"
 import { Plus } from "@phosphor-icons/react"
@@ -64,6 +65,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 
+type WorkspaceChatListWidth = number | null
+
 function getActiveWorkspaceChatId(
   selectedChatId: string | null,
   chats: Conversation[]
@@ -71,6 +74,33 @@ function getActiveWorkspaceChatId(
   return selectedChatId && chats.some((chat) => chat.id === selectedChatId)
     ? selectedChatId
     : (chats[0]?.id ?? null)
+}
+
+function getWorkspaceChatListResizeStartWidth(
+  event: ReactPointerEvent<HTMLButtonElement>,
+  fallbackWidth: WorkspaceChatListWidth
+) {
+  return (
+    event.currentTarget
+      .closest<HTMLElement>("[data-workspace-chat-list-pane]")
+      ?.getBoundingClientRect().width ??
+    fallbackWidth ??
+    WORKSPACE_CHAT_LIST_DEFAULT_WIDTH
+  )
+}
+
+function getWorkspaceChatSplitContainerWidth(
+  event: ReactPointerEvent<HTMLButtonElement>
+) {
+  return (
+    event.currentTarget
+      .closest<HTMLElement>("[data-workspace-chat-split]")
+      ?.getBoundingClientRect().width ?? null
+  )
+}
+
+function getWorkspaceChatSplitElementWidth(element: HTMLElement | null) {
+  return element?.getBoundingClientRect().width ?? null
 }
 
 function getWorkspaceConversationParticipants({
@@ -237,11 +267,12 @@ function WorkspaceChatsContent({
   onResizeStart,
   onResetWidth,
   onSelectChat,
+  splitRef,
 }: {
   hasLoadedConversationList: boolean
   chats: Conversation[]
   activeChat: Conversation | null
-  conversationListWidth: number
+  conversationListWidth: WorkspaceChatListWidth
   conversationListResizing: boolean
   latestMessagesByConversationId: Map<string, AppData["chatMessages"][number]>
   members: UserProfile[]
@@ -253,6 +284,7 @@ function WorkspaceChatsContent({
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onResetWidth: () => void
   onSelectChat: (id: string) => void
+  splitRef: RefObject<HTMLDivElement | null>
 }) {
   if (!hasLoadedConversationList && chats.length === 0) {
     return (
@@ -278,7 +310,11 @@ function WorkspaceChatsContent({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
+    <div
+      ref={splitRef}
+      data-workspace-chat-split
+      className="flex min-h-0 flex-1 overflow-hidden"
+    >
       <WorkspaceConversationListPane
         chats={chats}
         activeChat={activeChat}
@@ -378,14 +414,15 @@ export function WorkspaceChatsScreen() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const [conversationListWidth, setConversationListWidth] = useState(
-    WORKSPACE_CHAT_LIST_DEFAULT_WIDTH
-  )
+  const [conversationListWidth, setConversationListWidth] =
+    useState<WorkspaceChatListWidth>(null)
   const [conversationListResizing, setConversationListResizing] =
     useState(false)
   const [conversationListWidthReady, setConversationListWidthReady] =
     useState(false)
+  const conversationSplitRef = useRef<HTMLDivElement | null>(null)
   const conversationListDragRef = useRef<{
+    containerWidth: number | null
     startX: number
     startWidth: number
   } | null>(null)
@@ -397,7 +434,7 @@ export function WorkspaceChatsScreen() {
     const frameId = window.requestAnimationFrame(() => {
       const parsedWidth = Number(storedWidth)
 
-      if (Number.isFinite(parsedWidth)) {
+      if (storedWidth !== null && Number.isFinite(parsedWidth)) {
         setConversationListWidth(clampWorkspaceChatListWidth(parsedWidth))
       }
 
@@ -411,6 +448,47 @@ export function WorkspaceChatsScreen() {
 
   useEffect(() => {
     if (!conversationListWidthReady) {
+      return
+    }
+
+    const element = conversationSplitRef.current
+
+    if (!element) {
+      return
+    }
+
+    const syncConversationListWidth = () => {
+      setConversationListWidth((currentWidth) =>
+        currentWidth === null
+          ? null
+          : clampWorkspaceChatListWidth(
+              currentWidth,
+              getWorkspaceChatSplitElementWidth(element)
+            )
+      )
+    }
+
+    syncConversationListWidth()
+
+    if (typeof ResizeObserver === "undefined") {
+      return
+    }
+
+    const observer = new ResizeObserver(syncConversationListWidth)
+    observer.observe(element)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [chats.length, conversationListWidthReady])
+
+  useEffect(() => {
+    if (!conversationListWidthReady) {
+      return
+    }
+
+    if (conversationListWidth === null) {
+      window.localStorage.removeItem(WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY)
       return
     }
 
@@ -437,7 +515,8 @@ export function WorkspaceChatsScreen() {
 
       setConversationListWidth(
         clampWorkspaceChatListWidth(
-          dragState.startWidth + event.clientX - dragState.startX
+          dragState.startWidth + event.clientX - dragState.startX,
+          dragState.containerWidth
         )
       )
     }
@@ -473,8 +552,12 @@ export function WorkspaceChatsScreen() {
 
     event.preventDefault()
     conversationListDragRef.current = {
+      containerWidth: getWorkspaceChatSplitContainerWidth(event),
       startX: event.clientX,
-      startWidth: conversationListWidth,
+      startWidth: getWorkspaceChatListResizeStartWidth(
+        event,
+        conversationListWidth
+      ),
     }
     setConversationListResizing(true)
     document.body.style.cursor = "col-resize"
@@ -576,12 +659,11 @@ export function WorkspaceChatsScreen() {
         )}
         onCreateChat={() => setDialogOpen(true)}
         onResizeStart={handleConversationListResizeStart}
-        onResetWidth={() =>
-          setConversationListWidth(WORKSPACE_CHAT_LIST_DEFAULT_WIDTH)
-        }
+        onResetWidth={() => setConversationListWidth(null)}
         onSelectChat={(id) =>
           router.replace(`/chats?chatId=${id}`, { scroll: false })
         }
+        splitRef={conversationSplitRef}
       />
 
       <WorkspaceChatDetailsSheet

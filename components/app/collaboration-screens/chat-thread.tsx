@@ -33,7 +33,7 @@ import { cn, getPlainTextContent } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
-import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
+import { UserAvatar } from "@/components/app/user-presence"
 import {
   ChatHeaderActions,
   EmptyState,
@@ -314,14 +314,10 @@ function getChatMessageRowMeta({
 }
 
 function ChatWelcomeIntro({
-  currentUserId,
-  currentWorkspaceId,
   title,
   welcomeParticipant,
   welcomeParticipantView,
 }: {
-  currentUserId: string
-  currentWorkspaceId: string | null
   title: string
   welcomeParticipant: ChatThreadUser
   welcomeParticipantView: WorkspaceUserPresenceView
@@ -344,14 +340,7 @@ function ChatWelcomeIntro({
           size="lg"
           className="size-12"
         />
-        <UserHoverCard
-          user={welcomeParticipant}
-          userId={welcomeParticipant.id}
-          currentUserId={currentUserId}
-          workspaceId={currentWorkspaceId}
-        >
-          <p className="mt-3 text-sm font-medium">{display.name}</p>
-        </UserHoverCard>
+        <p className="mt-3 text-sm font-medium">{display.name}</p>
         <p className="mt-1 text-xs text-muted-foreground">
           This is the beginning of your conversation with {display.name}.
         </p>
@@ -405,32 +394,21 @@ function ChatMessageAvatar({
 function ChatMessageHeader({
   author,
   authorView,
-  currentUserId,
-  currentWorkspaceId,
   isCurrentUser,
   message,
 }: {
   author?: ChatThreadUser
   authorView: WorkspaceUserPresenceView
-  currentUserId: string
-  currentWorkspaceId: string | null
   isCurrentUser: boolean
   message: ChatThreadMessage
 }) {
   return (
     <div className="-mt-px flex items-baseline gap-2">
-      <UserHoverCard
-        user={author}
-        userId={author?.id}
-        currentUserId={currentUserId}
-        workspaceId={currentWorkspaceId}
-      >
-        <span className="text-[13.5px] font-semibold text-foreground">
-          {authorView?.name ??
-            author?.name ??
-            (isCurrentUser ? "You" : "Unknown")}
-        </span>
-      </UserHoverCard>
+      <span className="text-[13.5px] font-semibold text-foreground">
+        {authorView?.name ??
+          author?.name ??
+          (isCurrentUser ? "You" : "Unknown")}
+      </span>
       <span className="text-[11.5px] text-fg-3">
         {formatTimestamp(message.createdAt)}
       </span>
@@ -543,7 +521,6 @@ function ChatMessageRow({
   author,
   authorView,
   currentUserId,
-  currentWorkspaceId,
   index,
   message,
   previousMessage,
@@ -551,7 +528,6 @@ function ChatMessageRow({
   author?: ChatThreadUser
   authorView: WorkspaceUserPresenceView
   currentUserId: string
-  currentWorkspaceId: string | null
   index: number
   message: ChatThreadMessage
   previousMessage?: ChatThreadMessage
@@ -587,8 +563,6 @@ function ChatMessageRow({
             <ChatMessageHeader
               author={author}
               authorView={authorView}
-              currentUserId={currentUserId}
-              currentWorkspaceId={currentWorkspaceId}
               isCurrentUser={isCurrentUser}
               message={message}
             />
@@ -649,13 +623,11 @@ function ChatThreadHeader({
 
 function ChatMessageList({
   currentUserId,
-  currentWorkspaceId,
   getMembershipState,
   messages,
   usersById,
 }: {
   currentUserId: string
-  currentWorkspaceId: string | null
   getMembershipState: (
     userId: string | null | undefined
   ) => WorkspaceMembershipState
@@ -678,7 +650,6 @@ function ChatMessageList({
             author={author}
             authorView={authorView}
             currentUserId={currentUserId}
-            currentWorkspaceId={currentWorkspaceId}
             index={idx}
             message={message}
             previousMessage={previousMessage}
@@ -691,7 +662,6 @@ function ChatMessageList({
 
 function ChatMessagesPane({
   currentUserId,
-  currentWorkspaceId,
   emptyStateDescription,
   getMembershipState,
   loaded,
@@ -705,7 +675,6 @@ function ChatMessagesPane({
   welcomeParticipantView,
 }: {
   currentUserId: string
-  currentWorkspaceId: string | null
   emptyStateDescription: string
   getMembershipState: (
     userId: string | null | undefined
@@ -744,8 +713,6 @@ function ChatMessagesPane({
         <>
           {showWelcomeIntro && welcomeParticipant ? (
             <ChatWelcomeIntro
-              currentUserId={currentUserId}
-              currentWorkspaceId={currentWorkspaceId}
               title={title}
               welcomeParticipant={welcomeParticipant}
               welcomeParticipantView={welcomeParticipantView}
@@ -754,7 +721,6 @@ function ChatMessagesPane({
           <div className="mt-auto" />
           <ChatMessageList
             currentUserId={currentUserId}
-            currentWorkspaceId={currentWorkspaceId}
             getMembershipState={getMembershipState}
             messages={messages}
             usersById={usersById}
@@ -1375,7 +1341,6 @@ export function ChatThread({
 
       <ChatMessagesPane
         currentUserId={currentUserId}
-        currentWorkspaceId={currentWorkspaceId}
         emptyStateDescription={emptyStateDescription}
         getMembershipState={getWorkspaceMembershipState}
         loaded={loaded}

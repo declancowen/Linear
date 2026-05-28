@@ -1,18 +1,24 @@
 "use client"
 
 import { type ReactNode } from "react"
-import { Hash, UsersThree } from "@phosphor-icons/react"
+import { CopySimple, EnvelopeSimple, Hash, Quotes, UsersThree } from "@phosphor-icons/react"
+import { toast } from "sonner"
 import { useShallow } from "zustand/react/shallow"
 
 import {
   getConversationParticipants,
   hasWorkspaceAccessInCollections,
 } from "@/lib/domain/selectors"
+import { resolveUserStatus, userStatusMeta } from "@/lib/domain/types"
 import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 import { getSurfaceSidebarHeroDisplay } from "@/components/app/collaboration-screens/surface-sidebar-display"
-import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
+import {
+  UserAvatar,
+  UserHoverCard,
+  UserStatusDot,
+} from "@/components/app/user-presence"
 import { Button } from "@/components/ui/button"
 import { CollapsibleRightSidebar } from "@/components/ui/collapsible-right-sidebar"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -152,13 +158,121 @@ function SurfaceSidebarHeader({
   )
 }
 
+async function copySurfaceSidebarEmail(email: string) {
+  try {
+    await navigator.clipboard.writeText(email)
+    toast.success("Email copied")
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Failed to copy email")
+  }
+}
+
+function SurfaceSidebarHeroDetailsCard({
+  email,
+  heroView,
+}: {
+  email: string
+  heroView: ReturnType<typeof buildWorkspaceUserPresenceView>
+}) {
+  const showPresence = Boolean(heroView?.showPresenceDetails)
+  const hasEmail = email.length > 0
+
+  if (!showPresence && !hasEmail) {
+    return null
+  }
+
+  return (
+    <div className="mt-3 flex w-full flex-col gap-1.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left shadow-xs dark:bg-surface-3">
+      {showPresence ? (
+        <SurfaceSidebarHeroDetailsPresence heroView={heroView} />
+      ) : null}
+      {hasEmail ? <SurfaceSidebarHeroDetailsEmail email={email} /> : null}
+    </div>
+  )
+}
+
+function SurfaceSidebarHeroDetailsEmail({ email }: { email: string }) {
+  return (
+    <div className="group flex items-center gap-2 text-[12px] text-fg-3">
+      <EnvelopeSimple className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate">{email}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        className="size-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+        onClick={() => void copySurfaceSidebarEmail(email)}
+        aria-label="Copy email"
+        title="Copy email"
+      >
+        <CopySimple className="size-3.5" />
+      </Button>
+    </div>
+  )
+}
+
+function SurfaceSidebarHeroDetailsPresence({
+  heroView,
+}: {
+  heroView: ReturnType<typeof buildWorkspaceUserPresenceView>
+}) {
+  if (!heroView?.hasExplicitStatus) {
+    return (
+      <>
+        <div className="flex items-center gap-2 text-[12px] text-muted-foreground/70">
+          <span
+            aria-hidden="true"
+            className="inline-flex size-3.5 shrink-0 items-center justify-center"
+          >
+            <span className="size-2 rounded-full bg-muted-foreground/40" />
+          </span>
+          <span className="min-w-0 flex-1 truncate">No status set</span>
+        </div>
+        <div className="flex items-start gap-2 text-[12px] text-muted-foreground/70">
+          <Quotes className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
+          <span className="min-w-0 flex-1">No status message</span>
+        </div>
+      </>
+    )
+  }
+
+  const resolvedStatus = resolveUserStatus(heroView.status)
+
+  return (
+    <>
+      <div className="flex items-center gap-2 text-[12px] text-fg-3">
+        <span
+          aria-hidden="true"
+          className="inline-flex size-3.5 shrink-0 items-center justify-center"
+        >
+          <UserStatusDot status={resolvedStatus} />
+        </span>
+        <span className="min-w-0 flex-1 truncate">
+          {userStatusMeta[resolvedStatus].label}
+        </span>
+      </div>
+      {heroView.statusMessage ? (
+        <div className="flex items-start gap-2 text-[12px] text-foreground">
+          <Quotes className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 leading-relaxed italic">
+            {heroView.statusMessage}
+          </span>
+        </div>
+      ) : (
+        <div className="flex items-start gap-2 text-[12px] text-muted-foreground/70">
+          <Quotes className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
+          <span className="min-w-0 flex-1">No status message</span>
+        </div>
+      )}
+    </>
+  )
+}
+
 function SurfaceSidebarHero({
-  description,
   heroMember,
   heroView,
   title,
 }: {
-  description: string
   heroMember: SurfaceSidebarMember
   heroView: ReturnType<typeof buildWorkspaceUserPresenceView>
   title: string
@@ -184,10 +298,14 @@ function SurfaceSidebarHero({
         <div className="text-[15px] font-semibold text-foreground">
           {display.title}
         </div>
-        {description ? (
-          <div className="mt-0.5 text-[12px] text-fg-3">{description}</div>
+        {heroView?.title ? (
+          <div className="mt-0.5 text-[12px] text-fg-3">{heroView.title}</div>
         ) : null}
       </div>
+      <SurfaceSidebarHeroDetailsCard
+        email={heroView?.email ?? ""}
+        heroView={heroView}
+      />
     </div>
   )
 }
@@ -335,7 +453,6 @@ export function SurfaceSidebarContent({
 
       {heroMember ? (
         <SurfaceSidebarHero
-          description={description}
           heroMember={heroMember}
           heroView={heroView}
           title={title}

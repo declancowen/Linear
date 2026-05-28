@@ -1,11 +1,5 @@
 import type { ReactNode } from "react"
-import {
-  act,
-  createEvent,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import { addDays, addMonths, format, startOfDay } from "date-fns"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -438,38 +432,6 @@ function getCalendarEventCard(title: string) {
   expect(eventCard).toBeTruthy()
 
   return eventCard!
-}
-
-function createCalendarDragDataTransfer() {
-  const data = new Map<string, string>()
-
-  return {
-    dropEffect: "none",
-    effectAllowed: "uninitialized",
-    getData: vi.fn((format: string) => data.get(format) ?? ""),
-    setData: vi.fn((format: string, value: string) => {
-      data.set(format, value)
-    }),
-  } as unknown as DataTransfer
-}
-
-function fireCalendarDragEvent(
-  target: Element,
-  eventName: "dragOver" | "drop",
-  options: { clientX: number; clientY: number; dataTransfer: DataTransfer }
-) {
-  const event = createEvent[eventName](target, {
-    bubbles: true,
-    cancelable: true,
-    dataTransfer: options.dataTransfer,
-  })
-
-  Object.defineProperties(event, {
-    clientX: { value: options.clientX },
-    clientY: { value: options.clientY },
-  })
-
-  fireEvent(target, event)
 }
 
 function renderTimedCalendarItem({
@@ -2048,23 +2010,21 @@ describe("CalendarView", () => {
     const allDayEvent = screen
       .getByText("All-day drag 1")
       .closest<HTMLElement>("[data-calendar-all-day-event]")
-    const dataTransfer = createCalendarDragDataTransfer()
-    const timedGrid = getCalendarTimedGrid()
 
     expect(allDayEvent).toBeTruthy()
     expect(screen.getByTestId("calendar-all-day-lane")).toHaveStyle({
       height: "68px",
     })
 
-    fireEvent.dragStart(allDayEvent!, { dataTransfer })
-    expect(dataTransfer.setData).toHaveBeenCalledWith(
-      "text/calendar-item",
-      "all-day-drag-1"
-    )
-    fireCalendarDragEvent(timedGrid, "dragOver", {
+    fireEvent.pointerDown(allDayEvent!, {
+      clientX: 120,
+      clientY: 120,
+      pointerId: 21,
+    })
+    fireEvent.pointerMove(document, {
       clientX: 120,
       clientY: 640,
-      dataTransfer,
+      pointerId: 21,
     })
 
     expect(screen.getByTestId("calendar-drag-preview")).toHaveTextContent(
@@ -2074,10 +2034,10 @@ describe("CalendarView", () => {
       height: "44px",
     })
 
-    fireCalendarDragEvent(timedGrid, "drop", {
+    fireEvent.pointerUp(document, {
       clientX: 120,
       clientY: 640,
-      dataTransfer,
+      pointerId: 21,
     })
 
     expect(updateWorkItemSpy).toHaveBeenCalledWith(

@@ -6,6 +6,7 @@ import {
   ChatCircle,
   CopySimple,
   EnvelopeSimple,
+  Quotes,
   X,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
@@ -188,11 +189,18 @@ function UserHoverPresenceDetails({
   if (!displayUser.hasExplicitStatus) {
     return (
       <>
-        <div className="mt-2 text-xs text-muted-foreground/60">
-          No status set
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground/60">
+          <span
+            aria-hidden="true"
+            className="inline-flex size-3.5 shrink-0 items-center justify-center"
+          >
+            <span className="size-2 rounded-full bg-muted-foreground/40" />
+          </span>
+          <span className="min-w-0 flex-1 truncate">No status set</span>
         </div>
-        <div className="mt-3 text-xs text-muted-foreground/60">
-          No status message
+        <div className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground/60">
+          <Quotes className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
+          <span className="min-w-0 flex-1">No status message</span>
         </div>
       </>
     )
@@ -201,16 +209,27 @@ function UserHoverPresenceDetails({
   return (
     <>
       <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <UserStatusDot status={resolvedStatus} />
-        <span>{userStatusMeta[resolvedStatus].label}</span>
+        <span
+          aria-hidden="true"
+          className="inline-flex size-3.5 shrink-0 items-center justify-center"
+        >
+          <UserStatusDot status={resolvedStatus} />
+        </span>
+        <span className="min-w-0 flex-1 truncate">
+          {userStatusMeta[resolvedStatus].label}
+        </span>
       </div>
       {hasStatusMessage ? (
-        <div className="mt-3 border-l-2 border-foreground/15 pl-2.5 text-xs text-foreground">
-          {displayUser.statusMessage}
+        <div className="mt-3 flex items-start gap-1.5 text-xs text-foreground">
+          <Quotes className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 leading-relaxed italic">
+            {displayUser.statusMessage}
+          </span>
         </div>
       ) : (
-        <div className="mt-3 text-xs text-muted-foreground/60">
-          No status message
+        <div className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground/60">
+          <Quotes className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
+          <span className="min-w-0 flex-1">No status message</span>
         </div>
       )}
     </>

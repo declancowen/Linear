@@ -62,11 +62,65 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-05-28 16:14:14 BST` |
-| **Total turns** | `13` |
+| **Last reviewed** | `2026-05-28 18:44:04 BST` |
+| **Total turns** | `14` |
 | **Open findings** | `0` |
 | **Resolved findings** | `25` |
 | **Accepted findings** | `19` |
+
+---
+
+## Turn 14 — 2026-05-28 18:44:04 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `d7b37496` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Reviewed the full local working tree diff on `main` with architecture standards, including the intentional parallel changes in chat, shared collaboration sidebars, desktop update feedback, inbox card styling, calendar/timeline drag performance, the shared collapsible sidebar, and related tests. No live code findings were found.
+**Outcome:** all clear with one non-code cleanup note
+**Risk score:** medium — the diff touches several shared presentation paths plus calendar/timeline pointer interaction, but it does not change backend persistence, route contracts, schema, auth, or release tooling
+**Change archetypes:** shared-ui, performance, presentation, desktop feedback UI, component-test coverage
+**Intended change:** smooth calendar/timeline dragging and sidebar opening, preserve the notification card alignment work, update chat/sidebar presentation details, and keep desktop update feedback sizing within the app viewport
+**Intent vs actual:** the performance work stays in the existing owning UI boundaries: calendar pointer state remains in `calendar-view.tsx`, timeline resize throttling stays in `timeline-view.tsx`, and sidebar opening behavior is centralized in `CollapsibleRightSidebar`. Chat presence details remain in the collaboration sidebar/user-presence owners rather than route or store code.
+**Confidence:** high for code correctness after static checks, focused component coverage, production build, Fallow gates, and file-by-file review; medium for subjective browser feel because no authenticated visual smoke was run in this review turn
+**Coverage note:** reviewed every changed tracked file plus `.logs/dev.log`. Focused tests cover work-surface calendar/timeline, chat screen/list rendering, chat thread, desktop updates, user presence, inbox UI, and collapsible sidebar behavior.
+**Finding triage:** no Critical/High/Medium code findings remain. The only note is that `.logs/dev.log` is untracked dev-server output and should not be added to the PR unless intentionally preserved.
+**Static/analyzer evidence:** diff-review preflight changed-file Fallow audit passed; configured `pnpm fallow:gate` passed with zero production health findings and zero duplication budget usage. CI Fallow remains advisory per existing repo policy, so local Fallow evidence was kept distinct from CI enforcement.
+**Architecture impact:** no new long-lived boundary was introduced. The diff follows existing ownership: presentation/state interaction in feature-local components, shared open/close mechanics in the shared sidebar primitive, and no store/API/backend bypasses.
+**Bug classes / invariants checked:** Pointer Drag Lifecycle, Shared Sidebar Reflow, Presentation Alignment Drift, Desktop Feedback Bounds, Chat Presence Rendering, Analyzer Drift. Weakest invariant was calendar all-day/timed drag cleanup; current code disposes document listeners on pointer up/cancel/unmount and tests cover all-day-to-timed conversion plus timed drag cancellation/click suppression.
+**Branch totality:** reviewed the full local diff from `git status`, not only the latest sidebar/calendar changes, and included the intentional chat, user-presence, desktop update, inbox, and test edits.
+**Sibling closure:** checked chat sidebar/user hover parity, workspace conversation list pane/screen width handling, calendar day/week all-day and timed drag paths, timeline resize, desktop update toast/dialog copy surfaces, inbox notification card, and shared sidebar consumers.
+**Residual risk / unknowns:** no authenticated browser smoke was performed because the representative app screens depend on a live signed-in workspace session; `pnpm build` provides route/build proof but not subjective drag smoothness. Manual authenticated smoke is still useful before release.
+
+### Validation
+
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — passed; changed-file Fallow audit passed
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; no architecture blocker identified
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx tests/components/workspace-chats-screen.test.tsx tests/components/chat-thread.test.tsx tests/components/workspace-chat-ui.test.tsx tests/components/desktop-update-controller.test.tsx tests/components/user-presence.test.tsx tests/components/inbox-ui.test.tsx tests/components/collapsible-right-sidebar.test.tsx --testTimeout 15000` — passed (`106` tests)
+- `pnpm build` — passed
+- `pnpm fallow:gate` — passed
+- `git diff --check -- . ':!.reviews/'` — passed
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** `calendar-view.tsx`, `timeline-view.tsx`, `collapsible-right-sidebar.tsx`, chat collaboration screens, `desktop-update-controller.tsx`, `user-presence.tsx`, `inbox-ui.tsx`, changed component tests, prior review ledger, and analyzer policy signals.
+- **Prior open findings rechecked:** none open in this review file.
+- **Prior resolved/adjacent areas revalidated:** sidebar performance/opening path, inbox notification card alignment, calendar all-day/scroll behavior, chat sidebar presentation, and desktop update feedback bounds.
+- **Hotspots or sibling paths revisited:** context-menu drag parity, shared UI presentation drift, calendar/timeline interaction lifecycle, hidden-scroll/chat surfaces, and Fallow/static analyzer separation.
+- **Dependency/adjacent surfaces revalidated:** no schema, route, Convex, auth, or release script diffs; build confirms route compilation across the app.
+- **Why this is enough:** the branch’s risky code paths have direct component coverage plus lint/type/build/analyzer checks; the remaining risk is visual/subjective performance validation in an authenticated browser session, not an obvious code-path defect.
+
+### Challenger pass
+
+- `done` — assumed the remaining bug would be a leaked pointer listener, stale drag commit, sidebar architecture bypass, or hidden analyzer regression. Listener disposal, pointer cancel/up paths, shared-sidebar ownership, and Fallow gates were rechecked without finding a live issue.
+
+### Recommendations
+
+1. **Before PR:** do not add `.logs/dev.log`; it is untracked dev-server output.
+2. **Before release:** manually smoke the authenticated calendar drag and sidebar open behavior because subjective smoothness cannot be proven by the current automated checks alone.
 
 ---
 

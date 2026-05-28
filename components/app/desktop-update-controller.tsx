@@ -128,9 +128,9 @@ function DesktopUpdateToastContent({
         : Warning
 
   return (
-    <div className="flex w-[320px] gap-3 rounded-lg border border-line/60 bg-background/95 p-3 text-foreground shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)] backdrop-blur-xl">
+    <div className="flex w-fit max-w-[calc(100vw-2rem)] gap-3 rounded-lg border border-line/60 bg-background/95 p-3 text-foreground shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)] backdrop-blur-xl">
       <Icon className="text-brand mt-0.5 size-4 shrink-0" weight="fill" />
-      <div className="min-w-0 flex-1">
+      <div className="max-w-[min(34rem,calc(100vw-5rem))] min-w-0">
         <div className="text-[13px] leading-5 font-medium">{title}</div>
         {description ? (
           <div className="mt-0.5 text-[12px] leading-4 text-fg-3">
@@ -411,7 +411,7 @@ function DesktopUpdateFeedbackDialog({
         }
       }}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="w-fit max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-2rem)]">
         <DialogHeader>
           <DialogTitle>{copy.title}</DialogTitle>
           <DialogDescription>{copy.description}</DialogDescription>
@@ -431,8 +431,9 @@ function DesktopUpdateFeedbackDialog({
 
 export function DesktopUpdateController() {
   const [appInfo, setAppInfo] = useState<DesktopAppInfo | null>(null)
-  const [feedbackState, setFeedbackState] =
-    useState<DesktopUpdateState | null>(null)
+  const [feedbackState, setFeedbackState] = useState<DesktopUpdateState | null>(
+    null
+  )
   const [policy, setPolicy] = useState<DesktopUpdatePolicy | null>(null)
   const [unsupportedPolicy, setUnsupportedPolicy] =
     useState<DesktopUpdatePolicy | null>(null)

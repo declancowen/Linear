@@ -414,6 +414,7 @@ function useTimelineBarResizeController({
     clientX: number
   ) {
     const initialRange = getTimelineRange(item, timelineStart)
+    let lastDiffDays = 0
     let nextDraft: TimelineRangeDraft = {
       itemId: item.id,
       startDate: initialRange.startDate,
@@ -424,6 +425,12 @@ function useTimelineBarResizeController({
 
     const onPointerMove = (event: PointerEvent) => {
       const diffDays = Math.round((event.clientX - clientX) / dayColumnWidth)
+
+      if (diffDays === lastDiffDays) {
+        return
+      }
+
+      lastDiffDays = diffDays
       nextDraft = getTimelineResizeDraft(item, edge, initialRange, diffDays)
       setResizeDraft(nextDraft)
     }

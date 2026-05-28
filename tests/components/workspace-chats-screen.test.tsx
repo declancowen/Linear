@@ -50,7 +50,8 @@ vi.mock("@/components/app/user-presence", () => ({
 
 vi.mock("@/components/app/collaboration-screens/workspace-chat-ui", () => ({
   WORKSPACE_CHAT_LIST_DEFAULT_WIDTH: 256,
-  WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY: "workspace-chat-list-width",
+  WORKSPACE_CHAT_LIST_DEFAULT_WIDTH_PERCENTAGE: "25%",
+  WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY: "workspace-chat-list-width:v2",
   clampWorkspaceChatListWidth: (value: number) => value,
   ConversationList: ({
     conversations,

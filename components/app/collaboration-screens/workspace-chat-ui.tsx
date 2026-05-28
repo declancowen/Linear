@@ -36,15 +36,37 @@ import {
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
-export const WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY = "workspace-chat-list-width"
+export const WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY =
+  "workspace-chat-list-width:v2"
 export const WORKSPACE_CHAT_LIST_DEFAULT_WIDTH = 256
+export const WORKSPACE_CHAT_LIST_DEFAULT_WIDTH_PERCENTAGE = "25%"
 const WORKSPACE_CHAT_LIST_MIN_WIDTH = 224
+const WORKSPACE_CHAT_LIST_MIN_WIDTH_RATIO = 0.25
 const WORKSPACE_CHAT_LIST_MAX_WIDTH = 420
 
-export function clampWorkspaceChatListWidth(value: number) {
-  return Math.min(
+function getWorkspaceChatListMinWidth(containerWidth: number | null) {
+  return containerWidth && Number.isFinite(containerWidth)
+    ? Math.max(
+        WORKSPACE_CHAT_LIST_MIN_WIDTH,
+        Math.round(containerWidth * WORKSPACE_CHAT_LIST_MIN_WIDTH_RATIO)
+      )
+    : WORKSPACE_CHAT_LIST_MIN_WIDTH
+}
+
+function getWorkspaceChatListMaxWidth(containerWidth: number | null) {
+  return Math.max(
     WORKSPACE_CHAT_LIST_MAX_WIDTH,
-    Math.max(WORKSPACE_CHAT_LIST_MIN_WIDTH, value)
+    getWorkspaceChatListMinWidth(containerWidth)
+  )
+}
+
+export function clampWorkspaceChatListWidth(
+  value: number,
+  containerWidth: number | null = null
+) {
+  return Math.min(
+    getWorkspaceChatListMaxWidth(containerWidth),
+    Math.max(getWorkspaceChatListMinWidth(containerWidth), value)
   )
 }
 
@@ -76,44 +98,53 @@ export function ConversationList({
     >
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col px-1 py-1">
-          {conversations.map((conversation) => (
-            <button
-              key={conversation.id}
-              className={cn(
-                "block max-w-full overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors",
-                selectedId === conversation.id
-                  ? "bg-accent"
-                  : "hover:bg-accent/50"
-              )}
-              onClick={() => onSelect(conversation.id)}
-            >
-              <div className="flex items-center gap-3">
-                {renderLeading ? (
-                  <div className="shrink-0">
-                    {renderLeading(conversation.id)}
+          {conversations.map((conversation) => {
+            const leading = renderLeading?.(conversation.id)
+
+            return (
+              <button
+                key={conversation.id}
+                className={cn(
+                  "block w-full max-w-full overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors",
+                  selectedId === conversation.id
+                    ? "bg-accent"
+                    : "hover:bg-accent/50"
+                )}
+                onClick={() => onSelect(conversation.id)}
+              >
+                <div
+                  className={cn(
+                    "grid w-full items-center gap-x-3",
+                    leading
+                      ? "grid-cols-[auto_minmax(0,1fr)]"
+                      : "grid-cols-[minmax(0,1fr)]"
+                  )}
+                >
+                  {leading ? (
+                    <div className="row-span-2 shrink-0">{leading}</div>
+                  ) : null}
+                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-2">
+                    <div
+                      className={cn(
+                        "truncate text-[13px] leading-5",
+                        selectedId === conversation.id
+                          ? "font-semibold"
+                          : "font-medium"
+                      )}
+                    >
+                      {conversation.title}
+                    </div>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {formatShortDate(conversation.updatedAt)}
+                    </span>
                   </div>
-                ) : null}
-                <div className="min-w-0 flex-1">
-                  <div
-                    className={cn(
-                      "truncate text-[13px] leading-5",
-                      selectedId === conversation.id
-                        ? "font-semibold"
-                        : "font-medium"
-                    )}
-                  >
-                    {conversation.title}
-                  </div>
-                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                  <div className="mt-0.5 min-w-0 truncate text-[11px] text-muted-foreground">
                     {renderPreview(conversation.id)}
                   </div>
                 </div>
-                <span className="shrink-0 text-[10px] text-muted-foreground">
-                  {formatShortDate(conversation.updatedAt)}
-                </span>
-              </div>
-            </button>
-          ))}
+              </button>
+            )
+          })}
         </div>
       </ScrollArea>
     </div>

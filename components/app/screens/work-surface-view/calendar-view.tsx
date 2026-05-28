@@ -156,7 +156,10 @@ type PendingCalendarMoveDrag = {
   pointerId: number
   originX: number
   originY: number
-  timer: number
+}
+
+type CalendarAllDayPointerDragState = {
+  dispose: () => void
 }
 
 type CalendarTimeRow = {
@@ -339,6 +342,10 @@ type CalendarAllDayScrollAreaProps = CalendarAllDaySurfaceProps & {
   labelsById: EventAccentLabelLookup
   onAllDayDragEnd: () => void
   onAllDayDragStart: (entry: AllDayCalendarEntry) => void
+  onAllDayPointerDragStart: (
+    event: ReactPointerEvent<HTMLElement>,
+    entry: AllDayCalendarEntry
+  ) => void
   selectedItemId: string | null
   visibleAllDayRowCount: number
   visibleAllDaySpans: AllDayCalendarSpan[]
@@ -426,7 +433,7 @@ const MONTH_DAY_EVENTS_TOP_GAP = 8
 const MONTH_TIMED_EVENT_ROW_HEIGHT = 26
 const MONTH_TIMED_EVENT_ROW_GAP = 4
 const MIN_TIMED_DURATION_MINUTES = 15
-const DRAG_HOLD_DELAY_MS = 160
+const CALENDAR_DRAG_SNAP_MINUTES = 30
 const DRAG_START_TOLERANCE_PX = 6
 const HOVER_DETAIL_DELAY_MS = 1000
 const HOVER_DETAIL_CLEAR_DELAY_MS = 150
@@ -816,7 +823,9 @@ function formatTimeFromMinutes(value: number) {
 }
 
 function snapMinutes(value: number) {
-  return Math.round(value / 15) * 15
+  return (
+    Math.round(value / CALENDAR_DRAG_SNAP_MINUTES) * CALENDAR_DRAG_SNAP_MINUTES
+  )
 }
 
 function getSameDayTimedCalendarEntry(
@@ -1043,6 +1052,123 @@ function getCalendarDragWorkItemPatch(
     endTime: formatTimeFromMinutes(preview.endMinutes),
     scheduleTimeZone: viewerTimeZone,
   }
+}
+
+function startCalendarAllDayPointerDrag({
+  clearHoverDetail,
+  clearPendingMoveDrag,
+  clearPointerDrag,
+  clearPreview,
+  commitPointerDrag,
+  entry,
+  event,
+  isEditable,
+  setPointerDrag,
+  suppressClick,
+  updatePreview,
+}: {
+  clearHoverDetail: () => void
+  clearPendingMoveDrag: () => void
+  clearPointerDrag: () => void
+  clearPreview: () => void
+  commitPointerDrag: (
+    entry: AllDayCalendarEntry,
+    clientX: number,
+    clientY: number
+  ) => void
+  entry: AllDayCalendarEntry
+  event: ReactPointerEvent<HTMLElement>
+  isEditable: boolean
+  setPointerDrag: (drag: CalendarAllDayPointerDragState) => void
+  suppressClick: () => void
+  updatePreview: (
+    entry: AllDayCalendarEntry,
+    clientX: number,
+    clientY: number
+  ) => void
+}) {
+  if (event.button !== 0 || !isEditable) {
+    return
+  }
+
+  clearPointerDrag()
+  clearPendingMoveDrag()
+  clearHoverDetail()
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+
+  const pointerId = event.pointerId
+  const originX = event.clientX
+  const originY = event.clientY
+  let moved = false
+
+  const finishPointerDrag = (pointerEvent: PointerEvent, commit: boolean) => {
+    if (pointerEvent.pointerId !== pointerId) {
+      return
+    }
+
+    clearPointerDrag()
+
+    if (!moved) {
+      return
+    }
+
+    pointerEvent.preventDefault()
+    suppressClick()
+
+    if (commit) {
+      commitPointerDrag(entry, pointerEvent.clientX, pointerEvent.clientY)
+    }
+
+    clearPreview()
+  }
+
+  function handlePointerMove(pointerEvent: PointerEvent) {
+    if (pointerEvent.pointerId !== pointerId) {
+      return
+    }
+
+    const movedFarEnough =
+      Math.abs(pointerEvent.clientX - originX) > DRAG_START_TOLERANCE_PX ||
+      Math.abs(pointerEvent.clientY - originY) > DRAG_START_TOLERANCE_PX
+
+    if (!moved && !movedFarEnough) {
+      return
+    }
+
+    moved = true
+    pointerEvent.preventDefault()
+    updatePreview(entry, pointerEvent.clientX, pointerEvent.clientY)
+  }
+
+  function handlePointerUp(pointerEvent: PointerEvent) {
+    finishPointerDrag(pointerEvent, true)
+  }
+
+  function handlePointerCancel(pointerEvent: PointerEvent) {
+    finishPointerDrag(pointerEvent, false)
+  }
+
+  document.addEventListener("pointermove", handlePointerMove, {
+    capture: true,
+  })
+  document.addEventListener("pointerup", handlePointerUp, { capture: true })
+  document.addEventListener("pointercancel", handlePointerCancel, {
+    capture: true,
+  })
+
+  setPointerDrag({
+    dispose: () => {
+      document.removeEventListener("pointermove", handlePointerMove, {
+        capture: true,
+      })
+      document.removeEventListener("pointerup", handlePointerUp, {
+        capture: true,
+      })
+      document.removeEventListener("pointercancel", handlePointerCancel, {
+        capture: true,
+      })
+    },
+  })
 }
 
 function getTimedEntryGeometry({
@@ -2716,6 +2842,7 @@ function CalendarAllDaySpanButton({
   labelsById,
   onDragEnd,
   onDragStart,
+  onPointerDragStart,
   selectedItemId,
   span,
 }: {
@@ -2729,6 +2856,10 @@ function CalendarAllDaySpanButton({
   labelsById: EventAccentLabelLookup
   onDragEnd: () => void
   onDragStart: (entry: AllDayCalendarEntry) => void
+  onPointerDragStart: (
+    event: ReactPointerEvent<HTMLElement>,
+    entry: AllDayCalendarEntry
+  ) => void
   selectedItemId: string | null
   span: AllDayCalendarSpan
 }) {
@@ -2758,7 +2889,7 @@ function CalendarAllDaySpanButton({
     >
       <button
         data-calendar-all-day-event={span.entry.item.id}
-        draggable={isItemEditable(span.entry.item)}
+        draggable={false}
         className={cn(
           "absolute z-10 truncate text-left text-[12px] leading-[26px] font-medium transition-colors",
           "overflow-hidden",
@@ -2783,6 +2914,7 @@ function CalendarAllDaySpanButton({
           event.dataTransfer.setData("text/calendar-item", span.entry.item.id)
         }}
         onDragEnd={onDragEnd}
+        onPointerDown={(event) => onPointerDragStart(event, span.entry)}
         {...buttonInteractionProps}
       >
         {!isSelected && !startsBeforeView ? (
@@ -2956,6 +3088,7 @@ const CalendarAllDayScrollArea = forwardRef<
             labelsById={props.labelsById}
             onDragEnd={props.onAllDayDragEnd}
             onDragStart={props.onAllDayDragStart}
+            onPointerDragStart={props.onAllDayPointerDragStart}
             selectedItemId={props.selectedItemId}
             span={span}
           />
@@ -3176,7 +3309,7 @@ function CalendarDragPreviewBlock({
   return (
     <div
       data-testid="calendar-drag-preview"
-      className="pointer-events-none absolute z-40 overflow-hidden rounded-md bg-[color:var(--cal-accent-tint-hover)] text-left text-[12px] text-foreground shadow-lg transition-[top,left,width,height] duration-75 ease-out will-change-[top,left,width,height]"
+      className="pointer-events-none absolute z-40 overflow-hidden rounded-md bg-[color:var(--cal-accent-tint-hover)] text-left text-[12px] text-foreground shadow-lg will-change-[top,left,width,height]"
       style={{
         ...getCalendarItemStyle(accent),
         left: `calc(${dayWidthPercent * dayIndex}% + 4px)`,
@@ -3402,6 +3535,7 @@ function CalendarDayWeekView({
   nowWallTime,
   onAllDayDragStart,
   onAllDayDragEnd,
+  onAllDayPointerDragStart,
   onSelectItem,
   onEditItem,
   scheduleHover,
@@ -3459,6 +3593,10 @@ function CalendarDayWeekView({
     nowWallTime: CalendarWallTime
     onAllDayDragEnd: () => void
     onAllDayDragStart: (entry: AllDayCalendarEntry) => void
+    onAllDayPointerDragStart: (
+      event: ReactPointerEvent<HTMLElement>,
+      entry: AllDayCalendarEntry
+    ) => void
     timeRailContentRef: RefObject<HTMLDivElement | null>
     timeRows: CalendarTimeRow[]
     timedEntryLayouts: Map<string, TimedEntryLayout[]>
@@ -3542,6 +3680,7 @@ function CalendarDayWeekView({
     labelsById,
     onAllDayDragEnd,
     onAllDayDragStart,
+    onAllDayPointerDragStart,
     selectedItemId,
     visibleAllDayRowCount,
     visibleAllDaySpans,
@@ -4170,6 +4309,9 @@ export function CalendarView({
   const calendarMainSurfaceRef = useRef<HTMLDivElement | null>(null)
   const dragStateRef = useRef<CalendarDragState | null>(null)
   const allDayDragEntryRef = useRef<AllDayCalendarEntry | null>(null)
+  const allDayPointerDragRef = useRef<CalendarAllDayPointerDragState | null>(
+    null
+  )
   const selectionDraftRef = useRef<CalendarSelectionDraft | null>(null)
   const pendingMoveDragRef = useRef<PendingCalendarMoveDrag | null>(null)
   const scrollRecenterRef = useRef(false)
@@ -4246,6 +4388,17 @@ export function CalendarView({
     return () => observer.disconnect()
   }, [mode])
 
+  useEffect(() => {
+    return () => {
+      const pointerDrag = allDayPointerDragRef.current
+
+      if (pointerDrag) {
+        allDayPointerDragRef.current = null
+        pointerDrag.dispose()
+      }
+    }
+  }, [])
+
   function isItemEditable(item: WorkItem) {
     return Boolean(editable) && (canEditItem?.(item) ?? true)
   }
@@ -4304,10 +4457,18 @@ export function CalendarView({
   }
 
   function clearPendingMoveDrag() {
-    if (pendingMoveDragRef.current) {
-      clearTimeout(pendingMoveDragRef.current.timer)
-      pendingMoveDragRef.current = null
+    pendingMoveDragRef.current = null
+  }
+
+  function clearAllDayPointerDrag() {
+    const pointerDrag = allDayPointerDragRef.current
+
+    if (!pointerDrag) {
+      return
     }
+
+    allDayPointerDragRef.current = null
+    pointerDrag.dispose()
   }
 
   function moveAnchor(direction: -1 | 1) {
@@ -4517,8 +4678,13 @@ export function CalendarView({
         current.item.id === nextPreview.item.id &&
         current.date === nextPreview.date &&
         current.startMinutes === nextPreview.startMinutes &&
-        current.endMinutes === nextPreview.endMinutes
+        current.endMinutes === nextPreview.endMinutes &&
+        current.isAllDay === nextPreview.isAllDay
       ) {
+        return current
+      }
+
+      if (!current && !nextPreview) {
         return current
       }
 
@@ -4546,6 +4712,7 @@ export function CalendarView({
   }
 
   function clearAllDayDragPreview() {
+    clearAllDayPointerDrag()
     allDayDragEntryRef.current = null
     setNextAllDayDragState(null)
     setNextDragPreview(null)
@@ -4578,6 +4745,7 @@ export function CalendarView({
       return
     }
 
+    clearAllDayPointerDrag()
     clearPendingMoveDrag()
     clearHoverDetail()
     allDayDragEntryRef.current = entry
@@ -4586,6 +4754,80 @@ export function CalendarView({
       target: "all-day",
     })
     setNextDragPreview(null)
+  }
+
+  function getAllDayPointerTargetDate(clientX: number) {
+    const contentElement =
+      dayAllDayScrollRef.current?.firstElementChild instanceof HTMLElement
+        ? dayAllDayScrollRef.current.firstElementChild
+        : dayAllDayScrollRef.current
+
+    return contentElement
+      ? getDayKeyFromHorizontalPosition(contentElement, clientX)
+      : null
+  }
+
+  function isPointerOverTimedGrid(clientY: number) {
+    const metrics = getTimedGridMetrics()
+
+    return Boolean(metrics && clientY >= metrics.top)
+  }
+
+  function updateAllDayPointerDragPreview(
+    entry: AllDayCalendarEntry,
+    clientX: number,
+    clientY: number
+  ) {
+    allDayDragEntryRef.current = entry
+
+    if (isPointerOverTimedGrid(clientY)) {
+      previewAllDayDragAsTimed(clientX, clientY)
+      return
+    }
+
+    setNextAllDayDragState({
+      itemId: entry.item.id,
+      target: "all-day",
+    })
+    setNextDragPreview(null)
+  }
+
+  function commitAllDayPointerDrag(
+    entry: AllDayCalendarEntry,
+    clientX: number,
+    clientY: number
+  ) {
+    if (isPointerOverTimedGrid(clientY)) {
+      convertAllDayItemToTimed(entry.item.id, clientX, clientY)
+      return
+    }
+
+    const targetDate = getAllDayPointerTargetDate(clientX)
+
+    if (targetDate) {
+      moveAllDayItem(entry, targetDate)
+    }
+  }
+
+  function beginAllDayPointerDrag(
+    event: ReactPointerEvent<HTMLElement>,
+    entry: AllDayCalendarEntry
+  ) {
+    startCalendarAllDayPointerDrag({
+      clearHoverDetail,
+      clearPendingMoveDrag,
+      clearPointerDrag: clearAllDayPointerDrag,
+      clearPreview: clearAllDayDragPreview,
+      commitPointerDrag: commitAllDayPointerDrag,
+      entry,
+      event,
+      isEditable: isItemEditable(entry.item),
+      setPointerDrag: (drag) => {
+        allDayPointerDragRef.current = drag
+      },
+      suppressClick: suppressNextClickForDrag,
+      updatePreview: updateAllDayPointerDragPreview,
+    })
   }
 
   function markAllDayDragOverAllDay() {
@@ -4749,24 +4991,11 @@ export function CalendarView({
     clearHoverDetail()
     event.currentTarget.setPointerCapture?.(event.pointerId)
 
-    const pointer = {
-      clientX: event.clientX,
-      clientY: event.clientY,
-      pointerId: event.pointerId,
-    }
     const pendingDrag: PendingCalendarMoveDrag = {
       entry,
       pointerId: event.pointerId,
       originX: event.clientX,
       originY: event.clientY,
-      timer: window.setTimeout(() => {
-        if (pendingMoveDragRef.current?.pointerId !== pointer.pointerId) {
-          return
-        }
-
-        pendingMoveDragRef.current = null
-        beginTimedDragFromPointer(pointer, entry, "move", true)
-      }, DRAG_HOLD_DELAY_MS),
     }
 
     pendingMoveDragRef.current = pendingDrag
@@ -4788,6 +5017,7 @@ export function CalendarView({
     }
 
     clearPendingMoveDrag()
+    event.preventDefault()
     beginTimedDragFromPointer(event, pendingDrag.entry, "move", true)
   }
 
@@ -5104,6 +5334,7 @@ export function CalendarView({
   }
 
   const syncDayGridHorizontalScroll = useCallback(
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization -- imperative scroll sync is ref-owned and must not be recreated during scroll.
     (scrollLeft: number, source: "all-day" | "body") => {
       if (source === "body") {
         dayBodyLastScrollLeftRef.current = scrollLeft
@@ -5139,32 +5370,36 @@ export function CalendarView({
     [syncDayGridHorizontalScroll]
   )
 
-  const scrollDayGridToAnchorDay = useCallback(() => {
-    const element = dayBodyScrollRef.current
+  const scrollDayGridToAnchorDay = useCallback(
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization -- anchor restoration coordinates DOM scroll state after layout changes.
+    () => {
+      const element = dayBodyScrollRef.current
 
-    if (!element || !scrollAnchorDayKey || dayKeys.length === 0) {
-      return
-    }
+      if (!element || !scrollAnchorDayKey || dayKeys.length === 0) {
+        return
+      }
 
-    const anchorIndex = dayKeys.indexOf(scrollAnchorDayKey)
+      const anchorIndex = dayKeys.indexOf(scrollAnchorDayKey)
 
-    if (anchorIndex < 0) {
-      return
-    }
+      if (anchorIndex < 0) {
+        return
+      }
 
-    const dayWidth = element.scrollWidth / Math.max(1, dayKeys.length)
-    const nextScrollLeft = anchorIndex * dayWidth
-    const preservedScrollTop = element.scrollTop
+      const dayWidth = element.scrollWidth / Math.max(1, dayKeys.length)
+      const nextScrollLeft = anchorIndex * dayWidth
+      const preservedScrollTop = element.scrollTop
 
-    markCalendarScrollRecentering()
-    syncDayGridScroll(nextScrollLeft, preservedScrollTop)
-    element.scrollLeft = nextScrollLeft
-  }, [
-    dayKeys,
-    markCalendarScrollRecentering,
-    scrollAnchorDayKey,
-    syncDayGridScroll,
-  ])
+      markCalendarScrollRecentering()
+      syncDayGridScroll(nextScrollLeft, preservedScrollTop)
+      element.scrollLeft = nextScrollLeft
+    },
+    [
+      dayKeys,
+      markCalendarScrollRecentering,
+      scrollAnchorDayKey,
+      syncDayGridScroll,
+    ]
+  )
 
   function handleDayBodyScroll(event: ReactUIEvent<HTMLDivElement>) {
     const scrollLeft = event.currentTarget.scrollLeft
@@ -5389,6 +5624,7 @@ export function CalendarView({
     handleDayBodyScroll,
     onAllDayDragEnd: clearAllDayDragPreview,
     onAllDayDragStart: beginAllDayDrag,
+    onAllDayPointerDragStart: beginAllDayPointerDrag,
   }
   const dayWeekTimedInteractionProps = {
     handleTimedGridBlankClick,

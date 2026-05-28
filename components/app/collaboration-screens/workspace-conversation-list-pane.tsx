@@ -1,16 +1,18 @@
 "use client"
 
-import type {
-  PointerEvent as ReactPointerEvent,
-  ReactNode,
-} from "react"
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react"
 import { Plus } from "@phosphor-icons/react"
 
 import type { AppData, Conversation } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { ConversationList } from "@/components/app/collaboration-screens/workspace-chat-ui"
+import {
+  ConversationList,
+  WORKSPACE_CHAT_LIST_DEFAULT_WIDTH_PERCENTAGE,
+} from "@/components/app/collaboration-screens/workspace-chat-ui"
 import { getConversationPreview } from "@/components/app/collaboration-screens/workspace-conversation-preview"
+
+type WorkspaceChatListWidth = number | null
 
 export function WorkspaceConversationListPane({
   chats,
@@ -26,21 +28,31 @@ export function WorkspaceConversationListPane({
 }: {
   chats: Conversation[]
   activeChat: Conversation | null
-  conversationListWidth: number
+  conversationListWidth: WorkspaceChatListWidth
   conversationListResizing: boolean
-  latestMessagesByConversationId: Map<AppData["chatMessages"][number]["conversationId"], AppData["chatMessages"][number]>
+  latestMessagesByConversationId: Map<
+    AppData["chatMessages"][number]["conversationId"],
+    AppData["chatMessages"][number]
+  >
   renderConversationAvatar: (conversationId: string) => ReactNode
   onCreateChat: () => void
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onResetWidth: () => void
   onSelectChat: (id: string) => void
 }) {
+  const paneWidth =
+    conversationListWidth === null
+      ? WORKSPACE_CHAT_LIST_DEFAULT_WIDTH_PERCENTAGE
+      : `${conversationListWidth}px`
+
   return (
     <div
+      data-workspace-chat-list-pane
       className="relative flex min-h-0 shrink-0 flex-col border-r"
       style={{
-        width: `${conversationListWidth}px`,
-        flexBasis: `${conversationListWidth}px`,
+        width: paneWidth,
+        flexBasis: paneWidth,
+        minWidth: WORKSPACE_CHAT_LIST_DEFAULT_WIDTH_PERCENTAGE,
       }}
     >
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b px-4">
