@@ -79,7 +79,7 @@ function ForumPostActionBar({
   onReply: () => void
 }) {
   return (
-    <div className="absolute top-1.5 right-4 hidden items-center gap-0.5 rounded-md border border-line bg-surface p-0.5 shadow-sm group-hover/post:flex">
+    <div className="absolute top-0 right-0 hidden items-center gap-0.5 rounded-md border border-line bg-surface p-0.5 shadow-sm group-hover/post:flex">
       <EmojiPickerPopover
         align="end"
         side="bottom"
@@ -724,7 +724,7 @@ function ForumPostBody({
   onShowRepliesChange: (show: boolean) => void
 }) {
   return (
-    <div className="min-w-0">
+    <div className="relative min-w-0 pr-12">
       <div className="flex min-w-0 items-baseline gap-2">
         <ForumPostAuthorLine
           author={author}
@@ -813,7 +813,8 @@ export function ForumPostCard({ postId }: { postId: string }) {
 
 export function NewPostComposer({ channelId }: { channelId: string }) {
   const currentUser = useAppStore(
-    (state) => state.users.find((entry) => entry.id === state.currentUserId) ?? null
+    (state) =>
+      state.users.find((entry) => entry.id === state.currentUserId) ?? null
   )
   const mentionCandidates = useAppStore(
     useShallow((state) => getChannelMentionCandidates(state, channelId))

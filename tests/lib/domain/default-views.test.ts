@@ -172,10 +172,13 @@ describe("buildAssignedWorkViews", () => {
       "Backlog",
     ])
     expect(views[0]?.itemLevel).toBe("task")
-    expect(views[0]?.layout).toBe("board")
+    expect(views[0]?.layout).toBe("list")
     expect(views[0]?.filters.visibility).toEqual(["private"])
     expect(views[0]?.displayProps).not.toContain("assignee")
     expect(views[0]?.displayProps).not.toContain("project")
+    expect(
+      views.slice(1).every((view) => !view.displayProps.includes("assignee"))
+    ).toBe(true)
     expect(views.slice(1).every((view) => view.itemLevel === null)).toBe(true)
     expect(views.every((view) => view.showChildItems === true)).toBe(true)
   })

@@ -16,14 +16,10 @@ import {
   getWorkspaceChannels,
   teamHasFeature,
 } from "@/lib/domain/selectors"
-import {
-  fetchChannelFeedReadModel,
-} from "@/lib/convex/client"
+import { fetchChannelFeedReadModel } from "@/lib/convex/client"
 import { useRetainedTeamBySlug } from "@/hooks/use-retained-team-by-slug"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
-import {
-  getChannelFeedScopeKeys,
-} from "@/lib/scoped-sync/read-models"
+import { getChannelFeedScopeKeys } from "@/lib/scoped-sync/read-models"
 import type { AppData } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import {
@@ -104,7 +100,9 @@ function useChannelPosts(channels: AppData["conversations"]) {
   )
 }
 
-function useChannelMembers(activeChannel: AppData["conversations"][number] | null) {
+function useChannelMembers(
+  activeChannel: AppData["conversations"][number] | null
+) {
   return useAppStore(
     useShallow((state) =>
       activeChannel ? getConversationParticipants(state, activeChannel) : []
@@ -188,7 +186,7 @@ function WorkspaceChannelBody({
             <NewPostComposer channelId={activeChannel.id} />
           </div>
         </div>
-        <div className="relative z-0 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="relative z-0 no-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="mx-auto max-w-3xl px-5 py-5">
             <ChannelPostsState
               emptyDescription="Start a workspace discussion by creating the first post."
@@ -541,7 +539,7 @@ function TeamChannelPostSurface({
           </div>
         </div>
       ) : null}
-      <div className="relative z-0 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="relative z-0 no-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
         <div className="mx-auto max-w-3xl px-5 py-5">
           <ChannelPostsState
             emptyDescription="Start a discussion by creating the first post."

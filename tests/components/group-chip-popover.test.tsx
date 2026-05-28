@@ -45,12 +45,10 @@ describe("GroupChipPopover", () => {
   it("renders a group icon in the trigger", () => {
     render(<GroupChipPopover view={createView()} />)
 
-    const trigger = screen.getByRole("button", { name: /group.*status/i })
+    const trigger = screen.getByRole("button", { name: /^group$/i })
     expect(trigger.querySelector("svg")).not.toBeNull()
     expect(trigger).toHaveClass("work-view-chip")
-    expect(trigger.querySelector(".work-view-chip-value")).toHaveTextContent(
-      "· Status"
-    )
+    expect(trigger.querySelector(".work-view-chip-value")).toBeNull()
   })
 
   it("opens and updates grouping from the shared chip trigger", () => {
@@ -58,7 +56,7 @@ describe("GroupChipPopover", () => {
 
     render(<GroupChipPopover view={createView()} onUpdateView={onUpdateView} />)
 
-    fireEvent.click(screen.getByRole("button", { name: /group.*status/i }))
+    fireEvent.click(screen.getByRole("button", { name: /^group$/i }))
     fireEvent.click(screen.getAllByRole("button", { name: "Priority" })[0])
 
     expect(onUpdateView).toHaveBeenCalledWith({ grouping: "priority" })
@@ -69,12 +67,10 @@ describe("LevelChipPopover", () => {
   it("opens from the shared chip trigger", () => {
     render(<LevelChipPopover view={createView({ itemLevel: "task" })} />)
 
-    const trigger = screen.getByRole("button", { name: /level.*task/i })
+    const trigger = screen.getByRole("button", { name: /^level$/i })
 
     expect(trigger).toHaveClass("work-view-chip")
-    expect(trigger.querySelector(".work-view-chip-value")).toHaveTextContent(
-      "· Task"
-    )
+    expect(trigger.querySelector(".work-view-chip-value")).toBeNull()
 
     fireEvent.click(trigger)
 

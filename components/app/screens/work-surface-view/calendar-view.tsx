@@ -210,6 +210,7 @@ type CalendarTimedEntryBlockProps = {
   index: number
   isItemEditable: (item: WorkItem) => boolean
   labelsById: EventAccentLabelLookup
+  onEditItem: (itemId: string) => void
   onSelectItem: (itemId: string) => void
   scheduleHover: (itemId: string, event: MouseEvent<HTMLElement>) => void
   scheduleHoverDetailClear: () => void
@@ -224,6 +225,7 @@ type CalendarTimedEntryBlockProps = {
 }
 
 type CalendarItemInteractionPropsGetter = (itemId: string) => {
+  onEditItem: () => void
   onClick: () => void
   onMouseEnter: (event: MouseEvent<HTMLElement>) => void
   onMouseMove: (event: MouseEvent<HTMLElement>) => void
@@ -231,6 +233,7 @@ type CalendarItemInteractionPropsGetter = (itemId: string) => {
 }
 
 type CalendarTimedInteractionProps = {
+  onEditItem: (itemId: string) => void
   onSelectItem: (itemId: string) => void
   scheduleHover: (itemId: string, event: MouseEvent<HTMLElement>) => void
   scheduleHoverDetailClear: () => void
@@ -292,6 +295,7 @@ type CalendarMonthSharedProps = {
 }
 
 type CalendarMonthViewProps = CalendarMonthSharedProps & {
+  handleMonthScroll: (event: ReactUIEvent<HTMLDivElement>) => void
   monthGridRef: RefObject<HTMLDivElement | null>
   monthWeeks: Date[][]
 }
@@ -395,7 +399,7 @@ const HOUR_HEIGHT = 64
 const ALL_DAY_EVENT_HEIGHT = 26
 const ALL_DAY_EVENT_GAP = 4
 const ALL_DAY_LANE_MIN_HEIGHT = 44
-const ALL_DAY_EXPANDED_MAX_VISIBLE_ROWS = 5
+const ALL_DAY_EXPANDED_MAX_SURFACE_RATIO = 0.42
 const ALL_DAY_LANE_TOP_PADDING = 6
 const ALL_DAY_LANE_BOTTOM_PADDING = 6
 const ALL_DAY_MORE_BUTTON_HEIGHT = 22
@@ -405,6 +409,7 @@ const CALENDAR_DAY_SCROLL_MULTIPLIER = 14
 const CALENDAR_WEEK_SCROLL_MULTIPLIER = 3
 const CALENDAR_MONTH_SCROLL_PAST_WEEK_COUNT = 6
 const CALENDAR_MONTH_SCROLL_WEEK_COUNT = 10
+const CALENDAR_SCROLL_EDGE_THRESHOLD = 64
 const MONTH_GRID_MIN_ROW_HEIGHT = 128
 const MONTH_DAY_HEADER_HEIGHT = 18
 const MONTH_DAY_PADDING_Y = 16
@@ -418,7 +423,7 @@ const HOVER_DETAIL_DELAY_MS = 1000
 const HOVER_DETAIL_CLEAR_DELAY_MS = 150
 const HOVER_DETAIL_WIDTH = 420
 const HOVER_DETAIL_MAX_HEIGHT = 680
-const HOVER_DETAIL_MARGIN = 12
+const HOVER_DETAIL_MARGIN = 8
 const CALENDAR_COLOR_MODE_OPTIONS: Array<{
   value: CalendarColorMode
   label: string
@@ -1173,6 +1178,7 @@ function CalendarTimedEntryBlock({
   index,
   isItemEditable,
   labelsById,
+  onEditItem,
   onSelectItem,
   scheduleHover,
   scheduleHoverDetailClear,
@@ -1210,7 +1216,7 @@ function CalendarTimedEntryBlock({
   }
 
   return (
-    <IssueContextMenu data={data} item={entry.item} onEditItem={onSelectItem}>
+    <IssueContextMenu data={data} item={entry.item} onEditItem={onEditItem}>
       <div
         data-calendar-timed-event={entry.item.id}
         className={getTimedEntryClassName({
@@ -1870,11 +1876,13 @@ function getAllDayLaneHeightForRows(
 }
 
 function getAllDayLaneViewportHeight({
+  expandedVisibleRowLimit,
   contentHeight,
   expanded,
   hasOverflowControl,
   visibleRowCount,
 }: {
+  expandedVisibleRowLimit: number
   contentHeight: number
   expanded: boolean
   hasOverflowControl: boolean
@@ -1884,16 +1892,39 @@ function getAllDayLaneViewportHeight({
     return contentHeight
   }
 
-  const maxVisibleRows = Math.min(
-    visibleRowCount,
-    ALL_DAY_EXPANDED_MAX_VISIBLE_ROWS
-  )
+  const maxVisibleRows = Math.min(visibleRowCount, expandedVisibleRowLimit)
   const expandedMaxHeight = getAllDayLaneHeightForRows(
     maxVisibleRows,
     hasOverflowControl
   )
 
   return Math.min(contentHeight, expandedMaxHeight)
+}
+
+function getExpandedAllDayVisibleRowLimit({
+  maxAllDayEvents,
+  surfaceHeight,
+}: {
+  maxAllDayEvents: number
+  surfaceHeight: number
+}) {
+  const maxRows = normalizeMaxAllDayEvents(maxAllDayEvents)
+
+  if (surfaceHeight <= 0) {
+    return maxRows
+  }
+
+  const availableHeight = Math.max(
+    ALL_DAY_LANE_MIN_HEIGHT,
+    surfaceHeight * ALL_DAY_EXPANDED_MAX_SURFACE_RATIO
+  )
+  let rows = maxRows
+
+  while (rows > 1 && getAllDayLaneHeightForRows(rows, true) > availableHeight) {
+    rows -= 1
+  }
+
+  return rows
 }
 
 function getAllDayEventTop(rowIndex: number) {
@@ -2211,7 +2242,7 @@ function CalendarMonthTimedEntryButton({
     <IssueContextMenu
       data={data}
       item={entry.item}
-      onEditItem={interactionProps.onClick}
+      onEditItem={interactionProps.onEditItem}
     >
       <button
         data-calendar-timed-event={entry.item.id}
@@ -2360,7 +2391,7 @@ function CalendarMonthAllDaySpanButton({
     <IssueContextMenu
       data={data}
       item={span.entry.item}
-      onEditItem={interactionProps.onClick}
+      onEditItem={interactionProps.onEditItem}
     >
       <button
         data-calendar-all-day-event={span.entry.item.id}
@@ -2546,6 +2577,7 @@ function CalendarMonthView({
   colorMode,
   data,
   getCalendarItemInteractionProps,
+  handleMonthScroll,
   handleMonthBlankClick,
   handleMonthBlankDoubleClick,
   isAllDayRangeExpanded,
@@ -2562,6 +2594,7 @@ function CalendarMonthView({
     <div
       ref={monthGridRef}
       className="no-scrollbar grid min-h-0 flex-1 overflow-auto overscroll-none"
+      onScroll={handleMonthScroll}
     >
       {monthWeeks.map((weekDays) => {
         const weekDayKeys = weekDays.map(getDateKey)
@@ -2703,7 +2736,7 @@ function CalendarAllDaySpanButton({
     <IssueContextMenu
       data={data}
       item={span.entry.item}
-      onEditItem={interactionProps.onClick}
+      onEditItem={interactionProps.onEditItem}
     >
       <button
         data-calendar-all-day-event={span.entry.item.id}
@@ -3182,6 +3215,7 @@ function CalendarTimedGrid({
   nowDayIndex,
   nowTop,
   onSelectItem,
+  onEditItem,
   scheduleHover,
   scheduleHoverDetailClear,
   scheduleTimedMoveDrag,
@@ -3292,6 +3326,7 @@ function CalendarTimedGrid({
           isItemEditable={isItemEditable}
           labelsById={labelsById}
           onSelectItem={onSelectItem}
+          onEditItem={onEditItem}
           scheduleHover={scheduleHover}
           scheduleHoverDetailClear={scheduleHoverDetailClear}
           scheduleTimedMoveDrag={scheduleTimedMoveDrag}
@@ -3352,6 +3387,7 @@ function CalendarDayWeekView({
   nowWallTime,
   onAllDayDragStart,
   onSelectItem,
+  onEditItem,
   scheduleHover,
   scheduleHoverDetailClear,
   scheduleTimedMoveDrag,
@@ -3446,6 +3482,7 @@ function CalendarDayWeekView({
     handleTimedGridBlankDoubleClick,
     isItemEditable,
     onSelectItem,
+    onEditItem,
     scheduleHover,
     scheduleHoverDetailClear,
     updateHoverPosition,
@@ -3618,11 +3655,13 @@ function getHoverAnchorFromPointer(input: {
 function useCalendarHoverDetail({
   getHoverBoundary,
   isInteractionActive,
+  onEditItem,
   onSelectItem,
 }: {
   getHoverBoundary: () => DOMRect | null
   isInteractionActive: () => boolean
   onSelectItem: (itemId: string) => void
+  onEditItem: (itemId: string) => void
 }) {
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null)
   const [hoverAnchor, setHoverAnchor] = useState<HoverDetailAnchor | null>(null)
@@ -3697,6 +3736,7 @@ function useCalendarHoverDetail({
   function getCalendarItemInteractionProps(itemId: string) {
     return {
       onClick: () => onSelectItem(itemId),
+      onEditItem: () => onEditItem(itemId),
       onMouseEnter: (event: MouseEvent<HTMLElement>) =>
         scheduleHover(itemId, event),
       onMouseMove: (event: MouseEvent<HTMLElement>) =>
@@ -4050,6 +4090,7 @@ export function CalendarView({
   const [selectionPreview, setSelectionPreview] =
     useState<CalendarSelectionPreview | null>(null)
   const [monthGridHeight, setMonthGridHeight] = useState(0)
+  const [calendarSurfaceHeight, setCalendarSurfaceHeight] = useState(0)
   const calendarControls = useCalendarViewControls({
     controlledColorMode,
     controlledMaxAllDayEvents,
@@ -4104,12 +4145,18 @@ export function CalendarView({
   const dragStateRef = useRef<CalendarDragState | null>(null)
   const selectionDraftRef = useRef<CalendarSelectionDraft | null>(null)
   const pendingMoveDragRef = useRef<PendingCalendarMoveDrag | null>(null)
+  const scrollRecenterRef = useRef(false)
+  const pendingWindowShiftRef = useRef(false)
   const suppressNextClickRef = useRef(false)
 
   function toggleSelectedItem(itemId: string) {
     setSelectedItemId((currentItemId) =>
       currentItemId === itemId ? null : itemId
     )
+  }
+
+  function openSelectedItem(itemId: string) {
+    setSelectedItemId(itemId)
   }
 
   const {
@@ -4128,6 +4175,7 @@ export function CalendarView({
       Boolean(
         dragStateRef.current || pendingMoveDragRef.current || dragPreview
       ),
+    onEditItem: openSelectedItem,
     onSelectItem: toggleSelectedItem,
   })
   const dayKeySet = useMemo(() => new Set(dayKeys), [dayKeys])
@@ -4167,6 +4215,26 @@ export function CalendarView({
     })
 
     observer.observe(element)
+
+    return () => observer.disconnect()
+  }, [mode])
+
+  useEffect(() => {
+    const element = calendarMainSurfaceRef.current
+
+    if (!element || typeof ResizeObserver === "undefined") {
+      return
+    }
+
+    const observer = new ResizeObserver(([entry]) => {
+      const nextHeight = entry?.contentRect.height ?? 0
+      setCalendarSurfaceHeight((current) =>
+        Math.abs(current - nextHeight) < 1 ? current : nextHeight
+      )
+    })
+
+    observer.observe(element)
+    setCalendarSurfaceHeight(element.getBoundingClientRect().height)
 
     return () => observer.disconnect()
   }, [mode])
@@ -4802,6 +4870,80 @@ export function CalendarView({
     })
   }
 
+  function markCalendarScrollRecentering() {
+    scrollRecenterRef.current = true
+    window.setTimeout(() => {
+      scrollRecenterRef.current = false
+    }, 100)
+  }
+
+  function shiftCalendarWindow(direction: -1 | 1) {
+    if (pendingWindowShiftRef.current || scrollRecenterRef.current) {
+      return
+    }
+
+    pendingWindowShiftRef.current = true
+    setCalendarAnchorDate((current) =>
+      getCalendarNavigationAnchorDate({
+        anchorDate: current,
+        direction,
+        mode,
+        showWeekends,
+        weekDayCount,
+        weekStart,
+      })
+    )
+    window.setTimeout(() => {
+      pendingWindowShiftRef.current = false
+    }, 120)
+  }
+
+  function maybeShiftCalendarWindowFromHorizontalScroll(element: HTMLElement) {
+    if (mode === "month") {
+      return
+    }
+
+    const maxScrollLeft = element.scrollWidth - element.clientWidth
+
+    if (maxScrollLeft <= 0) {
+      return
+    }
+
+    const threshold = Math.max(
+      CALENDAR_SCROLL_EDGE_THRESHOLD,
+      element.clientWidth * 0.08
+    )
+
+    if (element.scrollLeft <= threshold) {
+      shiftCalendarWindow(-1)
+    } else if (maxScrollLeft - element.scrollLeft <= threshold) {
+      shiftCalendarWindow(1)
+    }
+  }
+
+  function maybeShiftCalendarWindowFromVerticalScroll(element: HTMLElement) {
+    if (mode !== "month") {
+      return
+    }
+
+    const maxScrollTop = element.scrollHeight - element.clientHeight
+
+    if (maxScrollTop <= 0) {
+      return
+    }
+
+    const threshold = Math.max(
+      CALENDAR_SCROLL_EDGE_THRESHOLD,
+      element.clientHeight * 0.08
+    )
+
+    if (element.scrollTop <= threshold) {
+      shiftCalendarWindow(-1)
+    } else if (maxScrollTop - element.scrollTop <= threshold) {
+      shiftCalendarWindow(1)
+    }
+  }
+
   function syncDayGridHorizontalScroll(
     scrollLeft: number,
     source: "all-day" | "body"
@@ -4832,10 +4974,16 @@ export function CalendarView({
       event.currentTarget.scrollLeft,
       event.currentTarget.scrollTop
     )
+    maybeShiftCalendarWindowFromHorizontalScroll(event.currentTarget)
   }
 
   function handleAllDayScroll(event: ReactUIEvent<HTMLDivElement>) {
     syncDayGridHorizontalScroll(event.currentTarget.scrollLeft, "all-day")
+    maybeShiftCalendarWindowFromHorizontalScroll(event.currentTarget)
+  }
+
+  function handleMonthScroll(event: ReactUIEvent<HTMLDivElement>) {
+    maybeShiftCalendarWindowFromVerticalScroll(event.currentTarget)
   }
 
   const visibleAllDayEntries = allDayEntries.filter(
@@ -4866,11 +5014,16 @@ export function CalendarView({
   const visibleAllDaySpans = allDaySpans.filter(
     (span) => span.rowIndex < visibleAllDayRowCount
   )
+  const expandedAllDayVisibleRowLimit = getExpandedAllDayVisibleRowLimit({
+    maxAllDayEvents,
+    surfaceHeight: calendarSurfaceHeight,
+  })
   const allDayLaneHeight = getAllDayLaneHeightForRows(
     visibleAllDayRowCount,
     hasHiddenAllDayItems || canCollapseAllDayItems
   )
   const allDayLaneViewportHeight = getAllDayLaneViewportHeight({
+    expandedVisibleRowLimit: expandedAllDayVisibleRowLimit,
     contentHeight: allDayLaneHeight,
     expanded: allDayRangeExpanded,
     hasOverflowControl: hasHiddenAllDayItems || canCollapseAllDayItems,
@@ -4917,6 +5070,7 @@ export function CalendarView({
         return
       }
 
+      markCalendarScrollRecentering()
       element.scrollTop = getScrollableMonthScrollTop(monthBaseRowHeight)
       return
     }
@@ -4936,6 +5090,7 @@ export function CalendarView({
     const dayWidth = element.scrollWidth / Math.max(1, dayKeys.length)
     const nextScrollLeft = anchorIndex * dayWidth
 
+    markCalendarScrollRecentering()
     element.scrollLeft = nextScrollLeft
     element.scrollTop = 0
 
@@ -5018,6 +5173,7 @@ export function CalendarView({
     handleTimedGridBlankClick,
     handleTimedGridBlankDoubleClick,
     isItemEditable,
+    onEditItem: openSelectedItem,
     onSelectItem: toggleSelectedItem,
     scheduleHover,
     scheduleHoverDetailClear,
@@ -5080,6 +5236,7 @@ export function CalendarView({
               colorMode={colorMode}
               data={data}
               getCalendarItemInteractionProps={getCalendarItemInteractionProps}
+              handleMonthScroll={handleMonthScroll}
               handleMonthBlankClick={handleMonthBlankClick}
               handleMonthBlankDoubleClick={handleMonthBlankDoubleClick}
               isAllDayRangeExpanded={isAllDayRangeExpanded}

@@ -39,6 +39,7 @@ export const TimelineLabelRow = memo(function TimelineLabelRow({
   accentMode,
   accentIndex,
   labelsById,
+  onEditItem,
   onSelectItem,
 }: {
   data: AppData
@@ -46,13 +47,14 @@ export const TimelineLabelRow = memo(function TimelineLabelRow({
   accentMode: EventAccentMode
   accentIndex: number
   labelsById: EventAccentLabelLookup | null
+  onEditItem?: (itemId: string) => void
   onSelectItem?: (itemId: string) => void
 }) {
   const assignees = getItemAssignees(data, [item])
   const style = getTimelineBarStyle(item, accentMode, accentIndex, labelsById)
 
   return (
-    <IssueContextMenu data={data} item={item} onEditItem={onSelectItem}>
+    <IssueContextMenu data={data} item={item} onEditItem={onEditItem}>
       <div
         className={cn(
           "flex items-center gap-2.5 border-b bg-background px-3",
@@ -127,6 +129,7 @@ export const TimelineBar = memo(function TimelineBar({
   accentIndex,
   labelsById,
   onCaptureDragOffset,
+  onEditItem,
   onResizeStart,
   onSelectItem,
 }: {
@@ -141,6 +144,7 @@ export const TimelineBar = memo(function TimelineBar({
     span: number,
     event: ReactPointerEvent<HTMLButtonElement>
   ) => void
+  onEditItem?: (itemId: string) => void
   onResizeStart: (
     item: WorkItem,
     edge: "start" | "end",
@@ -272,7 +276,7 @@ export const TimelineBar = memo(function TimelineBar({
   }
 
   return (
-    <IssueContextMenu data={data} item={item} onEditItem={onSelectItem}>
+    <IssueContextMenu data={data} item={item} onEditItem={onEditItem}>
       <button
         ref={setNodeRef}
         type="button"

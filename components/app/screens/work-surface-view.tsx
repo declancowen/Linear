@@ -55,7 +55,7 @@ import {
 } from "@/lib/domain/types"
 import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
 import { useAppStore } from "@/lib/store/app-store"
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { StatusRing } from "@/components/ui/template-primitives"
 
 import {
@@ -1081,7 +1081,7 @@ export function BoardView({
                     background: groupAccentVar ?? "var(--text-3)",
                   }}
                 />
-                <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2">
+                <div className="no-scrollbar flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2">
                   {Array.from(subgroups.entries()).map(
                     ([subgroupName, subItems]) => {
                       const hidden =
@@ -1199,7 +1199,6 @@ export function BoardView({
             )
           })}
         </div>
-        <ScrollBar orientation="horizontal" />
       </ScrollArea>
 
       {hiddenGroups.length > 0 ? (

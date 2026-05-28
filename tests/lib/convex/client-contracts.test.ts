@@ -500,6 +500,93 @@ describe("route client compatibility contracts", () => {
     expect((headers as Headers).get("Content-Type")).toBe("application/json")
   })
 
+  it("refreshes Electron desktop sessions and retries route mutations once after an auth failure", async () => {
+    let desktopToken = "stale_desktop_token"
+    const setDesktopAuthToken = vi.fn(async (token: string) => {
+      desktopToken = token
+      return true
+    })
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: "DESKTOP_SESSION_INVALID",
+            error: "Invalid desktop session",
+          }),
+          {
+            status: 401,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            expiresAt: 1_770_000_000_000,
+            token: "fresh_desktop_token",
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        })
+      )
+
+    Object.defineProperty(window, "electronApp", {
+      configurable: true,
+      value: {
+        getDesktopAuthToken: vi.fn(async () => desktopToken),
+        getDesktopAppInfo: vi.fn().mockResolvedValue({
+          platform: "darwin",
+          version: "0.0.5",
+        }),
+        isElectron: true,
+        platform: "darwin",
+        setDesktopAuthToken,
+      },
+    })
+
+    await expect(
+      runRouteMutation("/api/items/item_1", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title: "Updated" }),
+      })
+    ).resolves.toEqual({ ok: true })
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/items/item_1")
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "/api/auth/desktop/session/refresh"
+    )
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("/api/items/item_1")
+    expect(
+      (fetchMock.mock.calls[0]?.[1]?.headers as Headers).get("Authorization")
+    ).toBe("Bearer stale_desktop_token")
+    expect(
+      (fetchMock.mock.calls[1]?.[1]?.headers as Headers).get("Authorization")
+    ).toBe("Bearer stale_desktop_token")
+    expect(
+      (fetchMock.mock.calls[2]?.[1]?.headers as Headers).get("Authorization")
+    ).toBe("Bearer fresh_desktop_token")
+    expect(setDesktopAuthToken).toHaveBeenCalledWith("fresh_desktop_token")
+  })
+
   it("sends workspace branding updates with optional logo image actions", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {

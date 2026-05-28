@@ -44,7 +44,13 @@ export function StatusRing({
   percent,
   className,
 }: {
-  status: "backlog" | "todo" | "in-progress" | "done" | "cancelled" | "duplicate"
+  status:
+    | "backlog"
+    | "todo"
+    | "in-progress"
+    | "done"
+    | "cancelled"
+    | "duplicate"
   percent?: number
   className?: string
 }) {
@@ -59,10 +65,7 @@ export function StatusRing({
 
   if (status === "done") {
     return (
-      <span
-        aria-hidden
-        className={wrapperClassName}
-      >
+      <span aria-hidden className={wrapperClassName}>
         <span
           className="rounded-full"
           style={{
@@ -99,10 +102,7 @@ export function StatusRing({
   if (status === "in-progress") {
     const p = Math.max(0, Math.min(100, percent ?? 50))
     return (
-      <span
-        aria-hidden
-        className={wrapperClassName}
-      >
+      <span aria-hidden className={wrapperClassName}>
         <span
           className="rounded-full border-[1.6px]"
           style={{
@@ -117,10 +117,7 @@ export function StatusRing({
 
   if (status === "todo") {
     return (
-      <span
-        aria-hidden
-        className={wrapperClassName}
-      >
+      <span aria-hidden className={wrapperClassName}>
         <span
           className="rounded-full border-[1.6px]"
           style={{
@@ -133,10 +130,7 @@ export function StatusRing({
   }
 
   return (
-    <span
-      aria-hidden
-      className={wrapperClassName}
-    >
+    <span aria-hidden className={wrapperClassName}>
       <span
         className="rounded-full border-[1.6px]"
         style={{
@@ -197,7 +191,7 @@ export function ViewTab({
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs leading-[1.15] transition-colors",
         active
-          ? "bg-surface text-foreground shadow-[0_1px_0_0_oklch(0.18_0_0/0.04)] border border-line"
+          ? "border border-line bg-surface text-foreground shadow-[0_1px_0_0_oklch(0.18_0_0/0.04)]"
           : "text-fg-2 hover:bg-surface-3 hover:text-foreground",
         className
       )}
@@ -241,7 +235,10 @@ export function PropertyPopoverSearch({
 }) {
   return (
     <div className="flex items-center gap-2 border-b border-line-soft px-2.5 py-1.5 text-fg-3">
-      <span aria-hidden className="flex size-3.5 shrink-0 items-center justify-center">
+      <span
+        aria-hidden
+        className="flex size-3.5 shrink-0 items-center justify-center"
+      >
         {icon}
       </span>
       <input
@@ -267,7 +264,7 @@ export function PropertyPopoverList({
   return (
     <div
       className={cn(
-        "flex max-h-[320px] flex-col overflow-y-auto p-1",
+        "no-scrollbar flex max-h-[320px] flex-col overflow-y-auto p-1",
         className
       )}
     >
@@ -319,9 +316,7 @@ export function PropertyPopoverItem({
         className
       )}
     >
-      <span className="flex min-w-0 flex-1 items-center gap-2">
-        {children}
-      </span>
+      <span className="flex min-w-0 flex-1 items-center gap-2">{children}</span>
       {trailing}
     </button>
   )

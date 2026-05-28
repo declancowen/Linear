@@ -57,6 +57,9 @@ const ACTIVE_WORK_ITEM_DISPLAY_PROPS: ViewDefinition["displayProps"] = [
   "created",
 ]
 
+const ASSIGNED_WORK_ITEM_DISPLAY_PROPS: ViewDefinition["displayProps"] =
+  ACTIVE_WORK_ITEM_DISPLAY_PROPS.filter((property) => property !== "assignee")
+
 function getCanonicalPrimaryViewName(
   experience: TeamExperienceType | null | undefined
 ) {
@@ -412,7 +415,7 @@ export function buildAssignedWorkViews(
       createdAt: input.createdAt,
       updatedAt: input.updatedAt,
       overrides: {
-        layout: "board",
+        layout: "list",
         grouping: "status",
         itemLevel: "task",
         showChildItems: true,
@@ -441,6 +444,7 @@ export function buildAssignedWorkViews(
           ...createDefaultViewFilters(),
           visibility: ["team"],
         },
+        displayProps: ASSIGNED_WORK_ITEM_DISPLAY_PROPS,
       },
     }),
     createViewDefinition({
@@ -463,7 +467,7 @@ export function buildAssignedWorkViews(
           status: ["todo", "in-progress"],
           visibility: ["team"],
         },
-        displayProps: ACTIVE_WORK_ITEM_DISPLAY_PROPS,
+        displayProps: ASSIGNED_WORK_ITEM_DISPLAY_PROPS,
       },
     }),
     createViewDefinition({
@@ -487,7 +491,7 @@ export function buildAssignedWorkViews(
         },
         grouping: "priority",
         ordering: "targetDate",
-        displayProps: ["id", "project", "priority", "assignee", "dueDate"],
+        displayProps: ["id", "project", "priority", "dueDate"],
         hiddenState: { groups: [], subgroups: [] },
       },
     }),

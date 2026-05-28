@@ -312,7 +312,9 @@ function ProjectItemsBody({
     <div
       className={cn(
         "min-h-0 min-w-0 flex-1 overscroll-contain",
-        view.layout === "timeline" ? "overflow-hidden" : "overflow-y-auto"
+        view.layout === "timeline"
+          ? "overflow-hidden"
+          : "no-scrollbar overflow-y-auto"
       )}
     >
       <>
@@ -459,9 +461,7 @@ function useProjectItemsPresentationState({
   }
 
   function toggleDisplayProperty(property: DisplayProperty) {
-    setDisplayProps((current) =>
-      toggleDisplayPropertyValue(current, property)
-    )
+    setDisplayProps((current) => toggleDisplayPropertyValue(current, property))
   }
 
   function applyTemplate(view: ViewDefinition) {

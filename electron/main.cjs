@@ -17,7 +17,6 @@ const {
   app,
   BrowserWindow,
   clipboard,
-  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -485,6 +484,7 @@ function getDesktopUpdateManager() {
       log: logDesktopStartup,
       onStateChange: (state) => {
         broadcastDesktopUpdateState({ state })
+        registerApplicationMenu()
       },
     })
   }
@@ -515,11 +515,6 @@ async function checkDesktopUpdatesFromMenu() {
   const result = await updateManager.checkForUpdates("menu")
   const state = result.state ?? updateManager.getState()
 
-  if (state.status === "idle") {
-    await showDesktopNoUpdatesDialog(state)
-    return
-  }
-
   broadcastDesktopUpdateState({
     showToast: true,
     source: "menu",
@@ -527,54 +522,128 @@ async function checkDesktopUpdatesFromMenu() {
   })
 }
 
-async function showDesktopNoUpdatesDialog(state) {
-  const currentVersion = state.currentVersion ?? app.getVersion()
+async function downloadDesktopUpdateFromMenu() {
+  const updateManager = getDesktopUpdateManager()
+  const currentState = updateManager.getState()
 
-  await dialog.showMessageBox({
-    buttons: ["OK"],
-    detail: `You are currently running ${appName} ${currentVersion}.`,
-    message: `${appName} ${currentVersion} is the latest version.`,
-    title: "No updates available",
-    type: "info",
+  if (currentState.status !== "available") {
+    broadcastDesktopUpdateState({
+      showToast: true,
+      source: "menu",
+      state: currentState,
+    })
+    return
+  }
+
+  const result = await updateManager.downloadUpdate()
+  broadcastDesktopUpdateState({
+    showToast: true,
+    source: "menu",
+    state: result.state ?? updateManager.getState(),
   })
 }
 
-function registerApplicationMenu() {
-  const appMenu =
-    process.platform === "darwin"
-      ? [
-          {
-            label: appName,
-            submenu: [
-              { role: "about" },
-              { type: "separator" },
-              {
-                label: "Check for Updates...",
-                click: () => {
-                  void checkDesktopUpdatesFromMenu()
-                },
-              },
-              { type: "separator" },
-              { role: "services" },
-              { type: "separator" },
-              { role: "hide" },
-              { role: "hideOthers" },
-              { role: "unhide" },
-              { type: "separator" },
-              { role: "quit" },
-            ],
-          },
-        ]
-      : []
+function installDesktopUpdateFromMenu() {
+  const updateManager = getDesktopUpdateManager()
+  const result = updateManager.installUpdate()
 
-  const template = [
-    ...appMenu,
+  broadcastDesktopUpdateState({
+    showToast: true,
+    source: "menu",
+    state: result.state ?? updateManager.getState(),
+  })
+}
+
+const desktopUpdateDownloadBlockedStatuses = new Set([
+  "downloaded",
+  "downloading",
+  "installing",
+])
+
+function canDownloadDesktopUpdate(updateState) {
+  return (
+    updateState == null ||
+    !desktopUpdateDownloadBlockedStatuses.has(updateState.status)
+  )
+}
+
+function buildDesktopUpdateMenuItems(updateState) {
+  return [
     {
-      label: "File",
+      label: "Check for Updates...",
+      click: () => {
+        void checkDesktopUpdatesFromMenu()
+      },
+    },
+    {
+      label: "Download Update",
+      enabled: canDownloadDesktopUpdate(updateState),
+      click: () => {
+        void downloadDesktopUpdateFromMenu()
+      },
+    },
+    {
+      label: "Restart to Update",
+      enabled: updateState?.status === "downloaded",
+      click: () => {
+        installDesktopUpdateFromMenu()
+      },
+    },
+  ]
+}
+
+function buildDarwinApplicationMenu(updateState) {
+  if (process.platform !== "darwin") {
+    return []
+  }
+
+  return [
+    {
+      label: appName,
       submenu: [
-        process.platform === "darwin" ? { role: "close" } : { role: "quit" },
+        { role: "about" },
+        { type: "separator" },
+        ...buildDesktopUpdateMenuItems(updateState),
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
       ],
     },
+  ]
+}
+
+function buildFileMenu() {
+  return {
+    label: "File",
+    submenu: [
+      process.platform === "darwin" ? { role: "close" } : { role: "quit" },
+    ],
+  }
+}
+
+function buildWindowMenu() {
+  return {
+    label: "Window",
+    submenu: [
+      { role: "minimize" },
+      { role: "zoom" },
+      ...(process.platform === "darwin"
+        ? [{ type: "separator" }, { role: "front" }]
+        : [{ role: "close" }]),
+    ],
+  }
+}
+
+function registerApplicationMenu() {
+  const updateState = desktopUpdateManager?.getState()
+  const template = [
+    ...buildDarwinApplicationMenu(updateState),
+    buildFileMenu(),
     {
       label: "Edit",
       submenu: [
@@ -601,16 +670,7 @@ function registerApplicationMenu() {
         { role: "togglefullscreen" },
       ],
     },
-    {
-      label: "Window",
-      submenu: [
-        { role: "minimize" },
-        { role: "zoom" },
-        ...(process.platform === "darwin"
-          ? [{ type: "separator" }, { role: "front" }]
-          : [{ role: "close" }]),
-      ],
-    },
+    buildWindowMenu(),
     {
       role: "help",
       submenu: [],

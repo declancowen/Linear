@@ -35,7 +35,7 @@ import {
   type InboxTab,
 } from "@/components/app/screens/inbox-ui"
 
-const INBOX_LIST_WIDTH_STORAGE_KEY = "inbox-list-width"
+const INBOX_LIST_WIDTH_STORAGE_KEY = "inbox-list-width:v2"
 const INBOX_LIST_MIN_WIDTH = 240
 const INBOX_LIST_MAX_WIDTH = 420
 

@@ -343,9 +343,10 @@ async function selectCreateViewProject(projectName: string) {
 function expectItemViewControls(projectSelector: "visible" | "hidden") {
   expect(screen.getByRole("button", { name: "List" })).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Filter" })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Level" })).toBeInTheDocument()
   expect(
-    screen.getByRole("button", { name: /Level.*Epic/ })
-  ).toBeInTheDocument()
+    screen.queryByRole("button", { name: /Level.*Epic/ })
+  ).not.toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Group" })).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Sort" })).toBeInTheDocument()
   expect(

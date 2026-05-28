@@ -1,15 +1,19 @@
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { execFile } from "node:child_process"
 import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 
 import pngToIco from "png-to-ico"
 import sharp from "sharp"
 
+const execFileAsync = promisify(execFile)
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const repoRoot = path.resolve(__dirname, "..")
 const sourcePngPath = path.join(repoRoot, "app-icon.png")
+const electronIcnsPath = path.join(repoRoot, "electron", "app-icon.icns")
 
 const svgTargets = [
   path.join(repoRoot, "app-icon.svg"),
@@ -22,6 +26,7 @@ const svgTargets = [
 const appIconTargets = [
   path.join(repoRoot, "app-icon.png"),
   path.join(repoRoot, "public", "app-icon.png"),
+  path.join(repoRoot, "electron", "app-icon.png"),
 ]
 
 const appleIconTargets = [
@@ -78,10 +83,48 @@ async function writeSvgTargets(inputBuffer, targets) {
   )
 }
 
-async function main() {
-  const tempDir = await fs.mkdtemp(
-    path.join(os.tmpdir(), "recipe-room-icons-")
+async function writeElectronIcns(inputBuffer, tempDir) {
+  const iconsetPath = path.join(tempDir, "app.iconset")
+  const iconsetEntries = [
+    ["icon_16x16.png", 16],
+    ["icon_16x16@2x.png", 32],
+    ["icon_32x32.png", 32],
+    ["icon_32x32@2x.png", 64],
+    ["icon_128x128.png", 128],
+    ["icon_128x128@2x.png", 256],
+    ["icon_256x256.png", 256],
+    ["icon_256x256@2x.png", 512],
+    ["icon_512x512.png", 512],
+    ["icon_512x512@2x.png", 1024],
+  ]
+
+  await fs.mkdir(iconsetPath, { recursive: true })
+  await Promise.all(
+    iconsetEntries.map(([filename, size]) =>
+      renderPng(inputBuffer, size, path.join(iconsetPath, filename))
+    )
   )
+
+  await ensureParent(electronIcnsPath)
+  try {
+    await execFileAsync("iconutil", [
+      "-c",
+      "icns",
+      iconsetPath,
+      "-o",
+      electronIcnsPath,
+    ])
+  } catch (error) {
+    if (process.platform === "darwin") {
+      throw error
+    }
+
+    console.warn("Skipped macOS .icns generation because iconutil is missing")
+  }
+}
+
+async function main() {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "recipe-room-icons-"))
 
   try {
     const sourcePngBuffer = await fs.readFile(sourcePngPath)
@@ -97,6 +140,7 @@ async function main() {
     await writeSvgTargets(sourcePngBuffer, svgTargets)
     await copyToTargets(sourcePngPath, appIconTargets)
     await copyToTargets(rasterPaths.get(180), appleIconTargets)
+    await writeElectronIcns(sourcePngBuffer, tempDir)
 
     const icoBuffer = await pngToIco([
       rasterPaths.get(16),

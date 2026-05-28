@@ -2518,7 +2518,7 @@ function DocsViewTabs({
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+    <div className="no-scrollbar flex min-w-0 items-center gap-1 overflow-x-auto">
       {views.map((view) => {
         const button = (
           <ProjectViewTabButton
@@ -2576,7 +2576,7 @@ function DocsTaskbar({
   }
 
   return (
-    <Viewbar className="gap-2 overflow-x-auto border-b-0">
+    <Viewbar className="no-scrollbar gap-2 overflow-x-auto border-b-0">
       <ViewsDirectoryLayoutTabs
         layout={layout}
         onLayoutChange={onLayoutChange}
@@ -4114,7 +4114,7 @@ export function ProjectsScreen({
         team={team}
         view={effectiveProjectView}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <ProjectsContent
           data={data}
           displayProps={contentViewState.displayProps}
@@ -4264,7 +4264,7 @@ export function ViewsScreen({
         sortBy={sortBy}
         subGrouping={subGrouping}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <ViewsDirectoryContent
           display={{
             ...displayState,
@@ -4405,7 +4405,7 @@ export function DocsScreen({
         input={dialogInput}
         disabled={!editable}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <DocsContent
           data={data}
           documents={documents}

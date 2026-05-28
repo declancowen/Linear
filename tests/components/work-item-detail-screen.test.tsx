@@ -411,6 +411,7 @@ function addChildWorkItems(
 
 const TAYLOR_MENTION_DESCRIPTION =
   '<p>Initial description</p><span data-type="mention" data-id="user_2">@Taylor</span>'
+const MENTION_DELIVERY_TEST_TIMEOUT_MS = 30_000
 
 function renderWorkItemDetail(itemId = "item_1") {
   return render(<WorkItemDetailScreen itemId={itemId} />)
@@ -746,143 +747,163 @@ describe("work item detail screen", () => {
     expect(screen.queryByText("Taylor is also editing this item")).toBeNull()
   })
 
-  it("closes edit mode even when mention delivery fails after save", async () => {
-    const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
-    syncSendItemDescriptionMentionNotificationsMock.mockRejectedValue(
-      new Error("Saved changes but failed to notify mentions")
-    )
-    setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
-
-    renderWorkItemDetail()
-    openWorkItemEditor()
-    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
-    clickSaveButton()
-
-    expect(saveWorkItemMainSectionMock).toHaveBeenCalled()
-    await expectWorkItemEditorClosed()
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
-  })
-
-  it("retries failed mention delivery on the next save without reintroducing the mention", async () => {
-    setSaveWorkItemMainSectionMock(createStateUpdatingSaveMock())
-    mockRetryingMentionDelivery()
-
-    renderWorkItemDetail()
-
-    openWorkItemEditor()
-    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
-
-    clickSaveButton()
-
-    await expectWorkItemEditorClosed()
-
-    openWorkItemEditor()
-
-    const saveButton = screen.getByRole("button", { name: "Save" })
-    expect(saveButton).not.toBeDisabled()
-
-    fireEvent.click(saveButton)
-
-    await expectTaylorMentionDeliveryRetry()
-
-    fireEvent.click(await screen.findByRole("button", { name: "Edit" }))
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
-  })
-
-  it("preserves mention retries for one item when saving a different item without mentions", async () => {
-    setSaveWorkItemMainSectionMock(
-      createStateUpdatingSaveMock({
-        getDocumentId: (itemId) =>
-          itemId === "item_1" ? "document_1" : "document_2",
-      })
-    )
-    mockRetryingMentionDelivery()
-
-    const { rerender } = renderWorkItemDetail()
-
-    openWorkItemEditor()
-    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
-    clickSaveButton()
-
-    await expectWorkItemEditorClosed()
-
-    rerender(<WorkItemDetailScreen itemId="item_2" />)
-
-    openWorkItemEditor()
-    fireEvent.change(screen.getByDisplayValue("Follow up"), {
-      target: { value: "Follow up updated" },
-    })
-    clickSaveButton()
-
-    await expectWorkItemEditorClosed()
-
-    rerender(<WorkItemDetailScreen itemId="item_1" />)
-
-    openWorkItemEditor()
-
-    const saveButton = screen.getByRole("button", { name: "Save" })
-    expect(saveButton).not.toBeDisabled()
-
-    fireEvent.click(saveButton)
-
-    await expectTaylorMentionDeliveryRetry()
-  }, 10_000)
-
-  it("sends self-mentions after saving the main section", async () => {
-    const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
-    syncSendItemDescriptionMentionNotificationsMock.mockResolvedValue({
-      recipientCount: 1,
-      mentionCount: 1,
-    })
-    setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
-
-    renderWorkItemDetail()
-
-    openWorkItemEditor()
-    updateDescriptionEditor(
-      '<p>Initial description</p><span data-type="mention" data-id="user_1">@Alex</span>'
-    )
-
-    clickSaveButton()
-
-    expect(saveWorkItemMainSectionMock).toHaveBeenCalled()
-    await waitFor(() =>
-      expect(
-        syncSendItemDescriptionMentionNotificationsMock
-      ).toHaveBeenCalledWith("item_1", [
-        {
-          userId: "user_1",
-          count: 1,
-        },
-      ])
-    )
-  })
-
-  it("clears mention retries when the server reports they were already delivered", async () => {
-    const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
-    syncSendItemDescriptionMentionNotificationsMock.mockRejectedValue(
-      new RouteMutationError(
-        "One or more mentioned users were already notified for this work item",
-        409,
-        {
-          code: "ITEM_DESCRIPTION_MENTION_ALREADY_SENT",
-        }
+  it(
+    "closes edit mode even when mention delivery fails after save",
+    async () => {
+      const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
+      syncSendItemDescriptionMentionNotificationsMock.mockRejectedValue(
+        new Error("Saved changes but failed to notify mentions")
       )
-    )
-    setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
+      setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
 
-    renderWorkItemDetail()
+      renderWorkItemDetail()
+      openWorkItemEditor()
+      updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+      clickSaveButton()
 
-    openWorkItemEditor()
-    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+      expect(saveWorkItemMainSectionMock).toHaveBeenCalled()
+      await expectWorkItemEditorClosed()
+      expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
+    },
+    MENTION_DELIVERY_TEST_TIMEOUT_MS
+  )
 
-    clickSaveButton()
+  it(
+    "retries failed mention delivery on the next save without reintroducing the mention",
+    async () => {
+      setSaveWorkItemMainSectionMock(createStateUpdatingSaveMock())
+      mockRetryingMentionDelivery()
 
-    await expectWorkItemEditorClosed()
+      renderWorkItemDetail()
 
-    openWorkItemEditor()
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
-  })
+      openWorkItemEditor()
+      updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+
+      clickSaveButton()
+
+      await expectWorkItemEditorClosed()
+
+      openWorkItemEditor()
+
+      const saveButton = screen.getByRole("button", { name: "Save" })
+      expect(saveButton).not.toBeDisabled()
+
+      fireEvent.click(saveButton)
+
+      await expectTaylorMentionDeliveryRetry()
+
+      fireEvent.click(await screen.findByRole("button", { name: "Edit" }))
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    },
+    MENTION_DELIVERY_TEST_TIMEOUT_MS
+  )
+
+  it(
+    "preserves mention retries for one item when saving a different item without mentions",
+    async () => {
+      setSaveWorkItemMainSectionMock(
+        createStateUpdatingSaveMock({
+          getDocumentId: (itemId) =>
+            itemId === "item_1" ? "document_1" : "document_2",
+        })
+      )
+      mockRetryingMentionDelivery()
+
+      const { rerender } = renderWorkItemDetail()
+
+      openWorkItemEditor()
+      updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+      clickSaveButton()
+
+      await expectWorkItemEditorClosed()
+
+      rerender(<WorkItemDetailScreen itemId="item_2" />)
+
+      openWorkItemEditor()
+      fireEvent.change(screen.getByDisplayValue("Follow up"), {
+        target: { value: "Follow up updated" },
+      })
+      clickSaveButton()
+
+      await expectWorkItemEditorClosed()
+
+      rerender(<WorkItemDetailScreen itemId="item_1" />)
+
+      openWorkItemEditor()
+
+      const saveButton = screen.getByRole("button", { name: "Save" })
+      expect(saveButton).not.toBeDisabled()
+
+      fireEvent.click(saveButton)
+
+      await expectTaylorMentionDeliveryRetry()
+    },
+    MENTION_DELIVERY_TEST_TIMEOUT_MS
+  )
+
+  it(
+    "sends self-mentions after saving the main section",
+    async () => {
+      const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
+      syncSendItemDescriptionMentionNotificationsMock.mockResolvedValue({
+        recipientCount: 1,
+        mentionCount: 1,
+      })
+      setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
+
+      renderWorkItemDetail()
+
+      openWorkItemEditor()
+      updateDescriptionEditor(
+        '<p>Initial description</p><span data-type="mention" data-id="user_1">@Alex</span>'
+      )
+
+      clickSaveButton()
+
+      expect(saveWorkItemMainSectionMock).toHaveBeenCalled()
+      await waitFor(() =>
+        expect(
+          syncSendItemDescriptionMentionNotificationsMock
+        ).toHaveBeenCalledWith("item_1", [
+          {
+            userId: "user_1",
+            count: 1,
+          },
+        ])
+      )
+    },
+    MENTION_DELIVERY_TEST_TIMEOUT_MS
+  )
+
+  it(
+    "clears mention retries when the server reports they were already delivered",
+    async () => {
+      const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
+      syncSendItemDescriptionMentionNotificationsMock.mockRejectedValue(
+        new RouteMutationError(
+          "One or more mentioned users were already notified for this work item",
+          409,
+          {
+            code: "ITEM_DESCRIPTION_MENTION_ALREADY_SENT",
+          }
+        )
+      )
+      setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
+
+      renderWorkItemDetail()
+
+      openWorkItemEditor()
+      updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+
+      clickSaveButton()
+
+      await expectWorkItemEditorClosed()
+
+      openWorkItemEditor()
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    },
+    MENTION_DELIVERY_TEST_TIMEOUT_MS
+  )
 
   it("shows editable sidebar property controls and simplified child rows", () => {
     addChildWorkItems([

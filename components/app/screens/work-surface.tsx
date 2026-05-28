@@ -177,22 +177,17 @@ function getCompatibleActiveView(
   const displayPropsChanged = displayProps.length !== view.displayProps.length
   const filters = getCompatibleWorkSurfaceFilters(view)
   const filtersChanged = filters !== view.filters
-  const layout = isPrivateTaskView(view) ? "board" : view.layout
-  const layoutChanged = layout !== view.layout
-
   if (
     grouping === view.grouping &&
     subGrouping === (view.subGrouping ?? null) &&
     !displayPropsChanged &&
-    !filtersChanged &&
-    !layoutChanged
+    !filtersChanged
   ) {
     return view
   }
 
   return {
     ...view,
-    layout,
     grouping,
     subGrouping,
     filters,
@@ -619,7 +614,7 @@ function getWorkSurfaceContentClassName(view: ViewDefinition | null) {
     "min-h-0 min-w-0 flex-1 overscroll-contain",
     view?.layout === "board" || view?.layout === "timeline"
       ? "flex overflow-hidden"
-      : "overflow-x-hidden overflow-y-auto"
+      : "no-scrollbar overflow-x-hidden overflow-y-auto"
   )
 }
 
