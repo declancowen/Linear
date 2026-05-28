@@ -5,7 +5,8 @@ import {
   bumpScopedReadModelVersionsServer,
   deleteChannelPostCommentServer,
 } from "@/lib/server/convex"
-import { resolveChannelPostReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
+import { getChannelPostRelatedScopeKeys } from "@/lib/scoped-sync/read-models"
+import { loadScopedReadModelSnapshotForSession } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -30,15 +31,36 @@ export async function DELETE(
 
   try {
     const { postId, commentId } = await params
-    const scopeKeys = await resolveChannelPostReadModelScopeKeysServer(
-      session,
-      postId
-    )
     const appContext = await requireAppContext(session)
 
     if (isRouteResponse(appContext)) {
       return appContext
     }
+
+    const snapshot = await loadScopedReadModelSnapshotForSession(session)
+    const comment =
+      snapshot.channelPostComments.find((entry) => entry.id === commentId) ??
+      null
+
+    if (!comment) {
+      return jsonOk({
+        ok: true,
+      })
+    }
+
+    if (comment.postId !== postId) {
+      return jsonError("Comment not found", 404, {
+        code: "CHANNEL_POST_COMMENT_NOT_FOUND",
+      })
+    }
+
+    if (comment.createdBy !== appContext.ensuredUser.userId) {
+      return jsonError("You can only delete your own comments", 403, {
+        code: "CHANNEL_POST_COMMENT_DELETE_FORBIDDEN",
+      })
+    }
+
+    const scopeKeys = getChannelPostRelatedScopeKeys(snapshot, postId)
 
     await deleteChannelPostCommentServer({
       currentUserId: appContext.ensuredUser.userId,

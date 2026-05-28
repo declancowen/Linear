@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { createEmptyState } from "@/lib/domain/empty-state"
 import { ApplicationError } from "@/lib/server/application-errors"
 import { expectTypedJsonError } from "@/tests/lib/fixtures/api-routes"
 
@@ -13,6 +14,7 @@ const toggleChannelPostReactionServerMock = vi.fn()
 const bumpScopedReadModelVersionsServerMock = vi.fn()
 const resolveChannelPostReadModelScopeKeysServerMock = vi.fn()
 const resolveChatMessageReadModelScopeKeysServerMock = vi.fn()
+const loadScopedReadModelSnapshotForSessionMock = vi.fn()
 const getSnapshotServerMock = vi.fn()
 const getSnapshotVersionServerMock = vi.fn()
 const updateWorkOSUserEmailMock = vi.fn()
@@ -36,6 +38,8 @@ vi.mock("@/lib/server/convex", () => ({
 }))
 
 vi.mock("@/lib/server/scoped-read-models", () => ({
+  loadScopedReadModelSnapshotForSession:
+    loadScopedReadModelSnapshotForSessionMock,
   resolveChannelPostReadModelScopeKeysServer:
     resolveChannelPostReadModelScopeKeysServerMock,
   resolveChatMessageReadModelScopeKeysServer:
@@ -60,6 +64,65 @@ vi.mock("@/lib/server/workos", async () => {
   }
 })
 
+function createChannelSnapshot(
+  overrides: Partial<ReturnType<typeof createEmptyState>> = {}
+) {
+  return {
+    ...createEmptyState(),
+    currentUserId: "user_1",
+    currentWorkspaceId: "workspace_1",
+    conversations: [
+      {
+        id: "conversation_1",
+        kind: "channel",
+        scopeType: "team",
+        scopeId: "team_1",
+        variant: "group",
+        title: "Channel",
+        description: "",
+        participantIds: ["user_1"],
+        roomId: null,
+        roomName: null,
+        createdBy: "user_1",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+        lastActivityAt: "2026-04-18T10:00:00.000Z",
+      },
+    ],
+    channelPosts: [
+      {
+        id: "post_1",
+        conversationId: "conversation_1",
+        title: "Roadmap",
+        content: "<p>Post</p>",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_1",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        updatedAt: "2026-04-18T10:00:00.000Z",
+      },
+    ],
+    channelPostComments: [
+      {
+        id: "comment_1",
+        postId: "post_1",
+        content: "<p>Reply</p>",
+        mentionUserIds: [],
+        createdBy: "user_1",
+        createdAt: "2026-04-18T10:00:00.000Z",
+      },
+    ],
+    teamMemberships: [
+      {
+        teamId: "team_1",
+        userId: "user_1",
+        role: "admin",
+      },
+    ],
+    ...overrides,
+  }
+}
+
 describe("platform route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
@@ -72,6 +135,7 @@ describe("platform route contracts", () => {
     bumpScopedReadModelVersionsServerMock.mockReset()
     resolveChannelPostReadModelScopeKeysServerMock.mockReset()
     resolveChatMessageReadModelScopeKeysServerMock.mockReset()
+    loadScopedReadModelSnapshotForSessionMock.mockReset()
     getSnapshotServerMock.mockReset()
     getSnapshotVersionServerMock.mockReset()
     updateWorkOSUserEmailMock.mockReset()
@@ -113,6 +177,9 @@ describe("platform route contracts", () => {
     resolveChannelPostReadModelScopeKeysServerMock.mockResolvedValue([
       "channel-post:post_1",
     ])
+    loadScopedReadModelSnapshotForSessionMock.mockResolvedValue(
+      createChannelSnapshot()
+    )
     resolveChatMessageReadModelScopeKeysServerMock.mockResolvedValue([
       "chat-message:message_1",
     ])
@@ -243,8 +310,46 @@ describe("platform route contracts", () => {
       commentId: "comment_1",
     })
     expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
-      scopeKeys: ["channel-post:post_1"],
+      scopeKeys: expect.arrayContaining([
+        "channel-feed:conversation_1",
+        "conversation-list:user_1",
+        "notification-inbox:user_1",
+      ]),
     })
+  })
+
+  it("treats already-deleted channel-post comments as idempotent success", async () => {
+    const deleteCommentRoute = await import(
+      "@/app/api/channel-posts/[postId]/comments/[commentId]/route"
+    )
+
+    loadScopedReadModelSnapshotForSessionMock.mockResolvedValue(
+      createChannelSnapshot({
+        channelPostComments: [],
+      })
+    )
+
+    const response = await deleteCommentRoute.DELETE(
+      new Request(
+        "http://localhost/api/channel-posts/post_1/comments/comment_1",
+        {
+          method: "DELETE",
+        }
+      ) as never,
+      {
+        params: Promise.resolve({
+          postId: "post_1",
+          commentId: "comment_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+    })
+    expect(deleteChannelPostCommentServerMock).not.toHaveBeenCalled()
+    expect(bumpScopedReadModelVersionsServerMock).not.toHaveBeenCalled()
   })
 
   it("maps snapshot failures to typed error responses", async () => {

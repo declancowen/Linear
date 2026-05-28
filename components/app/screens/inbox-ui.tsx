@@ -369,6 +369,7 @@ function InboxResizeHandle({
     <button
       type="button"
       aria-label="Resize inbox list"
+      title="Drag to resize. Double-click to reset to 50/50."
       className={cn(
         "group absolute top-0 -right-2 z-10 hidden h-full w-4 cursor-col-resize touch-none select-none md:block",
         resizing && "bg-primary/6"
@@ -684,7 +685,10 @@ function InboxDetailBody({
   primaryAction: PrimaryActionDescriptor | null
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-8">
+    <div
+      data-inbox-detail-body
+      className="flex w-full flex-col gap-6 px-6 py-8"
+    >
       <div className="flex items-center gap-3">
         <UserAvatar
           name={actorName}

@@ -27,6 +27,11 @@ type DesktopUpdateTestManager = {
 }
 
 type DesktopUpdatesModule = {
+  buildDesktopUpdateMenuDescriptor: (state?: DesktopUpdateState | null) => {
+    action: "check" | "download" | "install"
+    enabled: boolean
+    label: string
+  }
   createDesktopUpdateManager: (options: {
     app: { getVersion?: () => string; isPackaged: boolean }
     autoUpdater: ReturnType<typeof createAutoUpdaterMock>
@@ -56,6 +61,7 @@ type DesktopUpdatesModule = {
 
 const require = createRequire(import.meta.url)
 const {
+  buildDesktopUpdateMenuDescriptor,
   createDesktopUpdateManager,
   getDesktopAutoUpdateDisabledReason,
   normalizeGitHubRepository,
@@ -216,6 +222,44 @@ describe("desktop updates", () => {
         message: "Recipe Room 0.0.1 is up to date.",
         status: "idle",
       },
+    })
+  })
+
+  it("exposes only the current update action in the native menu", () => {
+    expect(buildDesktopUpdateMenuDescriptor()).toEqual({
+      action: "check",
+      enabled: true,
+      label: "Check for Updates...",
+    })
+    expect(
+      buildDesktopUpdateMenuDescriptor({
+        configured: true,
+        status: "available",
+      })
+    ).toEqual({
+      action: "download",
+      enabled: true,
+      label: "Download Update",
+    })
+    expect(
+      buildDesktopUpdateMenuDescriptor({
+        configured: true,
+        status: "downloading",
+      })
+    ).toEqual({
+      action: "download",
+      enabled: false,
+      label: "Download Update",
+    })
+    expect(
+      buildDesktopUpdateMenuDescriptor({
+        configured: true,
+        status: "downloaded",
+      })
+    ).toEqual({
+      action: "install",
+      enabled: true,
+      label: "Restart to Update",
     })
   })
 

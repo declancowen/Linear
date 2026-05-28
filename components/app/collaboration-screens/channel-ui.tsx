@@ -5,7 +5,6 @@ import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
   ChatCircle,
-  DotsThree,
   PaperPlaneTilt,
   Smiley,
   Trash,
@@ -40,12 +39,6 @@ import {
 } from "@/components/app/collaboration-screens/channel-post-primitives"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 type AppState = ReturnType<typeof useAppStore.getState>
 type ForumPostRecord = AppState["channelPosts"][number]
@@ -105,26 +98,14 @@ function ForumPostActionBar({
         <ChatCircle className="size-[14px]" />
       </button>
       {canDeletePost ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
-              aria-label="More"
-            >
-              <DotsThree className="size-[14px]" weight="bold" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onSelect={onDelete}
-            >
-              <Trash className="size-4" />
-              Delete post
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-destructive/10 hover:text-destructive"
+          aria-label="Delete post"
+        >
+          <Trash className="size-[14px]" />
+        </button>
       ) : null}
     </div>
   )

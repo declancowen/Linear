@@ -32,7 +32,19 @@ function ScrollArea({
           <ScrollBar />
           <ScrollAreaPrimitive.Corner />
         </>
-      ) : null}
+      ) : (
+        <>
+          <ScrollBar
+            aria-hidden="true"
+            className="pointer-events-none hidden"
+          />
+          <ScrollBar
+            aria-hidden="true"
+            orientation="horizontal"
+            className="pointer-events-none hidden"
+          />
+        </>
+      )}
     </ScrollAreaPrimitive.Root>
   )
 }

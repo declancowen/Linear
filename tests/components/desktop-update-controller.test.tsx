@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const { toastCustomMock, toastDismissMock, toastSuccessMock } = vi.hoisted(
@@ -115,5 +115,106 @@ describe("DesktopUpdateController", () => {
         /Recipe Room could not verify this desktop app version and version 2\.0\.0 or newer is required\./u
       )
     ).toBeInTheDocument()
+  })
+
+  it("shows latest-version feedback from a forced native menu check", async () => {
+    let updateListener:
+      | Parameters<
+          NonNullable<NonNullable<Window["electronApp"]>["onUpdateState"]>
+        >[0]
+      | null = null
+
+    setElectronApp({
+      getDesktopAppInfo: vi.fn().mockResolvedValue({
+        apiBaseUrl: "https://teams.reciperoom.io",
+        isPackaged: true,
+        platform: "darwin",
+        version: "2.0.0",
+      }),
+      getUpdateState: vi.fn().mockResolvedValue({
+        configured: true,
+        status: "idle",
+      }),
+      onUpdateState: vi.fn((listener) => {
+        updateListener = listener
+        return vi.fn()
+      }),
+    })
+
+    render(<DesktopUpdateController />)
+
+    await waitFor(() => expect(updateListener).not.toBeNull())
+
+    act(() => {
+      updateListener?.({
+        showToast: true,
+        source: "menu",
+        state: {
+          configured: true,
+          message: "Recipe Room 2.0.0 is up to date.",
+          status: "idle",
+        },
+      })
+    })
+
+    expect(
+      await screen.findByText("You're on the latest version")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("Recipe Room 2.0.0 is up to date.")
+    ).toBeInTheDocument()
+  })
+
+  it("shows update-available feedback from a forced native menu check", async () => {
+    let updateListener:
+      | Parameters<
+          NonNullable<NonNullable<Window["electronApp"]>["onUpdateState"]>
+        >[0]
+      | null = null
+    const downloadUpdate = vi.fn().mockResolvedValue({
+      accepted: true,
+      completed: false,
+    })
+
+    setElectronApp({
+      downloadUpdate,
+      getDesktopAppInfo: vi.fn().mockResolvedValue({
+        apiBaseUrl: "https://teams.reciperoom.io",
+        isPackaged: true,
+        platform: "darwin",
+        version: "2.0.0",
+      }),
+      getUpdateState: vi.fn().mockResolvedValue({
+        configured: true,
+        status: "idle",
+      }),
+      onUpdateState: vi.fn((listener) => {
+        updateListener = listener
+        return vi.fn()
+      }),
+    })
+
+    render(<DesktopUpdateController />)
+
+    await waitFor(() => expect(updateListener).not.toBeNull())
+
+    act(() => {
+      updateListener?.({
+        showToast: true,
+        source: "menu",
+        state: {
+          availableVersion: "0.0.8",
+          configured: true,
+          status: "available",
+        },
+      })
+    })
+
+    expect(
+      await screen.findByText("A new update is available")
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Download Update" }))
+
+    expect(downloadUpdate).toHaveBeenCalled()
   })
 })

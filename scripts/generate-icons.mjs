@@ -15,6 +15,17 @@ const repoRoot = path.resolve(__dirname, "..")
 const sourcePngPath = path.join(repoRoot, "app-icon.png")
 const electronIcnsPath = path.join(repoRoot, "electron", "app-icon.icns")
 
+const appIconSvgMarkup = [
+  '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256" fill="none">',
+  "  <style>",
+  "    .mark { fill: #737373; }",
+  "    @media (prefers-color-scheme: dark) { .mark { fill: #d4d4d4; } }",
+  "  </style>",
+  '  <path class="mark" d="M221.87,83.16A104.1,104.1,0,1,1,195.67,49l22.67-22.68a8,8,0,0,1,11.32,11.32l-96,96a8,8,0,0,1-11.32-11.32l27.72-27.72a40,40,0,1,0,17.87,31.09,8,8,0,1,1,16-.9,56,56,0,1,1-22.38-41.65L184.3,60.39a87.88,87.88,0,1,0,23.13,29.67,8,8,0,0,1,14.44-6.9Z" />',
+  "</svg>",
+  "",
+].join("\n")
+
 const svgTargets = [
   path.join(repoRoot, "app-icon.svg"),
   path.join(repoRoot, "icon.svg"),
@@ -66,19 +77,11 @@ async function copyToTargets(sourcePath, targets) {
   )
 }
 
-async function writeSvgTargets(inputBuffer, targets) {
-  const embeddedPng = inputBuffer.toString("base64")
-  const svgMarkup = [
-    '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">',
-    `  <image width="512" height="512" href="data:image/png;base64,${embeddedPng}" />`,
-    "</svg>",
-    "",
-  ].join("\n")
-
+async function writeSvgTargets(targets) {
   await Promise.all(
     targets.map(async (targetPath) => {
       await ensureParent(targetPath)
-      await fs.writeFile(targetPath, svgMarkup)
+      await fs.writeFile(targetPath, appIconSvgMarkup)
     })
   )
 }
@@ -127,9 +130,14 @@ async function main() {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "recipe-room-icons-"))
 
   try {
-    const sourcePngBuffer = await fs.readFile(sourcePngPath)
+    const sourcePngBuffer = await sharp(Buffer.from(appIconSvgMarkup))
+      .resize(1024, 1024)
+      .png()
+      .toBuffer()
     const rasterSizes = [16, 32, 48, 64, 128, 180, 256, 512]
     const rasterPaths = new Map()
+
+    await fs.writeFile(sourcePngPath, sourcePngBuffer)
 
     for (const size of rasterSizes) {
       const outputPath = path.join(tempDir, `${size}.png`)
@@ -137,7 +145,7 @@ async function main() {
       rasterPaths.set(size, outputPath)
     }
 
-    await writeSvgTargets(sourcePngBuffer, svgTargets)
+    await writeSvgTargets(svgTargets)
     await copyToTargets(sourcePngPath, appIconTargets)
     await copyToTargets(rasterPaths.get(180), appleIconTargets)
     await writeElectronIcns(sourcePngBuffer, tempDir)

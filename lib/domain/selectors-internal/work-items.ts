@@ -790,21 +790,21 @@ export function buildItemGroupsWithEmptyGroups(
         ? getStatusOrderForTeam(getTeam(data, options.teamId))
         : [...workStatuses]
 
-  if (!hasActiveViewFilters(view)) {
+  const availableGroupKeys = new Set(getSelectedGroupFilterKeys(data, view))
+
+  if (!hasActiveViewFilters(view) || options?.sourceItems) {
     getAvailableGroupKeysForItems(data, items, view.grouping, options).forEach(
       (groupKey) => {
-        if (!groups.has(groupKey)) {
-          groups.set(groupKey, new Map())
-        }
+        availableGroupKeys.add(groupKey)
       }
     )
-  } else {
-    getSelectedGroupFilterKeys(data, view).forEach((groupKey) => {
-      if (!groups.has(groupKey)) {
-        groups.set(groupKey, new Map())
-      }
-    })
   }
+
+  availableGroupKeys.forEach((groupKey) => {
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, new Map())
+    }
+  })
 
   return new Map(
     [...groups.entries()].sort((left, right) =>
