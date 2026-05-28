@@ -1167,6 +1167,25 @@ describe("CalendarView", () => {
     }
   })
 
+  it("uses the week day count to size date columns, not just event blocks", () => {
+    render(
+      <CalendarView
+        data={createData()}
+        items={[]}
+        editable={false}
+        mode="week"
+        weekDayCount={14}
+      />
+    )
+
+    expect(screen.getByTestId("calendar-day-header-grid")).toHaveStyle({
+      width: "700%",
+    })
+    expect(screen.getByTestId("calendar-timed-grid")).toHaveStyle({
+      width: "700%",
+    })
+  })
+
   it("exposes shared calendar settings controls", () => {
     const onColorModeChange = vi.fn()
     const onTimeIntervalChange = vi.fn()

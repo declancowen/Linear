@@ -1905,6 +1905,28 @@ function getExpandedAllDayVisibleRowLimit() {
   return EXPANDED_ALL_DAY_EVENT_ROW_LIMIT
 }
 
+function getDayColumnsContentWidth({
+  dayCount,
+  mode,
+  weekDayCount,
+}: {
+  dayCount: number
+  mode: CalendarMode
+  weekDayCount: CalendarWeekDayCount
+}) {
+  const normalizedDayCount = Math.max(1, dayCount)
+
+  if (mode === "day") {
+    return `${normalizedDayCount * 100}%`
+  }
+
+  if (mode === "week") {
+    return `${(normalizedDayCount / normalizeWeekDayCount(weekDayCount)) * 100}%`
+  }
+
+  return `max(100%, ${normalizedDayCount * CALENDAR_DAY_MIN_WIDTH}px)`
+}
+
 function getAllDayEventTop(rowIndex: number) {
   return (
     ALL_DAY_LANE_TOP_PADDING +
@@ -2622,6 +2644,7 @@ function CalendarDayHeader({
       className="overflow-hidden border-b border-line-soft bg-background"
     >
       <div
+        data-testid="calendar-day-header-grid"
         className="grid"
         style={{
           gridTemplateColumns: dayColumnsGridTemplateColumns,
@@ -5007,10 +5030,11 @@ export function CalendarView({
     visibleRowCount: visibleAllDayRowCount,
   })
   const dayColumnsGridTemplateColumns = `repeat(${dayKeys.length}, minmax(0, 1fr))`
-  const dayColumnsContentWidth =
-    mode === "day"
-      ? `${Math.max(1, dayKeys.length) * 100}%`
-      : `max(100%, ${dayKeys.length * CALENDAR_DAY_MIN_WIDTH}px)`
+  const dayColumnsContentWidth = getDayColumnsContentWidth({
+    dayCount: dayKeys.length,
+    mode,
+    weekDayCount,
+  })
   const visibleTimedEntries = timedEntries.filter((entry) =>
     dayKeySet.has(entry.date)
   )
