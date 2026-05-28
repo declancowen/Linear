@@ -1108,6 +1108,39 @@ describe("CalendarView", () => {
     expect(screen.getByText(format(today, "MMMM yyyy"))).toBeInTheDocument()
   })
 
+  it("keeps vertical day scrolling from shifting the calendar window", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 4, 21, 9))
+
+    const scrollWidthSpy = vi
+      .spyOn(HTMLElement.prototype, "scrollWidth", "get")
+      .mockReturnValue(29000)
+
+    try {
+      render(
+        <CalendarView
+          data={createData()}
+          items={[]}
+          editable={false}
+          mode="day"
+        />
+      )
+
+      const scrollContainer = screen.getByTestId(
+        "calendar-day-scroll-container"
+      )
+
+      scrollContainer.scrollLeft = 0
+      scrollContainer.scrollTop = 420
+      fireEvent.scroll(scrollContainer)
+
+      expect(screen.getByText("21 May 2026")).toBeInTheDocument()
+      expect(screen.queryByText("20 May 2026")).not.toBeInTheDocument()
+    } finally {
+      scrollWidthSpy.mockRestore()
+    }
+  })
+
   it("anchors day view after its backward scroll buffer", () => {
     const scrollWidthSpy = vi
       .spyOn(HTMLElement.prototype, "scrollWidth", "get")
@@ -1930,7 +1963,7 @@ describe("CalendarView", () => {
       "calendar-day-scroll-container"
     )
 
-    expect(allDayArea).toHaveStyle({ height: "124px" })
+    expect(allDayArea).toHaveStyle({ height: "334px" })
     expect(allDayArea).toHaveClass("no-scrollbar")
     expect(dayScrollContainer).toHaveClass("no-scrollbar")
 

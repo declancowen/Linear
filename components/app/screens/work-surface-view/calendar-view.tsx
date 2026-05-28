@@ -399,7 +399,6 @@ const HOUR_HEIGHT = 64
 const ALL_DAY_EVENT_HEIGHT = 26
 const ALL_DAY_EVENT_GAP = 4
 const ALL_DAY_LANE_MIN_HEIGHT = 44
-const ALL_DAY_EXPANDED_MAX_SURFACE_RATIO = 0.42
 const ALL_DAY_LANE_TOP_PADDING = 6
 const ALL_DAY_LANE_BOTTOM_PADDING = 6
 const ALL_DAY_MORE_BUTTON_HEIGHT = 22
@@ -942,7 +941,7 @@ function normalizeMaxAllDayEvents(value: number) {
 function parseMaxAllDayEvents(value: string) {
   const parsed = Number(value)
 
-  return Number.isFinite(parsed) ? normalizeMaxAllDayEvents(parsed) : 3
+  return Number.isFinite(parsed) ? normalizeMaxAllDayEvents(parsed) : 10
 }
 
 function normalizeWeekDayCount(value: number): CalendarWeekDayCount {
@@ -1901,30 +1900,8 @@ function getAllDayLaneViewportHeight({
   return Math.min(contentHeight, expandedMaxHeight)
 }
 
-function getExpandedAllDayVisibleRowLimit({
-  maxAllDayEvents,
-  surfaceHeight,
-}: {
-  maxAllDayEvents: number
-  surfaceHeight: number
-}) {
-  const maxRows = normalizeMaxAllDayEvents(maxAllDayEvents)
-
-  if (surfaceHeight <= 0) {
-    return maxRows
-  }
-
-  const availableHeight = Math.max(
-    ALL_DAY_LANE_MIN_HEIGHT,
-    surfaceHeight * ALL_DAY_EXPANDED_MAX_SURFACE_RATIO
-  )
-  let rows = maxRows
-
-  while (rows > 1 && getAllDayLaneHeightForRows(rows, true) > availableHeight) {
-    rows -= 1
-  }
-
-  return rows
+function getExpandedAllDayVisibleRowLimit(maxAllDayEvents: number) {
+  return normalizeMaxAllDayEvents(maxAllDayEvents)
 }
 
 function getAllDayEventTop(rowIndex: number) {
@@ -3926,7 +3903,7 @@ function useCalendarViewControls({
   const [rawMaxAllDayEvents, setMaxAllDayEvents] =
     useCalendarControlledValue<number>(
       controlledMaxAllDayEvents,
-      3,
+      10,
       onMaxAllDayEventsChange
     )
   const [rawTimeZone, handleTimeZoneChange] = useCalendarControlledValue(
@@ -4090,7 +4067,6 @@ export function CalendarView({
   const [selectionPreview, setSelectionPreview] =
     useState<CalendarSelectionPreview | null>(null)
   const [monthGridHeight, setMonthGridHeight] = useState(0)
-  const [calendarSurfaceHeight, setCalendarSurfaceHeight] = useState(0)
   const calendarControls = useCalendarViewControls({
     controlledColorMode,
     controlledMaxAllDayEvents,
@@ -4139,6 +4115,8 @@ export function CalendarView({
   const dayBodyScrollRef = useRef<HTMLDivElement | null>(null)
   const dayHeaderScrollRef = useRef<HTMLDivElement | null>(null)
   const dayAllDayScrollRef = useRef<HTMLDivElement | null>(null)
+  const dayBodyLastScrollLeftRef = useRef(0)
+  const dayAllDayLastScrollLeftRef = useRef(0)
   const timeRailContentRef = useRef<HTMLDivElement | null>(null)
   const timedGridRef = useRef<HTMLDivElement | null>(null)
   const calendarMainSurfaceRef = useRef<HTMLDivElement | null>(null)
@@ -4215,26 +4193,6 @@ export function CalendarView({
     })
 
     observer.observe(element)
-
-    return () => observer.disconnect()
-  }, [mode])
-
-  useEffect(() => {
-    const element = calendarMainSurfaceRef.current
-
-    if (!element || typeof ResizeObserver === "undefined") {
-      return
-    }
-
-    const observer = new ResizeObserver(([entry]) => {
-      const nextHeight = entry?.contentRect.height ?? 0
-      setCalendarSurfaceHeight((current) =>
-        Math.abs(current - nextHeight) < 1 ? current : nextHeight
-      )
-    })
-
-    observer.observe(element)
-    setCalendarSurfaceHeight(element.getBoundingClientRect().height)
 
     return () => observer.disconnect()
   }, [mode])
@@ -4948,15 +4906,23 @@ export function CalendarView({
     scrollLeft: number,
     source: "all-day" | "body"
   ) {
+    if (source === "body") {
+      dayBodyLastScrollLeftRef.current = scrollLeft
+    } else {
+      dayAllDayLastScrollLeftRef.current = scrollLeft
+    }
+
     if (dayHeaderScrollRef.current) {
       dayHeaderScrollRef.current.scrollLeft = scrollLeft
     }
 
     if (source !== "all-day" && dayAllDayScrollRef.current) {
+      dayAllDayLastScrollLeftRef.current = scrollLeft
       dayAllDayScrollRef.current.scrollLeft = scrollLeft
     }
 
     if (source !== "body" && dayBodyScrollRef.current) {
+      dayBodyLastScrollLeftRef.current = scrollLeft
       dayBodyScrollRef.current.scrollLeft = scrollLeft
     }
   }
@@ -4970,16 +4936,27 @@ export function CalendarView({
   }
 
   function handleDayBodyScroll(event: ReactUIEvent<HTMLDivElement>) {
-    syncDayGridScroll(
-      event.currentTarget.scrollLeft,
-      event.currentTarget.scrollTop
-    )
-    maybeShiftCalendarWindowFromHorizontalScroll(event.currentTarget)
+    const scrollLeft = event.currentTarget.scrollLeft
+    const scrolledHorizontally =
+      Math.abs(scrollLeft - dayBodyLastScrollLeftRef.current) > 0.5
+
+    syncDayGridScroll(scrollLeft, event.currentTarget.scrollTop)
+
+    if (scrolledHorizontally) {
+      maybeShiftCalendarWindowFromHorizontalScroll(event.currentTarget)
+    }
   }
 
   function handleAllDayScroll(event: ReactUIEvent<HTMLDivElement>) {
-    syncDayGridHorizontalScroll(event.currentTarget.scrollLeft, "all-day")
-    maybeShiftCalendarWindowFromHorizontalScroll(event.currentTarget)
+    const scrollLeft = event.currentTarget.scrollLeft
+    const scrolledHorizontally =
+      Math.abs(scrollLeft - dayAllDayLastScrollLeftRef.current) > 0.5
+
+    syncDayGridHorizontalScroll(scrollLeft, "all-day")
+
+    if (scrolledHorizontally) {
+      maybeShiftCalendarWindowFromHorizontalScroll(event.currentTarget)
+    }
   }
 
   function handleMonthScroll(event: ReactUIEvent<HTMLDivElement>) {
@@ -5014,10 +4991,8 @@ export function CalendarView({
   const visibleAllDaySpans = allDaySpans.filter(
     (span) => span.rowIndex < visibleAllDayRowCount
   )
-  const expandedAllDayVisibleRowLimit = getExpandedAllDayVisibleRowLimit({
-    maxAllDayEvents,
-    surfaceHeight: calendarSurfaceHeight,
-  })
+  const expandedAllDayVisibleRowLimit =
+    getExpandedAllDayVisibleRowLimit(maxAllDayEvents)
   const allDayLaneHeight = getAllDayLaneHeightForRows(
     visibleAllDayRowCount,
     hasHiddenAllDayItems || canCollapseAllDayItems
@@ -5089,10 +5064,11 @@ export function CalendarView({
 
     const dayWidth = element.scrollWidth / Math.max(1, dayKeys.length)
     const nextScrollLeft = anchorIndex * dayWidth
+    const preservedScrollTop = element.scrollTop
 
     markCalendarScrollRecentering()
     element.scrollLeft = nextScrollLeft
-    element.scrollTop = 0
+    dayBodyLastScrollLeftRef.current = nextScrollLeft
 
     if (dayHeaderScrollRef.current) {
       dayHeaderScrollRef.current.scrollLeft = nextScrollLeft
@@ -5100,10 +5076,11 @@ export function CalendarView({
 
     if (dayAllDayScrollRef.current) {
       dayAllDayScrollRef.current.scrollLeft = nextScrollLeft
+      dayAllDayLastScrollLeftRef.current = nextScrollLeft
     }
 
     if (timeRailContentRef.current) {
-      timeRailContentRef.current.style.transform = "translateY(0px)"
+      timeRailContentRef.current.style.transform = `translateY(${-preservedScrollTop}px)`
     }
   }, [
     anchorDate,

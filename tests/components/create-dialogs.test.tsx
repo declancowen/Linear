@@ -448,7 +448,11 @@ describe("create dialogs", () => {
     expect(
       screen.getByRole("button", { name: "Target date" })
     ).toBeInTheDocument()
-    expect(screen.getByRole("dialog")).toHaveClass("top-6", "translate-y-0")
+    expect(screen.getByRole("dialog")).toHaveClass(
+      "top-[12vh]",
+      "translate-y-0",
+      "sm:top-[14vh]"
+    )
   })
 
   it("lets you switch team spaces without throwing when an initial type is provided", async () => {
@@ -919,7 +923,11 @@ describe("create dialogs", () => {
 
     expect(screen.getAllByText("Platform").length).toBeGreaterThan(0)
     expect(screen.getByPlaceholderText("Project name")).toBeInTheDocument()
-    expect(screen.getByRole("dialog")).toHaveClass("top-6", "translate-y-0")
+    expect(screen.getByRole("dialog")).toHaveClass(
+      "top-[12vh]",
+      "translate-y-0",
+      "sm:top-[14vh]"
+    )
   })
 
   it("shows only canonical project statuses in the project status picker", async () => {

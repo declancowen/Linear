@@ -81,9 +81,8 @@ function createChannelState(overrides: Partial<AppData> = {}) {
 }
 
 async function createChannelActionsHarness(state = createChannelState()) {
-  const { createCollaborationChannelActions } = await import(
-    "@/lib/store/app-store-internal/slices/collaboration-channel-actions"
-  )
+  const { createCollaborationChannelActions } =
+    await import("@/lib/store/app-store-internal/slices/collaboration-channel-actions")
   const backgroundTasks: Array<Promise<unknown> | null> = []
   const setState = (update: unknown) => {
     const patch = typeof update === "function" ? update(state as never) : update
@@ -112,7 +111,12 @@ describe("collaboration channel notification helpers", () => {
     Object.values(channelActionTestDoubles.notifications).forEach((mock) =>
       mock.mockReset()
     )
-    channelActionTestDoubles.convex.deleteComment.mockResolvedValue({ ok: true })
+    channelActionTestDoubles.convex.addComment.mockResolvedValue({
+      commentId: "comment_server",
+    })
+    channelActionTestDoubles.convex.deleteComment.mockResolvedValue({
+      ok: true,
+    })
   })
 
   it("notifies eligible followers once for channel comments", () => {
@@ -150,7 +154,8 @@ describe("collaboration channel notification helpers", () => {
   })
 
   it("optimistically deletes owned channel-post comments and syncs the delete", async () => {
-    const { backgroundTasks, slice, state } = await createChannelActionsHarness()
+    const { backgroundTasks, slice, state } =
+      await createChannelActionsHarness()
 
     slice.deleteChannelPostComment("post_1", "comment_1")
 
@@ -190,6 +195,86 @@ describe("collaboration channel notification helpers", () => {
     expect(channelActionTestDoubles.notifications.error).toHaveBeenCalledWith(
       "You can only delete your own comments"
     )
-    expect(channelActionTestDoubles.notifications.success).not.toHaveBeenCalled()
+    expect(
+      channelActionTestDoubles.notifications.success
+    ).not.toHaveBeenCalled()
+  })
+
+  it("reconciles created channel-post comment ids from the server", async () => {
+    const { backgroundTasks, slice, state } =
+      await createChannelActionsHarness()
+
+    slice.addChannelPostComment({
+      postId: "post_1",
+      content: "<p>Fresh reply</p>",
+    })
+
+    const optimisticComment = state.channelPostComments.find(
+      (comment) => comment.content === "<p>Fresh reply</p>"
+    )
+
+    expect(optimisticComment?.id).toMatch(/^channel_comment_/)
+    expect(optimisticComment?.id).not.toBe("comment_server")
+
+    await backgroundTasks[0]
+
+    expect(state.channelPostComments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "comment_server",
+          content: "<p>Fresh reply</p>",
+        }),
+      ])
+    )
+    expect(
+      state.channelPostComments.some(
+        (comment) => comment.id === optimisticComment?.id
+      )
+    ).toBe(false)
+  })
+
+  it("deletes the server-created comment when an optimistic reply is removed before create sync resolves", async () => {
+    let resolveCreateComment:
+      | ((value: { commentId: string }) => void)
+      | undefined
+    channelActionTestDoubles.convex.addComment.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreateComment = resolve
+      })
+    )
+    const { backgroundTasks, slice, state } =
+      await createChannelActionsHarness()
+
+    slice.addChannelPostComment({
+      postId: "post_1",
+      content: "<p>Transient reply</p>",
+    })
+
+    const optimisticComment = state.channelPostComments.find(
+      (comment) => comment.content === "<p>Transient reply</p>"
+    )
+
+    expect(optimisticComment).toBeTruthy()
+
+    slice.deleteChannelPostComment("post_1", optimisticComment?.id ?? "")
+
+    expect(
+      state.channelPostComments.some(
+        (comment) => comment.id === optimisticComment?.id
+      )
+    ).toBe(false)
+    expect(channelActionTestDoubles.convex.deleteComment).not.toHaveBeenCalled()
+
+    resolveCreateComment?.({ commentId: "comment_server_after_delete" })
+    await backgroundTasks[0]
+    await backgroundTasks[1]
+
+    expect(channelActionTestDoubles.convex.deleteComment).toHaveBeenCalledTimes(
+      1
+    )
+    expect(channelActionTestDoubles.convex.deleteComment).toHaveBeenCalledWith(
+      "post_1",
+      "comment_server_after_delete"
+    )
   })
 })

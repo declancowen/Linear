@@ -87,7 +87,7 @@ function useWorkSurfaceCalendarState(
   const [mode, onModeChange] = useState<CalendarMode>("week")
   const [timeInterval, onTimeIntervalChange] =
     useState<CalendarTimeInterval>("hour")
-  const [maxAllDayEvents, onMaxAllDayEventsChange] = useState(3)
+  const [maxAllDayEvents, onMaxAllDayEventsChange] = useState(10)
   const [weekDayCount, onWeekDayCountChange] = useState<CalendarWeekDayCount>(7)
   const [showWeekends, onShowWeekendsChange] = useState(true)
   const [weekStart, onWeekStartChange] = useState<CalendarWeekStart>("monday")

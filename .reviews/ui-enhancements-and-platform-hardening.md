@@ -49,6 +49,7 @@ Files and areas reviewed across all turns:
 - `app/api/auth/desktop/session/refresh/route.ts`, `app/api/channel-posts/[postId]/comments/[commentId]/route.ts`, `convex/app/collaboration_handlers.ts`, `lib/server/convex/collaboration.ts` — new desktop refresh and channel comment-delete route contracts
 - `package.json`, `pnpm-lock.yaml`, `vitest.config.ts` — CI dependency audit remediation and full-suite timeout stability
 - `lib/convex/client/route-mutation.ts`, `lib/time-zone.ts`, `tests/lib/convex/client-contracts.test.ts`, `tests/lib/time-zone.test.ts` — desktop route-mutation session retry and shared time-zone option ordering
+- `app/layout.tsx`, `components/app/shell.tsx`, `scripts/generate-icons.mjs`, `favicon.svg`, `public/favicon.svg`, `public/icon.svg`, `public/app-logo.svg`, `lib/store/app-store-internal/slices/collaboration-channel-actions.ts`, `components/app/screens/work-surface-view/calendar-view.tsx` — channel comment reconciliation, calendar scroll/all-day behavior, web favicon, and Bootstrap Apple download icon
 
 ## Hotspots (cumulative — updated as recurring risk families emerge)
 
@@ -61,13 +62,65 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-05-28 07:13:28 BST` |
-| **Total turns** | `11` |
+| **Last reviewed** | `2026-05-28 12:17:14 BST` |
+| **Total turns** | `12` |
 | **Open findings** | `0` |
-| **Resolved findings** | `22` |
+| **Resolved findings** | `23` |
 | **Accepted findings** | `19` |
 
 ---
+
+## Turn 12 — 2026-05-28 12:17:14 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `pending Turn 12 commit` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Reviewed the current local `main` diff for channel comment deletion, calendar all-day/scroll behavior, web/app icon separation, Bootstrap Apple download icon, and CI stability. One live review finding was fixed during review: deleting a just-created optimistic channel comment no longer sends the temporary client ID to the server; the store now tracks pending creates and deletes the returned server ID exactly once when the create resolves.
+**Outcome:** all clear after fixes
+**Risk score:** high — this touches optimistic channel state reconciliation, shared calendar scrolling, generated release/browser assets, metadata contracts, and CI timeout policy
+**Change archetypes:** optimistic-state, shared-ui, release-safety, performance, contract
+**Intended change:** fix the reported comment-delete double-action/failure, calendar scroll/all-day behavior, Apple download icon, web favicon, and failing CI before production deployment/release
+**Intent vs actual:** the channel action boundary now owns optimistic/server comment ID reconciliation and pending-create deletion; calendar view owns the 10-row all-day cap and horizontal-vs-vertical scroll-window shifting; icon generation now separates Electron app icons from web favicons; tests encode the create-modal position and longer async UI waits needed by the full jsdom suite
+**Confidence:** high for the local tree — full `pnpm check`, dependency audit, focused channel/calendar/work-item tests, diff whitespace, and diff-review preflight passed after fixes
+**Coverage note:** direct tests cover channel optimistic ID reconciliation and pending-create delete, calendar vertical scroll not shifting the day window, expanded all-day height, create-dialog position, and work-item async editor-close wait stability
+**Finding triage:** one live local review finding was found and resolved: optimistic comment deletes were still syncing the temporary ID. No open Critical/High findings remain.
+**Static/analyzer evidence:** diff-review preflight changed-file Fallow audit passed; production/full Fallow inventories still show inherited advisory debt and CI keeps Fallow `continue-on-error`
+**Architecture impact:** comment ID reconciliation stays in the client store sync boundary that creates the optimistic ID; calendar layout policy stays in the calendar view model; icon/favicons are generated through the existing asset script rather than hand-edited as a one-off; CI timeout policy is centralized in `vitest.config.ts` with one narrower mention-delivery timeout
+**Bug classes / invariants checked:** Optimistic ID Drift, Temporary ID Server Mutation, Scroll Axis Cross-Talk, Browser/Desktop Icon Contract Drift, CI Timing Flake. The weakest invariant was deleting an optimistic comment before server create resolution; regression coverage now asserts no temporary delete is sent and the real server ID is deleted once.
+**Branch totality:** reviewed the full current working tree diff on `main` against `origin/main`, including generated assets and test harness changes
+**Sibling closure:** channel post delete was rechecked conceptually; existing post deletes are already persisted entities, while the live temporary-ID issue is unique to comment create/delete overlap. Calendar day/all-day scroll containers and work-surface default calendar state were rechecked together. Browser favicon metadata and generated SVG/ICO/PNG targets were checked as one asset contract.
+**Residual risk / unknowns:** no authenticated visual browser smoke was run for the favicon/download icon after asset regeneration. Convex deployment is not required by this diff because no `convex/` or backend route files changed.
+
+### Validation
+
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — passed; changed-file Fallow audit passed
+- `pnpm audit:deps` — passed at the configured high-severity gate (`14` vulnerabilities reported: `1` low, `13` moderate)
+- `pnpm exec vitest run tests/lib/store/collaboration-channel-actions.test.ts tests/components/channel-ui.test.tsx` — passed (`10` tests)
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx` — passed (`20` tests)
+- `pnpm lint` — passed
+- `pnpm typecheck` — passed
+- `git diff --check` — passed
+- `pnpm check` — passed (`lint`, `typecheck`, `1214` tests, Next production build, desktop packaged-runtime smoke)
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** channel comment store actions/tests, calendar day/all-day scroll logic/tests, metadata icon declarations, icon generation script, desktop download menu icon, create-dialog and work-item detail CI-failure tests
+- **Prior open findings rechecked:** no open local findings remained from Turn 11
+- **Prior resolved/adjacent areas revalidated:** channel comment delete route/backend shape was not changed; frontend delete action now avoids temp-ID server calls and preserves persisted-comment delete behavior
+- **Hotspots or sibling paths revisited:** optimistic create/delete overlap, generated icon target split, calendar scroll axis detection, all-day expanded viewport height, full-suite timeout stability
+- **Why this is enough:** the only live bug found during review is now enforced by focused store tests, and the full repo check passed after the fix
+
+### Resolved findings
+
+| ID | Finding | Status | Bug class | Invariant |
+|----|---------|--------|-----------|-----------|
+| T12-01 | Pending channel-comment deletion still synced the temporary optimistic ID and could surface a false delete failure | Resolved | Optimistic ID Drift / Temporary ID Server Mutation | Server mutations must use server-owned IDs; temporary client IDs stay local until reconciled |
+
+### Recommendations
+
+1. **Defer on purpose:** authenticated visual smoke for browser favicon and download menu can be done post-deploy because the asset contract is generated and build-verified, but it was not browser-verified in this turn.
 
 ## Turn 11 — 2026-05-28 07:13:28 BST
 

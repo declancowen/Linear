@@ -40,11 +40,12 @@ type DeleteChannelPostCommentResult = {
   shouldSync: boolean
   state: AppStore
 }
+type ReconcileCreatedChannelPostCommentResult = {
+  shouldDeleteCreatedComment: boolean
+  state: AppStore
+}
 
-function getChannelConversation(
-  state: AppStore,
-  conversationId: string
-) {
+function getChannelConversation(state: AppStore, conversationId: string) {
   const conversation = state.conversations.find(
     (entry) => entry.id === conversationId
   )
@@ -199,6 +200,48 @@ function getDeleteChannelPostCommentResult(
         post,
         now
       ),
+    },
+  }
+}
+
+function reconcileCreatedChannelPostComment(
+  state: AppStore,
+  input: {
+    createdCommentId: string
+    optimisticCommentId: string
+  }
+): ReconcileCreatedChannelPostCommentResult {
+  if (input.createdCommentId === input.optimisticCommentId) {
+    return { shouldDeleteCreatedComment: false, state }
+  }
+
+  const hasOptimisticComment = state.channelPostComments.some(
+    (comment) => comment.id === input.optimisticCommentId
+  )
+  const hasCreatedComment = state.channelPostComments.some(
+    (comment) => comment.id === input.createdCommentId
+  )
+
+  if (!hasOptimisticComment) {
+    return {
+      shouldDeleteCreatedComment: !hasCreatedComment,
+      state,
+    }
+  }
+
+  return {
+    shouldDeleteCreatedComment: false,
+    state: {
+      ...state,
+      channelPostComments: hasCreatedComment
+        ? state.channelPostComments.filter(
+            (comment) => comment.id !== input.optimisticCommentId
+          )
+        : state.channelPostComments.map((comment) =>
+            comment.id === input.optimisticCommentId
+              ? { ...comment, id: input.createdCommentId }
+              : comment
+          ),
     },
   }
 }
@@ -360,6 +403,8 @@ export function createCollaborationChannelActions({
   | "deleteChannelPostComment"
   | "toggleChannelPostReaction"
 > {
+  const pendingChannelPostCommentCreates = new Set<string>()
+
   return {
     createChannelPost(input) {
       const parsed = channelPostSchema.safeParse(input)
@@ -428,6 +473,9 @@ export function createCollaborationChannelActions({
         return
       }
 
+      const optimisticCommentId = createId("channel_comment")
+      pendingChannelPostCommentCreates.add(optimisticCommentId)
+
       set((state) => {
         const post = state.channelPosts.find(
           (entry) => entry.id === parsed.data.postId
@@ -468,7 +516,7 @@ export function createCollaborationChannelActions({
           channelPostComments: [
             ...state.channelPostComments,
             {
-              id: createId("channel_comment"),
+              id: optimisticCommentId,
               postId: post.id,
               content: preparedContent.sanitized,
               mentionUserIds,
@@ -492,13 +540,40 @@ export function createCollaborationChannelActions({
         }
       })
 
-      runtime.syncInBackground(
-        syncAddChannelPostComment(
-          parsed.data.postId,
-          preparedContent.sanitized
-        ),
-        "Failed to post reply"
+      const syncTask = syncAddChannelPostComment(
+        parsed.data.postId,
+        preparedContent.sanitized
       )
+        .then((result) => {
+          let shouldDeleteCreatedComment = false
+
+          set((state) => {
+            const reconciliation = reconcileCreatedChannelPostComment(state, {
+              createdCommentId: result.commentId,
+              optimisticCommentId,
+            })
+
+            shouldDeleteCreatedComment =
+              reconciliation.shouldDeleteCreatedComment
+
+            return reconciliation.state
+          })
+
+          if (shouldDeleteCreatedComment) {
+            runtime.syncInBackground(
+              syncDeleteChannelPostComment(
+                parsed.data.postId,
+                result.commentId
+              ),
+              "Failed to delete comment"
+            )
+          }
+        })
+        .finally(() => {
+          pendingChannelPostCommentCreates.delete(optimisticCommentId)
+        })
+
+      runtime.syncInBackground(syncTask, "Failed to post reply")
     },
     deleteChannelPost(postId) {
       set((state) => {
@@ -549,6 +624,8 @@ export function createCollaborationChannelActions({
     deleteChannelPostComment(postId, commentId) {
       let deleteError: string | null = null
       let shouldSync = false
+      const deleteIsPendingCreate =
+        pendingChannelPostCommentCreates.has(commentId)
 
       set((state) => {
         const result = getDeleteChannelPostCommentResult(
@@ -567,6 +644,11 @@ export function createCollaborationChannelActions({
       }
 
       if (!shouldSync) {
+        return
+      }
+
+      if (deleteIsPendingCreate) {
+        toast.success("Comment deleted")
         return
       }
 

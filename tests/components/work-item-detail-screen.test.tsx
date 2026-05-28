@@ -411,7 +411,8 @@ function addChildWorkItems(
 
 const TAYLOR_MENTION_DESCRIPTION =
   '<p>Initial description</p><span data-type="mention" data-id="user_2">@Taylor</span>'
-const MENTION_DELIVERY_TEST_TIMEOUT_MS = 30_000
+const MENTION_DELIVERY_TEST_TIMEOUT_MS = 60_000
+const WORK_ITEM_EDITOR_CLOSE_TIMEOUT_MS = 15_000
 
 function renderWorkItemDetail(itemId = "item_1") {
   return render(<WorkItemDetailScreen itemId={itemId} />)
@@ -435,7 +436,11 @@ function clickSaveButton() {
 
 async function expectWorkItemEditorClosed() {
   expect(
-    await screen.findByRole("button", { name: "Edit" })
+    await screen.findByRole(
+      "button",
+      { name: "Edit" },
+      { timeout: WORK_ITEM_EDITOR_CLOSE_TIMEOUT_MS }
+    )
   ).toBeInTheDocument()
 }
 

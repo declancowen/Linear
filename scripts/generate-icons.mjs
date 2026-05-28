@@ -26,10 +26,28 @@ const appIconSvgMarkup = [
   "",
 ].join("\n")
 
-const svgTargets = [
+const webFaviconSvgMarkup = [
+  '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256" fill="none">',
+  "  <style>",
+  "    .bg { fill: #111111; }",
+  "    .mark { fill: #ffffff; }",
+  "    @media (prefers-color-scheme: dark) { .bg { fill: #f5f5f5; } .mark { fill: #111111; } }",
+  "  </style>",
+  '  <rect class="bg" x="24" y="24" width="208" height="208" rx="48" />',
+  '  <path class="mark" d="M224,104v96a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V104A16,16,0,0,1,48,88H208A16,16,0,0,1,224,104ZM56,72H200a8,8,0,0,0,0-16H56a8,8,0,0,0,0,16ZM72,40H184a8,8,0,0,0,0-16H72a8,8,0,0,0,0,16Z" transform="translate(0 8)" />',
+  "</svg>",
+  "",
+].join("\n")
+
+const appIconSvgTargets = [
   path.join(repoRoot, "app-icon.svg"),
   path.join(repoRoot, "icon.svg"),
   path.join(repoRoot, "public", "app-icon.svg"),
+]
+
+const webFaviconSvgTargets = [
+  path.join(repoRoot, "favicon.svg"),
+  path.join(repoRoot, "public", "favicon.svg"),
   path.join(repoRoot, "public", "icon.svg"),
   path.join(repoRoot, "public", "app-logo.svg"),
 ]
@@ -40,7 +58,7 @@ const appIconTargets = [
   path.join(repoRoot, "electron", "app-icon.png"),
 ]
 
-const appleIconTargets = [
+const appleTouchIconTargets = [
   path.join(repoRoot, "apple-icon.png"),
   path.join(repoRoot, "public", "apple-icon.png"),
 ]
@@ -77,11 +95,11 @@ async function copyToTargets(sourcePath, targets) {
   )
 }
 
-async function writeSvgTargets(targets) {
+async function writeSvgTargets(targets, markup) {
   await Promise.all(
     targets.map(async (targetPath) => {
       await ensureParent(targetPath)
-      await fs.writeFile(targetPath, appIconSvgMarkup)
+      await fs.writeFile(targetPath, markup)
     })
   )
 }
@@ -134,23 +152,32 @@ async function main() {
       .resize(1024, 1024)
       .png()
       .toBuffer()
+    const webFaviconPngBuffer = await sharp(Buffer.from(webFaviconSvgMarkup))
+      .resize(1024, 1024)
+      .png()
+      .toBuffer()
     const rasterSizes = [16, 32, 48, 64, 128, 180, 256, 512]
     const rasterPaths = new Map()
+    const webFaviconRasterPaths = new Map()
 
     await fs.writeFile(sourcePngPath, sourcePngBuffer)
 
     for (const size of rasterSizes) {
       const outputPath = path.join(tempDir, `${size}.png`)
+      const webFaviconOutputPath = path.join(tempDir, `favicon-${size}.png`)
       await renderPng(sourcePngBuffer, size, outputPath)
+      await renderPng(webFaviconPngBuffer, size, webFaviconOutputPath)
       rasterPaths.set(size, outputPath)
+      webFaviconRasterPaths.set(size, webFaviconOutputPath)
     }
 
-    await writeSvgTargets(svgTargets)
+    await writeSvgTargets(appIconSvgTargets, appIconSvgMarkup)
+    await writeSvgTargets(webFaviconSvgTargets, webFaviconSvgMarkup)
     await copyToTargets(sourcePngPath, appIconTargets)
-    await copyToTargets(rasterPaths.get(180), appleIconTargets)
+    await copyToTargets(webFaviconRasterPaths.get(180), appleTouchIconTargets)
     await writeElectronIcns(sourcePngBuffer, tempDir)
 
-    const icoBuffer = await pngToIco([
+    const appIconIcoBuffer = await pngToIco([
       rasterPaths.get(16),
       rasterPaths.get(32),
       rasterPaths.get(48),
@@ -158,10 +185,20 @@ async function main() {
       rasterPaths.get(128),
       rasterPaths.get(256),
     ])
+    const faviconIcoBuffer = await pngToIco([
+      webFaviconRasterPaths.get(16),
+      webFaviconRasterPaths.get(32),
+      webFaviconRasterPaths.get(48),
+      webFaviconRasterPaths.get(64),
+      webFaviconRasterPaths.get(128),
+      webFaviconRasterPaths.get(256),
+    ])
     const faviconPath = path.join(tempDir, "favicon.ico")
-    await fs.writeFile(faviconPath, icoBuffer)
+    const appIconIcoPath = path.join(tempDir, "app-icon.ico")
+    await fs.writeFile(faviconPath, faviconIcoBuffer)
+    await fs.writeFile(appIconIcoPath, appIconIcoBuffer)
     await copyToTargets(faviconPath, faviconTargets)
-    await copyToTargets(faviconPath, appIconIcoTargets)
+    await copyToTargets(appIconIcoPath, appIconIcoTargets)
 
     console.log("Generated app icons")
   } finally {
