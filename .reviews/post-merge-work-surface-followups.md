@@ -150,3 +150,30 @@ PR target note:
 ## Outcome
 
 No open findings remain from the final local diff review.
+
+### Turn 8
+
+Reviewed the direct-main follow-up for create-modal positioning, fixed-width work toolbar controls, the web Mac download icon, Electron minimum width, and the `0.0.8` desktop release bump.
+
+Outcome:
+
+- no new branch-specific bugs or architecture blockers found
+- create/project/view dialogs now share the search modal vertical start point
+- shared work-view chips and view tabs no longer shrink, and toolbar right action groups keep the `New` button stable
+- Electron minimum width now matches the non-wrapping toolbar constraint
+- the web `Download desktop app` CTA uses the Apple logo icon through the existing Phosphor icon boundary
+- tracked duplicate/copy-suffix file scan found no true `* 2.*` source files; three ignored local duplicate artifacts were removed from the worktree (`tsconfig 2.tsbuildinfo`, `.tools/certs/partykit-local-cert 2.pem`, `.tools/certs/partykit-local-key 2.pem`)
+
+Verification rerun:
+
+- `pnpm exec vitest run tests/components/group-chip-popover.test.tsx tests/components/properties-chip-popover.test.tsx`
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm build`
+- `git diff --check`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+
+Diff-review result:
+
+- No open findings remain for this direct-main release follow-up.
+- Changed-file Fallow audit passed. Existing production/full analyzer advisory inventories remain unrelated to this diff.

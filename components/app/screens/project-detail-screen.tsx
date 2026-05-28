@@ -254,7 +254,7 @@ function ProjectItemsViewbar({
             : onClearProjectDisplayProperties
         }
       />
-      <div className="ml-auto flex items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
         <ViewConfigPopover
           view={view}
           groupOptions={groupOptions}
@@ -268,7 +268,7 @@ function ProjectItemsViewbar({
         <Button
           size="sm"
           variant="default"
-          className="h-7 gap-1.5 px-2.5 text-[12px]"
+          className="h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
           onClick={() =>
             openManagedCreateDialog({
               kind: "workItem",

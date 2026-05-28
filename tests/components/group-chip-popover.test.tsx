@@ -48,6 +48,7 @@ describe("GroupChipPopover", () => {
     const trigger = screen.getByRole("button", { name: /^group$/i })
     expect(trigger.querySelector("svg")).not.toBeNull()
     expect(trigger).toHaveClass("work-view-chip")
+    expect(trigger).toHaveClass("shrink-0")
     expect(trigger.querySelector(".work-view-chip-value")).toBeNull()
   })
 
@@ -70,6 +71,7 @@ describe("LevelChipPopover", () => {
     const trigger = screen.getByRole("button", { name: /^level$/i })
 
     expect(trigger).toHaveClass("work-view-chip")
+    expect(trigger).toHaveClass("shrink-0")
     expect(trigger.querySelector(".work-view-chip-value")).toBeNull()
 
     fireEvent.click(trigger)
@@ -91,7 +93,10 @@ describe("FilterPopover", () => {
       />
     )
 
-    fireEvent.click(screen.getByRole("button", { name: "Filter" }))
+    const trigger = screen.getByRole("button", { name: "Filter" })
+    expect(trigger).toHaveClass("shrink-0")
+
+    fireEvent.click(trigger)
     fireEvent.click(screen.getByRole("button", { name: "Todo" }))
 
     expect(onToggleFilterValue).toHaveBeenCalledWith("status", "todo")

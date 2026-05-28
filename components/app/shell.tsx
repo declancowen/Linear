@@ -10,6 +10,7 @@ import {
   useState,
 } from "react"
 import {
+  AppleLogo,
   Bell,
   CalendarBlank,
   CaretDown,
@@ -18,7 +19,6 @@ import {
   CheckCircle,
   CodesandboxLogo,
   DotsThree,
-  DownloadSimple,
   FileText,
   Gear,
   HashStraight,
@@ -1628,7 +1628,7 @@ function ShellWorkspaceMenu({
                               rel="noreferrer"
                               target="_blank"
                             >
-                              <DownloadSimple className="text-fg-3" />
+                              <AppleLogo className="text-fg-3" />
                               Download desktop app
                             </a>
                           </DropdownMenuItem>

@@ -1348,7 +1348,7 @@ function CreateViewDialogFrame({
     >
       <DialogContent
         showCloseButton={false}
-        className="top-6 max-h-[calc(100vh-3rem)] translate-y-0 gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-10 sm:max-w-[760px]"
+        className="top-[12vh] max-h-[calc(100vh-3rem)] translate-y-0 gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-[14vh] sm:max-w-[760px]"
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{editingView ? "Edit view" : "New view"}</DialogTitle>

@@ -189,7 +189,7 @@ export function ViewTab({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs leading-[1.15] transition-colors",
+        "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs leading-[1.15] transition-colors",
         active
           ? "border border-line bg-surface text-foreground shadow-[0_1px_0_0_oklch(0.18_0_0/0.04)]"
           : "text-fg-2 hover:bg-surface-3 hover:text-foreground",

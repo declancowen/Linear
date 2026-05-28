@@ -526,14 +526,14 @@ function WorkSurfaceViewbar({
         onReorderDisplayProperties={onReorderViewerDisplayProperties}
         onClearDisplayProperties={onClearViewerDisplayProperties}
       />
-      <div className="ml-auto flex items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {view.layout === "calendar" ? (
           <WorkSurfaceCalendarSettingsButton calendar={calendar} />
         ) : null}
         <Button
           size="sm"
           variant="default"
-          className="h-7 gap-1.5 px-2.5 text-[12px]"
+          className="h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
           onClick={onCreateWorkItem}
         >
           <Plus className="size-3.5" />

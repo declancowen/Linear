@@ -61,8 +61,8 @@ const {
 const { autoUpdater } = require("electron-updater")
 
 const appName = "Recipe Room"
-const desktopMainWindowWidth = 1220
-const desktopMainWindowMinWidth = 1180
+const desktopMainWindowWidth = 1360
+const desktopMainWindowMinWidth = 1360
 const desktopStartupLogPath = process.env.DESKTOP_STARTUP_LOG
 const desktopDeepLinkScheme = resolveDeepLinkScheme(process.env)
 const isDevelopment = !app.isPackaged && process.env.NODE_ENV === "development"

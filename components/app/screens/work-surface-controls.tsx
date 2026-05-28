@@ -191,7 +191,7 @@ export const PROJECT_DISPLAY_PROPERTY_OPTIONS: DisplayProperty[] = [
 ]
 
 const chipBase =
-  "inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+  "inline-flex h-7 shrink-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
 
 const chipDefault =
   "border-line bg-surface text-fg-2 hover:text-foreground hover:bg-surface-3"
@@ -1833,7 +1833,7 @@ function ViewLayoutTabsControl({
   options: ViewLayoutOption[]
 }) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex shrink-0 items-center gap-1">
       {options.map((option) => (
         <ViewTab
           key={option.value}
