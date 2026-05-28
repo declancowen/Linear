@@ -1494,7 +1494,7 @@ export function ViewConfigPopover({
                 className={cn(
                   "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
                   view.displayProps.includes(property)
-                    ? "border-primary/30 bg-primary/10 font-medium text-foreground"
+                    ? "border-primary/30 bg-primary/10 text-foreground"
                     : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
                 )}
                 onClick={() => handleToggleDisplay(property)}

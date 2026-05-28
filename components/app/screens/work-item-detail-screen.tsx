@@ -320,7 +320,7 @@ function DetailSidebarSelectRow({
                     className={cn(
                       "flex min-h-8 w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
                       option.value === selectedValue &&
-                        "bg-primary/10 font-medium text-foreground"
+                        "bg-primary/10 text-foreground"
                     )}
                     onClick={() => {
                       onValueChange(option.value)

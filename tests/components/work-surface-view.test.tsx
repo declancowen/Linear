@@ -1965,11 +1965,13 @@ describe("CalendarView", () => {
       "calendar-day-scroll-container"
     )
 
-    expect(allDayArea).toHaveStyle({ height: "334px" })
+    expect(allDayArea).toHaveStyle({ height: "304px" })
     expect(allDayArea).toHaveClass("no-scrollbar")
     expect(dayScrollContainer).toHaveClass("no-scrollbar")
     expect(screen.getByTestId("calendar-all-day-collapse-bar")).toHaveClass(
-      "absolute",
+      "absolute"
+    )
+    expect(screen.getByTestId("calendar-all-day-collapse-bar")).not.toHaveClass(
       "bottom-1"
     )
 
