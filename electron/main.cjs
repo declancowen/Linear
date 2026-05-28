@@ -29,6 +29,7 @@ const {
   createDesktopNotificationBridge,
 } = require("./desktop-notifications.cjs")
 const {
+  buildDesktopUpdateMenuDescriptor,
   createDesktopUpdateManager,
   shouldForceDesktopUpdateToastForActionResult,
 } = require("./desktop-updates.cjs")
@@ -554,39 +555,25 @@ function installDesktopUpdateFromMenu() {
   })
 }
 
-const desktopUpdateDownloadBlockedStatuses = new Set([
-  "downloaded",
-  "downloading",
-  "installing",
-])
-
-function canDownloadDesktopUpdate(updateState) {
-  return (
-    updateState == null ||
-    !desktopUpdateDownloadBlockedStatuses.has(updateState.status)
-  )
-}
-
 function buildDesktopUpdateMenuItems(updateState) {
+  const descriptor = buildDesktopUpdateMenuDescriptor(updateState)
+
   return [
     {
-      label: "Check for Updates...",
+      enabled: descriptor.enabled,
+      label: descriptor.label,
       click: () => {
+        if (descriptor.action === "download") {
+          void downloadDesktopUpdateFromMenu()
+          return
+        }
+
+        if (descriptor.action === "install") {
+          installDesktopUpdateFromMenu()
+          return
+        }
+
         void checkDesktopUpdatesFromMenu()
-      },
-    },
-    {
-      label: "Download Update",
-      enabled: canDownloadDesktopUpdate(updateState),
-      click: () => {
-        void downloadDesktopUpdateFromMenu()
-      },
-    },
-    {
-      label: "Restart to Update",
-      enabled: updateState?.status === "downloaded",
-      click: () => {
-        installDesktopUpdateFromMenu()
       },
     },
   ]

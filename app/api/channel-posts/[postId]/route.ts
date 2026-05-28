@@ -5,7 +5,8 @@ import {
   bumpScopedReadModelVersionsServer,
   deleteChannelPostServer,
 } from "@/lib/server/convex"
-import { resolveChannelPostReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
+import { getChannelPostRelatedScopeKeys } from "@/lib/scoped-sync/read-models"
+import { loadScopedReadModelSnapshotForSession } from "@/lib/server/scoped-read-models"
 import {
   getConvexErrorMessage,
   logProviderError,
@@ -30,15 +31,29 @@ export async function DELETE(
 
   try {
     const { postId } = await params
-    const scopeKeys = await resolveChannelPostReadModelScopeKeysServer(
-      session,
-      postId
-    )
     const appContext = await requireAppContext(session)
 
     if (isRouteResponse(appContext)) {
       return appContext
     }
+
+    const snapshot = await loadScopedReadModelSnapshotForSession(session)
+    const post =
+      snapshot.channelPosts.find((entry) => entry.id === postId) ?? null
+
+    if (!post) {
+      return jsonOk({
+        ok: true,
+      })
+    }
+
+    if (post.createdBy !== appContext.ensuredUser.userId) {
+      return jsonError("You can only delete your own posts", 403, {
+        code: "CHANNEL_POST_DELETE_FORBIDDEN",
+      })
+    }
+
+    const scopeKeys = getChannelPostRelatedScopeKeys(snapshot, postId)
 
     await deleteChannelPostServer({
       currentUserId: appContext.ensuredUser.userId,

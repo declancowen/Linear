@@ -37,15 +37,44 @@ import {
 
 const INBOX_LIST_WIDTH_STORAGE_KEY = "inbox-list-width:v2"
 const INBOX_LIST_MIN_WIDTH = 240
-const INBOX_LIST_MAX_WIDTH = 420
+const INBOX_DETAIL_MIN_WIDTH = 320
+const INBOX_EQUAL_SPLIT_SNAP_PX = 12
 
 type InboxListWidth = number | null
 
 type AppStoreState = ReturnType<typeof useAppStore.getState>
 type InboxUser = AppStoreState["users"][number]
 
-function clampInboxListWidth(value: number) {
-  return Math.min(INBOX_LIST_MAX_WIDTH, Math.max(INBOX_LIST_MIN_WIDTH, value))
+function getInboxListMaxWidth(containerWidth: number | null) {
+  return containerWidth && Number.isFinite(containerWidth)
+    ? Math.max(INBOX_LIST_MIN_WIDTH, containerWidth - INBOX_DETAIL_MIN_WIDTH)
+    : Number.POSITIVE_INFINITY
+}
+
+function clampInboxListWidth(
+  value: number,
+  containerWidth: number | null = null
+) {
+  return Math.min(
+    getInboxListMaxWidth(containerWidth),
+    Math.max(INBOX_LIST_MIN_WIDTH, value)
+  )
+}
+
+function resolveInboxListWidthAfterDrag(
+  value: number,
+  containerWidth: number | null
+): InboxListWidth {
+  const clampedWidth = clampInboxListWidth(value, containerWidth)
+
+  if (
+    containerWidth &&
+    Math.abs(clampedWidth - containerWidth / 2) <= INBOX_EQUAL_SPLIT_SNAP_PX
+  ) {
+    return null
+  }
+
+  return clampedWidth
 }
 
 function getInitialInboxListWidth() {
@@ -76,6 +105,16 @@ function getInboxListResizeStartWidth(
     event.currentTarget
       .closest<HTMLElement>("[data-inbox-list-pane]")
       ?.getBoundingClientRect().width ?? INBOX_LIST_MIN_WIDTH
+  )
+}
+
+function getInboxSplitContainerWidth(
+  event: ReactPointerEvent<HTMLButtonElement>
+) {
+  return (
+    event.currentTarget
+      .closest<HTMLElement>("[data-inbox-split]")
+      ?.getBoundingClientRect().width ?? null
   )
 }
 
@@ -224,6 +263,7 @@ function useInboxListWidthController() {
   const [notificationListResizing, setNotificationListResizing] =
     useState(false)
   const notificationListDragRef = useRef<{
+    containerWidth: number | null
     startX: number
     startWidth: number
   } | null>(null)
@@ -257,8 +297,9 @@ function useInboxListWidthController() {
       }
 
       setNotificationListWidth(
-        clampInboxListWidth(
-          dragState.startWidth + event.clientX - dragState.startX
+        resolveInboxListWidthAfterDrag(
+          dragState.startWidth + event.clientX - dragState.startX,
+          dragState.containerWidth
         )
       )
     }
@@ -295,6 +336,7 @@ function useInboxListWidthController() {
 
     event.preventDefault()
     notificationListDragRef.current = {
+      containerWidth: getInboxSplitContainerWidth(event),
       startX: event.clientX,
       startWidth: getInboxListResizeStartWidth(event, notificationListWidth),
     }
@@ -605,7 +647,7 @@ function InboxScreenLayout({
             Loading inbox...
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1">
+          <div data-inbox-split className="flex min-h-0 flex-1">
             <InboxListPane
               width={notificationListWidth}
               resizing={notificationListResizing}

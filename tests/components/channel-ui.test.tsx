@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import "@/tests/lib/fixtures/rich-text-composer-mocks"
 import {
+  ForumPostCard,
   NewPostComposer,
 } from "@/components/app/collaboration-screens/channel-ui"
 import {
@@ -233,5 +234,33 @@ describe("NewPostComposer", () => {
     })
 
     expect(button).toBeEnabled()
+  })
+
+  it("renders owned post deletion as a direct delete button", () => {
+    useAppStore.setState({
+      channelPosts: [
+        {
+          id: "post_1",
+          conversationId: "channel_1",
+          title: "Roadmap",
+          content: "<p>Post</p>",
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: "user_1",
+          createdAt: "2026-04-18T10:00:00.000Z",
+          updatedAt: "2026-04-18T10:00:00.000Z",
+        },
+      ],
+      channelPostComments: [],
+    })
+
+    render(<ForumPostCard postId="post_1" />)
+
+    expect(
+      screen.getByRole("button", { name: "Delete post" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "More" })
+    ).not.toBeInTheDocument()
   })
 })

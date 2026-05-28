@@ -181,6 +181,39 @@ describe("view item levels", () => {
     ]).toEqual(["cancelled"])
   })
 
+  it("keeps source group lanes available when filters hide all visible items", () => {
+    const state = createCurrentUserTeamState("project-management")
+    const sourceItems = [
+      createTestWorkItem("backlog-source", { status: "backlog" }),
+      createTestWorkItem("todo-source", { status: "todo" }),
+    ]
+
+    expect([
+      ...buildItemGroupsWithEmptyGroups(
+        state,
+        [],
+        createView({
+          grouping: "status",
+          filters: {
+            ...createView().filters,
+            priority: ["urgent"],
+          },
+        }),
+        {
+          sourceItems,
+          teamId: "team_1",
+        }
+      ).keys(),
+    ]).toEqual([
+      "backlog",
+      "todo",
+      "in-progress",
+      "done",
+      "cancelled",
+      "duplicate",
+    ])
+  })
+
   it("does not synthesize filtered-out type groups when type filters are active", () => {
     const state = createEmptyState()
     const filteredItems = [createTestWorkItem("task-only", { type: "task" })]

@@ -1640,7 +1640,20 @@ export async function deleteChannelPostHandler(
   args: DeleteChannelPostArgs
 ) {
   assertServerToken(args.serverToken)
-  const { conversation, post } = await requireChannelPostWriteScope(ctx, args)
+  const post = await getChannelPostDoc(ctx, args.postId)
+
+  if (!post) {
+    return {
+      ok: true,
+    }
+  }
+
+  const conversation = await requireConversationAccess(
+    ctx,
+    await getConversationDoc(ctx, post.conversationId),
+    args.currentUserId,
+    "write"
+  )
 
   if (post.createdBy !== args.currentUserId) {
     throw new Error("You can only delete your own posts")
@@ -1681,19 +1694,41 @@ export async function deleteChannelPostCommentHandler(
   args: DeleteChannelPostCommentArgs
 ) {
   assertServerToken(args.serverToken)
-  const { conversation, post } = await requireChannelPostWriteScope(ctx, args)
   const comment = await ctx.db
     .query("channelPostComments")
     .withIndex("by_domain_id", (q) => q.eq("id", args.commentId))
     .unique()
 
-  if (!comment || comment.postId !== post.id) {
+  if (!comment) {
+    return {
+      ok: true,
+    }
+  }
+
+  if (comment.postId !== args.postId) {
     throw new Error("Comment not found")
   }
 
   if (comment.createdBy !== args.currentUserId) {
     throw new Error("You can only delete your own comments")
   }
+
+  const post = await getChannelPostDoc(ctx, args.postId)
+
+  if (!post) {
+    await ctx.db.delete(comment._id)
+
+    return {
+      ok: true,
+    }
+  }
+
+  const conversation = await requireConversationAccess(
+    ctx,
+    await getConversationDoc(ctx, post.conversationId),
+    args.currentUserId,
+    "write"
+  )
 
   await ctx.db.delete(comment._id)
   await touchChannelPostCommentThread(ctx, {

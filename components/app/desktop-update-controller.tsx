@@ -297,8 +297,142 @@ function showDesktopUpdateToast({
   }
 }
 
+type DesktopUpdateFeedbackAction = "download" | "downloadLatest" | "install"
+
+function getDesktopUpdateFeedbackCopy(state: DesktopUpdateState): {
+  action?: DesktopUpdateFeedbackAction
+  actionLabel?: string
+  description: string
+  title: string
+} {
+  if (state.status === "available") {
+    return {
+      action: "download",
+      actionLabel: "Download Update",
+      description: state.availableVersion
+        ? `Version ${state.availableVersion} is ready to download.`
+        : "A new version is ready to download.",
+      title: "A new update is available",
+    }
+  }
+
+  if (state.status === "downloaded") {
+    return {
+      action: "install",
+      actionLabel: "Restart to Update",
+      description: state.downloadedVersion
+        ? `Version ${state.downloadedVersion} is ready to install.`
+        : "Restart Recipe Room to install the downloaded update.",
+      title: "Restart to update Recipe Room",
+    }
+  }
+
+  if (state.status === "downloading") {
+    return {
+      description: "The update is downloading in the background.",
+      title: "Downloading update",
+    }
+  }
+
+  if (state.status === "installing") {
+    return {
+      description: "Recipe Room will restart to finish installing.",
+      title: "Installing update",
+    }
+  }
+
+  if (state.status === "disabled") {
+    return {
+      action: "downloadLatest",
+      actionLabel: "Download latest",
+      description: state.disabledReason ?? "Automatic updates are unavailable.",
+      title: "Desktop updates unavailable",
+    }
+  }
+
+  if (state.status === "error") {
+    return {
+      action: "downloadLatest",
+      actionLabel: "Download latest",
+      description: state.message ?? "Recipe Room could not check for updates.",
+      title: "Update check failed",
+    }
+  }
+
+  if (state.status === "checking") {
+    return {
+      description: "Recipe Room is checking for updates.",
+      title: "Checking for updates",
+    }
+  }
+
+  return {
+    description: state.message ?? "Recipe Room is up to date.",
+    title: "You're on the latest version",
+  }
+}
+
+function DesktopUpdateFeedbackDialog({
+  downloadUrl,
+  onClose,
+  state,
+}: {
+  downloadUrl: string
+  onClose: () => void
+  state: DesktopUpdateState
+}) {
+  const copy = getDesktopUpdateFeedbackCopy(state)
+
+  function handleAction() {
+    if (copy.action === "download") {
+      void window.electronApp?.downloadUpdate?.()
+      onClose()
+      return
+    }
+
+    if (copy.action === "install") {
+      void window.electronApp?.installUpdate?.()
+      onClose()
+      return
+    }
+
+    if (copy.action === "downloadLatest") {
+      openDownloadUrl(downloadUrl)
+      onClose()
+    }
+  }
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) {
+          onClose()
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{copy.title}</DialogTitle>
+          <DialogDescription>{copy.description}</DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+          {copy.action && copy.actionLabel ? (
+            <Button onClick={handleAction}>{copy.actionLabel}</Button>
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function DesktopUpdateController() {
   const [appInfo, setAppInfo] = useState<DesktopAppInfo | null>(null)
+  const [feedbackState, setFeedbackState] =
+    useState<DesktopUpdateState | null>(null)
   const [policy, setPolicy] = useState<DesktopUpdatePolicy | null>(null)
   const [unsupportedPolicy, setUnsupportedPolicy] =
     useState<DesktopUpdatePolicy | null>(null)
@@ -356,9 +490,15 @@ export function DesktopUpdateController() {
     void loadInitialState()
 
     const unsubscribe = electronApp?.onUpdateState?.((payload) => {
+      if (payload.showToast === true) {
+        toast.dismiss(DESKTOP_UPDATE_TOAST_ID)
+        setFeedbackState(payload.state)
+        return
+      }
+
       showDesktopUpdateToast({
         downloadUrl: getDesktopMacDownloadUrl(policyRef.current),
-        force: payload.showToast === true,
+        force: false,
         state: payload.state,
       })
     })
@@ -370,7 +510,13 @@ export function DesktopUpdateController() {
   }, [])
 
   if (!unsupportedPolicy) {
-    return null
+    return feedbackState ? (
+      <DesktopUpdateFeedbackDialog
+        downloadUrl={getDesktopMacDownloadUrl(policy)}
+        onClose={() => setFeedbackState(null)}
+        state={feedbackState}
+      />
+    ) : null
   }
 
   const downloadUrl = getDesktopMacDownloadUrl(policy)

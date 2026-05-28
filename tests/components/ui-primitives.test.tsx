@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { SidebarMenuButton, SidebarProvider } from "@/components/ui/sidebar"
 import { Chip } from "@/components/ui/template-primitives"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -104,6 +105,27 @@ describe("ConfirmDialog", () => {
 
     expect(onConfirm).not.toHaveBeenCalled()
     expect(screen.getByRole("button", { name: "Archiving" })).toBeDisabled()
+  })
+})
+
+describe("ScrollArea", () => {
+  it("keeps hidden-scrollbar surfaces scrollable", async () => {
+    render(
+      <ScrollArea className="h-10 w-10">
+        <div className="h-40 w-40">Scrollable content</div>
+      </ScrollArea>
+    )
+
+    const viewport = document.querySelector(
+      "[data-slot='scroll-area-viewport']"
+    )
+
+    await waitFor(() => {
+      expect(viewport).toHaveStyle({
+        overflowX: "scroll",
+        overflowY: "scroll",
+      })
+    })
   })
 })
 

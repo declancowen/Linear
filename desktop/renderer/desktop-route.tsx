@@ -120,7 +120,9 @@ function matchRoute(pathname: string): RouteMatch {
 
   if (
     (parts[0] === "projects" ||
-      (parts[0] === "workspace" && parts[1] === "projects")) &&
+      (parts[0] === "workspace" &&
+        parts[1] === "projects" &&
+        parts.length > 2)) &&
     parts.at(-1) &&
     parts.length > 1
   ) {

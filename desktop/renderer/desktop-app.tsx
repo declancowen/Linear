@@ -4,6 +4,7 @@ import { lazy, Suspense, useEffect, useState, type FormEvent } from "react"
 
 import { AuthEntryScreen } from "@/components/app/auth-entry-screen"
 import { ThemeProvider } from "@/components/theme-provider"
+import { DesktopUpdateController } from "@/components/app/desktop-update-controller"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import {
@@ -408,6 +409,7 @@ export function DesktopApp() {
     <ThemeProvider>
       <TooltipProvider>
         <DesktopAppBody />
+        <DesktopUpdateController />
         <Toaster />
       </TooltipProvider>
     </ThemeProvider>

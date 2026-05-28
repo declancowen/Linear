@@ -119,6 +119,32 @@ function shouldForceDesktopUpdateToastForActionResult(result) {
   return Boolean(result?.error)
 }
 
+function buildDesktopUpdateMenuDescriptor(updateState) {
+  const status = updateState?.status
+
+  if (status === "downloaded" || status === "installing") {
+    return {
+      action: "install",
+      enabled: status === "downloaded",
+      label: "Restart to Update",
+    }
+  }
+
+  if (status === "available" || status === "downloading") {
+    return {
+      action: "download",
+      enabled: status === "available",
+      label: "Download Update",
+    }
+  }
+
+  return {
+    action: "check",
+    enabled: status !== "checking",
+    label: "Check for Updates...",
+  }
+}
+
 function createDesktopUpdateManager({
   app,
   autoUpdater,
@@ -418,6 +444,7 @@ module.exports = {
   DEFAULT_UPDATE_CHECK_DELAY_MS,
   DEFAULT_UPDATE_CHECK_INTERVAL_MS,
   UPDATE_CONFIG_FILE_NAME,
+  buildDesktopUpdateMenuDescriptor,
   createDesktopUpdateManager,
   getDesktopAutoUpdateDisabledReason,
   getPackagedUpdateConfigPath,

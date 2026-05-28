@@ -58,6 +58,10 @@ describe("Inbox row primitives", () => {
       flexBasis: "50%",
       width: "50%",
     })
+    expect(screen.getByLabelText("Resize inbox list")).toHaveAttribute(
+      "title",
+      "Drag to resize. Double-click to reset to 50/50."
+    )
   })
 
   it("renders unread rows and routes row actions through callbacks", () => {
@@ -148,6 +152,10 @@ describe("Inbox row primitives", () => {
     expect(screen.getByText("Work item")).toBeInTheDocument()
     expect(screen.getByText("Unread")).toBeInTheDocument()
     expect(screen.getAllByText("Maya")).toHaveLength(2)
+    expect(document.querySelector("[data-inbox-detail-body]")).not.toHaveClass(
+      "mx-auto",
+      "max-w-2xl"
+    )
     expect(screen.getByText("Maya commented on Test item")).toBeInTheDocument()
     expect(
       screen.getByRole("link", { name: "Open work item" })
