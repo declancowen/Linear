@@ -156,6 +156,12 @@ describe("Inbox row primitives", () => {
       "mx-auto",
       "max-w-2xl"
     )
+    expect(document.querySelector("[data-inbox-detail-body]")).toHaveClass(
+      "px-6"
+    )
+    expect(
+      document.querySelector("[data-inbox-notification-card]")
+    ).not.toHaveClass("mx-auto", "max-w-2xl")
     expect(screen.getByText("Maya commented on Test item")).toBeInTheDocument()
     expect(
       screen.getByRole("link", { name: "Open work item" })

@@ -62,11 +62,57 @@ Files and areas reviewed across all turns:
 | Field | Value |
 |-------|-------|
 | **Review started** | `2026-04-24 14:50:14 BST` |
-| **Last reviewed** | `2026-05-28 12:17:14 BST` |
-| **Total turns** | `12` |
+| **Last reviewed** | `2026-05-28 16:14:14 BST` |
+| **Total turns** | `13` |
 | **Open findings** | `0` |
-| **Resolved findings** | `23` |
+| **Resolved findings** | `25` |
 | **Accepted findings** | `19` |
+
+---
+
+## Turn 13 — 2026-05-28 16:14:14 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `pending Turn 13 commit` |
+| **IDE / Agent** | `Codex / GPT-5` |
+
+**Summary:** Reviewed the full local `main` working tree diff with architecture standards after the sidebar performance changes and the notification-card alignment clarification. No open blocking findings remain. Two review issues were resolved during the pass: the notification detail card now keeps the detail-body toolbar inset contract covered by a regression test, and the new sidebar test fixture duplication was extracted so the configured Fallow duplication gate remains clean.
+**Outcome:** all clear after fixes
+**Risk score:** medium — the diff touches a shared sidebar primitive used by work-item details, calendar, timeline, and collaboration sidebars, plus the inbox notification detail presentation
+**Change archetypes:** shared-ui performance, presentation alignment, static-analyzer cleanup, regression coverage
+**Intended change:** make detail sidebars open perceptibly faster without moving logic into calendar/timeline-specific bypasses, while preserving the new inbox notification card layout and its alignment contract
+**Intent vs actual:** the performance boundary stays in the shared work-item detail sidebar: properties/subtasks paint immediately, while relations/activity/editor-heavy content mounts after the first paint. The collapsible sidebar transition was shortened and isolated with containment hints. Inbox notifications remain card-based, with the card body staying on the same `px-6` pane inset as the toolbar.
+**Confidence:** high for the local diff — targeted work-surface/sidebar/inbox tests, lint, typecheck, diff whitespace, architecture preflight, diff-review preflight, and Fallow gates passed
+**Coverage note:** direct tests now cover immediate sidebar properties before deferred activity, retained collapsible sidebar state, calendar/timeline detail sidebar consumers through the work-surface suite, inbox equal split and notification-card alignment, and activity comment behavior after the defer
+**Static/analyzer evidence:** diff-review preflight changed-file Fallow audit passed. `pnpm fallow:gate` initially failed on a new same-file test clone, then passed after extracting a test-local fixture helper.
+**Architecture impact:** the open-performance invariant belongs to the shared detail-sidebar owner, not individual calendar/timeline screens; the inbox card alignment belongs to `inbox-ui` presentation, protected by component tests rather than a global card override. No public API, schema, route, backend, Electron, or deployment contract changed.
+**Bug classes / invariants checked:** Heavy Synchronous Mount, Shared Sidebar Regression, Presentation Alignment Drift, Test Clone Debt. Weakest invariant was that calendar/timeline/work-item surfaces all rely on the same sidebar path; this was addressed by changing `WorkItemDetailSidebar`/`CollapsibleRightSidebar` rather than per-surface workarounds.
+**Branch totality:** reviewed every local changed file in `git status`: `components/app/screens/inbox-ui.tsx`, `components/app/screens/work-item-detail-screen.tsx`, `components/ui/collapsible-right-sidebar.tsx`, `tests/components/inbox-ui.test.tsx`, and `tests/components/work-item-detail-screen.test.tsx`
+**Sibling closure:** checked calendar/timeline consumers via `work-surface-view.test.tsx`; checked docked sidebar behavior through `work-item-detail-screen.test.tsx`; checked shared collapsible behavior through `collapsible-right-sidebar.test.tsx`; checked inbox card alignment through `inbox-ui.test.tsx`
+**Residual risk / unknowns:** no browser visual smoke was run because the user asked not to proceed into build/release work. The subjective "feels instant" performance improvement should still be validated manually in the authenticated app, but the shared render path is now lighter before first paint.
+
+### Validation
+
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — passed; changed-file Fallow audit passed
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; no new architecture blocker identified
+- `pnpm exec vitest run tests/components/inbox-ui.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/collapsible-right-sidebar.test.tsx tests/components/work-surface-view.test.tsx` — passed (`99` tests)
+- `pnpm lint` — passed
+- `pnpm typecheck` — passed
+- `pnpm fallow:gate` — passed after test fixture extraction
+- `git diff --check` — passed
+
+### Resolved findings
+
+| ID | Finding | Status | Bug class | Invariant |
+|----|---------|--------|-----------|-----------|
+| T13-01 | New sidebar regression test duplicated the seeded item fixture and failed the configured full duplication gate | Resolved | Test Clone Debt | Test helpers should stay owner-local and analyzer-clean without production exports |
+| T13-02 | Notification card alignment was not protected after adding the card wrapper | Resolved | Presentation Alignment Drift | Inbox detail body/card should keep the same pane inset contract as the toolbar and not reintroduce centered/max-width detail content |
+
+### Recommendations
+
+1. **Manual smoke before release:** open a work item, calendar event, and timeline item in the authenticated app and confirm the sidebar feels instant enough visually. The code path is optimized and covered, but subjective motion/perception needs a browser pass.
+2. **Keep build/release paused:** no production build, deploy, release, or GitHub publish action was run in this turn per the user instruction.
 
 ---
 

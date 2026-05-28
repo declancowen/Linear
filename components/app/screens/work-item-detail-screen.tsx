@@ -11,6 +11,7 @@ import { getAppOrigin } from "@/lib/auth-routing"
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -4167,6 +4168,35 @@ function WorkItemRelationsSection({
 
 type WorkItemDetailSidebarVariant = "docked" | "floating" | "inline"
 
+function useDeferredDetailSidebarSections({
+  enabled,
+  itemId,
+}: {
+  enabled: boolean
+  itemId: string
+}) {
+  const [state, setState] = useState(() => ({
+    itemId,
+    ready: false,
+  }))
+
+  useEffect(() => {
+    if (!enabled) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setState({ itemId, ready: true })
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [enabled, itemId])
+
+  return enabled && state.itemId === itemId && state.ready
+}
+
 function WorkItemDetailSidebar({
   open,
   data,
@@ -4240,6 +4270,10 @@ function WorkItemDetailSidebar({
 } & DetailPropertyChangeHandlers) {
   const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
   const showExtendedSections = variant !== "floating"
+  const showDeferredExtendedSections = useDeferredDetailSidebarSections({
+    enabled: open && showExtendedSections,
+    itemId: currentItem.id,
+  })
 
   const content = (
     <>
@@ -4322,7 +4356,7 @@ function WorkItemDetailSidebar({
           onCloseComposer={onCloseChildComposer}
         />
 
-        {showExtendedSections ? (
+        {showDeferredExtendedSections ? (
           <>
             <WorkItemRelationsSection
               data={data}
@@ -4348,7 +4382,7 @@ function WorkItemDetailSidebar({
   if (variant === "floating") {
     return (
       <aside
-        className="flex max-h-[min(680px,calc(100vh-24px))] min-h-0 w-full flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-xl"
+        className="flex max-h-[min(680px,calc(100vh-24px))] min-h-0 w-full flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-xl [contain:layout_paint_style]"
         style={floatingMaxHeight ? { maxHeight: floatingMaxHeight } : undefined}
       >
         {content}
@@ -4358,7 +4392,7 @@ function WorkItemDetailSidebar({
 
   if (variant === "inline") {
     return (
-      <aside className="flex h-full min-h-0 w-[26.25rem] shrink-0 flex-col overflow-hidden border-l border-line bg-surface">
+      <aside className="flex h-full min-h-0 w-[26.25rem] shrink-0 flex-col overflow-hidden border-l border-line bg-surface [contain:layout_paint_style]">
         {content}
       </aside>
     )
@@ -4401,13 +4435,17 @@ export function WorkItemDetailSidebarSurface({
   const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
     useWorkItemProjectCascadeConfirmation()
   const team = getTeam(data, currentItem.teamId)
-  const detailModel = getWorkItemDetailModel({
-    currentItem,
-    data,
-    editable,
-    sidebarTitle: currentItem.title,
-    team,
-  })
+  const detailModel = useMemo(
+    () =>
+      getWorkItemDetailModel({
+        currentItem,
+        data,
+        editable,
+        sidebarTitle: currentItem.title,
+        team,
+      }),
+    [currentItem, data, editable, team]
+  )
   const scheduleTimeZone = getResolvedWorkItemScheduleTimeZone(
     data,
     currentItem

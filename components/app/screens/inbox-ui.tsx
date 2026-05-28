@@ -17,6 +17,7 @@ import {
   type UserProfile,
 } from "@/lib/domain/types"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Tooltip,
@@ -685,31 +686,39 @@ function InboxDetailBody({
   primaryAction: PrimaryActionDescriptor | null
 }) {
   return (
-    <div
-      data-inbox-detail-body
-      className="flex w-full flex-col gap-6 px-6 py-8"
-    >
-      <div className="flex items-center gap-3">
-        <UserAvatar
-          name={actorName}
-          avatarUrl={actor?.avatarUrl ?? null}
-          avatarImageUrl={actor?.avatarImageUrl ?? null}
-          size="default"
-          showStatus={false}
-        />
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-foreground">
-            {actorName}
+    <div data-inbox-detail-body className="flex w-full flex-col px-6 py-6">
+      <Card
+        data-inbox-notification-card
+        className="gap-5 rounded-lg bg-muted/50 py-5 shadow-none ring-0"
+      >
+        <CardContent className="flex items-center gap-3">
+          <UserAvatar
+            name={actorName}
+            avatarUrl={actor?.avatarUrl ?? null}
+            avatarImageUrl={actor?.avatarImageUrl ?? null}
+            size="default"
+            showStatus={false}
+          />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-foreground">
+              {actorName}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {formatFullTimestamp(notification.createdAt)}
+            </div>
           </div>
-          <div className="text-xs text-muted-foreground">
-            {formatFullTimestamp(notification.createdAt)}
-          </div>
-        </div>
-      </div>
-      <p className="text-[15px] leading-relaxed text-foreground">
-        {notification.message}
-      </p>
-      <InboxPrimaryAction action={primaryAction} />
+        </CardContent>
+        <CardContent>
+          <p className="text-[15px] leading-relaxed text-foreground">
+            {notification.message}
+          </p>
+        </CardContent>
+        {primaryAction ? (
+          <CardContent>
+            <InboxPrimaryAction action={primaryAction} />
+          </CardContent>
+        ) : null}
+      </Card>
     </div>
   )
 }

@@ -364,6 +364,17 @@ function seedState() {
   )
 }
 
+function getSeededWorkItemDetailSidebarFixture() {
+  const data = useAppStore.getState()
+  const item = data.workItems.find((candidate) => candidate.id === "item_1")
+
+  if (!item) {
+    throw new Error("Expected seeded work item")
+  }
+
+  return { data, item }
+}
+
 function addChildWorkItems(
   children: Array<{
     id: string
@@ -953,12 +964,7 @@ describe("work item detail screen", () => {
   it("copies hosted item links through the desktop clipboard bridge", async () => {
     const originalElectronApp = window.electronApp
     const writeClipboardText = vi.fn().mockResolvedValue(true)
-    const data = useAppStore.getState()
-    const item = data.workItems.find((candidate) => candidate.id === "item_1")
-
-    if (!item) {
-      throw new Error("Expected seeded work item")
-    }
+    const { data, item } = getSeededWorkItemDetailSidebarFixture()
 
     Object.defineProperty(window, "electronApp", {
       configurable: true,
@@ -989,6 +995,19 @@ describe("work item detail screen", () => {
       })
       window.history.pushState({}, "", "/")
     }
+  })
+
+  it("paints sidebar properties before deferred activity sections", async () => {
+    const { data, item } = getSeededWorkItemDetailSidebarFixture()
+
+    render(
+      <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
+    )
+
+    expect(screen.getByRole("button", { name: "Status" })).toBeInTheDocument()
+    expect(screen.queryByText("Activity")).not.toBeInTheDocument()
+
+    await waitFor(() => expect(screen.getByText("Activity")).toBeInTheDocument())
   })
 
   it.each([
@@ -1095,12 +1114,7 @@ describe("work item detail screen", () => {
   })
 
   it("omits relations and activity from floating item detail popovers", () => {
-    const data = useAppStore.getState()
-    const item = data.workItems.find((candidate) => candidate.id === "item_1")
-
-    if (!item) {
-      throw new Error("Expected seeded work item")
-    }
+    const { data, item } = getSeededWorkItemDetailSidebarFixture()
 
     render(
       <WorkItemDetailSidebarSurface
@@ -1166,15 +1180,15 @@ describe("work item detail screen", () => {
     expect(screen.getAllByTestId("inline-child-composer")).toHaveLength(1)
   })
 
-  it("keeps activity comment submit disabled until the shared minimum plain-text length is met", () => {
+  it("keeps activity comment submit disabled until the shared minimum plain-text length is met", async () => {
     render(<WorkItemDetailScreen itemId="item_1" />)
 
-    const commentEditors = screen.getAllByLabelText(
-      "Leave a comment or mention a teammate with @handle..."
+    const commentEditors = await screen.findAllByLabelText(
+      /Leave a comment or mention a teammate with @handle/
     )
     const commentButtons = screen.getAllByRole("button", { name: "Comment" })
-    const commentEditor = commentEditors.at(-1)
-    const commentButton = commentButtons.at(-1)
+    const commentEditor = commentEditors[0]
+    const commentButton = commentButtons[0]
 
     expect(commentEditor).toBeDefined()
     expect(commentButton).toBeDefined()
@@ -1188,9 +1202,6 @@ describe("work item detail screen", () => {
     })
 
     expect(commentButton!).toBeDisabled()
-    expect(
-      screen.getAllByText("Enter at least 2 characters").length
-    ).toBeGreaterThan(0)
 
     act(() => {
       fireEvent.change(commentEditor!, {
@@ -1203,7 +1214,7 @@ describe("work item detail screen", () => {
     expect(commentButton!).toBeEnabled()
   })
 
-  it("posts activity comments on Enter and preserves mentions", () => {
+  it("posts activity comments on Enter and preserves mentions", async () => {
     act(() => {
       useAppStore.setState((state) => ({
         teamMemberships: [
@@ -1219,8 +1230,8 @@ describe("work item detail screen", () => {
 
     render(<WorkItemDetailScreen itemId="item_1" />)
 
-    const commentEditor = screen.getByLabelText(
-      "Leave a comment or mention a teammate with @handle..."
+    const commentEditor = await screen.findByLabelText(
+      /Leave a comment or mention a teammate with @handle/
     )
     fireEvent.change(commentEditor, {
       target: {

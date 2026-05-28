@@ -23,7 +23,7 @@ export function CollapsibleRightSidebar({
   return (
     <div
       className={cn(
-        "min-h-0 shrink-0 overflow-hidden transition-[width,flex-basis] duration-200 ease-linear",
+        "min-h-0 shrink-0 overflow-hidden transition-[width,flex-basis] duration-100 ease-out will-change-[width,flex-basis]",
         containerClassName
       )}
       style={{ width: sidebarWidth, flexBasis: sidebarWidth }}
@@ -32,7 +32,7 @@ export function CollapsibleRightSidebar({
         aria-hidden={!open}
         inert={!open ? true : undefined}
         className={cn(
-          "flex h-full min-h-0 flex-col border-l bg-background transition-transform duration-200 ease-linear",
+          "flex h-full min-h-0 flex-col border-l bg-background transition-transform duration-100 ease-out will-change-transform [contain:layout_paint_style]",
           open ? "translate-x-0" : "pointer-events-none translate-x-full",
           className
         )}
