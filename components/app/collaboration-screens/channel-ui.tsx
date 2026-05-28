@@ -314,6 +314,9 @@ function useForumPostCardController(postId: string) {
   const [showReplies, setShowReplies] = useState(false)
   const [replyOpen, setReplyOpen] = useState(false)
   const [deletePostOpen, setDeletePostOpen] = useState(false)
+  const [deleteComment, setDeleteComment] = useState<ForumPostComment | null>(
+    null
+  )
   const replyEditorRef = useRef<Editor | null>(null)
   const usersById = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
@@ -345,8 +348,13 @@ function useForumPostCardController(postId: string) {
     useAppStore.getState().deleteChannelPost(post.id)
     setDeletePostOpen(false)
   }
-  const handleDeleteComment = (comment: ForumPostComment) => {
-    useAppStore.getState().deleteChannelPostComment(post.id, comment.id)
+  const handleConfirmDeleteComment = () => {
+    if (!deleteComment) {
+      return
+    }
+
+    useAppStore.getState().deleteChannelPostComment(post.id, deleteComment.id)
+    setDeleteComment(null)
   }
   const handleInsertReplyEmoji = (emoji: string) => {
     replyEditorRef.current?.chain().focus().insertContent(emoji).run()
@@ -363,8 +371,9 @@ function useForumPostCardController(postId: string) {
     currentUserId,
     currentWorkspaceId,
     deletePostOpen,
+    deleteComment,
     earlierComments,
-    handleDeleteComment,
+    handleConfirmDeleteComment,
     handleDeletePost,
     handleInsertReplyEmoji,
     handleReply,
@@ -377,6 +386,7 @@ function useForumPostCardController(postId: string) {
     replyLimitState,
     replyOpen,
     setDeletePostOpen,
+    setDeleteComment,
     setReply,
     setReplyOpen,
     setShowReplies,
@@ -587,9 +597,10 @@ function ForumPostCardLayout({
   currentUserId,
   currentWorkspaceId,
   deletePostOpen,
+  deleteComment,
   earlierComments,
   handleDeletePost,
-  handleDeleteComment,
+  handleConfirmDeleteComment,
   handleInsertReplyEmoji,
   handleReply,
   hiddenCount,
@@ -601,6 +612,7 @@ function ForumPostCardLayout({
   replyLimitState,
   replyOpen,
   setDeletePostOpen,
+  setDeleteComment,
   setReply,
   setReplyOpen,
   setShowReplies,
@@ -631,7 +643,7 @@ function ForumPostCardLayout({
         showReplies={showReplies}
         usersById={usersById}
         onDelete={() => setDeletePostOpen(true)}
-        onDeleteComment={handleDeleteComment}
+        onDeleteComment={setDeleteComment}
         onInsertReplyEmoji={handleInsertReplyEmoji}
         onReply={handleReply}
         onReplyChange={setReply}
@@ -642,6 +654,11 @@ function ForumPostCardLayout({
         deletePostOpen={deletePostOpen}
         setDeletePostOpen={setDeletePostOpen}
         onDeletePost={handleDeletePost}
+      />
+      <ForumPostCommentDeleteDialog
+        deleteComment={deleteComment}
+        setDeleteComment={setDeleteComment}
+        onDeleteComment={handleConfirmDeleteComment}
       />
     </div>
   )
@@ -778,6 +795,32 @@ function ForumPostDeleteDialog({
       confirmLabel="Delete"
       variant="destructive"
       onConfirm={onDeletePost}
+    />
+  )
+}
+
+function ForumPostCommentDeleteDialog({
+  deleteComment,
+  setDeleteComment,
+  onDeleteComment,
+}: {
+  deleteComment: ForumPostComment | null
+  setDeleteComment: (comment: ForumPostComment | null) => void
+  onDeleteComment: () => void
+}) {
+  return (
+    <ConfirmDialog
+      open={Boolean(deleteComment)}
+      onOpenChange={(open) => {
+        if (!open) {
+          setDeleteComment(null)
+        }
+      }}
+      title="Delete comment"
+      description="This comment will be permanently removed. This can't be undone."
+      confirmLabel="Delete"
+      variant="destructive"
+      onConfirm={onDeleteComment}
     />
   )
 }

@@ -31,11 +31,24 @@ vi.mock("@/components/ui/dropdown-menu", async () =>
   ).createDropdownMenuStubModule()
 )
 
-vi.mock("@/components/ui/confirm-dialog", async () =>
-  (
-    await import("@/tests/lib/fixtures/component-stubs")
-  ).createConfirmDialogStubModule()
-)
+vi.mock("@/components/ui/confirm-dialog", () => ({
+  ConfirmDialog: ({
+    open,
+    title,
+    onConfirm,
+  }: {
+    open: boolean
+    title: string
+    onConfirm: () => void
+  }) =>
+    open ? (
+      <div role="dialog" aria-label={title}>
+        <button type="button" onClick={onConfirm}>
+          Confirm {title}
+        </button>
+      </div>
+    ) : null,
+}))
 
 vi.mock("@/components/app/rich-text-content", () => ({
   RichTextContent: ({ content }: { content: string }) => <div>{content}</div>,
@@ -262,5 +275,54 @@ describe("NewPostComposer", () => {
     expect(
       screen.queryByRole("button", { name: "More" })
     ).not.toBeInTheDocument()
+  })
+
+  it("confirms owned comment deletion before deleting it", () => {
+    const deleteChannelPostCommentMock = vi.fn()
+
+    useAppStore.setState({
+      deleteChannelPostComment: deleteChannelPostCommentMock as never,
+      channelPosts: [
+        {
+          id: "post_1",
+          conversationId: "channel_1",
+          title: "Roadmap",
+          content: "<p>Post</p>",
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: "user_1",
+          createdAt: "2026-04-18T10:00:00.000Z",
+          updatedAt: "2026-04-18T10:00:00.000Z",
+        },
+      ],
+      channelPostComments: [
+        {
+          id: "comment_1",
+          postId: "post_1",
+          content: "<p>Comment</p>",
+          mentionUserIds: [],
+          createdBy: "user_1",
+          createdAt: "2026-04-18T10:05:00.000Z",
+        },
+      ],
+    })
+
+    render(<ForumPostCard postId="post_1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete comment" }))
+
+    expect(deleteChannelPostCommentMock).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole("dialog", { name: "Delete comment" })
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm Delete comment" })
+    )
+
+    expect(deleteChannelPostCommentMock).toHaveBeenCalledWith(
+      "post_1",
+      "comment_1"
+    )
   })
 })

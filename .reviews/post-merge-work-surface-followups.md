@@ -177,3 +177,24 @@ Diff-review result:
 
 - No open findings remain for this direct-main release follow-up.
 - Changed-file Fallow audit passed. Existing production/full analyzer advisory inventories remain unrelated to this diff.
+
+### Turn 9
+
+Reviewed the final direct-main channel follow-up before rebuilding and releasing `0.0.8`.
+
+Outcome:
+
+- no new branch-specific bugs found
+- channel comment deletion now matches channel post deletion by opening the shared destructive confirmation dialog before invoking the store delete action
+- the delete authority and idempotent server path remain unchanged; only the UI confirmation gate moved
+
+Verification rerun:
+
+- `pnpm exec vitest run tests/components/channel-ui.test.tsx tests/components/group-chip-popover.test.tsx tests/components/properties-chip-popover.test.tsx`
+- `pnpm exec eslint components/app/collaboration-screens/channel-ui.tsx tests/components/channel-ui.test.tsx components/app/shell.tsx components/app/screens/work-surface-controls.tsx components/ui/template-primitives.tsx components/app/screens/work-surface.tsx components/app/screens/project-detail-screen.tsx components/app/screens.tsx tests/components/group-chip-popover.test.tsx --max-warnings 0`
+- `pnpm typecheck`
+- `pnpm build`
+
+Diff-review result:
+
+- No open findings remain for the channel comment-confirmation follow-up.
