@@ -318,9 +318,9 @@ function DetailSidebarSelectRow({
                     key={option.value}
                     type="button"
                     className={cn(
-                      "flex min-h-8 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground",
+                      "flex min-h-8 w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
                       option.value === selectedValue &&
-                        "bg-surface-3 text-foreground"
+                        "bg-primary/10 font-medium text-foreground"
                     )}
                     onClick={() => {
                       onValueChange(option.value)
@@ -427,7 +427,7 @@ function DetailSidebarDateRow({
                   onChange={(event) =>
                     onTimeZoneValueChange(event.target.value)
                   }
-                  className="h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
+                  className="h-8 w-full rounded-md border border-line bg-background px-3 pr-8 text-[12px] text-foreground outline-none"
                   aria-label={`${label} time zone`}
                 >
                   {timeZoneOptions.map((option) => (

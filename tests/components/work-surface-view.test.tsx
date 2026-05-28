@@ -1272,9 +1272,11 @@ describe("CalendarView", () => {
 
     expect(screen.getByText("All-day limit 4")).toBeInTheDocument()
     expect(screen.getByText("All-day limit 5")).toBeInTheDocument()
-    expect(screen.getByText("Collapse events")).toBeInTheDocument()
+    expect(screen.getByTestId("calendar-all-day-collapse-bar")).toHaveTextContent(
+      "Collapse events"
+    )
 
-    fireEvent.click(screen.getByText("Collapse events"))
+    fireEvent.click(screen.getByTestId("calendar-all-day-collapse-bar"))
 
     expect(screen.queryByText("All-day limit 4")).not.toBeInTheDocument()
     expect(screen.queryByText("All-day limit 5")).not.toBeInTheDocument()
@@ -1966,6 +1968,10 @@ describe("CalendarView", () => {
     expect(allDayArea).toHaveStyle({ height: "334px" })
     expect(allDayArea).toHaveClass("no-scrollbar")
     expect(dayScrollContainer).toHaveClass("no-scrollbar")
+    expect(screen.getByTestId("calendar-all-day-collapse-bar")).toHaveClass(
+      "absolute",
+      "bottom-1"
+    )
 
     allDayArea.scrollLeft = 240
     fireEvent.scroll(allDayArea)

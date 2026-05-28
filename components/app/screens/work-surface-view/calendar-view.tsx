@@ -2806,17 +2806,13 @@ function CalendarAllDayDragPreview({
 }
 
 function CalendarAllDayMoreControls({
-  collapseAllDayRange,
   expandAllDayRange,
   hiddenAllDayCounts,
-  rangeExpanded,
   rangeKey,
   visibleRowCount,
 }: {
-  collapseAllDayRange: (rangeKey: string) => void
   expandAllDayRange: (rangeKey: string) => void
   hiddenAllDayCounts: number[]
-  rangeExpanded: boolean
   rangeKey: string
   visibleRowCount: number
 }) {
@@ -2842,21 +2838,6 @@ function CalendarAllDayMoreControls({
           </button>
         ) : null
       )}
-      {rangeExpanded ? (
-        <button
-          type="button"
-          data-calendar-more-button
-          className="absolute z-20 h-[22px] truncate rounded-md px-2 text-left text-[11px] font-medium text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-          style={{
-            left: "6px",
-            width: "calc(100% - 12px)",
-            top: getAllDayMoreButtonTop(visibleRowCount),
-          }}
-          onClick={() => collapseAllDayRange(rangeKey)}
-        >
-          Collapse events
-        </button>
-      ) : null}
     </>
   )
 }
@@ -2867,70 +2848,85 @@ const CalendarAllDayScrollArea = forwardRef<
 >(function CalendarAllDayScrollArea(props, ref) {
   return (
     <div
-      ref={ref}
-      data-testid="calendar-all-day-scroll-area"
-      className="no-scrollbar overflow-auto overscroll-contain border-b border-line-soft bg-background"
+      className="relative border-b border-line-soft bg-background"
       style={{ height: props.allDayLaneViewportHeight }}
-      onScroll={props.handleAllDayScroll}
     >
       <div
-        className="relative"
-        style={{
-          minHeight: props.allDayLaneHeight,
-          width: props.dayColumnsContentWidth,
-        }}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={props.handleAllDayDrop}
-        onClick={props.handleAllDayBlankClick}
-        onDoubleClick={props.handleAllDayBlankDoubleClick}
+        ref={ref}
+        data-testid="calendar-all-day-scroll-area"
+        className="no-scrollbar h-full overflow-auto overscroll-contain"
+        style={{ height: props.allDayLaneViewportHeight }}
+        onScroll={props.handleAllDayScroll}
       >
         <div
-          className="pointer-events-none absolute inset-0 grid"
-          style={{ gridTemplateColumns: props.dayColumnsGridTemplateColumns }}
+          className="relative"
+          style={{
+            minHeight: props.allDayLaneHeight,
+            width: props.dayColumnsContentWidth,
+          }}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={props.handleAllDayDrop}
+          onClick={props.handleAllDayBlankClick}
+          onDoubleClick={props.handleAllDayBlankDoubleClick}
         >
-          {props.days.map((day) => (
-            <div
-              key={getDateKey(day)}
-              className={cn(
-                "border-l border-line-soft",
-                (day.getDay() === 0 || day.getDay() === 6) && "bg-surface-2/30"
-              )}
+          <div
+            className="pointer-events-none absolute inset-0 grid"
+            style={{ gridTemplateColumns: props.dayColumnsGridTemplateColumns }}
+          >
+            {props.days.map((day) => (
+              <div
+                key={getDateKey(day)}
+                className={cn(
+                  "border-l border-line-soft",
+                  (day.getDay() === 0 || day.getDay() === 6) &&
+                    "bg-surface-2/30"
+                )}
+              />
+            ))}
+          </div>
+          {props.visibleAllDaySpans.map((span, index) => (
+            <CalendarAllDaySpanButton
+              key={span.entry.item.id}
+              colorMode={props.colorMode}
+              columnCount={props.dayKeys.length}
+              data={props.data}
+              dayKeys={props.dayKeys}
+              getCalendarItemInteractionProps={
+                props.getCalendarItemInteractionProps
+              }
+              index={index}
+              isItemEditable={props.isItemEditable}
+              labelsById={props.labelsById}
+              onDragStart={props.onAllDayDragStart}
+              selectedItemId={props.selectedItemId}
+              span={span}
             />
           ))}
-        </div>
-        {props.visibleAllDaySpans.map((span, index) => (
-          <CalendarAllDaySpanButton
-            key={span.entry.item.id}
+          <CalendarAllDayDragPreview
             colorMode={props.colorMode}
-            columnCount={props.dayKeys.length}
-            data={props.data}
             dayKeys={props.dayKeys}
-            getCalendarItemInteractionProps={
-              props.getCalendarItemInteractionProps
-            }
-            index={index}
-            isItemEditable={props.isItemEditable}
+            dragPreview={props.dragPreview}
             labelsById={props.labelsById}
-            onDragStart={props.onAllDayDragStart}
-            selectedItemId={props.selectedItemId}
-            span={span}
           />
-        ))}
-        <CalendarAllDayDragPreview
-          colorMode={props.colorMode}
-          dayKeys={props.dayKeys}
-          dragPreview={props.dragPreview}
-          labelsById={props.labelsById}
-        />
-        <CalendarAllDayMoreControls
-          collapseAllDayRange={props.collapseAllDayRange}
-          expandAllDayRange={props.expandAllDayRange}
-          hiddenAllDayCounts={props.hiddenAllDayCounts}
-          rangeExpanded={props.allDayRangeExpanded}
-          rangeKey={props.allDayRangeKey}
-          visibleRowCount={props.visibleAllDayRowCount}
-        />
+          <CalendarAllDayMoreControls
+            expandAllDayRange={props.expandAllDayRange}
+            hiddenAllDayCounts={props.hiddenAllDayCounts}
+            rangeKey={props.allDayRangeKey}
+            visibleRowCount={props.visibleAllDayRowCount}
+          />
+        </div>
       </div>
+      {props.allDayRangeExpanded ? (
+        <button
+          type="button"
+          data-calendar-collapse-button
+          data-testid="calendar-all-day-collapse-bar"
+          className="absolute right-1 bottom-1 left-1 z-30 h-[22px] truncate rounded-md border border-line bg-surface/95 px-2 text-left text-[11px] font-medium text-fg-3 shadow-sm backdrop-blur transition-colors hover:bg-surface-2 hover:text-foreground"
+          onClick={() => props.collapseAllDayRange(props.allDayRangeKey)}
+        >
+          Collapse events
+        </button>
+      ) : null}
     </div>
   )
 })

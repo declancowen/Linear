@@ -580,7 +580,7 @@ export function PropertyDateChip({
             <select
               value={timeZoneValue}
               onChange={(event) => onTimeZoneValueChange(event.target.value)}
-              className="mt-2 h-8 w-full rounded-md border border-line bg-background px-2 text-[12.5px] outline-none"
+              className="mt-2 h-8 w-full rounded-md border border-line bg-background px-3 pr-8 text-[12px] text-foreground outline-none"
               aria-label={`${label} time zone`}
             >
               {timeZoneOptions.map((timeZone) => (

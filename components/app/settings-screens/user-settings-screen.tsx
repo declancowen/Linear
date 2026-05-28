@@ -522,7 +522,7 @@ function TimeZoneSettingsSection({
               id="profile-time-zone"
               value={timeZone}
               onChange={(event) => onTimeZoneChange(event.target.value)}
-              className="h-9 w-full max-w-md rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="h-9 w-full max-w-md rounded-md border border-input bg-background px-3.5 pr-8 text-[12.5px] text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
             >
               {timeZones.map((option) => (
                 <option key={option} value={option}>
