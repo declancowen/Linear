@@ -1283,6 +1283,39 @@ describe("CalendarView", () => {
     expect(screen.getByText("+ 2 more")).toBeInTheDocument()
   })
 
+  it("expands all-day rows up to ten events without keeping the collapsed row limit", () => {
+    const items = createAllDayCalendarItems({
+      count: 10,
+      idPrefix: "all-day-expanded-limit",
+      titlePrefix: "All-day expanded limit",
+    })
+    const data = createCalendarDataWithItems(items)
+
+    render(
+      <CalendarView
+        data={data}
+        items={items}
+        editable={false}
+        maxAllDayEvents={3}
+      />
+    )
+
+    expect(screen.getByText("All-day expanded limit 3")).toBeInTheDocument()
+    expect(
+      screen.queryByText("All-day expanded limit 4")
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("+ 7 more"))
+
+    expect(screen.getByText("All-day expanded limit 10")).toBeInTheDocument()
+    expect(screen.getByTestId("calendar-all-day-scroll-area")).toHaveStyle({
+      height: "334px",
+    })
+    expect(screen.getByTestId("calendar-all-day-collapse-bar")).toHaveTextContent(
+      "Collapse events"
+    )
+  })
+
   it("resets expanded all-day rows after navigating away and back", () => {
     const items = createAllDayCalendarItems({
       count: 5,
@@ -1965,7 +1998,7 @@ describe("CalendarView", () => {
       "calendar-day-scroll-container"
     )
 
-    expect(allDayArea).toHaveStyle({ height: "304px" })
+    expect(allDayArea).toHaveStyle({ height: "334px" })
     expect(allDayArea).toHaveClass("no-scrollbar")
     expect(dayScrollContainer).toHaveClass("no-scrollbar")
     expect(screen.getByTestId("calendar-all-day-collapse-bar")).toHaveClass(

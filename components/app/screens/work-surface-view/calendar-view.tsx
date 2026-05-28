@@ -402,6 +402,7 @@ const ALL_DAY_LANE_MIN_HEIGHT = 44
 const ALL_DAY_LANE_TOP_PADDING = 6
 const ALL_DAY_LANE_BOTTOM_PADDING = 6
 const ALL_DAY_MORE_BUTTON_HEIGHT = 22
+const EXPANDED_ALL_DAY_EVENT_ROW_LIMIT = 10
 const CALENDAR_TIME_AXIS_WIDTH = 64
 const CALENDAR_DAY_MIN_WIDTH = 180
 const CALENDAR_DAY_SCROLL_MULTIPLIER = 14
@@ -1891,10 +1892,7 @@ function getAllDayLaneViewportHeight({
     return contentHeight
   }
 
-  const maxVisibleEventRows = hasOverflowControl
-    ? Math.max(0, expandedVisibleRowLimit - 1)
-    : expandedVisibleRowLimit
-  const maxVisibleRows = Math.min(visibleRowCount, maxVisibleEventRows)
+  const maxVisibleRows = Math.min(visibleRowCount, expandedVisibleRowLimit)
   const expandedMaxHeight = getAllDayLaneHeightForRows(
     maxVisibleRows,
     hasOverflowControl
@@ -1903,8 +1901,8 @@ function getAllDayLaneViewportHeight({
   return Math.min(contentHeight, expandedMaxHeight)
 }
 
-function getExpandedAllDayVisibleRowLimit(maxAllDayEvents: number) {
-  return normalizeMaxAllDayEvents(maxAllDayEvents)
+function getExpandedAllDayVisibleRowLimit() {
+  return EXPANDED_ALL_DAY_EVENT_ROW_LIMIT
 }
 
 function getAllDayEventTop(rowIndex: number) {
@@ -4996,8 +4994,7 @@ export function CalendarView({
   const visibleAllDaySpans = allDaySpans.filter(
     (span) => span.rowIndex < visibleAllDayRowCount
   )
-  const expandedAllDayVisibleRowLimit =
-    getExpandedAllDayVisibleRowLimit(maxAllDayEvents)
+  const expandedAllDayVisibleRowLimit = getExpandedAllDayVisibleRowLimit()
   const allDayLaneHeight = getAllDayLaneHeightForRows(
     visibleAllDayRowCount,
     hasHiddenAllDayItems || canCollapseAllDayItems
