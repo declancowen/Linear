@@ -123,7 +123,6 @@ jobs:
           name: desktop-release-macos
           path: |
             dist/electron/Recipe-Room-mac-app-bundle.tgz
-            dist/electron/Recipe Room.app/**
             dist/electron/Recipe-Room-mac-*.dmg
             dist/electron/Recipe-Room-mac-*.zip
             dist/electron/*.blockmap
@@ -200,7 +199,9 @@ jobs:
           path: dist/electron
 
       - name: Restore macOS app bundle permissions
-        run: tar -xzf dist/electron/Recipe-Room-mac-app-bundle.tgz -C dist/electron
+        run: |
+          rm -rf "dist/electron/Recipe Room.app"
+          tar -xzf dist/electron/Recipe-Room-mac-app-bundle.tgz -C dist/electron
 
       - name: Release preflight
         run: node scripts/desktop-release-preflight.mjs
