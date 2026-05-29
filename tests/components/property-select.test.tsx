@@ -198,8 +198,24 @@ describe("PropertySelect", () => {
     ).toEqual({
       parentId: "epic_1",
     })
-    expect(getPatchForField(data, data.workItems[1] ?? null, "epic", "No epic"))
-      .toEqual({})
+    expect(
+      getPatchForField(data, data.workItems[1] ?? null, "epic", "No epic")
+    ).toEqual({})
+    expect(
+      getPatchForField(
+        data,
+        data.workItems[1] ?? null,
+        "parent",
+        "LIN-1 · Platform"
+      )
+    ).toEqual({
+      parentId: "epic_1",
+    })
+    expect(
+      getPatchForField(data, data.workItems[1] ?? null, "parent", "No parent")
+    ).toEqual({
+      parentId: null,
+    })
     expect(getPatchForField(data, null, "epic", "LIN-1 · Platform")).toEqual({})
   })
 })

@@ -789,6 +789,7 @@ function registerDesktopUpdateHandlers() {
 
     return {
       apiBaseUrl: desktopApiBaseUrl,
+      arch: process.arch,
       isPackaged: app.isPackaged,
       platform: process.platform,
       version: app.getVersion(),

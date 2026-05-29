@@ -1,6 +1,6 @@
 {
   "channel": "github-release",
-  "distribution": "github-release-dmg",
+  "distribution": "github-release-desktop-installers",
   "signing": "developer-id-required-for-public-releases",
   "notarization": "required-for-public-releases",
   "updates": "electron-updater-github-releases",
@@ -8,7 +8,7 @@
     "Developer ID Application signing identity",
     "Apple notarization credentials",
     "Gatekeeper accepted app bundle",
-    "GitHub release assets: DMG, ZIP, latest-mac.yml",
+    "GitHub release assets: macOS DMGs and ZIPs for arm64/x64, Windows installers for arm64/ia32/x64, latest-mac.yml, latest.yml",
     "stable GitHub release marked as latest"
   ]
 }

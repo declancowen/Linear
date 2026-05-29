@@ -66,8 +66,12 @@ import {
   workItemTitleConstraints,
 } from "@/lib/domain/input-constraints"
 import { createWorkItemDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
-import { getViewerScopedViewKey } from "@/lib/domain/viewer-view-config"
 import {
+  applyViewerViewConfig,
+  getViewerScopedViewKey,
+} from "@/lib/domain/viewer-view-config"
+import {
+  buildItemGroups,
   canEditTeam,
   getCommentsForTarget,
   getDirectChildWorkItems,
@@ -82,6 +86,7 @@ import {
   getWorkItem,
   getWorkItemDescendantIds,
   sortItems,
+  workItemMatchesView,
 } from "@/lib/domain/selectors"
 import {
   getRootComments,
@@ -155,6 +160,7 @@ import {
   getTeamProjectOptions,
   getWorkItemPresenceSessionId,
   selectAppDataSnapshot,
+  type ViewFilterKey,
 } from "./helpers"
 import {
   MissingState,
@@ -176,7 +182,13 @@ import {
 import { useCommentComposer } from "./use-comment-composer"
 import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import { formatWorkItemDetailDate } from "./date-presentation"
-import { PropertiesChipPopover } from "./work-surface-controls"
+import {
+  FilterPopover,
+  GroupChipPopover,
+  PropertiesChipPopover,
+  type ViewConfigPatch,
+} from "./work-surface-controls"
+import { getGroupValueLabel } from "./work-surface-view/shared"
 import { cn } from "@/lib/utils"
 
 const WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
@@ -219,27 +231,52 @@ function DetailSidebarSection({
   title,
   count,
   action,
+  collapsible = false,
   children,
 }: {
   title: string
   count?: string
   action?: ReactNode
+  collapsible?: boolean
   children: ReactNode
 }) {
+  const [open, setOpen] = useState(true)
+  const headerContent = (
+    <>
+      {collapsible ? (
+        open ? (
+          <CaretDown className="size-3 text-fg-4" />
+        ) : (
+          <CaretRight className="size-3 text-fg-4" />
+        )
+      ) : null}
+      <span>{title}</span>
+      {count ? <span className="font-medium text-fg-4">· {count}</span> : null}
+    </>
+  )
+
   return (
     <section className="mt-7">
       <div className="mb-2.5 flex items-center gap-2 text-[11.5px] font-semibold tracking-[0.05em] text-fg-3 uppercase">
-        <span>{title}</span>
-        {count ? (
-          <span className="font-medium text-fg-4">· {count}</span>
-        ) : null}
+        {collapsible ? (
+          <button
+            type="button"
+            aria-expanded={open}
+            className="flex min-w-0 items-center gap-1.5 text-left transition-colors hover:text-foreground"
+            onClick={() => setOpen((current) => !current)}
+          >
+            {headerContent}
+          </button>
+        ) : (
+          headerContent
+        )}
         {action ? (
           <div className="ml-auto text-[11.5px] font-medium tracking-normal text-fg-3 normal-case">
             {action}
           </div>
         ) : null}
       </div>
-      {children}
+      {open ? children : null}
     </section>
   )
 }
@@ -607,8 +644,8 @@ function DetailChildWorkItemRow({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-2",
-        variant === "sidebar" ? "gap-y-1.5" : "gap-y-2"
+        "flex flex-wrap items-center gap-2 rounded-md py-1.5 transition-colors hover:bg-surface-2",
+        variant === "sidebar" ? "gap-y-1.5 px-2" : "gap-y-2 px-4"
       )}
     >
       <AppLink
@@ -2803,26 +2840,45 @@ function useWorkItemMainSectionController({
 
 function WorkItemDetailBreadcrumb({
   currentItem,
+  parentItem,
   team,
 }: {
   currentItem: WorkItem
+  parentItem: WorkItem | null
   team: Team | null
 }) {
   return (
-    <div className="flex items-center gap-1.5 text-[12px] text-fg-2">
+    <nav
+      aria-label="Work item breadcrumb"
+      className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] text-fg-2"
+    >
       <SidebarTrigger className="size-5 shrink-0" />
       <span className="mr-2 font-mono text-[12px] text-fg-3">
         {currentItem.key}
       </span>
       <AppLink
         href={`/team/${team?.slug}/work`}
-        className="text-fg-3 hover:text-foreground"
+        className="shrink-0 text-fg-3 hover:text-foreground"
       >
         {team?.name}
       </AppLink>
-      <CaretRight className="size-3 text-fg-4" />
-      <span className="truncate">{currentItem.title}</span>
-    </div>
+      <CaretRight className="size-3 shrink-0 text-fg-4" />
+      {parentItem ? (
+        <>
+          <AppLink
+            href={`/items/${parentItem.id}`}
+            title={parentItem.title}
+            className="max-w-[18rem] min-w-0 truncate text-fg-2 hover:text-foreground"
+          >
+            {parentItem.title}
+          </AppLink>
+          <CaretRight className="size-3 shrink-0 text-fg-4" />
+        </>
+      ) : null}
+      <span aria-current="page" className="min-w-0 truncate">
+        {currentItem.title}
+      </span>
+    </nav>
   )
 }
 
@@ -2976,6 +3032,7 @@ function WorkItemTopBarActions({
 
 function WorkItemDetailTopBar({
   currentItem,
+  parentItem,
   team,
   editable,
   otherDescriptionViewers,
@@ -2992,6 +3049,7 @@ function WorkItemDetailTopBar({
   onToggleProperties,
 }: {
   currentItem: WorkItem
+  parentItem: WorkItem | null
   team: Team | null
   editable: boolean
   otherDescriptionViewers: DocumentPresenceViewer[]
@@ -3014,7 +3072,11 @@ function WorkItemDetailTopBar({
 
   return (
     <div className="flex min-h-10 shrink-0 items-center justify-between gap-1 border-b border-line-soft bg-surface px-3 py-2">
-      <WorkItemDetailBreadcrumb currentItem={currentItem} team={team} />
+      <WorkItemDetailBreadcrumb
+        currentItem={currentItem}
+        parentItem={parentItem}
+        team={team}
+      />
       <WorkItemTopBarActions
         editable={editable}
         otherDescriptionViewers={otherDescriptionViewers}
@@ -3382,6 +3444,12 @@ function WorkItemChildItemsHeader({
         <span className="text-[11px] text-fg-4">None yet</span>
       )}
       <div className="ml-auto flex items-center gap-1.5">
+        <WorkItemSubitemFilterButton
+          data={data}
+          currentItem={currentItem}
+          childItems={childItems}
+        />
+        <WorkItemSubitemGroupButton data={data} currentItem={currentItem} />
         <WorkItemSubitemPropertiesButton
           data={data}
           currentItem={currentItem}
@@ -3390,6 +3458,7 @@ function WorkItemChildItemsHeader({
           <Button
             size="icon-sm"
             variant={mainChildComposerOpen ? "outline" : "ghost"}
+            aria-label={childCopy.addChildLabel}
             onClick={onToggleComposer}
           >
             <Plus className="size-3.5" />
@@ -3427,28 +3496,146 @@ function WorkItemChildRows({
   data,
   childItems,
   displayProps,
+  view,
 }: {
   data: AppData
   childItems: WorkItem[]
   displayProps: ViewDefinition["displayProps"]
+  view: ViewDefinition
 }) {
   if (childItems.length === 0) {
     return null
   }
+  const visibleChildItems = childItems.filter((child) =>
+    workItemMatchesView(data, child, view)
+  )
+
+  if (visibleChildItems.length === 0) {
+    return (
+      <div className="px-4 py-3 text-[12.5px] text-fg-3">
+        No child items match these filters.
+      </div>
+    )
+  }
+  const groups = buildItemGroups(data, visibleChildItems, view)
 
   return (
-    <ul className="flex flex-col divide-y divide-line-soft">
-      {childItems.map((child) => (
-        <li key={child.id}>
-          <DetailChildWorkItemRow
-            data={data}
-            item={child}
-            displayProps={displayProps}
-            variant="main"
-          />
-        </li>
-      ))}
+    <ul className="flex flex-col">
+      {[...groups.entries()].map(([groupName, subgroups]) => {
+        const groupItems = Array.from(subgroups.values()).flat()
+
+        return (
+          <li
+            key={groupName}
+            className="border-b border-line-soft last:border-b-0"
+          >
+            <div className="flex items-center gap-2 border-b border-line-soft bg-surface-2/40 px-4 py-1.5 text-[11px] font-medium text-fg-3">
+              <span>{getGroupValueLabel(view.grouping, groupName)}</span>
+              <span className="rounded-full bg-surface-3 px-1.5 py-px text-[10px] tabular-nums">
+                {groupItems.length}
+              </span>
+            </div>
+            <ul className="flex flex-col divide-y divide-line-soft">
+              {groupItems.map((child) => (
+                <li key={child.id}>
+                  <DetailChildWorkItemRow
+                    data={data}
+                    item={child}
+                    displayProps={displayProps}
+                    variant="main"
+                  />
+                </li>
+              ))}
+            </ul>
+          </li>
+        )
+      })}
     </ul>
+  )
+}
+
+function isWorkDetailSubitemGroupField(field: ViewDefinition["grouping"]) {
+  return WORK_DETAIL_SUBITEM_GROUP_OPTIONS.some((option) => option === field)
+}
+
+function patchWorkDetailSubitemViewConfig(patch: ViewConfigPatch) {
+  const nextPatch: ViewConfigPatch = {
+    ...patch,
+    subGrouping: null,
+  }
+
+  if (
+    nextPatch.grouping &&
+    !isWorkDetailSubitemGroupField(nextPatch.grouping)
+  ) {
+    delete nextPatch.grouping
+  }
+
+  useAppStore
+    .getState()
+    .patchViewerViewConfig(
+      WORK_DETAIL_SUBITEM_SURFACE_KEY,
+      WORK_DETAIL_SUBITEM_VIEW_ID,
+      nextPatch
+    )
+}
+
+function WorkItemSubitemFilterButton({
+  data,
+  currentItem,
+  childItems,
+}: {
+  data: AppData
+  currentItem: WorkItem
+  childItems: WorkItem[]
+}) {
+  const view = getWorkDetailSubitemView(data, currentItem)
+
+  return (
+    <FilterPopover
+      view={view}
+      items={childItems}
+      hiddenFilters={WORK_DETAIL_SUBITEM_HIDDEN_FILTERS}
+      onToggleFilterValue={(key, value) =>
+        useAppStore
+          .getState()
+          .toggleViewerViewFilterValue(
+            WORK_DETAIL_SUBITEM_SURFACE_KEY,
+            WORK_DETAIL_SUBITEM_VIEW_ID,
+            key,
+            value
+          )
+      }
+      onClearFilters={() =>
+        useAppStore
+          .getState()
+          .clearViewerViewFilters(
+            WORK_DETAIL_SUBITEM_SURFACE_KEY,
+            WORK_DETAIL_SUBITEM_VIEW_ID
+          )
+      }
+      variant="chip"
+      chipTone="default"
+    />
+  )
+}
+
+function WorkItemSubitemGroupButton({
+  data,
+  currentItem,
+}: {
+  data: AppData
+  currentItem: WorkItem
+}) {
+  const view = getWorkDetailSubitemView(data, currentItem)
+
+  return (
+    <GroupChipPopover
+      view={view}
+      groupOptions={WORK_DETAIL_SUBITEM_GROUP_OPTIONS}
+      onUpdateView={patchWorkDetailSubitemViewConfig}
+      showSubGrouping={false}
+    />
   )
 }
 
@@ -3569,6 +3756,7 @@ function WorkItemChildItemsSection({
             data={data}
             childItems={childItems}
             displayProps={subitemView.displayProps}
+            view={subitemView}
           />
           <WorkItemChildComposerSlot
             currentItem={currentItem}
@@ -3902,29 +4090,32 @@ const WORK_DETAIL_SUBITEM_DEFAULT_PROPS: ViewDefinition["displayProps"] = [
   "project",
   "dueDate",
 ]
+const WORK_DETAIL_SUBITEM_GROUP_OPTIONS = [
+  "status",
+  "assignee",
+  "priority",
+  "label",
+] satisfies ViewDefinition["grouping"][]
+const WORK_DETAIL_SUBITEM_HIDDEN_FILTERS = [
+  "itemTypes",
+  "visibility",
+  "teamIds",
+  "projectIds",
+  "parentIds",
+] satisfies ViewFilterKey[]
 
 function getWorkDetailSubitemScope(data: AppData, currentItem: WorkItem) {
   if (currentItem.visibility === "private") {
     return {
       scopeId: data.currentUserId,
       scopeType: "personal" as const,
-      visibility: ["private"] as NonNullable<
-        ViewDefinition["filters"]["visibility"]
-      >,
     }
   }
 
   return {
     scopeId: currentItem.teamId,
     scopeType: "team" as const,
-    visibility: [] as NonNullable<ViewDefinition["filters"]["visibility"]>,
   }
-}
-
-function getWorkDetailSubitemDisplayProps(
-  override: AppData["ui"]["viewerViewConfigByRoute"][string] | undefined
-) {
-  return override?.displayProps ?? WORK_DETAIL_SUBITEM_DEFAULT_PROPS
 }
 
 function getWorkDetailSubitemView(
@@ -3938,8 +4129,7 @@ function getWorkDetailSubitemView(
   )
   const override = data.ui.viewerViewConfigByRoute[key]
   const scope = getWorkDetailSubitemScope(data, currentItem)
-
-  return {
+  const baseView: ViewDefinition = {
     id: WORK_DETAIL_SUBITEM_VIEW_ID,
     name: "Sub-items",
     description: "",
@@ -3953,15 +4143,21 @@ function getWorkDetailSubitemView(
     ordering: "priority",
     itemLevel: null,
     showChildItems: false,
-    filters: {
-      ...createEmptyViewFilters(),
-      visibility: scope.visibility,
-    },
-    displayProps: getWorkDetailSubitemDisplayProps(override),
+    filters: createEmptyViewFilters(),
+    displayProps: WORK_DETAIL_SUBITEM_DEFAULT_PROPS,
     hiddenState: { groups: [], subgroups: [] },
     isShared: false,
     createdAt: "",
     updatedAt: "",
+  }
+  const configuredView = applyViewerViewConfig(baseView, override)
+
+  return {
+    ...configuredView,
+    grouping: isWorkDetailSubitemGroupField(configuredView.grouping)
+      ? configuredView.grouping
+      : "status",
+    subGrouping: null,
   }
 }
 
@@ -4012,22 +4208,16 @@ function WorkItemSidebarSubtasks({
   currentItem,
   childItems,
   childProgress,
-  childCopy,
   editable,
-  canCreateChildItem,
   sidebarChildComposerOpen,
-  onToggleComposer,
   onCloseComposer,
 }: {
   data: AppData
   currentItem: WorkItem
   childItems: WorkItem[]
   childProgress: DetailChildProgress
-  childCopy: DetailChildCopy
   editable: boolean
-  canCreateChildItem: boolean
   sidebarChildComposerOpen: boolean
-  onToggleComposer: () => void
   onCloseComposer: () => void
 }) {
   const subitemView = getWorkDetailSubitemView(data, currentItem)
@@ -4036,25 +4226,7 @@ function WorkItemSidebarSubtasks({
     <DetailSidebarSection
       title="Subtasks"
       count={`${childProgress.completedChildren} of ${childItems.length || 0}`}
-      action={
-        <div className="flex items-center gap-1.5">
-          <WorkItemSubitemPropertiesButton
-            data={data}
-            currentItem={currentItem}
-          />
-          {canCreateChildItem ? (
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="ghost"
-              aria-label={childCopy.addChildLabel}
-              onClick={onToggleComposer}
-            >
-              <Plus className="size-3.5" />
-            </Button>
-          ) : null}
-        </div>
-      }
+      collapsible
     >
       <div className="flex flex-col gap-1">
         {childItems.length > 0 ? (
@@ -4213,9 +4385,7 @@ function WorkItemDetailSidebar({
   parentOptions,
   childItems,
   childProgress,
-  childCopy,
   editable,
-  canCreateChildItem,
   sidebarChildComposerOpen,
   linkedProjects,
   linkedDocuments,
@@ -4235,7 +4405,6 @@ function WorkItemDetailSidebar({
   onScheduleTimeZoneChange,
   onProjectChange,
   onParentChange,
-  onToggleChildComposer,
   onCloseChildComposer,
 }: {
   open: boolean
@@ -4253,9 +4422,7 @@ function WorkItemDetailSidebar({
   parentOptions: DetailSelectOption[]
   childItems: WorkItem[]
   childProgress: DetailChildProgress
-  childCopy: DetailChildCopy
   editable: boolean
-  canCreateChildItem: boolean
   sidebarChildComposerOpen: boolean
   linkedProjects: Project[]
   linkedDocuments: AppDocument[]
@@ -4265,7 +4432,6 @@ function WorkItemDetailSidebar({
   floatingMaxHeight?: number
   onCopyItemLink: () => void
   onClose?: () => void
-  onToggleChildComposer: () => void
   onCloseChildComposer: () => void
 } & DetailPropertyChangeHandlers) {
   const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
@@ -4348,11 +4514,8 @@ function WorkItemDetailSidebar({
           currentItem={currentItem}
           childItems={childItems}
           childProgress={childProgress}
-          childCopy={childCopy}
           editable={editable}
-          canCreateChildItem={canCreateChildItem}
           sidebarChildComposerOpen={sidebarChildComposerOpen}
-          onToggleComposer={onToggleChildComposer}
           onCloseComposer={onCloseChildComposer}
         />
 
@@ -4484,9 +4647,7 @@ export function WorkItemDetailSidebarSurface({
         parentOptions={detailModel.parentOptions}
         childItems={detailModel.childItems}
         childProgress={detailModel.childProgress}
-        childCopy={detailModel.childCopy}
         editable={editable}
-        canCreateChildItem={detailModel.canCreateChildItem}
         sidebarChildComposerOpen={sidebarChildComposerOpen}
         linkedProjects={detailModel.linkedProjects}
         linkedDocuments={detailModel.linkedDocuments}
@@ -4497,9 +4658,6 @@ export function WorkItemDetailSidebarSurface({
         onClose={onClose}
         onCopyItemLink={handleCopyItemLink}
         {...propertyHandlers}
-        onToggleChildComposer={() =>
-          setSidebarChildComposerOpen((current) => !current)
-        }
         onCloseChildComposer={() => setSidebarChildComposerOpen(false)}
       />
       {confirmationDialog}
@@ -4789,6 +4947,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       <div className="flex min-h-0 flex-1 flex-col bg-background">
         <WorkItemDetailTopBar
           currentItem={currentItem}
+          parentItem={parentItem}
           team={team}
           editable={editable}
           otherDescriptionViewers={otherDescriptionViewers}
@@ -4826,9 +4985,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
             parentOptions={parentOptions}
             childItems={childItems}
             childProgress={childProgress}
-            childCopy={childCopy}
             editable={editable}
-            canCreateChildItem={canCreateChildItem}
             sidebarChildComposerOpen={sidebarChildComposerOpen}
             linkedProjects={linkedProjects}
             linkedDocuments={linkedDocuments}
@@ -4837,15 +4994,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
               void handleCopyItemLink()
             }}
             {...propertyHandlers}
-            onToggleChildComposer={() =>
-              setSidebarChildComposerOpen((current) => {
-                const next = !current
-                if (next) {
-                  setMainChildComposerOpen(false)
-                }
-                return next
-              })
-            }
             onCloseChildComposer={() => setSidebarChildComposerOpen(false)}
           />
         </div>

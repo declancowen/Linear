@@ -1,5 +1,12 @@
 import type { ReactNode } from "react"
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import "@/tests/lib/fixtures/detail-screen-mocks"
@@ -601,6 +608,30 @@ describe("work item detail screen", () => {
     useAppStore.setState(createEmptyState())
   })
 
+  it("shows the parent item in the top breadcrumb for child items", () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        workItems: state.workItems.map((item) =>
+          item.id === "item_2" ? { ...item, parentId: "item_1" } : item
+        ),
+      }))
+    })
+
+    render(<WorkItemDetailScreen itemId="item_2" />)
+
+    const breadcrumb = screen.getByLabelText("Work item breadcrumb")
+
+    expect(within(breadcrumb).getByText("PLA-2")).toBeInTheDocument()
+    expect(
+      within(breadcrumb).getByRole("link", { name: "Plan launch" })
+    ).toHaveAttribute("href", "/items/item_1")
+    expect(within(breadcrumb).getByText("Follow up")).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+  })
+
   it("shows a stale draft notice and reloads the latest main-section content", async () => {
     render(<WorkItemDetailScreen itemId="item_1" />)
 
@@ -1007,7 +1038,9 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Status" })).toBeInTheDocument()
     expect(screen.queryByText("Activity")).not.toBeInTheDocument()
 
-    await waitFor(() => expect(screen.getByText("Activity")).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByText("Activity")).toBeInTheDocument()
+    )
   })
 
   it.each([
@@ -1166,7 +1199,109 @@ describe("work item detail screen", () => {
     expect(screen.getAllByText("50%")).toHaveLength(2)
   })
 
-  it("opens the child composer only in the surface that was triggered", () => {
+  it("collapses the sidebar subtask list", () => {
+    addChildWorkItems([
+      {
+        id: "item_3",
+        key: "PLA-3",
+        title: "Child item",
+      },
+    ])
+    const { data, item } = getSeededWorkItemDetailSidebarFixture()
+
+    render(
+      <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
+    )
+
+    const subtasksToggle = screen.getByRole("button", { name: /Subtasks/ })
+
+    expect(subtasksToggle).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByText("Child item")).toBeInTheDocument()
+
+    fireEvent.click(subtasksToggle)
+
+    expect(subtasksToggle).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByText("Child item")).not.toBeInTheDocument()
+  })
+
+  it("shows subtask grouping and filtering only on the detail surface", () => {
+    addChildWorkItems([
+      {
+        id: "item_3",
+        key: "PLA-3",
+        title: "Child done",
+        status: "done",
+      },
+      {
+        id: "item_4",
+        key: "PLA-4",
+        title: "Child todo",
+      },
+    ])
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    const surface = screen.getByText("Sub-tasks").closest("section")
+    expect(surface).not.toBeNull()
+    const surfaceQueries = within(surface!)
+
+    expect(
+      surfaceQueries.getByRole("button", { name: "Filter" })
+    ).toBeInTheDocument()
+    expect(
+      surfaceQueries.getByRole("button", { name: /^Group$/ })
+    ).toBeInTheDocument()
+
+    fireEvent.click(surfaceQueries.getByRole("button", { name: /^Group$/ }))
+
+    expect(screen.getByText("Group by")).toBeInTheDocument()
+    expect(screen.queryByText("Sub-group")).not.toBeInTheDocument()
+    expect(
+      screen.getAllByRole("button", { name: "Status" }).length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getAllByRole("button", { name: "Assignee" }).length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getAllByRole("button", { name: "Priority" }).length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getAllByRole("button", { name: "Label" }).length
+    ).toBeGreaterThan(0)
+
+    fireEvent.click(surfaceQueries.getByRole("button", { name: "Filter" }))
+    const doneFilterOption = screen
+      .getAllByRole("button", { name: "Done" })
+      .at(-1)
+    expect(doneFilterOption).toBeDefined()
+    fireEvent.click(doneFilterOption!)
+
+    expect(surfaceQueries.getByText("Child done")).toBeInTheDocument()
+    expect(surfaceQueries.queryByText("Child todo")).not.toBeInTheDocument()
+  })
+
+  it("hides subtask view actions in the sidebar", () => {
+    const { data, item } = getSeededWorkItemDetailSidebarFixture()
+
+    render(
+      <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
+    )
+
+    expect(
+      screen.queryByRole("button", { name: "Filter" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Group$/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Add sub-task" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Properties/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("toggles the child composer from the detail surface", () => {
     render(<WorkItemDetailScreen itemId="item_1" />)
 
     const addButtons = screen.getAllByRole("button", { name: "Add sub-task" })
@@ -1177,7 +1312,9 @@ describe("work item detail screen", () => {
     expect(screen.getAllByTestId("inline-child-composer")).toHaveLength(1)
 
     fireEvent.click(screen.getByRole("button", { name: "Add sub-task" }))
-    expect(screen.getAllByTestId("inline-child-composer")).toHaveLength(1)
+    expect(
+      screen.queryByTestId("inline-child-composer")
+    ).not.toBeInTheDocument()
   })
 
   it("keeps activity comment submit disabled until the shared minimum plain-text length is met", async () => {

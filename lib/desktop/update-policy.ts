@@ -1,5 +1,51 @@
+const DESKTOP_RELEASE_DOWNLOAD_BASE_URL =
+  "https://github.com/declancowen/Linear/releases/latest/download"
+const DEFAULT_DESKTOP_MAC_ARM64_DOWNLOAD_URL = `${DESKTOP_RELEASE_DOWNLOAD_BASE_URL}/Recipe-Room-mac-arm64.dmg`
+
+export type DesktopDownloadArchitecture = "arm64" | "x64" | "ia32"
+export type DesktopDownloadPlatform = "mac" | "windows"
+
+export type DesktopDownloadTarget = {
+  architecture: DesktopDownloadArchitecture
+  platform: DesktopDownloadPlatform
+}
+
+export type DesktopDownloadUrlMap = {
+  mac: Partial<Record<DesktopDownloadArchitecture, string>>
+  windows: Partial<Record<DesktopDownloadArchitecture, string>>
+}
+
+export const DEFAULT_DESKTOP_DOWNLOAD_URLS: DesktopDownloadUrlMap = {
+  mac: {
+    arm64: DEFAULT_DESKTOP_MAC_ARM64_DOWNLOAD_URL,
+    x64: `${DESKTOP_RELEASE_DOWNLOAD_BASE_URL}/Recipe-Room-mac-x64.dmg`,
+  },
+  windows: {
+    arm64: `${DESKTOP_RELEASE_DOWNLOAD_BASE_URL}/Recipe-Room-win-arm64.exe`,
+    ia32: `${DESKTOP_RELEASE_DOWNLOAD_BASE_URL}/Recipe-Room-win-ia32.exe`,
+    x64: `${DESKTOP_RELEASE_DOWNLOAD_BASE_URL}/Recipe-Room-win-x64.exe`,
+  },
+}
+
 export const DEFAULT_DESKTOP_MAC_DOWNLOAD_URL =
-  "https://github.com/declancowen/Linear/releases/latest/download/Recipe-Room-mac-arm64.dmg"
+  DEFAULT_DESKTOP_MAC_ARM64_DOWNLOAD_URL
+
+export function getDefaultDesktopDownloadUrl(target: DesktopDownloadTarget) {
+  return (
+    DEFAULT_DESKTOP_DOWNLOAD_URLS[target.platform][target.architecture] ??
+    DEFAULT_DESKTOP_MAC_DOWNLOAD_URL
+  )
+}
+
+export function getDesktopDownloadUrl(
+  urls: Partial<DesktopDownloadUrlMap> | null | undefined,
+  target: DesktopDownloadTarget
+) {
+  return (
+    urls?.[target.platform]?.[target.architecture]?.trim() ||
+    getDefaultDesktopDownloadUrl(target)
+  )
+}
 
 type ParsedDesktopVersion = {
   core: number[]

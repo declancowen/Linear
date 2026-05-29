@@ -38,6 +38,7 @@ const appleTouchIconTargets = [
 
 const appIconIcoTargets = [
   path.join(repoRoot, "app-icon.ico"),
+  path.join(repoRoot, "electron", "app-icon.ico"),
   path.join(repoRoot, "public", "app-icon.ico"),
 ]
 

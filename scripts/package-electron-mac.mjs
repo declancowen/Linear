@@ -43,6 +43,44 @@ const desktopRendererMode =
   process.env.DESKTOP_RENDERER_MODE === "packaged" ? "packaged" : "hosted"
 const desktopRendererDir = path.join(repoRoot, "dist", "desktop-renderer")
 const desktopRendererEntryPath = path.join(desktopRendererDir, "index.html")
+const supportedMacArchitectures = new Set(["arm64", "x64"])
+
+function normalizeMacArchitecture(value) {
+  const normalized = value?.trim().toLowerCase()
+
+  if (normalized === "aarch64") {
+    return "arm64"
+  }
+
+  if (normalized === "amd64" || normalized === "x86_64") {
+    return "x64"
+  }
+
+  return supportedMacArchitectures.has(normalized) ? normalized : null
+}
+
+function parseMacBuildArchitectures() {
+  const configuredArchitectures = process.env.DESKTOP_MAC_ARCHES?.trim()
+  const defaultArchitectures = shouldBuildReleaseArtifacts
+    ? ["arm64", "x64"]
+    : [normalizeMacArchitecture(process.arch) ?? "arm64"]
+  const parsedArchitectures = configuredArchitectures
+    ? configuredArchitectures
+        .split(/[\s,]+/u)
+        .map(normalizeMacArchitecture)
+        .filter(Boolean)
+    : defaultArchitectures
+
+  return [...new Set(parsedArchitectures)]
+}
+
+const macBuildArchitectures = parseMacBuildArchitectures()
+const primaryMacArchitecture =
+  macBuildArchitectures.find(
+    (architecture) => architecture === normalizeMacArchitecture(process.arch)
+  ) ??
+  macBuildArchitectures[0] ??
+  "arm64"
 
 function hasNotarizationCredentials(env) {
   return (
@@ -241,7 +279,11 @@ async function resolveDesktopUpdatePublishConfigForBuild() {
   })
 }
 
-async function copyReleaseArtifacts(sourceDir, targetDir) {
+async function copyReleaseArtifacts(
+  sourceDir,
+  targetDir,
+  requiredArchitectures
+) {
   const releaseExtensions = new Set([".blockmap", ".dmg", ".yml", ".zip"])
   const copiedPaths = []
   const entries = await fs.readdir(sourceDir, { withFileTypes: true })
@@ -273,11 +315,26 @@ async function copyReleaseArtifacts(sourceDir, targetDir) {
   const hasMacUpdateManifest = copiedPaths.some(
     (filePath) => path.basename(filePath) === "latest-mac.yml"
   )
+  const copiedNames = new Set(
+    copiedPaths.map((filePath) => path.basename(filePath))
+  )
 
   if (!hasDmg || !hasZip || !hasMacUpdateManifest) {
     throw new Error(
       "Release artifact build must produce a DMG, ZIP, and latest-mac.yml for GitHub updates."
     )
+  }
+
+  for (const architecture of requiredArchitectures) {
+    for (const extension of ["dmg", "zip"]) {
+      const expectedName = `Recipe-Room-mac-${architecture}.${extension}`
+
+      if (!copiedNames.has(expectedName)) {
+        throw new Error(
+          `Release artifact build did not produce ${expectedName}.`
+        )
+      }
+    }
   }
 
   return copiedPaths
@@ -442,6 +499,12 @@ async function copyDesktopStageFiles(stageDir) {
 }
 
 async function main() {
+  if (macBuildArchitectures.length === 0) {
+    throw new Error(
+      "No macOS architectures selected. Set DESKTOP_MAC_ARCHES to arm64, x64, or both."
+    )
+  }
+
   const desktopPackageEnv = await loadDesktopPackageEnv()
   const desktopUpdatePublishConfig =
     await resolveDesktopUpdatePublishConfigForBuild()
@@ -484,14 +547,16 @@ async function main() {
         "--projectDir",
         stageDir,
         "--mac",
-        "--arm64",
+        ...macBuildArchitectures.map((architecture) => `--${architecture}`),
         "--publish",
         "never",
       ],
       { cwd: repoRoot }
     )
 
-    const { appPath } = await findBuiltApp(stageOutputDir)
+    const { appPath } = await findBuiltApp(stageOutputDir, {
+      arch: primaryMacArchitecture,
+    })
     await stripMacExtendedAttributes(appPath)
 
     await fs.rm(outputAppPath, { force: true, recursive: true })
@@ -516,10 +581,14 @@ async function main() {
     if (shouldBuildReleaseArtifacts) {
       releaseArtifactPaths = await copyReleaseArtifacts(
         stageOutputDir,
-        outputDir
+        outputDir,
+        macBuildArchitectures
       )
     } else {
-      const archivePath = path.join(outputDir, "Recipe Room-mac-arm64.zip")
+      const archivePath = path.join(
+        outputDir,
+        `Recipe Room-mac-${primaryMacArchitecture}.zip`
+      )
       await run(
         "ditto",
         [

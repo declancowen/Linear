@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { addDays, addMonths, format, startOfDay } from "date-fns"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -2778,6 +2778,140 @@ describe("ListView", () => {
     })
   })
 
+  it("preserves direct parent defaults when adding an item from parent lanes", () => {
+    const data = createEpicGroupedCreateData()
+    const groupedItems = data.workItems.filter(
+      (item) => item.id === "feature-child"
+    )
+    const view = createView("board", [], {
+      grouping: "parent",
+      hiddenState: {
+        groups: ["No parent"],
+        subgroups: [],
+      },
+    })
+
+    expectBoardAndListCreateDefaults({
+      data,
+      items: groupedItems,
+      view,
+      expected: {
+        initialType: "feature",
+        parentId: "epic-parent",
+      },
+    })
+  })
+
+  it("promotes parent groups into board headers with editable properties", () => {
+    const data = createEpicGroupedCreateData()
+
+    render(
+      <BoardView
+        data={data}
+        items={data.workItems}
+        view={createView("board", ["priority"], {
+          grouping: "parent",
+          showChildItems: true,
+        })}
+        editable
+      />
+    )
+
+    const parentSummary = screen.getByTestId("parent-group-summary-epic-parent")
+    expect(within(parentSummary).getByText("Parent epic")).toBeInTheDocument()
+    expect(
+      within(parentSummary).getByRole("link", {
+        name: "Open parent Parent epic",
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole("link", { name: "Open Parent epic" })
+    ).toHaveLength(1)
+    expect(screen.getByText("Grouped feature")).toBeInTheDocument()
+    expect(screen.queryByText("No parent")).not.toBeInTheDocument()
+
+    fireEvent.click(
+      within(parentSummary).getByRole("button", { name: "Medium" })
+    )
+    expect(screen.getByText("Urgent")).toBeInTheDocument()
+  })
+
+  it("promotes parent groups into list headers with editable properties", () => {
+    const data = createEpicGroupedCreateData()
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["priority"], {
+          grouping: "parent",
+          showChildItems: true,
+        })}
+        editable
+      />
+    )
+
+    const parentSummary = screen.getByTestId("parent-group-summary-epic-parent")
+    expect(within(parentSummary).getByText("Parent epic")).toBeInTheDocument()
+    expect(
+      within(parentSummary).getByRole("link", {
+        name: "Open parent Parent epic",
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole("link", { name: "Open Parent epic" })
+    ).toHaveLength(1)
+    expect(screen.getByText("Grouped feature")).toBeInTheDocument()
+    expect(screen.queryByText("No parent")).not.toBeInTheDocument()
+
+    fireEvent.click(
+      within(parentSummary).getByRole("button", { name: "Medium" })
+    )
+    expect(screen.getByText("Urgent")).toBeInTheDocument()
+  })
+
+  it("labels empty parent board lanes from the active hierarchy", () => {
+    const issueExperience = "issue-analysis" as const
+    const issueTeam = createTeam()
+    const data = {
+      ...createData(),
+      teams: [
+        {
+          ...issueTeam,
+          settings: {
+            ...issueTeam.settings,
+            experience: issueExperience,
+            features: createDefaultTeamFeatureSettings(issueExperience),
+            workflow: createDefaultTeamWorkflowSettings(issueExperience),
+          },
+        },
+      ],
+      workItems: [
+        createWorkItem({
+          id: "issue-parentless",
+          key: "BUG-1",
+          type: "issue",
+          title: "Parentless issue",
+        }),
+      ],
+    }
+
+    render(
+      <BoardView
+        data={data}
+        items={data.workItems}
+        view={createView("board", [], {
+          grouping: "parent",
+          itemLevel: "issue",
+        })}
+        editable={false}
+        groupingExperience="issue-analysis"
+      />
+    )
+
+    expect(screen.getByText("No issue")).toBeInTheDocument()
+  })
+
   it("derives parent defaults from the epic lane even when only the parent row is visible", () => {
     const data = createEpicGroupedCreateData()
     const laneItems = data.workItems.filter((item) => item.id === "epic-parent")
@@ -3037,13 +3171,96 @@ describe("ListView", () => {
       scope: "board",
       view,
     })
-    expect(requestUpdate).toHaveBeenLastCalledWith(
-      activeItem.id,
-      expect.objectContaining({
-        status: "todo",
-        parentId: null,
-      })
-    )
+    expect(requestUpdate).toHaveBeenLastCalledWith(activeItem.id, {
+      status: "todo",
+    })
+  })
+
+  it("preserves parent links when dragging between non-parent group lanes", () => {
+    const parentItem = createWorkItem({
+      id: "parent",
+      type: "issue",
+      status: "todo",
+    })
+    const activeItem = createWorkItem({
+      id: "active",
+      type: "sub-issue",
+      parentId: parentItem.id,
+      status: "todo",
+    })
+    const data = {
+      ...createData(),
+      workItems: [parentItem, activeItem],
+    }
+    const requestUpdate = vi.fn()
+
+    requestWorkSurfaceDragUpdate({
+      data,
+      editable: true,
+      event: createDragEndEvent(activeItem.id, "board::done"),
+      itemPool: data.workItems,
+      requestUpdate,
+      scope: "board",
+      view: createView("board", [], { grouping: "status" }),
+    })
+
+    expect(requestUpdate).toHaveBeenCalledWith(activeItem.id, {
+      status: "done",
+    })
+  })
+
+  it("updates parent links when dragging between parent group lanes", () => {
+    const originalParent = createWorkItem({
+      id: "parent-a",
+      key: "BUG-1",
+      title: "Original parent",
+      type: "issue",
+    })
+    const nextParent = createWorkItem({
+      id: "parent-b",
+      key: "BUG-2",
+      title: "Next parent",
+      type: "issue",
+    })
+    const activeItem = createWorkItem({
+      id: "active",
+      key: "BUG-3",
+      type: "sub-issue",
+      parentId: originalParent.id,
+    })
+    const data = {
+      ...createData(),
+      workItems: [originalParent, nextParent, activeItem],
+    }
+    const requestUpdate = vi.fn()
+
+    requestWorkSurfaceDragUpdate({
+      data,
+      editable: true,
+      event: createDragEndEvent(activeItem.id, "board::BUG-2 · Next parent"),
+      itemPool: data.workItems,
+      requestUpdate,
+      scope: "board",
+      view: createView("board", [], { grouping: "parent" }),
+    })
+
+    expect(requestUpdate).toHaveBeenCalledWith(activeItem.id, {
+      parentId: nextParent.id,
+    })
+
+    requestWorkSurfaceDragUpdate({
+      data,
+      editable: true,
+      event: createDragEndEvent(activeItem.id, "board::No parent"),
+      itemPool: data.workItems,
+      requestUpdate,
+      scope: "board",
+      view: createView("board", [], { grouping: "parent" }),
+    })
+
+    expect(requestUpdate).toHaveBeenLastCalledWith(activeItem.id, {
+      parentId: null,
+    })
   })
 
   it("renders board child rows as static rows or interactive links", () => {

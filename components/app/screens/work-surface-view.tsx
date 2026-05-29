@@ -29,6 +29,7 @@ import {
   CaretDown,
   CaretRight,
   Plus,
+  SidebarSimple,
   TreeStructure,
 } from "@phosphor-icons/react"
 
@@ -38,6 +39,7 @@ import {
   getDirectChildWorkItemsForDisplay,
   getTeam,
   getUser,
+  getWorkItem,
   getWorkItemChildProgress,
 } from "@/lib/domain/selectors"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
@@ -48,6 +50,7 @@ import {
   type AppData,
   type BuiltinDisplayProperty,
   type DisplayProperty,
+  type TeamExperienceType,
   type ViewDefinition,
   type WorkItem,
   type WorkItemVisibility,
@@ -197,16 +200,94 @@ function getWorkSurfaceGroups({
   scopedItems?: WorkItem[]
   view: ViewDefinition
 }) {
+  const sourceItems = scopedItems ?? items
+  const groupedItems = getParentGroupedDisplayItems(items, sourceItems, view)
+
   return [
     ...(editable
-      ? buildItemGroupsWithEmptyGroups(data, items, view, {
-          sourceItems: scopedItems,
+      ? buildItemGroupsWithEmptyGroups(data, groupedItems, view, {
+          sourceItems,
           teamId: createContext?.defaultTeamId,
           projectId: createContext?.defaultProjectId,
         })
-      : buildItemGroups(data, items, view)
+      : buildItemGroups(data, groupedItems, view)
     ).entries(),
   ]
+}
+
+function isParentGroupingField(field: ViewDefinition["grouping"] | null) {
+  return field === "parent"
+}
+
+function getParentIdsWithChildren(sourceItems: WorkItem[]) {
+  const sourceItemIds = new Set(sourceItems.map((item) => item.id))
+  const parentIds = new Set<string>()
+
+  sourceItems.forEach((item) => {
+    if (item.parentId && sourceItemIds.has(item.parentId)) {
+      parentIds.add(item.parentId)
+    }
+  })
+
+  return parentIds
+}
+
+function getParentGroupedDisplayItems(
+  items: WorkItem[],
+  sourceItems: WorkItem[],
+  view: ViewDefinition
+) {
+  if (
+    !isParentGroupingField(view.grouping) &&
+    !isParentGroupingField(view.subGrouping)
+  ) {
+    return items
+  }
+
+  const parentIds = getParentIdsWithChildren(sourceItems)
+
+  if (parentIds.size === 0) {
+    return items
+  }
+
+  return items.filter((item) => !parentIds.has(item.id))
+}
+
+function getParentGroupValueForItem(item: WorkItem) {
+  return `${item.key} · ${item.title}`
+}
+
+function getParentGroupItem({
+  data,
+  field,
+  groupItems,
+  sourceItems,
+  value,
+}: {
+  data: AppData
+  field: ViewDefinition["grouping"] | null
+  groupItems: WorkItem[]
+  sourceItems: WorkItem[]
+  value: string
+}) {
+  if (!isParentGroupingField(field) || value === "No parent") {
+    return null
+  }
+
+  for (const item of groupItems) {
+    const parent =
+      item.parentId !== null ? getWorkItem(data, item.parentId) : null
+
+    if (parent && getParentGroupValueForItem(parent) === value) {
+      return parent
+    }
+  }
+
+  return (
+    sourceItems.find((item) => getParentGroupValueForItem(item) === value) ??
+    data.workItems.find((item) => getParentGroupValueForItem(item) === value) ??
+    null
+  )
 }
 
 type CreateDefaultsForFieldResult = ReturnType<typeof getCreateDefaultsForField>
@@ -398,6 +479,7 @@ type WorkSurfaceViewProps = {
   scopedItems?: WorkItem[]
   view: ViewDefinition
   editable: boolean
+  groupingExperience?: TeamExperienceType | null
   childDisplayMode?: ChildDisplayMode
   createContext?: WorkSurfaceCreateContext
   onToggleHiddenValue?: (key: "groups" | "subgroups", value: string) => void
@@ -991,6 +1073,7 @@ export function BoardView({
   scopedItems,
   view,
   editable,
+  groupingExperience,
   childDisplayMode = "direct",
   createContext,
   onToggleHiddenValue,
@@ -1034,6 +1117,8 @@ export function BoardView({
     ([groupName]) => !view.hiddenState.groups.includes(groupName)
   )
   const showChildItems = Boolean(view.showChildItems)
+  const sourceItems = scopedItems ?? items
+  const displayItems = getParentGroupedDisplayItems(items, sourceItems, view)
 
   function toggleExpandedItem(itemId: string) {
     toggleSetMember(setExpandedItemIds, itemId)
@@ -1060,7 +1145,17 @@ export function BoardView({
           {visibleGroups.map(([groupName, subgroups]) => {
             const groupItems = Array.from(subgroups.values()).flat()
             const groupCount = groupItems.length
-            const groupLabel = getGroupValueLabel(view.grouping, groupName)
+            const parentGroupItem = getParentGroupItem({
+              data,
+              field: view.grouping,
+              groupItems,
+              sourceItems,
+              value: groupName,
+            })
+            const groupLabel = getGroupValueLabel(view.grouping, groupName, {
+              view,
+              groupingExperience,
+            })
             const groupAccentVar = getGroupAccentVar(view.grouping, groupName)
 
             return (
@@ -1073,6 +1168,9 @@ export function BoardView({
                   accentVar={groupAccentVar}
                   groupLabel={groupLabel}
                   groupCount={groupCount}
+                  data={data}
+                  displayProps={view.displayProps}
+                  parentItem={parentGroupItem}
                 />
                 <div
                   aria-hidden
@@ -1087,23 +1185,38 @@ export function BoardView({
                       const hidden =
                         view.hiddenState.subgroups.includes(subgroupName)
                       if (hidden) return null
+                      const parentSubgroupItem = getParentGroupItem({
+                        data,
+                        field: view.subGrouping,
+                        groupItems: subItems,
+                        sourceItems,
+                        value: subgroupName,
+                      })
 
                       return (
                         <div key={`${groupName}-${subgroupName}`}>
                           {view.subGrouping ? (
-                            <div className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">
-                              {getGroupValueLabel(
+                            <BoardSubgroupHeader
+                              data={data}
+                              displayProps={view.displayProps}
+                              groupCount={subItems.length}
+                              groupLabel={getGroupValueLabel(
                                 view.subGrouping,
-                                subgroupName
+                                subgroupName,
+                                {
+                                  view,
+                                  groupingExperience,
+                                }
                               )}
-                            </div>
+                              parentItem={parentSubgroupItem}
+                            />
                           ) : null}
                           <BoardDropLane
                             id={`board::${groupName}::${subgroupName}`}
                           >
                             {getContainerItemsForDisplay(
                               subItems,
-                              items,
+                              displayItems,
                               showChildItems
                             ).map((item) => {
                               const childItems = showChildItems
@@ -1219,7 +1332,10 @@ export function BoardView({
                         .toggleViewHiddenValue(view.id, "groups", groupName)
                 }
               >
-                {getGroupValueLabel(view.grouping, groupName)}
+                {getGroupValueLabel(view.grouping, groupName, {
+                  view,
+                  groupingExperience,
+                })}
               </button>
             ))}
           </div>
@@ -1264,6 +1380,7 @@ export function ListView({
   scopedItems,
   view,
   editable,
+  groupingExperience,
   childDisplayMode = "direct",
   createContext,
   onToggleHiddenValue,
@@ -1294,6 +1411,8 @@ export function ListView({
     view,
   })
   const showChildItems = Boolean(view.showChildItems)
+  const sourceItems = scopedItems ?? items
+  const displayItems = getParentGroupedDisplayItems(items, sourceItems, view)
 
   function toggleGroup(groupName: string) {
     toggleSetMember(setCollapsedGroups, groupName)
@@ -1327,9 +1446,19 @@ export function ListView({
 
           const groupItems = Array.from(subgroups.values()).flat()
           const groupCount = groupItems.length
+          const parentGroupItem = getParentGroupItem({
+            data,
+            field: view.grouping,
+            groupItems,
+            sourceItems,
+            value: groupName,
+          })
           const isExpandable = groupCount > 0 || editable
           const isCollapsed = collapsedGroups.has(groupName)
-          const groupLabel = getGroupValueLabel(view.grouping, groupName)
+          const groupLabel = getGroupValueLabel(view.grouping, groupName, {
+            view,
+            groupingExperience,
+          })
           const groupAdornment = getGroupValueAdornment(
             view.grouping,
             groupName
@@ -1344,8 +1473,11 @@ export function ListView({
                 groupAdornment={groupAdornment}
                 groupCount={groupCount}
                 groupLabel={groupLabel}
+                data={data}
+                displayProps={view.displayProps}
                 isCollapsed={isCollapsed}
                 isExpandable={isExpandable}
+                parentItem={parentGroupItem}
                 onClick={() => {
                   if (!isExpandable) {
                     return
@@ -1362,23 +1494,38 @@ export function ListView({
                       if (view.hiddenState.subgroups.includes(subgroupName)) {
                         return null
                       }
+                      const parentSubgroupItem = getParentGroupItem({
+                        data,
+                        field: view.subGrouping,
+                        groupItems: subItems,
+                        sourceItems,
+                        value: subgroupName,
+                      })
 
                       return (
                         <div key={`${groupName}-${subgroupName}`}>
                           {view.subGrouping ? (
-                            <div className="px-11 py-1.5 text-[11px] font-medium tracking-[0.04em] text-fg-3 uppercase">
-                              {getGroupValueLabel(
+                            <ListSubgroupHeader
+                              data={data}
+                              displayProps={view.displayProps}
+                              groupCount={subItems.length}
+                              groupLabel={getGroupValueLabel(
                                 view.subGrouping,
-                                subgroupName
+                                subgroupName,
+                                {
+                                  view,
+                                  groupingExperience,
+                                }
                               )}
-                            </div>
+                              parentItem={parentSubgroupItem}
+                            />
                           ) : null}
                           <ListDropLane
                             id={`list::${groupName}::${subgroupName}`}
                           >
                             {getContainerItemsForDisplay(
                               subItems,
-                              items,
+                              displayItems,
                               showChildItems
                             ).flatMap((item) => {
                               const children = showChildItems
@@ -1530,7 +1677,12 @@ export function ListView({
                 }
               >
                 {getGroupValueAdornment(view.grouping, groupName)}
-                <span>{getGroupValueLabel(view.grouping, groupName)}</span>
+                <span>
+                  {getGroupValueLabel(view.grouping, groupName, {
+                    view,
+                    groupingExperience,
+                  })}
+                </span>
                 <span className="ml-auto text-xs text-muted-foreground">0</span>
               </button>
             ))}
@@ -1560,23 +1712,78 @@ export function ListView({
 function ListGroupHeader({
   id,
   accentVar,
+  data,
+  displayProps,
   groupAdornment,
   groupCount,
   groupLabel,
   isCollapsed,
   isExpandable,
+  parentItem,
   onClick,
 }: {
   id: string
   accentVar?: string | null
+  data: AppData
+  displayProps: DisplayProperty[]
   groupAdornment: ReactNode
   groupCount: number
   groupLabel: string
   isCollapsed: boolean
   isExpandable: boolean
+  parentItem?: WorkItem | null
   onClick: () => void
 }) {
   const { isOver, setNodeRef } = useDroppable({ id })
+
+  if (parentItem) {
+    return (
+      <div
+        ref={setNodeRef}
+        className="sticky top-0 z-[2] bg-[color:color-mix(in_oklch,var(--background)_92%,transparent)] backdrop-blur-[6px]"
+      >
+        <div className="flex w-full items-center gap-2.5 px-5 pt-2 pb-1.5 pl-3.5 text-left">
+          <button
+            type="button"
+            aria-disabled={!isExpandable}
+            aria-label={
+              isCollapsed ? `Expand ${groupLabel}` : `Collapse ${groupLabel}`
+            }
+            className={cn(
+              "grid size-5 shrink-0 place-items-center rounded-sm text-fg-3 focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none",
+              isExpandable ? "hover:bg-surface-3" : "cursor-default"
+            )}
+            onClick={() => {
+              if (isExpandable) {
+                onClick()
+              }
+            }}
+          >
+            {isExpandable ? (
+              <CollapseCaret open={!isCollapsed} className="size-3" />
+            ) : (
+              <span aria-hidden className="size-3" />
+            )}
+          </button>
+          <div
+            className={cn(
+              "flex min-h-10 min-w-0 flex-1 items-center rounded-[min(var(--radius-md),12px)] border border-line bg-surface px-3.5 py-1.5 shadow-[0_1px_0_0_oklch(0.18_0_0/0.03)] transition-colors",
+              isOver && "border-fg-4 bg-surface-2"
+            )}
+          >
+            <ParentGroupItemSummary
+              accentVar={accentVar}
+              data={data}
+              displayProps={displayProps}
+              groupCount={groupCount}
+              item={parentItem}
+              variant="list"
+            />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -1619,6 +1826,42 @@ function ListGroupHeader({
           </span>
         </div>
       </button>
+    </div>
+  )
+}
+
+function ListSubgroupHeader({
+  data,
+  displayProps,
+  groupCount,
+  groupLabel,
+  parentItem,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  groupCount: number
+  groupLabel: string
+  parentItem?: WorkItem | null
+}) {
+  if (parentItem) {
+    return (
+      <div className="px-11 py-1.5">
+        <div className="flex min-h-9 min-w-0 items-center rounded-md border border-line-soft bg-surface px-3 py-1.5">
+          <ParentGroupItemSummary
+            data={data}
+            displayProps={displayProps}
+            groupCount={groupCount}
+            item={parentItem}
+            variant="list"
+          />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-11 py-1.5 text-[11px] font-medium tracking-[0.04em] text-fg-3 uppercase">
+      {groupLabel}
     </div>
   )
 }
@@ -1734,6 +1977,89 @@ function getListRowDisplayState({
     item,
     variant: "list",
   })
+}
+
+function ParentGroupItemSummary({
+  accentVar,
+  data,
+  displayProps,
+  groupCount,
+  item,
+  variant,
+}: {
+  accentVar?: string | null
+  data: AppData
+  displayProps: DisplayProperty[]
+  groupCount: number
+  item: WorkItem
+  variant: "board" | "list"
+}) {
+  const { idProperty, visibleProperties } = getWorkSurfaceItemDisplayState({
+    data,
+    displayProps,
+    item,
+    variant,
+  })
+
+  return (
+    <div
+      data-testid={`parent-group-summary-${item.id}`}
+      className={cn(
+        "min-w-0 flex-1",
+        variant === "board"
+          ? "flex flex-col gap-1.5"
+          : "flex items-center gap-2.5"
+      )}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <span
+          aria-hidden
+          className="inline-block size-2 shrink-0 rounded-full"
+          style={{ background: accentVar ?? "var(--text-3)" }}
+        />
+        <AppLink
+          href={`/items/${item.id}`}
+          aria-label={`Open parent ${item.title}`}
+          className="flex min-w-0 items-center gap-1.5 rounded-sm focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
+        >
+          {idProperty}
+          <span
+            className={cn(
+              "truncate font-medium text-foreground",
+              variant === "board" ? "text-[12.5px]" : "text-[13px]"
+            )}
+          >
+            {item.title}
+          </span>
+        </AppLink>
+        <AppLink
+          href={`/items/${item.id}`}
+          aria-label={`Open ${item.title}`}
+          className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-line bg-surface px-1.5 text-[10.5px] font-semibold tracking-[0.08em] text-fg-3 uppercase transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
+        >
+          <SidebarSimple className="size-3" />
+          <span>Open</span>
+        </AppLink>
+        <span className="shrink-0 text-[11.5px] font-normal text-fg-3 tabular-nums">
+          {groupCount}
+        </span>
+      </div>
+      {visibleProperties.length > 0 ? (
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-1.5 text-[11.5px] text-fg-3",
+            variant === "board" ? "flex-wrap pl-4" : "shrink-0 overflow-hidden"
+          )}
+        >
+          {visibleProperties.map(({ key, node }) => (
+            <span key={key} className="contents">
+              {node}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function ListRowDisclosure({
@@ -2032,13 +2358,19 @@ function DraggableListRow(props: ListRowProps) {
 function BoardGroupHeader({
   id,
   accentVar,
+  data,
+  displayProps,
   groupLabel,
   groupCount,
+  parentItem,
 }: {
   id: string
   accentVar?: string | null
+  data: AppData
+  displayProps: DisplayProperty[]
   groupLabel: string
   groupCount: number
+  parentItem?: WorkItem | null
 }) {
   const { isOver, setNodeRef } = useDroppable({ id })
 
@@ -2046,21 +2378,70 @@ function BoardGroupHeader({
     <div
       ref={setNodeRef}
       className={cn(
-        "group/col flex items-center justify-between gap-2 px-3 pt-2.5 pb-2 transition-colors",
+        "group/col flex items-center justify-between gap-2 px-3 py-2.5 transition-colors",
         isOver && "bg-surface-2"
       )}
     >
-      <div className="flex items-center gap-2 text-[12.5px] font-semibold tracking-[0.01em] text-foreground">
-        <span
-          aria-hidden
-          className="inline-block size-2 rounded-full"
-          style={{ background: accentVar ?? "var(--text-3)" }}
-        />
-        <span>{groupLabel}</span>
-        <span className="text-[11.5px] font-normal text-fg-3 tabular-nums">
-          {groupCount}
-        </span>
+      {parentItem ? (
+        <div className="flex min-w-0 flex-1 rounded-md border border-line-soft bg-surface px-3 py-2">
+          <ParentGroupItemSummary
+            accentVar={accentVar}
+            data={data}
+            displayProps={displayProps}
+            groupCount={groupCount}
+            item={parentItem}
+            variant="board"
+          />
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 text-[12.5px] font-semibold tracking-[0.01em] text-foreground">
+          <span
+            aria-hidden
+            className="inline-block size-2 rounded-full"
+            style={{ background: accentVar ?? "var(--text-3)" }}
+          />
+          <span>{groupLabel}</span>
+          <span className="text-[11.5px] font-normal text-fg-3 tabular-nums">
+            {groupCount}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BoardSubgroupHeader({
+  data,
+  displayProps,
+  groupCount,
+  groupLabel,
+  parentItem,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  groupCount: number
+  groupLabel: string
+  parentItem?: WorkItem | null
+}) {
+  if (parentItem) {
+    return (
+      <div className="px-1 pb-1">
+        <div className="flex rounded-md border border-line-soft bg-surface px-3 py-2">
+          <ParentGroupItemSummary
+            data={data}
+            displayProps={displayProps}
+            groupCount={groupCount}
+            item={parentItem}
+            variant="board"
+          />
+        </div>
       </div>
+    )
+  }
+
+  return (
+    <div className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">
+      {groupLabel}
     </div>
   )
 }

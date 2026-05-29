@@ -30,7 +30,12 @@ import {
 } from "date-fns"
 
 import { buildItemGroups } from "@/lib/domain/selectors"
-import type { AppData, ViewDefinition, WorkItem } from "@/lib/domain/types"
+import type {
+  AppData,
+  TeamExperienceType,
+  ViewDefinition,
+  WorkItem,
+} from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 
@@ -71,11 +76,13 @@ export function TimelineView({
   items,
   view,
   editable,
+  groupingExperience,
 }: {
   data: AppData
   items: WorkItem[]
   view: ViewDefinition
   editable: boolean
+  groupingExperience?: TeamExperienceType | null
 }) {
   const [today, setToday] = useState(() => startOfDay(new Date()))
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
@@ -196,6 +203,7 @@ export function TimelineView({
             todayIndex={todayIndex}
             dayColumnWidth={dayColumnWidth}
             view={view}
+            groupingExperience={groupingExperience}
             visibleGroups={visibleGroups}
             weeks={weeks}
             accentMode={accentMode}
@@ -522,6 +530,7 @@ const TimelineFrame = memo(function TimelineFrame({
   today,
   todayIndex,
   view,
+  groupingExperience,
   visibleGroups,
   weeks,
   accentMode,
@@ -552,6 +561,7 @@ const TimelineFrame = memo(function TimelineFrame({
   today: Date
   todayIndex: number
   view: ViewDefinition
+  groupingExperience?: TeamExperienceType | null
   visibleGroups: TimelineGroupEntry[]
   weeks: TimelineWeek[]
   accentMode: EventAccentMode
@@ -586,6 +596,7 @@ const TimelineFrame = memo(function TimelineFrame({
         timelineCanvasWidth={timelineCanvasWidth}
         todayIndex={todayIndex}
         view={view}
+        groupingExperience={groupingExperience}
         visibleGroups={visibleGroups}
         accentMode={accentMode}
         labelsById={labelsById}
@@ -765,6 +776,7 @@ type TimelineGridInteractionProps = TimelineItemInteractionProps & {
 
 type TimelineBodyProps = TimelineGridInteractionProps & {
   data: AppData
+  groupingExperience?: TeamExperienceType | null
   labelColWidth: number
   view: ViewDefinition
   visibleGroups: TimelineGroupEntry[]
@@ -793,6 +805,7 @@ function TimelineBody({
   dayColumnWidth,
   days,
   gridTemplateColumns,
+  groupingExperience,
   labelColWidth,
   onBodyHorizontalScroll,
   onCaptureDragOffset,
@@ -819,6 +832,7 @@ function TimelineBody({
           onEditItem={onEditItem}
           onSelectItem={onSelectItem}
           view={view}
+          groupingExperience={groupingExperience}
           visibleGroups={visibleGroups}
           accentMode={accentMode}
           labelsById={labelsById}
@@ -847,6 +861,7 @@ function TimelineBody({
 
 const TimelineLabelGroupsColumn = memo(function TimelineLabelGroupsColumn({
   data,
+  groupingExperience,
   labelColWidth,
   onEditItem,
   onSelectItem,
@@ -856,6 +871,7 @@ const TimelineLabelGroupsColumn = memo(function TimelineLabelGroupsColumn({
   labelsById,
 }: {
   data: AppData
+  groupingExperience?: TeamExperienceType | null
   labelColWidth: number
   onEditItem: (itemId: string) => void
   onSelectItem: (itemId: string) => void
@@ -874,6 +890,7 @@ const TimelineLabelGroupsColumn = memo(function TimelineLabelGroupsColumn({
           key={groupName}
           data={data}
           groupName={groupName}
+          groupingExperience={groupingExperience}
           onEditItem={onEditItem}
           onSelectItem={onSelectItem}
           subgroups={subgroups}
@@ -889,6 +906,7 @@ const TimelineLabelGroupsColumn = memo(function TimelineLabelGroupsColumn({
 const TimelineLabelGroup = memo(function TimelineLabelGroup({
   data,
   groupName,
+  groupingExperience,
   onEditItem,
   onSelectItem,
   subgroups,
@@ -898,6 +916,7 @@ const TimelineLabelGroup = memo(function TimelineLabelGroup({
 }: {
   data: AppData
   groupName: string
+  groupingExperience?: TeamExperienceType | null
   onEditItem: (itemId: string) => void
   onSelectItem: (itemId: string) => void
   subgroups: Map<string, WorkItem[]>
@@ -906,7 +925,10 @@ const TimelineLabelGroup = memo(function TimelineLabelGroup({
   labelsById: EventAccentLabelLookup
 }) {
   const groupItems = Array.from(subgroups.values()).flat()
-  const groupLabel = getGroupValueLabel(view.grouping, groupName)
+  const groupLabel = getGroupValueLabel(view.grouping, groupName, {
+    view,
+    groupingExperience,
+  })
   const groupAdornment = getGroupValueAdornment(view.grouping, groupName)
 
   return (

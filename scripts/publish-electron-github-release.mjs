@@ -9,6 +9,17 @@ const __dirname = path.dirname(__filename)
 const repoRoot = path.resolve(__dirname, "..")
 const defaultOutputDir = path.join(repoRoot, "dist", "electron")
 const execFileAsync = promisify(execFile)
+const requiredReleaseAssetNames = [
+  "Recipe-Room-mac-arm64.dmg",
+  "Recipe-Room-mac-arm64.zip",
+  "Recipe-Room-mac-x64.dmg",
+  "Recipe-Room-mac-x64.zip",
+  "Recipe-Room-win-arm64.exe",
+  "Recipe-Room-win-ia32.exe",
+  "Recipe-Room-win-x64.exe",
+  "latest-mac.yml",
+  "latest.yml",
+]
 
 function parseArgs(argv) {
   const options = {
@@ -97,20 +108,22 @@ async function findReleaseAssets(outputDir) {
       const extension = path.extname(filePath)
 
       return (
-        [".blockmap", ".dmg", ".zip"].includes(extension) ||
-        path.basename(filePath) === "latest-mac.yml"
+        [".blockmap", ".dmg", ".exe", ".zip"].includes(extension) ||
+        ["latest-mac.yml", "latest.yml"].includes(path.basename(filePath))
       )
     })
     .sort()
 
   const basenames = assets.map((asset) => path.basename(asset))
-  const hasDmg = basenames.some((name) => name.endsWith(".dmg"))
-  const hasZip = basenames.some((name) => name.endsWith(".zip"))
-  const hasMacManifest = basenames.includes("latest-mac.yml")
+  const missingAssetNames = requiredReleaseAssetNames.filter(
+    (name) => !basenames.includes(name)
+  )
 
-  if (!hasDmg || !hasZip || !hasMacManifest) {
+  if (missingAssetNames.length > 0) {
     throw new Error(
-      `Expected ${outputDir} to contain a DMG, ZIP, and latest-mac.yml. Run pnpm desktop:release:mac first.`
+      `Expected ${outputDir} to contain all desktop release assets. Missing: ${missingAssetNames.join(
+        ", "
+      )}. Run pnpm desktop:release:all first.`
     )
   }
 

@@ -24,7 +24,13 @@ async function createReleaseAssetDir() {
   await Promise.all([
     fs.writeFile(path.join(tempDir, "Recipe-Room-mac-arm64.dmg"), "dmg"),
     fs.writeFile(path.join(tempDir, "Recipe-Room-mac-arm64.zip"), "zip"),
+    fs.writeFile(path.join(tempDir, "Recipe-Room-mac-x64.dmg"), "dmg"),
+    fs.writeFile(path.join(tempDir, "Recipe-Room-mac-x64.zip"), "zip"),
+    fs.writeFile(path.join(tempDir, "Recipe-Room-win-arm64.exe"), "exe"),
+    fs.writeFile(path.join(tempDir, "Recipe-Room-win-ia32.exe"), "exe"),
+    fs.writeFile(path.join(tempDir, "Recipe-Room-win-x64.exe"), "exe"),
     fs.writeFile(path.join(tempDir, "latest-mac.yml"), "manifest"),
+    fs.writeFile(path.join(tempDir, "latest.yml"), "manifest"),
   ])
 
   return tempDir

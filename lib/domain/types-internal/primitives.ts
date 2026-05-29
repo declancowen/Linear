@@ -128,11 +128,7 @@ export type ViewContainerType = (typeof viewContainerTypes)[number]
 
 export const viewLayouts = ["list", "board", "timeline", "calendar"] as const
 export type ViewLayout = (typeof viewLayouts)[number]
-export const projectPresentationLayouts = [
-  "list",
-  "board",
-  "timeline",
-] as const
+export const projectPresentationLayouts = ["list", "board", "timeline"] as const
 export type ProjectPresentationLayout =
   (typeof projectPresentationLayouts)[number]
 
@@ -186,6 +182,7 @@ export const groupFields = [
   "label",
   "team",
   "type",
+  "parent",
   "epic",
   "feature",
   "kind",

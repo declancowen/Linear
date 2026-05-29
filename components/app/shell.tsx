@@ -80,8 +80,8 @@ import {
   openManagedCreateDialog,
   openTopLevelDialog,
 } from "@/lib/browser/dialog-transitions"
+import { getSupportedDesktopDownloadTarget } from "@/lib/browser/desktop-download-eligibility"
 import { showDesktopNotification } from "@/lib/browser/desktop-notifications"
-import { isSupportedMacDesktopDownloadBrowser } from "@/lib/browser/desktop-download-eligibility"
 import { navigateToLogout } from "@/lib/browser/logout"
 import {
   optionalWorkspaceDescriptionConstraints,
@@ -173,7 +173,11 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { Textarea } from "@/components/ui/textarea"
-import { DEFAULT_DESKTOP_MAC_DOWNLOAD_URL } from "@/lib/desktop/update-policy"
+import {
+  getDesktopDownloadUrl,
+  type DesktopDownloadTarget,
+  type DesktopDownloadUrlMap,
+} from "@/lib/desktop/update-policy"
 
 type AppShellProps = {
   children: ReactNode
@@ -186,9 +190,19 @@ type ShellNotificationRouteData = Pick<
 
 const SHELL_CONTEXT_GRACE_PERIOD_MS = 1000
 const NOTIFICATION_TOAST_DURATION_MS = 5000
-const DESKTOP_MAC_DOWNLOAD_URL =
-  process.env.NEXT_PUBLIC_DESKTOP_MAC_DOWNLOAD_URL ??
-  DEFAULT_DESKTOP_MAC_DOWNLOAD_URL
+const DESKTOP_DOWNLOAD_URLS: Partial<DesktopDownloadUrlMap> = {
+  mac: {
+    arm64:
+      process.env.NEXT_PUBLIC_DESKTOP_MAC_ARM64_DOWNLOAD_URL ??
+      process.env.NEXT_PUBLIC_DESKTOP_MAC_DOWNLOAD_URL,
+    x64: process.env.NEXT_PUBLIC_DESKTOP_MAC_X64_DOWNLOAD_URL,
+  },
+  windows: {
+    arm64: process.env.NEXT_PUBLIC_DESKTOP_WINDOWS_ARM64_DOWNLOAD_URL,
+    ia32: process.env.NEXT_PUBLIC_DESKTOP_WINDOWS_IA32_DOWNLOAD_URL,
+    x64: process.env.NEXT_PUBLIC_DESKTOP_WINDOWS_X64_DOWNLOAD_URL,
+  },
+}
 
 function BootstrapAppleIcon({ className }: { className?: string }) {
   return (
@@ -204,15 +218,36 @@ function BootstrapAppleIcon({ className }: { className?: string }) {
   )
 }
 
-function useShowMacDesktopDownload() {
-  const [showDownload, setShowDownload] = useState(false)
+function BootstrapMicrosoftIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="currentColor"
+      viewBox="0 0 16 16"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M7.462 0H0v7.19h7.462zM16 0H8.538v7.19H16zM7.462 8.211H0V16h7.462zm8.538 0H8.538V16H16z" />
+    </svg>
+  )
+}
+
+function getDesktopDownloadLabel(target: DesktopDownloadTarget) {
+  return target.platform === "windows"
+    ? "Download for Windows"
+    : "Download for Mac"
+}
+
+function useDesktopDownloadTarget() {
+  const [downloadTarget, setDownloadTarget] =
+    useState<DesktopDownloadTarget | null>(null)
 
   useEffect(() => {
     let isMounted = true
 
-    void isSupportedMacDesktopDownloadBrowser().then((isSupported) => {
+    void getSupportedDesktopDownloadTarget().then((target) => {
       if (isMounted) {
-        setShowDownload(isSupported)
+        setDownloadTarget(target)
       }
     })
 
@@ -221,7 +256,7 @@ function useShowMacDesktopDownload() {
     }
   }, [])
 
-  return showDownload
+  return downloadTarget
 }
 
 function isUnreadNotificationForCurrentUser(
@@ -1533,7 +1568,10 @@ function ShellWorkspaceMenu({
   onSwitchWorkspace: (workspaceId: string) => void
 }) {
   const [editWorkspaceOpen, setEditWorkspaceOpen] = useState(false)
-  const showMacDesktopDownload = useShowMacDesktopDownload()
+  const desktopDownloadTarget = useDesktopDownloadTarget()
+  const desktopDownloadUrl = desktopDownloadTarget
+    ? getDesktopDownloadUrl(DESKTOP_DOWNLOAD_URLS, desktopDownloadTarget)
+    : null
 
   return (
     <>
@@ -1632,17 +1670,21 @@ function ShellWorkspaceMenu({
                           </DropdownMenuItem>
                         </>
                       ) : null}
-                      {showMacDesktopDownload ? (
+                      {desktopDownloadTarget && desktopDownloadUrl ? (
                         <>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem asChild>
                             <a
-                              href={DESKTOP_MAC_DOWNLOAD_URL}
+                              href={desktopDownloadUrl}
                               rel="noreferrer"
                               target="_blank"
                             >
-                              <BootstrapAppleIcon className="size-4 text-fg-3" />
-                              Download desktop app
+                              {desktopDownloadTarget.platform === "windows" ? (
+                                <BootstrapMicrosoftIcon className="size-4 text-fg-3" />
+                              ) : (
+                                <BootstrapAppleIcon className="size-4 text-fg-3" />
+                              )}
+                              {getDesktopDownloadLabel(desktopDownloadTarget)}
                             </a>
                           </DropdownMenuItem>
                         </>

@@ -1,11 +1,20 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 
-export async function findBuiltApp(searchDir) {
+function getMacOutputDirectoryName(arch) {
+  return arch ? `mac-${arch}` : null
+}
+
+export async function findBuiltApp(searchDir, options = {}) {
   const outputEntries = await fs.readdir(searchDir, { withFileTypes: true })
+  const targetDirectoryName = getMacOutputDirectoryName(options.arch)
 
   for (const entry of outputEntries) {
     if (!entry.isDirectory() || !entry.name.startsWith("mac")) {
+      continue
+    }
+
+    if (targetDirectoryName && entry.name !== targetDirectoryName) {
       continue
     }
 

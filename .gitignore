@@ -54,6 +54,8 @@ next-env.d.ts
 .fallow/
 
 # local audit/tooling output
+.logs/
+outputs/
 .graphify_detect.json
 .graphify_python
 graphify-out/

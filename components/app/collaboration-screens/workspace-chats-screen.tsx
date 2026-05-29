@@ -28,7 +28,6 @@ import type {
 import { useAppStore } from "@/lib/store/app-store"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { UserAvatar } from "@/components/app/user-presence"
-import { CallInviteLauncher } from "@/components/app/collaboration-screens/call-invite-launcher"
 import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
 import {
   useConversationListReadModelRefresh,
@@ -335,7 +334,6 @@ function WorkspaceChatsContent({
             description=""
             members={members}
             loaded={hasLoadedConversationThread}
-            videoAction={<CallInviteLauncher conversationId={activeChat.id} />}
             welcomeParticipant={welcomeParticipant}
           />
         ) : null}

@@ -6,11 +6,14 @@ import {
   statusMeta,
   type GroupField,
   type Priority,
+  type TeamExperienceType,
+  type ViewDefinition,
   type WorkItem,
   type WorkItemType,
 } from "@/lib/domain/types"
 
 import { StatusIcon } from "../shared"
+import { getEmptyParentGroupingLabel } from "../work-grouping-labels"
 
 const STATUS_GROUP_ACCENT_BY_VALUE: Record<string, string> = {
   backlog: "var(--status-backlog)",
@@ -30,7 +33,14 @@ const PRIORITY_GROUP_ACCENT_BY_VALUE: Partial<Record<Priority, string>> = {
   low: "var(--priority-low)",
 }
 
-export function getGroupValueLabel(field: GroupField | null, value: string) {
+export function getGroupValueLabel(
+  field: GroupField | null,
+  value: string,
+  context?: {
+    view?: Pick<ViewDefinition, "entityKind" | "filters" | "itemLevel"> | null
+    groupingExperience?: TeamExperienceType | null
+  }
+) {
   if (!field) {
     return "All"
   }
@@ -45,6 +55,10 @@ export function getGroupValueLabel(field: GroupField | null, value: string) {
 
   if (field === "type") {
     return getDisplayLabelForWorkItemType(value as WorkItemType, null)
+  }
+
+  if (field === "parent" && value === "No parent") {
+    return getEmptyParentGroupingLabel(context)
   }
 
   return value

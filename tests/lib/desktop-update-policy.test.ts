@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 
 import {
   compareDesktopVersions,
+  DEFAULT_DESKTOP_DOWNLOAD_URLS,
+  getDesktopDownloadUrl,
   isDesktopVersionUnsupported,
 } from "@/lib/desktop/update-policy"
 
@@ -45,5 +47,22 @@ describe("desktop update policy", () => {
         minSupportedVersion: "1.1.0",
       })
     ).toBe(true)
+  })
+
+  it("resolves platform-specific desktop download URLs", () => {
+    expect(
+      getDesktopDownloadUrl(
+        {
+          mac: { x64: "https://downloads.example/mac-x64.dmg" },
+        },
+        { architecture: "x64", platform: "mac" }
+      )
+    ).toBe("https://downloads.example/mac-x64.dmg")
+    expect(
+      getDesktopDownloadUrl(null, {
+        architecture: "arm64",
+        platform: "windows",
+      })
+    ).toBe(DEFAULT_DESKTOP_DOWNLOAD_URLS.windows.arm64)
   })
 })

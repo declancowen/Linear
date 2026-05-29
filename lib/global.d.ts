@@ -45,6 +45,7 @@ declare global {
       }>
       getDesktopAppInfo?: () => Promise<{
         apiBaseUrl?: string | null
+        arch?: string | null
         isPackaged: boolean
         platform: string
         version: string

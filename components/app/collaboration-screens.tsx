@@ -26,7 +26,6 @@ import {
   ForumPostCard,
   NewPostComposer,
 } from "@/components/app/collaboration-screens/channel-ui"
-import { CallInviteLauncher } from "@/components/app/collaboration-screens/call-invite-launcher"
 import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
 import {
   useConversationListReadModelRefresh,
@@ -431,11 +430,6 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
         subtitle="Chat"
         actions={
           <ChatHeaderActions
-            videoAction={
-              editable && conversation ? (
-                <CallInviteLauncher conversationId={conversation.id} />
-              ) : null
-            }
             detailsAction={
               <DetailsSidebarToggle
                 sidebarOpen={sidebarOpen}

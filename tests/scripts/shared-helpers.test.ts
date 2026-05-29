@@ -245,10 +245,17 @@ describe("script shared helpers", () => {
         appPath: path.join(tempDir, "mac-arm64", "Recipe Room.app"),
         archivePath: path.join(tempDir, "Recipe Room-mac-arm64.zip"),
       })
+      await fs.mkdir(path.join(tempDir, "mac-x64", "Recipe Room.app"), {
+        recursive: true,
+      })
+      await expect(findBuiltApp(tempDir, { arch: "x64" })).resolves.toEqual({
+        appPath: path.join(tempDir, "mac-x64", "Recipe Room.app"),
+        archivePath: path.join(tempDir, "Recipe Room-mac-x64.zip"),
+      })
       await fs.rm(path.join(tempDir, "mac-arm64"), {
         recursive: true,
       })
-      await expect(findBuiltApp(tempDir)).rejects.toThrow(
+      await expect(findBuiltApp(tempDir, { arch: "arm64" })).rejects.toThrow(
         "Packaged app bundle was not created"
       )
     } finally {

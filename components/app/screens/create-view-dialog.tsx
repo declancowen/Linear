@@ -45,6 +45,7 @@ import {
   type CreateDialogState,
   type Document,
   type DisplayProperty,
+  type TeamExperienceType,
   type ViewDefinition,
   type WorkItem,
   type Project,
@@ -1281,6 +1282,7 @@ function CreateViewDialogFrame({
   effectiveScope,
   editingView,
   groupOptions,
+  groupingExperience,
   isProjectSpecificItemView,
   name,
   nameLimitState,
@@ -1315,6 +1317,7 @@ function CreateViewDialogFrame({
   effectiveScope: ReturnType<typeof getEffectiveCreateViewScope>
   editingView: ViewDefinition | null
   groupOptions: ReturnType<typeof getAvailableGroupOptions>
+  groupingExperience?: TeamExperienceType | null
   isProjectSpecificItemView: boolean
   name: string
   nameLimitState: ReturnType<typeof getTextInputLimitState>
@@ -1390,6 +1393,7 @@ function CreateViewDialogFrame({
           scopedItems={scopedItems}
           scopedProjects={scopedProjects}
           groupOptions={groupOptions}
+          groupingExperience={groupingExperience}
           projectPicker={projectPicker}
           onUpdateDraftView={draftActions.updateView}
           onToggleFilterValue={draftActions.toggleFilterValue}
@@ -1859,6 +1863,7 @@ function CreateViewControls({
   scopedItems,
   scopedProjects,
   groupOptions,
+  groupingExperience,
   projectPicker,
   onUpdateDraftView,
   onToggleFilterValue,
@@ -1874,6 +1879,7 @@ function CreateViewControls({
   scopedItems: WorkItem[]
   scopedProjects: Project[]
   groupOptions: ReturnType<typeof getAvailableGroupOptions>
+  groupingExperience?: TeamExperienceType | null
   projectPicker: ReactNode
   onUpdateDraftView: (patch: ViewConfigPatch) => void
   onToggleFilterValue: (key: ViewFilterKey, value: string) => void
@@ -1897,6 +1903,7 @@ function CreateViewControls({
                 items={scopedItems}
                 onToggleFilterValue={onToggleFilterValue}
                 onClearFilters={onClearFilters}
+                groupingExperience={groupingExperience}
                 variant="chip"
                 chipTone="default"
                 dashedWhenEmpty
@@ -1909,6 +1916,7 @@ function CreateViewControls({
               <GroupChipPopover
                 view={draftView}
                 groupOptions={groupOptions}
+                groupingExperience={groupingExperience}
                 onUpdateView={onUpdateDraftView}
                 tone="default"
                 showValue={false}
@@ -2278,6 +2286,10 @@ export function CreateViewDialog({
     () => getCreateViewGroupOptions({ effectiveTeam, selectedProject }),
     [effectiveTeam, selectedProject]
   )
+  const groupingExperience =
+    selectedProjectTeam?.settings.experience ??
+    effectiveTeam?.settings.experience ??
+    null
   const defaultItemLevel = useMemo(() => {
     return getCreateViewDefaultItemLevel({
       effectiveTeam,
@@ -2430,6 +2442,7 @@ export function CreateViewDialog({
       effectiveScope={effectiveScope}
       editingView={editingView}
       groupOptions={groupOptions}
+      groupingExperience={groupingExperience}
       isProjectSpecificItemView={isProjectSpecificItemView}
       name={name}
       nameLimitState={nameLimitState}

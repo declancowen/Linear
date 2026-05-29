@@ -16,25 +16,14 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build and publish macOS release
-    runs-on: macos-latest
-    timeout-minutes: 35
+  metadata:
+    name: Resolve release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      release_name: ${{ steps.release_meta.outputs.release_name }}
+      tag: ${{ steps.release_meta.outputs.tag }}
+      version: ${{ steps.release_meta.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.32.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
       - name: Resolve release version
         id: release_meta
         shell: bash
@@ -61,28 +50,44 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "release_name=Recipe Room $tag" >> "$GITHUB_OUTPUT"
 
+  build-macos:
+    name: Build signed macOS release
+    needs: metadata
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.0
+
+      - uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          node-version: 22
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Verify package version
-        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
-          set -euo pipefail
-          package_version="$(node -p "require('./package.json').version")"
-          if [[ "$package_version" != "${{ steps.release_meta.outputs.version }}" ]]; then
-            echo "package.json version ($package_version) must match ${{ steps.release_meta.outputs.version }}." >&2
-            exit 1
-          fi
+          node -e "const pkg=require('./package.json'); if (pkg.version !== process.env.EXPECTED_VERSION) { console.error('package.json version (' + pkg.version + ') must match ' + process.env.EXPECTED_VERSION + '.'); process.exit(1); }"
 
-      - name: Build signed desktop release
+      - name: Build signed macOS desktop release
         shell: bash
         env:
-          DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -108,20 +113,111 @@ jobs:
 
           pnpm desktop:release:mac
 
+      - name: Archive macOS app bundle for preflight
+        run: tar -czf dist/electron/Recipe-Room-mac-app-bundle.tgz -C dist/electron "Recipe Room.app"
+
+      - name: Upload macOS release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          name: desktop-release-macos
+          path: |
+            dist/electron/Recipe-Room-mac-app-bundle.tgz
+            dist/electron/Recipe Room.app/**
+            dist/electron/Recipe-Room-mac-*.dmg
+            dist/electron/Recipe-Room-mac-*.zip
+            dist/electron/*.blockmap
+            dist/electron/latest-mac.yml
+
+  build-windows:
+    name: Build Windows release
+    needs: metadata
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.0
+
+      - uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify package version
+        env:
+          EXPECTED_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          node -e "const pkg=require('./package.json'); if (pkg.version !== process.env.EXPECTED_VERSION) { console.error('package.json version (' + pkg.version + ') must match ' + process.env.EXPECTED_VERSION + '.'); process.exit(1); }"
+
+      - name: Build Windows desktop release
+        env:
+          DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+        run: pnpm desktop:release:windows
+
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          name: desktop-release-windows
+          path: |
+            dist/electron/Recipe-Room-win-*.exe
+            dist/electron/Recipe-Room-win-*.exe.blockmap
+            dist/electron/latest.yml
+
+  publish:
+    name: Publish GitHub release
+    needs:
+      - build-macos
+      - build-windows
+      - metadata
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-release-macos
+          path: dist/electron
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-release-windows
+          path: dist/electron
+
+      - name: Restore macOS app bundle permissions
+        run: tar -xzf dist/electron/Recipe-Room-mac-app-bundle.tgz -C dist/electron
+
       - name: Release preflight
-        run: pnpm desktop:release:preflight
+        run: node scripts/desktop-release-preflight.mjs
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.release_meta.outputs.tag }}
-          name: ${{ steps.release_meta.outputs.release_name }}
-          generate_release_notes: true
-          make_latest: true
+          fail_on_unmatched_files: true
           files: |
             dist/electron/*.dmg
             dist/electron/*.zip
+            dist/electron/*.exe
             dist/electron/*.blockmap
             dist/electron/latest-mac.yml
-          fail_on_unmatched_files: true
+            dist/electron/latest.yml
+          generate_release_notes: true
+          make_latest: true
+          name: ${{ needs.metadata.outputs.release_name }}
+          tag_name: ${{ needs.metadata.outputs.tag }}
           token: ${{ secrets.GITHUB_TOKEN }}

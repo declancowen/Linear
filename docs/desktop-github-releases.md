@@ -8,13 +8,13 @@ Recipe Room desktop is a packaged Electron frontend that calls the hosted Recipe
 2. Create and push a stable tag such as `v0.0.2`, or run the `Desktop Release`
    workflow manually with that version.
 
-The GitHub workflow builds a signed and notarized macOS release, runs release
-preflight, and publishes the GitHub Release assets.
+The GitHub workflow builds signed and notarized macOS releases, builds Windows
+installers, runs release preflight, and publishes the GitHub Release assets.
 
 Local releases use the same build path:
 
 ```bash
-DESKTOP_UPDATE_REPOSITORY=declancowen/Linear pnpm desktop:release:mac
+DESKTOP_UPDATE_REPOSITORY=declancowen/Linear pnpm desktop:release:all
 node scripts/publish-electron-github-release.mjs
 ```
 
@@ -30,17 +30,32 @@ The release build writes these assets to `dist/electron`:
 - `Recipe-Room-mac-arm64.dmg.blockmap`
 - `Recipe-Room-mac-arm64.zip`
 - `Recipe-Room-mac-arm64.zip.blockmap`
+- `Recipe-Room-mac-x64.dmg`
+- `Recipe-Room-mac-x64.dmg.blockmap`
+- `Recipe-Room-mac-x64.zip`
+- `Recipe-Room-mac-x64.zip.blockmap`
+- `Recipe-Room-win-arm64.exe`
+- `Recipe-Room-win-arm64.exe.blockmap`
+- `Recipe-Room-win-ia32.exe`
+- `Recipe-Room-win-ia32.exe.blockmap`
+- `Recipe-Room-win-x64.exe`
+- `Recipe-Room-win-x64.exe.blockmap`
 - `latest-mac.yml`
+- `latest.yml`
 
 The publish script creates or updates the `v<version>` GitHub Release and uploads those assets with `--clobber`. Stable releases are marked as GitHub's latest release. Drafts and prereleases explicitly use `--latest=false` so `/releases/latest/...` continues to point at the stable desktop build.
 
-The stable public download URL is:
+The default stable public download URLs are architecture-specific:
 
 ```text
 https://github.com/declancowen/Linear/releases/latest/download/Recipe-Room-mac-arm64.dmg
+https://github.com/declancowen/Linear/releases/latest/download/Recipe-Room-mac-x64.dmg
+https://github.com/declancowen/Linear/releases/latest/download/Recipe-Room-win-arm64.exe
+https://github.com/declancowen/Linear/releases/latest/download/Recipe-Room-win-ia32.exe
+https://github.com/declancowen/Linear/releases/latest/download/Recipe-Room-win-x64.exe
 ```
 
-Override it with `NEXT_PUBLIC_DESKTOP_MAC_DOWNLOAD_URL` if the download should move behind a redirect or a different release host.
+Override them with the platform/architecture-specific `NEXT_PUBLIC_DESKTOP_*_DOWNLOAD_URL` variables if downloads should move behind a redirect or a different release host.
 
 ## Update Checks
 

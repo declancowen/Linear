@@ -508,6 +508,16 @@ function getCreatorGroupValue(data: AppData, item: WorkItem) {
   return getUser(data, item.creatorId)?.name ?? "Unknown"
 }
 
+function formatParentGroupValue(parent: WorkItem) {
+  return `${parent.key} · ${parent.title}`
+}
+
+function getParentGroupValue(data: AppData, item: WorkItem) {
+  const parent = item.parentId ? getWorkItem(data, item.parentId) : null
+
+  return parent ? formatParentGroupValue(parent) : "No parent"
+}
+
 const groupValueGetters: Partial<Record<GroupField, GroupValueGetter>> = {
   project: (data, item) =>
     getProject(data, item.primaryProjectId)?.name ?? "No project",
@@ -515,6 +525,7 @@ const groupValueGetters: Partial<Record<GroupField, GroupValueGetter>> = {
     getUser(data, item.assigneeId)?.name ?? "No assignee",
   label: getLabelGroupValue,
   team: (data, item) => getTeam(data, item.teamId)?.name ?? "Unknown team",
+  parent: getParentGroupValue,
   epic: (data, item) => getAncestorGroupValue(data, item, "epic"),
   feature: (data, item) => getAncestorGroupValue(data, item, "feature"),
   type: (_data, item) => item.type,
@@ -546,7 +557,7 @@ function getAncestorGroupValue(
 
   while (cursor) {
     if (cursor.type === field) {
-      return `${cursor.key} · ${cursor.title}`
+      return formatParentGroupValue(cursor)
     }
 
     cursor = cursor.parentId ? getWorkItem(data, cursor.parentId) : null
@@ -688,10 +699,41 @@ function addTypeGroupKeys(
   allowedTypes.forEach((type) => keys.add(type))
 }
 
+function addParentGroupKeys(
+  keys: Set<string>,
+  context: AvailableGroupKeyContext
+) {
+  const sourceItemIds = new Set(context.sourceItems.map((item) => item.id))
+  const parentIds = new Set<string>()
+
+  context.sourceItems.forEach((item) => {
+    if (item.parentId && sourceItemIds.has(item.parentId)) {
+      parentIds.add(item.parentId)
+    }
+  })
+
+  const hasParentlessDisplayItem =
+    context.sourceItems.length === 0 ||
+    context.sourceItems.some(
+      (item) => !item.parentId && !parentIds.has(item.id)
+    )
+
+  if (hasParentlessDisplayItem) {
+    keys.add("No parent")
+  }
+
+  context.sourceItems.forEach((item) => {
+    if (parentIds.has(item.id)) {
+      keys.add(formatParentGroupValue(item))
+    }
+  })
+}
+
 const availableGroupKeyAppenders: Partial<
   Record<GroupField, GroupKeyAppender>
 > = {
   assignee: addAssigneeGroupKeys,
+  parent: addParentGroupKeys,
   priority: (keys) => priorities.forEach((priority) => keys.add(priority)),
   project: addProjectGroupKeys,
   status: addStatusGroupKeys,
@@ -718,7 +760,9 @@ function getAvailableGroupKeysForItems(
 
   availableGroupKeyAppenders[field]?.(keys, context)
 
-  context.sourceItems.forEach((item) => {
+  const groupValueItems = field === "parent" ? items : context.sourceItems
+
+  groupValueItems.forEach((item) => {
     keys.add(getGroupValue(data, item, field))
   })
 

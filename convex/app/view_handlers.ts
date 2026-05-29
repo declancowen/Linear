@@ -50,6 +50,7 @@ type ViewGrouping =
   | "label"
   | "team"
   | "type"
+  | "parent"
   | "epic"
   | "feature"
   | "kind"

@@ -8,6 +8,7 @@ import {
   type ViewDefinition,
 } from "@/lib/domain/types"
 import {
+  buildItemGroups,
   buildItemGroupsWithEmptyGroups,
   getDirectChildWorkItemsForDisplay,
   getVisibleWorkItems,
@@ -59,8 +60,9 @@ function createView(overrides?: Partial<ViewDefinition>): ViewDefinition {
 }
 
 function createCurrentUserTeamState(
-  experience: Parameters<typeof createDefaultTeamFeatureSettings>[0] =
-    "software-development"
+  experience: Parameters<
+    typeof createDefaultTeamFeatureSettings
+  >[0] = "software-development"
 ) {
   const state = createEmptyState()
 
@@ -290,6 +292,38 @@ describe("view item levels", () => {
         }
       ).keys(),
     ]).toEqual(["task", "sub-task"])
+  })
+
+  it("groups visible items by direct parent and allows parent subgroups", () => {
+    const state = createEmptyState()
+    const parent = createTestWorkItem("task-parent", {
+      key: "PLA-1",
+      title: "Parent task",
+      type: "task",
+    })
+    const child = createTestWorkItem("sub-task-child", {
+      parentId: parent.id,
+      type: "sub-task",
+    })
+    const root = createTestWorkItem("root-task", {
+      type: "task",
+    })
+
+    state.workItems = [parent, child, root]
+
+    const groups = buildItemGroups(
+      state,
+      [child, root],
+      createView({
+        grouping: "parent",
+        subGrouping: "status",
+      })
+    )
+
+    expect([...groups.keys()]).toEqual(["No parent", "PLA-1 · Parent task"])
+    expect([...(groups.get("PLA-1 · Parent task")?.keys() ?? [])]).toEqual([
+      "todo",
+    ])
   })
 
   it("does not force timeline views back to top-level items when a level is set", () => {

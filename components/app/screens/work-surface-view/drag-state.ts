@@ -1,9 +1,6 @@
 import type { DragEndEvent } from "@dnd-kit/core"
 
-import {
-  getGroupValue,
-  getWorkItemDescendantIds,
-} from "@/lib/domain/selectors"
+import { getGroupValue, getWorkItemDescendantIds } from "@/lib/domain/selectors"
 import {
   canParentWorkItemTypeAcceptChild,
   type AppData,
@@ -20,6 +17,18 @@ export type RequestConfirmedWorkItemUpdate = (
   itemId: string,
   patch: Parameters<AppStore["updateWorkItem"]>[1]
 ) => ReturnType<AppStore["updateWorkItem"]>
+
+type GroupedWorkItemPatch = Partial<
+  Pick<
+    WorkItem,
+    | "status"
+    | "priority"
+    | "assigneeId"
+    | "primaryProjectId"
+    | "labelIds"
+    | "parentId"
+  >
+>
 
 function parseGroupDropTarget(id: string, scope: WorkSurfaceScope) {
   const [dropScope, groupValue, subgroupValue] = id.split("::")
@@ -159,7 +168,11 @@ function buildItemTargetDragPatch(input: {
     items: input.itemPool,
     itemId: input.activeItem.id,
     view: input.view,
-    groupValue: getGroupValue(input.data, input.targetItem, input.view.grouping),
+    groupValue: getGroupValue(
+      input.data,
+      input.targetItem,
+      input.view.grouping
+    ),
     subgroupValue: input.view.subGrouping
       ? getGroupValue(input.data, input.targetItem, input.view.subGrouping)
       : undefined,
@@ -246,17 +259,16 @@ function requestGroupTargetDragUpdate({
     return
   }
 
-  requestUpdate(activeItem.id, {
-    ...buildGroupedWorkItemPatch({
-      data,
-      items: itemPool,
-      itemId: activeItem.id,
-      view,
-      groupValue: target.groupValue,
-      subgroupValue: target.subgroupValue,
-    }),
-    parentId: null,
+  const patch = buildGroupedWorkItemPatch({
+    data,
+    items: itemPool,
+    itemId: activeItem.id,
+    view,
+    groupValue: target.groupValue,
+    subgroupValue: target.subgroupValue,
   })
+
+  requestUpdate(activeItem.id, patch)
 }
 
 function buildGroupedWorkItemPatch({
@@ -273,7 +285,7 @@ function buildGroupedWorkItemPatch({
   view: Pick<ViewDefinition, "grouping" | "subGrouping">
   groupValue: string
   subgroupValue?: string
-}) {
+}): GroupedWorkItemPatch {
   const item = items.find((entry) => entry.id === itemId) ?? null
 
   return {

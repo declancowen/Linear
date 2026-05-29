@@ -466,6 +466,7 @@ function WorkSurfaceTopbar({
 function WorkSurfaceViewbar({
   view,
   filterPopoverItems,
+  groupingExperience,
   hiddenFilters,
   groupOptions,
   onUpdateViewerView,
@@ -479,6 +480,7 @@ function WorkSurfaceViewbar({
 }: {
   view: ViewDefinition
   filterPopoverItems: WorkItem[]
+  groupingExperience?: TeamExperienceType | null
   hiddenFilters: ViewFilterKey[]
   groupOptions: ViewDefinition["grouping"][]
   onUpdateViewerView: (patch: ViewConfigPatch) => void
@@ -509,6 +511,7 @@ function WorkSurfaceViewbar({
         view={view}
         items={filterPopoverItems}
         hiddenFilters={hiddenFilters}
+        groupingExperience={groupingExperience}
         variant="chip"
         onToggleFilterValue={onToggleViewerFilterValue}
         onClearFilters={onClearViewerFilters}
@@ -517,6 +520,7 @@ function WorkSurfaceViewbar({
       <GroupChipPopover
         view={view}
         groupOptions={groupOptions}
+        groupingExperience={groupingExperience}
         onUpdateView={onUpdateViewerView}
       />
       <SortChipPopover view={view} onUpdateView={onUpdateViewerView} />
@@ -552,6 +556,7 @@ function WorkSurfaceContent({
   editable,
   childDisplayMode,
   createContext,
+  groupingExperience,
   resolvedCreateTeamId,
   isLoading,
   loadingLabel,
@@ -567,6 +572,7 @@ function WorkSurfaceContent({
   editable: boolean
   childDisplayMode: WorkSurfaceChildDisplayMode
   createContext?: WorkSurfaceCreateContext
+  groupingExperience?: TeamExperienceType | null
   resolvedCreateTeamId: string | null
   isLoading: boolean
   loadingLabel: string
@@ -587,6 +593,7 @@ function WorkSurfaceContent({
           createContext={createContext}
           data={data}
           editable={editable}
+          groupingExperience={groupingExperience}
           items={visibleItems}
           resolvedCreateTeamId={resolvedCreateTeamId}
           scopedItems={scopedItems}
@@ -674,6 +681,7 @@ function WorkSurfaceActiveContent({
   createContext,
   data,
   editable,
+  groupingExperience,
   items,
   resolvedCreateTeamId,
   scopedItems,
@@ -685,6 +693,7 @@ function WorkSurfaceActiveContent({
   createContext?: WorkSurfaceCreateContext
   data: ReturnType<typeof selectAppDataSnapshot>
   editable: boolean
+  groupingExperience?: TeamExperienceType | null
   items: WorkItem[]
   resolvedCreateTeamId: string | null
   scopedItems: WorkItem[]
@@ -707,6 +716,7 @@ function WorkSurfaceActiveContent({
         scopedItems={scopedItems}
         view={view}
         editable={editable}
+        groupingExperience={groupingExperience}
         childDisplayMode={childDisplayMode}
         createContext={resolvedCreateContext}
         onToggleHiddenValue={hiddenValueHandler}
@@ -722,6 +732,7 @@ function WorkSurfaceActiveContent({
         scopedItems={scopedItems}
         view={view}
         editable={editable}
+        groupingExperience={groupingExperience}
         childDisplayMode={childDisplayMode}
         createContext={resolvedCreateContext}
         onToggleHiddenValue={hiddenValueHandler}
@@ -758,7 +769,13 @@ function WorkSurfaceActiveContent({
   }
 
   return (
-    <TimelineView data={data} items={items} view={view} editable={editable} />
+    <TimelineView
+      data={data}
+      items={items}
+      view={view}
+      editable={editable}
+      groupingExperience={groupingExperience}
+    />
   )
 }
 
@@ -1164,6 +1181,7 @@ export function WorkSurface({
         <WorkSurfaceViewbar
           view={compatibleActiveView}
           filterPopoverItems={filterPopoverItems}
+          groupingExperience={effectiveGroupingExperience}
           hiddenFilters={hiddenFilters}
           groupOptions={compatibleGroupOptions}
           onUpdateViewerView={viewerViewActions.updateViewerActiveView}
@@ -1191,6 +1209,7 @@ export function WorkSurface({
         visibleItems={visibleItems}
         scopedItems={items}
         editable={editable}
+        groupingExperience={effectiveGroupingExperience}
         childDisplayMode={childDisplayMode}
         createContext={createContext}
         resolvedCreateTeamId={resolvedCreateTeamId}

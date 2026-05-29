@@ -131,6 +131,7 @@ const groupFieldLiterals = [
   v.literal("label"),
   v.literal("team"),
   v.literal("type"),
+  v.literal("parent"),
   v.literal("epic"),
   v.literal("feature"),
   v.literal("kind"),

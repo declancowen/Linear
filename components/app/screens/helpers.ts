@@ -385,6 +385,7 @@ export function getProjectPresentationGroupOptions(
     "priority",
     "label",
     "type",
+    "parent",
   ]
 
   if (templateType === "software-delivery") {

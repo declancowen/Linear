@@ -77,6 +77,7 @@ import {
   type Priority,
   type Project,
   type Team,
+  type TeamExperienceType,
   type UserProfile,
   type ViewDefinition,
   type WorkItem,
@@ -110,6 +111,10 @@ import {
   StatusIcon,
   WorkItemTypeIcon,
 } from "./shared"
+import {
+  getGroupFieldOptionLabel as getContextualGroupFieldOptionLabel,
+  getParentGroupingLabel,
+} from "./work-grouping-labels"
 import { cn } from "@/lib/utils"
 
 const HEALTH_COLOR: Record<keyof typeof projectHealthMeta, string> = {
@@ -349,6 +354,7 @@ const DEFAULT_GROUP_OPTIONS: GroupField[] = [
   "label",
   "team",
   "type",
+  "parent",
   "epic",
   "feature",
 ]
@@ -388,51 +394,7 @@ export type ViewConfigPatch = {
 }
 
 export function getGroupFieldOptionLabel(field: GroupField) {
-  if (field === "status") {
-    return "Status"
-  }
-
-  if (field === "assignee") {
-    return "Assignee"
-  }
-
-  if (field === "priority") {
-    return "Priority"
-  }
-
-  if (field === "label") {
-    return "Label"
-  }
-
-  if (field === "project") {
-    return "Project"
-  }
-
-  if (field === "team") {
-    return "Team"
-  }
-
-  if (field === "type") {
-    return "Type"
-  }
-
-  if (field === "epic") {
-    return "Epic"
-  }
-
-  if (field === "feature") {
-    return "Feature"
-  }
-
-  if (field === "kind") {
-    return "Kind"
-  }
-
-  if (field === "createdBy") {
-    return "Created by"
-  }
-
-  return "Updated by"
+  return getContextualGroupFieldOptionLabel(field)
 }
 
 function matchesQuery(label: string, query: string) {
@@ -451,6 +413,7 @@ type FilterPopoverProps = {
   onToggleFilterValue?: (key: ViewFilterKey, value: string) => void
   onClearFilters?: () => void
   hiddenFilters?: ViewFilterKey[]
+  groupingExperience?: TeamExperienceType | null
   variant?: "icon" | "chip"
   chipTone?: ChipTone | "adaptive"
   label?: string
@@ -461,6 +424,7 @@ type FilterPopoverProps = {
 type WorkFilterOptions = {
   assignees: UserProfile[]
   filteredLabels: Label[]
+  filteredParents: WorkItem[]
   filteredProjects: Project[]
   filteredTeams: Team[]
   itemTypes: WorkItemType[]
@@ -529,6 +493,27 @@ function getFilterAssignees(
   return [...assignees.values()]
 }
 
+function getFilterParentItems(
+  items: WorkItem[],
+  workItemById: Map<string, WorkItem>
+) {
+  const parents = new Map<string, WorkItem>()
+
+  for (const item of items) {
+    if (!item.parentId) {
+      continue
+    }
+
+    const parent = workItemById.get(item.parentId)
+
+    if (parent) {
+      parents.set(parent.id, parent)
+    }
+  }
+
+  return [...parents.values()]
+}
+
 function getVisibleFilterItemTypes(items: WorkItem[]) {
   return workItemTypes.filter((itemType) =>
     items.some((item) => item.type === itemType)
@@ -572,12 +557,17 @@ function useWorkFilterOptions(
     singleTeamId ? getTeam(state, singleTeamId) : null
   )
   const users = useAppStore((state) => state.users)
+  const allWorkItems = useAppStore((state) => state.workItems)
   const projects = useAppStore((state) => state.projects)
   const labels = useAppStore((state) => state.labels)
   const teams = useAppStore((state) => state.teams)
   const userById = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
     [users]
+  )
+  const workItemById = useMemo(
+    () => new Map(allWorkItems.map((item) => [item.id, item])),
+    [allWorkItems]
   )
   const projectIds = useMemo(
     () => getItemProjectIds(scopedItems),
@@ -587,6 +577,10 @@ function useWorkFilterOptions(
   const assignees = useMemo(
     () => getFilterAssignees(scopedItems, userById),
     [scopedItems, userById]
+  )
+  const filteredParents = useMemo(
+    () => getFilterParentItems(scopedItems, workItemById),
+    [scopedItems, workItemById]
   )
   const filteredProjects = useMemo(
     () => projects.filter((project) => projectIds.has(project.id)),
@@ -608,11 +602,31 @@ function useWorkFilterOptions(
   return {
     assignees,
     filteredLabels,
+    filteredParents,
     filteredProjects,
     filteredTeams,
     itemTypes,
     statusOptions: getStatusOrderForTeam(singleTeam),
   }
+}
+
+function useResolvedGroupingExperience(
+  view: ViewDefinition,
+  groupingExperience: TeamExperienceType | null | undefined
+) {
+  const scopedTeam = useAppStore((state) =>
+    view.scopeType === "team" ? getTeam(state, view.scopeId) : null
+  )
+  const activeTeam = useAppStore((state) =>
+    view.scopeType === "personal" ? getTeam(state, state.ui.activeTeamId) : null
+  )
+
+  return (
+    groupingExperience ??
+    scopedTeam?.settings.experience ??
+    activeTeam?.settings.experience ??
+    null
+  )
 }
 
 function getWorkFilterChipClass({
@@ -1062,11 +1076,15 @@ function ParentEmptyFilterRow({
 function ParentFilterSection({
   hidden,
   onToggleFilterValue,
+  parentLabel,
+  parents,
   query,
   view,
 }: {
   hidden: boolean
   onToggleFilterValue: ToggleWorkFilterValue
+  parentLabel: string
+  parents: WorkItem[]
   query: string
   view: ViewDefinition
 }) {
@@ -1076,7 +1094,7 @@ function ParentFilterSection({
 
   return (
     <FilterSection
-      label="Parent"
+      label={parentLabel}
       activeCount={getParentFilterActiveCount(view)}
     >
       <ParentEmptyFilterRow
@@ -1084,6 +1102,19 @@ function ParentFilterSection({
         view={view}
         onToggleFilterValue={onToggleFilterValue}
       />
+      {parents
+        .filter((parent) =>
+          matchesQuery(`${parent.key} ${parent.title}`, query)
+        )
+        .map((parent) => (
+          <FilterRow
+            key={parent.id}
+            icon={<TreeStructure className="size-3" />}
+            label={`${parent.key} · ${parent.title}`}
+            active={Boolean(view.filters.parentIds?.includes(parent.id))}
+            onClick={() => onToggleFilterValue("parentIds", parent.id)}
+          />
+        ))}
     </FilterSection>
   )
 }
@@ -1126,17 +1157,22 @@ function WorkFilterSections({
   hiddenFilterSet,
   onToggleFilterValue,
   options,
+  parentLabel,
   query,
   view,
 }: {
   hiddenFilterSet: ReadonlySet<ViewFilterKey>
   onToggleFilterValue: ToggleWorkFilterValue
   options: WorkFilterOptions
+  parentLabel: string
   query: string
   view: ViewDefinition
 }) {
   return (
-    <div className="no-scrollbar flex max-h-[360px] flex-col overflow-y-auto">
+    <div
+      data-testid="work-filter-sections"
+      className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto"
+    >
       <StatusFilterSection
         hidden={hiddenFilterSet.has("status")}
         onToggleFilterValue={onToggleFilterValue}
@@ -1187,6 +1223,8 @@ function WorkFilterSections({
       <ParentFilterSection
         hidden={hiddenFilterSet.has("parentIds")}
         onToggleFilterValue={onToggleFilterValue}
+        parentLabel={parentLabel}
+        parents={options.filteredParents}
         query={query}
         view={view}
       />
@@ -1207,6 +1245,7 @@ export function FilterPopover({
   onToggleFilterValue,
   onClearFilters,
   hiddenFilters = [],
+  groupingExperience,
   variant = "icon",
   chipTone = "adaptive",
   label = "Filter",
@@ -1217,6 +1256,14 @@ export function FilterPopover({
   const options = useWorkFilterOptions(view, items)
   const hiddenFilterSet = useMemo(() => new Set(hiddenFilters), [hiddenFilters])
   const activeCount = getWorkFilterActiveCount(view.filters)
+  const resolvedGroupingExperience = useResolvedGroupingExperience(
+    view,
+    groupingExperience
+  )
+  const parentLabel = getParentGroupingLabel({
+    view,
+    groupingExperience: resolvedGroupingExperience,
+  })
 
   function handleToggleFilterValue(key: ViewFilterKey, value: string) {
     toggleFilterValueOrDelegate({
@@ -1252,6 +1299,7 @@ export function FilterPopover({
         sideOffset={8}
         className={cn(
           PROPERTY_POPOVER_CLASS,
+          "flex h-[min(520px,calc(100vh-11rem))] max-h-[min(520px,var(--radix-popover-content-available-height),calc(100vh-11rem))] min-h-0 flex-col",
           "w-[min(280px,calc(100vw-2rem))]"
         )}
       >
@@ -1269,6 +1317,7 @@ export function FilterPopover({
           hiddenFilterSet={hiddenFilterSet}
           onToggleFilterValue={handleToggleFilterValue}
           options={options}
+          parentLabel={parentLabel}
           query={query}
           view={view}
         />
@@ -1348,12 +1397,24 @@ export function ViewConfigPopover({
   onUpdateView,
   onToggleDisplayProperty,
   groupOptions = DEFAULT_GROUP_OPTIONS,
+  groupingExperience,
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
   onToggleDisplayProperty?: (property: DisplayProperty) => void
   groupOptions?: GroupField[]
+  groupingExperience?: TeamExperienceType | null
 }) {
+  const resolvedGroupingExperience = useResolvedGroupingExperience(
+    view,
+    groupingExperience
+  )
+  const resolveGroupLabel = (field: GroupField) =>
+    getContextualGroupFieldOptionLabel(field, {
+      view,
+      groupingExperience: resolvedGroupingExperience,
+    })
+
   function handleUpdateView(patch: ViewConfigPatch) {
     if (onUpdateView) {
       onUpdateView(patch)
@@ -1437,7 +1498,7 @@ export function ViewConfigPopover({
             value={view.grouping}
             options={groupOptions.map((option) => ({
               value: option,
-              label: getGroupFieldOptionLabel(option),
+              label: resolveGroupLabel(option),
             }))}
             onValueChange={(value) =>
               handleUpdateView({ grouping: value as GroupField })
@@ -1450,7 +1511,7 @@ export function ViewConfigPopover({
               { value: "none", label: "None" },
               ...groupOptions.map((option) => ({
                 value: option,
-                label: getGroupFieldOptionLabel(option),
+                label: resolveGroupLabel(option),
               })),
             ]}
             onValueChange={(value) =>
@@ -2158,6 +2219,7 @@ export function GroupChipPopover({
   label = "Group",
   showSubGrouping = true,
   getOptionLabel,
+  groupingExperience,
 }: {
   view: ViewDefinition
   groupOptions?: GroupField[]
@@ -2167,8 +2229,19 @@ export function GroupChipPopover({
   label?: string
   showSubGrouping?: boolean
   getOptionLabel?: (field: GroupField) => string
+  groupingExperience?: TeamExperienceType | null
 }) {
-  const resolveOptionLabel = getOptionLabel ?? getGroupFieldOptionLabel
+  const resolvedGroupingExperience = useResolvedGroupingExperience(
+    view,
+    groupingExperience
+  )
+  const resolveOptionLabel =
+    getOptionLabel ??
+    ((field: GroupField) =>
+      getContextualGroupFieldOptionLabel(field, {
+        view,
+        groupingExperience: resolvedGroupingExperience,
+      }))
   const handleUpdateView = createViewConfigUpdater(view.id, onUpdateView)
 
   return (

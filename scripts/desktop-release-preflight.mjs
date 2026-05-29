@@ -14,16 +14,22 @@ const { resolveDeepLinkScheme } = require("../electron/deep-links.cjs")
 const repoRoot = path.resolve(__dirname, "..")
 const electronOutputDir = path.join(repoRoot, "dist", "electron")
 const appBundlePath = path.join(electronOutputDir, "Recipe Room.app")
+const macReleaseArchitectures = ["arm64", "x64"]
+const windowsReleaseArchitectures = ["arm64", "ia32", "x64"]
+const primaryMacReleaseArchitecture = "arm64"
 const releaseArchivePath = path.join(
   electronOutputDir,
-  "Recipe-Room-mac-arm64.zip"
+  `Recipe-Room-mac-${primaryMacReleaseArchitecture}.zip`
 )
 const legacyArchivePath = path.join(
   electronOutputDir,
   "Recipe Room-mac-arm64.zip"
 )
-const releaseDmgPath = path.join(electronOutputDir, "Recipe-Room-mac-arm64.dmg")
 const releaseUpdateManifestPath = path.join(electronOutputDir, "latest-mac.yml")
+const windowsReleaseUpdateManifestPath = path.join(
+  electronOutputDir,
+  "latest.yml"
+)
 const rendererDir = path.join(repoRoot, "dist", "desktop-renderer")
 const rendererIndexPath = path.join(rendererDir, "index.html")
 const rendererAssetsDir = path.join(rendererDir, "assets")
@@ -346,6 +352,7 @@ function expectsGitHubReleaseArtifacts(releasePolicy) {
     process.env.DESKTOP_RELEASE_ARTIFACTS === "1" ||
     publicReleaseMode ||
     releasePolicy?.distribution === "github-release-dmg" ||
+    releasePolicy?.distribution === "github-release-desktop-installers" ||
     releasePolicy?.updates === "electron-updater-github-releases"
   )
 }
@@ -381,9 +388,29 @@ async function checkArtifactPresence(releasePolicy) {
   ]
 
   if (expectsGitHubReleaseArtifacts(releasePolicy)) {
+    for (const architecture of macReleaseArchitectures) {
+      artifactChecks.push(
+        [
+          `Desktop macOS DMG (${architecture})`,
+          path.join(electronOutputDir, `Recipe-Room-mac-${architecture}.dmg`),
+        ],
+        [
+          `Desktop macOS ZIP (${architecture})`,
+          path.join(electronOutputDir, `Recipe-Room-mac-${architecture}.zip`),
+        ]
+      )
+    }
+
+    for (const architecture of windowsReleaseArchitectures) {
+      artifactChecks.push([
+        `Desktop Windows installer (${architecture})`,
+        path.join(electronOutputDir, `Recipe-Room-win-${architecture}.exe`),
+      ])
+    }
+
     artifactChecks.push(
-      ["Desktop DMG", releaseDmgPath],
-      ["macOS updater manifest", releaseUpdateManifestPath]
+      ["macOS updater manifest", releaseUpdateManifestPath],
+      ["Windows updater manifest", windowsReleaseUpdateManifestPath]
     )
   }
 

@@ -7,6 +7,10 @@ import { toast } from "sonner"
 import { buildPublicApiUrl } from "@/lib/api/public-url"
 import {
   DEFAULT_DESKTOP_MAC_DOWNLOAD_URL,
+  getDesktopDownloadUrl,
+  type DesktopDownloadArchitecture,
+  type DesktopDownloadTarget,
+  type DesktopDownloadUrlMap,
   isDesktopVersionUnsupported,
 } from "@/lib/desktop/update-policy"
 import { Button } from "@/components/ui/button"
@@ -22,6 +26,7 @@ const DESKTOP_UPDATE_TOAST_ID = "desktop-update-status"
 
 type DesktopAppInfo = {
   apiBaseUrl?: string | null
+  arch?: string | null
   isPackaged: boolean
   platform: string
   version: string
@@ -29,13 +34,78 @@ type DesktopAppInfo = {
 
 type DesktopUpdatePolicy = {
   latestDownloadUrl?: string | null
+  latestDownloadUrls?: Partial<DesktopDownloadUrlMap> | null
   minSupportedVersion?: string | null
   unsupportedMessage?: string | null
 }
 
-function getDesktopMacDownloadUrl(policy?: DesktopUpdatePolicy | null) {
+function normalizeDesktopAppArchitecture(
+  arch: string | null | undefined
+): DesktopDownloadArchitecture | null {
+  const normalized = arch?.trim().toLowerCase()
+
+  if (normalized === "arm64" || normalized === "aarch64") {
+    return "arm64"
+  }
+
+  if (
+    normalized === "x64" ||
+    normalized === "x86_64" ||
+    normalized === "amd64"
+  ) {
+    return "x64"
+  }
+
+  if (normalized === "ia32" || normalized === "x86") {
+    return "ia32"
+  }
+
+  return null
+}
+
+function getDesktopDownloadTargetForAppInfo(
+  appInfo: DesktopAppInfo | null
+): DesktopDownloadTarget | null {
+  const architecture = normalizeDesktopAppArchitecture(appInfo?.arch)
+
+  if (appInfo?.platform === "win32") {
+    return {
+      architecture: architecture ?? "x64",
+      platform: "windows",
+    }
+  }
+
+  if (appInfo?.platform === "darwin") {
+    return {
+      architecture: architecture === "ia32" ? "x64" : (architecture ?? "arm64"),
+      platform: "mac",
+    }
+  }
+
+  return null
+}
+
+function getDesktopFallbackDownloadUrl({
+  appInfo,
+  policy,
+}: {
+  appInfo: DesktopAppInfo | null
+  policy?: DesktopUpdatePolicy | null
+}) {
+  const target = getDesktopDownloadTargetForAppInfo(appInfo)
+
+  if (target && policy?.latestDownloadUrls) {
+    const configuredTargetUrl =
+      policy.latestDownloadUrls[target.platform]?.[target.architecture]?.trim()
+
+    if (configuredTargetUrl) {
+      return configuredTargetUrl
+    }
+  }
+
   return (
     policy?.latestDownloadUrl?.trim() ||
+    (target ? getDesktopDownloadUrl(null, target) : null) ||
     process.env.NEXT_PUBLIC_DESKTOP_MAC_DOWNLOAD_URL ||
     DEFAULT_DESKTOP_MAC_DOWNLOAD_URL
   )
@@ -437,6 +507,7 @@ export function DesktopUpdateController() {
   const [policy, setPolicy] = useState<DesktopUpdatePolicy | null>(null)
   const [unsupportedPolicy, setUnsupportedPolicy] =
     useState<DesktopUpdatePolicy | null>(null)
+  const appInfoRef = useRef<DesktopAppInfo | null>(null)
   const policyRef = useRef<DesktopUpdatePolicy | null>(null)
 
   useEffect(() => {
@@ -458,6 +529,7 @@ export function DesktopUpdateController() {
       }
 
       setAppInfo(nextAppInfo)
+      appInfoRef.current = nextAppInfo
 
       const nextPolicy = await fetchDesktopUpdatePolicy(
         nextAppInfo?.apiBaseUrl
@@ -481,7 +553,10 @@ export function DesktopUpdateController() {
 
       if (updateState) {
         showDesktopUpdateToast({
-          downloadUrl: getDesktopMacDownloadUrl(nextPolicy),
+          downloadUrl: getDesktopFallbackDownloadUrl({
+            appInfo: nextAppInfo,
+            policy: nextPolicy,
+          }),
           force: false,
           state: updateState,
         })
@@ -498,7 +573,10 @@ export function DesktopUpdateController() {
       }
 
       showDesktopUpdateToast({
-        downloadUrl: getDesktopMacDownloadUrl(policyRef.current),
+        downloadUrl: getDesktopFallbackDownloadUrl({
+          appInfo: appInfoRef.current,
+          policy: policyRef.current,
+        }),
         force: false,
         state: payload.state,
       })
@@ -513,14 +591,14 @@ export function DesktopUpdateController() {
   if (!unsupportedPolicy) {
     return feedbackState ? (
       <DesktopUpdateFeedbackDialog
-        downloadUrl={getDesktopMacDownloadUrl(policy)}
+        downloadUrl={getDesktopFallbackDownloadUrl({ appInfo, policy })}
         onClose={() => setFeedbackState(null)}
         state={feedbackState}
       />
     ) : null
   }
 
-  const downloadUrl = getDesktopMacDownloadUrl(policy)
+  const downloadUrl = getDesktopFallbackDownloadUrl({ appInfo, policy })
   const minSupportedVersion = unsupportedPolicy.minSupportedVersion
 
   return (

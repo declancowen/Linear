@@ -162,6 +162,40 @@ describe("DesktopUpdateController", () => {
     ).toBeInTheDocument()
   })
 
+  it("uses the platform-specific fallback download for unsupported Windows builds", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce({
+      json: vi.fn().mockResolvedValue({
+        latestDownloadUrls: {
+          windows: {
+            arm64: "https://downloads.example/Recipe-Room-win-arm64.exe",
+          },
+        },
+        minSupportedVersion: "2.0.0",
+        unsupportedMessage: "This desktop build is no longer supported.",
+      }),
+      ok: true,
+    } as unknown as Response)
+    setElectronApp({
+      getDesktopAppInfo: vi.fn().mockResolvedValue({
+        apiBaseUrl: "https://teams.reciperoom.io",
+        arch: "arm64",
+        isPackaged: true,
+        platform: "win32",
+        version: "1.0.0",
+      }),
+      getUpdateState: vi.fn().mockRejectedValue(new Error("IPC failed")),
+    })
+
+    render(<DesktopUpdateController />)
+
+    const link = await screen.findByRole("link", { name: "Download latest" })
+
+    expect(link).toHaveAttribute(
+      "href",
+      "https://downloads.example/Recipe-Room-win-arm64.exe"
+    )
+  })
+
   it("shows latest-version feedback from a forced native menu check", async () => {
     const { emitMenuUpdateState } =
       await renderDesktopUpdateControllerWithMenuListener()

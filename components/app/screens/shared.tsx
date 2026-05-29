@@ -1310,6 +1310,10 @@ function getProjectPatch(data: AppData, value: string) {
   return { primaryProjectId: project?.id ?? null }
 }
 
+function getParentGroupLabel(parent: WorkItem) {
+  return `${parent.key} · ${parent.title}`
+}
+
 function getLabelPatch(data: AppData, item: WorkItem | null, value: string) {
   if (!item) {
     return {}
@@ -1330,6 +1334,44 @@ function getLabelPatch(data: AppData, item: WorkItem | null, value: string) {
   return {
     labelIds: [label.id, ...item.labelIds.filter((id) => id !== label.id)],
   }
+}
+
+function isNoDirectParentValue(value: string) {
+  return value === "No parent"
+}
+
+function findDirectParentByGroupValue(
+  data: AppData,
+  value: string,
+  teamId: string | null
+) {
+  return data.workItems.find(
+    (entry) =>
+      (!teamId || entry.teamId === teamId) &&
+      getParentGroupLabel(entry) === value
+  )
+}
+
+function getDirectParentPatch(
+  data: AppData,
+  item: WorkItem | null,
+  value: string
+) {
+  if (!item) {
+    return {}
+  }
+
+  if (isNoDirectParentValue(value)) {
+    return { parentId: null }
+  }
+
+  const parent = findDirectParentByGroupValue(data, value, item.teamId)
+
+  if (!canUseHierarchyParent(parent, item)) {
+    return {}
+  }
+
+  return { parentId: parent.id }
 }
 
 function getHierarchyParentPatch(
@@ -1386,6 +1428,7 @@ const FIELD_PATCH_RESOLVERS: Partial<
   assignee: ({ data, value }) => getAssigneePatch(data, value),
   project: ({ data, value }) => getProjectPatch(data, value),
   label: ({ data, item, value }) => getLabelPatch(data, item, value),
+  parent: ({ data, item, value }) => getDirectParentPatch(data, item, value),
   epic: ({ data, item, value }) =>
     getHierarchyParentPatch(data, item, "epic", value),
   feature: ({ data, item, value }) =>
@@ -1498,6 +1541,37 @@ function getHierarchyCreateInitialType(
   return getSingleChildWorkItemType(parent.type)
 }
 
+function getDirectParentCreateDefaults({
+  data,
+  item,
+  options,
+  value,
+}: {
+  data: AppData
+  item: WorkItem | null
+  options?: {
+    teamId?: string | null
+  }
+  value: string
+}): ReturnType<typeof getCreateDefaultsForField> {
+  if (isNoDirectParentValue(value)) {
+    return { patch: { parentId: null } }
+  }
+
+  const scopedTeamId = options?.teamId ?? item?.teamId ?? null
+  const parent = findDirectParentByGroupValue(data, value, scopedTeamId)
+
+  if (!parent) {
+    return { patch: {} }
+  }
+
+  return {
+    patch: { parentId: parent.id },
+    defaultTeamId: parent.teamId,
+    initialType: getHierarchyCreateInitialType(item, parent),
+  }
+}
+
 export function getCreateDefaultsForField(
   data: AppData,
   item: WorkItem | null,
@@ -1523,6 +1597,10 @@ export function getCreateDefaultsForField(
 } {
   if (field === "epic" || field === "feature") {
     return getHierarchyCreateDefaults({ data, field, item, options, value })
+  }
+
+  if (field === "parent") {
+    return getDirectParentCreateDefaults({ data, item, options, value })
   }
 
   return {
