@@ -4,8 +4,8 @@
 
 | Field         | Value                |
 | ------------- | -------------------- |
-| Last reviewed | 2026-05-29 16:41 BST |
-| Total turns   | 3                    |
+| Last reviewed | 2026-05-29 16:52 BST |
+| Total turns   | 4                    |
 | Open findings | 0                    |
 
 ## Scope
@@ -16,6 +16,46 @@
 - parent-group lanes promoting the parent item into the group header with editable properties and an Open affordance
 - platform-aware desktop download links for macOS and Windows
 - macOS arm64/x64 and Windows arm64/ia32/x64 release packaging and GitHub release publishing
+
+## Turn 4 - 2026-05-29 16:52 BST
+
+**Outcome:** A second Windows release-run failure was confirmed and resolved locally. No open branch-specific findings remain for this turn.
+
+**Risk:** Medium. This turn is still scoped to desktop release process execution, but it affects the blocking Windows artifact job.
+
+**Resolved during review:**
+
+| Finding | Status | Bug class | Missed invariant / variant | Action |
+| --- | --- | --- | --- | --- |
+| Windows direct-spawn of the package-manager shim failed with `spawn EINVAL` | Resolved | platform command compatibility / release automation | On Windows, command shims like `pnpm` need shell mode when launched from Node child-process helpers | Aligned with the local T3 Code release script pattern: packaging commands continue to invoke `pnpm`, but the shared Electron packaging helper adds `shell: true` only on Windows. |
+
+**Architecture review:**
+
+- Checked the local T3 Code desktop release workflow and `scripts/build-desktop-artifact.ts`; its release wrapper uses shell mode on Windows for shim commands and keeps the platform rule at the script-runner boundary.
+- Mirrored that approach in `scripts/shared/electron-package.mjs`, so both macOS and Windows package entrypoints consume one small helper instead of encoding Windows process behavior inline.
+- The fix preserves the existing packaging contract and avoids changing artifact names, architecture selection, updater manifests, or release publishing.
+
+**Verification:**
+
+- `node --check scripts/shared/electron-package.mjs`
+- `node --check scripts/package-electron-windows.mjs`
+- `node --check scripts/package-electron-mac.mjs`
+- `pnpm exec vitest run tests/scripts/shared-helpers.test.ts tests/scripts/publish-electron-github-release.test.ts` — 2 files, 12 tests passed.
+- `pnpm exec tsc --noEmit`
+- `pnpm lint`
+- `git diff --check -- . ':!.reviews/'`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh`
+
+**Branch-totality proof:**
+
+- Re-read the current failed Windows job log; the failure was at `scripts/package-electron-windows.mjs:93` before Electron Builder execution, matching a process-spawn compatibility issue.
+- Compared against the T3 Code release script, which explicitly uses shell mode on Windows for `.cmd` shim resolution.
+- Confirmed no stale `getPackageManagerCommand`/CLI-path experiment remains in the current diff.
+
+**Challenger pass:** Done. The tempting `.cmd` helper was insufficient because Node still direct-spawned a command shim on Windows. Shell mode is the actual invariant T3 protects, and this patch encodes that variant directly.
+
+**Diff-review result:** No open Critical/High findings remain for the local changes reviewed in this turn.
 
 ## Turn 3 - 2026-05-29 16:41 BST
 

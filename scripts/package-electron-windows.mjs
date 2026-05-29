@@ -4,7 +4,7 @@ import { createRequire } from "node:module"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { getPackageManagerCommand } from "./shared/electron-package.mjs"
+import { getCommandShimSpawnOptions } from "./shared/electron-package.mjs"
 import { readDotenvFile } from "./shared/dotenv.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
@@ -468,7 +468,7 @@ async function main() {
     )
 
     await run(
-      getPackageManagerCommand(),
+      "pnpm",
       [
         "exec",
         "electron-builder",
@@ -479,7 +479,10 @@ async function main() {
         "--publish",
         "never",
       ],
-      { cwd: repoRoot }
+      {
+        cwd: repoRoot,
+        ...getCommandShimSpawnOptions(),
+      }
     )
 
     const artifactPaths = shouldBuildReleaseArtifacts

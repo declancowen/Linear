@@ -5,15 +5,9 @@ function getMacOutputDirectoryName(arch) {
   return arch ? `mac-${arch}` : null
 }
 
-export function getPackageManagerCommand(
-  command = "pnpm",
-  platform = process.platform
-) {
-  if (platform === "win32" && !/\.(?:bat|cmd|exe)$/iu.test(command)) {
-    return `${command}.cmd`
-  }
-
-  return command
+export function getCommandShimSpawnOptions(platform = process.platform) {
+  // Windows needs shell mode to resolve .cmd shims such as pnpm.
+  return platform === "win32" ? { shell: true } : {}
 }
 
 export async function findBuiltApp(searchDir, options = {}) {

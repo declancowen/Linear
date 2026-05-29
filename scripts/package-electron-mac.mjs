@@ -6,7 +6,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import {
   findBuiltApp,
-  getPackageManagerCommand,
+  getCommandShimSpawnOptions,
 } from "./shared/electron-package.mjs"
 import { readDotenvFile } from "./shared/dotenv.mjs"
 
@@ -544,7 +544,7 @@ async function main() {
     await fs.mkdir(outputDir, { recursive: true })
 
     await run(
-      getPackageManagerCommand(),
+      "pnpm",
       [
         "exec",
         "electron-builder",
@@ -555,7 +555,10 @@ async function main() {
         "--publish",
         "never",
       ],
-      { cwd: repoRoot }
+      {
+        cwd: repoRoot,
+        ...getCommandShimSpawnOptions(),
+      }
     )
 
     const { appPath } = await findBuiltApp(stageOutputDir, {

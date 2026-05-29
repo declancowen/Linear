@@ -266,12 +266,12 @@ describe("script shared helpers", () => {
     }
   })
 
-  it("uses the Windows command shim for package manager execution", async () => {
-    const { getPackageManagerCommand } =
+  it("uses shell mode for command shims on Windows", async () => {
+    const { getCommandShimSpawnOptions } =
       await import("../../scripts/shared/electron-package.mjs")
 
-    expect(getPackageManagerCommand("pnpm", "win32")).toBe("pnpm.cmd")
-    expect(getPackageManagerCommand("pnpm.cmd", "win32")).toBe("pnpm.cmd")
-    expect(getPackageManagerCommand("pnpm", "darwin")).toBe("pnpm")
+    expect(getCommandShimSpawnOptions("win32")).toEqual({ shell: true })
+    expect(getCommandShimSpawnOptions("darwin")).toEqual({})
+    expect(getCommandShimSpawnOptions("linux")).toEqual({})
   })
 })
