@@ -5,6 +5,17 @@ function getMacOutputDirectoryName(arch) {
   return arch ? `mac-${arch}` : null
 }
 
+export function getPackageManagerCommand(
+  command = "pnpm",
+  platform = process.platform
+) {
+  if (platform === "win32" && !/\.(?:bat|cmd|exe)$/iu.test(command)) {
+    return `${command}.cmd`
+  }
+
+  return command
+}
+
 export async function findBuiltApp(searchDir, options = {}) {
   const outputEntries = await fs.readdir(searchDir, { withFileTypes: true })
   const targetDirectoryName = getMacOutputDirectoryName(options.arch)

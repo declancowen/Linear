@@ -4,8 +4,8 @@
 
 | Field         | Value                |
 | ------------- | -------------------- |
-| Last reviewed | 2026-05-29 16:29 BST |
-| Total turns   | 2                    |
+| Last reviewed | 2026-05-29 16:41 BST |
+| Total turns   | 3                    |
 | Open findings | 0                    |
 
 ## Scope
@@ -16,6 +16,47 @@
 - parent-group lanes promoting the parent item into the group header with editable properties and an Open affordance
 - platform-aware desktop download links for macOS and Windows
 - macOS arm64/x64 and Windows arm64/ia32/x64 release packaging and GitHub release publishing
+
+## Turn 3 - 2026-05-29 16:41 BST
+
+**Outcome:** One live release-workflow finding was confirmed from the GitHub Actions run and resolved locally. No open branch-specific findings remain for this turn.
+
+**Risk:** Medium. This turn touches the desktop packaging execution path only; the failure consequence is release automation blocking Windows installers.
+
+**Resolved during review:**
+
+| Finding | Status | Bug class | Missed invariant / variant | Action |
+| --- | --- | --- | --- | --- |
+| Windows release job failed with `spawn pnpm ENOENT` | Resolved | platform command compatibility / release automation | Node direct-spawn calls must invoke the Windows package-manager command shim when running on `win32` | Electron packaging scripts now resolve package-manager commands through a shared packaging helper, using `pnpm.cmd` on Windows and `pnpm` elsewhere. The direct-spawn helper now also rejects spawn errors cleanly. |
+
+**Architecture review:**
+
+- The platform-specific command rule lives in the shared Electron packaging helper, which is the narrow owner for packaging/runtime script conventions.
+- macOS and Windows packaging now consume the same helper, avoiding divergent release-script behavior.
+- The current local deletion of the one-off `scripts/import-codecoy-front-end-audit.mjs` script was checked for references; no package, docs, CI, or test caller depends on it, and it is outside runtime/release packaging paths.
+
+**Verification:**
+
+- `node --check scripts/shared/electron-package.mjs`
+- `node --check scripts/package-electron-windows.mjs`
+- `node --check scripts/package-electron-mac.mjs`
+- `node --check scripts/publish-electron-github-release.mjs`
+- `pnpm exec vitest run tests/scripts/shared-helpers.test.ts tests/scripts/publish-electron-github-release.test.ts` — 2 files, 12 tests passed.
+- `pnpm exec tsc --noEmit`
+- `pnpm lint`
+- `git diff --check -- . ':!.reviews/'`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh`
+
+**Branch-totality proof:**
+
+- Re-read the Windows and macOS packaging scripts, shared Electron packaging helper, and release-publisher tests around the failed workflow surface.
+- Checked that the failure was in Windows script process execution before installer creation, not in the artifact contract or GitHub publish step.
+- Verified the helper behavior for Windows and non-Windows package manager commands with a focused unit test.
+
+**Challenger pass:** Done. The likely repeated failure class was another direct `pnpm` spawn in the desktop release path. Both macOS and Windows packaging entrypoints now use the shared helper, and `rg` showed no other release-script direct `pnpm` spawn in the checked packaging scripts.
+
+**Diff-review result:** No open Critical/High findings remain for the local changes reviewed in this turn.
 
 ## Turn 2 - 2026-05-29 16:16 BST
 

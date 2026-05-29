@@ -4,6 +4,7 @@ import { createRequire } from "node:module"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { getPackageManagerCommand } from "./shared/electron-package.mjs"
 import { readDotenvFile } from "./shared/dotenv.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
@@ -94,6 +95,7 @@ function run(command, args, options = {}) {
       ...options,
     })
 
+    child.on("error", reject)
     child.on("exit", (code, signal) => {
       const error = getCommandExitError(command, code, signal)
 
@@ -466,7 +468,7 @@ async function main() {
     )
 
     await run(
-      "pnpm",
+      getPackageManagerCommand(),
       [
         "exec",
         "electron-builder",
