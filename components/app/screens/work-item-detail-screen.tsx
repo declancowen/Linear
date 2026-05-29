@@ -3596,6 +3596,7 @@ function WorkItemSubitemFilterButton({
       view={view}
       items={childItems}
       hiddenFilters={WORK_DETAIL_SUBITEM_HIDDEN_FILTERS}
+      onUpdateView={patchWorkDetailSubitemViewConfig}
       onToggleFilterValue={(key, value) =>
         useAppStore
           .getState()

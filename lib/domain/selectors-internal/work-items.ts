@@ -321,13 +321,15 @@ function matchesAnyOptionalFilter<T>(values: T[], candidates: T[]) {
 }
 
 function matchesParentFilter(parentIds: string[], parentId: string | null) {
-  if (parentIds.length === 0) {
+  const selectedParentIds = parentIds.filter(
+    (value) => value !== EMPTY_PARENT_FILTER_VALUE
+  )
+
+  if (selectedParentIds.length === 0) {
     return true
   }
 
-  return parentId === null
-    ? parentIds.includes(EMPTY_PARENT_FILTER_VALUE)
-    : parentIds.includes(parentId)
+  return parentId !== null && selectedParentIds.includes(parentId)
 }
 
 function matchesCompletionFilter(showCompleted: boolean, status: WorkStatus) {
@@ -483,6 +485,10 @@ function compareItemsByOrdering(
 
   if (ordering === "title") {
     return left.title.localeCompare(right.title)
+  }
+
+  if (ordering === "count") {
+    return comparePriority(left.priority, right.priority)
   }
 
   return compareOptionalDescendingValues(left[ordering], right[ordering])
@@ -802,13 +808,25 @@ export function buildItemGroups(
   return new Map(
     [...groups.entries()]
       .sort((left, right) =>
-        compareGroupKeys(view.grouping, left[0], right[0], statusOrder)
+        compareGroupEntries(
+          view.grouping,
+          view.ordering,
+          left,
+          right,
+          statusOrder
+        )
       )
       .map(([groupKey, subgroups]) => [
         groupKey,
         new Map(
           [...subgroups.entries()].sort((left, right) =>
-            compareGroupKeys(view.subGrouping, left[0], right[0], statusOrder)
+            compareSubgroupEntries(
+              view.subGrouping,
+              view.ordering,
+              left,
+              right,
+              statusOrder
+            )
           )
         ),
       ])
@@ -836,7 +854,10 @@ export function buildItemGroupsWithEmptyGroups(
 
   const availableGroupKeys = new Set(getSelectedGroupFilterKeys(data, view))
 
-  if (!hasActiveViewFilters(view) || options?.sourceItems) {
+  if (
+    (view.filters.showEmptyGroups ?? true) &&
+    (!hasActiveViewFilters(view) || options?.sourceItems)
+  ) {
     getAvailableGroupKeysForItems(data, items, view.grouping, options).forEach(
       (groupKey) => {
         availableGroupKeys.add(groupKey)
@@ -844,15 +865,23 @@ export function buildItemGroupsWithEmptyGroups(
     )
   }
 
-  availableGroupKeys.forEach((groupKey) => {
-    if (!groups.has(groupKey)) {
-      groups.set(groupKey, new Map())
-    }
-  })
+  if (view.filters.showEmptyGroups ?? true) {
+    availableGroupKeys.forEach((groupKey) => {
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, new Map())
+      }
+    })
+  }
 
   return new Map(
     [...groups.entries()].sort((left, right) =>
-      compareGroupKeys(view.grouping, left[0], right[0], statusOrder)
+      compareGroupEntries(
+        view.grouping,
+        view.ordering,
+        left,
+        right,
+        statusOrder
+      )
     )
   )
 }
@@ -909,11 +938,15 @@ function hasActiveViewFilters(view: ViewDefinition) {
     view.filters.milestoneIds.length > 0 ||
     view.filters.relationTypes.length > 0 ||
     view.filters.projectIds.length > 0 ||
-    (view.filters.parentIds?.length ?? 0) > 0 ||
+    (view.filters.parentIds?.some(
+      (value) => value !== EMPTY_PARENT_FILTER_VALUE
+    ) ??
+      false) ||
     view.filters.itemTypes.length > 0 ||
     view.filters.labelIds.length > 0 ||
     view.filters.teamIds.length > 0 ||
-    !view.filters.showCompleted
+    !view.filters.showCompleted ||
+    !(view.filters.showEmptyGroups ?? true)
   )
 }
 
@@ -958,6 +991,46 @@ function compareGroupKeys(
   }
 
   return left.localeCompare(right)
+}
+
+function countGroupItems(group: Map<string, WorkItem[]>) {
+  return [...group.values()].reduce((count, items) => count + items.length, 0)
+}
+
+function compareGroupEntries(
+  field: GroupField | null,
+  ordering: OrderingField,
+  left: [string, Map<string, WorkItem[]>],
+  right: [string, Map<string, WorkItem[]>],
+  statusOrder: WorkStatus[]
+) {
+  if (ordering === "count") {
+    const countComparison = countGroupItems(right[1]) - countGroupItems(left[1])
+
+    if (countComparison !== 0) {
+      return countComparison
+    }
+  }
+
+  return compareGroupKeys(field, left[0], right[0], statusOrder)
+}
+
+function compareSubgroupEntries(
+  field: GroupField | null,
+  ordering: OrderingField,
+  left: [string, WorkItem[]],
+  right: [string, WorkItem[]],
+  statusOrder: WorkStatus[]
+) {
+  if (ordering === "count") {
+    const countComparison = right[1].length - left[1].length
+
+    if (countComparison !== 0) {
+      return countComparison
+    }
+  }
+
+  return compareGroupKeys(field, left[0], right[0], statusOrder)
 }
 
 export function getItemAssignees(data: AppData, items: WorkItem[]) {

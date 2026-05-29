@@ -198,6 +198,7 @@ const viewConfigMutationArgs = {
 const viewConfigPatchMutationArgs = {
   ...viewConfigMutationArgs,
   showCompleted: v.optional(v.boolean()),
+  showEmptyGroups: v.optional(v.boolean()),
   description: v.optional(v.string()),
   containerType: v.optional(v.union(v.literal("project-items"), v.null())),
   containerId: v.optional(v.union(v.string(), v.null())),

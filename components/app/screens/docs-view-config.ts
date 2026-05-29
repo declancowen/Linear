@@ -54,6 +54,7 @@ export const DOCS_ORDERING_LABEL: Record<OrderingField, string> = {
   dueDate: "Due date",
   targetDate: "Target date",
   title: "Title",
+  count: "Count",
 }
 
 export const DOCS_DISPLAY_PROPERTY_LABEL: Partial<

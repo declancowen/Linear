@@ -86,6 +86,10 @@ function sortProjects(projects: Project[], ordering: OrderingField) {
       return left.name.localeCompare(right.name)
     }
 
+    if (ordering === "count") {
+      return left.name.localeCompare(right.name)
+    }
+
     const leftValue = ordering === "dueDate" ? left.targetDate : left[ordering]
     const rightValue =
       ordering === "dueDate" ? right.targetDate : right[ordering]

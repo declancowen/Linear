@@ -502,7 +502,7 @@ export function createViewSlice(
     updateViewConfig(viewId, patch) {
       const pendingToken = createId("view_sync")
 
-      const { showCompleted, ...viewPatch } = patch
+      const { showCompleted, showEmptyGroups, ...viewPatch } = patch
 
       set((state) => {
         const previousView = state.views.find((view) => view.id === viewId)
@@ -524,11 +524,16 @@ export function createViewSlice(
                   ...view,
                   ...viewPatch,
                   filters:
-                    showCompleted === undefined
+                    showCompleted === undefined && showEmptyGroups === undefined
                       ? view.filters
                       : {
                           ...view.filters,
-                          showCompleted,
+                          ...(showCompleted === undefined
+                            ? {}
+                            : { showCompleted }),
+                          ...(showEmptyGroups === undefined
+                            ? {}
+                            : { showEmptyGroups }),
                         },
                   updatedAt: getNow(),
                 }

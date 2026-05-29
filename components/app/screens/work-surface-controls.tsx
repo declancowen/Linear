@@ -34,6 +34,7 @@ import {
   Check,
   DotsSixVertical,
   Eye,
+  EyeSlash,
   FadersHorizontal,
   FunnelSimple,
   GearSix,
@@ -57,7 +58,6 @@ import {
   isCustomPropertyDefinitionVisibleToUser,
 } from "@/lib/domain/labels"
 import {
-  EMPTY_PARENT_FILTER_VALUE,
   getCustomPropertyIdFromDisplayReference,
   getChildWorkItemCopy,
   getDefaultShowChildItemsForItemLevel,
@@ -131,6 +131,7 @@ const ORDERING_LABELS: Record<OrderingField, string> = {
   dueDate: "Due date",
   targetDate: "Target date",
   title: "Name",
+  count: "Count",
 }
 
 const PROJECT_ORDERING_OPTIONS: OrderingField[] = [
@@ -299,6 +300,7 @@ const displayPropertyOptions: DisplayProperty[] = [
   "priority",
   "progress",
   "project",
+  "parent",
   "dueDate",
   "milestone",
   "labels",
@@ -333,6 +335,7 @@ const DISPLAY_PROPERTY_LABELS: Record<BuiltinDisplayProperty, string> = {
   priority: "Priority",
   progress: "Progress",
   project: "Project",
+  parent: "Parent",
   team: "Team",
   dueDate: "Due date",
   milestone: "Milestone",
@@ -381,6 +384,7 @@ const orderingOptions: OrderingField[] = [
   "dueDate",
   "targetDate",
   "title",
+  "count",
 ]
 
 export type ViewConfigPatch = {
@@ -391,6 +395,7 @@ export type ViewConfigPatch = {
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
   showCompleted?: boolean
+  showEmptyGroups?: boolean
 }
 
 export function getGroupFieldOptionLabel(field: GroupField) {
@@ -411,6 +416,7 @@ type FilterPopoverProps = {
   view: ViewDefinition
   items: WorkItem[]
   onToggleFilterValue?: (key: ViewFilterKey, value: string) => void
+  onUpdateView?: (patch: ViewConfigPatch) => void
   onClearFilters?: () => void
   hiddenFilters?: ViewFilterKey[]
   groupingExperience?: TeamExperienceType | null
@@ -520,17 +526,26 @@ function getVisibleFilterItemTypes(items: WorkItem[]) {
   )
 }
 
+function getSelectedParentFilterValues(filters: ViewDefinition["filters"]) {
+  return (filters.parentIds ?? []).filter((value) => value !== "__empty__")
+}
+
+function getShowEmptyGroupsFilter(filters: ViewDefinition["filters"]) {
+  return filters.showEmptyGroups ?? true
+}
+
 function getWorkFilterActiveCount(filters: ViewDefinition["filters"]) {
   return (
     filters.status.length +
     filters.priority.length +
     filters.assigneeIds.length +
     filters.projectIds.length +
-    (filters.parentIds?.length ?? 0) +
+    getSelectedParentFilterValues(filters).length +
     filters.itemTypes.length +
     filters.labelIds.length +
     filters.teamIds.length +
-    (filters.visibility?.length ?? 0)
+    (filters.visibility?.length ?? 0) +
+    (getShowEmptyGroupsFilter(filters) ? 0 : 1)
   )
 }
 
@@ -1043,34 +1058,7 @@ function ProjectFilterSection({
 }
 
 function getParentFilterActiveCount(view: ViewDefinition) {
-  return view.filters.parentIds?.length ?? 0
-}
-
-function ParentEmptyFilterRow({
-  onToggleFilterValue,
-  query,
-  view,
-}: {
-  onToggleFilterValue: ToggleWorkFilterValue
-  query: string
-  view: ViewDefinition
-}) {
-  if (!matchesQuery("Is empty", query)) {
-    return null
-  }
-
-  return (
-    <FilterRow
-      icon={<TreeStructure className="size-3" />}
-      label="Is empty"
-      active={Boolean(
-        view.filters.parentIds?.includes(EMPTY_PARENT_FILTER_VALUE)
-      )}
-      onClick={() =>
-        onToggleFilterValue("parentIds", EMPTY_PARENT_FILTER_VALUE)
-      }
-    />
-  )
+  return getSelectedParentFilterValues(view.filters).length
 }
 
 function ParentFilterSection({
@@ -1097,11 +1085,6 @@ function ParentFilterSection({
       label={parentLabel}
       activeCount={getParentFilterActiveCount(view)}
     >
-      <ParentEmptyFilterRow
-        query={query}
-        view={view}
-        onToggleFilterValue={onToggleFilterValue}
-      />
       {parents
         .filter((parent) =>
           matchesQuery(`${parent.key} ${parent.title}`, query)
@@ -1153,8 +1136,53 @@ function LabelFilterSection({
   )
 }
 
+function GroupsFilterSection({
+  onSetShowEmptyGroups,
+  query,
+  view,
+}: {
+  onSetShowEmptyGroups: (showEmptyGroups: boolean) => void
+  query: string
+  view: ViewDefinition
+}) {
+  if (view.layout !== "board" && view.layout !== "list") {
+    return null
+  }
+
+  const showEmptyGroups = getShowEmptyGroupsFilter(view.filters)
+  const rows = [
+    {
+      active: showEmptyGroups,
+      icon: <Eye className="size-3" />,
+      label: "Show empty",
+      value: true,
+    },
+    {
+      active: !showEmptyGroups,
+      icon: <EyeSlash className="size-3" />,
+      label: "Don't show empty",
+      value: false,
+    },
+  ].filter((row) => matchesQuery(row.label, query))
+
+  return (
+    <FilterSection label="Groups" activeCount={showEmptyGroups ? 0 : 1}>
+      {rows.map((row) => (
+        <FilterRow
+          key={row.label}
+          icon={row.icon}
+          label={row.label}
+          active={row.active}
+          onClick={() => onSetShowEmptyGroups(row.value)}
+        />
+      ))}
+    </FilterSection>
+  )
+}
+
 function WorkFilterSections({
   hiddenFilterSet,
+  onSetShowEmptyGroups,
   onToggleFilterValue,
   options,
   parentLabel,
@@ -1162,6 +1190,7 @@ function WorkFilterSections({
   view,
 }: {
   hiddenFilterSet: ReadonlySet<ViewFilterKey>
+  onSetShowEmptyGroups: (showEmptyGroups: boolean) => void
   onToggleFilterValue: ToggleWorkFilterValue
   options: WorkFilterOptions
   parentLabel: string
@@ -1235,6 +1264,11 @@ function WorkFilterSections({
         query={query}
         view={view}
       />
+      <GroupsFilterSection
+        onSetShowEmptyGroups={onSetShowEmptyGroups}
+        query={query}
+        view={view}
+      />
     </div>
   )
 }
@@ -1243,6 +1277,7 @@ export function FilterPopover({
   view,
   items,
   onToggleFilterValue,
+  onUpdateView,
   onClearFilters,
   hiddenFilters = [],
   groupingExperience,
@@ -1277,6 +1312,10 @@ export function FilterPopover({
 
   function handleClearFilters() {
     clearFiltersOrDelegate({ onClearFilters, viewId: view.id })
+  }
+
+  function handleSetShowEmptyGroups(showEmptyGroups: boolean) {
+    updateViewConfig(view, onUpdateView, { showEmptyGroups })
   }
 
   return (
@@ -1315,6 +1354,7 @@ export function FilterPopover({
         />
         <WorkFilterSections
           hiddenFilterSet={hiddenFilterSet}
+          onSetShowEmptyGroups={handleSetShowEmptyGroups}
           onToggleFilterValue={handleToggleFilterValue}
           options={options}
           parentLabel={parentLabel}
@@ -1525,7 +1565,7 @@ export function ViewConfigPopover({
             value={view.ordering}
             options={orderingOptions.map((option) => ({
               value: option,
-              label: option,
+              label: ORDERING_LABELS[option],
             }))}
             onValueChange={(value) =>
               handleUpdateView({ ordering: value as OrderingField })

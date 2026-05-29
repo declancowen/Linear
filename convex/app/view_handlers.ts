@@ -63,6 +63,7 @@ type ViewOrdering =
   | "dueDate"
   | "targetDate"
   | "title"
+  | "count"
 type ViewDisplayProperty = string
 
 type ViewConfigArgs = ServerAccessArgs & {
@@ -75,6 +76,7 @@ type ViewConfigArgs = ServerAccessArgs & {
   subGrouping?: ViewGrouping | null
   ordering?: ViewOrdering
   showCompleted?: boolean
+  showEmptyGroups?: boolean
   description?: string
   containerType?: "project-items" | null
   containerId?: string | null
@@ -418,11 +420,16 @@ function getViewConfigFiltersPatch(
   view: Awaited<ReturnType<typeof requireViewMutationAccess>>,
   args: ViewConfigArgs
 ) {
-  return args.showCompleted === undefined
+  return args.showCompleted === undefined && args.showEmptyGroups === undefined
     ? view.filters
     : {
         ...view.filters,
-        showCompleted: args.showCompleted,
+        ...(args.showCompleted === undefined
+          ? {}
+          : { showCompleted: args.showCompleted }),
+        ...(args.showEmptyGroups === undefined
+          ? {}
+          : { showEmptyGroups: args.showEmptyGroups }),
       }
 }
 

@@ -142,6 +142,7 @@ export const displayProperties = [
   "priority",
   "progress",
   "project",
+  "parent",
   "team",
   "dueDate",
   "milestone",
@@ -198,6 +199,7 @@ export const orderingFields = [
   "dueDate",
   "targetDate",
   "title",
+  "count",
 ] as const
 export type OrderingField = (typeof orderingFields)[number]
 
@@ -353,6 +355,7 @@ export type ViewFilters = {
   teamIds: string[]
   visibility?: WorkItemVisibility[]
   showCompleted: boolean
+  showEmptyGroups?: boolean
 }
 
 export interface ProjectPresentationConfig {
@@ -391,6 +394,7 @@ export function createDefaultViewFilters(): ViewFilters {
   return {
     ...createEmptyViewFilterSelections(),
     showCompleted: true,
+    showEmptyGroups: true,
   }
 }
 
@@ -398,6 +402,7 @@ export function clearViewFilterSelections(filters: ViewFilters): ViewFilters {
   return {
     ...filters,
     ...createEmptyViewFilterSelections(),
+    showEmptyGroups: true,
   }
 }
 
@@ -427,6 +432,8 @@ export function cloneViewFilters(
     labelIds: [...filters.labelIds],
     teamIds: [...filters.teamIds],
     visibility: [...(filters.visibility ?? [])],
+    showCompleted: filters.showCompleted ?? true,
+    showEmptyGroups: filters.showEmptyGroups ?? true,
   }
 }
 

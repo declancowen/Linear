@@ -2647,6 +2647,34 @@ describe("ListView", () => {
     ).toBeTruthy()
   })
 
+  it("renders parent as a selectable work item property", () => {
+    const data = createOrderedPropertyData()
+    const parent = createWorkItem({
+      id: "parent_1",
+      key: "TES-99",
+      title: "Parent feature",
+    })
+    const child = {
+      ...data.workItems[0],
+      parentId: parent.id,
+    } as WorkItem
+    const scopedData = {
+      ...data,
+      workItems: [parent, child],
+    }
+
+    render(
+      <ListView
+        data={scopedData}
+        items={[child]}
+        view={createView("list", ["parent"])}
+        editable={false}
+      />
+    )
+
+    expect(screen.getByText("TES-99 · Parent feature")).toBeInTheDocument()
+  })
+
   it("renders board-card properties in the same order as visible properties", () => {
     const data = createOrderedPropertyData()
 

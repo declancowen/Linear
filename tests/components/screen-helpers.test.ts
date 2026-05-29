@@ -95,6 +95,7 @@ describe("screen helpers", () => {
         itemLevel: "feature",
         showChildItems: true,
         showCompleted: true,
+        showEmptyGroups: false,
       })
     ).toMatchObject({
       layout: "board",
@@ -106,6 +107,7 @@ describe("screen helpers", () => {
       filters: {
         status: ["todo"],
         showCompleted: true,
+        showEmptyGroups: false,
       },
     })
   })

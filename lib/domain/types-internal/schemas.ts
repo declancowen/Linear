@@ -323,6 +323,7 @@ const viewFiltersSchema = z.object({
   teamIds: z.array(z.string()),
   visibility: z.array(z.enum(workItemVisibilities)).default([]),
   showCompleted: z.boolean(),
+  showEmptyGroups: z.boolean().default(true),
 })
 
 export const displayPropertySchema = z.custom<DisplayProperty>(
@@ -377,6 +378,7 @@ const viewConfigPatchBaseSchema = z.object({
   itemLevel: z.enum(workItemTypes).nullable().optional(),
   showChildItems: z.boolean().optional(),
   showCompleted: z.boolean().optional(),
+  showEmptyGroups: z.boolean().optional(),
   description: boundedTrimmedStringSchema(
     viewDescriptionConstraints
   ).optional(),

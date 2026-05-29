@@ -146,6 +146,7 @@ const orderingFieldLiterals = [
   v.literal("dueDate"),
   v.literal("targetDate"),
   v.literal("title"),
+  v.literal("count"),
 ] as const
 
 const themePreferenceLiterals = [
@@ -454,6 +455,7 @@ const baseViewFilterFields = {
   teamIds: v.array(v.string()),
   visibility: v.optional(v.array(workItemVisibilityValidator)),
   showCompleted: v.boolean(),
+  showEmptyGroups: v.optional(v.boolean()),
 }
 
 export const viewFiltersValidator = v.object({

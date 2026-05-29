@@ -41,7 +41,7 @@ let documentPresenceSessionFallbackState: PresenceSessionFallbackState | null =
 
 export type ViewFilterKey = Exclude<
   keyof ViewDefinition["filters"],
-  "showCompleted"
+  "showCompleted" | "showEmptyGroups"
 >
 
 export type PersistedViewFilterKey =
@@ -71,6 +71,7 @@ export type ViewConfigPatchInput = {
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
   showCompleted?: boolean
+  showEmptyGroups?: boolean
 }
 
 export function createEmptyViewFilters(): ViewDefinition["filters"] {
@@ -153,10 +154,18 @@ export function applyViewConfigPatch<
     }
   }
 
-  if (patch.showCompleted !== undefined) {
+  if (
+    patch.showCompleted !== undefined ||
+    patch.showEmptyGroups !== undefined
+  ) {
     mutableConfig.filters = {
       ...(current.filters ?? createDefaultViewFilters()),
-      showCompleted: patch.showCompleted,
+      ...(patch.showCompleted === undefined
+        ? {}
+        : { showCompleted: patch.showCompleted }),
+      ...(patch.showEmptyGroups === undefined
+        ? {}
+        : { showEmptyGroups: patch.showEmptyGroups }),
     }
   }
 

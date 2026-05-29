@@ -514,6 +514,7 @@ function WorkSurfaceViewbar({
         groupingExperience={groupingExperience}
         variant="chip"
         onToggleFilterValue={onToggleViewerFilterValue}
+        onUpdateView={onUpdateViewerView}
         onClearFilters={onClearViewerFilters}
       />
       <LevelChipPopover view={view} onUpdateView={onUpdateViewerView} />

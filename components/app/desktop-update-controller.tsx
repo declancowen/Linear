@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/dialog"
 
 const DESKTOP_UPDATE_TOAST_ID = "desktop-update-status"
+const DESKTOP_UPDATE_DIALOG_CLASS =
+  "w-[min(28rem,calc(100%-2rem))] max-w-none sm:max-w-none"
 
 type DesktopAppInfo = {
   apiBaseUrl?: string | null
@@ -481,7 +483,10 @@ function DesktopUpdateFeedbackDialog({
         }
       }}
     >
-      <DialogContent className="w-fit max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-2rem)]">
+      <DialogContent
+        className={DESKTOP_UPDATE_DIALOG_CLASS}
+        showCloseButton={false}
+      >
         <DialogHeader>
           <DialogTitle>{copy.title}</DialogTitle>
           <DialogDescription>{copy.description}</DialogDescription>
@@ -604,7 +609,7 @@ export function DesktopUpdateController() {
   return (
     <Dialog open onOpenChange={() => {}}>
       <DialogContent
-        className="sm:max-w-md"
+        className={DESKTOP_UPDATE_DIALOG_CLASS}
         showCloseButton={false}
         onEscapeKeyDown={(event) => event.preventDefault()}
         onPointerDownOutside={(event) => event.preventDefault()}

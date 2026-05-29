@@ -176,9 +176,12 @@ function applyPendingViewConfig(
   view: AppData["views"][number],
   patch: PendingViewConfig["patch"]
 ) {
-  const { showCompleted, filters, ...viewPatch } =
+  const { showCompleted, showEmptyGroups, filters, ...viewPatch } =
     patch as RuntimeViewConfigPatch
-  const hasFilterPatch = filters !== undefined || showCompleted !== undefined
+  const hasFilterPatch =
+    filters !== undefined ||
+    showCompleted !== undefined ||
+    showEmptyGroups !== undefined
 
   return {
     ...view,
@@ -189,6 +192,7 @@ function applyPendingViewConfig(
             ...view.filters,
             ...filters,
             ...(showCompleted === undefined ? {} : { showCompleted }),
+            ...(showEmptyGroups === undefined ? {} : { showEmptyGroups }),
           },
         }
       : {}),
@@ -210,6 +214,8 @@ function matchesPendingViewConfig(
       view.showChildItems === patch.showChildItems,
     patch.showCompleted === undefined ||
       view.filters.showCompleted === patch.showCompleted,
+    patch.showEmptyGroups === undefined ||
+      (view.filters.showEmptyGroups ?? true) === patch.showEmptyGroups,
   ].every(Boolean)
 }
 
@@ -713,10 +719,12 @@ export function createUiSlice(
           viewId
         )
         const current = state.ui.viewerViewConfigByRoute[key] ?? {}
-        const { showCompleted, filters, ...viewPatch } =
+        const { showCompleted, showEmptyGroups, filters, ...viewPatch } =
           patch as RuntimeViewConfigPatch
         const hasFilterPatch =
-          filters !== undefined || showCompleted !== undefined
+          filters !== undefined ||
+          showCompleted !== undefined ||
+          showEmptyGroups !== undefined
 
         return patchViewerViewConfigByRoute(state, key, () => ({
           ...current,
@@ -728,6 +736,7 @@ export function createUiSlice(
                   ...current.filters,
                   ...filters,
                   ...(showCompleted === undefined ? {} : { showCompleted }),
+                  ...(showEmptyGroups === undefined ? {} : { showEmptyGroups }),
                 },
               }),
         }))
@@ -769,6 +778,8 @@ export function createUiSlice(
         for (const key of FILTER_KEYS) {
           filters[key] = [] as never
         }
+
+        filters.showEmptyGroups = true
 
         return patchViewerViewConfigByRoute(state, storageKey, () => ({
           ...current,

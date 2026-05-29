@@ -1902,6 +1902,7 @@ function CreateViewControls({
                 view={draftView}
                 items={scopedItems}
                 onToggleFilterValue={onToggleFilterValue}
+                onUpdateView={onUpdateDraftView}
                 onClearFilters={onClearFilters}
                 groupingExperience={groupingExperience}
                 variant="chip"

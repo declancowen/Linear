@@ -110,6 +110,7 @@ const PROJECT_PRESENTATION_PROPERTY_OPTIONS: DisplayProperty[] = [
   "status",
   "assignee",
   "priority",
+  "parent",
   "dueDate",
   "milestone",
   "labels",
@@ -1180,6 +1181,7 @@ function ProjectPresentationControls({
         view={presentationView}
         items={scopedTeamItems}
         onToggleFilterValue={onTogglePresentationFilterValue}
+        onUpdateView={onUpdatePresentationView}
         onClearFilters={onClearPresentationFilters}
         variant="chip"
         chipTone="default"

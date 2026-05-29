@@ -225,6 +225,7 @@ function ProjectItemsViewbar({
         onToggleFilterValue={
           isSavedViewActive ? onToggleViewerFilter : onToggleProjectFilter
         }
+        onUpdateView={updateView}
         onClearFilters={
           isSavedViewActive ? onClearViewerFilters : onClearProjectFilters
         }

@@ -343,6 +343,7 @@ export async function updateViewConfigServer(input: {
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
   showCompleted?: boolean
+  showEmptyGroups?: boolean
   description?: string
   containerType?: ViewContainerType | null
   containerId?: string | null

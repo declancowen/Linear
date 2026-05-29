@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
-  EMPTY_PARENT_FILTER_VALUE,
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
   type ViewDefinition,
@@ -121,7 +120,7 @@ describe("view item levels", () => {
     ).toEqual(["feature"])
   })
 
-  it("filters item levels to entries with an empty under value", () => {
+  it("ignores the legacy empty parent filter value", () => {
     const state = createEmptyState()
     const items = [
       createTestWorkItem("feature-root", { type: "feature" }),
@@ -139,14 +138,14 @@ describe("view item levels", () => {
           itemLevel: "feature",
           filters: {
             ...createView().filters,
-            parentIds: [EMPTY_PARENT_FILTER_VALUE],
+            parentIds: ["__empty__"],
           },
         })
       ).map((item) => item.id)
-    ).toEqual(["feature-root"])
+    ).toEqual(["feature-root", "feature-child"])
   })
 
-  it("does not synthesize empty groups when filtering for empty under values", () => {
+  it("does not synthesize empty groups when empty groups are hidden", () => {
     const state = createEmptyState()
     const filteredItems = [createTestWorkItem("root-todo", { status: "todo" })]
 
@@ -158,11 +157,53 @@ describe("view item levels", () => {
           grouping: "status",
           filters: {
             ...createView().filters,
-            parentIds: [EMPTY_PARENT_FILTER_VALUE],
+            showEmptyGroups: false,
           },
         })
       ).keys(),
     ]).toEqual(["todo"])
+  })
+
+  it("still synthesizes empty groups when only the legacy empty parent filter is present", () => {
+    const state = createEmptyState()
+    const filteredItems = [createTestWorkItem("root-todo", { status: "todo" })]
+
+    const groupKeys = [
+      ...buildItemGroupsWithEmptyGroups(
+        state,
+        filteredItems,
+        createView({
+          grouping: "status",
+          filters: {
+            ...createView().filters,
+            parentIds: ["__empty__"],
+          },
+        })
+      ).keys(),
+    ]
+
+    expect(groupKeys).toContain("backlog")
+    expect(groupKeys).toContain("todo")
+  })
+
+  it("orders groups by item count when count ordering is active", () => {
+    const state = createEmptyState()
+    const items = [
+      createTestWorkItem("backlog", { status: "backlog" }),
+      createTestWorkItem("todo-1", { status: "todo" }),
+      createTestWorkItem("todo-2", { status: "todo" }),
+    ]
+
+    expect([
+      ...buildItemGroups(
+        state,
+        items,
+        createView({
+          grouping: "status",
+          ordering: "count",
+        })
+      ).keys(),
+    ]).toEqual(["todo", "backlog"])
   })
 
   it("synthesizes selected empty status groups when status filters are active", () => {

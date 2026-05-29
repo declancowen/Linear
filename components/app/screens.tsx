@@ -2830,13 +2830,21 @@ function applyProjectDraftCompletionPatch(
   patch: ViewConfigPatch,
   setProjectFilters: ProjectDraftViewSetters["setProjectFilters"]
 ) {
-  if (patch.showCompleted === undefined) {
+  if (
+    patch.showCompleted === undefined &&
+    patch.showEmptyGroups === undefined
+  ) {
     return
   }
 
   setProjectFilters((current) => ({
     ...current,
-    showCompleted: patch.showCompleted ?? true,
+    ...(patch.showCompleted === undefined
+      ? {}
+      : { showCompleted: patch.showCompleted }),
+    ...(patch.showEmptyGroups === undefined
+      ? {}
+      : { showEmptyGroups: patch.showEmptyGroups }),
   }))
 }
 

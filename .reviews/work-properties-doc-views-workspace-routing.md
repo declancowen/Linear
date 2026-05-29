@@ -6,7 +6,7 @@
 | -------------- | ------------------------------------------- |
 | **Repository** | `Linear`                                    |
 | **Remote**     | `https://github.com/declancowen/Linear.git` |
-| **Branch**     | `codex/calendar-settings-and-polish`        |
+| **Branch**     | `main`                                      |
 | **Stack**      | Next.js, React, Convex, PartyKit, Zustand   |
 
 ## Scope
@@ -29,11 +29,52 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-28 15:18 BST |
-| **Total turns**       | 35                   |
+| **Last reviewed**     | 2026-05-29 17:25 BST |
+| **Total turns**       | 36                   |
 | **Open findings**     | 0                    |
-| **Resolved findings** | 69                   |
+| **Resolved findings** | 70                   |
 | **Accepted findings** | 0                    |
+
+## Turn 36 — 2026-05-29 17:25 BST
+
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| **Scope**       | Workboard filtering/group visibility, count ordering, parent display property, desktop update feedback dialog |
+| **Review type** | Local diff review + architecture standards                            |
+| **Reviewer**    | Codex CLI                                                             |
+| **Outcome**     | 1 review finding fixed during review; no local open findings          |
+
+### Commands run
+
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta, review history, and analyzer policy signals recorded
+- `/Users/declancowen/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` — completed; no branch-specific architecture blocker identified
+- `pnpm vitest run tests/components/desktop-update-controller.test.tsx` — passed, 1 file / 5 tests
+- `pnpm vitest run tests/lib/domain/view-item-level.test.ts` — passed, 1 file / 19 tests
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+- `git diff --check` — passed
+- `pnpm vitest run tests/lib/domain/view-item-level.test.ts tests/components/work-surface-view.test.tsx tests/components/screen-helpers.test.ts tests/lib/store/viewer-view-config.test.ts tests/lib/store/view-slice.test.ts tests/lib/domain/default-views.test.ts tests/lib/domain/project-views.test.ts tests/convex/view-handlers.test.ts tests/convex/work-helpers.test.ts tests/lib/app-store-read-model-merge.test.ts tests/components/desktop-update-controller.test.tsx` — passed, 11 files / 173 tests
+
+### Branch-totality proof
+
+- **Bug classes / invariants checked:** saved-view filter schema compatibility, viewer/draft/server persistence parity, legacy parent-filter removal, empty-group synthesis, group/subgroup count ordering, parent display-property lookup, and desktop update dialog close affordances.
+- **Sibling closure:** the new `showEmptyGroups` filter is accepted by UI draft views, viewer overrides, saved views, Convex mutation args, server helpers, normalization, and store pending-sync paths. `count` ordering is total across item, project, docs-label, and Convex validators. `parent` display is registered in the shared display-property primitive and rendered by the work-item view owner.
+- **Architecture rule applied:** filtering and ordering semantics stay in domain selectors; persisted view config shape stays in the shared type/schema/Convex/store boundary; work-surface controls only dispatch view patches. Desktop update feedback remains local to `DesktopUpdateController` and the shared dialog primitive is not changed.
+- **Static analyzer caveat:** preflight still reports the repo's existing Fallow/boundary baseline caveats. No suppressions, threshold changes, or CI gate loosening were introduced in this turn.
+- **Visual smoke note:** no browser smoke was run because the changed workboard and desktop-update surfaces need authenticated workspace/desktop IPC state locally. Component and domain tests cover the changed state transitions and rendered affordances directly.
+
+### Resolved during Turn 36
+
+#### WPDV-70 — resolved — legacy empty-parent filter token still affected empty group synthesis
+
+- **Severity:** medium
+- **Evidence:** `matchesParentFilter` and the filter popover ignored the legacy `__empty__` parent value, but `hasActiveViewFilters` still treated any `parentIds` entry as active. A saved view containing the removed token could therefore stop normal empty-group synthesis even though the filter no longer appeared or matched items.
+- **Fix:** `hasActiveViewFilters` now ignores `EMPTY_PARENT_FILTER_VALUE` and treats `showEmptyGroups: false` as the explicit empty-group visibility filter.
+- **Prevention:** Added regression coverage proving legacy empty-parent filters do not prevent empty status groups from being synthesized.
+
+### Residual risk
+
+- The subjective desktop update dialog spacing was validated through component assertions for the shared width and single Close button, not a manual desktop IPC smoke.
 
 ## Turn 35 — 2026-05-28 15:18 BST
 

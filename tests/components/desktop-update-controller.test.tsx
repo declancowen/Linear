@@ -209,6 +209,10 @@ describe("DesktopUpdateController", () => {
     expect(
       await screen.findByText("You're on the latest version")
     ).toBeInTheDocument()
+    expect(screen.getByRole("dialog")).toHaveClass(
+      "w-[min(28rem,calc(100%-2rem))]"
+    )
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1)
     expect(
       screen.getByText("Recipe Room 2.0.0 is up to date.")
     ).toBeInTheDocument()
@@ -233,6 +237,10 @@ describe("DesktopUpdateController", () => {
     expect(
       await screen.findByText("A new update is available")
     ).toBeInTheDocument()
+    expect(screen.getByRole("dialog")).toHaveClass(
+      "w-[min(28rem,calc(100%-2rem))]"
+    )
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1)
     fireEvent.click(screen.getByRole("button", { name: "Download Update" }))
 
     expect(downloadUpdate).toHaveBeenCalled()

@@ -824,6 +824,30 @@ function renderWorkItemMilestoneProperty({
   return <span className={META_CHIP_CLASS}>{milestone.name}</span>
 }
 
+function renderWorkItemParentProperty({
+  data,
+  item,
+}: WorkItemDisplayPropertyContext) {
+  if (!item.parentId) {
+    return null
+  }
+
+  const parent = getWorkItem(data, item.parentId)
+
+  if (!parent) {
+    return null
+  }
+
+  return (
+    <span className={cn(META_CHIP_CLASS, "max-w-full min-w-0")}>
+      <TreeStructure className="size-3 shrink-0" />
+      <span className="truncate">
+        {parent.key} · {parent.title}
+      </span>
+    </span>
+  )
+}
+
 function renderWorkItemLabelsProperty({
   data,
   item,
@@ -899,6 +923,7 @@ const workItemDisplayPropertyRenderers: Partial<
   priority: (context) => renderInlineWorkItemProperty(context, "priority"),
   progress: renderWorkItemProgressProperty,
   project: (context) => renderInlineWorkItemProperty(context, "project"),
+  parent: renderWorkItemParentProperty,
   milestone: renderWorkItemMilestoneProperty,
   labels: renderWorkItemLabelsProperty,
   dueDate: renderWorkItemDueDateProperty,

@@ -380,6 +380,7 @@ export function normalizeViewDefinition<
     entityKind?: "items" | "projects" | "docs"
     filters: {
       itemTypes: StoredWorkItemType[]
+      showEmptyGroups?: boolean
     }
     itemLevel?: StoredWorkItemType | null
     showChildItems?: boolean
@@ -405,6 +406,7 @@ export function normalizeViewDefinition<
     ),
     filters: {
       ...view.filters,
+      showEmptyGroups: view.filters.showEmptyGroups ?? true,
       itemTypes: normalizeStoredViewItemTypes(
         view.filters.itemTypes,
         experience
