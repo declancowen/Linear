@@ -93,10 +93,34 @@ async function createChannelActionsHarness(state = createChannelState()) {
   )
 }
 
+async function createPendingChannelPost(title: string, content: string) {
+  let resolveCreatePost: ((value: { postId: string }) => void) | undefined
+  channelActionTestDoubles.convex.createPost.mockReturnValue(
+    new Promise((resolve) => {
+      resolveCreatePost = resolve
+    })
+  )
+  const harness = await createChannelActionsHarness()
+
+  harness.slice.createChannelPost({
+    conversationId: "conversation_1",
+    title,
+    content,
+  })
+
+  const optimisticPost = harness.state.channelPosts.find(
+    (post) => post.title === title
+  )
+
+  return {
+    ...harness,
+    optimisticPost,
+    resolveCreatePost,
+  }
+}
+
 async function createPendingChannelPostComment(content: string) {
-  let resolveCreateComment:
-    | ((value: { commentId: string }) => void)
-    | undefined
+  let resolveCreateComment: ((value: { commentId: string }) => void) | undefined
   channelActionTestDoubles.convex.addComment.mockReturnValue(
     new Promise((resolve) => {
       resolveCreateComment = resolve
@@ -118,6 +142,35 @@ async function createPendingChannelPostComment(content: string) {
     optimisticComment,
     resolveCreateComment,
   }
+}
+
+async function resolvePendingChannelPostCreateWithDeferredEdit(input: {
+  backgroundTasks: Array<Promise<unknown> | null>
+  content: string
+  resolveCreatePost?: (value: { postId: string }) => void
+  state: AppData
+  title: string
+}) {
+  const postId = "post_server_pending"
+
+  expect(channelActionTestDoubles.convex.updatePost).not.toHaveBeenCalled()
+
+  input.resolveCreatePost?.({ postId })
+  await Promise.all(input.backgroundTasks.filter(Boolean))
+
+  expect(input.state.channelPosts).toContainEqual(
+    expect.objectContaining({
+      id: postId,
+      title: input.title,
+      content: input.content,
+    })
+  )
+  expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledTimes(1)
+  expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledWith({
+    postId,
+    title: input.title,
+    content: input.content,
+  })
 }
 
 describe("collaboration channel notification helpers", () => {
@@ -274,24 +327,8 @@ describe("collaboration channel notification helpers", () => {
   })
 
   it("deletes a pending-created channel post after create sync resolves", async () => {
-    let resolveCreatePost: ((value: { postId: string }) => void) | undefined
-    channelActionTestDoubles.convex.createPost.mockReturnValue(
-      new Promise((resolve) => {
-        resolveCreatePost = resolve
-      })
-    )
-    const { backgroundTasks, slice, state } =
-      await createChannelActionsHarness()
-
-    slice.createChannelPost({
-      conversationId: "conversation_1",
-      title: "Transient post",
-      content: "<p>Transient body</p>",
-    })
-
-    const optimisticPost = state.channelPosts.find(
-      (post) => post.title === "Transient post"
-    )
+    const { backgroundTasks, optimisticPost, resolveCreatePost, slice, state } =
+      await createPendingChannelPost("Transient post", "<p>Transient body</p>")
 
     expect(optimisticPost).toBeTruthy()
 
@@ -332,6 +369,150 @@ describe("collaboration channel notification helpers", () => {
       content: "<p>Updated post body</p>",
     })
     expect(backgroundTasks).toHaveLength(1)
+  })
+
+  it("defers channel-post edits until create sync resolves", async () => {
+    const { backgroundTasks, optimisticPost, resolveCreatePost, slice, state } =
+      await createPendingChannelPost("Pending post", "<p>Pending body</p>")
+
+    expect(optimisticPost).toBeTruthy()
+
+    slice.updateChannelPost(optimisticPost?.id ?? "", {
+      title: "Pending post edited",
+      content: "<p>Pending body edited</p>",
+    })
+
+    expect(state.channelPosts).toContainEqual(
+      expect.objectContaining({
+        id: optimisticPost?.id,
+        title: "Pending post edited",
+        content: "<p>Pending body edited</p>",
+      })
+    )
+
+    await resolvePendingChannelPostCreateWithDeferredEdit({
+      backgroundTasks,
+      resolveCreatePost,
+      state,
+      title: "Pending post edited",
+      content: "<p>Pending body edited</p>",
+    })
+  })
+
+  it("coalesces deferred channel-post edits while create sync is pending", async () => {
+    const { backgroundTasks, optimisticPost, resolveCreatePost, slice, state } =
+      await createPendingChannelPost("Pending post", "<p>Pending body</p>")
+
+    expect(optimisticPost).toBeTruthy()
+
+    slice.updateChannelPost(optimisticPost?.id ?? "", {
+      title: "First pending edit",
+      content: "<p>First pending body</p>",
+    })
+    slice.updateChannelPost(optimisticPost?.id ?? "", {
+      title: "Second pending edit",
+      content: "<p>Second pending body</p>",
+    })
+
+    expect(state.channelPosts).toContainEqual(
+      expect.objectContaining({
+        id: optimisticPost?.id,
+        title: "Second pending edit",
+        content: "<p>Second pending body</p>",
+      })
+    )
+    expect(backgroundTasks).toHaveLength(2)
+
+    await resolvePendingChannelPostCreateWithDeferredEdit({
+      backgroundTasks,
+      resolveCreatePost,
+      state,
+      title: "Second pending edit",
+      content: "<p>Second pending body</p>",
+    })
+  })
+
+  it("serializes edits while a deferred channel-post update is in flight", async () => {
+    const { backgroundTasks, optimisticPost, resolveCreatePost, slice, state } =
+      await createPendingChannelPost("Pending post", "<p>Pending body</p>")
+    let resolveFirstUpdate: ((value: unknown) => void) | undefined
+
+    channelActionTestDoubles.convex.updatePost.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirstUpdate = resolve
+      })
+    )
+
+    expect(optimisticPost).toBeTruthy()
+
+    slice.updateChannelPost(optimisticPost?.id ?? "", {
+      title: "First deferred edit",
+      content: "<p>First deferred body</p>",
+    })
+
+    resolveCreatePost?.({ postId: "post_server_pending" })
+
+    await vi.waitFor(() => {
+      expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledTimes(
+        1
+      )
+    })
+    expect(channelActionTestDoubles.convex.updatePost).toHaveBeenNthCalledWith(
+      1,
+      {
+        postId: "post_server_pending",
+        title: "First deferred edit",
+        content: "<p>First deferred body</p>",
+      }
+    )
+
+    slice.updateChannelPost("post_server_pending", {
+      title: "Second deferred edit",
+      content: "<p>Second deferred body</p>",
+    })
+
+    expect(state.channelPosts).toContainEqual(
+      expect.objectContaining({
+        id: "post_server_pending",
+        title: "Second deferred edit",
+        content: "<p>Second deferred body</p>",
+      })
+    )
+    expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledTimes(1)
+
+    resolveFirstUpdate?.({ ok: true })
+    await Promise.all(backgroundTasks.filter(Boolean))
+
+    expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledTimes(2)
+    expect(channelActionTestDoubles.convex.updatePost).toHaveBeenNthCalledWith(
+      2,
+      {
+        postId: "post_server_pending",
+        title: "Second deferred edit",
+        content: "<p>Second deferred body</p>",
+      }
+    )
+  })
+
+  it("does not sync deferred channel-post edits after a pending post is deleted", async () => {
+    const { backgroundTasks, optimisticPost, resolveCreatePost, slice } =
+      await createPendingChannelPost("Pending post", "<p>Pending body</p>")
+
+    expect(optimisticPost).toBeTruthy()
+
+    slice.updateChannelPost(optimisticPost?.id ?? "", {
+      title: "Pending post edited",
+      content: "<p>Pending body edited</p>",
+    })
+    slice.deleteChannelPost(optimisticPost?.id ?? "")
+
+    resolveCreatePost?.({ postId: "post_server_pending" })
+    await Promise.all(backgroundTasks.filter(Boolean))
+
+    expect(channelActionTestDoubles.convex.updatePost).not.toHaveBeenCalled()
+    expect(channelActionTestDoubles.convex.deletePost).toHaveBeenCalledWith(
+      "post_server_pending"
+    )
   })
 
   it("optimistically edits owned channel-post comments and syncs the update", async () => {
