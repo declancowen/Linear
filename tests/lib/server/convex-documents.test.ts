@@ -291,6 +291,39 @@ describe("convex document server wrappers", () => {
     })
   })
 
+  it("maps read-only comment edit and delete failures to application errors", async () => {
+    const { deleteCommentServer, updateCommentServer } = await import(
+      "@/lib/server/convex/documents"
+    )
+
+    mutationMock
+      .mockRejectedValueOnce(new Error("Your current role is read-only"))
+      .mockRejectedValueOnce(new Error("Your current role is read-only"))
+
+    await expect(
+      updateCommentServer({
+        currentUserId: "user_1",
+        commentId: "comment_1",
+        content: "<p>Updated</p>",
+      })
+    ).rejects.toMatchObject({
+      name: "ApplicationError",
+      status: 403,
+      code: "COMMENT_READ_ONLY",
+    })
+
+    await expect(
+      deleteCommentServer({
+        currentUserId: "user_1",
+        commentId: "comment_1",
+      })
+    ).rejects.toMatchObject({
+      name: "ApplicationError",
+      status: 403,
+      code: "COMMENT_READ_ONLY",
+    })
+  })
+
   it("maps document presence failures to application errors", async () => {
     const { clearDocumentPresenceServer, heartbeatDocumentPresenceServer } =
       await import("@/lib/server/convex/documents")

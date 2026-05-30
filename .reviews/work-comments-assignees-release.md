@@ -39,11 +39,13 @@ Verification:
 
 External feedback:
 - Codex review P2: avoid patching comments while their server id is unknown.
+- Codex review P2: map read-only work comment edit/delete failures to 403 instead of generic 500.
 
 Fix:
 - Added backend comment id acceptance/conflict handling for work comments and channel-post comments.
 - Kept optimistic ids stable across client and backend.
 - Deferred edit/delete syncs for comments whose create request is still pending, while keeping local optimistic updates immediate.
+- Added read-only mutation error mapping for work comment edit/delete server wrappers.
 
 Verification:
 - `pnpm test tests/lib/store/work-comment-actions.test.ts tests/lib/store/collaboration-channel-actions.test.ts tests/convex/comment-handlers.test.ts` passed.

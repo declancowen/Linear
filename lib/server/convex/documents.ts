@@ -215,6 +215,11 @@ const TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS = [
 const MUTATE_COMMENT_ERROR_MAPPINGS = [
   ...TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS,
   {
+    match: "Your current role is read-only",
+    status: 403,
+    code: "COMMENT_READ_ONLY",
+  },
+  {
     match: "You can only edit your own comments",
     status: 403,
     code: "COMMENT_EDIT_FORBIDDEN",
