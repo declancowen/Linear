@@ -1,80 +1,100 @@
 import { NextRequest } from "next/server"
+import { z } from "zod"
 
-import { isApplicationError } from "@/lib/server/application-errors"
+import { channelPostSchema } from "@/lib/domain/types"
 import {
   bumpScopedReadModelVersionsServer,
   deleteChannelPostServer,
+  updateChannelPostServer,
 } from "@/lib/server/convex"
 import { getChannelPostRelatedScopeKeys } from "@/lib/scoped-sync/read-models"
-import { loadScopedReadModelSnapshotForSession } from "@/lib/server/scoped-read-models"
 import {
-  getConvexErrorMessage,
-  logProviderError,
-} from "@/lib/server/provider-errors"
-import { requireAppContext, requireSession } from "@/lib/server/route-auth"
+  loadScopedReadModelSnapshotForSession,
+  resolveConversationReadModelScopeKeysServer,
+} from "@/lib/server/scoped-read-models"
 import {
-  isRouteResponse,
-  jsonApplicationError,
-  jsonError,
-  jsonOk,
-} from "@/lib/server/route-response"
+  handleAppContextJsonRoute,
+  handleAppContextRoute,
+} from "@/lib/server/route-handlers"
+import { jsonError, jsonOk } from "@/lib/server/route-response"
+
+const channelPostUpdateBodySchema = z.object({
+  title: channelPostSchema.shape.title,
+  content: channelPostSchema.shape.content,
+})
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ postId: string }> }
+) {
+  return handleAppContextJsonRoute(request, {
+    schema: channelPostUpdateBodySchema,
+    invalidMessage: "Invalid post payload",
+    failureLogLabel: "Failed to update post",
+    failureMessage: "Failed to update post",
+    failureCode: "CHANNEL_POST_UPDATE_FAILED",
+    async handle({ session, appContext, parsed }) {
+      const { postId } = await params
+      const result = await updateChannelPostServer({
+        currentUserId: appContext.ensuredUser.userId,
+        postId,
+        title: parsed.title,
+        content: parsed.content,
+      })
+
+      await bumpScopedReadModelVersionsServer({
+        scopeKeys: await resolveConversationReadModelScopeKeysServer(
+          session,
+          result.conversationId
+        ),
+      })
+
+      return jsonOk({
+        ok: true,
+      })
+    },
+  })
+}
 
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
 ) {
-  const session = await requireSession()
+  return handleAppContextRoute({
+    failureLogLabel: "Failed to delete post",
+    failureMessage: "Failed to delete post",
+    failureCode: "CHANNEL_POST_DELETE_FAILED",
+    async handle({ session, appContext }) {
+      const { postId } = await params
+      const snapshot = await loadScopedReadModelSnapshotForSession(session)
+      const post =
+        snapshot.channelPosts.find((entry) => entry.id === postId) ?? null
 
-  if (isRouteResponse(session)) {
-    return session
-  }
+      if (!post) {
+        return jsonOk({
+          ok: true,
+        })
+      }
 
-  try {
-    const { postId } = await params
-    const appContext = await requireAppContext(session)
+      if (post.createdBy !== appContext.ensuredUser.userId) {
+        return jsonError("You can only delete your own posts", 403, {
+          code: "CHANNEL_POST_DELETE_FORBIDDEN",
+        })
+      }
 
-    if (isRouteResponse(appContext)) {
-      return appContext
-    }
+      const scopeKeys = getChannelPostRelatedScopeKeys(snapshot, postId)
 
-    const snapshot = await loadScopedReadModelSnapshotForSession(session)
-    const post =
-      snapshot.channelPosts.find((entry) => entry.id === postId) ?? null
+      await deleteChannelPostServer({
+        currentUserId: appContext.ensuredUser.userId,
+        postId,
+      })
+      await bumpScopedReadModelVersionsServer({
+        scopeKeys,
+      })
 
-    if (!post) {
       return jsonOk({
         ok: true,
       })
-    }
-
-    if (post.createdBy !== appContext.ensuredUser.userId) {
-      return jsonError("You can only delete your own posts", 403, {
-        code: "CHANNEL_POST_DELETE_FORBIDDEN",
-      })
-    }
-
-    const scopeKeys = getChannelPostRelatedScopeKeys(snapshot, postId)
-
-    await deleteChannelPostServer({
-      currentUserId: appContext.ensuredUser.userId,
-      postId,
-    })
-    await bumpScopedReadModelVersionsServer({
-      scopeKeys,
-    })
-
-    return jsonOk({
-      ok: true,
-    })
-  } catch (error) {
-    if (isApplicationError(error)) {
-      return jsonApplicationError(error)
-    }
-
-    logProviderError("Failed to delete post", error)
-    return jsonError(
-      getConvexErrorMessage(error, "Failed to delete post"),
-      500
-    )
-  }
+    },
+  })
 }

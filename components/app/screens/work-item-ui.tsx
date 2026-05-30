@@ -10,18 +10,9 @@ import {
 } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
-import {
-  CaretDown,
-  Circle,
-  FolderSimple,
-  Smiley,
-} from "@phosphor-icons/react"
+import { CaretDown, Circle, FolderSimple, Smiley } from "@phosphor-icons/react"
 
-import {
-  getStatusOrderForTeam,
-  getTeam,
-  getUser,
-} from "@/lib/domain/selectors"
+import { getStatusOrderForTeam, getTeam, getUser } from "@/lib/domain/selectors"
 import {
   getRootComments,
   groupCommentsByParentId,
@@ -42,10 +33,12 @@ import {
   type WorkItemType,
   type WorkStatus,
 } from "@/lib/domain/types"
+import { toggleWorkItemAssigneeId } from "@/lib/domain/work-item-assignees"
 import { useAppStore } from "@/lib/store/app-store"
 import { UserAvatar } from "@/components/app/user-presence"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { ShortcutKeys } from "@/components/app/shortcut-keys"
@@ -185,6 +178,7 @@ export function CommentReactionButtons({
   currentUserId,
   disabled = false,
   inactiveClassName,
+  usersById,
 }: {
   activeClassName: string
   buttonClassName: string
@@ -192,6 +186,7 @@ export function CommentReactionButtons({
   currentUserId: string
   disabled?: boolean
   inactiveClassName: string
+  usersById: ReadonlyMap<string, AppData["users"][number]>
 }) {
   return (
     <>
@@ -199,23 +194,33 @@ export function CommentReactionButtons({
         const active = reaction.userIds.includes(currentUserId)
 
         return (
-          <button
+          <ReactionUsersHoverCard
             key={`${comment.id}-${reaction.emoji}`}
-            type="button"
-            disabled={disabled}
-            className={cn(
-              buttonClassName,
-              active ? activeClassName : inactiveClassName
-            )}
-            onClick={() =>
-              useAppStore
-                .getState()
-                .toggleCommentReaction(comment.id, reaction.emoji)
-            }
+            userIds={reaction.userIds}
+            usersById={usersById}
           >
-            <span>{reaction.emoji}</span>
-            <span>{reaction.userIds.length}</span>
-          </button>
+            <button
+              type="button"
+              aria-disabled={disabled}
+              className={cn(
+                buttonClassName,
+                active ? activeClassName : inactiveClassName,
+                disabled && "cursor-default opacity-60"
+              )}
+              onClick={() => {
+                if (disabled) {
+                  return
+                }
+
+                useAppStore
+                  .getState()
+                  .toggleCommentReaction(comment.id, reaction.emoji)
+              }}
+            >
+              <span>{reaction.emoji}</span>
+              <span>{reaction.userIds.length}</span>
+            </button>
+          </ReactionUsersHoverCard>
         )
       })}
     </>
@@ -244,11 +249,13 @@ function CommentThreadActions({
   currentUserId,
   editable,
   onReplyToggle,
+  usersById,
 }: {
   comment: AppData["comments"][number]
   currentUserId: string
   editable: boolean
   onReplyToggle: () => void
+  usersById: ReadonlyMap<string, AppData["users"][number]>
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -257,7 +264,9 @@ function CommentThreadActions({
         buttonClassName="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition-colors"
         comment={comment}
         currentUserId={currentUserId}
+        disabled={!editable}
         inactiveClassName="hover:bg-accent"
+        usersById={usersById}
       />
       {editable ? (
         <EmojiPickerPopover
@@ -367,6 +376,7 @@ function CommentReplies({
   repliesByParentId,
   targetId,
   targetType,
+  usersById,
 }: {
   editable: boolean
   mentionCandidates: AppData["users"]
@@ -374,6 +384,7 @@ function CommentReplies({
   repliesByParentId: Record<string, AppData["comments"]>
   targetId: string
   targetType: "workItem" | "document"
+  usersById: ReadonlyMap<string, AppData["users"][number]>
 }) {
   if (replies.length === 0) {
     return null
@@ -390,6 +401,7 @@ function CommentReplies({
           targetType={targetType}
           targetId={targetId}
           mentionCandidates={mentionCandidates}
+          usersById={usersById}
         />
       ))}
     </div>
@@ -403,6 +415,7 @@ function CommentThreadItem({
   targetType,
   targetId,
   mentionCandidates,
+  usersById,
 }: {
   comment: AppData["comments"][number]
   repliesByParentId: Record<string, AppData["comments"]>
@@ -410,6 +423,7 @@ function CommentThreadItem({
   targetType: "workItem" | "document"
   targetId: string
   mentionCandidates: AppData["users"]
+  usersById: ReadonlyMap<string, AppData["users"][number]>
 }) {
   const { author, currentUserId } = useAppStore(
     useShallow((state) => ({
@@ -446,7 +460,10 @@ function CommentThreadItem({
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border bg-card/60 p-4">
-      <CommentThreadHeader authorName={author?.name} createdAt={comment.createdAt} />
+      <CommentThreadHeader
+        authorName={author?.name}
+        createdAt={comment.createdAt}
+      />
 
       <RichTextContent
         content={comment.content}
@@ -458,6 +475,7 @@ function CommentThreadItem({
         currentUserId={currentUserId}
         editable={editable}
         onReplyToggle={() => setReplyOpen((current) => !current)}
+        usersById={usersById}
       />
 
       {replyOpen ? (
@@ -483,6 +501,7 @@ function CommentThreadItem({
         repliesByParentId={repliesByParentId}
         targetId={targetId}
         targetType={targetType}
+        usersById={usersById}
       />
     </div>
   )
@@ -551,10 +570,11 @@ export function CommentsInline({
 
     return candidateUsers.filter((candidate) => memberIds.has(candidate.id))
   }, [currentUserId, targetTeamId, teamMemberships, users])
-  const rootComments = useMemo(
-    () => getRootComments(comments),
-    [comments]
+  const usersById = useMemo(
+    () => new Map(users.map((user) => [user.id, user])),
+    [users]
   )
+  const rootComments = useMemo(() => getRootComments(comments), [comments])
   const repliesByParentId = useMemo(
     () => groupCommentsByParentId(comments),
     [comments]
@@ -578,6 +598,7 @@ export function CommentsInline({
           targetType={targetType}
           targetId={targetId}
           mentionCandidates={mentionCandidates}
+          usersById={usersById}
         />
       ))}
       <div className="flex flex-col gap-2">
@@ -674,20 +695,20 @@ function InlineChildIssueFields({
 }
 
 function InlineChildAssigneePicker({
-  assigneeId,
+  assigneeIds,
   assigneeQuery,
   open,
-  selectedAssignee,
+  selectedAssignees,
   team,
   teamMembers,
   onOpenChange,
   onQueryChange,
   onSelect,
 }: {
-  assigneeId: string
+  assigneeIds: string[]
   assigneeQuery: string
   open: boolean
-  selectedAssignee: UserRecord | null
+  selectedAssignees: UserRecord[]
   team: TeamRecord | null
   teamMembers: UserRecord[]
   onOpenChange: (open: boolean) => void
@@ -701,8 +722,9 @@ function InlineChildAssigneePicker({
       query={assigneeQuery}
       onQueryChange={onQueryChange}
       members={teamMembers}
-      selectedAssignee={selectedAssignee}
-      selectedAssigneeId={assigneeId}
+      selectedAssignees={selectedAssignees}
+      selectedAssigneeIds={assigneeIds}
+      selectionMode="multiple"
       disabled={!team}
       onSelect={onSelect}
     />
@@ -805,7 +827,9 @@ function useInlineChildIssueDraft({
   teamExperience,
   teamStatuses,
 }: {
-  teamExperience: Parameters<typeof getPreferredWorkItemTypeForTeamExperience>[0]
+  teamExperience: Parameters<
+    typeof getPreferredWorkItemTypeForTeamExperience
+  >[0]
   teamStatuses: WorkStatus[]
 }) {
   const [type, setType] = useState<WorkItemType>(
@@ -820,14 +844,14 @@ function useInlineChildIssueDraft({
     getInitialInlineChildStatus(teamStatuses)
   )
   const [priority, setPriority] = useState<Priority>("none")
-  const [assigneeId, setAssigneeId] = useState<string>("none")
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([])
 
   return {
-    assigneeId,
+    assigneeIds,
     description,
     pickerState,
     priority,
-    setAssigneeId,
+    setAssigneeIds,
     setDescription,
     setPriority,
     setStatus,
@@ -840,18 +864,18 @@ function useInlineChildIssueDraft({
 }
 
 function InlineChildIssueToolbar({
-  assigneeId,
+  assigneeIds,
   assigneePickerOpen,
   assigneeQuery,
   availableItemTypes,
   canCreate,
   priority,
   priorityPickerOpen,
-  selectedAssignee,
+  selectedAssignees,
   selectedProject,
   selectedType,
   selectedTypeLabel,
-  setAssigneeId,
+  setAssigneeIds,
   setAssigneePickerOpen,
   setAssigneeQuery,
   setPriority,
@@ -871,22 +895,22 @@ function InlineChildIssueToolbar({
   onCancel,
   onCreate,
 }: {
-  assigneeId: string
+  assigneeIds: string[]
   assigneePickerOpen: boolean
   assigneeQuery: string
   availableItemTypes: WorkItemType[]
   canCreate: boolean
   priority: Priority
   priorityPickerOpen: boolean
-  selectedAssignee: ReturnType<
+  selectedAssignees: ReturnType<
     typeof getInlineChildIssueComposerModel
-  >["selectedAssignee"]
+  >["selectedAssignees"]
   selectedProject: ReturnType<
     typeof getInlineChildIssueComposerModel
   >["selectedProject"]
   selectedType: WorkItemType
   selectedTypeLabel: string
-  setAssigneeId: (value: string) => void
+  setAssigneeIds: (value: string[] | ((current: string[]) => string[])) => void
   setAssigneePickerOpen: (open: boolean) => void
   setAssigneeQuery: (query: string) => void
   setPriority: (value: Priority) => void
@@ -946,17 +970,18 @@ function InlineChildIssueToolbar({
         }}
       />
       <InlineChildAssigneePicker
-        assigneeId={assigneeId}
+        assigneeIds={assigneeIds}
         assigneeQuery={assigneeQuery}
         open={assigneePickerOpen}
-        selectedAssignee={selectedAssignee}
+        selectedAssignees={selectedAssignees}
         team={team}
         teamMembers={teamMembers}
         onOpenChange={setAssigneePickerOpen}
         onQueryChange={setAssigneeQuery}
         onSelect={(value) => {
-          setAssigneeId(value)
-          setAssigneePickerOpen(false)
+          setAssigneeIds((current) =>
+            value === "none" ? [] : toggleWorkItemAssigneeId(current, value)
+          )
         }}
       />
       <InlineChildProjectChip selectedProject={selectedProject} />
@@ -997,7 +1022,7 @@ export function InlineChildIssueComposer({
     teamStatuses,
   })
   const model = getInlineChildIssueComposerModel({
-    assigneeId: draft.assigneeId,
+    assigneeIds: draft.assigneeIds,
     disabled,
     parentItem,
     projectId: parentItem.primaryProjectId ?? "none",
@@ -1031,7 +1056,7 @@ export function InlineChildIssueComposer({
     }
 
     const createdItemId = createInlineChildWorkItem({
-      assigneeId: draft.assigneeId,
+      assigneeIds: draft.assigneeIds,
       description: draft.description,
       normalizedTitle: model.normalizedTitle,
       parentItem,
@@ -1061,18 +1086,18 @@ export function InlineChildIssueComposer({
       />
 
       <InlineChildIssueToolbar
-        assigneeId={draft.assigneeId}
+        assigneeIds={draft.assigneeIds}
         assigneePickerOpen={assigneePickerOpen}
         assigneeQuery={assigneeQuery}
         availableItemTypes={model.availableItemTypes}
         canCreate={model.canCreate}
         priority={draft.priority}
         priorityPickerOpen={priorityPickerOpen}
-        selectedAssignee={model.selectedAssignee}
+        selectedAssignees={model.selectedAssignees}
         selectedProject={model.selectedProject}
         selectedType={model.selectedType}
         selectedTypeLabel={model.selectedTypeLabel}
-        setAssigneeId={draft.setAssigneeId}
+        setAssigneeIds={draft.setAssigneeIds}
         setAssigneePickerOpen={setAssigneePickerOpen}
         setAssigneeQuery={setAssigneeQuery}
         setPriority={draft.setPriority}

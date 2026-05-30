@@ -30,6 +30,7 @@ import {
 } from "@/lib/domain/selectors-internal/core"
 import { isProjectAvailableGroupKey } from "@/lib/domain/selectors-internal/work-item-grouping"
 import { compareOptionalDescendingValues } from "@/lib/domain/selectors-internal/work-item-ordering"
+import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 
 export function getVisibleWorkItems(
   data: AppData,
@@ -102,14 +103,10 @@ function getWorkItemVisibility(item: WorkItem) {
   return item.visibility ?? "team"
 }
 
-function isPrivateWorkItemAssociatedWithCurrentUser(
-  data: AppData,
-  item: WorkItem
-) {
+function isPrivateWorkItemCreatedByCurrentUser(data: AppData, item: WorkItem) {
   return (
     getWorkItemVisibility(item) === "private" &&
-    (item.creatorId === data.currentUserId ||
-      item.assigneeId === data.currentUserId)
+    item.creatorId === data.currentUserId
   )
 }
 
@@ -119,18 +116,21 @@ function isMyItemsWorkItem(
   teamIds: Set<string>
 ) {
   if (getWorkItemVisibility(item) === "private") {
-    return isPrivateWorkItemAssociatedWithCurrentUser(data, item)
+    return isPrivateWorkItemCreatedByCurrentUser(data, item)
   }
 
-  return item.assigneeId === data.currentUserId && teamIds.has(item.teamId)
+  return (
+    getWorkItemAssigneeIds(item).includes(data.currentUserId) &&
+    teamIds.has(item.teamId)
+  )
 }
 
 function isAssignedDescendantWorkItem(data: AppData, item: WorkItem) {
   if (getWorkItemVisibility(item) === "private") {
-    return isPrivateWorkItemAssociatedWithCurrentUser(data, item)
+    return isPrivateWorkItemCreatedByCurrentUser(data, item)
   }
 
-  return item.assigneeId === data.currentUserId
+  return getWorkItemAssigneeIds(item).includes(data.currentUserId)
 }
 
 export function getDirectChildWorkItems(data: AppData, itemId: string) {
@@ -278,7 +278,10 @@ function itemMatchesView(
   return [
     matchesOptionalFilter(view.filters.status, item.status),
     matchesOptionalFilter(view.filters.priority, item.priority),
-    matchesOptionalFilter(view.filters.assigneeIds, item.assigneeId ?? ""),
+    matchesAnyOptionalFilter(view.filters.assigneeIds, [
+      ...getWorkItemAssigneeIds(item),
+      ...(getWorkItemAssigneeIds(item).length === 0 ? [""] : []),
+    ]),
     matchesOptionalFilter(view.filters.creatorIds, item.creatorId),
     matchesOptionalFilter(view.filters.projectIds, item.primaryProjectId ?? ""),
     matchesParentFilter(view.filters.parentIds ?? [], item.parentId),
@@ -528,7 +531,7 @@ const groupValueGetters: Partial<Record<GroupField, GroupValueGetter>> = {
   project: (data, item) =>
     getProject(data, item.primaryProjectId)?.name ?? "No project",
   assignee: (data, item) =>
-    getUser(data, item.assigneeId)?.name ?? "No assignee",
+    getUser(data, getWorkItemAssigneeIds(item)[0])?.name ?? "No assignee",
   label: getLabelGroupValue,
   team: (data, item) => getTeam(data, item.teamId)?.name ?? "Unknown team",
   parent: getParentGroupValue,
@@ -1037,9 +1040,11 @@ export function getItemAssignees(data: AppData, items: WorkItem[]) {
   const assignees = new Map<string, UserProfile>()
 
   for (const item of items) {
-    const user = getUser(data, item.assigneeId)
-    if (user) {
-      assignees.set(user.id, user)
+    for (const assigneeId of getWorkItemAssigneeIds(item)) {
+      const user = getUser(data, assigneeId)
+      if (user) {
+        assignees.set(user.id, user)
+      }
     }
   }
 

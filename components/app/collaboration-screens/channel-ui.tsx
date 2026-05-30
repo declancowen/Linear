@@ -5,6 +5,7 @@ import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
   ChatCircle,
+  NotePencil,
   PaperPlaneTilt,
   Smiley,
   Trash,
@@ -25,6 +26,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import {
@@ -61,12 +63,16 @@ function getChannelMentionCandidates(
 }
 
 function ForumPostActionBar({
+  canEditPost,
   canDeletePost,
+  onEdit,
   postId,
   onDelete,
   onReply,
 }: {
+  canEditPost: boolean
   canDeletePost: boolean
+  onEdit: () => void
   postId: string
   onDelete: () => void
   onReply: () => void
@@ -97,6 +103,16 @@ function ForumPostActionBar({
       >
         <ChatCircle className="size-[14px]" />
       </button>
+      {canEditPost ? (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
+          aria-label="Edit post"
+        >
+          <NotePencil className="size-[14px]" />
+        </button>
+      ) : null}
       {canDeletePost ? (
         <button
           type="button"
@@ -114,9 +130,11 @@ function ForumPostActionBar({
 function ForumPostReactions({
   currentUserId,
   post,
+  usersById,
 }: {
   currentUserId: string
   post: ForumPostRecord
+  usersById: UsersById
 }) {
   const reactions = post.reactions ?? []
 
@@ -126,24 +144,29 @@ function ForumPostReactions({
         const active = reaction.userIds.includes(currentUserId)
 
         return (
-          <button
+          <ReactionUsersHoverCard
             key={reaction.emoji}
-            type="button"
-            onClick={() =>
-              useAppStore
-                .getState()
-                .toggleChannelPostReaction(post.id, reaction.emoji)
-            }
-            className={cn(
-              "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
-              active
-                ? "border-primary/40 bg-primary/10 text-foreground"
-                : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
-            )}
+            userIds={reaction.userIds}
+            usersById={usersById}
           >
-            <span>{reaction.emoji}</span>
-            <span>{reaction.userIds.length}</span>
-          </button>
+            <button
+              type="button"
+              onClick={() =>
+                useAppStore
+                  .getState()
+                  .toggleChannelPostReaction(post.id, reaction.emoji)
+              }
+              className={cn(
+                "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
+                active
+                  ? "border-primary/40 bg-primary/10 text-foreground"
+                  : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
+              )}
+            >
+              <span>{reaction.emoji}</span>
+              <span>{reaction.userIds.length}</span>
+            </button>
+          </ReactionUsersHoverCard>
         )
       })}
 
@@ -170,13 +193,17 @@ function ForumPostReactions({
 function ForumPostCommentList({
   comments,
   currentUserId,
+  mentionCandidates,
   onDeleteComment,
+  onEditComment,
   usersById,
   workspaceId,
 }: {
   comments: ForumPostComment[]
   currentUserId: string
+  mentionCandidates: ForumUser[]
   onDeleteComment: (comment: ForumPostComment) => void
+  onEditComment: (commentId: string, content: string) => void
   usersById: UsersById
   workspaceId: string | null
 }) {
@@ -189,10 +216,13 @@ function ForumPostCommentList({
       {comments.map((comment) => (
         <ForumPostCommentItem
           key={comment.id}
+          canEdit={comment.createdBy === currentUserId}
           canDelete={comment.createdBy === currentUserId}
           comment={comment}
           currentUserId={currentUserId}
+          mentionCandidates={mentionCandidates}
           onDelete={() => onDeleteComment(comment)}
+          onEdit={onEditComment}
           usersById={usersById}
           workspaceId={workspaceId}
         />
@@ -311,13 +341,17 @@ function useForumPostCardController(postId: string) {
     )
   )
   const [reply, setReply] = useState("")
+  const [editTitle, setEditTitle] = useState("")
+  const [editContent, setEditContent] = useState("")
   const [showReplies, setShowReplies] = useState(false)
   const [replyOpen, setReplyOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const [deletePostOpen, setDeletePostOpen] = useState(false)
   const [deleteComment, setDeleteComment] = useState<ForumPostComment | null>(
     null
   )
   const replyEditorRef = useRef<Editor | null>(null)
+  const editEditorRef = useRef<Editor | null>(null)
   const usersById = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
     [users]
@@ -333,6 +367,18 @@ function useForumPostCardController(postId: string) {
     }
   )
   const canDeletePost = post.createdBy === currentUserId
+  const canEditPost = post.createdBy === currentUserId
+  const editContentLimitState = getTextInputLimitState(
+    editContent,
+    channelPostContentConstraints,
+    {
+      plainText: true,
+    }
+  )
+  const editTitleLimitState = getTextInputLimitState(
+    editTitle,
+    channelPostTitleConstraints
+  )
 
   const handleReply = () => {
     if (!replyLimitState.canSubmit) return
@@ -348,6 +394,22 @@ function useForumPostCardController(postId: string) {
     useAppStore.getState().deleteChannelPost(post.id)
     setDeletePostOpen(false)
   }
+  const handleOpenEditPost = () => {
+    setEditTitle(post.title)
+    setEditContent(post.content)
+    setEditOpen(true)
+  }
+  const handleEditPost = () => {
+    if (!editTitleLimitState.canSubmit || !editContentLimitState.canSubmit) {
+      return
+    }
+
+    useAppStore.getState().updateChannelPost(post.id, {
+      title: editTitle,
+      content: editContent,
+    })
+    setEditOpen(false)
+  }
   const handleConfirmDeleteComment = () => {
     if (!deleteComment) {
       return
@@ -355,6 +417,11 @@ function useForumPostCardController(postId: string) {
 
     useAppStore.getState().deleteChannelPostComment(post.id, deleteComment.id)
     setDeleteComment(null)
+  }
+  const handleEditComment = (commentId: string, content: string) => {
+    useAppStore.getState().updateChannelPostComment(post.id, commentId, {
+      content,
+    })
   }
   const handleInsertReplyEmoji = (emoji: string) => {
     replyEditorRef.current?.chain().focus().insertContent(emoji).run()
@@ -366,15 +433,25 @@ function useForumPostCardController(postId: string) {
 
   return {
     author,
+    canEditPost,
     canDeletePost,
     comments,
     currentUserId,
     currentWorkspaceId,
     deletePostOpen,
     deleteComment,
+    editContent,
+    editContentLimitState,
+    editEditorRef,
+    editOpen,
+    editTitle,
+    editTitleLimitState,
     earlierComments,
     handleConfirmDeleteComment,
     handleDeletePost,
+    handleEditComment,
+    handleEditPost,
+    handleOpenEditPost,
     handleInsertReplyEmoji,
     handleReply,
     hiddenCount,
@@ -387,6 +464,9 @@ function useForumPostCardController(postId: string) {
     replyOpen,
     setDeletePostOpen,
     setDeleteComment,
+    setEditContent,
+    setEditOpen,
+    setEditTitle,
     setReply,
     setReplyOpen,
     setShowReplies,
@@ -441,7 +521,9 @@ function EarlierForumPostComments({
   currentWorkspaceId,
   earlierComments,
   hiddenCount,
+  mentionCandidates,
   onDeleteComment,
+  onEditComment,
   showReplies,
   usersById,
 }: Pick<
@@ -450,10 +532,12 @@ function EarlierForumPostComments({
   | "currentWorkspaceId"
   | "earlierComments"
   | "hiddenCount"
+  | "mentionCandidates"
   | "showReplies"
   | "usersById"
 > & {
   onDeleteComment: (comment: ForumPostComment) => void
+  onEditComment: (commentId: string, content: string) => void
 }) {
   if (!showReplies || hiddenCount <= 0) {
     return null
@@ -464,7 +548,9 @@ function EarlierForumPostComments({
       <ForumPostCommentList
         comments={earlierComments}
         currentUserId={currentUserId}
+        mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
+        onEditComment={onEditComment}
         usersById={usersById}
         workspaceId={currentWorkspaceId}
       />
@@ -509,6 +595,7 @@ function ForumPostRepliesSection({
   usersById,
   onInsertEmoji,
   onDeleteComment,
+  onEditComment,
   onReply,
   onReplyChange,
   onSetReplyOpen,
@@ -530,6 +617,7 @@ function ForumPostRepliesSection({
 > & {
   onInsertEmoji: (emoji: string) => void
   onDeleteComment: (comment: ForumPostComment) => void
+  onEditComment: (commentId: string, content: string) => void
   onReply: () => void
   onReplyChange: (value: string) => void
   onSetReplyOpen: (open: boolean) => void
@@ -556,7 +644,9 @@ function ForumPostRepliesSection({
         currentWorkspaceId={currentWorkspaceId}
         earlierComments={earlierComments}
         hiddenCount={hiddenCount}
+        mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
+        onEditComment={onEditComment}
         showReplies={showReplies}
         usersById={usersById}
       />
@@ -564,7 +654,9 @@ function ForumPostRepliesSection({
       <ForumPostCommentList
         comments={previewComments}
         currentUserId={currentUserId}
+        mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
+        onEditComment={onEditComment}
         usersById={usersById}
         workspaceId={currentWorkspaceId}
       />
@@ -593,14 +685,24 @@ function ForumPostRepliesSection({
 
 function ForumPostCardLayout({
   author,
+  canEditPost,
   canDeletePost,
   currentUserId,
   currentWorkspaceId,
   deletePostOpen,
   deleteComment,
+  editContent,
+  editContentLimitState,
+  editEditorRef,
+  editOpen,
+  editTitle,
+  editTitleLimitState,
   earlierComments,
   handleDeletePost,
   handleConfirmDeleteComment,
+  handleEditComment,
+  handleEditPost,
+  handleOpenEditPost,
   handleInsertReplyEmoji,
   handleReply,
   hiddenCount,
@@ -613,6 +715,9 @@ function ForumPostCardLayout({
   replyOpen,
   setDeletePostOpen,
   setDeleteComment,
+  setEditContent,
+  setEditOpen,
+  setEditTitle,
   setReply,
   setReplyOpen,
   setShowReplies,
@@ -628,9 +733,16 @@ function ForumPostCardLayout({
       <ForumPostAvatar author={author} />
       <ForumPostBody
         author={author}
+        canEditPost={canEditPost}
         canDeletePost={canDeletePost}
         currentUserId={currentUserId}
         currentWorkspaceId={currentWorkspaceId}
+        editContent={editContent}
+        editContentLimitState={editContentLimitState}
+        editEditorRef={editEditorRef}
+        editOpen={editOpen}
+        editTitle={editTitle}
+        editTitleLimitState={editTitleLimitState}
         earlierComments={earlierComments}
         hiddenCount={hiddenCount}
         mentionCandidates={mentionCandidates}
@@ -644,7 +756,13 @@ function ForumPostCardLayout({
         usersById={usersById}
         onDelete={() => setDeletePostOpen(true)}
         onDeleteComment={setDeleteComment}
+        onEditComment={handleEditComment}
+        onEditPost={handleEditPost}
+        onOpenEditPost={handleOpenEditPost}
         onInsertReplyEmoji={handleInsertReplyEmoji}
+        onEditContentChange={setEditContent}
+        onEditOpenChange={setEditOpen}
+        onEditTitleChange={setEditTitle}
         onReply={handleReply}
         onReplyChange={setReply}
         onReplyOpenChange={setReplyOpen}
@@ -672,11 +790,115 @@ function ForumPostTitle({ title }: { title: string }) {
   ) : null
 }
 
+function ForumPostEditComposer({
+  content,
+  contentLimitState,
+  editorRef,
+  mentionCandidates,
+  title,
+  titleLimitState,
+  onCancel,
+  onContentChange,
+  onSave,
+  onTitleChange,
+}: {
+  content: string
+  contentLimitState: ReturnType<typeof getTextInputLimitState>
+  editorRef: RefObject<Editor | null>
+  mentionCandidates: ForumUser[]
+  title: string
+  titleLimitState: ReturnType<typeof getTextInputLimitState>
+  onCancel: () => void
+  onContentChange: (content: string) => void
+  onSave: () => void
+  onTitleChange: (title: string) => void
+}) {
+  return (
+    <div className="mt-2 rounded-md border border-line bg-surface px-3 py-2">
+      <input
+        value={title}
+        onChange={(event) => onTitleChange(event.target.value)}
+        placeholder="Thread headline"
+        maxLength={channelPostTitleConstraints.max}
+        className="w-full border-0 bg-transparent pb-1 text-[14px] font-semibold text-foreground outline-none placeholder:text-fg-3"
+      />
+      <FieldCharacterLimit
+        state={titleLimitState}
+        limit={channelPostTitleConstraints.max}
+        className="mt-0 mb-1"
+      />
+      <RichTextEditor
+        content={content}
+        onChange={onContentChange}
+        compact
+        autoFocus
+        showToolbar={false}
+        showStats={false}
+        placeholder="Edit post..."
+        editorInstanceRef={editorRef}
+        mentionCandidates={mentionCandidates}
+        minPlainTextCharacters={channelPostContentConstraints.min}
+        maxPlainTextCharacters={channelPostContentConstraints.max}
+        enforcePlainTextLimit
+        onSubmitShortcut={onSave}
+        className="min-w-0 [&_.ProseMirror]:min-h-[2.625rem] [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
+      />
+      <FieldCharacterLimit
+        state={contentLimitState}
+        limit={channelPostContentConstraints.max}
+        className="mt-0 mb-1"
+      />
+      <div className="mt-1 flex items-center gap-0.5 border-t border-dashed border-line pt-1.5 text-fg-3">
+        <EmojiPickerPopover
+          align="start"
+          side="top"
+          onEmojiSelect={(emoji) =>
+            editorRef.current?.chain().focus().insertContent(emoji).run()
+          }
+          trigger={
+            <button
+              type="button"
+              aria-label="Emoji"
+              className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground"
+            >
+              <Smiley className="size-[13px]" />
+            </button>
+          }
+        />
+        <span className="flex-1" />
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] text-fg-3 transition-colors hover:text-foreground"
+        >
+          Cancel
+        </button>
+        <Button
+          type="button"
+          size="sm"
+          onClick={onSave}
+          disabled={!contentLimitState.canSubmit || !titleLimitState.canSubmit}
+          className="ml-1 h-7 gap-1.5 rounded-md px-2.5 text-[12px]"
+        >
+          Save
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function ForumPostBody({
   author,
+  canEditPost,
   canDeletePost,
   currentUserId,
   currentWorkspaceId,
+  editContent,
+  editContentLimitState,
+  editEditorRef,
+  editOpen,
+  editTitle,
+  editTitleLimitState,
   earlierComments,
   hiddenCount,
   mentionCandidates,
@@ -690,7 +912,13 @@ function ForumPostBody({
   usersById,
   onDelete,
   onDeleteComment,
+  onEditComment,
+  onEditPost,
+  onOpenEditPost,
   onInsertReplyEmoji,
+  onEditContentChange,
+  onEditOpenChange,
+  onEditTitleChange,
   onReply,
   onReplyChange,
   onReplyOpenChange,
@@ -698,9 +926,16 @@ function ForumPostBody({
 }: Pick<
   ForumPostCardController,
   | "author"
+  | "canEditPost"
   | "canDeletePost"
   | "currentUserId"
   | "currentWorkspaceId"
+  | "editContent"
+  | "editContentLimitState"
+  | "editEditorRef"
+  | "editOpen"
+  | "editTitle"
+  | "editTitleLimitState"
   | "earlierComments"
   | "hiddenCount"
   | "mentionCandidates"
@@ -715,7 +950,13 @@ function ForumPostBody({
 > & {
   onDelete: () => void
   onDeleteComment: (comment: ForumPostComment) => void
+  onEditComment: (commentId: string, content: string) => void
+  onEditPost: () => void
+  onOpenEditPost: () => void
   onInsertReplyEmoji: (emoji: string) => void
+  onEditContentChange: (content: string) => void
+  onEditOpenChange: (open: boolean) => void
+  onEditTitleChange: (title: string) => void
   onReply: () => void
   onReplyChange: (reply: string) => void
   onReplyOpenChange: (open: boolean) => void
@@ -732,26 +973,53 @@ function ForumPostBody({
         />
       </div>
       <ForumPostActionBar
+        canEditPost={canEditPost}
         canDeletePost={canDeletePost}
         postId={post.id}
         onDelete={onDelete}
+        onEdit={onOpenEditPost}
         onReply={() => {
           onShowRepliesChange(true)
           onReplyOpenChange(true)
         }}
       />
 
-      <ForumPostTitle title={post.title} />
+      {editOpen ? (
+        <ForumPostEditComposer
+          content={editContent}
+          contentLimitState={editContentLimitState}
+          editorRef={editEditorRef}
+          mentionCandidates={mentionCandidates}
+          title={editTitle}
+          titleLimitState={editTitleLimitState}
+          onCancel={() => {
+            onEditTitleChange(post.title)
+            onEditContentChange(post.content)
+            onEditOpenChange(false)
+          }}
+          onContentChange={onEditContentChange}
+          onSave={onEditPost}
+          onTitleChange={onEditTitleChange}
+        />
+      ) : (
+        <>
+          <ForumPostTitle title={post.title} />
 
-      <RichTextContent
-        content={post.content}
-        className={cn(
-          "text-[13.5px] leading-[1.55] text-foreground [&_p]:leading-[1.55]",
-          post.title ? "mt-1.5" : "mt-2"
-        )}
+          <RichTextContent
+            content={post.content}
+            className={cn(
+              "text-[13.5px] leading-[1.55] text-foreground [&_p]:leading-[1.55]",
+              post.title ? "mt-1.5" : "mt-2"
+            )}
+          />
+        </>
+      )}
+
+      <ForumPostReactions
+        currentUserId={currentUserId}
+        post={post}
+        usersById={usersById}
       />
-
-      <ForumPostReactions currentUserId={currentUserId} post={post} />
 
       <ForumPostRepliesSection
         currentUserId={currentUserId}
@@ -767,6 +1035,7 @@ function ForumPostBody({
         showReplies={showReplies}
         usersById={usersById}
         onDeleteComment={onDeleteComment}
+        onEditComment={onEditComment}
         onInsertEmoji={onInsertReplyEmoji}
         onReply={onReply}
         onReplyChange={onReplyChange}

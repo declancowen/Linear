@@ -188,6 +188,7 @@ export interface WorkItem {
   status: WorkStatus
   priority: Priority
   assigneeId: string | null
+  assigneeIds?: string[]
   creatorId: string
   parentId: string | null
   primaryProjectId: string | null

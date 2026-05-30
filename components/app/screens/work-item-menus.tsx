@@ -15,6 +15,7 @@ import {
   PencilSimple,
   Plus,
   Trash,
+  Check,
 } from "@phosphor-icons/react"
 
 import { useAppRouter } from "@/lib/browser/app-navigation"
@@ -34,6 +35,10 @@ import {
   type WorkItem,
   type WorkStatus,
 } from "@/lib/domain/types"
+import {
+  getWorkItemAssigneeIds,
+  toggleWorkItemAssigneeId,
+} from "@/lib/domain/work-item-assignees"
 import { useAppStore } from "@/lib/store/app-store"
 import { ProjectIconGlyph } from "@/components/app/entity-icons"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -217,6 +222,15 @@ function WorkItemAssigneeMenuSection({
 }) {
   const { MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger } =
     menu
+  const assigneeIds = getWorkItemAssigneeIds(item)
+  const assigneeIdSet = new Set(assigneeIds)
+
+  function updateAssigneeIds(nextAssigneeIds: string[]) {
+    useAppStore.getState().updateWorkItem(item.id, {
+      assigneeId: nextAssigneeIds[0] ?? null,
+      assigneeIds: nextAssigneeIds,
+    })
+  }
 
   return (
     <MenuSub>
@@ -225,20 +239,15 @@ function WorkItemAssigneeMenuSection({
         <span>Assignee</span>
       </MenuSubTrigger>
       <MenuSubContent>
-        <MenuItem
-          onSelect={() =>
-            useAppStore.getState().updateWorkItem(item.id, {
-              assigneeId: null,
-            })
-          }
-        >
+        <MenuItem onSelect={() => updateAssigneeIds([])}>
           <span className="text-fg-3">Unassigned</span>
+          {assigneeIds.length === 0 ? <Check className="size-4" /> : null}
         </MenuItem>
         <MenuItem
           onSelect={() =>
-            useAppStore.getState().updateWorkItem(item.id, {
-              assigneeId: currentUserId,
-            })
+            updateAssigneeIds(
+              toggleWorkItemAssigneeId(assigneeIds, currentUserId)
+            )
           }
         >
           {currentUser ? (
@@ -248,15 +257,18 @@ function WorkItemAssigneeMenuSection({
             />
           ) : null}
           <span>Assign to me</span>
+          {assigneeIdSet.has(currentUserId) ? (
+            <Check className="size-4" />
+          ) : null}
         </MenuItem>
         <MenuSeparator />
         {assigneeMenuMembers.map((member) => (
           <MenuItem
             key={`${item.id}-${member.id}`}
             onSelect={() =>
-              useAppStore.getState().updateWorkItem(item.id, {
-                assigneeId: member.id,
-              })
+              updateAssigneeIds(
+                toggleWorkItemAssigneeId(assigneeIds, member.id)
+              )
             }
           >
             <WorkItemAssigneeAvatar
@@ -264,6 +276,7 @@ function WorkItemAssigneeMenuSection({
               className="size-4 data-[size=sm]:size-4"
             />
             <span>{member.name}</span>
+            {assigneeIdSet.has(member.id) ? <Check className="size-4" /> : null}
           </MenuItem>
         ))}
       </MenuSubContent>

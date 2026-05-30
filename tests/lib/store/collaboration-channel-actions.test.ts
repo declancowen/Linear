@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppData } from "@/lib/domain/types"
 import { createTestAppData } from "@/tests/lib/fixtures/app-data"
 import { addChannelFollowerNotifications } from "@/lib/store/app-store-internal/slices/collaboration-channel-notifications"
+import { createSliceHarness } from "./slice-harness"
 
 const channelActionTestDoubles = vi.hoisted(() => ({
   convex: {
@@ -11,6 +12,8 @@ const channelActionTestDoubles = vi.hoisted(() => ({
     deleteComment: vi.fn(),
     deletePost: vi.fn(),
     toggleReaction: vi.fn(),
+    updateComment: vi.fn(),
+    updatePost: vi.fn(),
   },
   notifications: {
     error: vi.fn(),
@@ -31,6 +34,8 @@ vi.mock("@/lib/convex/client", () => ({
   syncDeleteChannelPost: channelActionTestDoubles.convex.deletePost,
   syncDeleteChannelPostComment: channelActionTestDoubles.convex.deleteComment,
   syncToggleChannelPostReaction: channelActionTestDoubles.convex.toggleReaction,
+  syncUpdateChannelPost: channelActionTestDoubles.convex.updatePost,
+  syncUpdateChannelPostComment: channelActionTestDoubles.convex.updateComment,
 }))
 
 const TEST_TIMESTAMP = "2026-04-20T12:00:00.000Z"
@@ -83,23 +88,9 @@ function createChannelState(overrides: Partial<AppData> = {}) {
 async function createChannelActionsHarness(state = createChannelState()) {
   const { createCollaborationChannelActions } =
     await import("@/lib/store/app-store-internal/slices/collaboration-channel-actions")
-  const backgroundTasks: Array<Promise<unknown> | null> = []
-  const setState = (update: unknown) => {
-    const patch = typeof update === "function" ? update(state as never) : update
-
-    Object.assign(state, patch)
-  }
-  const slice = createCollaborationChannelActions({
-    get: () => state as never,
-    runtime: {
-      syncInBackground(task: Promise<unknown> | null) {
-        backgroundTasks.push(task)
-      },
-    } as never,
-    set: setState as never,
-  })
-
-  return { backgroundTasks, slice, state }
+  return createSliceHarness(state, (args) =>
+    createCollaborationChannelActions(args as never)
+  )
 }
 
 describe("collaboration channel notification helpers", () => {
@@ -114,7 +105,16 @@ describe("collaboration channel notification helpers", () => {
     channelActionTestDoubles.convex.addComment.mockResolvedValue({
       commentId: "comment_server",
     })
+    channelActionTestDoubles.convex.createPost.mockResolvedValue({
+      postId: "post_server",
+    })
     channelActionTestDoubles.convex.deleteComment.mockResolvedValue({
+      ok: true,
+    })
+    channelActionTestDoubles.convex.updateComment.mockResolvedValue({
+      ok: true,
+    })
+    channelActionTestDoubles.convex.updatePost.mockResolvedValue({
       ok: true,
     })
   })
@@ -170,6 +170,158 @@ describe("collaboration channel notification helpers", () => {
     expect(channelActionTestDoubles.notifications.success).toHaveBeenCalledWith(
       "Comment deleted"
     )
+  })
+
+  it("syncs newly created posts with the optimistic post id", async () => {
+    const { slice, state } = await createChannelActionsHarness()
+
+    slice.createChannelPost({
+      conversationId: "conversation_1",
+      title: "Launch notes",
+      content: "<p>Fresh post</p>",
+    })
+
+    const createdPost = state.channelPosts.find(
+      (post) => post.title === "Launch notes"
+    )
+
+    expect(createdPost?.id).toMatch(/^channel_post_/)
+    expect(channelActionTestDoubles.convex.createPost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        postId: createdPost?.id,
+        title: "Launch notes",
+        content: "<p>Fresh post</p>",
+      })
+    )
+  })
+
+  it("optimistically deletes owned channel posts and syncs the delete", async () => {
+    const { backgroundTasks, slice, state } =
+      await createChannelActionsHarness()
+
+    slice.deleteChannelPost("post_1")
+
+    expect(state.channelPosts).toEqual([])
+    expect(state.channelPostComments).toEqual([])
+    expect(channelActionTestDoubles.convex.deletePost).toHaveBeenCalledWith(
+      "post_1"
+    )
+    expect(backgroundTasks).toHaveLength(1)
+    expect(channelActionTestDoubles.notifications.success).toHaveBeenCalledWith(
+      "Post deleted"
+    )
+  })
+
+  it("does not delete or sync channel posts owned by another user", async () => {
+    const state = createChannelState({
+      channelPosts: [
+        {
+          id: "post_1",
+          conversationId: "conversation_1",
+          title: "Roadmap",
+          content: "<p>Post</p>",
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: "user_2",
+          createdAt: TEST_TIMESTAMP,
+          updatedAt: TEST_TIMESTAMP,
+        },
+      ],
+    })
+    const { backgroundTasks, slice } = await createChannelActionsHarness(state)
+
+    slice.deleteChannelPost("post_1")
+
+    expect(state.channelPosts).toHaveLength(1)
+    expect(channelActionTestDoubles.convex.deletePost).not.toHaveBeenCalled()
+    expect(backgroundTasks).toEqual([])
+    expect(channelActionTestDoubles.notifications.error).toHaveBeenCalledWith(
+      "You can only delete your own posts"
+    )
+    expect(
+      channelActionTestDoubles.notifications.success
+    ).not.toHaveBeenCalled()
+  })
+
+  it("deletes a pending-created channel post after create sync resolves", async () => {
+    let resolveCreatePost: ((value: { postId: string }) => void) | undefined
+    channelActionTestDoubles.convex.createPost.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreatePost = resolve
+      })
+    )
+    const { backgroundTasks, slice, state } =
+      await createChannelActionsHarness()
+
+    slice.createChannelPost({
+      conversationId: "conversation_1",
+      title: "Transient post",
+      content: "<p>Transient body</p>",
+    })
+
+    const optimisticPost = state.channelPosts.find(
+      (post) => post.title === "Transient post"
+    )
+
+    expect(optimisticPost).toBeTruthy()
+
+    slice.deleteChannelPost(optimisticPost?.id ?? "")
+
+    expect(
+      state.channelPosts.some((post) => post.id === optimisticPost?.id)
+    ).toBe(false)
+    expect(channelActionTestDoubles.convex.deletePost).not.toHaveBeenCalled()
+
+    resolveCreatePost?.({ postId: optimisticPost?.id ?? "post_missing" })
+    await backgroundTasks[0]
+    await backgroundTasks[1]
+
+    expect(channelActionTestDoubles.convex.deletePost).toHaveBeenCalledTimes(1)
+    expect(channelActionTestDoubles.convex.deletePost).toHaveBeenCalledWith(
+      optimisticPost?.id
+    )
+  })
+
+  it("optimistically edits owned channel posts and syncs the update", async () => {
+    const { backgroundTasks, slice, state } =
+      await createChannelActionsHarness()
+
+    slice.updateChannelPost("post_1", {
+      title: "Updated roadmap",
+      content: "<p>Updated post body</p>",
+    })
+
+    expect(state.channelPosts[0]).toMatchObject({
+      id: "post_1",
+      title: "Updated roadmap",
+      content: "<p>Updated post body</p>",
+    })
+    expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledWith({
+      postId: "post_1",
+      title: "Updated roadmap",
+      content: "<p>Updated post body</p>",
+    })
+    expect(backgroundTasks).toHaveLength(1)
+  })
+
+  it("optimistically edits owned channel-post comments and syncs the update", async () => {
+    const { backgroundTasks, slice, state } =
+      await createChannelActionsHarness()
+
+    slice.updateChannelPostComment("post_1", "comment_1", {
+      content: "<p>Updated reply</p>",
+    })
+
+    expect(state.channelPostComments[0]).toMatchObject({
+      id: "comment_1",
+      content: "<p>Updated reply</p>",
+    })
+    expect(channelActionTestDoubles.convex.updateComment).toHaveBeenCalledWith(
+      "post_1",
+      "comment_1",
+      "<p>Updated reply</p>"
+    )
+    expect(backgroundTasks).toHaveLength(1)
   })
 
   it("does not delete or sync comments owned by another user", async () => {

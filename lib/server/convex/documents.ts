@@ -54,8 +54,7 @@ const COLLABORATION_DOCUMENT_ERROR_MAPPINGS = [
     code: "WORK_ITEM_NOT_FOUND",
   },
   {
-    match:
-      /Could not find public function for 'app:getCollaborationDocument'/i,
+    match: /Could not find public function for 'app:getCollaborationDocument'/i,
     status: 503,
     code: "COLLABORATION_UNAVAILABLE",
     message: "Document collaboration is unavailable",
@@ -208,6 +207,20 @@ const TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS = [
   },
 ] as const
 
+const MUTATE_COMMENT_ERROR_MAPPINGS = [
+  ...TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS,
+  {
+    match: "You can only edit your own comments",
+    status: 403,
+    code: "COMMENT_EDIT_FORBIDDEN",
+  },
+  {
+    match: "You can only delete your own comments",
+    status: 403,
+    code: "COMMENT_DELETE_FORBIDDEN",
+  },
+] as const
+
 const DOCUMENT_PRESENCE_ERROR_MAPPINGS = [
   {
     match: "Document not found",
@@ -353,8 +366,9 @@ export async function getCollaborationDocumentServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...COLLABORATION_DOCUMENT_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...COLLABORATION_DOCUMENT_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -561,6 +575,44 @@ export async function toggleCommentReactionServer(input: {
       coerceApplicationError(error, [
         ...TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS,
       ]) ?? error
+    )
+  }
+}
+
+export async function updateCommentServer(input: {
+  currentUserId: string
+  commentId: string
+  content: string
+}) {
+  const preparedContent = prepareRichTextForStorage(input.content)
+
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateComment,
+      withServerToken({
+        ...input,
+        content: preparedContent.sanitized,
+      })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...MUTATE_COMMENT_ERROR_MAPPINGS]) ?? error
+    )
+  }
+}
+
+export async function deleteCommentServer(input: {
+  currentUserId: string
+  commentId: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.deleteComment,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...MUTATE_COMMENT_ERROR_MAPPINGS]) ?? error
     )
   }
 }

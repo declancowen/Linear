@@ -387,8 +387,8 @@ const viewConfigPatchBaseSchema = z.object({
   route: z.string().trim().min(1).optional(),
 })
 
-export const viewConfigPatchSchema = viewConfigPatchBaseSchema
-  .superRefine((value, ctx) => {
+export const viewConfigPatchSchema = viewConfigPatchBaseSchema.superRefine(
+  (value, ctx) => {
     const hasContainerTypeKey = "containerType" in value
     const hasContainerIdKey = "containerId" in value
     const hasContainerType =
@@ -412,7 +412,8 @@ export const viewConfigPatchSchema = viewConfigPatchBaseSchema
         path: hasContainerType ? ["containerId"] : ["containerType"],
       })
     }
-  })
+  }
+)
 
 export const viewSchema = z
   .object({
@@ -467,6 +468,7 @@ export const workItemSchema = z.object({
   parentId: z.string().nullable().optional(),
   primaryProjectId: z.string().nullable(),
   assigneeId: z.string().nullable(),
+  assigneeIds: z.array(z.string().trim().min(1)).optional(),
   status: z.enum(workStatuses).optional(),
   priority: z.enum(priorities),
   labelIds: z.array(z.string()).optional(),

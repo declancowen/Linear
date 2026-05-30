@@ -1302,7 +1302,7 @@ function getScalarPatchForField(field: GroupField, value: string) {
 
 function getAssigneePatch(data: AppData, value: string) {
   const user = data.users.find((entry) => entry.name === value)
-  return { assigneeId: user?.id ?? null }
+  return { assigneeId: user?.id ?? null, assigneeIds: user ? [user.id] : [] }
 }
 
 function getProjectPatch(data: AppData, value: string) {

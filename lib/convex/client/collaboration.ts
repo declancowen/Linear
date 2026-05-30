@@ -58,7 +58,10 @@ export function syncSendChatMessage(
   )
 }
 
-export function syncToggleChatMessageReaction(messageId: string, emoji: string) {
+export function syncToggleChatMessageReaction(
+  messageId: string,
+  emoji: string
+) {
   return runRouteMutation<{ ok: true }>(
     `/api/chat-messages/${messageId}/reactions`,
     {
@@ -90,6 +93,7 @@ export function syncCreateChannel(input: {
 
 export function syncCreateChannelPost(input: {
   conversationId: string
+  postId?: string
   title: string
   content: string
 }) {
@@ -101,6 +105,7 @@ export function syncCreateChannelPost(input: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        postId: input.postId,
         title: input.title,
         content: input.content,
       }),
@@ -108,11 +113,47 @@ export function syncCreateChannelPost(input: {
   )
 }
 
+export function syncUpdateChannelPost(input: {
+  postId: string
+  title: string
+  content: string
+}) {
+  return runRouteMutation<{ ok: true }>(`/api/channel-posts/${input.postId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      title: input.title,
+      content: input.content,
+    }),
+  })
+}
+
 export function syncAddChannelPostComment(postId: string, content: string) {
   return runRouteMutation<{ commentId: string }>(
     `/api/channel-posts/${postId}/comments`,
     {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        content,
+      }),
+    }
+  )
+}
+
+export function syncUpdateChannelPostComment(
+  postId: string,
+  commentId: string,
+  content: string
+) {
+  return runRouteMutation<{ ok: true }>(
+    `/api/channel-posts/${postId}/comments/${commentId}`,
+    {
+      method: "PATCH",
       headers: {
         "Content-Type": "application/json",
       },

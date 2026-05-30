@@ -958,6 +958,7 @@ export type SnapshotVisibleUserIdInput = {
   visibleWorkItems: Array<{
     creatorId: string
     assigneeId?: string | null
+    assigneeIds?: string[] | null
     subscriberIds: string[]
   }>
   visibleDocuments: Array<{ createdBy: string; updatedBy: string }>
@@ -1024,6 +1025,10 @@ function addSnapshotWorkItemUserIds(input: SnapshotVisibleUserIdInput) {
 
     if (workItem.assigneeId) {
       input.visibleUserIds.add(workItem.assigneeId)
+    }
+
+    for (const assigneeId of workItem.assigneeIds ?? []) {
+      input.visibleUserIds.add(assigneeId)
     }
 
     for (const subscriberId of workItem.subscriberIds) {
@@ -1273,9 +1278,7 @@ function canCurrentUserSeeBootstrapWorkItem(
     return true
   }
 
-  return (
-    workItem.creatorId === currentUserId || workItem.assigneeId === currentUserId
-  )
+  return workItem.creatorId === currentUserId
 }
 
 function createTeamConversationScopes(teamIds: string[]) {
@@ -1611,9 +1614,10 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
       normalizeWorkItem(item, normalizedVisibleTeams)
     ),
     customPropertyDefinitions: returnedCustomPropertyDefinitions,
-    customPropertyValues: visibleCustomPropertyValues.filter((value) =>
-      visibleWorkItemIds.has(value.workItemId) &&
-      returnedCustomPropertyDefinitionIds.has(value.propertyId)
+    customPropertyValues: visibleCustomPropertyValues.filter(
+      (value) =>
+        visibleWorkItemIds.has(value.workItemId) &&
+        returnedCustomPropertyDefinitionIds.has(value.propertyId)
     ),
     documents: visibleDocuments,
     views: visibleViews.map((view) =>

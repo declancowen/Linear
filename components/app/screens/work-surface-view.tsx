@@ -57,6 +57,7 @@ import {
   getCustomPropertyIdFromDisplayReference,
 } from "@/lib/domain/types"
 import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
+import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 import { useAppStore } from "@/lib/store/app-store"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { StatusRing } from "@/components/ui/template-primitives"
@@ -361,6 +362,10 @@ function getCreateDefaultValues({
     status: groupedPatch.status,
     priority: groupedPatch.priority,
     assigneeId: createsPrivateWorkItem ? null : groupedPatch.assigneeId,
+    assigneeIds:
+      !createsPrivateWorkItem && groupedPatch.assigneeId
+        ? [groupedPatch.assigneeId]
+        : [],
     primaryProjectId: createsPrivateWorkItem
       ? null
       : groupedPatch.primaryProjectId !== undefined
@@ -1377,8 +1382,8 @@ export function BoardView({
                 item={activeItem}
                 assignee={
                   (activeItem.visibility ?? "team") !== "private" &&
-                  activeItem.assigneeId
-                    ? getUser(data, activeItem.assigneeId)
+                  getWorkItemAssigneeIds(activeItem)[0]
+                    ? getUser(data, getWorkItemAssigneeIds(activeItem)[0])
                     : null
                 }
                 interactive={false}
@@ -2674,8 +2679,9 @@ function WorkItemChildDisclosure({
         <div className="mt-1.5 flex flex-col gap-1">
           {childItems.map((child) => {
             const childAssignee =
-              (child.visibility ?? "team") !== "private" && child.assigneeId
-                ? getUser(data, child.assigneeId)
+              (child.visibility ?? "team") !== "private" &&
+              getWorkItemAssigneeIds(child)[0]
+                ? getUser(data, getWorkItemAssigneeIds(child)[0])
                 : null
 
             return editable ? (

@@ -2,12 +2,19 @@
 
 import { toast } from "sonner"
 
-import { syncAddComment, syncToggleCommentReaction } from "@/lib/convex/client"
+import {
+  syncAddComment,
+  syncDeleteComment,
+  syncToggleCommentReaction,
+  syncUpdateComment,
+} from "@/lib/convex/client"
 import {
   collectDocumentCommentFollowerIds,
   collectWorkItemCommentFollowerIds,
 } from "@/lib/domain/comment-followers"
+import { collectCommentDescendantIds } from "@/lib/domain/comment-threads"
 import { commentSchema } from "@/lib/domain/types"
+import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 
 import {
   createId,
@@ -17,7 +24,7 @@ import {
   getNow,
   toggleReactionUsers,
 } from "../helpers"
-import type { AddCommentInput, AppStore } from "../types"
+import type { AddCommentInput, AppStore, UpdateCommentInput } from "../types"
 import { effectiveRole, getTeamMemberIds } from "../validation"
 import type { WorkSlice, WorkSliceFactoryArgs } from "./work-shared"
 
@@ -74,6 +81,7 @@ function resolveWorkItemCommentTarget(
       subscriberIds: item.subscriberIds,
       creatorId: item.creatorId,
       assigneeId: item.assigneeId,
+      assigneeIds: getWorkItemAssigneeIds(item),
       existingCommentAuthorIds: existingComments.map(
         (comment) => comment.createdBy
       ),
@@ -259,6 +267,148 @@ function applyCommentStateUpdate(
   }
 }
 
+function touchCommentTarget(
+  state: AppStore,
+  targetType: CommentEntityType,
+  targetId: string,
+  now: string
+): Pick<AppStore, "documents" | "workItems"> {
+  return {
+    workItems:
+      targetType === "workItem"
+        ? state.workItems.map((item) =>
+            item.id === targetId ? { ...item, updatedAt: now } : item
+          )
+        : state.workItems,
+    documents:
+      targetType === "document"
+        ? state.documents.map((document) =>
+            document.id === targetId
+              ? {
+                  ...document,
+                  updatedAt: now,
+                  updatedBy: state.currentUserId,
+                }
+              : document
+          )
+        : state.documents,
+  }
+}
+
+function getCommentMutationTarget(
+  state: AppStore,
+  comment: AppStore["comments"][number]
+) {
+  const input = {
+    targetType: comment.targetType,
+    targetId: comment.targetId,
+    parentCommentId: comment.parentCommentId,
+    content: comment.content,
+  }
+
+  return resolveCommentTarget(
+    state,
+    input,
+    getExistingTargetComments(state, input)
+  )
+}
+
+function canMutateOwnComment(
+  state: AppStore,
+  comment: AppStore["comments"][number]
+) {
+  if (comment.createdBy !== state.currentUserId) {
+    toast.error("You can only edit or delete your own comments")
+    return false
+  }
+
+  const target = getCommentMutationTarget(state, comment)
+  if (!target) {
+    return false
+  }
+
+  const role = effectiveRole(state, target.teamId)
+  if (isReadOnlyRole(role)) {
+    toast.error("Your current role is read-only")
+    return false
+  }
+
+  return true
+}
+
+function getMutableOwnComment(
+  get: WorkSliceFactoryArgs["get"],
+  commentId: string
+) {
+  const comment = get().comments.find((entry) => entry.id === commentId)
+
+  if (!comment || !canMutateOwnComment(get(), comment)) {
+    return null
+  }
+
+  return comment
+}
+
+function updateCommentInState(
+  state: AppStore,
+  commentId: string,
+  input: UpdateCommentInput
+) {
+  const comment = state.comments.find((entry) => entry.id === commentId)
+
+  if (!comment) {
+    return state
+  }
+
+  const now = getNow()
+
+  return {
+    ...state,
+    comments: state.comments.map((entry) =>
+      entry.id === commentId
+        ? {
+            ...entry,
+            content: input.content.trim(),
+            mentionUserIds: createMentionIds(
+              input.content,
+              state.users,
+              comment.targetType === "workItem"
+                ? getTeamMemberIds(
+                    state,
+                    state.workItems.find((item) => item.id === comment.targetId)
+                      ?.teamId ?? ""
+                  )
+                : getTeamMemberIds(
+                    state,
+                    state.documents.find(
+                      (document) => document.id === comment.targetId
+                    )?.teamId ?? ""
+                  )
+            ),
+          }
+        : entry
+    ),
+    ...touchCommentTarget(state, comment.targetType, comment.targetId, now),
+  }
+}
+
+function deleteCommentFromState(state: AppStore, commentId: string) {
+  const comment = state.comments.find((entry) => entry.id === commentId)
+
+  if (!comment) {
+    return state
+  }
+
+  const deletedIds = collectCommentDescendantIds(state.comments, commentId)
+  const now = getNow()
+
+  return {
+    ...state,
+    comments: state.comments.filter((entry) => !deletedIds.has(entry.id)),
+    ...touchCommentTarget(state, comment.targetType, comment.targetId, now),
+  }
+}
+
 function addCommentToState(state: AppStore, input: AddCommentInput) {
   const existingComments = getExistingTargetComments(state, input)
   if (hasMissingParentComment(input, existingComments)) {
@@ -302,7 +452,7 @@ export function createWorkCommentActions({
   set,
 }: WorkSliceFactoryArgs): Pick<
   WorkSlice,
-  "addComment" | "toggleCommentReaction"
+  "addComment" | "deleteComment" | "toggleCommentReaction" | "updateComment"
 > {
   return {
     addComment(input) {
@@ -328,6 +478,51 @@ export function createWorkCommentActions({
       )
 
       toast.success("Comment posted")
+    },
+    updateComment(commentId, input) {
+      const comment = getMutableOwnComment(get, commentId)
+      if (!comment) {
+        return
+      }
+
+      const parsed = commentSchema.safeParse({
+        targetType: comment.targetType,
+        targetId: comment.targetId,
+        parentCommentId: comment.parentCommentId,
+        content: input.content,
+      })
+
+      if (!parsed.success) {
+        toast.error("Comment cannot be empty")
+        return
+      }
+
+      set((state) =>
+        updateCommentInState(state, commentId, {
+          content: parsed.data.content,
+        })
+      )
+
+      runtime.syncInBackground(
+        syncUpdateComment(commentId, parsed.data.content),
+        "Failed to update comment"
+      )
+
+      toast.success("Comment updated")
+    },
+    deleteComment(commentId) {
+      if (!getMutableOwnComment(get, commentId)) {
+        return
+      }
+
+      set((state) => deleteCommentFromState(state, commentId))
+
+      runtime.syncInBackground(
+        syncDeleteComment(commentId),
+        "Failed to delete comment"
+      )
+
+      toast.success("Comment deleted")
     },
     toggleCommentReaction(commentId, emoji) {
       set((state) => ({

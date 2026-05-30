@@ -1,5 +1,9 @@
 import type { Doc } from "../_generated/dataModel"
 import type { MutationCtx } from "../_generated/server"
+import {
+  getWorkItemAssigneeFields,
+  getWorkItemAssigneeIds,
+} from "../../lib/domain/work-item-assignees"
 
 import { defaultUserStatus, defaultUserStatusMessage, getNow } from "./core"
 import {
@@ -370,22 +374,26 @@ async function cleanupRemovedUserWorkItems(
       continue
     }
 
-    const nextAssigneeId =
-      workItem.assigneeId === input.removedUserId ? null : workItem.assigneeId
+    const currentAssigneeIds = getWorkItemAssigneeIds(workItem)
+    const nextAssigneeIds = currentAssigneeIds.filter(
+      (assigneeId) => assigneeId !== input.removedUserId
+    )
+    const nextAssigneeFields = getWorkItemAssigneeFields(nextAssigneeIds)
     const nextSubscriberIds = filterOutUserId(
       workItem.subscriberIds,
       input.removedUserId
     )
 
     if (
-      nextAssigneeId === workItem.assigneeId &&
+      nextAssigneeFields.assigneeId === workItem.assigneeId &&
+      nextAssigneeIds.length === currentAssigneeIds.length &&
       nextSubscriberIds.length === workItem.subscriberIds.length
     ) {
       continue
     }
 
     await ctx.db.patch(workItem._id, {
-      assigneeId: nextAssigneeId,
+      ...nextAssigneeFields,
       subscriberIds: nextSubscriberIds,
       updatedAt: getNow(),
     })
@@ -1347,6 +1355,7 @@ const USER_REFERENCE_PREDICATES: UserReferencePredicate[] = [
     snapshot.workItems.some(
       (workItem) =>
         workItem.assigneeId === userId ||
+        (workItem.assigneeIds ?? []).includes(userId) ||
         workItem.creatorId === userId ||
         workItem.subscriberIds.includes(userId)
     ),

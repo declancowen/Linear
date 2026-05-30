@@ -143,6 +143,14 @@ type CreateChannelPostArgs = ServerAccessArgs & {
   currentUserId: string
   origin: string
   conversationId: string
+  postId?: string
+  title: string
+  content: string
+}
+
+type UpdateChannelPostArgs = ServerAccessArgs & {
+  currentUserId: string
+  postId: string
   title: string
   content: string
 }
@@ -151,6 +159,13 @@ type AddChannelPostCommentArgs = ServerAccessArgs & {
   currentUserId: string
   origin: string
   postId: string
+  content: string
+}
+
+type UpdateChannelPostCommentArgs = ServerAccessArgs & {
+  currentUserId: string
+  postId: string
+  commentId: string
   content: string
 }
 
@@ -1303,7 +1318,12 @@ export async function createChannelPostHandler(
     audienceUserIds: await getConversationAudienceUserIds(ctx, conversation),
   })
   const now = getNow()
-  const postId = createId("channel_post")
+  const postId = args.postId?.trim() || createId("channel_post")
+
+  if (args.postId && (await getChannelPostDoc(ctx, postId))) {
+    throw new Error("Channel post id already exists")
+  }
+
   const mentionUserIds = createMentionIds(
     args.content,
     audience.users,
@@ -1355,6 +1375,58 @@ export async function createChannelPostHandler(
     postId,
     mentionEmails,
   }
+}
+
+export async function updateChannelPostHandler(
+  ctx: MutationCtx,
+  args: UpdateChannelPostArgs
+) {
+  assertServerToken(args.serverToken)
+  const { conversation, post } = await requireChannelPostWriteScope(ctx, {
+    channelKindErrorMessage: "Posts can only be created in channels",
+    currentUserId: args.currentUserId,
+    postId: args.postId,
+  })
+
+  if (post.createdBy !== args.currentUserId) {
+    throw new Error("You can only edit your own posts")
+  }
+
+  const audience = await getMentionAudienceContext(ctx, {
+    actorUserId: args.currentUserId,
+    audienceUserIds: await getConversationAudienceUserIds(ctx, conversation),
+  })
+  const mentionUserIds = createMentionIds(
+    args.content,
+    audience.users,
+    audience.audienceUserIds
+  ).filter((userId) => userId !== args.currentUserId)
+  const now = getNow()
+
+  await ctx.db.patch(post._id, {
+    title: args.title.trim(),
+    content: args.content.trim(),
+    mentionUserIds,
+    updatedAt: now,
+  })
+
+  await ctx.db.patch(conversation._id, {
+    updatedAt: now,
+    lastActivityAt: now,
+  })
+
+  return {
+    ok: true,
+    postId: post.id,
+    conversationId: conversation.id,
+  }
+}
+
+async function getChannelPostCommentDoc(ctx: MutationCtx, commentId: string) {
+  return ctx.db
+    .query("channelPostComments")
+    .withIndex("by_domain_id", (q) => q.eq("id", commentId))
+    .unique()
 }
 
 async function requireChannelPostWriteScope(
@@ -1689,15 +1761,62 @@ export async function deleteChannelPostHandler(
   }
 }
 
+export async function updateChannelPostCommentHandler(
+  ctx: MutationCtx,
+  args: UpdateChannelPostCommentArgs
+) {
+  assertServerToken(args.serverToken)
+  const comment = await getChannelPostCommentDoc(ctx, args.commentId)
+
+  if (!comment) {
+    throw new Error("Comment not found")
+  }
+
+  if (comment.postId !== args.postId) {
+    throw new Error("Comment not found")
+  }
+
+  if (comment.createdBy !== args.currentUserId) {
+    throw new Error("You can only edit your own comments")
+  }
+
+  const { conversation, post } = await requireChannelPostWriteScope(ctx, {
+    channelKindErrorMessage: "Comments can only be added to channels",
+    currentUserId: args.currentUserId,
+    postId: args.postId,
+  })
+
+  const audience = await getChannelCommentAudience(ctx, {
+    content: args.content,
+    conversation,
+    currentUserId: args.currentUserId,
+  })
+  const now = getNow()
+
+  await ctx.db.patch(comment._id, {
+    content: args.content.trim(),
+    mentionUserIds: audience.mentionUserIds,
+  })
+  await touchChannelPostCommentThread(ctx, {
+    conversation,
+    now,
+    post,
+  })
+
+  return {
+    ok: true,
+    postId: post.id,
+    commentId: comment.id,
+    conversationId: conversation.id,
+  }
+}
+
 export async function deleteChannelPostCommentHandler(
   ctx: MutationCtx,
   args: DeleteChannelPostCommentArgs
 ) {
   assertServerToken(args.serverToken)
-  const comment = await ctx.db
-    .query("channelPostComments")
-    .withIndex("by_domain_id", (q) => q.eq("id", args.commentId))
-    .unique()
+  const comment = await getChannelPostCommentDoc(ctx, args.commentId)
 
   if (!comment) {
     return {

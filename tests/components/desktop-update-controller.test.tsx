@@ -218,6 +218,34 @@ describe("DesktopUpdateController", () => {
     ).toBeInTheDocument()
   })
 
+  it("uses the standard toast width for background update prompts", async () => {
+    setElectronApp({
+      getDesktopAppInfo: vi.fn().mockResolvedValue({
+        apiBaseUrl: "https://teams.reciperoom.io",
+        isPackaged: true,
+        platform: "darwin",
+        version: "2.0.0",
+      }),
+      getUpdateState: vi.fn().mockResolvedValue({
+        configured: true,
+        downloadedVersion: "2.0.1",
+        status: "downloaded",
+      }),
+    })
+
+    render(<DesktopUpdateController />)
+
+    await waitFor(() => expect(toastCustomMock).toHaveBeenCalled())
+
+    const [renderToast] = toastCustomMock.mock.calls[0] ?? []
+
+    render(renderToast())
+
+    expect(
+      screen.getByText("Desktop update ready").parentElement?.parentElement
+    ).toHaveClass("w-[var(--width)]")
+  })
+
   it("shows update-available feedback from a forced native menu check", async () => {
     const downloadUpdate = vi.fn().mockResolvedValue({
       accepted: true,

@@ -357,6 +357,7 @@ describe("WorkSurface", () => {
             filters: {
               ...createDefaultViewFilters(),
               assigneeIds: ["user_1"],
+              creatorIds: ["user_2"],
               projectIds: ["project_1"],
               teamIds: ["team_1"],
               visibility: ["private"],
@@ -375,10 +376,11 @@ describe("WorkSurface", () => {
       expect.anything(),
       [privateItem],
       expect.objectContaining({
-        filters: expect.objectContaining({
-          assigneeIds: [],
-          projectIds: [],
-          teamIds: [],
+          filters: expect.objectContaining({
+            assigneeIds: [],
+            creatorIds: [],
+            projectIds: [],
+            teamIds: [],
           visibility: ["private"],
         }),
       }),

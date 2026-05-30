@@ -222,8 +222,8 @@ function AssigneePicker({
   onQueryChange,
   team,
   teamMembers,
-  selectedAssignee,
-  effectiveAssigneeId,
+  selectedAssignees,
+  effectiveAssigneeIds,
   onAssigneeChange,
 }: {
   open: boolean
@@ -232,8 +232,8 @@ function AssigneePicker({
   onQueryChange: (query: string) => void
   team: Team | null
   teamMembers: UserProfile[]
-  selectedAssignee: UserProfile | null
-  effectiveAssigneeId: string
+  selectedAssignees: UserProfile[]
+  effectiveAssigneeIds: string[]
   onAssigneeChange: (assigneeId: string) => void
 }) {
   return (
@@ -243,8 +243,9 @@ function AssigneePicker({
       query={query}
       onQueryChange={onQueryChange}
       members={teamMembers}
-      selectedAssignee={selectedAssignee}
-      selectedAssigneeId={effectiveAssigneeId}
+      selectedAssignees={selectedAssignees}
+      selectedAssigneeIds={effectiveAssigneeIds}
+      selectionMode="multiple"
       disabled={!team}
       onSelect={onAssigneeChange}
     />
@@ -719,8 +720,8 @@ function CreateWorkItemPropertiesRow({
   assigneeQuery,
   setAssigneeQuery,
   teamMembers,
-  selectedAssignee,
-  effectiveAssigneeId,
+  selectedAssignees,
+  effectiveAssigneeIds,
   onAssigneeChange,
   projectPickerOpen,
   setProjectPickerOpen,
@@ -783,8 +784,8 @@ function CreateWorkItemPropertiesRow({
   assigneeQuery: string
   setAssigneeQuery: Dispatch<SetStateAction<string>>
   teamMembers: UserProfile[]
-  selectedAssignee: UserProfile | null
-  effectiveAssigneeId: string
+  selectedAssignees: UserProfile[]
+  effectiveAssigneeIds: string[]
   onAssigneeChange: (assigneeId: string) => void
   projectPickerOpen: boolean
   setProjectPickerOpen: Dispatch<SetStateAction<boolean>>
@@ -859,8 +860,8 @@ function CreateWorkItemPropertiesRow({
           onQueryChange={setAssigneeQuery}
           team={team}
           teamMembers={teamMembers}
-          selectedAssignee={selectedAssignee}
-          effectiveAssigneeId={effectiveAssigneeId}
+          selectedAssignees={selectedAssignees}
+          effectiveAssigneeIds={effectiveAssigneeIds}
           onAssigneeChange={onAssigneeChange}
         />
       ) : null}
@@ -1043,6 +1044,7 @@ type CreateWorkItemDefaultValues = Partial<{
   status: WorkStatus
   priority: Priority
   assigneeId: string | null
+  assigneeIds: string[]
   primaryProjectId: string | null
   parentId: string | null
   labelIds: string[]
@@ -1060,7 +1062,7 @@ type InitialCreateWorkItemState = {
   type: WorkItemType
   status: WorkStatus
   priority: Priority
-  assigneeId: string
+  assigneeIds: string[]
   projectId: string
 }
 
@@ -1235,18 +1237,23 @@ function getTeamMemberIds(teamMemberships: TeamMembership[], teamId: string) {
   )
 }
 
-function getInitialAssigneeId(
+function getInitialAssigneeIds(
   defaultValues: CreateWorkItemDefaultValues | undefined,
   teamMemberships: TeamMembership[],
   teamId: string
 ) {
   const memberIds = getTeamMemberIds(teamMemberships, teamId)
+  const defaultAssigneeIds = [
+    ...(defaultValues?.assigneeIds ?? []),
+    ...(defaultValues?.assigneeId ? [defaultValues.assigneeId] : []),
+  ]
+  const assigneeIds = [
+    ...new Set(
+      defaultAssigneeIds.filter((assigneeId) => memberIds.has(assigneeId))
+    ),
+  ]
 
-  if (defaultValues?.assigneeId && memberIds.has(defaultValues.assigneeId)) {
-    return defaultValues.assigneeId
-  }
-
-  return "none"
+  return assigneeIds
 }
 
 function getInitialProjectId({
@@ -1304,9 +1311,9 @@ function getInitialCreateWorkItemState({
     type: privateTaskMode ? "task" : getInitialWorkItemType(initialType, team),
     status: getInitialStatus(defaultValues, statuses),
     priority: defaultValues?.priority ?? "none",
-    assigneeId: privateTaskMode
-      ? "none"
-      : getInitialAssigneeId(defaultValues, teamMemberships, teamId),
+    assigneeIds: privateTaskMode
+      ? []
+      : getInitialAssigneeIds(defaultValues, teamMemberships, teamId),
     projectId: getInitialProjectId({
       defaultValues,
       defaultProjectId,
@@ -1361,27 +1368,20 @@ function getSelectedProject(projectId: string, teamProjects: Project[]) {
     : (teamProjects.find((project) => project.id === projectId) ?? null)
 }
 
-function getEffectiveAssigneeId(
-  assigneeId: string,
+function getEffectiveAssigneeIds(
+  assigneeIds: string[],
   teamMembers: UserProfile[]
 ) {
-  if (
-    assigneeId !== "none" &&
-    teamMembers.some((member) => member.id === assigneeId)
-  ) {
-    return assigneeId
-  }
-
-  return "none"
+  const memberIds = new Set(teamMembers.map((member) => member.id))
+  return assigneeIds.filter((assigneeId) => memberIds.has(assigneeId))
 }
 
-function getSelectedAssignee(
-  effectiveAssigneeId: string,
+function getSelectedAssignees(
+  effectiveAssigneeIds: string[],
   teamMembers: UserProfile[]
 ) {
-  return effectiveAssigneeId === "none"
-    ? null
-    : (teamMembers.find((user) => user.id === effectiveAssigneeId) ?? null)
+  const assigneeIdSet = new Set(effectiveAssigneeIds)
+  return teamMembers.filter((user) => assigneeIdSet.has(user.id))
 }
 
 function getParentOptionsForCreate({
@@ -1615,7 +1615,7 @@ function applyTeamSelection({
   setType,
   setStatus,
   setPriority,
-  setAssigneeId,
+  setAssigneeIds,
   setProjectId,
   setSelectedParentId,
   setSelectedLabelIds,
@@ -1632,7 +1632,7 @@ function applyTeamSelection({
   setType: Dispatch<SetStateAction<WorkItemType>>
   setStatus: Dispatch<SetStateAction<WorkStatus>>
   setPriority: Dispatch<SetStateAction<Priority>>
-  setAssigneeId: Dispatch<SetStateAction<string>>
+  setAssigneeIds: Dispatch<SetStateAction<string[]>>
   setProjectId: Dispatch<SetStateAction<string>>
   setSelectedParentId: Dispatch<SetStateAction<string>>
   setSelectedLabelIds: Dispatch<SetStateAction<string[]>>
@@ -1652,7 +1652,7 @@ function applyTeamSelection({
   setType(nextDefaults.type)
   setStatus(nextDefaults.status)
   setPriority(nextDefaults.priority)
-  setAssigneeId("none")
+  setAssigneeIds([])
   setProjectId(nextDefaults.projectId)
   setSelectedParentId("none")
   setSelectedLabelIds([])
@@ -1663,7 +1663,7 @@ function applyTeamSelection({
 function applyPrivateDestination({
   setDestination,
   setType,
-  setAssigneeId,
+  setAssigneeIds,
   setProjectId,
   setSelectedParentId,
   setSelectedLabelIds,
@@ -1672,7 +1672,7 @@ function applyPrivateDestination({
 }: {
   setDestination: Dispatch<SetStateAction<CreateWorkItemDestination>>
   setType: Dispatch<SetStateAction<WorkItemType>>
-  setAssigneeId: Dispatch<SetStateAction<string>>
+  setAssigneeIds: Dispatch<SetStateAction<string[]>>
   setProjectId: Dispatch<SetStateAction<string>>
   setSelectedParentId: Dispatch<SetStateAction<string>>
   setSelectedLabelIds: Dispatch<SetStateAction<string[]>>
@@ -1681,7 +1681,7 @@ function applyPrivateDestination({
 }) {
   setDestination("private")
   setType("task")
-  setAssigneeId("none")
+  setAssigneeIds([])
   setProjectId("none")
   setSelectedParentId("none")
   setSelectedLabelIds([])
@@ -1769,7 +1769,7 @@ function createWorkItemFromDialogState({
   priority,
   status,
   selectedLabelIds,
-  effectiveAssigneeId,
+  effectiveAssigneeIds,
   effectiveProjectId,
   startDate,
   dueDate,
@@ -1789,7 +1789,7 @@ function createWorkItemFromDialogState({
   priority: Priority
   status: WorkStatus
   selectedLabelIds: string[]
-  effectiveAssigneeId: string
+  effectiveAssigneeIds: string[]
   effectiveProjectId: string
   startDate: string | null
   dueDate: string | null
@@ -1815,9 +1815,8 @@ function createWorkItemFromDialogState({
     labelIds: selectedLabelIds,
     visibility,
     assigneeId:
-      visibility === "private" || effectiveAssigneeId === "none"
-        ? null
-        : effectiveAssigneeId,
+      visibility === "private" ? null : (effectiveAssigneeIds[0] ?? null),
+    assigneeIds: visibility === "private" ? [] : effectiveAssigneeIds,
     primaryProjectId:
       visibility === "private" || effectiveProjectId === "none"
         ? null
@@ -1982,7 +1981,9 @@ export function CreateWorkItemDialog({
   const [description, setDescription] = useState("")
   const [status, setStatus] = useState<WorkStatus>(initialState.status)
   const [priority, setPriority] = useState<Priority>(initialState.priority)
-  const [assigneeId, setAssigneeId] = useState<string>(initialState.assigneeId)
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(
+    initialState.assigneeIds
+  )
   const [startDate, setStartDate] = useState<string | null>(
     initialDates.startDate
   )
@@ -2009,8 +2010,11 @@ export function CreateWorkItemDialog({
   const [newLabelName, setNewLabelName] = useState("")
   const [creatingLabel, setCreatingLabel] = useState(false)
   const selectedProject = getSelectedProject(projectId, teamProjects)
-  const effectiveAssigneeId = getEffectiveAssigneeId(assigneeId, teamMembers)
-  const selectedAssignee = getSelectedAssignee(effectiveAssigneeId, teamMembers)
+  const effectiveAssigneeIds = getEffectiveAssigneeIds(assigneeIds, teamMembers)
+  const selectedAssignees = getSelectedAssignees(
+    effectiveAssigneeIds,
+    teamMembers
+  )
   const workCopy = getWorkCopyForTeam(team)
   const teamStatuses = getStatusOrderForTeam(team)
   const activeTemplateType = getActiveTemplateType(selectedProject, team)
@@ -2103,7 +2107,7 @@ export function CreateWorkItemDialog({
       priority,
       status,
       selectedLabelIds,
-      effectiveAssigneeId,
+      effectiveAssigneeIds,
       effectiveProjectId,
       startDate,
       dueDate,
@@ -2122,7 +2126,7 @@ export function CreateWorkItemDialog({
       applyPrivateDestination({
         setDestination,
         setType,
-        setAssigneeId,
+        setAssigneeIds,
         setProjectId,
         setSelectedParentId,
         setSelectedLabelIds,
@@ -2144,7 +2148,7 @@ export function CreateWorkItemDialog({
       setType,
       setStatus,
       setPriority,
-      setAssigneeId,
+      setAssigneeIds,
       setProjectId,
       setSelectedParentId,
       setSelectedLabelIds,
@@ -2174,8 +2178,11 @@ export function CreateWorkItemDialog({
   }
 
   function handleAssigneeChange(nextAssigneeId: string) {
-    setAssigneeId(nextAssigneeId)
-    setAssigneePickerOpen(false)
+    setAssigneeIds((current) =>
+      nextAssigneeId === "none"
+        ? []
+        : toggleSelectionValue(current, nextAssigneeId)
+    )
   }
 
   function handleProjectChange(nextProjectId: string) {
@@ -2256,8 +2263,8 @@ export function CreateWorkItemDialog({
           assigneeQuery={assigneeQuery}
           setAssigneeQuery={setAssigneeQuery}
           teamMembers={teamMembers}
-          selectedAssignee={selectedAssignee}
-          effectiveAssigneeId={effectiveAssigneeId}
+          selectedAssignees={selectedAssignees}
+          effectiveAssigneeIds={effectiveAssigneeIds}
           onAssigneeChange={handleAssigneeChange}
           projectPickerOpen={projectPickerOpen}
           setProjectPickerOpen={setProjectPickerOpen}

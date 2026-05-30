@@ -8,6 +8,8 @@ import {
   syncDeleteChannelPost,
   syncDeleteChannelPostComment,
   syncToggleChannelPostReaction,
+  syncUpdateChannelPost,
+  syncUpdateChannelPostComment,
 } from "@/lib/convex/client"
 import { prepareRichTextMessageForStorage } from "@/lib/content/rich-text-security"
 import { channelPostCommentSchema, channelPostSchema } from "@/lib/domain/types"
@@ -35,7 +37,24 @@ type ChannelConversation = AppStore["conversations"][number]
 type ChannelPost = AppStore["channelPosts"][number]
 type ChannelPostComment = AppStore["channelPostComments"][number]
 type NotificationRecord = AppStore["notifications"][number]
+type PreparedChannelPostInput = {
+  conversationId: string
+  title: string
+  content: string
+}
+type UpdateChannelPostInput = {
+  title: string
+  content: string
+}
+type UpdateChannelPostCommentInput = {
+  content: string
+}
 type DeleteChannelPostCommentResult = {
+  error: string | null
+  shouldSync: boolean
+  state: AppStore
+}
+type MutateChannelPostResult = {
   error: string | null
   shouldSync: boolean
   state: AppStore
@@ -43,6 +62,14 @@ type DeleteChannelPostCommentResult = {
 type ReconcileCreatedChannelPostCommentResult = {
   shouldDeleteCreatedComment: boolean
   state: AppStore
+}
+type ReconcileCreatedChannelPostResult = {
+  shouldDeleteCreatedPost: boolean
+  state: AppStore
+}
+type ChannelPostMutationContext = {
+  conversation: ChannelConversation
+  post: ChannelPost
 }
 
 function getChannelConversation(state: AppStore, conversationId: string) {
@@ -142,6 +169,24 @@ function updatePostAfterCommentDelete(
   )
 }
 
+function touchChannelConversation(
+  conversations: ChannelConversation[],
+  input: {
+    conversationId: string
+    now: string
+  }
+) {
+  return conversations.map((entry) =>
+    entry.id === input.conversationId
+      ? {
+          ...entry,
+          updatedAt: input.now,
+          lastActivityAt: input.now,
+        }
+      : entry
+  )
+}
+
 function updateConversationAfterCommentDelete(
   conversations: ChannelConversation[],
   post: ChannelPost | null,
@@ -151,15 +196,224 @@ function updateConversationAfterCommentDelete(
     return conversations
   }
 
-  return conversations.map((entry) =>
-    entry.id === post.conversationId
-      ? {
-          ...entry,
-          updatedAt: now,
-          lastActivityAt: now,
-        }
-      : entry
+  return touchChannelConversation(conversations, {
+    conversationId: post.conversationId,
+    now,
+  })
+}
+
+function getChannelPostMutationConversation(
+  state: AppStore,
+  post: ChannelPost
+) {
+  return getEditableChannelConversation(state, post.conversationId, {
+    requireWorkspaceEdit: true,
+  })
+}
+
+function getOwnedChannelPostMutationContext(
+  state: AppStore,
+  postId: string,
+  action: "delete" | "edit"
+): { context: ChannelPostMutationContext | null; error: string | null } {
+  const post = state.channelPosts.find((entry) => entry.id === postId)
+
+  if (!post) {
+    return { context: null, error: null }
+  }
+
+  if (post.createdBy !== state.currentUserId) {
+    return {
+      context: null,
+      error: `You can only ${action} your own posts`,
+    }
+  }
+
+  const conversation = getChannelPostMutationConversation(state, post)
+  if (!conversation) {
+    return { context: null, error: null }
+  }
+
+  return {
+    context: { conversation, post },
+    error: null,
+  }
+}
+
+function getOwnedChannelPostCommentMutationContext(
+  state: AppStore,
+  postId: string,
+  commentId: string,
+  action: "delete" | "edit"
+): {
+  context: (ChannelPostMutationContext & { comment: ChannelPostComment }) | null
+  error: string | null
+} {
+  const comment = state.channelPostComments.find((entry) =>
+    isTargetChannelPostComment(entry, postId, commentId)
   )
+
+  if (!comment) {
+    return { context: null, error: null }
+  }
+
+  if (comment.createdBy !== state.currentUserId) {
+    return {
+      context: null,
+      error: `You can only ${action} your own comments`,
+    }
+  }
+
+  const post = state.channelPosts.find((entry) => entry.id === postId) ?? null
+
+  if (!post) {
+    return { context: null, error: null }
+  }
+
+  const conversation = getChannelPostMutationConversation(state, post)
+  if (!conversation) {
+    return { context: null, error: null }
+  }
+
+  return {
+    context: {
+      comment,
+      conversation,
+      post,
+    },
+    error: null,
+  }
+}
+
+function getUpdateChannelPostResult(
+  state: AppStore,
+  postId: string,
+  input: UpdateChannelPostInput
+): MutateChannelPostResult {
+  const { context, error } = getOwnedChannelPostMutationContext(
+    state,
+    postId,
+    "edit"
+  )
+  if (!context) {
+    return { error, shouldSync: false, state }
+  }
+
+  const { conversation } = context
+  const now = getNow()
+  const mentionUserIds = getChannelMentionUserIds(
+    state,
+    input.content,
+    getConversationAudienceUserIds(state, conversation)
+  )
+
+  return {
+    error: null,
+    shouldSync: true,
+    state: {
+      ...state,
+      channelPosts: state.channelPosts.map((entry) =>
+        entry.id === postId
+          ? {
+              ...entry,
+              title: input.title.trim(),
+              content: input.content.trim(),
+              mentionUserIds,
+              updatedAt: now,
+            }
+          : entry
+      ),
+      conversations: touchChannelConversation(state.conversations, {
+        conversationId: conversation.id,
+        now,
+      }),
+    },
+  }
+}
+
+function getUpdateChannelPostCommentResult(
+  state: AppStore,
+  postId: string,
+  commentId: string,
+  input: UpdateChannelPostCommentInput
+): MutateChannelPostResult {
+  const { context, error } = getOwnedChannelPostCommentMutationContext(
+    state,
+    postId,
+    commentId,
+    "edit"
+  )
+  if (!context) {
+    return { error, shouldSync: false, state }
+  }
+
+  const { conversation, post } = context
+  const now = getNow()
+  const mentionUserIds = getChannelMentionUserIds(
+    state,
+    input.content,
+    getConversationAudienceUserIds(state, conversation)
+  )
+
+  return {
+    error: null,
+    shouldSync: true,
+    state: {
+      ...state,
+      channelPostComments: state.channelPostComments.map((entry) =>
+        isTargetChannelPostComment(entry, postId, commentId)
+          ? {
+              ...entry,
+              content: input.content.trim(),
+              mentionUserIds,
+            }
+          : entry
+      ),
+      channelPosts: updatePostAfterCommentDelete(state.channelPosts, post, now),
+      conversations: updateConversationAfterCommentDelete(
+        state.conversations,
+        post,
+        now
+      ),
+    },
+  }
+}
+
+function getDeleteChannelPostResult(
+  state: AppStore,
+  postId: string
+): MutateChannelPostResult {
+  const { context, error } = getOwnedChannelPostMutationContext(
+    state,
+    postId,
+    "delete"
+  )
+  if (!context) {
+    return { error, shouldSync: false, state }
+  }
+
+  const { conversation } = context
+  const now = getNow()
+
+  return {
+    error: null,
+    shouldSync: true,
+    state: {
+      ...state,
+      channelPosts: state.channelPosts.filter((entry) => entry.id !== postId),
+      channelPostComments: state.channelPostComments.filter(
+        (entry) => entry.postId !== postId
+      ),
+      notifications: state.notifications.filter(
+        (entry) =>
+          !(entry.entityType === "channelPost" && entry.entityId === postId)
+      ),
+      conversations: touchChannelConversation(state.conversations, {
+        conversationId: conversation.id,
+        now,
+      }),
+    },
+  }
 }
 
 function getDeleteChannelPostCommentResult(
@@ -167,23 +421,17 @@ function getDeleteChannelPostCommentResult(
   postId: string,
   commentId: string
 ): DeleteChannelPostCommentResult {
-  const comment = state.channelPostComments.find((entry) =>
-    isTargetChannelPostComment(entry, postId, commentId)
+  const { context, error } = getOwnedChannelPostCommentMutationContext(
+    state,
+    postId,
+    commentId,
+    "delete"
   )
-
-  if (!comment) {
-    return { error: null, shouldSync: false, state }
+  if (!context) {
+    return { error, shouldSync: false, state }
   }
 
-  if (comment.createdBy !== state.currentUserId) {
-    return {
-      error: "You can only delete your own comments",
-      shouldSync: false,
-      state,
-    }
-  }
-
-  const post = state.channelPosts.find((entry) => entry.id === postId) ?? null
+  const { post } = context
   const now = getNow()
 
   return {
@@ -199,6 +447,64 @@ function getDeleteChannelPostCommentResult(
         state.conversations,
         post,
         now
+      ),
+    },
+  }
+}
+
+function reconcileCreatedChannelPost(
+  state: AppStore,
+  input: {
+    createdPostId: string
+    optimisticPostId: string
+  }
+): ReconcileCreatedChannelPostResult {
+  if (input.createdPostId === input.optimisticPostId) {
+    return {
+      shouldDeleteCreatedPost: !state.channelPosts.some(
+        (post) => post.id === input.optimisticPostId
+      ),
+      state,
+    }
+  }
+
+  const hasOptimisticPost = state.channelPosts.some(
+    (post) => post.id === input.optimisticPostId
+  )
+  const hasCreatedPost = state.channelPosts.some(
+    (post) => post.id === input.createdPostId
+  )
+
+  if (!hasOptimisticPost) {
+    return {
+      shouldDeleteCreatedPost: !hasCreatedPost,
+      state,
+    }
+  }
+
+  return {
+    shouldDeleteCreatedPost: false,
+    state: {
+      ...state,
+      channelPosts: hasCreatedPost
+        ? state.channelPosts.filter(
+            (post) => post.id !== input.optimisticPostId
+          )
+        : state.channelPosts.map((post) =>
+            post.id === input.optimisticPostId
+              ? { ...post, id: input.createdPostId }
+              : post
+          ),
+      channelPostComments: state.channelPostComments.map((comment) =>
+        comment.postId === input.optimisticPostId
+          ? { ...comment, postId: input.createdPostId }
+          : comment
+      ),
+      notifications: state.notifications.map((notification) =>
+        notification.entityType === "channelPost" &&
+        notification.entityId === input.optimisticPostId
+          ? { ...notification, entityId: input.createdPostId }
+          : notification
       ),
     },
   }
@@ -340,11 +646,11 @@ function createOptimisticChannelPostState(
   input: {
     content: string
     conversation: ChannelConversation
+    postId: string
     title: string
   }
 ) {
   const now = getNow()
-  const postId = createId("channel_post")
   const actor = state.users.find((user) => user.id === state.currentUserId)
   const mentionUserIds = getChannelMentionUserIds(
     state,
@@ -357,7 +663,7 @@ function createOptimisticChannelPostState(
   addChannelMentionNotifications(notifications, {
     actorName: actor?.name ?? "Someone",
     currentUserId: state.currentUserId,
-    entityId: postId,
+    entityId: input.postId,
     entityTitle,
     mentionUserIds,
     notifiedUserIds: new Set<string>(),
@@ -367,7 +673,7 @@ function createOptimisticChannelPostState(
     ...state,
     channelPosts: [
       {
-        id: postId,
+        id: input.postId,
         conversationId: input.conversation.id,
         title: input.title,
         content: input.content,
@@ -392,43 +698,86 @@ function createOptimisticChannelPostState(
   }
 }
 
+function prepareChannelPostMutationInput(
+  input: PreparedChannelPostInput
+): PreparedChannelPostInput | null {
+  const parsed = channelPostSchema.safeParse(input)
+  if (!parsed.success) {
+    toast.error("Post details are invalid")
+    return null
+  }
+
+  const preparedContent = prepareRichTextMessageForStorage(
+    parsed.data.content,
+    {
+      minPlainTextCharacters: 2,
+    }
+  )
+
+  if (!preparedContent.isMeaningful) {
+    toast.error("Post content must include at least 2 characters")
+    return null
+  }
+
+  return {
+    ...parsed.data,
+    content: preparedContent.sanitized,
+  }
+}
+
+function applyChannelMutationResult(
+  set: CollaborationSliceFactoryArgs["set"],
+  resolve: (state: AppStore) => MutateChannelPostResult
+) {
+  let decision: Pick<MutateChannelPostResult, "error" | "shouldSync"> = {
+    error: null,
+    shouldSync: false,
+  }
+
+  set((state) => {
+    const result = resolve(state)
+    decision = {
+      error: result.error,
+      shouldSync: result.shouldSync,
+    }
+    return result.state
+  })
+
+  return decision
+}
+
 export function createCollaborationChannelActions({
+  get,
   runtime,
   set,
 }: CollaborationSliceFactoryArgs): Pick<
   CollaborationSlice,
   | "createChannelPost"
+  | "updateChannelPost"
   | "addChannelPostComment"
+  | "updateChannelPostComment"
   | "deleteChannelPost"
   | "deleteChannelPostComment"
   | "toggleChannelPostReaction"
 > {
+  const pendingChannelPostCreates = new Set<string>()
   const pendingChannelPostCommentCreates = new Set<string>()
 
   return {
     createChannelPost(input) {
-      const parsed = channelPostSchema.safeParse(input)
-      if (!parsed.success) {
-        toast.error("Post details are invalid")
+      const prepared = prepareChannelPostMutationInput(input)
+      if (!prepared) {
         return
       }
 
-      const preparedContent = prepareRichTextMessageForStorage(
-        parsed.data.content,
-        {
-          minPlainTextCharacters: 2,
-        }
-      )
-
-      if (!preparedContent.isMeaningful) {
-        toast.error("Post content must include at least 2 characters")
-        return
-      }
+      const postId = createId("channel_post")
+      let shouldSync = false
+      pendingChannelPostCreates.add(postId)
 
       set((state) => {
         const conversation = getEditableChannelConversation(
           state,
-          parsed.data.conversationId,
+          prepared.conversationId,
           {
             requireWorkspaceEdit: true,
           }
@@ -438,22 +787,95 @@ export function createCollaborationChannelActions({
           return state
         }
 
+        shouldSync = true
         return createOptimisticChannelPostState(state, {
-          content: preparedContent.sanitized,
+          content: prepared.content,
           conversation,
-          title: parsed.data.title,
+          postId,
+          title: prepared.title,
         })
       })
 
-      runtime.syncInBackground(
-        syncCreateChannelPost({
-          ...parsed.data,
-          content: preparedContent.sanitized,
-        }),
-        "Failed to create post"
-      )
+      if (!shouldSync) {
+        pendingChannelPostCreates.delete(postId)
+        return
+      }
+
+      const syncTask = syncCreateChannelPost({
+        ...prepared,
+        postId,
+      })
+        .then((result) => {
+          let shouldDeleteCreatedPost = false
+
+          set((state) => {
+            const reconciliation = reconcileCreatedChannelPost(state, {
+              createdPostId: result.postId,
+              optimisticPostId: postId,
+            })
+
+            shouldDeleteCreatedPost = reconciliation.shouldDeleteCreatedPost
+
+            return reconciliation.state
+          })
+
+          if (shouldDeleteCreatedPost) {
+            runtime.syncInBackground(
+              syncDeleteChannelPost(result.postId),
+              "Failed to delete post"
+            )
+          }
+        })
+        .finally(() => {
+          pendingChannelPostCreates.delete(postId)
+        })
+
+      runtime.syncInBackground(syncTask, "Failed to create post")
 
       toast.success("Post published")
+    },
+    updateChannelPost(postId, input) {
+      const post = get().channelPosts.find((entry) => entry.id === postId)
+
+      if (!post) {
+        return
+      }
+
+      const prepared = prepareChannelPostMutationInput({
+        conversationId: post.conversationId,
+        title: input.title,
+        content: input.content,
+      })
+      if (!prepared) {
+        return
+      }
+
+      const { error, shouldSync } = applyChannelMutationResult(set, (state) =>
+        getUpdateChannelPostResult(state, postId, {
+          title: prepared.title,
+          content: prepared.content,
+        })
+      )
+
+      if (error) {
+        toast.error(error)
+        return
+      }
+
+      if (!shouldSync) {
+        return
+      }
+
+      runtime.syncInBackground(
+        syncUpdateChannelPost({
+          postId,
+          title: prepared.title,
+          content: prepared.content,
+        }),
+        "Failed to update post"
+      )
+
+      toast.success("Post updated")
     },
     addChannelPostComment(input) {
       const parsed = channelPostCommentSchema.safeParse(input)
@@ -575,44 +997,73 @@ export function createCollaborationChannelActions({
 
       runtime.syncInBackground(syncTask, "Failed to post reply")
     },
-    deleteChannelPost(postId) {
-      set((state) => {
-        const post = state.channelPosts.find((entry) => entry.id === postId)
-
-        if (!post) {
-          return state
-        }
-
-        if (post.createdBy !== state.currentUserId) {
-          toast.error("You can only delete your own posts")
-          return state
-        }
-
-        const now = getNow()
-
-        return {
-          ...state,
-          channelPosts: state.channelPosts.filter(
-            (entry) => entry.id !== postId
-          ),
-          channelPostComments: state.channelPostComments.filter(
-            (entry) => entry.postId !== postId
-          ),
-          notifications: state.notifications.filter(
-            (entry) =>
-              !(entry.entityType === "channelPost" && entry.entityId === postId)
-          ),
-          conversations: state.conversations.map((entry) =>
-            entry.id === post.conversationId
-              ? {
-                  ...entry,
-                  updatedAt: now,
-                  lastActivityAt: now,
-                }
-              : entry
-          ),
-        }
+    updateChannelPostComment(postId, commentId, input) {
+      const parsed = channelPostCommentSchema.safeParse({
+        postId,
+        content: input.content,
       })
+      if (!parsed.success) {
+        toast.error("Comment content must include at least 1 character")
+        return
+      }
+
+      const preparedContent = prepareRichTextMessageForStorage(
+        parsed.data.content,
+        {
+          minPlainTextCharacters: 1,
+        }
+      )
+
+      if (!preparedContent.isMeaningful) {
+        toast.error("Comment content must include at least 1 character")
+        return
+      }
+
+      const { error, shouldSync } = applyChannelMutationResult(set, (state) =>
+        getUpdateChannelPostCommentResult(state, postId, commentId, {
+          content: preparedContent.sanitized,
+        })
+      )
+
+      if (error) {
+        toast.error(error)
+        return
+      }
+
+      if (!shouldSync) {
+        return
+      }
+
+      runtime.syncInBackground(
+        syncUpdateChannelPostComment(
+          postId,
+          commentId,
+          preparedContent.sanitized
+        ),
+        "Failed to update comment"
+      )
+
+      toast.success("Comment updated")
+    },
+    deleteChannelPost(postId) {
+      const deleteIsPendingCreate = pendingChannelPostCreates.has(postId)
+      const { error, shouldSync } = applyChannelMutationResult(set, (state) =>
+        getDeleteChannelPostResult(state, postId)
+      )
+
+      if (error) {
+        toast.error(error)
+        return
+      }
+
+      if (!shouldSync) {
+        return
+      }
+
+      if (deleteIsPendingCreate) {
+        toast.success("Post deleted")
+        return
+      }
 
       runtime.syncInBackground(
         syncDeleteChannelPost(postId),
@@ -622,25 +1073,14 @@ export function createCollaborationChannelActions({
       toast.success("Post deleted")
     },
     deleteChannelPostComment(postId, commentId) {
-      let deleteError: string | null = null
-      let shouldSync = false
       const deleteIsPendingCreate =
         pendingChannelPostCommentCreates.has(commentId)
+      const { error, shouldSync } = applyChannelMutationResult(set, (state) =>
+        getDeleteChannelPostCommentResult(state, postId, commentId)
+      )
 
-      set((state) => {
-        const result = getDeleteChannelPostCommentResult(
-          state,
-          postId,
-          commentId
-        )
-        deleteError = result.error
-        shouldSync = result.shouldSync
-
-        return result.state
-      })
-
-      if (deleteError) {
-        toast.error(deleteError)
+      if (error) {
+        toast.error(error)
       }
 
       if (!shouldSync) {

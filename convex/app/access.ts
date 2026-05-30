@@ -68,7 +68,7 @@ export type WorkItemAccessTarget = {
 }
 
 function getPrivateWorkItemAccessUserIds(item: WorkItemAccessTarget) {
-  return [item.creatorId, item.assigneeId].filter((userId): userId is string =>
+  return [item.creatorId].filter((userId): userId is string =>
     Boolean(userId)
   )
 }
@@ -92,7 +92,7 @@ function canUserAccessPrivateWorkItem(
   item: WorkItemAccessTarget,
   userId: string
 ) {
-  return item.creatorId === userId || item.assigneeId === userId
+  return item.creatorId === userId
 }
 
 function assertPrivateWorkItemAccess(

@@ -46,6 +46,10 @@ import {
   type WorkItem,
   type WorkStatus,
 } from "@/lib/domain/types"
+import {
+  getWorkItemAssigneeIds,
+  toggleWorkItemAssigneeId,
+} from "@/lib/domain/work-item-assignees"
 import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
@@ -371,13 +375,13 @@ function InlinePriorityPropertyControl({
 }
 
 function InlineAssigneePropertyControl({
-  currentAssignee,
+  currentAssignees,
   editable,
   item,
   teamMembers,
   variant,
 }: {
-  currentAssignee: ReturnType<typeof getUser> | null
+  currentAssignees: UserProfile[]
   editable: boolean
   item: WorkItem
   teamMembers: ReturnType<typeof getTeamMembers>
@@ -385,28 +389,38 @@ function InlineAssigneePropertyControl({
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
-  const empty = !currentAssignee
+  const empty = currentAssignees.length === 0
 
   if (empty && (!editable || variant === "surface")) {
     return null
   }
 
   const triggerClassName = getTriggerClassName(variant, empty)
-  const triggerContents = currentAssignee ? (
-    <>
-      <WorkItemAssigneeAvatar
-        user={currentAssignee}
-        size="xs"
-        className="data-[size=sm]:size-4"
-      />
-      <span className="max-w-[96px] truncate">{currentAssignee.name}</span>
-    </>
-  ) : (
-    <>
-      <User className="size-3.5 shrink-0" />
-      <span>Assignee</span>
-    </>
-  )
+  const triggerContents =
+    currentAssignees.length > 0 ? (
+      <>
+        <span className="flex -space-x-1">
+          {currentAssignees.slice(0, 3).map((assignee) => (
+            <WorkItemAssigneeAvatar
+              key={assignee.id}
+              user={assignee}
+              size="xs"
+              className="border border-surface data-[size=sm]:size-4"
+            />
+          ))}
+        </span>
+        <span className="max-w-[96px] truncate">
+          {currentAssignees.length === 1
+            ? currentAssignees[0]?.name
+            : `${currentAssignees.length} assignees`}
+        </span>
+      </>
+    ) : (
+      <>
+        <User className="size-3.5 shrink-0" />
+        <span>Assignee</span>
+      </>
+    )
 
   if (!editable) {
     return (
@@ -434,15 +448,16 @@ function InlineAssigneePropertyControl({
       <PropertyPopoverList>
         <PropertyPopoverGroup>Assignee</PropertyPopoverGroup>
         <PropertyPopoverItem
-          selected={currentAssignee === null}
+          selected={currentAssignees.length === 0}
           onClick={() => {
             useAppStore.getState().updateWorkItem(item.id, {
               assigneeId: null,
+              assigneeIds: [],
             })
             setOpen(false)
           }}
           trailing={
-            currentAssignee === null ? (
+            currentAssignees.length === 0 ? (
               <Check className="size-[14px] text-foreground" />
             ) : null
           }
@@ -453,15 +468,19 @@ function InlineAssigneePropertyControl({
         {assigneeMatches.map((member) => (
           <PropertyPopoverItem
             key={member.id}
-            selected={member.id === item.assigneeId}
+            selected={getWorkItemAssigneeIds(item).includes(member.id)}
             onClick={() => {
+              const assigneeIds = toggleWorkItemAssigneeId(
+                getWorkItemAssigneeIds(item),
+                member.id
+              )
               useAppStore.getState().updateWorkItem(item.id, {
-                assigneeId: member.id,
+                assigneeId: assigneeIds[0] ?? null,
+                assigneeIds,
               })
-              setOpen(false)
             }}
             trailing={
-              member.id === item.assigneeId ? (
+              getWorkItemAssigneeIds(item).includes(member.id) ? (
                 <Check className="size-[14px] text-foreground" />
               ) : null
             }
@@ -605,37 +624,88 @@ export function InlineWorkItemPropertyControl({
   const customPropertyId = getCustomPropertyIdFromDisplayReference(property)
 
   if (customPropertyId) {
-    const definition =
-      data.customPropertyDefinitions.find(
-        (entry) =>
-          entry.id === customPropertyId &&
-          isCustomPropertyDefinitionForWorkItem(entry, item, data.currentUserId)
-      ) ?? null
-
-    if (!definition) {
-      return null
-    }
-
     return (
-      <CustomPropertyValueControl
+      <InlineCustomPropertyControl
         data={data}
-        definition={definition}
-        item={item}
-        value={
-          data.customPropertyValues.find(
-            (entry) =>
-              entry.workItemId === item.id && entry.propertyId === definition.id
-          ) ?? null
-        }
+        customPropertyId={customPropertyId}
         editable={editable}
-        variant={variant === "child" ? "chip" : "row"}
+        item={item}
+        variant={variant}
       />
     )
   }
 
-  const currentAssignee = item.assigneeId
-    ? getUser(data, item.assigneeId)
-    : null
+  return (
+    <InlineBuiltinPropertyControl
+      data={data}
+      editable={editable}
+      item={item}
+      property={property}
+      team={team}
+      variant={variant}
+    />
+  )
+}
+
+function InlineCustomPropertyControl({
+  customPropertyId,
+  data,
+  editable,
+  item,
+  variant,
+}: {
+  customPropertyId: string
+  data: AppData
+  editable: boolean
+  item: WorkItem
+  variant: InlinePropertyControlVariant
+}) {
+  const definition =
+    data.customPropertyDefinitions.find(
+      (entry) =>
+        entry.id === customPropertyId &&
+        isCustomPropertyDefinitionForWorkItem(entry, item, data.currentUserId)
+    ) ?? null
+
+  if (!definition) {
+    return null
+  }
+
+  return (
+    <CustomPropertyValueControl
+      data={data}
+      definition={definition}
+      item={item}
+      value={
+        data.customPropertyValues.find(
+          (entry) =>
+            entry.workItemId === item.id && entry.propertyId === definition.id
+        ) ?? null
+      }
+      editable={editable}
+      variant={variant === "child" ? "chip" : "row"}
+    />
+  )
+}
+
+function InlineBuiltinPropertyControl({
+  data,
+  editable,
+  item,
+  property,
+  team,
+  variant,
+}: {
+  data: AppData
+  editable: boolean
+  item: WorkItem
+  property: InlineEditableProperty
+  team: AppData["teams"][number] | null | undefined
+  variant: InlinePropertyControlVariant
+}) {
+  const currentAssignees = getWorkItemAssigneeIds(item)
+    .map((assigneeId) => getUser(data, assigneeId))
+    .filter((user): user is UserProfile => Boolean(user))
   const teamMembers = team ? getTeamMembers(data, team.id) : []
   const teamProjects = getTeamProjectOptions(
     data,
@@ -672,7 +742,7 @@ export function InlineWorkItemPropertyControl({
 
   if (property === "assignee") {
     return renderInlineAssigneePropertyControl({
-      currentAssignee,
+      currentAssignees,
       editable,
       item,
       teamMembers,
@@ -692,13 +762,13 @@ export function InlineWorkItemPropertyControl({
 }
 
 function renderInlineAssigneePropertyControl({
-  currentAssignee,
+  currentAssignees,
   editable,
   item,
   teamMembers,
   variant,
 }: {
-  currentAssignee: UserProfile | null
+  currentAssignees: UserProfile[]
   editable: boolean
   item: WorkItem
   teamMembers: UserProfile[]
@@ -710,7 +780,7 @@ function renderInlineAssigneePropertyControl({
 
   return (
     <InlineAssigneePropertyControl
-      currentAssignee={currentAssignee}
+      currentAssignees={currentAssignees}
       editable={editable}
       item={item}
       teamMembers={teamMembers}

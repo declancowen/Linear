@@ -31,6 +31,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import { useChatPresence } from "@/hooks/use-chat-presence"
 import { cn, getPlainTextContent } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
+import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { UserAvatar } from "@/components/app/user-presence"
@@ -449,40 +450,46 @@ function ChatMessageReactionButton({
   currentUserId,
   messageId,
   reaction,
+  usersById,
 }: {
   currentUserId: string
   messageId: string
   reaction: ChatMessageReaction
+  usersById: Map<string, ChatThreadUser>
 }) {
   const active = reaction.userIds.includes(currentUserId)
 
   return (
-    <button
-      type="button"
-      onClick={() =>
-        useAppStore
-          .getState()
-          .toggleChatMessageReaction(messageId, reaction.emoji)
-      }
-      className={cn(
-        "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
-        active
-          ? "border-primary/40 bg-primary/10 text-foreground"
-          : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
-      )}
-    >
-      <span>{reaction.emoji}</span>
-      <span>{reaction.userIds.length}</span>
-    </button>
+    <ReactionUsersHoverCard userIds={reaction.userIds} usersById={usersById}>
+      <button
+        type="button"
+        onClick={() =>
+          useAppStore
+            .getState()
+            .toggleChatMessageReaction(messageId, reaction.emoji)
+        }
+        className={cn(
+          "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
+          active
+            ? "border-primary/40 bg-primary/10 text-foreground"
+            : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
+        )}
+      >
+        <span>{reaction.emoji}</span>
+        <span>{reaction.userIds.length}</span>
+      </button>
+    </ReactionUsersHoverCard>
   )
 }
 
 function ChatMessageReactions({
   currentUserId,
   message,
+  usersById,
 }: {
   currentUserId: string
   message: ChatThreadMessage
+  usersById: Map<string, ChatThreadUser>
 }) {
   const reactions = message.reactions ?? []
 
@@ -494,6 +501,7 @@ function ChatMessageReactions({
           currentUserId={currentUserId}
           messageId={message.id}
           reaction={reaction}
+          usersById={usersById}
         />
       ))}
       <EmojiPickerPopover
@@ -524,6 +532,7 @@ function ChatMessageRow({
   index,
   message,
   previousMessage,
+  usersById,
 }: {
   author?: ChatThreadUser
   authorView: WorkspaceUserPresenceView
@@ -531,6 +540,7 @@ function ChatMessageRow({
   index: number
   message: ChatThreadMessage
   previousMessage?: ChatThreadMessage
+  usersById: Map<string, ChatThreadUser>
 }) {
   const isCurrentUser = message.createdBy === currentUserId
   const { callJoinHref, groupedWithPrev, showDayDivider, showTopMargin } =
@@ -574,6 +584,7 @@ function ChatMessageRow({
           <ChatMessageReactions
             currentUserId={currentUserId}
             message={message}
+            usersById={usersById}
           />
         </div>
       </div>
@@ -653,6 +664,7 @@ function ChatMessageList({
             index={idx}
             message={message}
             previousMessage={previousMessage}
+            usersById={usersById}
           />
         )
       })}

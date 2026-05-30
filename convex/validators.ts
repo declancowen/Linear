@@ -519,6 +519,7 @@ export const workItemFields = {
   status: workStatusValidator,
   priority: priorityValidator,
   assigneeId: nullableString,
+  assigneeIds: v.optional(v.array(v.string())),
   creatorId: v.string(),
   parentId: nullableString,
   primaryProjectId: nullableString,

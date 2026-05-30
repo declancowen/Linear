@@ -131,7 +131,7 @@ describe("CommentsInline", () => {
       teamId: "team_1",
     })
     const model = getInlineChildIssueComposerModel({
-      assigneeId: "user_2",
+      assigneeIds: ["user_2"],
       disabled: false,
       parentItem,
       projectId: "project_external",
@@ -154,7 +154,7 @@ describe("CommentsInline", () => {
     ])
     expect(model.canCreate).toBe(true)
     expect(model.normalizedTitle).toBe("Child task")
-    expect(model.selectedAssignee?.id).toBe("user_2")
+    expect(model.selectedAssignees.map((user) => user.id)).toEqual(["user_2"])
     expect(model.selectedProject?.id).toBe("project_external")
   })
 
@@ -169,7 +169,7 @@ describe("CommentsInline", () => {
 
     expect(
       createInlineChildWorkItem({
-        assigneeId: "none",
+        assigneeIds: [],
         description: "Follow up",
         normalizedTitle: "Child item",
         parentItem: createTestWorkItem("parent_1"),
@@ -184,6 +184,7 @@ describe("CommentsInline", () => {
     expect(createWorkItem).toHaveBeenCalledWith(
       expect.objectContaining({
         assigneeId: null,
+        assigneeIds: [],
         parentId: "parent_1",
         primaryProjectId: null,
         title: "Child item",

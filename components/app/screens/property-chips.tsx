@@ -401,6 +401,62 @@ function AssigneeOption({
   )
 }
 
+function AssigneesOption<TUser extends PropertyAssignee>({
+  assignees,
+}: {
+  assignees: TUser[]
+}) {
+  if (assignees.length === 0) {
+    return (
+      <span className="flex items-center gap-1.5 text-fg-3">
+        <span className="inline-grid size-[18px] place-items-center rounded-full border border-dashed border-line text-[9px] text-fg-3">
+          ?
+        </span>
+        Unassigned
+      </span>
+    )
+  }
+
+  if (assignees.length === 1 && assignees[0]) {
+    return (
+      <AssigneeOption
+        name={assignees[0].name}
+        avatarImageUrl={assignees[0].avatarImageUrl}
+        avatarUrl={assignees[0].avatarUrl}
+      />
+    )
+  }
+
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="flex -space-x-1">
+        {assignees.slice(0, 3).map((assignee) => {
+          const imageSrc = resolveImageAssetSource(
+            assignee.avatarImageUrl,
+            assignee.avatarUrl
+          )
+
+          return (
+            <Avatar
+              key={assignee.id}
+              size="sm"
+              className="size-4 border border-surface data-[size=sm]:size-4"
+            >
+              {imageSrc ? (
+                <AvatarImage src={imageSrc} alt={assignee.name} />
+              ) : null}
+              <AvatarFallback>
+                {getDisplayInitials(assignee.name, "?")}
+              </AvatarFallback>
+            </Avatar>
+          )
+        })}
+      </span>
+      <span className="min-w-0 truncate">{assignees.length} assignees</span>
+    </span>
+  )
+}
+
 export function PropertyAssigneePicker<TUser extends PropertyAssignee>({
   open,
   onOpenChange,
@@ -409,6 +465,9 @@ export function PropertyAssigneePicker<TUser extends PropertyAssignee>({
   members,
   selectedAssignee,
   selectedAssigneeId,
+  selectedAssignees,
+  selectedAssigneeIds,
+  selectionMode = "single",
   disabled,
   onSelect,
 }: {
@@ -417,14 +476,31 @@ export function PropertyAssigneePicker<TUser extends PropertyAssignee>({
   query: string
   onQueryChange: (query: string) => void
   members: TUser[]
-  selectedAssignee: TUser | null
-  selectedAssigneeId: string
+  selectedAssignee?: TUser | null
+  selectedAssigneeId?: string
+  selectedAssignees?: TUser[]
+  selectedAssigneeIds?: string[]
+  selectionMode?: "single" | "multiple"
   disabled: boolean
   onSelect: (assigneeId: string) => void
 }) {
   const matches = members.filter((user) =>
     matchesPropertyQuery(user.name, query)
   )
+  const resolvedSelectedAssignees =
+    selectionMode === "multiple"
+      ? (selectedAssignees ?? [])
+      : selectedAssignee
+        ? [selectedAssignee]
+        : []
+  const selectedIdSet = new Set(
+    selectionMode === "multiple"
+      ? (selectedAssigneeIds ?? [])
+      : selectedAssigneeId && selectedAssigneeId !== "none"
+        ? [selectedAssigneeId]
+        : []
+  )
+  const isUnassigned = selectedIdSet.size === 0
 
   return (
     <PropertySelectionPopover
@@ -436,24 +512,11 @@ export function PropertyAssigneePicker<TUser extends PropertyAssignee>({
           type="button"
           className={cn(
             propertyChipTriggerClass,
-            !selectedAssignee && propertyChipTriggerDashedClass
+            isUnassigned && propertyChipTriggerDashedClass
           )}
           disabled={disabled}
         >
-          {selectedAssignee ? (
-            <AssigneeOption
-              name={selectedAssignee.name}
-              avatarImageUrl={selectedAssignee.avatarImageUrl}
-              avatarUrl={selectedAssignee.avatarUrl}
-            />
-          ) : (
-            <span className="flex items-center gap-1.5 text-fg-3">
-              <span className="inline-grid size-[18px] place-items-center rounded-full border border-dashed border-line text-[9px] text-fg-3">
-                ?
-              </span>
-              Unassigned
-            </span>
-          )}
+          <AssigneesOption assignees={resolvedSelectedAssignees} />
           <CaretDown className="size-3 shrink-0 opacity-60" />
         </button>
       }
@@ -473,7 +536,7 @@ export function PropertyAssigneePicker<TUser extends PropertyAssignee>({
             <>
               <PropertyPopoverGroup>Members</PropertyPopoverGroup>
               {matches.map((user) => {
-                const selected = user.id === selectedAssigneeId
+                const selected = selectedIdSet.has(user.id)
                 return (
                   <PropertyPopoverItem
                     key={user.id}
@@ -501,16 +564,18 @@ export function PropertyAssigneePicker<TUser extends PropertyAssignee>({
           )}
           <PropertyPopoverItem
             muted
-            selected={selectedAssigneeId === "none"}
+            selected={isUnassigned}
             onClick={() => onSelect("none")}
             trailing={
-              selectedAssigneeId === "none" ? (
+              isUnassigned ? (
                 <Check className="size-[14px] text-foreground" />
               ) : null
             }
           >
             <X className="size-[14px] shrink-0" />
-            <span>Unassign</span>
+            <span>
+              {selectionMode === "multiple" ? "Clear assignees" : "Unassign"}
+            </span>
           </PropertyPopoverItem>
         </PropertyPopoverList>
       </PopoverContent>
@@ -548,7 +613,9 @@ export function PropertyDateChip({
           )}
         >
           <CalendarDots className="size-[13px]" />
-          <span className={cn("truncate", value && "font-medium text-foreground")}>
+          <span
+            className={cn("truncate", value && "font-medium text-foreground")}
+          >
             {formatDateInputLabel(value, label)}
           </span>
           <CaretDown className="size-3 shrink-0 opacity-60" />

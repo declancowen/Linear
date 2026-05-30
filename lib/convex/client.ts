@@ -48,6 +48,8 @@ export {
   syncStartConversationCall,
   syncToggleChatMessageReaction,
   syncToggleChannelPostReaction,
+  syncUpdateChannelPost,
+  syncUpdateChannelPostComment,
 } from "./client/collaboration"
 export {
   syncAddComment,
@@ -67,6 +69,7 @@ export {
   syncCreateView,
   syncCreateWorkItem,
   syncDeleteAttachment,
+  syncDeleteComment,
   syncDeleteDocument,
   syncDeleteNotification,
   syncDeleteProject,
@@ -98,6 +101,7 @@ export {
   syncToggleViewHiddenValue,
   syncUnarchiveNotification,
   syncUnarchiveNotifications,
+  syncUpdateComment,
   syncUpdateDocument,
   syncUpdateDocumentContent,
   syncUpdateCustomPropertyDefinition,

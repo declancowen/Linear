@@ -766,7 +766,7 @@ describe("CalendarView", () => {
   })
 
   it("renders multi-day all-day work as one spanning event", () => {
-    const today = startOfDay(new Date())
+    const today = startOfDay(new Date(2026, 4, 18))
     const item = createWorkItem({
       id: "multi-day-item",
       title: "Company holiday",

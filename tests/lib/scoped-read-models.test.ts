@@ -541,6 +541,43 @@ describe("scoped read model selectors", () => {
     )
   })
 
+  it("scopes private work indexes and invalidations to the creator", () => {
+    const snapshot = createSnapshotFixture()
+
+    snapshot.workItems.push(
+      {
+        ...snapshot.workItems[0],
+        id: "item_private_own",
+        key: "PRV-1",
+        title: "Owned private task",
+        descriptionDocId: "doc_private_own",
+        assigneeId: null,
+        creatorId: "user_1",
+        visibility: "private",
+      },
+      {
+        ...snapshot.workItems[0],
+        id: "item_private_assigned_by_other",
+        key: "PRV-2",
+        title: "Assigned private task",
+        descriptionDocId: "doc_private_assigned_by_other",
+        assigneeId: "user_1",
+        creatorId: "user_2",
+        visibility: "private",
+      }
+    )
+
+    expect(
+      selectWorkIndexReadModel(snapshot, "personal", "user_1").workItems?.map(
+        (entry) => entry.id
+      )
+    ).toEqual(["item_1", "item_private_own"])
+    expect(getWorkItemDetailScopeKeys(snapshot, "item_private_own")).toEqual([
+      "work-item-detail:item_private_own",
+      "work-index:personal_user_1",
+    ])
+  })
+
   it("invalidates document indexes for linked project and work item labels", () => {
     const snapshot = createSnapshotFixture()
 

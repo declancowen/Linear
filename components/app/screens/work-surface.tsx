@@ -235,6 +235,7 @@ function getCompatibleWorkSurfaceFilters(view: ViewDefinition) {
 
   const hasUnsupportedPrivateTaskFilters =
     view.filters.assigneeIds.length > 0 ||
+    view.filters.creatorIds.length > 0 ||
     view.filters.projectIds.length > 0 ||
     view.filters.teamIds.length > 0 ||
     view.filters.leadIds.length > 0 ||
@@ -247,6 +248,7 @@ function getCompatibleWorkSurfaceFilters(view: ViewDefinition) {
   return {
     ...view.filters,
     assigneeIds: [],
+    creatorIds: [],
     projectIds: [],
     teamIds: [],
     leadIds: [],

@@ -21,6 +21,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import {
   createTestAppData,
   createTestDocument,
+  createTestTeam,
   createTestTeamMembership,
   createTestUser,
   createTestWorkItem,
@@ -438,6 +439,14 @@ const WORK_ITEM_EDITOR_CLOSE_TIMEOUT_MS = 15_000
 
 function renderWorkItemDetail(itemId = "item_1") {
   return render(<WorkItemDetailScreen itemId={itemId} />)
+}
+
+function getSubtaskSurfaceQueries() {
+  const surface = screen.getAllByText("Sub-tasks")[0]?.closest("section")
+
+  expect(surface).not.toBeNull()
+
+  return within(surface!)
 }
 
 function openWorkItemEditor() {
@@ -1217,7 +1226,7 @@ describe("work item detail screen", () => {
       <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
     )
 
-    const subtasksToggle = screen.getByRole("button", { name: /Subtasks/ })
+    const subtasksToggle = screen.getByRole("button", { name: /Sub-tasks/ })
 
     expect(subtasksToggle).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByText("Child item")).toBeInTheDocument()
@@ -1245,9 +1254,7 @@ describe("work item detail screen", () => {
 
     render(<WorkItemDetailScreen itemId="item_1" />)
 
-    const surface = screen.getByText("Sub-tasks").closest("section")
-    expect(surface).not.toBeNull()
-    const surfaceQueries = within(surface!)
+    const surfaceQueries = getSubtaskSurfaceQueries()
 
     expect(
       surfaceQueries.getByRole("button", { name: "Filter" })
@@ -1321,10 +1328,9 @@ describe("work item detail screen", () => {
 
     render(<WorkItemDetailScreen itemId="item_1" />)
 
-    const surface = screen.getByText("Sub-tasks").closest("section")
-    expect(surface).not.toBeNull()
-    expect(within(surface!).getByText("Customer")).toBeInTheDocument()
-    expect(within(surface!).getByTestId("label-color-dot")).toBeInTheDocument()
+    const surfaceQueries = getSubtaskSurfaceQueries()
+    expect(surfaceQueries.getByText("Customer")).toBeInTheDocument()
+    expect(surfaceQueries.getByTestId("label-color-dot")).toBeInTheDocument()
   })
 
   it("renders every built-in item property selected for detail sub-items", () => {
@@ -1390,9 +1396,7 @@ describe("work item detail screen", () => {
 
     render(<WorkItemDetailScreen itemId="item_1" />)
 
-    const surface = screen.getByText("Sub-tasks").closest("section")
-    expect(surface).not.toBeNull()
-    const surfaceQueries = within(surface!)
+    const surfaceQueries = getSubtaskSurfaceQueries()
 
     expect(surfaceQueries.getByText("Task")).toBeInTheDocument()
     expect(surfaceQueries.getByText("Medium")).toBeInTheDocument()
@@ -1422,6 +1426,43 @@ describe("work item detail screen", () => {
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /^Properties/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("uses the child type label for the sidebar child section", () => {
+    const data = createTestAppData({
+      teams: [
+        createTestTeam({
+          settings: {
+            experience: "software-development",
+          },
+        }),
+      ],
+      workItems: [
+        createTestWorkItem("item_1", {
+          key: "PLA-1",
+          type: "issue",
+          title: "Parent issue",
+        }),
+        createTestWorkItem("item_2", {
+          key: "PLA-2",
+          type: "sub-issue",
+          title: "Child issue",
+          parentId: "item_1",
+        }),
+      ],
+    })
+    const item = data.workItems.find((entry) => entry.id === "item_1")
+
+    render(
+      <WorkItemDetailSidebarSurface data={data} currentItem={item!} editable />
+    )
+
+    expect(
+      screen.getByRole("button", { name: /Sub-issues/ })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Sub-tasks/ })
     ).not.toBeInTheDocument()
   })
 

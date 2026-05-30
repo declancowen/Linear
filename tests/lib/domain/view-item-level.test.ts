@@ -525,7 +525,7 @@ describe("view item levels", () => {
     ).toEqual(["epic", "feature", "story"])
   })
 
-  it("treats private work created by the current user as personal work without assignee state", () => {
+  it("treats only private work created by the current user as personal private work", () => {
     const state = createCurrentUserTeamState("project-management")
     state.workItems = [
       createTestWorkItem("private-owned", {
@@ -533,7 +533,7 @@ describe("view item levels", () => {
         assigneeId: null,
         visibility: "private",
       }),
-      createTestWorkItem("private-legacy-assigned", {
+      createTestWorkItem("private-assigned-by-other-user", {
         creatorId: "user_2",
         assigneeId: "user_1",
         visibility: "private",
@@ -553,7 +553,7 @@ describe("view item levels", () => {
       getVisibleWorkItems(state, {
         assignedToCurrentUser: true,
       }).map((item) => item.id)
-    ).toEqual(["private-owned", "private-legacy-assigned", "team-assigned"])
+    ).toEqual(["private-owned", "team-assigned"])
   })
 
   it("returns the lowest assigned descendants when compressing personal work hierarchies", () => {

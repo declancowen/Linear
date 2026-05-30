@@ -23,14 +23,17 @@ import {
 import { useShallow } from "zustand/react/shallow"
 import {
   CalendarBlank,
+  ArrowBendDoubleUpLeft,
   CaretDown,
   CaretRight,
+  Check,
   CircleDashed,
   Clock,
   DotsThree,
   Flag,
   FolderSimple,
   LinkSimple,
+  MagnifyingGlass,
   NotePencil,
   PaperPlaneTilt,
   Plus,
@@ -112,6 +115,10 @@ import {
   type ViewDefinition,
   type WorkItem,
 } from "@/lib/domain/types"
+import {
+  getWorkItemAssigneeIds,
+  toggleWorkItemAssigneeId,
+} from "@/lib/domain/work-item-assignees"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { useAppStore } from "@/lib/store/app-store"
 import {
@@ -210,6 +217,16 @@ function isAlreadyDeliveredMentionConflict(error: unknown) {
 
 const detailIconButtonClassName =
   "inline-grid size-6 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
+const detailDeleteIconButtonClassName =
+  "inline-grid size-6 place-items-center rounded-md text-fg-3 transition-colors hover:bg-destructive/10 hover:text-destructive"
+const mainActivityReactionButtonClassName =
+  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] transition-colors"
+const mainActivityReactionActiveClassName =
+  "border-transparent bg-accent-bg text-accent-fg"
+const mainActivityReactionInactiveClassName =
+  "border-line bg-surface-2 text-fg-2 hover:bg-surface-3 hover:text-foreground"
+const mainActivityReactionTriggerClassName =
+  "inline-flex items-center gap-1 rounded-full border border-dashed border-line px-2 py-0.5 text-[11.5px] text-fg-3 transition-colors hover:border-fg-4 hover:bg-surface-3 hover:text-foreground"
 
 function formatDetailDate(value: string | null) {
   if (!value) {
@@ -643,6 +660,61 @@ function DetailChildTimestampChip({
   ) : null
 }
 
+type DetailChildDisplayProperty = ViewDefinition["displayProps"][number]
+
+function renderDetailChildSelectedChip(
+  selectedDisplayProps: ReadonlySet<DetailChildDisplayProperty>,
+  property: DetailChildDisplayProperty,
+  node: ReactNode,
+  visible = true
+) {
+  return visible && selectedDisplayProps.has(property) ? node : null
+}
+
+function DetailChildDueDateChip({ item }: { item: WorkItem }) {
+  return item.dueDate ? (
+    <span className={detailChipClassName}>
+      <CalendarBlank className="size-3" />
+      {format(new Date(item.dueDate), "MMM d")}
+    </span>
+  ) : null
+}
+
+function DetailChildLabelChips({
+  labels,
+}: {
+  labels: ReturnType<typeof getDetailChildLabels>
+}) {
+  return labels.map((label) => (
+    <span key={label.id} className={detailChipClassName}>
+      <LabelColorDot color={label.color} className="size-1.5" />
+      <span>{label.name}</span>
+    </span>
+  ))
+}
+
+function DetailChildCustomPropertyChips({
+  data,
+  item,
+  propertyEntries,
+}: {
+  data: AppData
+  item: WorkItem
+  propertyEntries: ReturnType<typeof getDetailChildCustomPropertyEntries>
+}) {
+  return propertyEntries.map(({ definition, value }) => (
+    <CustomPropertyValueControl
+      key={definition.id}
+      data={data}
+      definition={definition}
+      item={item}
+      value={value}
+      editable={false}
+      variant="chip"
+    />
+  ))
+}
+
 function DetailChildPropertyChips({
   data,
   item,
@@ -657,9 +729,11 @@ function DetailChildPropertyChips({
     item,
     selectedDisplayProps,
   })
+  const selectedPropertySet = new Set(selectedDisplayProps)
   const labels = getDetailChildLabels(data, item)
   const showMainAssignee =
-    (item.visibility ?? "team") !== "private" && item.assigneeId !== null
+    (item.visibility ?? "team") !== "private" &&
+    getWorkItemAssigneeIds(item).length > 0
   const showMainPriority = item.priority !== "none"
   const showMainProject =
     (item.visibility ?? "team") !== "private" && item.primaryProjectId !== null
@@ -670,85 +744,98 @@ function DetailChildPropertyChips({
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {selectedDisplayProps.includes("type") ? (
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "type",
         <WorkItemTypeBadge
           data={data}
           item={item}
           className="h-6 rounded-full px-2 text-[11px] text-fg-2"
         />
-      ) : null}
-      {selectedDisplayProps.includes("status") ? (
+      )}
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "status",
         <InlineWorkItemPropertyControl
           data={data}
           item={item}
           property="status"
           variant="child"
         />
-      ) : null}
-      {selectedDisplayProps.includes("priority") && showMainPriority ? (
+      )}
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "priority",
         <InlineWorkItemPropertyControl
           data={data}
           item={item}
           property="priority"
           variant="child"
-        />
-      ) : null}
-      {selectedDisplayProps.includes("assignee") && showMainAssignee ? (
+        />,
+        showMainPriority
+      )}
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "assignee",
         <InlineWorkItemPropertyControl
           data={data}
           item={item}
           property="assignee"
           variant="child"
-        />
-      ) : null}
-      {selectedDisplayProps.includes("progress") ? (
+        />,
+        showMainAssignee
+      )}
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "progress",
         <DetailChildProgressChip data={data} item={item} />
-      ) : null}
-      {selectedDisplayProps.includes("project") && showMainProject ? (
+      )}
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "project",
         <InlineWorkItemPropertyControl
           data={data}
           item={item}
           property="project"
           variant="child"
-        />
-      ) : null}
-      {selectedDisplayProps.includes("parent") ? (
+        />,
+        showMainProject
+      )}
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "parent",
         <DetailChildParentChip data={data} item={item} />
-      ) : null}
-      {selectedDisplayProps.includes("dueDate") && item.dueDate ? (
-        <span className={detailChipClassName}>
-          <CalendarBlank className="size-3" />
-          {format(new Date(item.dueDate), "MMM d")}
-        </span>
-      ) : null}
-      {selectedDisplayProps.includes("milestone") ? (
+      )}
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "dueDate",
+        <DetailChildDueDateChip item={item} />
+      )}
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "milestone",
         <DetailChildMilestoneChip data={data} item={item} />
-      ) : null}
-      {selectedDisplayProps.includes("labels")
-        ? labels.map((label) => (
-            <span key={label.id} className={detailChipClassName}>
-              <LabelColorDot color={label.color} className="size-1.5" />
-              <span>{label.name}</span>
-            </span>
-          ))
-        : null}
-      {selectedDisplayProps.includes("created") ? (
+      )}
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "labels",
+        <DetailChildLabelChips labels={labels} />
+      )}
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "created",
         <DetailChildTimestampChip label="Created" value={item.createdAt} />
-      ) : null}
-      {selectedDisplayProps.includes("updated") ? (
+      )}
+      {renderDetailChildSelectedChip(
+        selectedPropertySet,
+        "updated",
         <DetailChildTimestampChip label="Updated" value={item.updatedAt} />
-      ) : null}
-      {customPropertyEntries.map(({ definition, value }) => (
-        <CustomPropertyValueControl
-          key={definition.id}
-          data={data}
-          definition={definition}
-          item={item}
-          value={value}
-          editable={false}
-          variant="chip"
-        />
-      ))}
+      )}
+      <DetailChildCustomPropertyChips
+        data={data}
+        item={item}
+        propertyEntries={customPropertyEntries}
+      />
     </div>
   )
 }
@@ -803,6 +890,8 @@ function DetailSidebarComment({
   repliesByParentId,
   currentUserId,
   editable,
+  mentionCandidates,
+  usersById,
   depth = 0,
 }: {
   data: AppData
@@ -810,10 +899,18 @@ function DetailSidebarComment({
   repliesByParentId: Record<string, AppData["comments"]>
   currentUserId: string
   editable: boolean
+  mentionCandidates: AppData["users"]
+  usersById: ReadonlyMap<string, AppData["users"][number]>
   depth?: number
 }) {
   const author = getUser(data, comment.createdBy)
   const replies = repliesByParentId[comment.id] ?? []
+  const [repliesOpen, setRepliesOpen] = useState(false)
+  const editState = useWorkItemCommentEditState({
+    comment,
+    currentUserId,
+    editable,
+  })
 
   return (
     <div className={cn(depth > 0 && "mt-3 ml-6 border-l border-line pl-4")}>
@@ -835,12 +932,45 @@ function DetailSidebarComment({
             <span className="text-[11.5px] text-fg-4">
               {formatRelativeTimestamp(comment.createdAt)}
             </span>
+            {editState.canMutateComment ? (
+              <div className="ml-auto flex items-center gap-0.5">
+                <button
+                  type="button"
+                  aria-label="Edit comment"
+                  className={detailIconButtonClassName}
+                  onClick={editState.openEditComposer}
+                >
+                  <NotePencil className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Delete comment"
+                  className={detailDeleteIconButtonClassName}
+                  onClick={() => editState.setDeleteOpen(true)}
+                >
+                  <Trash className="size-3.5" />
+                </button>
+              </div>
+            ) : null}
           </div>
           <div className="mt-1 text-[13px] leading-[1.55] whitespace-pre-wrap text-fg-2">
-            <RichTextContent
-              content={comment.content}
-              className="[&_p]:my-0 [&_p+p]:mt-1"
-            />
+            {editState.editOpen ? (
+              <MainActivityCommentEditComposer
+                editable={editable}
+                editContent={editState.editContent}
+                editEditorRef={editState.editEditorRef}
+                editLimitState={editState.editLimitState}
+                mentionCandidates={mentionCandidates}
+                onCancel={editState.cancelEditComposer}
+                onEditContentChange={editState.setEditContent}
+                onSave={editState.handleEditComment}
+              />
+            ) : (
+              <RichTextContent
+                content={comment.content}
+                className="[&_p]:my-0 [&_p+p]:mt-1"
+              />
+            )}
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
             <CommentReactionButtons
@@ -850,22 +980,53 @@ function DetailSidebarComment({
               currentUserId={currentUserId}
               disabled={!editable}
               inactiveClassName="border-line bg-surface-2 text-fg-2 hover:bg-surface-3"
+              usersById={usersById}
             />
           </div>
+          {replies.length > 0 ? (
+            <button
+              type="button"
+              className="mt-2 inline-flex items-center gap-1 text-[11.5px] text-fg-3 transition-colors hover:text-foreground"
+              onClick={() => setRepliesOpen((current) => !current)}
+            >
+              {repliesOpen ? (
+                <CaretDown className="size-3" />
+              ) : (
+                <CaretRight className="size-3" />
+              )}
+              <span>
+                {repliesOpen ? "Hide" : "Show"} {replies.length}{" "}
+                {replies.length === 1 ? "reply" : "replies"}
+              </span>
+            </button>
+          ) : null}
         </div>
       </div>
+      <ConfirmDialog
+        open={editState.deleteOpen}
+        onOpenChange={editState.setDeleteOpen}
+        title="Delete comment"
+        description="This comment and its replies will be permanently removed. This can't be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={editState.handleDeleteComment}
+      />
 
-      {replies.map((reply) => (
-        <DetailSidebarComment
-          key={reply.id}
-          data={data}
-          comment={reply}
-          repliesByParentId={repliesByParentId}
-          currentUserId={currentUserId}
-          editable={editable}
-          depth={depth + 1}
-        />
-      ))}
+      {repliesOpen
+        ? replies.map((reply) => (
+            <DetailSidebarComment
+              key={reply.id}
+              data={data}
+              comment={reply}
+              repliesByParentId={repliesByParentId}
+              currentUserId={currentUserId}
+              editable={editable}
+              mentionCandidates={mentionCandidates}
+              usersById={usersById}
+              depth={depth + 1}
+            />
+          ))
+        : null}
     </div>
   )
 }
@@ -880,20 +1041,127 @@ function getWorkItemActivityContext(input: {
   const repliesByParentId = groupCommentsByParentId(comments)
 
   return {
-    assignee: input.item.assigneeId
-      ? getUser(input.data, input.item.assigneeId)
-      : null,
+    assignees: getWorkItemAssigneeIds(input.item)
+      .map((assigneeId) => getUser(input.data, assigneeId))
+      .filter((user): user is UserProfile => Boolean(user)),
     creator: getUser(input.data, input.item.creatorId),
     mentionCandidates: getTeamMembers(input.data, input.item.teamId).filter(
       (candidate) => candidate.id !== input.currentUserId
     ),
     repliesByParentId,
     rootComments,
+    usersById: new Map(input.data.users.map((user) => [user.id, user])),
   }
 }
 
 function useWorkItemCommentComposer(itemId: string) {
   return useCommentComposer("workItem", itemId)
+}
+
+function useMainActivityReplyState(
+  comment: AppData["comments"][number],
+  onReplyCreated?: () => void
+) {
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [replyContent, setReplyContent] = useState("")
+  const replyEditorRef = useRef<Editor | null>(null)
+  const replyLimitState = getTextInputLimitState(
+    replyContent,
+    commentContentConstraints,
+    {
+      plainText: true,
+    }
+  )
+
+  function handleReply() {
+    if (!replyLimitState.canSubmit) {
+      return
+    }
+
+    useAppStore.getState().addComment({
+      targetType: "workItem",
+      targetId: comment.targetId,
+      parentCommentId: comment.id,
+      content: replyContent,
+    })
+    setReplyContent("")
+    setReplyOpen(false)
+    onReplyCreated?.()
+  }
+
+  return {
+    handleReply,
+    replyContent,
+    replyEditorRef,
+    replyLimitState,
+    replyOpen,
+    setReplyContent,
+    setReplyOpen,
+  }
+}
+
+function useWorkItemCommentEditState({
+  comment,
+  currentUserId,
+  editable,
+}: {
+  comment: AppData["comments"][number]
+  currentUserId: string
+  editable: boolean
+}) {
+  const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [editContent, setEditContent] = useState(comment.content)
+  const editEditorRef = useRef<Editor | null>(null)
+  const editLimitState = getTextInputLimitState(
+    editContent,
+    commentContentConstraints,
+    {
+      plainText: true,
+    }
+  )
+  const canMutateComment = editable && comment.createdBy === currentUserId
+
+  function openEditComposer() {
+    setEditContent(comment.content)
+    setEditOpen(true)
+  }
+
+  function cancelEditComposer() {
+    setEditContent(comment.content)
+    setEditOpen(false)
+  }
+
+  function handleEditComment() {
+    if (!editLimitState.canSubmit) {
+      return
+    }
+
+    useAppStore.getState().updateComment(comment.id, {
+      content: editContent,
+    })
+    setEditOpen(false)
+  }
+
+  function handleDeleteComment() {
+    useAppStore.getState().deleteComment(comment.id)
+    setDeleteOpen(false)
+  }
+
+  return {
+    cancelEditComposer,
+    canMutateComment,
+    deleteOpen,
+    editContent,
+    editEditorRef,
+    editLimitState,
+    editOpen,
+    handleDeleteComment,
+    handleEditComment,
+    openEditComposer,
+    setDeleteOpen,
+    setEditContent,
+  }
 }
 
 function DetailSidebarActivity({
@@ -908,11 +1176,12 @@ function DetailSidebarActivity({
   editable: boolean
 }) {
   const {
-    assignee,
+    assignees,
     creator,
     mentionCandidates,
     repliesByParentId,
     rootComments,
+    usersById,
   } = getWorkItemActivityContext({ currentUserId, data, item })
   const {
     commentEditorRef,
@@ -929,16 +1198,14 @@ function DetailSidebarActivity({
       body: "created this item",
       when: item.createdAt,
     },
-    ...(assignee && assignee.id !== creator?.id
-      ? [
-          {
-            id: `${item.id}-assignee`,
-            user: assignee,
-            body: "is assigned to this item",
-            when: item.updatedAt,
-          },
-        ]
-      : []),
+    ...assignees
+      .filter((assignee) => assignee.id !== creator?.id)
+      .map((assignee) => ({
+        id: `${item.id}-assignee-${assignee.id}`,
+        user: assignee,
+        body: "is assigned to this item",
+        when: item.updatedAt,
+      })),
   ]
 
   return (
@@ -976,6 +1243,8 @@ function DetailSidebarActivity({
           repliesByParentId={repliesByParentId}
           currentUserId={currentUserId}
           editable={editable}
+          mentionCandidates={mentionCandidates}
+          usersById={usersById}
         />
       ))}
 
@@ -1060,35 +1329,102 @@ function MainActivityThreadItem({
   )
 }
 
-function MainActivityReactionButton({
-  emoji,
-  count,
-  active,
-  disabled,
-  onToggle,
+function MainActivityCommentReactionControls({
+  className,
+  comment,
+  currentUserId,
+  editable,
+  usersById,
 }: {
-  emoji: string
-  count: number
-  active: boolean
-  disabled?: boolean
-  onToggle: () => void
+  className?: string
+  comment: AppData["comments"][number]
+  currentUserId: string
+  editable: boolean
+  usersById: ReadonlyMap<string, AppData["users"][number]>
 }) {
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onToggle}
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] transition-colors",
-        active
-          ? "border-transparent bg-accent-bg text-accent-fg"
-          : "border-line bg-surface-2 text-fg-2 hover:bg-surface-3 hover:text-foreground",
-        disabled && "opacity-60"
-      )}
-    >
-      <span>{emoji}</span>
-      <span className="tabular-nums">{count}</span>
-    </button>
+    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+      <CommentReactionButtons
+        activeClassName={mainActivityReactionActiveClassName}
+        buttonClassName={mainActivityReactionButtonClassName}
+        comment={comment}
+        currentUserId={currentUserId}
+        disabled={!editable}
+        inactiveClassName={mainActivityReactionInactiveClassName}
+        usersById={usersById}
+      />
+      {editable ? (
+        <EmojiPickerPopover
+          align="start"
+          side="top"
+          onEmojiSelect={(emoji) => {
+            useAppStore.getState().toggleCommentReaction(comment.id, emoji)
+          }}
+          trigger={
+            <button
+              type="button"
+              className={mainActivityReactionTriggerClassName}
+            >
+              <Smiley className="size-3" />
+              <span>React</span>
+            </button>
+          }
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function MainActivityCommentActionButtons({
+  canMutateComment,
+  editable,
+  replyOpen,
+  onDelete,
+  onEdit,
+  onToggleReply,
+}: {
+  canMutateComment: boolean
+  editable: boolean
+  replyOpen: boolean
+  onDelete: () => void
+  onEdit: () => void
+  onToggleReply: () => void
+}) {
+  if (!editable) {
+    return null
+  }
+
+  return (
+    <div className="ml-auto flex items-center gap-0.5">
+      <button
+        type="button"
+        aria-label={replyOpen ? "Cancel reply" : "Reply"}
+        className={detailIconButtonClassName}
+        onClick={onToggleReply}
+      >
+        <ArrowBendDoubleUpLeft className="size-3.5" />
+      </button>
+      {canMutateComment ? (
+        <>
+          <button
+            type="button"
+            aria-label="Edit comment"
+            className={detailIconButtonClassName}
+            onClick={onEdit}
+          >
+            <NotePencil className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Delete comment"
+            className={detailDeleteIconButtonClassName}
+            onClick={onDelete}
+          >
+            <Trash className="size-3.5" />
+          </button>
+        </>
+      ) : null}
+    </div>
   )
 }
 
@@ -1099,7 +1435,7 @@ function MainActivityCommentCard({
   currentUserId,
   editable,
   mentionCandidates,
-  nested = false,
+  usersById,
 }: {
   data: AppData
   comment: AppData["comments"][number]
@@ -1107,60 +1443,52 @@ function MainActivityCommentCard({
   currentUserId: string
   editable: boolean
   mentionCandidates: AppData["users"]
-  nested?: boolean
+  usersById: ReadonlyMap<string, AppData["users"][number]>
 }) {
   const author = getUser(data, comment.createdBy)
   const replies = repliesByParentId[comment.id] ?? []
-  const [replyOpen, setReplyOpen] = useState(false)
-  const [replyContent, setReplyContent] = useState("")
-  const replyEditorRef = useRef<Editor | null>(null)
-  const replyLimitState = getTextInputLimitState(
-    replyContent,
-    commentContentConstraints,
-    {
-      plainText: true,
-    }
+  const [repliesOpen, setRepliesOpen] = useState(true)
+  const replyState = useMainActivityReplyState(comment, () =>
+    setRepliesOpen(true)
   )
-
-  function handleReply() {
-    if (!replyLimitState.canSubmit) {
-      return
-    }
-
-    useAppStore.getState().addComment({
-      targetType: "workItem",
-      targetId: comment.targetId,
-      parentCommentId: comment.id,
-      content: replyContent,
-    })
-    setReplyContent("")
-    setReplyOpen(false)
-  }
+  const editState = useWorkItemCommentEditState({
+    comment,
+    currentUserId,
+    editable,
+  })
 
   return (
-    <article
-      className={cn(
-        "group/comment overflow-hidden rounded-xl border border-line bg-surface transition-colors",
-        !nested && "shadow-[0_1px_0_0_var(--line-soft)]"
-      )}
-    >
-      <MainActivityCommentHeader
-        author={author}
-        comment={comment}
-        nested={nested}
-      />
+    <article className="group/comment overflow-hidden rounded-xl border border-line bg-surface shadow-[0_1px_0_0_var(--line-soft)] transition-colors">
+      <MainActivityCommentHeader author={author} comment={comment} />
       <div className="px-3.5 pt-1 pb-3">
-        <RichTextContent
-          content={comment.content}
-          className="text-[13px] leading-[1.6] text-fg-2 [&_p]:my-0 [&_p+p]:mt-2 [&_ul]:my-1 [&_ul]:ml-4 [&_ul]:list-disc"
-        />
+        {editState.editOpen ? (
+          <MainActivityCommentEditComposer
+            editable={editable}
+            editContent={editState.editContent}
+            editEditorRef={editState.editEditorRef}
+            editLimitState={editState.editLimitState}
+            mentionCandidates={mentionCandidates}
+            onCancel={editState.cancelEditComposer}
+            onEditContentChange={editState.setEditContent}
+            onSave={editState.handleEditComment}
+          />
+        ) : (
+          <RichTextContent
+            content={comment.content}
+            className="text-[13px] leading-[1.6] text-fg-2 [&_p]:my-0 [&_p+p]:mt-2 [&_ul]:my-1 [&_ul]:ml-4 [&_ul]:list-disc"
+          />
+        )}
       </div>
       <MainActivityCommentFooter
+        canMutateComment={editState.canMutateComment}
         comment={comment}
         currentUserId={currentUserId}
         editable={editable}
-        replyOpen={replyOpen}
-        onToggleReply={() => setReplyOpen((current) => !current)}
+        replyOpen={replyState.replyOpen}
+        onDelete={() => editState.setDeleteOpen(true)}
+        onEdit={editState.openEditComposer}
+        onToggleReply={() => replyState.setReplyOpen((current) => !current)}
+        usersById={usersById}
       />
       <MainActivityCommentReplies
         data={data}
@@ -1169,23 +1497,35 @@ function MainActivityCommentCard({
         currentUserId={currentUserId}
         editable={editable}
         mentionCandidates={mentionCandidates}
+        usersById={usersById}
+        open={repliesOpen}
+        onToggle={() => setRepliesOpen((current) => !current)}
       />
 
-      {replyOpen ? (
+      {replyState.replyOpen ? (
         <MainActivityReplyComposer
           editable={editable}
           mentionCandidates={mentionCandidates}
-          replyContent={replyContent}
-          replyEditorRef={replyEditorRef}
-          replyLimitState={replyLimitState}
+          replyContent={replyState.replyContent}
+          replyEditorRef={replyState.replyEditorRef}
+          replyLimitState={replyState.replyLimitState}
           onCancel={() => {
-            setReplyContent("")
-            setReplyOpen(false)
+            replyState.setReplyContent("")
+            replyState.setReplyOpen(false)
           }}
-          onReply={handleReply}
-          onReplyContentChange={setReplyContent}
+          onReply={replyState.handleReply}
+          onReplyContentChange={replyState.setReplyContent}
         />
       ) : null}
+      <ConfirmDialog
+        open={editState.deleteOpen}
+        onOpenChange={editState.setDeleteOpen}
+        title="Delete comment"
+        description="This comment and its replies will be permanently removed. This can't be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={editState.handleDeleteComment}
+      />
     </article>
   )
 }
@@ -1193,25 +1533,12 @@ function MainActivityCommentCard({
 function MainActivityCommentHeader({
   author,
   comment,
-  nested,
 }: {
   author: AppData["users"][number] | null | undefined
   comment: AppData["comments"][number]
-  nested: boolean
 }) {
   return (
     <header className="flex items-center gap-2 px-3.5 pt-2.5">
-      {nested ? (
-        <UserAvatar
-          name={author?.name ?? "Unknown"}
-          avatarImageUrl={author?.avatarImageUrl}
-          avatarUrl={author?.avatarUrl}
-          status={author?.status}
-          size="sm"
-          showStatus={false}
-          className="size-5"
-        />
-      ) : null}
       <span className="text-[12.5px] font-semibold text-foreground">
         {author?.name ?? "Unknown"}
       </span>
@@ -1225,66 +1552,115 @@ function MainActivityCommentHeader({
   )
 }
 
+function MainActivityCommentEditComposer({
+  editable,
+  editContent,
+  editEditorRef,
+  editLimitState,
+  mentionCandidates,
+  onCancel,
+  onEditContentChange,
+  onSave,
+}: {
+  editable: boolean
+  editContent: string
+  editEditorRef: MutableRefObject<Editor | null>
+  editLimitState: ReturnType<typeof getTextInputLimitState>
+  mentionCandidates: AppData["users"]
+  onCancel: () => void
+  onEditContentChange: (content: string) => void
+  onSave: () => void
+}) {
+  return (
+    <div className="rounded-lg border border-line bg-surface transition-colors focus-within:border-fg-3">
+      <div className="px-3 py-2">
+        <RichTextEditor
+          content={editContent}
+          onChange={onEditContentChange}
+          editable={editable}
+          compact
+          autoFocus
+          allowSlashCommands={false}
+          showToolbar={false}
+          showStats={false}
+          placeholder="Edit comment..."
+          editorInstanceRef={editEditorRef}
+          mentionCandidates={mentionCandidates}
+          minPlainTextCharacters={commentContentConstraints.min}
+          maxPlainTextCharacters={commentContentConstraints.max}
+          enforcePlainTextLimit
+          onSubmitShortcut={onSave}
+          submitOnEnter
+          className="[&_.ProseMirror]:min-h-[2.5rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+        />
+      </div>
+      <div className="border-t border-dashed border-line px-3 py-1.5">
+        <WorkItemCommentComposerActions
+          editable={editable}
+          editorRef={editEditorRef}
+          emojiButtonClassName="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
+          emojiIconClassName="size-3.5"
+          limitState={editLimitState}
+        >
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!editLimitState.canSubmit}
+              onClick={onSave}
+            >
+              Save
+            </Button>
+          </div>
+        </WorkItemCommentComposerActions>
+      </div>
+    </div>
+  )
+}
+
 function MainActivityCommentFooter({
+  canMutateComment,
   comment,
   currentUserId,
   editable,
   replyOpen,
+  onDelete,
+  onEdit,
   onToggleReply,
+  usersById,
 }: {
+  canMutateComment: boolean
   comment: AppData["comments"][number]
   currentUserId: string
   editable: boolean
   replyOpen: boolean
+  onDelete: () => void
+  onEdit: () => void
   onToggleReply: () => void
+  usersById: ReadonlyMap<string, AppData["users"][number]>
 }) {
   if (comment.reactions.length === 0 && !editable) {
     return null
   }
 
   return (
-    <footer className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-surface-2/40 px-3.5 py-1.5">
-      {comment.reactions.map((reaction) => (
-        <MainActivityReactionButton
-          key={`${comment.id}-${reaction.emoji}`}
-          emoji={reaction.emoji}
-          count={reaction.userIds.length}
-          active={reaction.userIds.includes(currentUserId)}
-          disabled={!editable}
-          onToggle={() =>
-            useAppStore
-              .getState()
-              .toggleCommentReaction(comment.id, reaction.emoji)
-          }
-        />
-      ))}
-      {editable ? (
-        <>
-          <EmojiPickerPopover
-            align="start"
-            side="top"
-            onEmojiSelect={(emoji) => {
-              useAppStore.getState().toggleCommentReaction(comment.id, emoji)
-            }}
-            trigger={
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-full border border-dashed border-line px-2 py-0.5 text-[11.5px] text-fg-3 transition-colors hover:border-fg-4 hover:bg-surface-3 hover:text-foreground"
-              >
-                <Smiley className="size-3" />
-                <span>React</span>
-              </button>
-            }
-          />
-          <button
-            type="button"
-            className="ml-1 text-[11.5px] text-fg-3 transition-colors hover:text-foreground"
-            onClick={onToggleReply}
-          >
-            {replyOpen ? "Cancel reply" : "Reply"}
-          </button>
-        </>
-      ) : null}
+    <footer className="flex items-center gap-2 border-t border-line-soft bg-surface-2/40 px-3.5 py-1.5">
+      <MainActivityCommentReactionControls
+        comment={comment}
+        currentUserId={currentUserId}
+        editable={editable}
+        usersById={usersById}
+      />
+      <MainActivityCommentActionButtons
+        canMutateComment={canMutateComment}
+        editable={editable}
+        replyOpen={replyOpen}
+        onDelete={onDelete}
+        onEdit={onEdit}
+        onToggleReply={onToggleReply}
+      />
     </footer>
   )
 }
@@ -1296,6 +1672,9 @@ function MainActivityCommentReplies({
   currentUserId,
   editable,
   mentionCandidates,
+  usersById,
+  open,
+  onToggle,
 }: {
   data: AppData
   replies: AppData["comments"]
@@ -1303,34 +1682,206 @@ function MainActivityCommentReplies({
   currentUserId: string
   editable: boolean
   mentionCandidates: AppData["users"]
+  usersById: ReadonlyMap<string, AppData["users"][number]>
+  open: boolean
+  onToggle: () => void
 }) {
   if (replies.length === 0) {
     return null
   }
 
+  const flatReplies = flattenReplyThread(replies, repliesByParentId)
+  const replyCount = flatReplies.length
+  const replyNoun = replyCount === 1 ? "reply" : "replies"
+
   return (
-    <div className="border-t border-line-soft bg-surface-2/30 px-3.5 py-3">
-      <ul className="flex flex-col gap-2.5">
-        {replies.map((reply) => (
-          <li key={reply.id}>
-            <MainActivityCommentCard
-              data={data}
-              comment={reply}
-              repliesByParentId={repliesByParentId}
+    <div className="border-t border-line-soft">
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 px-3.5 py-1.5 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        {open ? (
+          <CaretDown className="size-3" />
+        ) : (
+          <CaretRight className="size-3" />
+        )}
+        <span>
+          {open ? "Hide" : "Show"} {replyCount} {replyNoun}
+        </span>
+      </button>
+      {open ? (
+        <ul className="flex flex-col divide-y divide-line-soft border-t border-line-soft px-3.5">
+          {flatReplies.map((reply) => (
+            <li key={reply.id} className="py-2.5 first:pt-3 last:pb-3">
+              <MainActivityCommentReplyRow
+                data={data}
+                comment={reply}
+                currentUserId={currentUserId}
+                editable={editable}
+                mentionCandidates={mentionCandidates}
+                usersById={usersById}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
+function flattenReplyThread(
+  replies: AppData["comments"],
+  repliesByParentId: Record<string, AppData["comments"]>
+) {
+  const flat: AppData["comments"] = []
+  const seen = new Set<string>()
+
+  function visit(list: AppData["comments"]) {
+    for (const reply of list) {
+      if (seen.has(reply.id)) {
+        continue
+      }
+      seen.add(reply.id)
+      flat.push(reply)
+      const children = repliesByParentId[reply.id] ?? []
+      if (children.length > 0) {
+        visit(children)
+      }
+    }
+  }
+
+  visit(replies)
+  return flat.sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt)
+  )
+}
+
+function MainActivityCommentReplyRow({
+  data,
+  comment,
+  currentUserId,
+  editable,
+  mentionCandidates,
+  usersById,
+}: {
+  data: AppData
+  comment: AppData["comments"][number]
+  currentUserId: string
+  editable: boolean
+  mentionCandidates: AppData["users"]
+  usersById: ReadonlyMap<string, AppData["users"][number]>
+}) {
+  const author = getUser(data, comment.createdBy)
+  const replyState = useMainActivityReplyState(comment)
+  const editState = useWorkItemCommentEditState({
+    comment,
+    currentUserId,
+    editable,
+  })
+
+  const showActions = comment.reactions.length > 0 || editable
+
+  return (
+    <div className="group/reply flex gap-2.5">
+      <div className="pt-0.5">
+        <UserAvatar
+          name={author?.name ?? "Unknown"}
+          avatarImageUrl={author?.avatarImageUrl}
+          avatarUrl={author?.avatarUrl}
+          status={author?.status}
+          size="sm"
+          showStatus={false}
+          className="size-5"
+        />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[12.5px] font-semibold text-foreground">
+            {author?.name ?? "Unknown"}
+          </span>
+          <span className="text-[11px] text-fg-4">
+            replied {formatRelativeTimestamp(comment.createdAt)}
+          </span>
+          <span className="ml-auto hidden text-[11px] text-fg-4 group-hover/reply:inline">
+            {format(new Date(comment.createdAt), "MMM d, h:mm a")}
+          </span>
+        </div>
+        {editState.editOpen ? (
+          <div className="mt-2">
+            <MainActivityCommentEditComposer
+              editable={editable}
+              editContent={editState.editContent}
+              editEditorRef={editState.editEditorRef}
+              editLimitState={editState.editLimitState}
+              mentionCandidates={mentionCandidates}
+              onCancel={editState.cancelEditComposer}
+              onEditContentChange={editState.setEditContent}
+              onSave={editState.handleEditComment}
+            />
+          </div>
+        ) : (
+          <RichTextContent
+            content={comment.content}
+            className="mt-0.5 text-[13px] leading-[1.6] text-fg-2 [&_p]:my-0 [&_p+p]:mt-2 [&_ul]:my-1 [&_ul]:ml-4 [&_ul]:list-disc"
+          />
+        )}
+        {showActions ? (
+          <div className="mt-1.5 flex items-center gap-2">
+            <MainActivityCommentReactionControls
+              comment={comment}
               currentUserId={currentUserId}
               editable={editable}
-              mentionCandidates={mentionCandidates}
-              nested
+              usersById={usersById}
             />
-          </li>
-        ))}
-      </ul>
+            <MainActivityCommentActionButtons
+              canMutateComment={editState.canMutateComment}
+              editable={editable}
+              replyOpen={replyState.replyOpen}
+              onDelete={() => editState.setDeleteOpen(true)}
+              onEdit={editState.openEditComposer}
+              onToggleReply={() =>
+                replyState.setReplyOpen((current) => !current)
+              }
+            />
+          </div>
+        ) : null}
+        {replyState.replyOpen ? (
+          <div className="mt-2">
+            <MainActivityReplyComposer
+              framed={false}
+              editable={editable}
+              mentionCandidates={mentionCandidates}
+              replyContent={replyState.replyContent}
+              replyEditorRef={replyState.replyEditorRef}
+              replyLimitState={replyState.replyLimitState}
+              onCancel={() => {
+                replyState.setReplyContent("")
+                replyState.setReplyOpen(false)
+              }}
+              onReply={replyState.handleReply}
+              onReplyContentChange={replyState.setReplyContent}
+            />
+          </div>
+        ) : null}
+        <ConfirmDialog
+          open={editState.deleteOpen}
+          onOpenChange={editState.setDeleteOpen}
+          title="Delete comment"
+          description="This comment and its replies will be permanently removed. This can't be undone."
+          confirmLabel="Delete"
+          variant="destructive"
+          onConfirm={editState.handleDeleteComment}
+        />
+      </div>
     </div>
   )
 }
 
 function MainActivityReplyComposer({
   editable,
+  framed = true,
   mentionCandidates,
   replyContent,
   replyEditorRef,
@@ -1340,6 +1891,7 @@ function MainActivityReplyComposer({
   onReplyContentChange,
 }: {
   editable: boolean
+  framed?: boolean
   mentionCandidates: AppData["users"]
   replyContent: string
   replyEditorRef: MutableRefObject<Editor | null>
@@ -1348,57 +1900,65 @@ function MainActivityReplyComposer({
   onReply: () => void
   onReplyContentChange: (content: string) => void
 }) {
+  const composer = (
+    <div className="rounded-lg border border-line bg-surface transition-colors focus-within:border-fg-3">
+      <div className="px-3 py-2">
+        <RichTextEditor
+          content={replyContent}
+          onChange={onReplyContentChange}
+          editable={editable}
+          compact
+          autoFocus
+          allowSlashCommands={false}
+          showToolbar={false}
+          showStats={false}
+          placeholder="Write a reply…"
+          editorInstanceRef={replyEditorRef}
+          mentionCandidates={mentionCandidates}
+          minPlainTextCharacters={commentContentConstraints.min}
+          maxPlainTextCharacters={commentContentConstraints.max}
+          enforcePlainTextLimit
+          onSubmitShortcut={onReply}
+          submitOnEnter
+          className="[&_.ProseMirror]:min-h-[2.5rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+        />
+      </div>
+      <div className="border-t border-dashed border-line px-3 py-1.5">
+        <WorkItemCommentComposerActions
+          editable={editable}
+          editorRef={replyEditorRef}
+          emojiButtonClassName="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
+          emojiIconClassName="size-3.5"
+          limitState={replyLimitState}
+        >
+          <div className="flex items-center gap-2">
+            <ShortcutKeys
+              keys={["Enter"]}
+              keyClassName={WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS}
+            />
+            <Button size="sm" variant="ghost" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!replyLimitState.canSubmit}
+              onClick={onReply}
+            >
+              Reply
+            </Button>
+          </div>
+        </WorkItemCommentComposerActions>
+      </div>
+    </div>
+  )
+
+  if (!framed) {
+    return composer
+  }
+
   return (
     <div className="border-t border-line-soft bg-background px-3.5 py-3">
-      <div className="rounded-lg border border-line bg-surface transition-colors focus-within:border-fg-3">
-        <div className="px-3 py-2">
-          <RichTextEditor
-            content={replyContent}
-            onChange={onReplyContentChange}
-            editable={editable}
-            compact
-            autoFocus
-            allowSlashCommands={false}
-            showToolbar={false}
-            showStats={false}
-            placeholder="Write a reply…"
-            editorInstanceRef={replyEditorRef}
-            mentionCandidates={mentionCandidates}
-            minPlainTextCharacters={commentContentConstraints.min}
-            maxPlainTextCharacters={commentContentConstraints.max}
-            enforcePlainTextLimit
-            onSubmitShortcut={onReply}
-            submitOnEnter
-            className="[&_.ProseMirror]:min-h-[2.5rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
-          />
-        </div>
-        <div className="border-t border-dashed border-line px-3 py-1.5">
-          <WorkItemCommentComposerActions
-            editable={editable}
-            editorRef={replyEditorRef}
-            emojiButtonClassName="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
-            emojiIconClassName="size-3.5"
-            limitState={replyLimitState}
-          >
-            <div className="flex items-center gap-2">
-              <ShortcutKeys
-                keys={["Enter"]}
-                keyClassName={WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS}
-              />
-              <Button size="sm" variant="ghost" onClick={onCancel}>
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                disabled={!replyLimitState.canSubmit}
-                onClick={onReply}
-              >
-                Reply
-              </Button>
-            </div>
-          </WorkItemCommentComposerActions>
-        </div>
-      </div>
+      {composer}
     </div>
   )
 }
@@ -1415,11 +1975,12 @@ function MainActivityTimeline({
   editable: boolean
 }) {
   const {
-    assignee,
+    assignees,
     creator,
     mentionCandidates,
     repliesByParentId,
     rootComments,
+    usersById,
   } = getWorkItemActivityContext({ currentUserId, data, item })
   const currentUser = getUser(data, currentUserId)
   const {
@@ -1457,10 +2018,12 @@ function MainActivityTimeline({
     })
   }
 
-  if (assignee && assignee.id !== creator?.id) {
+  for (const assignee of assignees.filter(
+    (candidate) => candidate.id !== creator?.id
+  )) {
     entries.push({
       kind: "event",
-      id: `${item.id}-assignee`,
+      id: `${item.id}-assignee-${assignee.id}`,
       user: assignee,
       body: "was assigned to this item",
       when: item.updatedAt,
@@ -1535,6 +2098,7 @@ function MainActivityTimeline({
               currentUserId={currentUserId}
               editable={editable}
               mentionCandidates={mentionCandidates}
+              usersById={usersById}
             />
           </MainActivityThreadItem>
         )
@@ -1674,31 +2238,122 @@ function WorkItemSidebarAssigneeRow({
   teamMembers: UserProfile[]
   onAssigneeChange: (value: string) => void
 }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+
   if ((currentItem.visibility ?? "team") === "private") {
     return null
   }
 
+  const assigneeIds = getWorkItemAssigneeIds(currentItem)
+  const assigneeIdSet = new Set(assigneeIds)
+  const selectedAssignees = teamMembers.filter((user) =>
+    assigneeIdSet.has(user.id)
+  )
+  const filteredMembers = teamMembers.filter((user) =>
+    user.name.toLowerCase().includes(query.trim().toLowerCase())
+  )
+
+  const valueLabel =
+    selectedAssignees.length === 0
+      ? "Assign"
+      : selectedAssignees.length === 1
+        ? selectedAssignees[0]?.name
+        : `${selectedAssignees.length} assignees`
+
   return (
-    <DetailSidebarSelectRow
-      label="Assignee"
-      icon={<Plus className="size-[13px]" />}
-      value={currentItem.assigneeId ?? "unassigned"}
-      disabled={disabled}
-      options={[
-        { value: "unassigned", label: "Assign" },
-        ...teamMembers.map((user) => ({
-          value: user.id,
-          label: user.name,
-        })),
-      ]}
-      renderValue={(value, optionLabel) =>
-        renderSidebarAssigneeOption(value, optionLabel, teamMembers, true)
-      }
-      renderOption={(value, optionLabel) =>
-        renderSidebarAssigneeOption(value, optionLabel, teamMembers, false)
-      }
-      onValueChange={onAssigneeChange}
-    />
+    <>
+      {renderDetailSidebarTerm("Assignee", <Plus className="size-[13px]" />)}
+      <dd className="m-0">
+        <Popover open={disabled ? false : open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            {renderDetailSidebarValueButton({
+              disabled,
+              label: "Assignee",
+              children: (
+                <span
+                  className={cn(
+                    "flex min-w-0 flex-1 items-center gap-2",
+                    selectedAssignees.length === 0 && "text-fg-4"
+                  )}
+                >
+                  {selectedAssignees.length > 0 ? (
+                    <span className="flex -space-x-1">
+                      {selectedAssignees.slice(0, 3).map((user) => (
+                        <WorkItemAssigneeAvatar
+                          key={user.id}
+                          user={user}
+                          className="border border-surface data-[size=sm]:size-4"
+                        />
+                      ))}
+                    </span>
+                  ) : null}
+                  <span className="truncate">{valueLabel}</span>
+                </span>
+              ),
+            })}
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-[300px] overflow-hidden rounded-lg border border-line bg-surface p-1 shadow-lg"
+          >
+            <div className="flex items-center gap-2 border-b border-line-soft px-2 py-1.5">
+              <MagnifyingGlass className="size-[14px] text-fg-4" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Assign to..."
+                className="h-7 border-none bg-transparent px-0 text-[12.5px] shadow-none focus-visible:ring-0"
+              />
+            </div>
+            <div className="no-scrollbar flex max-h-[320px] flex-col gap-0.5 overflow-y-auto py-1">
+              <button
+                type="button"
+                className={cn(
+                  "flex min-h-8 w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
+                  selectedAssignees.length === 0 &&
+                    "bg-primary/10 text-foreground"
+                )}
+                onClick={() => {
+                  onAssigneeChange("unassigned")
+                  setOpen(false)
+                }}
+              >
+                <span className="min-w-0 flex-1">Unassigned</span>
+                {selectedAssignees.length === 0 ? (
+                  <Check className="size-[14px]" />
+                ) : null}
+              </button>
+              {filteredMembers.map((user) => {
+                const selected = assigneeIdSet.has(user.id)
+
+                return (
+                  <button
+                    key={user.id}
+                    type="button"
+                    className={cn(
+                      "flex min-h-8 w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
+                      selected && "bg-primary/10 text-foreground"
+                    )}
+                    onClick={() => onAssigneeChange(user.id)}
+                  >
+                    <span className="min-w-0 flex-1">
+                      {renderSidebarAssigneeOption(
+                        user.id,
+                        user.name,
+                        teamMembers,
+                        false
+                      )}
+                    </span>
+                    {selected ? <Check className="size-[14px]" /> : null}
+                  </button>
+                )
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </dd>
+    </>
   )
 }
 
@@ -2323,10 +2978,17 @@ function getWorkItemDetailPropertyHandlers({
       useAppStore.getState().updateWorkItem(currentItem.id, {
         priority: value as Priority,
       }),
-    onAssigneeChange: (value) =>
+    onAssigneeChange: (value) => {
+      const assigneeIds =
+        value === "unassigned"
+          ? []
+          : toggleWorkItemAssigneeId(getWorkItemAssigneeIds(currentItem), value)
+
       useAppStore.getState().updateWorkItem(currentItem.id, {
-        assigneeId: value === "unassigned" ? null : value,
-      }),
+        assigneeId: assigneeIds[0] ?? null,
+        assigneeIds,
+      })
+    },
     onStartDateChange: (nextStartDate) =>
       updateWorkItemStartDate({
         currentItem,
@@ -4333,7 +4995,9 @@ function WorkItemSubitemPropertiesButton({
 function WorkItemSidebarSubtasks({
   data,
   currentItem,
+  canCreateChildItem,
   childItems,
+  childCopy,
   childProgress,
   editable,
   sidebarChildComposerOpen,
@@ -4341,7 +5005,9 @@ function WorkItemSidebarSubtasks({
 }: {
   data: AppData
   currentItem: WorkItem
+  canCreateChildItem: boolean
   childItems: WorkItem[]
+  childCopy: DetailChildCopy
   childProgress: DetailChildProgress
   editable: boolean
   sidebarChildComposerOpen: boolean
@@ -4349,9 +5015,13 @@ function WorkItemSidebarSubtasks({
 }) {
   const subitemView = getWorkDetailSubitemView(data, currentItem)
 
+  if (childItems.length === 0 && !canCreateChildItem) {
+    return null
+  }
+
   return (
     <DetailSidebarSection
-      title="Subtasks"
+      title={childCopy.childPluralLabel}
       count={`${childProgress.completedChildren} of ${childItems.length || 0}`}
       collapsible
     >
@@ -4509,8 +5179,10 @@ function WorkItemDetailSidebar({
   selectedProject,
   selectedMilestone,
   availableLabels,
+  canCreateChildItem,
   parentOptions,
   childItems,
+  childCopy,
   childProgress,
   editable,
   sidebarChildComposerOpen,
@@ -4546,8 +5218,10 @@ function WorkItemDetailSidebar({
   selectedProject: Project | null
   selectedMilestone: Milestone | null
   availableLabels: AppData["labels"]
+  canCreateChildItem: boolean
   parentOptions: DetailSelectOption[]
   childItems: WorkItem[]
+  childCopy: DetailChildCopy
   childProgress: DetailChildProgress
   editable: boolean
   sidebarChildComposerOpen: boolean
@@ -4639,7 +5313,9 @@ function WorkItemDetailSidebar({
         <WorkItemSidebarSubtasks
           data={data}
           currentItem={currentItem}
+          canCreateChildItem={canCreateChildItem}
           childItems={childItems}
+          childCopy={childCopy}
           childProgress={childProgress}
           editable={editable}
           sidebarChildComposerOpen={sidebarChildComposerOpen}
@@ -4772,7 +5448,9 @@ export function WorkItemDetailSidebarSurface({
         selectedMilestone={detailModel.selectedMilestone}
         availableLabels={detailModel.availableLabels}
         parentOptions={detailModel.parentOptions}
+        canCreateChildItem={detailModel.canCreateChildItem}
         childItems={detailModel.childItems}
+        childCopy={detailModel.childCopy}
         childProgress={detailModel.childProgress}
         editable={editable}
         sidebarChildComposerOpen={sidebarChildComposerOpen}
@@ -5110,7 +5788,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
             selectedMilestone={selectedMilestone}
             availableLabels={availableLabels}
             parentOptions={parentOptions}
+            canCreateChildItem={canCreateChildItem}
             childItems={childItems}
+            childCopy={childCopy}
             childProgress={childProgress}
             editable={editable}
             sidebarChildComposerOpen={sidebarChildComposerOpen}

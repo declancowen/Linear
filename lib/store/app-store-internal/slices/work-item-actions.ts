@@ -29,6 +29,11 @@ import {
   statusMeta,
   workItemSchema,
 } from "@/lib/domain/types"
+import {
+  getResolvedWorkItemMutationAssigneeIds,
+  getWorkItemAssigneeFields,
+  getWorkItemAssigneeIds,
+} from "@/lib/domain/work-item-assignees"
 import { getBrowserTimeZone, normalizeTimeZone } from "@/lib/time-zone"
 
 import {
@@ -132,7 +137,9 @@ function resolveCreateWorkItemDates(
   state: AppStore,
   input: CreateWorkItemInput
 ): CreateWorkItemDates {
-  const currentUser = state.users.find((user) => user.id === state.currentUserId)
+  const currentUser = state.users.find(
+    (user) => user.id === state.currentUserId
+  )
   const fallbackScheduleTimeZone = normalizeTimeZone(
     currentUser?.preferences.timeZone,
     getBrowserTimeZone()
@@ -169,7 +176,8 @@ function resolveCreateWorkItemScope(
       ? (item.visibility ?? "team") === "private" &&
         item.teamId === input.teamId &&
         item.creatorId === state.currentUserId
-      : item.teamId === input.teamId && (item.visibility ?? "team") !== "private"
+      : item.teamId === input.teamId &&
+        (item.visibility ?? "team") !== "private"
   )
 
   return {
@@ -232,7 +240,9 @@ function buildOptimisticWorkItem(input: {
     descriptionDocId: input.descriptionDocId,
     status: input.parsedInput.status ?? ("backlog" as const),
     priority: input.parsedInput.priority,
-    assigneeId: input.parsedInput.assigneeId,
+    ...getWorkItemAssigneeFields(
+      getResolvedWorkItemMutationAssigneeIds(input.parsedInput)
+    ),
     creatorId: input.currentUserId,
     parentId: input.scope.parent?.id ?? null,
     primaryProjectId: input.scope.resolvedPrimaryProjectId,
@@ -261,24 +271,28 @@ function buildCreateWorkItemNotifications(
     workItemId: string
   }
 ) {
-  if (!input.parsedInput.assigneeId) {
+  const assigneeIds = getResolvedWorkItemMutationAssigneeIds(input.parsedInput)
+
+  if (assigneeIds.length === 0) {
     return state.notifications
   }
 
   const actor = state.users.find((user) => user.id === state.currentUserId)
 
   return [
-    createNotification(
-      input.parsedInput.assigneeId,
-      state.currentUserId,
-      buildWorkItemAssignmentNotificationMessage(
-        actor?.name ?? "Someone",
-        input.parsedInput.title,
-        input.scope.team?.name
-      ),
-      "workItem",
-      input.workItemId,
-      "assignment"
+    ...assigneeIds.map((assigneeId) =>
+      createNotification(
+        assigneeId,
+        state.currentUserId,
+        buildWorkItemAssignmentNotificationMessage(
+          actor?.name ?? "Someone",
+          input.parsedInput.title,
+          input.scope.team?.name
+        ),
+        "workItem",
+        input.workItemId,
+        "assignment"
+      )
     ),
     ...state.notifications,
   ]
@@ -384,6 +398,7 @@ function getEffectiveLocalWorkItemPatch(
 
   const privatePatch = { ...rawLocalPatch }
   delete privatePatch.assigneeId
+  delete privatePatch.assigneeIds
   delete privatePatch.primaryProjectId
 
   return privatePatch
@@ -468,14 +483,23 @@ function getUpdatedWorkItemValidationInput(input: {
       localPatch.assigneeId === undefined
         ? existing.assigneeId
         : localPatch.assigneeId,
+    assigneeIds:
+      localPatch.assigneeIds !== undefined ||
+      localPatch.assigneeId !== undefined
+        ? getResolvedWorkItemMutationAssigneeIds(localPatch)
+        : getWorkItemAssigneeIds(existing),
     parentId:
-      localPatch.parentId === undefined ? existing.parentId : localPatch.parentId,
+      localPatch.parentId === undefined
+        ? existing.parentId
+        : localPatch.parentId,
     primaryProjectId: getEffectivePrimaryProjectIdForWorkItemUpdate(
       existing,
       resolvedPrimaryProjectId
     ),
     labelIds:
-      localPatch.labelIds === undefined ? existing.labelIds : localPatch.labelIds,
+      localPatch.labelIds === undefined
+        ? existing.labelIds
+        : localPatch.labelIds,
     startDate:
       localPatch.startDate === undefined
         ? existing.startDate
@@ -509,11 +533,20 @@ function applyOptimisticProjectLinkToWorkItems(
     shouldCascadeProjectLink: boolean
   }
 ) {
+  const assigneePatch =
+    input.localPatch.assigneeIds !== undefined ||
+    input.localPatch.assigneeId !== undefined
+      ? getWorkItemAssigneeFields(
+          getResolvedWorkItemMutationAssigneeIds(input.localPatch)
+        )
+      : {}
+
   return workItems.map((item) => {
     if (item.id === input.itemId) {
       return {
         ...item,
         ...input.localPatch,
+        ...assigneePatch,
         primaryProjectId: input.effectivePrimaryProjectId,
         updatedAt: input.now,
       }
@@ -600,23 +633,31 @@ function applyOptimisticTitleToDescriptionDocument(
   )
 }
 
-function getChangedAssigneeIdForWorkItemUpdate(
+function getChangedAssigneeIdsForWorkItemUpdate(
   currentItem: WorkItem,
   localPatch: LocalWorkItemPatch
 ) {
-  return localPatch.assigneeId &&
-    localPatch.assigneeId !== currentItem.assigneeId
-    ? localPatch.assigneeId
-    : null
+  if (
+    localPatch.assigneeIds === undefined &&
+    localPatch.assigneeId === undefined
+  ) {
+    return []
+  }
+
+  const currentAssigneeIds = new Set(getWorkItemAssigneeIds(currentItem))
+  return getResolvedWorkItemMutationAssigneeIds(localPatch).filter(
+    (assigneeId) => !currentAssigneeIds.has(assigneeId)
+  )
 }
 
-function getResolvedAssigneeIdForWorkItemUpdate(
+function getResolvedAssigneeIdsForWorkItemUpdate(
   currentItem: WorkItem,
   localPatch: LocalWorkItemPatch
 ) {
-  return localPatch.assigneeId === undefined
-    ? currentItem.assigneeId
-    : localPatch.assigneeId
+  return localPatch.assigneeIds !== undefined ||
+    localPatch.assigneeId !== undefined
+    ? getResolvedWorkItemMutationAssigneeIds(localPatch)
+    : getWorkItemAssigneeIds(currentItem)
 }
 
 function createOptimisticWorkItemNotification(
@@ -643,66 +684,74 @@ function createOptimisticWorkItemNotification(
   )
 }
 
-function createOptimisticAssignmentNotification(
+function createOptimisticAssignmentNotifications(
   state: AppStore,
   input: {
     currentItem: WorkItem
     localPatch: LocalWorkItemPatch
     nextTitle: string
   }
-): WorkItemNotification | null {
-  const assigneeId = getChangedAssigneeIdForWorkItemUpdate(
+): WorkItemNotification[] {
+  const assigneeIds = getChangedAssigneeIdsForWorkItemUpdate(
     input.currentItem,
     input.localPatch
   )
 
-  if (!assigneeId) {
-    return null
+  if (assigneeIds.length === 0) {
+    return []
   }
 
-  return createOptimisticWorkItemNotification(state, {
-    currentItem: input.currentItem,
-    recipientId: assigneeId,
-    type: "assignment",
-    message: (actorName, teamName) =>
-      buildWorkItemAssignmentNotificationMessage(
-        actorName,
-        input.nextTitle,
-        teamName
-      ),
-  })
+  return assigneeIds.map((assigneeId) =>
+    createOptimisticWorkItemNotification(state, {
+      currentItem: input.currentItem,
+      recipientId: assigneeId,
+      type: "assignment",
+      message: (actorName, teamName) =>
+        buildWorkItemAssignmentNotificationMessage(
+          actorName,
+          input.nextTitle,
+          teamName
+        ),
+    })
+  )
 }
 
-function createOptimisticStatusNotification(
+function createOptimisticStatusNotifications(
   state: AppStore,
   input: {
     currentItem: WorkItem
     localPatch: LocalWorkItemPatch
     nextTitle: string
   }
-): WorkItemNotification | null {
-  const resolvedAssigneeId = getResolvedAssigneeIdForWorkItemUpdate(
+): WorkItemNotification[] {
+  const resolvedAssigneeIds = getResolvedAssigneeIdsForWorkItemUpdate(
     input.currentItem,
     input.localPatch
   )
   const status = input.localPatch.status
 
-  if (!status || status === input.currentItem.status || !resolvedAssigneeId) {
-    return null
+  if (
+    !status ||
+    status === input.currentItem.status ||
+    resolvedAssigneeIds.length === 0
+  ) {
+    return []
   }
 
-  return createOptimisticWorkItemNotification(state, {
-    currentItem: input.currentItem,
-    recipientId: resolvedAssigneeId,
-    type: "status-change",
-    message: (actorName, teamName) =>
-      buildWorkItemStatusChangeNotificationMessage(
-        actorName,
-        input.nextTitle,
-        statusMeta[status].label,
-        teamName
-      ),
-  })
+  return resolvedAssigneeIds.map((resolvedAssigneeId) =>
+    createOptimisticWorkItemNotification(state, {
+      currentItem: input.currentItem,
+      recipientId: resolvedAssigneeId,
+      type: "status-change",
+      message: (actorName, teamName) =>
+        buildWorkItemStatusChangeNotificationMessage(
+          actorName,
+          input.nextTitle,
+          statusMeta[status].label,
+          teamName
+        ),
+    })
+  )
 }
 
 function buildOptimisticWorkItemUpdateNotifications(
@@ -718,24 +767,21 @@ function buildOptimisticWorkItemUpdateNotifications(
   }
 
   const nextNotifications = [...state.notifications]
-  const assignmentNotification = createOptimisticAssignmentNotification(state, {
-    currentItem: input.currentItem,
-    localPatch: input.localPatch,
-    nextTitle: input.nextTitle,
-  })
-  const statusNotification = createOptimisticStatusNotification(state, {
+  const assignmentNotifications = createOptimisticAssignmentNotifications(
+    state,
+    {
+      currentItem: input.currentItem,
+      localPatch: input.localPatch,
+      nextTitle: input.nextTitle,
+    }
+  )
+  const statusNotifications = createOptimisticStatusNotifications(state, {
     currentItem: input.currentItem,
     localPatch: input.localPatch,
     nextTitle: input.nextTitle,
   })
 
-  if (assignmentNotification) {
-    nextNotifications.unshift(assignmentNotification)
-  }
-
-  if (statusNotification) {
-    nextNotifications.unshift(statusNotification)
-  }
+  nextNotifications.unshift(...assignmentNotifications, ...statusNotifications)
 
   return nextNotifications
 }
@@ -1062,6 +1108,7 @@ export function createWorkItemActions({
           ? {
               ...parsed.data,
               assigneeId: null,
+              assigneeIds: [],
               primaryProjectId: null,
             }
           : parsed.data
