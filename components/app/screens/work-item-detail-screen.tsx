@@ -37,6 +37,7 @@ import {
   SidebarSimple,
   Smiley,
   Trash,
+  TreeStructure,
   X,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
@@ -165,6 +166,7 @@ import {
 import {
   MissingState,
   PROPERTY_SELECT_SEPARATOR_VALUE,
+  LabelColorDot,
   PriorityIcon,
   StatusIcon,
   buildPropertyStatusOptions,
@@ -178,10 +180,14 @@ import {
   InlineChildIssueComposer,
   WorkItemAssigneeAvatar,
   WorkItemCommentComposerActions,
+  WorkItemTypeBadge,
 } from "./work-item-ui"
 import { useCommentComposer } from "./use-comment-composer"
 import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
-import { formatWorkItemDetailDate } from "./date-presentation"
+import {
+  formatWorkItemDetailDate,
+  formatWorkSurfaceTimestamp,
+} from "./date-presentation"
 import {
   FilterPopover,
   GroupChipPopover,
@@ -548,6 +554,95 @@ function getDetailChildCustomPropertyEntries({
     .filter((entry) => entry.value !== null)
 }
 
+function getDetailChildLabels(data: AppData, item: WorkItem) {
+  const labelIds = new Set(item.labelIds)
+
+  if (labelIds.size === 0) {
+    return []
+  }
+
+  return data.labels.filter((label) => labelIds.has(label.id))
+}
+
+function DetailChildProgressChip({
+  data,
+  item,
+}: {
+  data: AppData
+  item: WorkItem
+}) {
+  const progress = getWorkItemChildProgress(data, item.id)
+
+  if (progress.totalChildren === 0) {
+    return null
+  }
+
+  return <span className={detailChipClassName}>{progress.percent}%</span>
+}
+
+function DetailChildParentChip({
+  data,
+  item,
+}: {
+  data: AppData
+  item: WorkItem
+}) {
+  if (!item.parentId) {
+    return null
+  }
+
+  const parent = getWorkItem(data, item.parentId)
+
+  if (!parent) {
+    return null
+  }
+
+  return (
+    <span className={cn(detailChipClassName, "max-w-[180px]")}>
+      <TreeStructure className="size-3 shrink-0" />
+      <span className="truncate">
+        {parent.key} · {parent.title}
+      </span>
+    </span>
+  )
+}
+
+function DetailChildMilestoneChip({
+  data,
+  item,
+}: {
+  data: AppData
+  item: WorkItem
+}) {
+  if (!item.milestoneId) {
+    return null
+  }
+
+  const milestone = data.milestones.find(
+    (entry) => entry.id === item.milestoneId
+  )
+
+  if (!milestone) {
+    return null
+  }
+
+  return <span className={detailChipClassName}>{milestone.name}</span>
+}
+
+function DetailChildTimestampChip({
+  label,
+  value,
+}: {
+  label: "Created" | "Updated"
+  value: string
+}) {
+  const formatted = formatWorkSurfaceTimestamp(value, label)
+
+  return formatted ? (
+    <span className={detailChipClassName}>{formatted}</span>
+  ) : null
+}
+
 function DetailChildPropertyChips({
   data,
   item,
@@ -562,6 +657,7 @@ function DetailChildPropertyChips({
     item,
     selectedDisplayProps,
   })
+  const labels = getDetailChildLabels(data, item)
   const showMainAssignee =
     (item.visibility ?? "team") !== "private" && item.assigneeId !== null
   const showMainPriority = item.priority !== "none"
@@ -574,6 +670,13 @@ function DetailChildPropertyChips({
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
+      {selectedDisplayProps.includes("type") ? (
+        <WorkItemTypeBadge
+          data={data}
+          item={item}
+          className="h-6 rounded-full px-2 text-[11px] text-fg-2"
+        />
+      ) : null}
       {selectedDisplayProps.includes("status") ? (
         <InlineWorkItemPropertyControl
           data={data}
@@ -598,6 +701,9 @@ function DetailChildPropertyChips({
           variant="child"
         />
       ) : null}
+      {selectedDisplayProps.includes("progress") ? (
+        <DetailChildProgressChip data={data} item={item} />
+      ) : null}
       {selectedDisplayProps.includes("project") && showMainProject ? (
         <InlineWorkItemPropertyControl
           data={data}
@@ -606,11 +712,31 @@ function DetailChildPropertyChips({
           variant="child"
         />
       ) : null}
+      {selectedDisplayProps.includes("parent") ? (
+        <DetailChildParentChip data={data} item={item} />
+      ) : null}
       {selectedDisplayProps.includes("dueDate") && item.dueDate ? (
         <span className={detailChipClassName}>
           <CalendarBlank className="size-3" />
           {format(new Date(item.dueDate), "MMM d")}
         </span>
+      ) : null}
+      {selectedDisplayProps.includes("milestone") ? (
+        <DetailChildMilestoneChip data={data} item={item} />
+      ) : null}
+      {selectedDisplayProps.includes("labels")
+        ? labels.map((label) => (
+            <span key={label.id} className={detailChipClassName}>
+              <LabelColorDot color={label.color} className="size-1.5" />
+              <span>{label.name}</span>
+            </span>
+          ))
+        : null}
+      {selectedDisplayProps.includes("created") ? (
+        <DetailChildTimestampChip label="Created" value={item.createdAt} />
+      ) : null}
+      {selectedDisplayProps.includes("updated") ? (
+        <DetailChildTimestampChip label="Updated" value={item.updatedAt} />
       ) : null}
       {customPropertyEntries.map(({ definition, value }) => (
         <CustomPropertyValueControl

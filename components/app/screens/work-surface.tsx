@@ -229,13 +229,28 @@ function getCompatibleWorkSurfaceDisplayProps(view: ViewDefinition) {
 }
 
 function getCompatibleWorkSurfaceFilters(view: ViewDefinition) {
-  if (!isPrivateTaskView(view) || view.filters.projectIds.length === 0) {
+  if (!isPrivateTaskView(view)) {
+    return view.filters
+  }
+
+  const hasUnsupportedPrivateTaskFilters =
+    view.filters.assigneeIds.length > 0 ||
+    view.filters.projectIds.length > 0 ||
+    view.filters.teamIds.length > 0 ||
+    view.filters.leadIds.length > 0 ||
+    view.filters.health.length > 0
+
+  if (!hasUnsupportedPrivateTaskFilters) {
     return view.filters
   }
 
   return {
     ...view.filters,
+    assigneeIds: [],
     projectIds: [],
+    teamIds: [],
+    leadIds: [],
+    health: [],
   }
 }
 

@@ -1200,7 +1200,7 @@ function WorkFilterSections({
   return (
     <div
       data-testid="work-filter-sections"
-      className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto"
+      className="flex min-h-0 flex-1 touch-pan-y flex-col overflow-y-auto overscroll-contain pr-1"
     >
       <StatusFilterSection
         hidden={hiddenFilterSet.has("status")}
@@ -1338,7 +1338,7 @@ export function FilterPopover({
         sideOffset={8}
         className={cn(
           PROPERTY_POPOVER_CLASS,
-          "flex h-[min(520px,calc(100vh-11rem))] max-h-[min(520px,var(--radix-popover-content-available-height),calc(100vh-11rem))] min-h-0 flex-col",
+          "pointer-events-auto flex h-[min(520px,calc(100vh-11rem))] max-h-[min(520px,var(--radix-popover-content-available-height),calc(100vh-11rem))] min-h-0 touch-pan-y flex-col overscroll-contain",
           "w-[min(280px,calc(100vw-2rem))]"
         )}
       >

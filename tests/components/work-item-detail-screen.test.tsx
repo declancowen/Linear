@@ -389,6 +389,8 @@ function addChildWorkItems(
     title: string
     assigneeId?: string | null
     dueDate?: string | null
+    labelIds?: string[]
+    milestoneId?: string | null
     status?: "todo" | "done"
   }>
 ) {
@@ -419,6 +421,8 @@ function addChildWorkItems(
             assigneeId: child.assigneeId ?? null,
             parentId: "item_1",
             dueDate: child.dueDate ?? null,
+            labelIds: child.labelIds ?? [],
+            milestoneId: child.milestoneId ?? null,
             subscriberIds: [],
           })
         ),
@@ -1278,6 +1282,126 @@ describe("work item detail screen", () => {
 
     expect(surfaceQueries.getByText("Child done")).toBeInTheDocument()
     expect(surfaceQueries.queryByText("Child todo")).not.toBeInTheDocument()
+  })
+
+  it("renders selected label properties on detail sub-items", () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        labels: [
+          ...state.labels,
+          {
+            id: "label_customer",
+            workspaceId: "workspace_1",
+            name: "Customer",
+            color: "#ff0000",
+            scopeType: "workspace",
+            ownerId: null,
+          },
+        ],
+        ui: {
+          ...state.ui,
+          viewerViewConfigByRoute: {
+            ...state.ui.viewerViewConfigByRoute,
+            "user_1::work-detail%3Asubitems::work-detail-subitems": {
+              displayProps: ["labels"],
+            },
+          },
+        },
+      }))
+    })
+    addChildWorkItems([
+      {
+        id: "item_3",
+        key: "PLA-3",
+        title: "Child labelled",
+        labelIds: ["label_customer"],
+      },
+    ])
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    const surface = screen.getByText("Sub-tasks").closest("section")
+    expect(surface).not.toBeNull()
+    expect(within(surface!).getByText("Customer")).toBeInTheDocument()
+    expect(within(surface!).getByTestId("label-color-dot")).toBeInTheDocument()
+  })
+
+  it("renders every built-in item property selected for detail sub-items", () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        milestones: [
+          ...state.milestones,
+          {
+            id: "milestone_1",
+            projectId: "project_1",
+            name: "Sprint 1",
+            targetDate: null,
+            status: "todo",
+          },
+        ],
+        ui: {
+          ...state.ui,
+          viewerViewConfigByRoute: {
+            ...state.ui.viewerViewConfigByRoute,
+            "user_1::work-detail%3Asubitems::work-detail-subitems": {
+              displayProps: [
+                "type",
+                "status",
+                "priority",
+                "progress",
+                "parent",
+                "dueDate",
+                "milestone",
+                "created",
+                "updated",
+              ],
+            },
+          },
+        },
+      }))
+    })
+    addChildWorkItems([
+      {
+        id: "item_3",
+        key: "PLA-3",
+        title: "Child with metadata",
+        dueDate: "2026-04-22",
+        milestoneId: "milestone_1",
+      },
+    ])
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        workItems: [
+          ...state.workItems,
+          createTestWorkItem("item_4", {
+            key: "PLA-4",
+            type: "sub-task",
+            title: "Nested done",
+            parentId: "item_3",
+            status: "done",
+            subscriberIds: [],
+          }),
+        ],
+      }))
+    })
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    const surface = screen.getByText("Sub-tasks").closest("section")
+    expect(surface).not.toBeNull()
+    const surfaceQueries = within(surface!)
+
+    expect(surfaceQueries.getByText("Task")).toBeInTheDocument()
+    expect(surfaceQueries.getByText("Medium")).toBeInTheDocument()
+    expect(surfaceQueries.getByText("100%")).toBeInTheDocument()
+    expect(surfaceQueries.getByText("PLA-1 · Plan launch")).toBeInTheDocument()
+    expect(surfaceQueries.getByText("Apr 22")).toBeInTheDocument()
+    expect(surfaceQueries.getByText("Sprint 1")).toBeInTheDocument()
+    expect(surfaceQueries.getByText(/^Created /)).toBeInTheDocument()
+    expect(surfaceQueries.getByText(/^Updated /)).toBeInTheDocument()
   })
 
   it("hides subtask view actions in the sidebar", () => {

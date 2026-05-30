@@ -182,14 +182,18 @@ describe("FilterPopover", () => {
 
     expect(screen.getByRole("dialog")).toHaveClass("flex", "flex-col")
     expect(screen.getByRole("dialog")).toHaveClass(
-      "h-[min(520px,calc(100vh-11rem))]"
+      "h-[min(520px,calc(100vh-11rem))]",
+      "overscroll-contain",
+      "pointer-events-auto"
     )
     expect(screen.getAllByText("Issue")).toHaveLength(2)
     expect(
       screen.getByRole("button", { name: "BUG-1 · Login issue" })
     ).toBeInTheDocument()
     expect(screen.getByTestId("work-filter-sections")).toHaveClass(
-      "overflow-y-auto"
+      "overflow-y-auto",
+      "overscroll-contain",
+      "touch-pan-y"
     )
   })
 })

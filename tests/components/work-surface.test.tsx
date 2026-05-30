@@ -332,6 +332,60 @@ describe("WorkSurface", () => {
     expect(screen.getByText("group:status/sub:none")).toBeInTheDocument()
   })
 
+  it("ignores stale assignment filters on private task views", () => {
+    const privateItem = {
+      id: "private_task_1",
+      assigneeId: null,
+      creatorId: "user_1",
+      visibility: "private",
+    }
+
+    render(
+      <WorkSurface
+        title="My items"
+        routeKey="/assigned"
+        views={[]}
+        fallbackViews={[
+          createView({
+            id: "view_assigned_private_tasks",
+            name: "Private tasks",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            grouping: "status",
+            subGrouping: null,
+            filters: {
+              ...createDefaultViewFilters(),
+              assigneeIds: ["user_1"],
+              projectIds: ["project_1"],
+              teamIds: ["team_1"],
+              visibility: ["private"],
+            },
+          }),
+        ]}
+        items={[privateItem] as never[]}
+        filterItems={[privateItem] as never[]}
+        team={createTeam()}
+        emptyLabel="Nothing assigned"
+        allowCreateViews={false}
+      />
+    )
+
+    expect(getVisibleItemsForViewMock).toHaveBeenCalledWith(
+      expect.anything(),
+      [privateItem],
+      expect.objectContaining({
+        filters: expect.objectContaining({
+          assigneeIds: [],
+          projectIds: [],
+          teamIds: [],
+          visibility: ["private"],
+        }),
+      }),
+      {}
+    )
+  })
+
   it("matches assigned descendant filters against the assigned rows", () => {
     const assignedItem = {
       id: "story_1",

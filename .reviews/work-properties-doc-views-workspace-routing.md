@@ -29,11 +29,39 @@
 | Field                 | Value                |
 | --------------------- | -------------------- |
 | **Review started**    | 2026-05-12 18:06 BST |
-| **Last reviewed**     | 2026-05-29 17:25 BST |
-| **Total turns**       | 36                   |
+| **Last reviewed**     | 2026-05-30 10:31 BST |
+| **Total turns**       | 37                   |
 | **Open findings**     | 0                    |
 | **Resolved findings** | 70                   |
 | **Accepted findings** | 0                    |
+
+## Turn 37 — 2026-05-30 10:31 BST
+
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| **Scope**       | My Items private-task filtering, detail sub-item properties, create-view filter scrolling |
+| **Review type** | Local diff review                                                     |
+| **Reviewer**    | Codex CLI                                                             |
+| **Outcome**     | No findings                                                           |
+
+### Commands run
+
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` — completed; current-turn delta, review history, and analyzer policy signals recorded
+- `pnpm vitest run tests/components/work-item-detail-screen.test.tsx tests/components/group-chip-popover.test.tsx tests/components/work-surface.test.tsx` — passed, 3 files / 44 tests
+- `git diff --check` — passed
+- `pnpm typecheck` — passed
+- `pnpm lint` — passed
+
+### Branch-totality proof
+
+- **Bug classes / invariants checked:** private task ownership vs assignee-null storage, saved-view compatibility for legacy filters, sub-item display-property parity, custom property visibility, parent/child progress rollup, and nested popover scroll ownership inside create/edit view dialogs.
+- **Sibling closure:** detail sub-items now render the same built-in item display-property set exposed by `PropertiesChipPopover`; existing inline controls still own editable status/priority/assignee/project behavior. Private-task views normalize unsupported assignee/project/team/lead/health filters before matching, while the saved view itself remains unchanged. The shared filter popover keeps its bounded content height and now exposes an explicit internal scroll area.
+- **Static analyzer caveat:** preflight still reports existing Fallow/boundary baseline caveats and advisory production-health/full-inventory findings. This turn did not change analyzer config, thresholds, suppressions, or CI policy.
+- **Weakest variant attacked:** a legacy personal private-task view with `assigneeIds: [currentUser]` and an unassigned private task created by the user; a sub-task row with every built-in dropdown property selected; and a filter popover inside the create-view modal needing its own scroll container.
+
+### Residual risk
+
+- No authenticated browser smoke was run for the exact create-view modal and detail surface. Component coverage asserts the rendered chips and scroll classes directly, and type/lint checks validate integration.
 
 ## Turn 36 — 2026-05-29 17:25 BST
 
