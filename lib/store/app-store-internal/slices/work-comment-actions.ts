@@ -134,11 +134,12 @@ function isReadOnlyRole(role: ReturnType<typeof effectiveRole>) {
 function createOptimisticComment(
   state: AppStore,
   input: AddCommentInput,
+  commentId: string,
   mentionUserIds: string[],
   now: string
 ): AppStore["comments"][number] {
   return {
-    id: createId("comment"),
+    id: commentId,
     targetType: input.targetType,
     targetId: input.targetId,
     parentCommentId: input.parentCommentId ?? null,
@@ -409,7 +410,11 @@ function deleteCommentFromState(state: AppStore, commentId: string) {
   }
 }
 
-function addCommentToState(state: AppStore, input: AddCommentInput) {
+function addCommentToState(
+  state: AppStore,
+  input: AddCommentInput,
+  commentId: string
+) {
   const existingComments = getExistingTargetComments(state, input)
   if (hasMissingParentComment(input, existingComments)) {
     toast.error("Reply target no longer exists")
@@ -434,7 +439,13 @@ function addCommentToState(state: AppStore, input: AddCommentInput) {
     state.users,
     audienceUserIds
   )
-  const comment = createOptimisticComment(state, input, mentionUserIds, now)
+  const comment = createOptimisticComment(
+    state,
+    input,
+    commentId,
+    mentionUserIds,
+    now
+  )
   const notifications = createCommentNotifications(
     state,
     input,
@@ -454,6 +465,8 @@ export function createWorkCommentActions({
   WorkSlice,
   "addComment" | "deleteComment" | "toggleCommentReaction" | "updateComment"
 > {
+  const pendingCommentCreates = new Map<string, Promise<unknown>>()
+
   return {
     addComment(input) {
       const parsed = commentSchema.safeParse(input)
@@ -462,20 +475,28 @@ export function createWorkCommentActions({
         return
       }
 
+      const commentId = createId("comment")
       set((state) => {
-        return addCommentToState(state, parsed.data)
+        return addCommentToState(state, parsed.data, commentId)
       })
 
-      runtime.syncInBackground(
-        syncAddComment(
-          get().currentUserId,
-          parsed.data.targetType,
-          parsed.data.targetId,
-          parsed.data.content,
-          parsed.data.parentCommentId
-        ),
-        "Failed to post comment"
+      const createTask: Promise<unknown> | null = syncAddComment(
+        get().currentUserId,
+        parsed.data.targetType,
+        parsed.data.targetId,
+        parsed.data.content,
+        parsed.data.parentCommentId,
+        commentId
       )
+      const syncTask = createTask
+        ? createTask.finally(() => pendingCommentCreates.delete(commentId))
+        : null
+
+      if (syncTask) {
+        pendingCommentCreates.set(commentId, syncTask)
+      }
+
+      runtime.syncInBackground(syncTask, "Failed to post comment")
 
       toast.success("Comment posted")
     },
@@ -503,10 +524,18 @@ export function createWorkCommentActions({
         })
       )
 
-      runtime.syncInBackground(
-        syncUpdateComment(commentId, parsed.data.content),
-        "Failed to update comment"
-      )
+      const pendingCreate = pendingCommentCreates.get(commentId)
+      const syncTask = pendingCreate
+        ? pendingCreate.then(
+            () =>
+              get().comments.some((entry) => entry.id === commentId)
+                ? syncUpdateComment(commentId, parsed.data.content)
+                : null,
+            () => null
+          )
+        : syncUpdateComment(commentId, parsed.data.content)
+
+      runtime.syncInBackground(syncTask, "Failed to update comment")
 
       toast.success("Comment updated")
     },
@@ -517,10 +546,12 @@ export function createWorkCommentActions({
 
       set((state) => deleteCommentFromState(state, commentId))
 
-      runtime.syncInBackground(
-        syncDeleteComment(commentId),
-        "Failed to delete comment"
-      )
+      const pendingCreate = pendingCommentCreates.get(commentId)
+      const syncTask = pendingCreate
+        ? pendingCreate.then(() => syncDeleteComment(commentId), () => null)
+        : syncDeleteComment(commentId)
+
+      runtime.syncInBackground(syncTask, "Failed to delete comment")
 
       toast.success("Comment deleted")
     },

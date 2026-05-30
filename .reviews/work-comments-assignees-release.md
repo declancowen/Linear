@@ -25,6 +25,7 @@ Findings fixed:
 - Auth bootstrap test still encoded assignee-based private visibility. It now matches creator-only private work item visibility.
 - Month calendar event buttons leaked `onEditItem` onto DOM buttons. Button interaction props now omit menu-only handlers.
 - Changed-file Fallow issues for introduced dead code, duplication, and complexity were resolved.
+- Codex PR review found that editing a newly created comment before create sync resolved could PATCH an optimistic id that the backend did not know. Work comments and channel-post comments now send client-supplied ids to the backend and defer pending-create edits/deletes until create sync settles.
 
 Verification:
 - `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed with no introduced dead code, duplication, or complexity.
@@ -33,3 +34,23 @@ Verification:
 - `pnpm test` passed: 208 files, 1264 tests.
 - `pnpm build` passed.
 - `pnpm desktop:smoke` passed.
+
+## Turn 2 - PR Review Feedback
+
+External feedback:
+- Codex review P2: avoid patching comments while their server id is unknown.
+
+Fix:
+- Added backend comment id acceptance/conflict handling for work comments and channel-post comments.
+- Kept optimistic ids stable across client and backend.
+- Deferred edit/delete syncs for comments whose create request is still pending, while keeping local optimistic updates immediate.
+
+Verification:
+- `pnpm test tests/lib/store/work-comment-actions.test.ts tests/lib/store/collaboration-channel-actions.test.ts tests/convex/comment-handlers.test.ts` passed.
+- `pnpm typecheck` passed.
+- `pnpm lint` passed.
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed with no introduced issues.
+- `pnpm test` passed: 208 files, 1267 tests.
+- `pnpm build` passed.
+- `pnpm desktop:smoke` passed.
+- `git diff --check` passed.

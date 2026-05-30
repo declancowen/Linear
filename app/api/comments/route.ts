@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server"
+import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { commentSchema } from "@/lib/domain/types"
@@ -17,6 +18,10 @@ import {
   jsonOk,
 } from "@/lib/server/route-response"
 
+const addCommentBodySchema = commentSchema.extend({
+  commentId: z.string().min(1).optional(),
+})
+
 export async function POST(request: NextRequest) {
   const session = await requireSession()
 
@@ -26,7 +31,7 @@ export async function POST(request: NextRequest) {
 
   const parsed = await parseJsonBody(
     request,
-    commentSchema,
+    addCommentBodySchema,
     "Invalid comment payload"
   )
 
@@ -41,7 +46,7 @@ export async function POST(request: NextRequest) {
       return appContext
     }
 
-    await addCommentServer({
+    const result = await addCommentServer({
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
@@ -52,6 +57,7 @@ export async function POST(request: NextRequest) {
 
     return jsonOk({
       ok: true,
+      commentId: result?.commentId ?? null,
     })
   } catch (error) {
     if (error instanceof ApplicationError) {

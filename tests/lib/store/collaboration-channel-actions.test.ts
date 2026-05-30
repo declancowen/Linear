@@ -93,6 +93,33 @@ async function createChannelActionsHarness(state = createChannelState()) {
   )
 }
 
+async function createPendingChannelPostComment(content: string) {
+  let resolveCreateComment:
+    | ((value: { commentId: string }) => void)
+    | undefined
+  channelActionTestDoubles.convex.addComment.mockReturnValue(
+    new Promise((resolve) => {
+      resolveCreateComment = resolve
+    })
+  )
+  const harness = await createChannelActionsHarness()
+
+  harness.slice.addChannelPostComment({
+    postId: "post_1",
+    content,
+  })
+
+  const optimisticComment = harness.state.channelPostComments.find(
+    (comment) => comment.content === content
+  )
+
+  return {
+    ...harness,
+    optimisticComment,
+    resolveCreateComment,
+  }
+}
+
 describe("collaboration channel notification helpers", () => {
   beforeEach(() => {
     vi.resetModules()
@@ -102,9 +129,12 @@ describe("collaboration channel notification helpers", () => {
     Object.values(channelActionTestDoubles.notifications).forEach((mock) =>
       mock.mockReset()
     )
-    channelActionTestDoubles.convex.addComment.mockResolvedValue({
-      commentId: "comment_server",
-    })
+    channelActionTestDoubles.convex.addComment.mockImplementation(
+      (_postId: string, _content: string, commentId?: string) =>
+        Promise.resolve({
+          commentId: commentId ?? "comment_server",
+        })
+    )
     channelActionTestDoubles.convex.createPost.mockResolvedValue({
       postId: "post_server",
     })
@@ -324,6 +354,26 @@ describe("collaboration channel notification helpers", () => {
     expect(backgroundTasks).toHaveLength(1)
   })
 
+  it("defers channel-post comment edits until create sync resolves", async () => {
+    const { backgroundTasks, optimisticComment, resolveCreateComment, slice } =
+      await createPendingChannelPostComment("<p>Pending reply</p>")
+
+    slice.updateChannelPostComment("post_1", optimisticComment?.id ?? "", {
+      content: "<p>Pending reply edited</p>",
+    })
+
+    expect(channelActionTestDoubles.convex.updateComment).not.toHaveBeenCalled()
+
+    resolveCreateComment?.({ commentId: optimisticComment?.id ?? "" })
+    await Promise.all(backgroundTasks.filter(Boolean))
+
+    expect(channelActionTestDoubles.convex.updateComment).toHaveBeenCalledWith(
+      "post_1",
+      optimisticComment?.id,
+      "<p>Pending reply edited</p>"
+    )
+  })
+
   it("does not delete or sync comments owned by another user", async () => {
     const state = createChannelState({
       channelPostComments: [
@@ -352,7 +402,7 @@ describe("collaboration channel notification helpers", () => {
     ).not.toHaveBeenCalled()
   })
 
-  it("reconciles created channel-post comment ids from the server", async () => {
+  it("syncs newly created channel-post comments with the optimistic comment id", async () => {
     const { backgroundTasks, slice, state } =
       await createChannelActionsHarness()
 
@@ -366,45 +416,32 @@ describe("collaboration channel notification helpers", () => {
     )
 
     expect(optimisticComment?.id).toMatch(/^channel_comment_/)
-    expect(optimisticComment?.id).not.toBe("comment_server")
+    expect(channelActionTestDoubles.convex.addComment).toHaveBeenCalledWith(
+      "post_1",
+      "<p>Fresh reply</p>",
+      optimisticComment?.id
+    )
 
     await backgroundTasks[0]
 
     expect(state.channelPostComments).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "comment_server",
+          id: optimisticComment?.id,
           content: "<p>Fresh reply</p>",
         }),
       ])
     )
-    expect(
-      state.channelPostComments.some(
-        (comment) => comment.id === optimisticComment?.id
-      )
-    ).toBe(false)
   })
 
   it("deletes the server-created comment when an optimistic reply is removed before create sync resolves", async () => {
-    let resolveCreateComment:
-      | ((value: { commentId: string }) => void)
-      | undefined
-    channelActionTestDoubles.convex.addComment.mockReturnValue(
-      new Promise((resolve) => {
-        resolveCreateComment = resolve
-      })
-    )
-    const { backgroundTasks, slice, state } =
-      await createChannelActionsHarness()
-
-    slice.addChannelPostComment({
-      postId: "post_1",
-      content: "<p>Transient reply</p>",
-    })
-
-    const optimisticComment = state.channelPostComments.find(
-      (comment) => comment.content === "<p>Transient reply</p>"
-    )
+    const {
+      backgroundTasks,
+      optimisticComment,
+      resolveCreateComment,
+      slice,
+      state,
+    } = await createPendingChannelPostComment("<p>Transient reply</p>")
 
     expect(optimisticComment).toBeTruthy()
 
@@ -417,7 +454,7 @@ describe("collaboration channel notification helpers", () => {
     ).toBe(false)
     expect(channelActionTestDoubles.convex.deleteComment).not.toHaveBeenCalled()
 
-    resolveCreateComment?.({ commentId: "comment_server_after_delete" })
+    resolveCreateComment?.({ commentId: optimisticComment?.id ?? "" })
     await backgroundTasks[0]
     await backgroundTasks[1]
 
@@ -426,7 +463,7 @@ describe("collaboration channel notification helpers", () => {
     )
     expect(channelActionTestDoubles.convex.deleteComment).toHaveBeenCalledWith(
       "post_1",
-      "comment_server_after_delete"
+      optimisticComment?.id
     )
   })
 })

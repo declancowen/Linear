@@ -39,6 +39,7 @@ type ServerAccessArgs = {
 
 type AddCommentArgs = ServerAccessArgs & {
   currentUserId: string
+  commentId?: string
   origin: string
   targetType: "workItem" | "document"
   targetId: string
@@ -209,13 +210,19 @@ async function requireWorkItemForDescriptionDocument(
   return item
 }
 
-function insertComment(
+async function insertComment(
   ctx: MutationCtx,
   args: AddCommentArgs,
   mentionUserIds: string[]
 ) {
-  return ctx.db.insert("comments", {
-    id: createId("comment"),
+  const commentId = args.commentId?.trim() || createId("comment")
+
+  if (args.commentId && (await getCommentDoc(ctx, commentId))) {
+    throw new Error("Comment id already exists")
+  }
+
+  await ctx.db.insert("comments", {
+    id: commentId,
     targetType: args.targetType,
     targetId: args.targetId,
     parentCommentId: args.parentCommentId ?? null,
@@ -225,6 +232,8 @@ function insertComment(
     createdBy: args.currentUserId,
     createdAt: getNow(),
   })
+
+  return commentId
 }
 
 async function assertOwnedComment(
@@ -388,7 +397,7 @@ export async function addCommentHandler(
     audience.audienceUserIds
   )
 
-  await insertComment(ctx, args, mentionUserIds)
+  const commentId = await insertComment(ctx, args, mentionUserIds)
 
   const { mentionEmails, notifiedUserIds } = await notifyMentionedCommentUsers({
     ctx,
@@ -420,6 +429,7 @@ export async function addCommentHandler(
   )
 
   return {
+    commentId,
     mentionEmails,
   }
 }

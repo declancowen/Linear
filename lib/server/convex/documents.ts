@@ -142,6 +142,11 @@ const ITEM_DESCRIPTION_MENTION_NOTIFICATION_ERROR_MAPPINGS = [
 
 const ADD_COMMENT_ERROR_MAPPINGS = [
   {
+    match: "Comment id already exists",
+    status: 409,
+    code: "COMMENT_ID_CONFLICT",
+  },
+  {
     match: "Parent comment not found",
     status: 404,
     code: "COMMENT_PARENT_NOT_FOUND",
@@ -535,6 +540,7 @@ export async function sendItemDescriptionMentionNotificationsServer(input: {
 
 export async function addCommentServer(input: {
   currentUserId: string
+  commentId?: string
   targetType: "workItem" | "document"
   targetId: string
   parentCommentId?: string | null

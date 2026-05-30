@@ -130,7 +130,11 @@ export function syncUpdateChannelPost(input: {
   })
 }
 
-export function syncAddChannelPostComment(postId: string, content: string) {
+export function syncAddChannelPostComment(
+  postId: string,
+  content: string,
+  commentId?: string
+) {
   return runRouteMutation<{ commentId: string }>(
     `/api/channel-posts/${postId}/comments`,
     {
@@ -139,6 +143,7 @@ export function syncAddChannelPostComment(postId: string, content: string) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        commentId,
         content,
       }),
     }

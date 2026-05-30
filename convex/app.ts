@@ -1302,6 +1302,7 @@ export const addComment = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    commentId: v.optional(v.string()),
     origin: v.string(),
     targetType: commentTargetTypeValidator,
     targetId: v.string(),
@@ -1624,6 +1625,7 @@ export const addChannelPostComment = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     postId: v.string(),
+    commentId: v.optional(v.string()),
     content: v.string(),
     origin: v.string(),
   },

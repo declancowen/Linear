@@ -517,13 +517,17 @@ function reconcileCreatedChannelPostComment(
     optimisticCommentId: string
   }
 ): ReconcileCreatedChannelPostCommentResult {
-  if (input.createdCommentId === input.optimisticCommentId) {
-    return { shouldDeleteCreatedComment: false, state }
-  }
-
   const hasOptimisticComment = state.channelPostComments.some(
     (comment) => comment.id === input.optimisticCommentId
   )
+
+  if (input.createdCommentId === input.optimisticCommentId) {
+    return {
+      shouldDeleteCreatedComment: !hasOptimisticComment,
+      state,
+    }
+  }
+
   const hasCreatedComment = state.channelPostComments.some(
     (comment) => comment.id === input.createdCommentId
   )
@@ -761,7 +765,10 @@ export function createCollaborationChannelActions({
   | "toggleChannelPostReaction"
 > {
   const pendingChannelPostCreates = new Set<string>()
-  const pendingChannelPostCommentCreates = new Set<string>()
+  const pendingChannelPostCommentCreates = new Map<
+    string,
+    Promise<{ commentId: string }>
+  >()
 
   return {
     createChannelPost(input) {
@@ -896,7 +903,19 @@ export function createCollaborationChannelActions({
       }
 
       const optimisticCommentId = createId("channel_comment")
-      pendingChannelPostCommentCreates.add(optimisticCommentId)
+      const createCommentTask: Promise<{ commentId: string }> | null =
+        syncAddChannelPostComment(
+          parsed.data.postId,
+          preparedContent.sanitized,
+          optimisticCommentId
+        )
+
+      if (createCommentTask) {
+        pendingChannelPostCommentCreates.set(
+          optimisticCommentId,
+          createCommentTask
+        )
+      }
 
       set((state) => {
         const post = state.channelPosts.find(
@@ -962,38 +981,40 @@ export function createCollaborationChannelActions({
         }
       })
 
-      const syncTask = syncAddChannelPostComment(
-        parsed.data.postId,
-        preparedContent.sanitized
-      )
-        .then((result) => {
-          let shouldDeleteCreatedComment = false
+      const syncTask = createCommentTask
+        ? createCommentTask
+            .then((result) => {
+              let shouldDeleteCreatedComment = false
 
-          set((state) => {
-            const reconciliation = reconcileCreatedChannelPostComment(state, {
-              createdCommentId: result.commentId,
-              optimisticCommentId,
+              set((state) => {
+                const reconciliation = reconcileCreatedChannelPostComment(
+                  state,
+                  {
+                    createdCommentId: result.commentId,
+                    optimisticCommentId,
+                  }
+                )
+
+                shouldDeleteCreatedComment =
+                  reconciliation.shouldDeleteCreatedComment
+
+                return reconciliation.state
+              })
+
+              if (shouldDeleteCreatedComment) {
+                runtime.syncInBackground(
+                  syncDeleteChannelPostComment(
+                    parsed.data.postId,
+                    result.commentId
+                  ),
+                  "Failed to delete comment"
+                )
+              }
             })
-
-            shouldDeleteCreatedComment =
-              reconciliation.shouldDeleteCreatedComment
-
-            return reconciliation.state
-          })
-
-          if (shouldDeleteCreatedComment) {
-            runtime.syncInBackground(
-              syncDeleteChannelPostComment(
-                parsed.data.postId,
-                result.commentId
-              ),
-              "Failed to delete comment"
-            )
-          }
-        })
-        .finally(() => {
-          pendingChannelPostCommentCreates.delete(optimisticCommentId)
-        })
+            .finally(() => {
+              pendingChannelPostCommentCreates.delete(optimisticCommentId)
+            })
+        : null
 
       runtime.syncInBackground(syncTask, "Failed to post reply")
     },
@@ -1034,14 +1055,28 @@ export function createCollaborationChannelActions({
         return
       }
 
-      runtime.syncInBackground(
-        syncUpdateChannelPostComment(
-          postId,
-          commentId,
-          preparedContent.sanitized
-        ),
-        "Failed to update comment"
-      )
+      const pendingCreate = pendingChannelPostCommentCreates.get(commentId)
+      const syncTask = pendingCreate
+        ? pendingCreate.then(
+            (result) =>
+              get().channelPostComments.some(
+                (comment) => comment.id === commentId
+              )
+                ? syncUpdateChannelPostComment(
+                    postId,
+                    result.commentId,
+                    preparedContent.sanitized
+                  )
+                : null,
+            () => null
+          )
+        : syncUpdateChannelPostComment(
+            postId,
+            commentId,
+            preparedContent.sanitized
+          )
+
+      runtime.syncInBackground(syncTask, "Failed to update comment")
 
       toast.success("Comment updated")
     },

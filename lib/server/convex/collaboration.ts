@@ -117,6 +117,11 @@ const CREATE_CHANNEL_POST_ERROR_MAPPINGS = [
 
 const ADD_CHANNEL_POST_COMMENT_ERROR_MAPPINGS = [
   {
+    match: "Channel post comment id already exists",
+    status: 409,
+    code: "CHANNEL_POST_COMMENT_ID_CONFLICT",
+  },
+  {
     match: "Post not found",
     status: 404,
     code: "CHANNEL_POST_NOT_FOUND",
@@ -602,6 +607,7 @@ export async function updateChannelPostServer(input: {
 
 export async function addChannelPostCommentServer(input: {
   currentUserId: string
+  commentId?: string
   postId: string
   content: string
 }) {

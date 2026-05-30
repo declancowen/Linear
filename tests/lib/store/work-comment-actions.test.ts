@@ -189,4 +189,53 @@ describe("work comment actions", () => {
     )
     expect(backgroundTasks).toHaveLength(1)
   })
+
+  it("uses the optimistic id and defers edits while comment creation is pending", async () => {
+    let resolveCreate:
+      | ((value: { ok: true; commentId: string | null }) => void)
+      | undefined
+    workCommentTestDoubles.convex.addComment.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve
+      })
+    )
+    const { backgroundTasks, slice, state } =
+      await createWorkCommentActionsHarness()
+
+    slice.addComment({
+      targetType: "workItem",
+      targetId: "item_1",
+      content: "<p>Fresh comment</p>",
+    })
+
+    const optimisticComment = state.comments.find(
+      (comment) => comment.content === "<p>Fresh comment</p>"
+    )
+    expect(optimisticComment?.id).toMatch(/^comment_/)
+    expect(workCommentTestDoubles.convex.addComment).toHaveBeenCalledWith(
+      "user_1",
+      "workItem",
+      "item_1",
+      "<p>Fresh comment</p>",
+      undefined,
+      optimisticComment?.id
+    )
+
+    slice.updateComment(optimisticComment?.id ?? "", {
+      content: "<p>Fresh comment edited</p>",
+    })
+
+    expect(workCommentTestDoubles.convex.updateComment).not.toHaveBeenCalled()
+
+    resolveCreate?.({
+      ok: true,
+      commentId: optimisticComment?.id ?? null,
+    })
+    await Promise.all(backgroundTasks.filter(Boolean))
+
+    expect(workCommentTestDoubles.convex.updateComment).toHaveBeenCalledWith(
+      optimisticComment?.id,
+      "<p>Fresh comment edited</p>"
+    )
+  })
 })

@@ -157,6 +157,7 @@ type UpdateChannelPostArgs = ServerAccessArgs & {
 
 type AddChannelPostCommentArgs = ServerAccessArgs & {
   currentUserId: string
+  commentId?: string
   origin: string
   postId: string
   content: string
@@ -1644,7 +1645,12 @@ export async function addChannelPostCommentHandler(
     .withIndex("by_post", (q) => q.eq("postId", post.id))
     .collect()
   const now = getNow()
-  const commentId = createId("channel_comment")
+  const commentId = args.commentId?.trim() || createId("channel_comment")
+
+  if (args.commentId && (await getChannelPostCommentDoc(ctx, commentId))) {
+    throw new Error("Channel post comment id already exists")
+  }
+
   const audience = await getChannelCommentAudience(ctx, {
     content: args.content,
     conversation,
