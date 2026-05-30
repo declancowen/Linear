@@ -1,7 +1,10 @@
 import { api } from "@/convex/_generated/api"
 import { prepareRichTextMessageForStorage } from "@/lib/content/rich-text-security"
 import type { TeamMeetingRole } from "@/lib/server/100ms"
-import { ApplicationError, coerceApplicationError } from "@/lib/server/application-errors"
+import {
+  ApplicationError,
+  coerceApplicationError,
+} from "@/lib/server/application-errors"
 
 import { getConvexServerClient, withServerToken } from "./core"
 import { resolveServerOrigin } from "../request-origin"
@@ -105,9 +108,19 @@ const CREATE_CHANNEL_POST_ERROR_MAPPINGS = [
     status: 403,
     code: "CHANNEL_READ_ONLY",
   },
+  {
+    match: "Channel post id already exists",
+    status: 409,
+    code: "CHANNEL_POST_ID_CONFLICT",
+  },
 ] as const
 
 const ADD_CHANNEL_POST_COMMENT_ERROR_MAPPINGS = [
+  {
+    match: "Channel post comment id already exists",
+    status: 409,
+    code: "CHANNEL_POST_COMMENT_ID_CONFLICT",
+  },
   {
     match: "Post not found",
     status: 404,
@@ -235,6 +248,20 @@ const DELETE_CHANNEL_POST_ERROR_MAPPINGS = [
   },
 ] as const
 
+const UPDATE_CHANNEL_POST_ERROR_MAPPINGS = [
+  ...DELETE_CHANNEL_POST_ERROR_MAPPINGS,
+  {
+    match: "Posts can only be created in channels",
+    status: 400,
+    code: "CHANNEL_POST_INVALID_CONVERSATION_KIND",
+  },
+  {
+    match: "You can only edit your own posts",
+    status: 403,
+    code: "CHANNEL_POST_EDIT_FORBIDDEN",
+  },
+] as const
+
 const DELETE_CHANNEL_POST_COMMENT_ERROR_MAPPINGS = [
   {
     match: "Post not found",
@@ -260,6 +287,20 @@ const DELETE_CHANNEL_POST_COMMENT_ERROR_MAPPINGS = [
     match: "You can only delete your own comments",
     status: 403,
     code: "CHANNEL_POST_COMMENT_DELETE_FORBIDDEN",
+  },
+] as const
+
+const UPDATE_CHANNEL_POST_COMMENT_ERROR_MAPPINGS = [
+  ...DELETE_CHANNEL_POST_COMMENT_ERROR_MAPPINGS,
+  {
+    match: "Comments can only be added to channels",
+    status: 400,
+    code: "CHANNEL_POST_COMMENT_INVALID_CONVERSATION_KIND",
+  },
+  {
+    match: "You can only edit your own comments",
+    status: 403,
+    code: "CHANNEL_POST_COMMENT_EDIT_FORBIDDEN",
   },
 ] as const
 
@@ -377,6 +418,24 @@ const FINALIZE_CALL_JOIN_ERROR_MAPPINGS = [
   },
 ] as const
 
+function prepareChannelPostContent(content: string) {
+  const preparedContent = prepareRichTextMessageForStorage(content, {
+    minPlainTextCharacters: 2,
+  })
+
+  if (!preparedContent.isMeaningful) {
+    throw new ApplicationError(
+      "Post content must include at least 2 characters",
+      400,
+      {
+        code: "CHANNEL_POST_CONTENT_REQUIRED",
+      }
+    )
+  }
+
+  return preparedContent.sanitized
+}
+
 export async function createWorkspaceChatServer(input: {
   currentUserId: string
   workspaceId: string
@@ -391,8 +450,9 @@ export async function createWorkspaceChatServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...CREATE_WORKSPACE_CHAT_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...CREATE_WORKSPACE_CHAT_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -410,7 +470,8 @@ export async function ensureTeamChatServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...ENSURE_TEAM_CHAT_ERROR_MAPPINGS]) ?? error
+      coerceApplicationError(error, [...ENSURE_TEAM_CHAT_ERROR_MAPPINGS]) ??
+      error
     )
   }
 }
@@ -428,7 +489,9 @@ export async function createChannelServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...CREATE_CHANNEL_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...CREATE_CHANNEL_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -464,7 +527,10 @@ export async function sendChatMessageServer(input: {
       })
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...SEND_CHAT_MESSAGE_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...SEND_CHAT_MESSAGE_ERROR_MAPPINGS]) ??
+      error
+    )
   }
 }
 
@@ -480,10 +546,9 @@ export async function toggleChatMessageReactionServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(
-        error,
-        [...TOGGLE_CHAT_MESSAGE_REACTION_ERROR_MAPPINGS]
-      ) ?? error
+      coerceApplicationError(error, [
+        ...TOGGLE_CHAT_MESSAGE_REACTION_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -491,22 +556,11 @@ export async function toggleChatMessageReactionServer(input: {
 export async function createChannelPostServer(input: {
   currentUserId: string
   conversationId: string
+  postId?: string
   title: string
   content: string
 }) {
-  const preparedContent = prepareRichTextMessageForStorage(input.content, {
-    minPlainTextCharacters: 2,
-  })
-
-  if (!preparedContent.isMeaningful) {
-    throw new ApplicationError(
-      "Post content must include at least 2 characters",
-      400,
-      {
-        code: "CHANNEL_POST_CONTENT_REQUIRED",
-      }
-    )
-  }
+  const content = prepareChannelPostContent(input.content)
 
   try {
     const origin = await resolveServerOrigin()
@@ -516,7 +570,7 @@ export async function createChannelPostServer(input: {
       withServerToken({
         ...input,
         origin,
-        content: preparedContent.sanitized,
+        content,
       })
     )
   } catch (error) {
@@ -527,8 +581,33 @@ export async function createChannelPostServer(input: {
   }
 }
 
+export async function updateChannelPostServer(input: {
+  currentUserId: string
+  postId: string
+  title: string
+  content: string
+}) {
+  const content = prepareChannelPostContent(input.content)
+
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateChannelPost,
+      withServerToken({
+        ...input,
+        content,
+      })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...UPDATE_CHANNEL_POST_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
 export async function addChannelPostCommentServer(input: {
   currentUserId: string
+  commentId?: string
   postId: string
   content: string
 }) {
@@ -559,8 +638,46 @@ export async function addChannelPostCommentServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...ADD_CHANNEL_POST_COMMENT_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...ADD_CHANNEL_POST_COMMENT_ERROR_MAPPINGS,
+      ]) ?? error
+    )
+  }
+}
+
+export async function updateChannelPostCommentServer(input: {
+  currentUserId: string
+  postId: string
+  commentId: string
+  content: string
+}) {
+  const preparedContent = prepareRichTextMessageForStorage(input.content, {
+    minPlainTextCharacters: 1,
+  })
+
+  if (!preparedContent.isMeaningful) {
+    throw new ApplicationError(
+      "Comment content must include at least 1 character",
+      400,
+      {
+        code: "CHANNEL_POST_COMMENT_CONTENT_REQUIRED",
+      }
+    )
+  }
+
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateChannelPostComment,
+      withServerToken({
+        ...input,
+        content: preparedContent.sanitized,
+      })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [
+        ...UPDATE_CHANNEL_POST_COMMENT_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -613,10 +730,9 @@ export async function toggleChannelPostReactionServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(
-        error,
-        [...TOGGLE_CHANNEL_POST_REACTION_ERROR_MAPPINGS]
-      ) ?? error
+      coerceApplicationError(error, [
+        ...TOGGLE_CHANNEL_POST_REACTION_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -633,7 +749,10 @@ export async function startChatCallServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...START_CHAT_CALL_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...START_CHAT_CALL_ERROR_MAPPINGS]) ??
+      error
+    )
   }
 }
 
@@ -649,8 +768,9 @@ export async function getCallJoinContextServer(input: {
     )) as CallJoinContext
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...GET_CALL_JOIN_CONTEXT_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...GET_CALL_JOIN_CONTEXT_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -685,7 +805,10 @@ export async function markCallJoinedServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...MARK_CALL_JOINED_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...MARK_CALL_JOINED_ERROR_MAPPINGS]) ??
+      error
+    )
   }
 }
 
@@ -701,7 +824,9 @@ export async function setCallRoomServer(input: {
       withServerToken(input)
     )
   } catch (error) {
-    throw coerceApplicationError(error, [...SET_CALL_ROOM_ERROR_MAPPINGS]) ?? error
+    throw (
+      coerceApplicationError(error, [...SET_CALL_ROOM_ERROR_MAPPINGS]) ?? error
+    )
   }
 }
 
@@ -718,8 +843,9 @@ export async function setConversationRoomServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...SET_CONVERSATION_ROOM_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...SET_CONVERSATION_ROOM_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }

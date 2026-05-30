@@ -562,15 +562,17 @@ describe("work item handlers", () => {
         teamName: "Launch",
         nextTitle: "Launch task",
       })
-    ).resolves.toEqual({
-      notificationId: "notification_1",
-      email: "sam@example.com",
-      name: "Sam",
-      itemTitle: "Launch task",
-      itemId: "item_1",
-      actorName: "Alex",
-      teamName: "Launch",
-    })
+    ).resolves.toEqual([
+      {
+        notificationId: "notification_1",
+        email: "sam@example.com",
+        name: "Sam",
+        itemTitle: "Launch task",
+        itemId: "item_1",
+        actorName: "Alex",
+        teamName: "Launch",
+      },
+    ])
     expect(ctx.db.insert).toHaveBeenCalledWith(
       "notifications",
       expect.objectContaining({
@@ -594,7 +596,55 @@ describe("work item handlers", () => {
         teamName: "Launch",
         nextTitle: "Launch task",
       })
-    ).resolves.toBeNull()
+    ).resolves.toEqual([])
+  })
+
+  it("creates assignment notifications for each newly added assignee", async () => {
+    const { createAssignmentNotificationForWorkItemUpdate } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    getUserDocMock.mockImplementation(async (_ctx, userId: string) => ({
+      id: userId,
+      email: `${userId}@example.com`,
+      name: userId,
+      preferences: {
+        emailAssignments: userId === "user_3",
+      },
+    }))
+
+    await expect(
+      createAssignmentNotificationForWorkItemUpdate(ctx as never, {
+        args: {
+          currentUserId: "user_1",
+          patch: {
+            assigneeIds: ["user_2", "user_3"],
+          },
+        } as never,
+        existing: {
+          id: "item_1",
+          assigneeId: "user_2",
+          assigneeIds: ["user_2"],
+        } as never,
+        actorName: "Alex",
+        teamName: "Launch",
+        nextTitle: "Launch task",
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        email: "user_3@example.com",
+        name: "user_3",
+      }),
+    ])
+    expect(ctx.db.insert).toHaveBeenCalledTimes(1)
+    expect(createNotificationMock).toHaveBeenCalledWith(
+      "user_3",
+      "user_1",
+      expect.any(String),
+      "workItem",
+      "item_1",
+      "assignment"
+    )
   })
 
   it("does not create assignment notifications for private work item updates", async () => {
@@ -619,7 +669,7 @@ describe("work item handlers", () => {
         teamName: "Launch",
         nextTitle: "Private task",
       })
-    ).resolves.toBeNull()
+    ).resolves.toEqual([])
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 

@@ -85,6 +85,7 @@ import {
   type WorkItemVisibility,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 import { Button } from "@/components/ui/button"
 import {
   Popover,
@@ -485,14 +486,12 @@ function getFilterAssignees(
   const assignees = new Map<string, UserProfile>()
 
   for (const item of items) {
-    if (!item.assigneeId) {
-      continue
-    }
+    for (const assigneeId of getWorkItemAssigneeIds(item)) {
+      const assignee = userById.get(assigneeId)
 
-    const assignee = userById.get(item.assigneeId)
-
-    if (assignee) {
-      assignees.set(assignee.id, assignee)
+      if (assignee) {
+        assignees.set(assignee.id, assignee)
+      }
     }
   }
 

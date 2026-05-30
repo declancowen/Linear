@@ -98,6 +98,8 @@ import {
   startChatCallHandler,
   toggleChatMessageReactionHandler,
   toggleChannelPostReactionHandler,
+  updateChannelPostCommentHandler,
+  updateChannelPostHandler,
 } from "./app/collaboration_handlers"
 import {
   clearDocumentPresenceHandler,
@@ -121,7 +123,9 @@ import {
 } from "./app/scoped_sync"
 import {
   addCommentHandler,
+  deleteCommentHandler,
   toggleCommentReactionHandler,
+  updateCommentHandler,
 } from "./app/comment_handlers"
 import {
   archiveCustomPropertyDefinitionHandler,
@@ -824,7 +828,9 @@ export const createLabel = mutation({
     workspaceId: v.string(),
     name: v.string(),
     color: v.optional(v.string()),
-    scopeType: v.optional(v.union(v.literal("workspace"), v.literal("private"))),
+    scopeType: v.optional(
+      v.union(v.literal("workspace"), v.literal("private"))
+    ),
   },
   handler: createLabelHandler,
 })
@@ -1062,6 +1068,7 @@ export const updateWorkItem = mutation({
       status: v.optional(workStatusValidator),
       priority: v.optional(priorityValidator),
       assigneeId: v.optional(nullableStringValidator),
+      assigneeIds: v.optional(v.array(v.string())),
       parentId: v.optional(nullableStringValidator),
       primaryProjectId: v.optional(nullableStringValidator),
       labelIds: v.optional(v.array(v.string())),
@@ -1295,6 +1302,7 @@ export const addComment = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
+    commentId: v.optional(v.string()),
     origin: v.string(),
     targetType: commentTargetTypeValidator,
     targetId: v.string(),
@@ -1302,6 +1310,25 @@ export const addComment = mutation({
     content: v.string(),
   },
   handler: addCommentHandler,
+})
+
+export const updateComment = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    commentId: v.string(),
+    content: v.string(),
+  },
+  handler: updateCommentHandler,
+})
+
+export const deleteComment = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    commentId: v.string(),
+  },
+  handler: deleteCommentHandler,
 })
 
 export const toggleCommentReaction = mutation({
@@ -1460,6 +1487,7 @@ export const createWorkItem = mutation({
     parentId: v.optional(nullableStringValidator),
     primaryProjectId: nullableStringValidator,
     assigneeId: nullableStringValidator,
+    assigneeIds: v.optional(v.array(v.string())),
     status: v.optional(workStatusValidator),
     priority: priorityValidator,
     labelIds: v.optional(v.array(v.string())),
@@ -1573,6 +1601,7 @@ export const createChannelPost = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     conversationId: v.string(),
+    postId: v.optional(v.string()),
     title: v.string(),
     content: v.string(),
     origin: v.string(),
@@ -1580,15 +1609,38 @@ export const createChannelPost = mutation({
   handler: createChannelPostHandler,
 })
 
+export const updateChannelPost = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    postId: v.string(),
+    title: v.string(),
+    content: v.string(),
+  },
+  handler: updateChannelPostHandler,
+})
+
 export const addChannelPostComment = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
     postId: v.string(),
+    commentId: v.optional(v.string()),
     content: v.string(),
     origin: v.string(),
   },
   handler: addChannelPostCommentHandler,
+})
+
+export const updateChannelPostComment = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    postId: v.string(),
+    commentId: v.string(),
+    content: v.string(),
+  },
+  handler: updateChannelPostCommentHandler,
 })
 
 export const deleteChannelPost = mutation({

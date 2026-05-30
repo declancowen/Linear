@@ -16,6 +16,11 @@ import {
   PRIVATE_WORK_ITEM_KEY_PREFIX,
 } from "../../lib/domain/work-item-key"
 import {
+  getResolvedWorkItemMutationAssigneeIds,
+  getWorkItemAssigneeFields,
+  getWorkItemAssigneeIds,
+} from "../../lib/domain/work-item-assignees"
+import {
   buildWorkItemAssignmentNotificationMessage,
   buildWorkItemStatusChangeNotificationMessage,
 } from "../../lib/domain/notification-copy"
@@ -514,13 +519,24 @@ async function assertWorkItemAssigneePatchAllowed(
     return
   }
 
-  if (
-    patch.assigneeId !== undefined &&
-    patch.assigneeId &&
-    !(await isTeamMember(ctx, existing.teamId, patch.assigneeId))
-  ) {
-    throw new Error("Assignee must belong to the selected team")
+  const assigneeIds =
+    patch.assigneeIds !== undefined
+      ? getResolvedWorkItemMutationAssigneeIds(patch)
+      : patch.assigneeId !== undefined
+        ? getResolvedWorkItemMutationAssigneeIds(patch)
+        : []
+
+  for (const assigneeId of assigneeIds) {
+    if (!(await isTeamMember(ctx, existing.teamId, assigneeId))) {
+      throw new Error("Assignee must belong to the selected team")
+    }
   }
+}
+
+function getPatchAssigneeIds(patch: WorkItemPatch) {
+  return patch.assigneeIds !== undefined || patch.assigneeId !== undefined
+    ? getResolvedWorkItemMutationAssigneeIds(patch)
+    : null
 }
 
 async function assertWorkItemLabelPatchAllowed(
@@ -555,11 +571,18 @@ function buildPersistedWorkItemPatch(
   delete persistedPatch.expectedUpdatedAt
   if ((input.existing.visibility ?? "team") === "private") {
     delete persistedPatch.assigneeId
+    delete persistedPatch.assigneeIds
     delete persistedPatch.primaryProjectId
   }
 
+  const assigneeIds =
+    (input.existing.visibility ?? "team") === "private"
+      ? null
+      : getPatchAssigneeIds(patch)
+
   return {
     ...persistedPatch,
+    ...(assigneeIds ? getWorkItemAssigneeFields(assigneeIds) : {}),
     title: input.nextTitle,
     primaryProjectId:
       (input.existing.visibility ?? "team") === "private"
@@ -578,45 +601,52 @@ export async function createAssignmentNotificationForWorkItemUpdate(
     teamName: string
     nextTitle: string
   }
-): Promise<AssignmentEmail | null> {
+): Promise<AssignmentEmail[]> {
   if (
     (input.existing.visibility ?? "team") === "private" ||
-    input.args.patch.assigneeId === undefined ||
-    !input.args.patch.assigneeId ||
-    input.args.patch.assigneeId === input.existing.assigneeId
+    (input.args.patch.assigneeIds === undefined &&
+      input.args.patch.assigneeId === undefined)
   ) {
-    return null
+    return []
   }
 
-  const assignee = await getUserDoc(ctx, input.args.patch.assigneeId)
-  const notification = createNotification(
-    input.args.patch.assigneeId,
-    input.args.currentUserId,
-    buildWorkItemAssignmentNotificationMessage(
-      input.actorName,
-      input.nextTitle,
-      input.teamName
-    ),
-    "workItem",
-    input.existing.id,
-    "assignment"
-  )
+  const previousAssigneeIds = new Set(getWorkItemAssigneeIds(input.existing))
+  const nextAssigneeIds = getResolvedWorkItemMutationAssigneeIds(
+    input.args.patch
+  ).filter((assigneeId) => !previousAssigneeIds.has(assigneeId))
+  const assignmentEmails: AssignmentEmail[] = []
 
-  await ctx.db.insert("notifications", notification)
+  for (const assigneeId of nextAssigneeIds) {
+    const assignee = await getUserDoc(ctx, assigneeId)
+    const notification = createNotification(
+      assigneeId,
+      input.args.currentUserId,
+      buildWorkItemAssignmentNotificationMessage(
+        input.actorName,
+        input.nextTitle,
+        input.teamName
+      ),
+      "workItem",
+      input.existing.id,
+      "assignment"
+    )
 
-  if (!assignee?.preferences.emailAssignments) {
-    return null
+    await ctx.db.insert("notifications", notification)
+
+    if (assignee?.preferences.emailAssignments) {
+      assignmentEmails.push({
+        notificationId: notification.id,
+        email: assignee.email,
+        name: assignee.name,
+        itemTitle: input.nextTitle,
+        itemId: input.existing.id,
+        actorName: input.actorName,
+        teamName: input.teamName,
+      })
+    }
   }
 
-  return {
-    notificationId: notification.id,
-    email: assignee.email,
-    name: assignee.name,
-    itemTitle: input.nextTitle,
-    itemId: input.existing.id,
-    actorName: input.actorName,
-    teamName: input.teamName,
-  }
+  return assignmentEmails
 }
 
 export async function createStatusChangeNotificationForWorkItemUpdate(
@@ -633,35 +663,38 @@ export async function createStatusChangeNotificationForWorkItemUpdate(
     return
   }
 
-  const resolvedAssigneeId =
-    input.args.patch.assigneeId === undefined
-      ? input.existing.assigneeId
-      : input.args.patch.assigneeId
+  const resolvedAssigneeIds =
+    input.args.patch.assigneeIds !== undefined ||
+    input.args.patch.assigneeId !== undefined
+      ? getResolvedWorkItemMutationAssigneeIds(input.args.patch)
+      : getWorkItemAssigneeIds(input.existing)
 
   if (
     !input.args.patch.status ||
     input.args.patch.status === input.existing.status ||
-    !resolvedAssigneeId
+    resolvedAssigneeIds.length === 0
   ) {
     return
   }
 
-  await ctx.db.insert(
-    "notifications",
-    createNotification(
-      resolvedAssigneeId,
-      input.args.currentUserId,
-      buildWorkItemStatusChangeNotificationMessage(
-        input.actorName,
-        input.nextTitle,
-        statusMeta[input.args.patch.status].label,
-        input.teamName
-      ),
-      "workItem",
-      input.existing.id,
-      "status-change"
+  for (const resolvedAssigneeId of resolvedAssigneeIds) {
+    await ctx.db.insert(
+      "notifications",
+      createNotification(
+        resolvedAssigneeId,
+        input.args.currentUserId,
+        buildWorkItemStatusChangeNotificationMessage(
+          input.actorName,
+          input.nextTitle,
+          statusMeta[input.args.patch.status].label,
+          input.teamName
+        ),
+        "workItem",
+        input.existing.id,
+        "status-change"
+      )
     )
-  )
+  }
 }
 
 function getEffectiveWorkItemPatch(
@@ -674,6 +707,7 @@ function getEffectiveWorkItemPatch(
 
   const effectivePatch = { ...patch }
   delete effectivePatch.assigneeId
+  delete effectivePatch.assigneeIds
   delete effectivePatch.primaryProjectId
   return effectivePatch
 }
@@ -765,7 +799,7 @@ export async function updateWorkItemHandler(
     })
   }
 
-  const assignmentEmail = await createAssignmentNotificationForWorkItemUpdate(
+  const assignmentEmails = await createAssignmentNotificationForWorkItemUpdate(
     ctx,
     {
       args: effectiveArgs,
@@ -775,7 +809,6 @@ export async function updateWorkItemHandler(
       nextTitle,
     }
   )
-  const assignmentEmails = assignmentEmail ? [assignmentEmail] : []
 
   await createStatusChangeNotificationForWorkItemUpdate(ctx, {
     args: effectiveArgs,
@@ -1221,16 +1254,17 @@ async function assertCreateWorkItemAssignee(
     return
   }
 
-  if (
-    args.assigneeId &&
-    !(await isTeamMember(ctx, args.teamId, args.assigneeId))
-  ) {
-    throw new Error("Assignee must belong to the selected team")
+  for (const assigneeId of getCreateWorkItemAssigneeIds(args)) {
+    if (!(await isTeamMember(ctx, args.teamId, assigneeId))) {
+      throw new Error("Assignee must belong to the selected team")
+    }
   }
 }
 
-function getCreateWorkItemAssigneeId(args: CreateWorkItemArgs) {
-  return args.visibility === "private" ? null : args.assigneeId
+function getCreateWorkItemAssigneeIds(args: CreateWorkItemArgs) {
+  return args.visibility === "private"
+    ? []
+    : getResolvedWorkItemMutationAssigneeIds(args)
 }
 
 async function assertCreateWorkItemLabels(
@@ -1318,23 +1352,37 @@ async function assertCreateWorkItemIdsAvailable(
   ctx: MutationCtx,
   args: CreateWorkItemArgs
 ) {
-  if (args.descriptionDocId) {
-    const existingDescriptionDocument = await getDocumentDoc(
-      ctx,
-      args.descriptionDocId
-    )
+  await assertDescriptionDocumentIdAvailable(ctx, args.descriptionDocId)
+  await assertWorkItemIdAvailable(ctx, args.id)
+}
 
-    if (existingDescriptionDocument) {
-      throw new Error("Description document id already exists")
-    }
+async function assertDescriptionDocumentIdAvailable(
+  ctx: MutationCtx,
+  descriptionDocId?: string
+) {
+  if (!descriptionDocId) {
+    return
   }
 
-  if (args.id) {
-    const existingWorkItem = await getWorkItemDoc(ctx, args.id)
+  const existingDescriptionDocument = await getDocumentDoc(
+    ctx,
+    descriptionDocId
+  )
 
-    if (existingWorkItem) {
-      throw new Error("Work item id already exists")
-    }
+  if (existingDescriptionDocument) {
+    throw new Error("Description document id already exists")
+  }
+}
+
+async function assertWorkItemIdAvailable(ctx: MutationCtx, itemId?: string) {
+  if (!itemId) {
+    return
+  }
+
+  const existingWorkItem = await getWorkItemDoc(ctx, itemId)
+
+  if (existingWorkItem) {
+    throw new Error("Work item id already exists")
   }
 }
 
@@ -1360,7 +1408,9 @@ async function getCreateWorkItemNumbering(
     prefix: isPrivate
       ? PRIVATE_WORK_ITEM_KEY_PREFIX
       : toTeamKeyPrefix(team.name, args.teamId),
-    nextNumber: isPrivate ? matchingItems.length + 1 : 1 + matchingItems.length + 100,
+    nextNumber: isPrivate
+      ? matchingItems.length + 1
+      : 1 + matchingItems.length + 100,
   }
 }
 
@@ -1425,7 +1475,7 @@ function buildCreatedWorkItem({
     descriptionDocId,
     status: args.status ?? ("backlog" as const),
     priority: args.priority,
-    assigneeId: getCreateWorkItemAssigneeId(args),
+    ...getWorkItemAssigneeFields(getCreateWorkItemAssigneeIds(args)),
     creatorId: args.currentUserId,
     parentId: parent?.id ?? null,
     primaryProjectId: resolvedPrimaryProjectId,
@@ -1458,39 +1508,41 @@ async function notifyCreatedWorkItemAssignee({
   workItemId: string
 }) {
   const assignmentEmails: AssignmentEmail[] = []
-  const assigneeId = getCreateWorkItemAssigneeId(args)
+  const assigneeIds = getCreateWorkItemAssigneeIds(args)
 
-  if (!assigneeId) {
+  if (assigneeIds.length === 0) {
     return assignmentEmails
   }
 
   const actor = await getUserDoc(ctx, args.currentUserId)
-  const assignee = await getUserDoc(ctx, assigneeId)
-  const notification = createNotification(
-    assigneeId,
-    args.currentUserId,
-    buildWorkItemAssignmentNotificationMessage(
-      actor?.name ?? "Someone",
-      args.title,
-      team.name
-    ),
-    "workItem",
-    workItemId,
-    "assignment"
-  )
+  for (const assigneeId of assigneeIds) {
+    const assignee = await getUserDoc(ctx, assigneeId)
+    const notification = createNotification(
+      assigneeId,
+      args.currentUserId,
+      buildWorkItemAssignmentNotificationMessage(
+        actor?.name ?? "Someone",
+        args.title,
+        team.name
+      ),
+      "workItem",
+      workItemId,
+      "assignment"
+    )
 
-  await ctx.db.insert("notifications", notification)
+    await ctx.db.insert("notifications", notification)
 
-  if (assignee?.preferences.emailAssignments) {
-    assignmentEmails.push({
-      notificationId: notification.id,
-      email: assignee.email,
-      name: assignee.name,
-      itemTitle: args.title,
-      itemId: workItemId,
-      actorName: actor?.name ?? "Someone",
-      teamName: team.name,
-    })
+    if (assignee?.preferences.emailAssignments) {
+      assignmentEmails.push({
+        notificationId: notification.id,
+        email: assignee.email,
+        name: assignee.name,
+        itemTitle: args.title,
+        itemId: workItemId,
+        actorName: actor?.name ?? "Someone",
+        teamName: team.name,
+      })
+    }
   }
 
   return assignmentEmails

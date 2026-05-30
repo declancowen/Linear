@@ -22,6 +22,7 @@ import {
   resolveWorkItemProjectLinkUpdate,
   type WorkItemProjectLinkResolution,
 } from "@/lib/domain/work-item-project-links"
+import { getResolvedWorkItemMutationAssigneeIds } from "@/lib/domain/work-item-assignees"
 import { isValidTimeValue, isValidTimeZone } from "@/lib/time-zone"
 import type { CreateProjectInput } from "@/lib/domain/project-inputs"
 
@@ -148,8 +149,10 @@ function getWorkItemAssigneeValidationMessage(
   state: AppData,
   input: WorkItemValidationInput
 ) {
-  return input.assigneeId &&
-    !getTeamMemberIds(state, input.teamId).includes(input.assigneeId)
+  const teamMemberIds = new Set(getTeamMemberIds(state, input.teamId))
+  const assigneeIds = getResolvedWorkItemMutationAssigneeIds(input)
+
+  return assigneeIds.some((assigneeId) => !teamMemberIds.has(assigneeId))
     ? "Assignee must belong to the selected team"
     : null
 }

@@ -5,6 +5,7 @@ const getCommentDocMock = vi.fn()
 const getDocumentDocMock = vi.fn()
 const getWorkItemByDescriptionDocIdMock = vi.fn()
 const getWorkItemDocMock = vi.fn()
+const listUsersByIdsMock = vi.fn()
 const listCommentsByTargetMock = vi.fn()
 const requireEditableDocumentAccessMock = vi.fn()
 const requireEditableWorkItemAccessMock = vi.fn()
@@ -25,12 +26,12 @@ vi.mock("@/convex/app/data", () => ({
   getWorkItemByDescriptionDocId: getWorkItemByDescriptionDocIdMock,
   getWorkItemDoc: getWorkItemDocMock,
   listCommentsByTarget: listCommentsByTargetMock,
+  listUsersByIds: listUsersByIdsMock,
 }))
 
 vi.mock("@/convex/app/access", async () => {
-  const { getTestWorkItemAudienceUserIds } = await import(
-    "@/tests/lib/fixtures/convex"
-  )
+  const { getTestWorkItemAudienceUserIds } =
+    await import("@/tests/lib/fixtures/convex")
 
   return {
     getWorkItemAudienceUserIds: vi.fn(getTestWorkItemAudienceUserIds),
@@ -52,6 +53,7 @@ vi.mock("@/convex/app/email_job_handlers", () => ({
 function createCtx() {
   return {
     db: {
+      delete: vi.fn(),
       insert: vi.fn(),
       patch: vi.fn(),
     },
@@ -65,6 +67,7 @@ describe("comment handlers", () => {
     getDocumentDocMock.mockReset()
     getWorkItemByDescriptionDocIdMock.mockReset()
     getWorkItemDocMock.mockReset()
+    listUsersByIdsMock.mockReset()
     listCommentsByTargetMock.mockReset()
     requireEditableDocumentAccessMock.mockReset()
     requireEditableWorkItemAccessMock.mockReset()
@@ -74,6 +77,26 @@ describe("comment handlers", () => {
     queueEmailJobsMock.mockReset()
 
     listCommentsByTargetMock.mockResolvedValue([])
+    listUsersByIdsMock.mockResolvedValue([
+      {
+        id: "user_1",
+        name: "Alex",
+        handle: "alex",
+        email: "alex@example.com",
+        preferences: {
+          emailMentions: true,
+        },
+      },
+      {
+        id: "user_2",
+        name: "Blake",
+        handle: "blake",
+        email: "blake@example.com",
+        preferences: {
+          emailMentions: true,
+        },
+      },
+    ])
     requireEditableDocumentAccessMock.mockResolvedValue("member")
     requireEditableWorkItemAccessMock.mockResolvedValue("member")
     requireReadableDocumentAccessMock.mockResolvedValue("member")
@@ -114,10 +137,46 @@ describe("comment handlers", () => {
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 
-  it("uses item-level private access before toggling work item comment reactions", async () => {
-    const { toggleCommentReactionHandler } = await import(
-      "@/convex/app/comment_handlers"
+  it("uses a supplied client comment id when adding work item comments", async () => {
+    const { addCommentHandler } = await import("@/convex/app/comment_handlers")
+    const ctx = createCtx()
+
+    getCommentDocMock.mockResolvedValue(null)
+    getWorkItemDocMock.mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: "team_1",
+      title: "Task",
+      visibility: "team",
+      creatorId: "user_1",
+      assigneeId: null,
+      assigneeIds: [],
+      subscriberIds: ["user_1"],
+    })
+
+    const result = await addCommentHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      commentId: "comment_client",
+      origin: "https://app.example.com",
+      targetType: "workItem",
+      targetId: "item_1",
+      content: "<p>Saved with client id</p>",
+    })
+
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "comments",
+      expect.objectContaining({
+        id: "comment_client",
+        content: "<p>Saved with client id</p>",
+      })
     )
+    expect(result.commentId).toBe("comment_client")
+  })
+
+  it("uses item-level private access before toggling work item comment reactions", async () => {
+    const { toggleCommentReactionHandler } =
+      await import("@/convex/app/comment_handlers")
     const ctx = createCtx()
 
     getCommentDocMock.mockResolvedValue({
@@ -149,5 +208,65 @@ describe("comment handlers", () => {
     ).rejects.toThrow("Work item not found")
 
     expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("deletes a comment with its descendant replies after owner and target access checks", async () => {
+    const { deleteCommentHandler } =
+      await import("@/convex/app/comment_handlers")
+    const ctx = createCtx()
+    const rootComment = {
+      _id: "comment_root_db",
+      id: "comment_root",
+      targetType: "workItem",
+      targetId: "item_1",
+      parentCommentId: null,
+      content: "<p>Root</p>",
+      mentionUserIds: [],
+      reactions: [],
+      createdBy: "user_1",
+      createdAt: "2026-04-17T20:24:45.000Z",
+    }
+    const replyComment = {
+      _id: "comment_reply_db",
+      id: "comment_reply",
+      targetType: "workItem",
+      targetId: "item_1",
+      parentCommentId: "comment_root",
+      content: "<p>Reply</p>",
+      mentionUserIds: [],
+      reactions: [],
+      createdBy: "user_2",
+      createdAt: "2026-04-17T20:25:45.000Z",
+    }
+
+    getCommentDocMock.mockResolvedValue(rootComment)
+    listCommentsByTargetMock.mockResolvedValue([rootComment, replyComment])
+    getWorkItemDocMock.mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: "team_1",
+      title: "Task",
+      visibility: "team",
+      creatorId: "user_1",
+      assigneeId: null,
+      subscriberIds: [],
+    })
+
+    await expect(
+      deleteCommentHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        commentId: "comment_root",
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      deletedCommentIds: ["comment_root", "comment_reply"],
+      targetType: "workItem",
+      targetId: "item_1",
+    })
+
+    expect(requireEditableWorkItemAccessMock).toHaveBeenCalled()
+    expect(ctx.db.delete).toHaveBeenCalledWith("comment_root_db")
+    expect(ctx.db.delete).toHaveBeenCalledWith("comment_reply_db")
   })
 })

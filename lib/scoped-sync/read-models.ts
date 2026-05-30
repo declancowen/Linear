@@ -24,6 +24,7 @@ import {
   isCustomPropertyDefinitionVisibleToUser,
   isLabelVisibleToUser,
 } from "@/lib/domain/labels"
+import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 import { isWorkspaceMembershipInvite } from "@/lib/scoped-sync/invite-selection"
 
 import {
@@ -420,8 +421,9 @@ function selectCustomPropertyValuesForWorkItemIds(
 ) {
   const propertyIds = new Set(definitions.map((definition) => definition.id))
 
-  return (snapshot.customPropertyValues ?? []).filter((value) =>
-    workItemIds.has(value.workItemId) && propertyIds.has(value.propertyId)
+  return (snapshot.customPropertyValues ?? []).filter(
+    (value) =>
+      workItemIds.has(value.workItemId) && propertyIds.has(value.propertyId)
   )
 }
 
@@ -490,7 +492,7 @@ function selectWorkItemsForScope(
   if (scopeType === "personal") {
     return snapshot.workItems.filter((item) => {
       if ((item.visibility ?? "team") === "private") {
-        return item.creatorId === scopeId || item.assigneeId === scopeId
+        return item.creatorId === scopeId
       }
 
       return teamIds.has(item.teamId)
@@ -543,7 +545,9 @@ function collectWorkItemUserIds(items: WorkItem[]) {
 
   for (const item of items) {
     userIds.add(item.creatorId)
-    userIds.add(item.assigneeId ?? "")
+    for (const assigneeId of getWorkItemAssigneeIds(item)) {
+      userIds.add(assigneeId)
+    }
 
     for (const subscriberId of item.subscriberIds) {
       userIds.add(subscriberId)
@@ -1104,7 +1108,7 @@ export function selectWorkItemDetailReadModel(
   )
   const users = selectUsers(snapshot, [
     item.creatorId,
-    item.assigneeId ?? "",
+    ...getWorkItemAssigneeIds(item),
     ...item.subscriberIds,
     ...teamMemberships.map((membership) => membership.userId),
     ...projects.flatMap((project) => [project.leadId, ...project.memberIds]),
@@ -1114,7 +1118,7 @@ export function selectWorkItemDetailReadModel(
     ]),
     ...workItems.flatMap((candidate) => [
       candidate.creatorId,
-      candidate.assigneeId ?? "",
+      ...getWorkItemAssigneeIds(candidate),
       ...candidate.subscriberIds,
     ]),
     ...collectCustomPropertyValueUserIds(
@@ -1240,7 +1244,7 @@ export function selectProjectDetailReadModel(
     ...teamMemberships.map((membership) => membership.userId),
     ...items.flatMap((item) => [
       item.creatorId,
-      item.assigneeId ?? "",
+      ...getWorkItemAssigneeIds(item),
       ...item.subscriberIds,
     ]),
     ...updates.map((update) => update.createdBy),
@@ -2251,6 +2255,11 @@ function addWorkItemTeamRelatedScopeKeys(
   item: AppSnapshot["workItems"][number],
   scopeKeys: Set<string>
 ) {
+  if ((item.visibility ?? "team") === "private") {
+    addScopeKeys(scopeKeys, getWorkIndexScopeKeys("personal", item.creatorId))
+    return
+  }
+
   addScopeKeys(scopeKeys, getWorkIndexScopeKeys("team", item.teamId))
 
   const team = snapshot.teams.find((entry) => entry.id === item.teamId) ?? null
@@ -2272,6 +2281,11 @@ export function getWorkItemDetailScopeKeys(
   )
 
   if (!item) {
+    return [...scopeKeys]
+  }
+
+  if ((item.visibility ?? "team") === "private") {
+    addScopeKeys(scopeKeys, getWorkIndexScopeKeys("personal", item.creatorId))
     return [...scopeKeys]
   }
 

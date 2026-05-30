@@ -44,6 +44,7 @@ const workItemPatchSchema = z
       .optional(),
     priority: z.enum(["none", "low", "medium", "high", "urgent"]).optional(),
     assigneeId: z.string().nullable().optional(),
+    assigneeIds: z.array(z.string().trim().min(1)).optional(),
     parentId: z.string().nullable().optional(),
     primaryProjectId: z.string().nullable().optional(),
     labelIds: z.array(z.string().min(1)).optional(),

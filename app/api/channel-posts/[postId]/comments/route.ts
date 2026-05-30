@@ -11,6 +11,7 @@ import { jsonError, jsonOk } from "@/lib/server/route-response"
 import { resolveChannelPostReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 
 const channelPostCommentBodySchema = z.object({
+  commentId: z.string().min(1).optional(),
   content: channelPostCommentSchema.shape.content,
 })
 
@@ -39,6 +40,7 @@ export async function POST(
       const result = await addChannelPostCommentServer({
         currentUserId: appContext.ensuredUser.userId,
         ...parsed.data,
+        commentId: parsedBody.commentId,
       })
       await bumpScopedReadModelVersionsServer({
         scopeKeys: await resolveChannelPostReadModelScopeKeysServer(

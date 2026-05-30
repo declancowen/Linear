@@ -12,6 +12,7 @@ export type WorkItemMutationPatch = {
   status?: WorkStatus
   priority?: Priority
   assigneeId?: string | null
+  assigneeIds?: string[]
   parentId?: string | null
   primaryProjectId?: string | null
   labelIds?: string[]
@@ -34,6 +35,7 @@ export type CreateWorkItemMutationInput = {
   parentId?: string | null
   primaryProjectId: string | null
   assigneeId: string | null
+  assigneeIds?: string[]
   status?: WorkStatus
   priority: Priority
   labelIds?: string[]

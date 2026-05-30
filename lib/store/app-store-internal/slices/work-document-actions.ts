@@ -15,12 +15,9 @@ import {
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
 import { documentSchema } from "@/lib/domain/types"
+import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 
-import {
-  createId,
-  getAttachmentTeamId,
-  getNow,
-} from "../helpers"
+import { createId, getAttachmentTeamId, getNow } from "../helpers"
 import { waitForPendingWorkItemCreation } from "../pending-work-item-creations"
 import {
   canEditWorkspaceDocuments,
@@ -513,6 +510,7 @@ export function createWorkDocumentActions({
         title: normalizedTitle,
         priority: item.priority,
         assigneeId: item.assigneeId,
+        assigneeIds: getWorkItemAssigneeIds(item),
         parentId: item.parentId,
         primaryProjectId: item.primaryProjectId,
         labelIds: item.labelIds,

@@ -4,6 +4,7 @@ import {
   collectDocumentCommentFollowerIds,
   collectWorkItemCommentFollowerIds,
 } from "../../lib/domain/comment-followers"
+import { collectCommentDescendantIds } from "../../lib/domain/comment-threads"
 import { buildMentionEmailJobs } from "../../lib/email/builders"
 import { getPlainTextContent } from "../../lib/utils"
 import {
@@ -38,6 +39,7 @@ type ServerAccessArgs = {
 
 type AddCommentArgs = ServerAccessArgs & {
   currentUserId: string
+  commentId?: string
   origin: string
   targetType: "workItem" | "document"
   targetId: string
@@ -51,6 +53,17 @@ type ToggleCommentReactionArgs = ServerAccessArgs & {
   emoji: string
 }
 
+type UpdateCommentArgs = ServerAccessArgs & {
+  currentUserId: string
+  commentId: string
+  content: string
+}
+
+type DeleteCommentArgs = ServerAccessArgs & {
+  currentUserId: string
+  commentId: string
+}
+
 type CommentEntityType = "workItem" | "document"
 type AddCommentTargetContext = {
   entityTitle: string
@@ -59,6 +72,8 @@ type AddCommentTargetContext = {
   teamId: string
   audienceUserIds: string[]
 }
+
+type CommentDoc = NonNullable<Awaited<ReturnType<typeof getCommentDoc>>>
 export function assertParentCommentTarget(
   parentComment: Awaited<ReturnType<typeof getCommentDoc>> | null,
   args: AddCommentArgs
@@ -103,6 +118,7 @@ async function resolveWorkItemCommentTarget(
       subscriberIds: item.subscriberIds,
       creatorId: item.creatorId,
       assigneeId: item.assigneeId,
+      assigneeIds: item.assigneeIds,
       existingCommentAuthorIds: existingComments.map(
         (comment) => comment.createdBy
       ),
@@ -157,6 +173,30 @@ async function resolveDocumentCommentTarget(
   }
 }
 
+async function resolveExistingCommentTarget(
+  ctx: MutationCtx,
+  args: {
+    currentUserId: string
+    content: string
+    targetId: string
+    targetType: "workItem" | "document"
+  },
+  existingComments: Awaited<ReturnType<typeof listCommentsByTarget>>
+) {
+  const targetArgs = {
+    serverToken: "",
+    currentUserId: args.currentUserId,
+    origin: "",
+    targetType: args.targetType,
+    targetId: args.targetId,
+    content: args.content,
+  }
+
+  return args.targetType === "workItem"
+    ? resolveWorkItemCommentTarget(ctx, targetArgs, existingComments)
+    : resolveDocumentCommentTarget(ctx, targetArgs, existingComments)
+}
+
 async function requireWorkItemForDescriptionDocument(
   ctx: MutationCtx,
   documentId: string
@@ -170,13 +210,19 @@ async function requireWorkItemForDescriptionDocument(
   return item
 }
 
-function insertComment(
+async function insertComment(
   ctx: MutationCtx,
   args: AddCommentArgs,
   mentionUserIds: string[]
 ) {
-  return ctx.db.insert("comments", {
-    id: createId("comment"),
+  const commentId = args.commentId?.trim() || createId("comment")
+
+  if (args.commentId && (await getCommentDoc(ctx, commentId))) {
+    throw new Error("Comment id already exists")
+  }
+
+  await ctx.db.insert("comments", {
+    id: commentId,
     targetType: args.targetType,
     targetId: args.targetId,
     parentCommentId: args.parentCommentId ?? null,
@@ -186,6 +232,24 @@ function insertComment(
     createdBy: args.currentUserId,
     createdAt: getNow(),
   })
+
+  return commentId
+}
+
+async function assertOwnedComment(
+  comment: CommentDoc,
+  currentUserId: string,
+  action: "delete" | "edit"
+) {
+  if (comment.createdBy === currentUserId) {
+    return
+  }
+
+  throw new Error(
+    action === "edit"
+      ? "You can only edit your own comments"
+      : "You can only delete your own comments"
+  )
 }
 
 async function notifyMentionedCommentUsers({
@@ -333,7 +397,7 @@ export async function addCommentHandler(
     audience.audienceUserIds
   )
 
-  await insertComment(ctx, args, mentionUserIds)
+  const commentId = await insertComment(ctx, args, mentionUserIds)
 
   const { mentionEmails, notifiedUserIds } = await notifyMentionedCommentUsers({
     ctx,
@@ -365,6 +429,7 @@ export async function addCommentHandler(
   )
 
   return {
+    commentId,
     mentionEmails,
   }
 }
@@ -407,5 +472,106 @@ export async function toggleCommentReactionHandler(
   return {
     commentId: comment.id,
     ok: true,
+  }
+}
+
+export async function updateCommentHandler(
+  ctx: MutationCtx,
+  args: UpdateCommentArgs
+) {
+  assertServerToken(args.serverToken)
+  const comment = await getCommentDoc(ctx, args.commentId)
+
+  if (!comment) {
+    throw new Error("Comment not found")
+  }
+
+  await assertOwnedComment(comment, args.currentUserId, "edit")
+  const existingComments = await listCommentsByTarget(
+    ctx,
+    comment.targetType,
+    comment.targetId
+  )
+  const targetContext = await resolveExistingCommentTarget(
+    ctx,
+    {
+      currentUserId: args.currentUserId,
+      targetType: comment.targetType,
+      targetId: comment.targetId,
+      content: args.content,
+    },
+    existingComments
+  )
+  const audience = await getMentionAudienceContext(ctx, {
+    actorUserId: args.currentUserId,
+    audienceUserIds: targetContext.audienceUserIds,
+  })
+  const mentionUserIds = createMentionIds(
+    args.content,
+    audience.users,
+    audience.audienceUserIds
+  )
+
+  await ctx.db.patch(comment._id, {
+    content: args.content.trim(),
+    mentionUserIds,
+  })
+
+  return {
+    ok: true,
+    commentId: comment.id,
+    targetType: comment.targetType,
+    targetId: comment.targetId,
+  }
+}
+
+export async function deleteCommentHandler(
+  ctx: MutationCtx,
+  args: DeleteCommentArgs
+) {
+  assertServerToken(args.serverToken)
+  const comment = await getCommentDoc(ctx, args.commentId)
+
+  if (!comment) {
+    return {
+      ok: true,
+      commentId: args.commentId,
+      deletedCommentIds: [],
+      targetId: null,
+      targetType: null,
+    }
+  }
+
+  await assertOwnedComment(comment, args.currentUserId, "delete")
+  const existingComments = await listCommentsByTarget(
+    ctx,
+    comment.targetType,
+    comment.targetId
+  )
+  await resolveExistingCommentTarget(
+    ctx,
+    {
+      currentUserId: args.currentUserId,
+      targetType: comment.targetType,
+      targetId: comment.targetId,
+      content: comment.content,
+    },
+    existingComments
+  )
+
+  const deletedIds = collectCommentDescendantIds(existingComments, comment.id)
+
+  for (const entry of existingComments) {
+    if (deletedIds.has(entry.id)) {
+      await ctx.db.delete(entry._id)
+    }
+  }
+
+  return {
+    ok: true,
+    commentId: comment.id,
+    deletedCommentIds: [...deletedIds],
+    targetType: comment.targetType,
+    targetId: comment.targetId,
   }
 }

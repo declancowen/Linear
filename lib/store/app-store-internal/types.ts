@@ -159,6 +159,10 @@ export type AddCommentInput = {
   content: string
 }
 
+export type UpdateCommentInput = {
+  content: string
+}
+
 export type CreateWorkspaceChatInput = {
   workspaceId: string
   participantIds: string[]
@@ -199,8 +203,17 @@ export type CreateChannelPostInput = {
   content: string
 }
 
+export type UpdateChannelPostInput = {
+  title: string
+  content: string
+}
+
 export type AddChannelPostCommentInput = {
   postId: string
+  content: string
+}
+
+export type UpdateChannelPostCommentInput = {
   content: string
 }
 
@@ -386,6 +399,8 @@ export type AppStore = AppData & {
   ) => Promise<{ fileName: string; fileUrl: string | null } | null>
   deleteAttachment: (attachmentId: string) => Promise<void>
   addComment: (input: AddCommentInput) => void
+  updateComment: (commentId: string, input: UpdateCommentInput) => void
+  deleteComment: (commentId: string) => void
   toggleCommentReaction: (commentId: string, emoji: string) => void
   createWorkspaceChat: (input: CreateWorkspaceChatInput) => string | null
   ensureTeamChat: (input: EnsureTeamChatInput) => string | null
@@ -394,7 +409,13 @@ export type AppStore = AppData & {
   sendChatMessage: (input: SendChatMessageInput) => void
   toggleChatMessageReaction: (messageId: string, emoji: string) => void
   createChannelPost: (input: CreateChannelPostInput) => void
+  updateChannelPost: (postId: string, input: UpdateChannelPostInput) => void
   addChannelPostComment: (input: AddChannelPostCommentInput) => void
+  updateChannelPostComment: (
+    postId: string,
+    commentId: string,
+    input: UpdateChannelPostCommentInput
+  ) => void
   deleteChannelPost: (postId: string) => void
   deleteChannelPostComment: (postId: string, commentId: string) => void
   toggleChannelPostReaction: (postId: string, emoji: string) => void

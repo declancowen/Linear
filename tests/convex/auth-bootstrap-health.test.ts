@@ -688,7 +688,7 @@ describe("auth bootstrap handlers", () => {
       }) as never,
       createBootstrapWorkItem({
         id: "item_private_own",
-        creatorId: "owner_1",
+        creatorId: "user_1",
         assigneeId: "user_1",
         descriptionDocId: "doc_private_own",
         visibility: "private",
@@ -860,9 +860,9 @@ describe("auth bootstrap handlers", () => {
     expect(
       snapshot.customPropertyDefinitions.map((definition) => definition.id)
     ).toEqual(["property_1"])
-    expect(
-      snapshot.customPropertyValues.map((value) => value.id)
-    ).toEqual(["custom_property_value_team"])
+    expect(snapshot.customPropertyValues.map((value) => value.id)).toEqual([
+      "custom_property_value_team",
+    ])
   })
 
   it("resolves and bootstraps workspace users by preferred identity", async () => {

@@ -23,6 +23,8 @@ export type WorkSlice = Pick<
   | "uploadAttachment"
   | "deleteAttachment"
   | "addComment"
+  | "updateComment"
+  | "deleteComment"
   | "toggleCommentReaction"
   | "createDocument"
   | "createWorkItem"

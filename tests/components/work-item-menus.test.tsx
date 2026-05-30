@@ -111,6 +111,25 @@ function createMenuData(): { data: AppData; item: WorkItem } {
             theme: "system",
           },
         },
+        {
+          id: "user_2",
+          name: "Morgan",
+          handle: "morgan",
+          email: "morgan@example.com",
+          avatarUrl: "",
+          avatarImageUrl: null,
+          workosUserId: null,
+          title: "Engineer",
+          status: "active",
+          statusMessage: "",
+          hasExplicitStatus: false,
+          preferences: {
+            emailMentions: true,
+            emailAssignments: true,
+            emailDigest: true,
+            theme: "system",
+          },
+        },
       ],
       teams: [
         {
@@ -136,6 +155,11 @@ function createMenuData(): { data: AppData; item: WorkItem } {
           teamId: "team_1",
           userId: "user_1",
           role: "admin",
+        },
+        {
+          teamId: "team_1",
+          userId: "user_2",
+          role: "member",
         },
       ],
       projects: [
@@ -271,5 +295,26 @@ describe("work item menus", () => {
     expect(screen.queryByText("Assignee")).not.toBeInTheDocument()
     expect(screen.queryByText("Project")).not.toBeInTheDocument()
     expect(screen.queryByText("Roadmap")).not.toBeInTheDocument()
+  })
+
+  it("adds assignees without replacing existing assignees from the menu", () => {
+    const { data, item } = createMenuData()
+    const assignedItem = {
+      ...item,
+      assigneeId: "user_1",
+      assigneeIds: ["user_1"],
+    }
+
+    render(<IssueActionMenu data={data} item={assignedItem} />)
+
+    fireEvent.click(screen.getByText("Morgan"))
+
+    expect(useAppStore.getState().updateWorkItem).toHaveBeenCalledWith(
+      "item_1",
+      {
+        assigneeId: "user_1",
+        assigneeIds: ["user_1", "user_2"],
+      }
+    )
   })
 })

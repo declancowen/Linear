@@ -92,7 +92,7 @@ function getInlineChildSelectedType({
 }
 
 export function createInlineChildWorkItem(input: {
-  assigneeId: string
+  assigneeIds: string[]
   description: string
   normalizedTitle: string
   parentItem: WorkItem
@@ -109,7 +109,8 @@ export function createInlineChildWorkItem(input: {
     priority: input.priority,
     status: input.status,
     parentId: input.parentItem.id,
-    assigneeId: input.assigneeId === "none" ? null : input.assigneeId,
+    assigneeId: input.assigneeIds[0] ?? null,
+    assigneeIds: input.assigneeIds,
     primaryProjectId: input.projectId === "none" ? null : input.projectId,
   })
 
@@ -128,7 +129,7 @@ export function createInlineChildWorkItem(input: {
 }
 
 export function getInlineChildIssueComposerModel(input: {
-  assigneeId: string
+  assigneeIds: string[]
   disabled: boolean
   parentItem: WorkItem
   projectId: string
@@ -166,13 +167,13 @@ export function getInlineChildIssueComposerModel(input: {
   return {
     availableItemTypes,
     canCreate:
-      !input.disabled && titleLimitState.canSubmit && availableItemTypes.length > 0,
+      !input.disabled &&
+      titleLimitState.canSubmit &&
+      availableItemTypes.length > 0,
     normalizedTitle: input.title.trim(),
-    selectedAssignee:
-      input.assigneeId === "none"
-        ? null
-        : (input.teamMembers.find((user) => user.id === input.assigneeId) ??
-          null),
+    selectedAssignees: input.teamMembers.filter((user) =>
+      input.assigneeIds.includes(user.id)
+    ),
     selectedProject,
     selectedType,
     selectedTypeLabel: getDisplayLabelForWorkItemType(

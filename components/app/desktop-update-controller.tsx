@@ -200,7 +200,7 @@ function DesktopUpdateToastContent({
         : Warning
 
   return (
-    <div className="flex w-fit max-w-[calc(100vw-2rem)] gap-3 rounded-lg border border-line/60 bg-background/95 p-3 text-foreground shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)] backdrop-blur-xl">
+    <div className="flex w-[var(--width)] max-w-[calc(100vw-2rem)] gap-3 rounded-lg border border-line/60 bg-background/95 p-3 text-foreground shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)] backdrop-blur-xl">
       <Icon className="text-brand mt-0.5 size-4 shrink-0" weight="fill" />
       <div className="max-w-[min(34rem,calc(100vw-5rem))] min-w-0">
         <div className="text-[13px] leading-5 font-medium">{title}</div>

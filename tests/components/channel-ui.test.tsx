@@ -100,6 +100,7 @@ describe("Forum post display primitives", () => {
             createdAt: "2026-04-18T10:30:00.000Z",
           }}
           currentUserId="user_current"
+          mentionCandidates={[]}
           usersById={usersById}
           workspaceId="workspace_1"
         />

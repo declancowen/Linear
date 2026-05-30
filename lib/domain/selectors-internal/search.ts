@@ -12,6 +12,7 @@ import {
 } from "@/lib/domain/selectors-internal/core"
 import { getSearchableDocuments } from "@/lib/domain/selectors-internal/content"
 import { getVisibleWorkItems } from "@/lib/domain/selectors-internal/work-items"
+import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 
 export type GlobalSearchResult = {
   id: string
@@ -392,7 +393,9 @@ export function getWorkspaceSearchIndex(data: AppData): WorkspaceSearchIndex {
             item.status,
             team?.slug ?? "",
             projectsById.get(item.primaryProjectId ?? "")?.name ?? "",
-            usersById.get(item.assigneeId ?? "")?.name ?? "",
+            ...getWorkItemAssigneeIds(item).map(
+              (assigneeId) => usersById.get(assigneeId)?.name ?? ""
+            ),
           ],
           teamId: item.teamId,
           status: item.status,

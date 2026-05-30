@@ -54,8 +54,7 @@ const COLLABORATION_DOCUMENT_ERROR_MAPPINGS = [
     code: "WORK_ITEM_NOT_FOUND",
   },
   {
-    match:
-      /Could not find public function for 'app:getCollaborationDocument'/i,
+    match: /Could not find public function for 'app:getCollaborationDocument'/i,
     status: 503,
     code: "COLLABORATION_UNAVAILABLE",
     message: "Document collaboration is unavailable",
@@ -143,6 +142,11 @@ const ITEM_DESCRIPTION_MENTION_NOTIFICATION_ERROR_MAPPINGS = [
 
 const ADD_COMMENT_ERROR_MAPPINGS = [
   {
+    match: "Comment id already exists",
+    status: 409,
+    code: "COMMENT_ID_CONFLICT",
+  },
+  {
     match: "Parent comment not found",
     status: 404,
     code: "COMMENT_PARENT_NOT_FOUND",
@@ -205,6 +209,25 @@ const TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS = [
       message === "You do not have access to this document",
     status: 403,
     code: "COMMENT_ACCESS_DENIED",
+  },
+] as const
+
+const MUTATE_COMMENT_ERROR_MAPPINGS = [
+  ...TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS,
+  {
+    match: "Your current role is read-only",
+    status: 403,
+    code: "COMMENT_READ_ONLY",
+  },
+  {
+    match: "You can only edit your own comments",
+    status: 403,
+    code: "COMMENT_EDIT_FORBIDDEN",
+  },
+  {
+    match: "You can only delete your own comments",
+    status: 403,
+    code: "COMMENT_DELETE_FORBIDDEN",
   },
 ] as const
 
@@ -353,8 +376,9 @@ export async function getCollaborationDocumentServer(input: {
     )
   } catch (error) {
     throw (
-      coerceApplicationError(error, [...COLLABORATION_DOCUMENT_ERROR_MAPPINGS]) ??
-      error
+      coerceApplicationError(error, [
+        ...COLLABORATION_DOCUMENT_ERROR_MAPPINGS,
+      ]) ?? error
     )
   }
 }
@@ -521,6 +545,7 @@ export async function sendItemDescriptionMentionNotificationsServer(input: {
 
 export async function addCommentServer(input: {
   currentUserId: string
+  commentId?: string
   targetType: "workItem" | "document"
   targetId: string
   parentCommentId?: string | null
@@ -561,6 +586,44 @@ export async function toggleCommentReactionServer(input: {
       coerceApplicationError(error, [
         ...TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS,
       ]) ?? error
+    )
+  }
+}
+
+export async function updateCommentServer(input: {
+  currentUserId: string
+  commentId: string
+  content: string
+}) {
+  const preparedContent = prepareRichTextForStorage(input.content)
+
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateComment,
+      withServerToken({
+        ...input,
+        content: preparedContent.sanitized,
+      })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...MUTATE_COMMENT_ERROR_MAPPINGS]) ?? error
+    )
+  }
+}
+
+export async function deleteCommentServer(input: {
+  currentUserId: string
+  commentId: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.deleteComment,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...MUTATE_COMMENT_ERROR_MAPPINGS]) ?? error
     )
   }
 }

@@ -242,6 +242,17 @@ type CalendarItemInteractionPropsGetter = (itemId: string) => {
   onMouseLeave: () => void
 }
 
+function getCalendarButtonInteractionProps(
+  interactionProps: ReturnType<CalendarItemInteractionPropsGetter>
+) {
+  return {
+    onClick: interactionProps.onClick,
+    onMouseEnter: interactionProps.onMouseEnter,
+    onMouseLeave: interactionProps.onMouseLeave,
+    onMouseMove: interactionProps.onMouseMove,
+  }
+}
+
 type CalendarTimedInteractionProps = {
   onEditItem: (itemId: string) => void
   onSelectItem: (itemId: string) => void
@@ -1051,6 +1062,23 @@ function getCalendarDragWorkItemPatch(
     startTime: formatTimeFromMinutes(preview.startMinutes),
     endTime: formatTimeFromMinutes(preview.endMinutes),
     scheduleTimeZone: viewerTimeZone,
+  }
+}
+
+function getAllDaySpanButtonModel({
+  getCalendarItemInteractionProps,
+  ...renderInput
+}: Parameters<typeof getAllDaySpanRenderModel>[0] & {
+  getCalendarItemInteractionProps: CalendarItemInteractionPropsGetter
+}) {
+  const interactionProps = getCalendarItemInteractionProps(
+    renderInput.span.entry.item.id
+  )
+
+  return {
+    ...getAllDaySpanRenderModel(renderInput),
+    buttonInteractionProps: getCalendarButtonInteractionProps(interactionProps),
+    interactionProps,
   }
 }
 
@@ -2372,6 +2400,8 @@ function CalendarMonthTimedEntryButton({
 }) {
   const accent = getCalendarItemAccent(entry.item, colorMode, index, labelsById)
   const interactionProps = getCalendarItemInteractionProps(entry.item.id)
+  const buttonInteractionProps =
+    getCalendarButtonInteractionProps(interactionProps)
 
   return (
     <IssueContextMenu
@@ -2388,7 +2418,7 @@ function CalendarMonthTimedEntryButton({
             : "bg-[color:var(--cal-accent-tint)] text-foreground hover:bg-[color:var(--cal-accent-tint-hover)]"
         )}
         style={getCalendarItemStyle(accent)}
-        {...interactionProps}
+        {...buttonInteractionProps}
       >
         {!isSelected ? (
           <span
@@ -2512,15 +2542,22 @@ function CalendarMonthAllDaySpanButton({
   selectedItemId: string | null
   span: AllDayCalendarSpan
 }) {
-  const { accent, isSelected, left, width } = getAllDaySpanRenderModel({
+  const {
+    accent,
+    buttonInteractionProps,
+    interactionProps,
+    isSelected,
+    left,
+    width,
+  } = getAllDaySpanButtonModel({
     span,
     index,
     columnCount,
     selectedItemId,
     colorMode,
     labelsById,
+    getCalendarItemInteractionProps,
   })
-  const interactionProps = getCalendarItemInteractionProps(span.entry.item.id)
 
   return (
     <IssueContextMenu
@@ -2543,7 +2580,7 @@ function CalendarMonthAllDaySpanButton({
           top: 30 + getAllDayEventTop(span.rowIndex),
           height: ALL_DAY_EVENT_HEIGHT,
         }}
-        {...interactionProps}
+        {...buttonInteractionProps}
       >
         {!isSelected ? (
           <span
@@ -2863,23 +2900,24 @@ function CalendarAllDaySpanButton({
   selectedItemId: string | null
   span: AllDayCalendarSpan
 }) {
-  const { accent, isSelected, left, width } = getAllDaySpanRenderModel({
+  const {
+    accent,
+    buttonInteractionProps,
+    interactionProps,
+    isSelected,
+    left,
+    width,
+  } = getAllDaySpanButtonModel({
     span,
     index,
     columnCount,
     selectedItemId,
     colorMode,
     labelsById,
+    getCalendarItemInteractionProps,
   })
   const startsBeforeView = span.entry.startDate < dayKeys[span.startIndex]
   const endsAfterView = span.entry.endDate > dayKeys[span.endIndex]
-  const interactionProps = getCalendarItemInteractionProps(span.entry.item.id)
-  const buttonInteractionProps = {
-    onClick: interactionProps.onClick,
-    onMouseEnter: interactionProps.onMouseEnter,
-    onMouseLeave: interactionProps.onMouseLeave,
-    onMouseMove: interactionProps.onMouseMove,
-  }
 
   return (
     <IssueContextMenu
@@ -4440,6 +4478,7 @@ export function CalendarView({
         ...(createsPrivateWorkItem
           ? {
               assigneeId: null,
+              assigneeIds: [],
               primaryProjectId: null,
               visibility: "private" as const,
             }

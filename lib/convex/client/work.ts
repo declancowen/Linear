@@ -136,10 +136,7 @@ export function syncDeleteNotification(notificationId: string) {
   })
 }
 
-export function syncUpdateViewConfig(
-  viewId: string,
-  patch: ViewConfigPatch
-) {
+export function syncUpdateViewConfig(viewId: string, patch: ViewConfigPatch) {
   return runRouteMutation(`/api/views/${viewId}`, {
     method: "PATCH",
     headers: {
@@ -549,19 +546,42 @@ export function syncAddComment(
   targetType: "workItem" | "document",
   targetId: string,
   content: string,
-  parentCommentId?: string | null
+  parentCommentId?: string | null,
+  commentId?: string
 ) {
-  return runRouteMutation("/api/comments", {
-    method: "POST",
+  return runRouteMutation<{ ok: true; commentId: string | null }>(
+    "/api/comments",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        commentId,
+        targetType,
+        targetId,
+        parentCommentId,
+        content,
+      }),
+    }
+  )
+}
+
+export function syncUpdateComment(commentId: string, content: string) {
+  return runRouteMutation(`/api/comments/${commentId}`, {
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      targetType,
-      targetId,
-      parentCommentId,
       content,
     }),
+  })
+}
+
+export function syncDeleteComment(commentId: string) {
+  return runRouteMutation(`/api/comments/${commentId}`, {
+    method: "DELETE",
   })
 }
 

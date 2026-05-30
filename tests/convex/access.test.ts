@@ -62,7 +62,7 @@ describe("workspace access helpers", () => {
     expect(getWorkspaceRoleMapForUserMock).not.toHaveBeenCalled()
   })
 
-  it("allows private work item creators and assignees through item-level edit access", async () => {
+  it("allows only private work item creators through item-level edit access", async () => {
     const { requireEditableWorkItemAccess } = await import("@/convex/app/access")
 
     await expect(
@@ -89,7 +89,7 @@ describe("workspace access helpers", () => {
         },
         "user_2"
       )
-    ).resolves.toBeUndefined()
+    ).rejects.toThrow("Work item not found")
   })
 
   it("rejects private work item edits from other team editors", async () => {

@@ -2,12 +2,14 @@ export function collectWorkItemCommentFollowerIds(input: {
   subscriberIds: string[]
   creatorId: string
   assigneeId?: string | null
+  assigneeIds?: string[]
   existingCommentAuthorIds: string[]
 }) {
   return [
     ...input.subscriberIds,
     input.creatorId,
     input.assigneeId ?? "",
+    ...(input.assigneeIds ?? []),
     ...input.existingCommentAuthorIds,
   ].filter(Boolean)
 }
@@ -17,9 +19,5 @@ export function collectDocumentCommentFollowerIds(input: {
   updatedBy: string
   existingCommentAuthorIds: string[]
 }) {
-  return [
-    input.createdBy,
-    input.updatedBy,
-    ...input.existingCommentAuthorIds,
-  ]
+  return [input.createdBy, input.updatedBy, ...input.existingCommentAuthorIds]
 }
