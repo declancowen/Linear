@@ -764,7 +764,10 @@ export function createCollaborationChannelActions({
   | "deleteChannelPostComment"
   | "toggleChannelPostReaction"
 > {
-  const pendingChannelPostCreates = new Set<string>()
+  const pendingChannelPostCreates = new Map<
+    string,
+    Promise<{ postId: string }>
+  >()
   const pendingChannelPostCommentCreates = new Map<
     string,
     Promise<{ commentId: string }>
@@ -779,7 +782,6 @@ export function createCollaborationChannelActions({
 
       const postId = createId("channel_post")
       let shouldSync = false
-      pendingChannelPostCreates.add(postId)
 
       set((state) => {
         const conversation = getEditableChannelConversation(
@@ -804,7 +806,6 @@ export function createCollaborationChannelActions({
       })
 
       if (!shouldSync) {
-        pendingChannelPostCreates.delete(postId)
         return
       }
 
@@ -832,11 +833,14 @@ export function createCollaborationChannelActions({
               "Failed to delete post"
             )
           }
+
+          return result
         })
         .finally(() => {
           pendingChannelPostCreates.delete(postId)
         })
 
+      pendingChannelPostCreates.set(postId, syncTask)
       runtime.syncInBackground(syncTask, "Failed to create post")
 
       toast.success("Post published")
@@ -873,14 +877,35 @@ export function createCollaborationChannelActions({
         return
       }
 
-      runtime.syncInBackground(
-        syncUpdateChannelPost({
-          postId,
-          title: prepared.title,
-          content: prepared.content,
-        }),
-        "Failed to update post"
-      )
+      const pendingCreate = pendingChannelPostCreates.get(postId)
+      const syncTask = pendingCreate
+        ? pendingCreate.then(
+            (result) => {
+              const currentPostId = get().channelPosts.some(
+                (entry) => entry.id === postId
+              )
+                ? postId
+                : get().channelPosts.some((entry) => entry.id === result.postId)
+                  ? result.postId
+                  : null
+
+              return currentPostId
+                ? syncUpdateChannelPost({
+                    postId: currentPostId,
+                    title: prepared.title,
+                    content: prepared.content,
+                  })
+                : null
+            },
+            () => null
+          )
+        : syncUpdateChannelPost({
+            postId,
+            title: prepared.title,
+            content: prepared.content,
+          })
+
+      runtime.syncInBackground(syncTask, "Failed to update post")
 
       toast.success("Post updated")
     },

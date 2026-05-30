@@ -93,10 +93,34 @@ async function createChannelActionsHarness(state = createChannelState()) {
   )
 }
 
+async function createPendingChannelPost(title: string, content: string) {
+  let resolveCreatePost: ((value: { postId: string }) => void) | undefined
+  channelActionTestDoubles.convex.createPost.mockReturnValue(
+    new Promise((resolve) => {
+      resolveCreatePost = resolve
+    })
+  )
+  const harness = await createChannelActionsHarness()
+
+  harness.slice.createChannelPost({
+    conversationId: "conversation_1",
+    title,
+    content,
+  })
+
+  const optimisticPost = harness.state.channelPosts.find(
+    (post) => post.title === title
+  )
+
+  return {
+    ...harness,
+    optimisticPost,
+    resolveCreatePost,
+  }
+}
+
 async function createPendingChannelPostComment(content: string) {
-  let resolveCreateComment:
-    | ((value: { commentId: string }) => void)
-    | undefined
+  let resolveCreateComment: ((value: { commentId: string }) => void) | undefined
   channelActionTestDoubles.convex.addComment.mockReturnValue(
     new Promise((resolve) => {
       resolveCreateComment = resolve
@@ -274,24 +298,8 @@ describe("collaboration channel notification helpers", () => {
   })
 
   it("deletes a pending-created channel post after create sync resolves", async () => {
-    let resolveCreatePost: ((value: { postId: string }) => void) | undefined
-    channelActionTestDoubles.convex.createPost.mockReturnValue(
-      new Promise((resolve) => {
-        resolveCreatePost = resolve
-      })
-    )
-    const { backgroundTasks, slice, state } =
-      await createChannelActionsHarness()
-
-    slice.createChannelPost({
-      conversationId: "conversation_1",
-      title: "Transient post",
-      content: "<p>Transient body</p>",
-    })
-
-    const optimisticPost = state.channelPosts.find(
-      (post) => post.title === "Transient post"
-    )
+    const { backgroundTasks, optimisticPost, resolveCreatePost, slice, state } =
+      await createPendingChannelPost("Transient post", "<p>Transient body</p>")
 
     expect(optimisticPost).toBeTruthy()
 
@@ -332,6 +340,64 @@ describe("collaboration channel notification helpers", () => {
       content: "<p>Updated post body</p>",
     })
     expect(backgroundTasks).toHaveLength(1)
+  })
+
+  it("defers channel-post edits until create sync resolves", async () => {
+    const { backgroundTasks, optimisticPost, resolveCreatePost, slice, state } =
+      await createPendingChannelPost("Pending post", "<p>Pending body</p>")
+
+    expect(optimisticPost).toBeTruthy()
+
+    slice.updateChannelPost(optimisticPost?.id ?? "", {
+      title: "Pending post edited",
+      content: "<p>Pending body edited</p>",
+    })
+
+    expect(state.channelPosts).toContainEqual(
+      expect.objectContaining({
+        id: optimisticPost?.id,
+        title: "Pending post edited",
+        content: "<p>Pending body edited</p>",
+      })
+    )
+    expect(channelActionTestDoubles.convex.updatePost).not.toHaveBeenCalled()
+
+    resolveCreatePost?.({ postId: "post_server_pending" })
+    await Promise.all(backgroundTasks.filter(Boolean))
+
+    expect(state.channelPosts).toContainEqual(
+      expect.objectContaining({
+        id: "post_server_pending",
+        title: "Pending post edited",
+        content: "<p>Pending body edited</p>",
+      })
+    )
+    expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledWith({
+      postId: "post_server_pending",
+      title: "Pending post edited",
+      content: "<p>Pending body edited</p>",
+    })
+  })
+
+  it("does not sync deferred channel-post edits after a pending post is deleted", async () => {
+    const { backgroundTasks, optimisticPost, resolveCreatePost, slice } =
+      await createPendingChannelPost("Pending post", "<p>Pending body</p>")
+
+    expect(optimisticPost).toBeTruthy()
+
+    slice.updateChannelPost(optimisticPost?.id ?? "", {
+      title: "Pending post edited",
+      content: "<p>Pending body edited</p>",
+    })
+    slice.deleteChannelPost(optimisticPost?.id ?? "")
+
+    resolveCreatePost?.({ postId: "post_server_pending" })
+    await Promise.all(backgroundTasks.filter(Boolean))
+
+    expect(channelActionTestDoubles.convex.updatePost).not.toHaveBeenCalled()
+    expect(channelActionTestDoubles.convex.deletePost).toHaveBeenCalledWith(
+      "post_server_pending"
+    )
   })
 
   it("optimistically edits owned channel-post comments and syncs the update", async () => {

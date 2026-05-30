@@ -4,6 +4,34 @@ Date: 2026-05-30
 Branch: `codex/full-local-diff-review-release`
 Base: `origin/main`
 
+## Turn 3 - Late Codex Review Follow-Up
+
+External feedback:
+- Codex review P2 on `0911b60eaf`: defer channel post edits while the post create request is still pending.
+
+Architecture decision:
+- The collaboration store action owns optimistic channel post lifecycle and local/backend sync ordering.
+- Kept the fix inside `createCollaborationChannelActions`, reusing the existing pending-create reconciliation path instead of adding a backend/API workaround or UI-only block.
+- Converted pending post creates from membership tracking to promise tracking so follow-up mutations can chain after create reconciliation.
+
+Fix:
+- `updateChannelPost` still applies the local optimistic edit immediately.
+- Backend `syncUpdateChannelPost` now waits for the pending create promise when editing a just-published post.
+- After create reconciliation, the update targets whichever id is present in local state: the original optimistic id or the returned server id.
+- If create fails or the post no longer exists, the deferred edit does not issue a stale PATCH.
+- Added sibling coverage for edit-then-delete while create is pending so a deferred edit cannot PATCH a post that was already removed.
+- Extracted a test helper for pending post setup to avoid introducing duplicate test scaffolding.
+
+Verification:
+- `pnpm test tests/lib/store/collaboration-channel-actions.test.ts` passed: 14 tests.
+- `pnpm typecheck` passed.
+- `pnpm lint` passed.
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed with no introduced dead code, duplication, or complexity.
+- `git diff --check` passed.
+- `pnpm test` passed: 208 files, 1270 tests.
+- `pnpm build` passed.
+- `pnpm desktop:smoke` passed.
+
 ## Turn 1 - Local Diff Review And Architecture Pass
 
 Scope reviewed:
