@@ -4,6 +4,35 @@ Date: 2026-05-30
 Branch: `codex/full-local-diff-review-release`
 Base: `origin/main`
 
+## Turn 4 - PR #44 Coalesced Pending Post Edits
+
+External feedback:
+- Codex review P2 on PR #44: multiple edits to a just-created channel post could queue multiple deferred PATCHes with captured payloads, allowing an older edit to complete after a newer one and leave backend state stale.
+
+Architecture decision:
+- The collaboration store action remains the owner of optimistic channel post lifecycle, create reconciliation, and backend sync ordering.
+- Kept the fix inside `createCollaborationChannelActions`; no UI block, route workaround, or backend-only retry path was added.
+- Enforced the invariant with store-level regression tests, because the risk is local optimistic state diverging from persisted backend state.
+
+Fix:
+- Pending channel-post edits now coalesce by optimistic post id while create sync is unresolved.
+- Only one deferred backend update task is scheduled for a pending create.
+- Later edits update the coalesced payload, and the deferred task uses the reconciled current post id plus the latest prepared title/content.
+- Edit-then-delete remains covered: if the post is gone after create reconciliation, no deferred PATCH is sent.
+- Extracted the repeated pending-create assertion into a test helper after Fallow caught introduced test duplication.
+
+Verification:
+- `pnpm test tests/lib/store/collaboration-channel-actions.test.ts` passed: 15 tests.
+- `pnpm typecheck` passed.
+- `pnpm lint` passed.
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed with no introduced dead code, duplication, or complexity.
+- `git diff --check` passed.
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` completed; changed-file audit passed.
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` completed; no branch-specific architecture blocker found beyond existing advisory baseline noise.
+- `pnpm test` passed: 208 files, 1271 tests.
+- `pnpm build` passed.
+- `pnpm desktop:smoke` passed when rerun in isolation after build.
+
 ## Turn 3 - Late Codex Review Follow-Up
 
 External feedback:

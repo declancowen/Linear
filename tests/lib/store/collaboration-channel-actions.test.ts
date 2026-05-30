@@ -144,6 +144,35 @@ async function createPendingChannelPostComment(content: string) {
   }
 }
 
+async function resolvePendingChannelPostCreateWithDeferredEdit(input: {
+  backgroundTasks: Array<Promise<unknown> | null>
+  content: string
+  resolveCreatePost?: (value: { postId: string }) => void
+  state: AppData
+  title: string
+}) {
+  const postId = "post_server_pending"
+
+  expect(channelActionTestDoubles.convex.updatePost).not.toHaveBeenCalled()
+
+  input.resolveCreatePost?.({ postId })
+  await Promise.all(input.backgroundTasks.filter(Boolean))
+
+  expect(input.state.channelPosts).toContainEqual(
+    expect.objectContaining({
+      id: postId,
+      title: input.title,
+      content: input.content,
+    })
+  )
+  expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledTimes(1)
+  expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledWith({
+    postId,
+    title: input.title,
+    content: input.content,
+  })
+}
+
 describe("collaboration channel notification helpers", () => {
   beforeEach(() => {
     vi.resetModules()
@@ -360,22 +389,46 @@ describe("collaboration channel notification helpers", () => {
         content: "<p>Pending body edited</p>",
       })
     )
-    expect(channelActionTestDoubles.convex.updatePost).not.toHaveBeenCalled()
 
-    resolveCreatePost?.({ postId: "post_server_pending" })
-    await Promise.all(backgroundTasks.filter(Boolean))
+    await resolvePendingChannelPostCreateWithDeferredEdit({
+      backgroundTasks,
+      resolveCreatePost,
+      state,
+      title: "Pending post edited",
+      content: "<p>Pending body edited</p>",
+    })
+  })
+
+  it("coalesces deferred channel-post edits while create sync is pending", async () => {
+    const { backgroundTasks, optimisticPost, resolveCreatePost, slice, state } =
+      await createPendingChannelPost("Pending post", "<p>Pending body</p>")
+
+    expect(optimisticPost).toBeTruthy()
+
+    slice.updateChannelPost(optimisticPost?.id ?? "", {
+      title: "First pending edit",
+      content: "<p>First pending body</p>",
+    })
+    slice.updateChannelPost(optimisticPost?.id ?? "", {
+      title: "Second pending edit",
+      content: "<p>Second pending body</p>",
+    })
 
     expect(state.channelPosts).toContainEqual(
       expect.objectContaining({
-        id: "post_server_pending",
-        title: "Pending post edited",
-        content: "<p>Pending body edited</p>",
+        id: optimisticPost?.id,
+        title: "Second pending edit",
+        content: "<p>Second pending body</p>",
       })
     )
-    expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledWith({
-      postId: "post_server_pending",
-      title: "Pending post edited",
-      content: "<p>Pending body edited</p>",
+    expect(backgroundTasks).toHaveLength(2)
+
+    await resolvePendingChannelPostCreateWithDeferredEdit({
+      backgroundTasks,
+      resolveCreatePost,
+      state,
+      title: "Second pending edit",
+      content: "<p>Second pending body</p>",
     })
   })
 

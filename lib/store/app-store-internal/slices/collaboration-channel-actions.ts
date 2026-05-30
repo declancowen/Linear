@@ -750,6 +750,17 @@ function applyChannelMutationResult(
   return decision
 }
 
+function getChannelPostById(state: AppStore, postIds: readonly string[]) {
+  for (const postId of postIds) {
+    const post = state.channelPosts.find((entry) => entry.id === postId)
+    if (post) {
+      return post
+    }
+  }
+
+  return null
+}
+
 export function createCollaborationChannelActions({
   get,
   runtime,
@@ -768,6 +779,11 @@ export function createCollaborationChannelActions({
     string,
     Promise<{ postId: string }>
   >()
+  const pendingChannelPostCreateUpdates = new Map<
+    string,
+    UpdateChannelPostInput
+  >()
+  const pendingChannelPostCreateUpdateTasks = new Set<string>()
   const pendingChannelPostCommentCreates = new Map<
     string,
     Promise<{ commentId: string }>
@@ -878,34 +894,53 @@ export function createCollaborationChannelActions({
       }
 
       const pendingCreate = pendingChannelPostCreates.get(postId)
-      const syncTask = pendingCreate
-        ? pendingCreate.then(
-            (result) => {
-              const currentPostId = get().channelPosts.some(
-                (entry) => entry.id === postId
-              )
-                ? postId
-                : get().channelPosts.some((entry) => entry.id === result.postId)
-                  ? result.postId
+      if (pendingCreate) {
+        pendingChannelPostCreateUpdates.set(postId, {
+          title: prepared.title,
+          content: prepared.content,
+        })
+
+        if (!pendingChannelPostCreateUpdateTasks.has(postId)) {
+          pendingChannelPostCreateUpdateTasks.add(postId)
+          const syncTask = pendingCreate
+            .then(
+              (result) => {
+                const currentPost = getChannelPostById(get(), [
+                  postId,
+                  result.postId,
+                ])
+                const latestUpdate = pendingChannelPostCreateUpdates.get(postId)
+
+                return currentPost && latestUpdate
+                  ? syncUpdateChannelPost({
+                      postId: currentPost.id,
+                      title: latestUpdate.title,
+                      content: latestUpdate.content,
+                    })
                   : null
+              },
+              () => null
+            )
+            .finally(() => {
+              pendingChannelPostCreateUpdates.delete(postId)
+              pendingChannelPostCreateUpdateTasks.delete(postId)
+            })
 
-              return currentPostId
-                ? syncUpdateChannelPost({
-                    postId: currentPostId,
-                    title: prepared.title,
-                    content: prepared.content,
-                  })
-                : null
-            },
-            () => null
-          )
-        : syncUpdateChannelPost({
-            postId,
-            title: prepared.title,
-            content: prepared.content,
-          })
+          runtime.syncInBackground(syncTask, "Failed to update post")
+        }
 
-      runtime.syncInBackground(syncTask, "Failed to update post")
+        toast.success("Post updated")
+        return
+      }
+
+      runtime.syncInBackground(
+        syncUpdateChannelPost({
+          postId,
+          title: prepared.title,
+          content: prepared.content,
+        }),
+        "Failed to update post"
+      )
 
       toast.success("Post updated")
     },
