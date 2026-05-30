@@ -46,6 +46,10 @@ type UpdateChannelPostInput = {
   title: string
   content: string
 }
+type PendingChannelPostUpdateQueue = {
+  latest: UpdateChannelPostInput | null
+  postIds: Set<string>
+}
 type UpdateChannelPostCommentInput = {
   content: string
 }
@@ -211,33 +215,63 @@ function getChannelPostMutationConversation(
   })
 }
 
+function getChannelPostMutationContext(state: AppStore, postId: string) {
+  const post = state.channelPosts.find((entry) => entry.id === postId)
+
+  if (!post) {
+    return null
+  }
+
+  const conversation = getChannelPostMutationConversation(state, post)
+  return conversation ? { conversation, post } : null
+}
+
 function getOwnedChannelPostMutationContext(
   state: AppStore,
   postId: string,
   action: "delete" | "edit"
 ): { context: ChannelPostMutationContext | null; error: string | null } {
-  const post = state.channelPosts.find((entry) => entry.id === postId)
+  const context = getChannelPostMutationContext(state, postId)
 
-  if (!post) {
+  if (!context) {
     return { context: null, error: null }
   }
 
-  if (post.createdBy !== state.currentUserId) {
+  if (context.post.createdBy !== state.currentUserId) {
     return {
       context: null,
       error: `You can only ${action} your own posts`,
     }
   }
 
-  const conversation = getChannelPostMutationConversation(state, post)
-  if (!conversation) {
-    return { context: null, error: null }
-  }
-
   return {
-    context: { conversation, post },
+    context,
     error: null,
   }
+}
+
+function getOwnedChannelPostComment(
+  state: AppStore,
+  postId: string,
+  commentId: string,
+  action: "delete" | "edit"
+) {
+  const comment = state.channelPostComments.find((entry) =>
+    isTargetChannelPostComment(entry, postId, commentId)
+  )
+
+  if (!comment) {
+    return { comment: null, error: null }
+  }
+
+  if (comment.createdBy !== state.currentUserId) {
+    return {
+      comment: null,
+      error: `You can only ${action} your own comments`,
+    }
+  }
+
+  return { comment, error: null }
 }
 
 function getOwnedChannelPostCommentMutationContext(
@@ -249,37 +283,26 @@ function getOwnedChannelPostCommentMutationContext(
   context: (ChannelPostMutationContext & { comment: ChannelPostComment }) | null
   error: string | null
 } {
-  const comment = state.channelPostComments.find((entry) =>
-    isTargetChannelPostComment(entry, postId, commentId)
+  const { comment, error } = getOwnedChannelPostComment(
+    state,
+    postId,
+    commentId,
+    action
   )
 
   if (!comment) {
-    return { context: null, error: null }
+    return { context: null, error }
   }
 
-  if (comment.createdBy !== state.currentUserId) {
-    return {
-      context: null,
-      error: `You can only ${action} your own comments`,
-    }
-  }
-
-  const post = state.channelPosts.find((entry) => entry.id === postId) ?? null
-
-  if (!post) {
-    return { context: null, error: null }
-  }
-
-  const conversation = getChannelPostMutationConversation(state, post)
-  if (!conversation) {
+  const context = getChannelPostMutationContext(state, postId)
+  if (!context) {
     return { context: null, error: null }
   }
 
   return {
     context: {
       comment,
-      conversation,
-      post,
+      ...context,
     },
     error: null,
   }
@@ -761,6 +784,24 @@ function getChannelPostById(state: AppStore, postIds: readonly string[]) {
   return null
 }
 
+function addPendingChannelPostUpdateAlias(
+  queues: Map<string, PendingChannelPostUpdateQueue>,
+  queue: PendingChannelPostUpdateQueue,
+  postId: string
+) {
+  queues.set(postId, queue)
+  queue.postIds.add(postId)
+}
+
+function clearPendingChannelPostUpdateAliases(
+  queues: Map<string, PendingChannelPostUpdateQueue>,
+  queue: PendingChannelPostUpdateQueue
+) {
+  for (const postId of queue.postIds) {
+    queues.delete(postId)
+  }
+}
+
 export function createCollaborationChannelActions({
   get,
   runtime,
@@ -779,11 +820,10 @@ export function createCollaborationChannelActions({
     string,
     Promise<{ postId: string }>
   >()
-  const pendingChannelPostCreateUpdates = new Map<
+  const pendingChannelPostUpdateQueues = new Map<
     string,
-    UpdateChannelPostInput
+    PendingChannelPostUpdateQueue
   >()
-  const pendingChannelPostCreateUpdateTasks = new Set<string>()
   const pendingChannelPostCommentCreates = new Map<
     string,
     Promise<{ commentId: string }>
@@ -893,41 +933,75 @@ export function createCollaborationChannelActions({
         return
       }
 
-      const pendingCreate = pendingChannelPostCreates.get(postId)
-      if (pendingCreate) {
-        pendingChannelPostCreateUpdates.set(postId, {
+      const pendingUpdate = pendingChannelPostUpdateQueues.get(postId)
+      if (pendingUpdate) {
+        pendingUpdate.latest = {
           title: prepared.title,
           content: prepared.content,
-        })
+        }
 
-        if (!pendingChannelPostCreateUpdateTasks.has(postId)) {
-          pendingChannelPostCreateUpdateTasks.add(postId)
-          const syncTask = pendingCreate
-            .then(
-              (result) => {
+        toast.success("Post updated")
+        return
+      }
+
+      const pendingCreate = pendingChannelPostCreates.get(postId)
+      if (pendingCreate) {
+        const queue: PendingChannelPostUpdateQueue = {
+          latest: {
+            title: prepared.title,
+            content: prepared.content,
+          },
+          postIds: new Set(),
+        }
+        addPendingChannelPostUpdateAlias(
+          pendingChannelPostUpdateQueues,
+          queue,
+          postId
+        )
+
+        const syncTask = pendingCreate
+          .then(
+            async (result) => {
+              addPendingChannelPostUpdateAlias(
+                pendingChannelPostUpdateQueues,
+                queue,
+                result.postId
+              )
+
+              while (queue.latest) {
                 const currentPost = getChannelPostById(get(), [
                   postId,
                   result.postId,
                 ])
-                const latestUpdate = pendingChannelPostCreateUpdates.get(postId)
+                const latestUpdate = queue.latest
+                queue.latest = null
 
-                return currentPost && latestUpdate
-                  ? syncUpdateChannelPost({
-                      postId: currentPost.id,
-                      title: latestUpdate.title,
-                      content: latestUpdate.content,
-                    })
-                  : null
-              },
-              () => null
+                if (!currentPost) {
+                  return
+                }
+
+                addPendingChannelPostUpdateAlias(
+                  pendingChannelPostUpdateQueues,
+                  queue,
+                  currentPost.id
+                )
+                await syncUpdateChannelPost({
+                  postId: currentPost.id,
+                  title: latestUpdate.title,
+                  content: latestUpdate.content,
+                })
+              }
+            },
+            () => null
+          )
+          .finally(() => {
+            clearPendingChannelPostUpdateAliases(
+              pendingChannelPostUpdateQueues,
+              queue
             )
-            .finally(() => {
-              pendingChannelPostCreateUpdates.delete(postId)
-              pendingChannelPostCreateUpdateTasks.delete(postId)
-            })
+          })
 
-          runtime.syncInBackground(syncTask, "Failed to update post")
-        }
+        runtime.syncInBackground(syncTask, "Failed to update post")
 
         toast.success("Post updated")
         return

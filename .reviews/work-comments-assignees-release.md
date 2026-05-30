@@ -4,6 +4,37 @@ Date: 2026-05-30
 Branch: `codex/full-local-diff-review-release`
 Base: `origin/main`
 
+## Turn 5 - PR #44 Serialized Deferred Post Edits
+
+External feedback:
+- Codex review P2 on PR #44: after a pending channel-post create resolves, the deferred PATCH can still be in flight while later edits fall through to the normal PATCH path.
+- That allowed two backend edits to race, so an older deferred payload could finish last and leave the persisted post stale.
+
+Architecture decision:
+- Kept channel-post optimistic create/edit/delete sequencing in `createCollaborationChannelActions`, which already owns local state mutation, create reconciliation, and backend sync scheduling.
+- Modelled deferred post edits as a single update queue with aliases for optimistic, reconciled, and current post ids instead of adding UI blocking or backend retry behavior.
+- The queue is the local ordering boundary: edits made before create settles and edits made while a deferred PATCH is in flight coalesce through the same serialized path.
+
+Fix:
+- Replaced the one-shot pending-create update map/task pair with `PendingChannelPostUpdateQueue`.
+- `updateChannelPost` now detects an active queue first, updates the latest prepared payload, and returns after applying the optimistic local state.
+- The deferred sync task aliases the reconciled backend id, drains the queue in order, and only sends the latest payload after any previous PATCH completes.
+- Queue aliases are cleared only after the deferred create/update chain settles.
+- Added a regression test proving a second edit made while the first deferred PATCH is unresolved does not send a concurrent backend call, then flushes the latest title/content afterward.
+- Split repeated owned-comment lookup logic after Fallow caught introduced changed-file complexity.
+
+Verification:
+- `pnpm test tests/lib/store/collaboration-channel-actions.test.ts` passed: 16 tests.
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed with no introduced dead code, duplication, or complexity.
+- `pnpm typecheck` passed.
+- `pnpm lint` passed.
+- `git diff --check` passed.
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` completed; changed-file audit passed.
+- `~/.codex/skills/architecture-standards/scripts/architecture-preflight.sh` completed; no branch-specific architecture blocker found beyond existing advisory baseline noise.
+- `pnpm test` passed: 208 files, 1272 tests.
+- `pnpm build` passed.
+- `pnpm desktop:smoke` passed.
+
 ## Turn 4 - PR #44 Coalesced Pending Post Edits
 
 External feedback:

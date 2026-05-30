@@ -432,6 +432,68 @@ describe("collaboration channel notification helpers", () => {
     })
   })
 
+  it("serializes edits while a deferred channel-post update is in flight", async () => {
+    const { backgroundTasks, optimisticPost, resolveCreatePost, slice, state } =
+      await createPendingChannelPost("Pending post", "<p>Pending body</p>")
+    let resolveFirstUpdate: ((value: unknown) => void) | undefined
+
+    channelActionTestDoubles.convex.updatePost.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirstUpdate = resolve
+      })
+    )
+
+    expect(optimisticPost).toBeTruthy()
+
+    slice.updateChannelPost(optimisticPost?.id ?? "", {
+      title: "First deferred edit",
+      content: "<p>First deferred body</p>",
+    })
+
+    resolveCreatePost?.({ postId: "post_server_pending" })
+
+    await vi.waitFor(() => {
+      expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledTimes(
+        1
+      )
+    })
+    expect(channelActionTestDoubles.convex.updatePost).toHaveBeenNthCalledWith(
+      1,
+      {
+        postId: "post_server_pending",
+        title: "First deferred edit",
+        content: "<p>First deferred body</p>",
+      }
+    )
+
+    slice.updateChannelPost("post_server_pending", {
+      title: "Second deferred edit",
+      content: "<p>Second deferred body</p>",
+    })
+
+    expect(state.channelPosts).toContainEqual(
+      expect.objectContaining({
+        id: "post_server_pending",
+        title: "Second deferred edit",
+        content: "<p>Second deferred body</p>",
+      })
+    )
+    expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledTimes(1)
+
+    resolveFirstUpdate?.({ ok: true })
+    await Promise.all(backgroundTasks.filter(Boolean))
+
+    expect(channelActionTestDoubles.convex.updatePost).toHaveBeenCalledTimes(2)
+    expect(channelActionTestDoubles.convex.updatePost).toHaveBeenNthCalledWith(
+      2,
+      {
+        postId: "post_server_pending",
+        title: "Second deferred edit",
+        content: "<p>Second deferred body</p>",
+      }
+    )
+  })
+
   it("does not sync deferred channel-post edits after a pending post is deleted", async () => {
     const { backgroundTasks, optimisticPost, resolveCreatePost, slice } =
       await createPendingChannelPost("Pending post", "<p>Pending body</p>")
