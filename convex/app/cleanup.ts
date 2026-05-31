@@ -371,7 +371,7 @@ async function cleanupRemovedUserWorkItems(
   }
 ) {
   for (const workItem of input.workItems) {
-    if (!input.removedTeamIdSet.has(workItem.teamId)) {
+    if (!workItem.teamId || !input.removedTeamIdSet.has(workItem.teamId)) {
       continue
     }
 
@@ -1606,7 +1606,9 @@ export async function cascadeDeleteTeamData(
   ])
   const teamDocuments = input.includePrivateWorkItems
     ? allTeamDocuments
-    : allTeamDocuments.filter((document) => document.kind !== "item-description")
+    : allTeamDocuments.filter(
+        (document) => document.kind !== "item-description"
+      )
   const documents = dedupeById([...teamDocuments, ...descriptionDocuments])
   const deletedDocumentIds = new Set(documents.map((document) => document.id))
   const views = await listViewsByScope(ctx, "team", team.id)

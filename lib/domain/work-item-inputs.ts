@@ -29,7 +29,8 @@ export type StoreWorkItemPatch = Omit<WorkItemMutationPatch, "description">
 export type CreateWorkItemMutationInput = {
   id?: string
   descriptionDocId?: string
-  teamId: string
+  teamId?: string | null
+  workspaceId?: string | null
   type: WorkItemType
   title: string
   parentId?: string | null

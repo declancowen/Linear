@@ -520,7 +520,7 @@ export const milestoneFields = {
 export const workItemFields = {
   id: v.string(),
   key: v.string(),
-  teamId: v.string(),
+  teamId: nullableString,
   workspaceId: v.optional(nullableString),
   type: storedWorkItemTypeValidator,
   title: v.string(),
@@ -680,7 +680,7 @@ export const attachmentFields = {
   id: v.string(),
   targetType: attachmentTargetTypeValidator,
   targetId: v.string(),
-  teamId: v.string(),
+  teamId: nullableString,
   storageId: v.id("_storage"),
   fileName: v.string(),
   contentType: v.string(),

@@ -702,6 +702,7 @@ function LabelsPicker({
 
 function CreateWorkItemPropertiesRow({
   showAssignee,
+  showLabels,
   showProject,
   team,
   status,
@@ -766,6 +767,7 @@ function CreateWorkItemPropertiesRow({
   onCreateLabel,
 }: {
   showAssignee: boolean
+  showLabels: boolean
   showProject: boolean
   team: Team | null
   status: WorkStatus
@@ -916,23 +918,25 @@ function CreateWorkItemPropertiesRow({
         />
       ) : null}
 
-      <LabelsPicker
-        open={labelsPickerOpen}
-        onOpenChange={setLabelsPickerOpen}
-        query={labelQuery}
-        onQueryChange={setLabelQuery}
-        team={team}
-        availableLabels={availableLabels}
-        selectedLabels={selectedLabels}
-        selectedLabelIds={selectedLabelIds}
-        newLabelName={newLabelName}
-        onNewLabelNameChange={setNewLabelName}
-        labelNameLimitState={labelNameLimitState}
-        creatingLabel={creatingLabel}
-        onToggleLabel={onToggleLabel}
-        onClearLabels={onClearLabels}
-        onCreateLabel={onCreateLabel}
-      />
+      {showLabels ? (
+        <LabelsPicker
+          open={labelsPickerOpen}
+          onOpenChange={setLabelsPickerOpen}
+          query={labelQuery}
+          onQueryChange={setLabelQuery}
+          team={team}
+          availableLabels={availableLabels}
+          selectedLabels={selectedLabels}
+          selectedLabelIds={selectedLabelIds}
+          newLabelName={newLabelName}
+          onNewLabelNameChange={setNewLabelName}
+          labelNameLimitState={labelNameLimitState}
+          creatingLabel={creatingLabel}
+          onToggleLabel={onToggleLabel}
+          onClearLabels={onClearLabels}
+          onCreateLabel={onCreateLabel}
+        />
+      ) : null}
     </div>
   )
 }
@@ -1323,30 +1327,30 @@ function getInitialCreateWorkItemState({
 }
 
 function getLabelsForTeam({
-  currentUserId,
   labels,
   team,
   visibility,
+  workspaceId,
 }: {
-  currentUserId: string
   labels: Label[]
   team: Team | null
   visibility: WorkItemVisibility
+  workspaceId: string | null
 }) {
-  if (!team) {
+  if (visibility === "private") {
+    return []
+  }
+
+  const resolvedWorkspaceId =
+    team?.workspaceId ?? workspaceId
+
+  if (!resolvedWorkspaceId) {
     return []
   }
 
   return labels.filter((label) => {
-    if (label.workspaceId !== team.workspaceId) {
+    if (label.workspaceId !== resolvedWorkspaceId) {
       return false
-    }
-
-    if (visibility === "private") {
-      return (
-        getLabelScopeType(label) === "private" &&
-        label.ownerId === currentUserId
-      )
     }
 
     return getLabelScopeType(label) === "workspace"
@@ -1384,9 +1388,61 @@ function getSelectedAssignees(
   return teamMembers.filter((user) => assigneeIdSet.has(user.id))
 }
 
+function isPrivateParentOption(input: {
+  currentUserId: string
+  item: WorkItem
+  selectedWorkspaceId: string | null
+}) {
+  return (
+    input.item.visibility === "private" &&
+    input.item.creatorId === input.currentUserId &&
+    (input.item.workspaceId ?? null) === input.selectedWorkspaceId
+  )
+}
+
+function isTeamParentOption(item: WorkItem, selectedTeamId: string) {
+  return (
+    item.teamId === selectedTeamId && (item.visibility ?? "team") === "team"
+  )
+}
+
+function isParentOptionInProjectScope({
+  item,
+  scopedProjectId,
+  selectedParentId,
+}: {
+  item: WorkItem
+  scopedProjectId: string | null
+  selectedParentId: string
+}) {
+  return (
+    !scopedProjectId ||
+    item.primaryProjectId === scopedProjectId ||
+    item.id === selectedParentId
+  )
+}
+
+function canUseParentOption(input: {
+  currentUserId: string
+  item: WorkItem
+  privateTaskMode: boolean
+  selectedTeamId: string
+  selectedType: WorkItemType
+  selectedWorkspaceId: string | null
+}) {
+  if (!canParentWorkItemTypeAcceptChild(input.item.type, input.selectedType)) {
+    return false
+  }
+
+  return input.privateTaskMode
+    ? isPrivateParentOption(input)
+    : isTeamParentOption(input.item, input.selectedTeamId)
+}
+
 function getParentOptionsForCreate({
   currentUserId,
   privateTaskMode,
+  selectedWorkspaceId,
   workItems,
   selectedTeamId,
   selectedType,
@@ -1395,35 +1451,35 @@ function getParentOptionsForCreate({
 }: {
   currentUserId: string
   privateTaskMode: boolean
+  selectedWorkspaceId: string | null
   workItems: WorkItem[]
   selectedTeamId: string
   selectedType: WorkItemType | null
   scopedProjectId: string | null
   selectedParentId: string
 }) {
-  if (!selectedTeamId || !selectedType) {
+  if (!selectedType || (!privateTaskMode && !selectedTeamId)) {
     return []
   }
 
   return [...workItems]
-    .filter(
-      (item) =>
-        item.teamId === selectedTeamId &&
-        (privateTaskMode
-          ? item.visibility === "private" && item.creatorId === currentUserId
-          : (item.visibility ?? "team") === "team") &&
-        canParentWorkItemTypeAcceptChild(item.type, selectedType)
+    .filter((item) =>
+      canUseParentOption({
+        currentUserId,
+        item,
+        privateTaskMode,
+        selectedTeamId,
+        selectedType,
+        selectedWorkspaceId,
+      })
     )
-    .filter((item) => {
-      if (!scopedProjectId) {
-        return true
-      }
-
-      return (
-        item.primaryProjectId === scopedProjectId ||
-        item.id === selectedParentId
-      )
-    })
+    .filter((item) =>
+      isParentOptionInProjectScope({
+        item,
+        scopedProjectId,
+        selectedParentId,
+      })
+    )
     .sort((left, right) =>
       left.key.localeCompare(right.key, undefined, { numeric: true })
     )
@@ -1537,32 +1593,63 @@ function shouldShowParentSelect({
 }
 
 function canSubmitCreateWorkItem({
-  filteredTeams,
+  hasCreateScope,
   titleLimitState,
   selectedType,
   requiresParent,
   selectedParentItem,
 }: {
-  filteredTeams: Team[]
+  hasCreateScope: boolean
   titleLimitState: TextLimitState
   selectedType: WorkItemType | null
   requiresParent: boolean
   selectedParentItem: WorkItem | null
 }) {
   return (
-    filteredTeams.length > 0 &&
+    hasCreateScope &&
     titleLimitState.canSubmit &&
     selectedType !== null &&
     (!requiresParent || selectedParentItem !== null)
   )
 }
 
-function getTeamWorkspaceId(team: Team | null) {
-  return team?.workspaceId ?? null
+function getTeamWorkspaceId(
+  team: Team | null,
+  fallbackWorkspaceId?: string | null
+) {
+  return team?.workspaceId ?? fallbackWorkspaceId ?? null
 }
 
 function canUseCommandSubmit(open: boolean, canCreate: boolean) {
   return open && canCreate
+}
+
+function getDefaultTypeForTeamSelection(
+  team: Team | null,
+  initialType: WorkItemType | null | undefined
+) {
+  if (
+    initialType &&
+    getDefaultRootWorkItemTypesForTeamExperience(
+      team?.settings.experience
+    ).includes(initialType)
+  ) {
+    return initialType
+  }
+
+  return getPreferredCreateDialogType(
+    getDefaultTemplateTypeForTeamExperience(team?.settings.experience)
+  )
+}
+
+function getDefaultProjectForTeamSelection(
+  scopedProjects: Project[],
+  defaultProjectId: string | null | undefined
+) {
+  return defaultProjectId &&
+    scopedProjects.some((project) => project.id === defaultProjectId)
+    ? defaultProjectId
+    : "none"
 }
 
 function getTeamSelectionDefaults({
@@ -1583,25 +1670,15 @@ function getTeamSelectionDefaults({
   const team = getTeamById(filteredTeams, teamId)
   const statuses = getStatusOrderForTeam(team)
   const scopedProjects = getProjectsForTeamCreateScope(projects, team)
-  const nextType =
-    initialType &&
-    getDefaultRootWorkItemTypesForTeamExperience(
-      team?.settings.experience
-    ).includes(initialType)
-      ? initialType
-      : getPreferredCreateDialogType(
-          getDefaultTemplateTypeForTeamExperience(team?.settings.experience)
-        )
 
   return {
-    type: nextType,
+    type: getDefaultTypeForTeamSelection(team, initialType),
     status: statuses.includes("todo") ? "todo" : (statuses[0] ?? "backlog"),
     priority,
-    projectId:
-      defaultProjectId &&
-      scopedProjects.some((project) => project.id === defaultProjectId)
-        ? defaultProjectId
-        : "none",
+    projectId: getDefaultProjectForTeamSelection(
+      scopedProjects,
+      defaultProjectId
+    ),
   }
 }
 
@@ -1770,6 +1847,7 @@ function applyParentChange({
 function createWorkItemFromDialogState({
   selectedType,
   selectedTeamId,
+  selectedWorkspaceId,
   canCreate,
   normalizedTitle,
   selectedParentItem,
@@ -1790,6 +1868,7 @@ function createWorkItemFromDialogState({
 }: {
   selectedType: WorkItemType | null
   selectedTeamId: string
+  selectedWorkspaceId: string | null
   canCreate: boolean
   normalizedTitle: string
   selectedParentItem: WorkItem | null
@@ -1808,18 +1887,23 @@ function createWorkItemFromDialogState({
   normalizedDescription: string
   onOpenChange: (open: boolean) => void
 }) {
-  if (!selectedType || !selectedTeamId || !canCreate) {
+  if (
+    !selectedType ||
+    !canCreate ||
+    (visibility === "private" ? !selectedWorkspaceId : !selectedTeamId)
+  ) {
     return
   }
 
   const createdItemId = useAppStore.getState().createWorkItem({
-    teamId: selectedTeamId,
+    teamId: visibility === "private" ? null : selectedTeamId,
+    workspaceId: visibility === "private" ? selectedWorkspaceId : undefined,
     type: selectedType,
     title: normalizedTitle,
     parentId: selectedParentItem?.id ?? null,
     priority,
     status,
-    labelIds: selectedLabelIds,
+    labelIds: visibility === "private" ? [] : selectedLabelIds,
     visibility,
     assigneeId:
       visibility === "private" ? null : (effectiveAssigneeIds[0] ?? null),
@@ -1872,6 +1956,7 @@ export function CreateWorkItemDialog({
   )
   const {
     allLabels,
+    currentWorkspaceId,
     currentUserId,
     projects,
     teamMemberships,
@@ -1880,6 +1965,7 @@ export function CreateWorkItemDialog({
   } = useAppStore(
     useShallow((state) => ({
       allLabels: state.labels,
+      currentWorkspaceId: state.currentWorkspaceId,
       currentUserId: state.currentUserId,
       projects: state.projects,
       teamMemberships: state.teamMemberships,
@@ -1964,15 +2050,18 @@ export function CreateWorkItemDialog({
     () => getTeamById(filteredTeams, selectedTeamId),
     [filteredTeams, selectedTeamId]
   )
+  const selectedWorkspaceId = privateTaskMode
+    ? (currentWorkspaceId ?? null)
+    : getTeamWorkspaceId(team, currentWorkspaceId)
   const labels = useMemo(
     () =>
       getLabelsForTeam({
-        currentUserId,
         labels: allLabels,
         team,
         visibility,
+        workspaceId: selectedWorkspaceId,
       }),
-    [allLabels, currentUserId, team, visibility]
+    [allLabels, selectedWorkspaceId, team, visibility]
   )
   const teamMembers = useMemo(
     () => getTeamMembers(users, teamMemberships, selectedTeamId),
@@ -2033,6 +2122,7 @@ export function CreateWorkItemDialog({
   const parentOptions = getParentOptionsForCreate({
     currentUserId,
     privateTaskMode,
+    selectedWorkspaceId,
     workItems,
     selectedTeamId,
     selectedType,
@@ -2048,6 +2138,7 @@ export function CreateWorkItemDialog({
     projectId,
     selectedParentItem,
   })
+  const displayedProject = getSelectedProject(effectiveProjectId, teamProjects)
   const selectedLabels = getSelectedLabels(availableLabels, selectedLabelIds)
   const selectedTypeLabel = getSelectedTypeLabel({
     selectedType,
@@ -2056,7 +2147,7 @@ export function CreateWorkItemDialog({
   })
   const secondaryContextLabel = privateTaskMode
     ? getSecondaryContextLabel(selectedParentItem, null)
-    : getSecondaryContextLabel(selectedParentItem, selectedProject)
+    : getSecondaryContextLabel(selectedParentItem, displayedProject)
   const titlePlaceholder = getTitlePlaceholder({
     selectedType,
     selectedTypeLabel,
@@ -2080,13 +2171,17 @@ export function CreateWorkItemDialog({
     selectedParentItem,
   })
   const canCreate = canSubmitCreateWorkItem({
-    filteredTeams,
+    hasCreateScope: privateTaskMode
+      ? Boolean(selectedWorkspaceId)
+      : filteredTeams.length > 0,
     titleLimitState,
     selectedType,
     requiresParent,
     selectedParentItem,
   })
-  const hasEditableTeams = hasItems(filteredTeams)
+  const hasEditableTeams = privateTaskMode
+    ? Boolean(selectedWorkspaceId)
+    : hasItems(filteredTeams)
   const hasAvailableItemTypes = hasItems(availableItemTypes)
 
   function toggleLabel(labelId: string) {
@@ -2094,12 +2189,16 @@ export function CreateWorkItemDialog({
   }
 
   async function handleCreateLabel() {
+    if (privateTaskMode) {
+      return
+    }
+
     await createLabelAndSelect({
       newLabelName,
       creatingLabel,
       canSubmit: labelNameLimitState.canSubmit,
-      scopeType: privateTaskMode ? "private" : "workspace",
-      workspaceId: getTeamWorkspaceId(team),
+      scopeType: "workspace",
+      workspaceId: selectedWorkspaceId,
       setCreatingLabel,
       setNewLabelName,
       setSelectedLabelIds,
@@ -2110,6 +2209,7 @@ export function CreateWorkItemDialog({
     createWorkItemFromDialogState({
       selectedType,
       selectedTeamId,
+      selectedWorkspaceId,
       canCreate,
       normalizedTitle,
       selectedParentItem,
@@ -2254,6 +2354,7 @@ export function CreateWorkItemDialog({
 
         <CreateWorkItemPropertiesRow
           showAssignee={!privateTaskMode}
+          showLabels={!privateTaskMode}
           showProject={!privateTaskMode}
           team={team}
           status={status}
@@ -2280,7 +2381,7 @@ export function CreateWorkItemDialog({
           projectQuery={projectQuery}
           setProjectQuery={setProjectQuery}
           teamProjects={teamProjects}
-          selectedProject={selectedProject}
+          selectedProject={displayedProject}
           effectiveProjectId={effectiveProjectId}
           selectedParentItem={selectedParentItem}
           onProjectChange={handleProjectChange}
@@ -2327,7 +2428,7 @@ export function CreateWorkItemDialog({
 
         <CreateWorkItemFooter
           destinationLabel={privateTaskMode ? "Private tasks" : null}
-          selectedProject={selectedProject}
+          selectedProject={displayedProject}
           team={team}
           canCreate={canCreate}
           selectedTypeLabel={selectedTypeLabel}

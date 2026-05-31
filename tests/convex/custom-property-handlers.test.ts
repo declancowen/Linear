@@ -121,6 +121,27 @@ describe("custom property handlers", () => {
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 
+  it("rejects legacy private custom property creation before inserting", async () => {
+    const { createCustomPropertyDefinitionHandler } =
+      await import("@/convex/app/custom_property_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      createCustomPropertyDefinitionHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        teamId: "team_1",
+        scopeType: "private",
+        name: "Private field",
+        icon: "Lock",
+        type: "text",
+        options: [],
+      } as never)
+    ).rejects.toThrow("Private custom properties are not supported")
+
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
   it("rejects duplicate option ids on update before patching", async () => {
     const { updateCustomPropertyDefinitionHandler } =
       await import("@/convex/app/custom_property_handlers")

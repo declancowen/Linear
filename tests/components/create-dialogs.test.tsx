@@ -486,6 +486,7 @@ describe("create dialogs", () => {
       expect(
         screen.queryByRole("button", { name: /Project/i })
       ).not.toBeInTheDocument()
+      expect(screen.queryByText("Add label")).not.toBeInTheDocument()
 
       fireEvent.change(screen.getByPlaceholderText("Task title"), {
         target: { value: "Private follow-up" },
@@ -497,10 +498,12 @@ describe("create dialogs", () => {
         expect(createWorkItemSpy).toHaveBeenCalledWith(
           expect.objectContaining({
             assigneeId: null,
+            labelIds: [],
             primaryProjectId: null,
-            teamId: "team_1",
+            teamId: null,
             type: "task",
             visibility: "private",
+            workspaceId: "workspace_1",
           })
         )
       )
@@ -587,6 +590,12 @@ describe("create dialogs", () => {
       fireEvent.click(await screen.findByText("Sub-task"))
       fireEvent.click(screen.getByRole("button", { name: "Parent" }))
       fireEvent.click(await screen.findByText("OPS-1"))
+
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: /Ops roadmap/i })
+        ).toBeDisabled()
+      )
 
       fireEvent.change(screen.getByPlaceholderText("Sub-task title"), {
         target: { value: "Inherited project child" },

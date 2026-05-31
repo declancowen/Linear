@@ -145,7 +145,7 @@ describe("FilterPopover", () => {
     expect(trigger).toHaveClass("shrink-0")
 
     fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole("button", { name: "Todo" }))
+    fireEvent.click(screen.getByRole("button", { name: "To-Do" }))
 
     expect(onToggleFilterValue).toHaveBeenCalledWith("status", "todo")
   })

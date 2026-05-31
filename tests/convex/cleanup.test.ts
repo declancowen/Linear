@@ -27,7 +27,7 @@ function createCascadeDeleteTeamCtx() {
         _id: "private_description_doc",
         id: "private_description",
         kind: "item-description",
-        teamId: "team_1",
+        teamId: null,
         workspaceId: "workspace_1",
         linkedProjectIds: [],
         linkedWorkItemIds: [],
@@ -104,7 +104,8 @@ function createCascadeDeleteTeamCtx() {
       {
         _id: "private_item_doc",
         id: "private_item",
-        teamId: "team_1",
+        teamId: null,
+        workspaceId: "workspace_1",
         descriptionDocId: "private_description",
         visibility: "private",
         linkedDocumentIds: [],

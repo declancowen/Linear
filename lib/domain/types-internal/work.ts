@@ -475,7 +475,7 @@ export function createDefaultTeamWorkflowSettings(
 
 export const statusMeta: Record<WorkStatus, { label: string }> = {
   backlog: { label: "Backlog" },
-  todo: { label: "Todo" },
+  todo: { label: "To-Do" },
   "in-progress": { label: "In Progress" },
   done: { label: "Done" },
   cancelled: { label: "Cancelled" },

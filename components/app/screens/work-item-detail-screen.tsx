@@ -82,7 +82,6 @@ import {
   getCommentsForTarget,
   getDirectChildWorkItems,
   getDocument,
-  getLabelsForTeamScope,
   getProjectHref,
   getStatusOrderForTeam,
   getTeam,
@@ -91,6 +90,7 @@ import {
   getWorkItemChildProgress,
   getWorkItem,
   getWorkItemDescendantIds,
+  hasWorkspaceAccess,
   sortItems,
   workItemMatchesView,
 } from "@/lib/domain/selectors"
@@ -1038,7 +1038,9 @@ function getWorkItemActivityContext(input: {
   data: AppData
   item: WorkItem
 }) {
-  const comments = getCommentsForTarget(input.data, "workItem", input.item.id)
+  const comments = isPrivateWorkItem(input.item)
+    ? []
+    : getCommentsForTarget(input.data, "workItem", input.item.id)
   const rootComments = getRootComments(comments)
   const repliesByParentId = groupCommentsByParentId(comments)
   const statusEvents = getWorkItemStatusChangeActivityEvents(
@@ -1051,9 +1053,11 @@ function getWorkItemActivityContext(input: {
       .map((assigneeId) => getUser(input.data, assigneeId))
       .filter((user): user is UserProfile => Boolean(user)),
     creator: getUser(input.data, input.item.creatorId),
-    mentionCandidates: getTeamMembers(input.data, input.item.teamId).filter(
-      (candidate) => candidate.id !== input.currentUserId
-    ),
+    mentionCandidates: isPrivateWorkItem(input.item)
+      ? []
+      : getTeamMembers(input.data, input.item.teamId).filter(
+          (candidate) => candidate.id !== input.currentUserId
+        ),
     repliesByParentId,
     rootComments,
     statusEvents,
@@ -1226,6 +1230,7 @@ function DetailSidebarActivity({
     handleComment,
     setContent,
   } = useWorkItemCommentComposer(item.id)
+  const canComment = !isPrivateWorkItem(item)
 
   const activityEvents = [
     {
@@ -1285,47 +1290,49 @@ function DetailSidebarActivity({
         />
       ))}
 
-      <div className="rounded-[var(--radius)] border border-line bg-surface px-3 py-2.5 transition-colors focus-within:border-fg-3">
-        <RichTextEditor
-          content={content}
-          onChange={setContent}
-          editable={editable}
-          compact
-          allowSlashCommands={false}
-          showToolbar={false}
-          showStats={false}
-          placeholder="Leave a comment or mention a teammate with @handle..."
-          editorInstanceRef={commentEditorRef}
-          mentionCandidates={mentionCandidates}
-          minPlainTextCharacters={commentContentConstraints.min}
-          maxPlainTextCharacters={commentContentConstraints.max}
-          enforcePlainTextLimit
-          onSubmitShortcut={handleComment}
-          submitOnEnter
-          className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
-        />
-        <div className="mt-1.5 border-t border-dashed border-line pt-1.5">
-          <FieldCharacterLimit
-            state={commentLimitState}
-            limit={commentContentConstraints.max}
-            className="mt-0 mb-1.5"
+      {canComment ? (
+        <div className="rounded-[var(--radius)] border border-line bg-surface px-3 py-2.5 transition-colors focus-within:border-fg-3">
+          <RichTextEditor
+            content={content}
+            onChange={setContent}
+            editable={editable}
+            compact
+            allowSlashCommands={false}
+            showToolbar={false}
+            showStats={false}
+            placeholder="Leave a comment or mention a teammate with @handle..."
+            editorInstanceRef={commentEditorRef}
+            mentionCandidates={mentionCandidates}
+            minPlainTextCharacters={commentContentConstraints.min}
+            maxPlainTextCharacters={commentContentConstraints.max}
+            enforcePlainTextLimit
+            onSubmitShortcut={handleComment}
+            submitOnEnter
+            className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
           />
-          <div className="flex items-center justify-end gap-2">
-            <ShortcutKeys
-              keys={["Enter"]}
-              keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+          <div className="mt-1.5 border-t border-dashed border-line pt-1.5">
+            <FieldCharacterLimit
+              state={commentLimitState}
+              limit={commentContentConstraints.max}
+              className="mt-0 mb-1.5"
             />
-            <Button
-              size="sm"
-              disabled={!editable || !commentLimitState.canSubmit}
-              onClick={handleComment}
-            >
-              <PaperPlaneTilt className="size-3.5" />
-              Comment
-            </Button>
+            <div className="flex items-center justify-end gap-2">
+              <ShortcutKeys
+                keys={["Enter"]}
+                keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
+              />
+              <Button
+                size="sm"
+                disabled={!editable || !commentLimitState.canSubmit}
+                onClick={handleComment}
+              >
+                <PaperPlaneTilt className="size-3.5" />
+                Comment
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
     </div>
   )
 }
@@ -2094,7 +2101,9 @@ function getMainActivityAssigneeEntries(
 }
 
 function getMainActivityStatusEntries(
-  statusEvents: Array<Omit<Extract<MainActivityTimelineEntry, { kind: "event" }>, "kind">>
+  statusEvents: Array<
+    Omit<Extract<MainActivityTimelineEntry, { kind: "event" }>, "kind">
+  >
 ): MainActivityTimelineEntry[] {
   return statusEvents.map((event) => ({
     kind: "event",
@@ -2295,6 +2304,7 @@ function MainActivityTimeline({
     handleComment,
     setContent,
   } = useWorkItemCommentComposer(item.id)
+  const canComment = !isPrivateWorkItem(item)
   const entries = getMainActivityTimelineEntries({
     assignees,
     creator,
@@ -2318,71 +2328,73 @@ function MainActivityTimeline({
         />
       ))}
 
-      <MainActivityThreadItem
-        showLine={false}
-        variant="composer"
-        avatar={
-          currentUser ? (
-            <UserAvatar
-              name={currentUser.name}
-              avatarImageUrl={currentUser.avatarImageUrl}
-              avatarUrl={currentUser.avatarUrl}
-              status={currentUser.status}
-              size="sm"
-              showStatus={false}
-              className="size-7"
-            />
-          ) : (
-            <span className="size-7 rounded-full bg-surface-3" />
-          )
-        }
-      >
-        <div className="rounded-xl border border-line bg-surface transition-colors focus-within:border-fg-3">
-          <div className="px-3 py-2">
-            <RichTextEditor
-              content={content}
-              onChange={setContent}
-              editable={editable}
-              compact
-              allowSlashCommands={false}
-              showToolbar={false}
-              showStats={false}
-              placeholder="Leave a comment or mention a teammate with @handle…"
-              editorInstanceRef={commentEditorRef}
-              mentionCandidates={mentionCandidates}
-              minPlainTextCharacters={commentContentConstraints.min}
-              maxPlainTextCharacters={commentContentConstraints.max}
-              enforcePlainTextLimit
-              onSubmitShortcut={handleComment}
-              submitOnEnter
-              className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
-            />
+      {canComment ? (
+        <MainActivityThreadItem
+          showLine={false}
+          variant="composer"
+          avatar={
+            currentUser ? (
+              <UserAvatar
+                name={currentUser.name}
+                avatarImageUrl={currentUser.avatarImageUrl}
+                avatarUrl={currentUser.avatarUrl}
+                status={currentUser.status}
+                size="sm"
+                showStatus={false}
+                className="size-7"
+              />
+            ) : (
+              <span className="size-7 rounded-full bg-surface-3" />
+            )
+          }
+        >
+          <div className="rounded-xl border border-line bg-surface transition-colors focus-within:border-fg-3">
+            <div className="px-3 py-2">
+              <RichTextEditor
+                content={content}
+                onChange={setContent}
+                editable={editable}
+                compact
+                allowSlashCommands={false}
+                showToolbar={false}
+                showStats={false}
+                placeholder="Leave a comment or mention a teammate with @handle…"
+                editorInstanceRef={commentEditorRef}
+                mentionCandidates={mentionCandidates}
+                minPlainTextCharacters={commentContentConstraints.min}
+                maxPlainTextCharacters={commentContentConstraints.max}
+                enforcePlainTextLimit
+                onSubmitShortcut={handleComment}
+                submitOnEnter
+                className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+              />
+            </div>
+            <div className="border-t border-dashed border-line px-3 py-1.5">
+              <WorkItemCommentComposerActions
+                editable={editable}
+                editorRef={commentEditorRef}
+                emojiButtonClassName="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
+                limitState={commentLimitState}
+              >
+                <div className="flex items-center gap-2">
+                  <ShortcutKeys
+                    keys={["Enter"]}
+                    keyClassName={WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS}
+                  />
+                  <Button
+                    size="sm"
+                    disabled={!editable || !commentLimitState.canSubmit}
+                    onClick={handleComment}
+                  >
+                    <PaperPlaneTilt className="size-3.5" />
+                    Comment
+                  </Button>
+                </div>
+              </WorkItemCommentComposerActions>
+            </div>
           </div>
-          <div className="border-t border-dashed border-line px-3 py-1.5">
-            <WorkItemCommentComposerActions
-              editable={editable}
-              editorRef={commentEditorRef}
-              emojiButtonClassName="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
-              limitState={commentLimitState}
-            >
-              <div className="flex items-center gap-2">
-                <ShortcutKeys
-                  keys={["Enter"]}
-                  keyClassName={WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS}
-                />
-                <Button
-                  size="sm"
-                  disabled={!editable || !commentLimitState.canSubmit}
-                  onClick={handleComment}
-                >
-                  <PaperPlaneTilt className="size-3.5" />
-                  Comment
-                </Button>
-              </div>
-            </WorkItemCommentComposerActions>
-          </div>
-        </div>
-      </MainActivityThreadItem>
+        </MainActivityThreadItem>
+      ) : null}
     </ol>
   )
 }
@@ -2441,7 +2453,9 @@ function renderSidebarAssigneeOption(
   )
 }
 
-function getWorkItemSidebarAssigneeValueLabel(selectedAssignees: UserProfile[]) {
+function getWorkItemSidebarAssigneeValueLabel(
+  selectedAssignees: UserProfile[]
+) {
   if (selectedAssignees.length === 0) {
     return "Assign"
   }
@@ -2984,14 +2998,60 @@ function getSelectedWorkItemMilestone(data: AppData, currentItem: WorkItem) {
   )
 }
 
-function getAvailableWorkItemLabels(data: AppData, team: Team | null) {
-  if (!team) {
+function isPrivateWorkItem(item: WorkItem) {
+  return (item.visibility ?? "team") === "private"
+}
+
+function getWorkItemDetailWorkspaceId(
+  data: AppData,
+  currentItem: WorkItem,
+  team: Team | null
+) {
+  if (isPrivateWorkItem(currentItem)) {
+    return currentItem.workspaceId ?? null
+  }
+
+  return (
+    currentItem.workspaceId ??
+    team?.workspaceId ??
+    getTeam(data, currentItem.teamId)?.workspaceId ??
+    null
+  )
+}
+
+function canEditWorkItemDetail(
+  data: AppData,
+  currentItem: WorkItem,
+  team: Team | null
+) {
+  if (!isPrivateWorkItem(currentItem)) {
+    return canEditTeam(data, team?.id)
+  }
+
+  const workspaceId = getWorkItemDetailWorkspaceId(data, currentItem, team)
+
+  return (
+    currentItem.creatorId === data.currentUserId &&
+    Boolean(
+      workspaceId && hasWorkspaceAccess(data, workspaceId, data.currentUserId)
+    )
+  )
+}
+
+function getAvailableWorkItemLabels(
+  data: AppData,
+  currentItem: WorkItem,
+  team: Team | null
+) {
+  const workspaceId = getWorkItemDetailWorkspaceId(data, currentItem, team)
+
+  if (!workspaceId) {
     return []
   }
 
-  return [...getLabelsForTeamScope(data, team.id)].sort((left, right) =>
-    left.name.localeCompare(right.name)
-  )
+  return data.labels
+    .filter((label) => label.workspaceId === workspaceId)
+    .sort((left, right) => left.name.localeCompare(right.name))
 }
 
 function getWorkItemParentOptions(data: AppData, currentItem: WorkItem) {
@@ -3079,12 +3139,21 @@ function getWorkItemDetailModel({
   sidebarTitle?: string
   team: Team | null
 }) {
-  const teamExperience = team?.settings.experience
-  const teamMembers = team ? getTeamMembers(data, team.id) : []
+  const privateTask = isPrivateWorkItem(currentItem)
+  const teamExperience = privateTask
+    ? "project-management"
+    : team?.settings.experience
+  const teamMembers = privateTask
+    ? []
+    : team
+      ? getTeamMembers(data, team.id)
+      : []
   const allowedChildTypes = getAllowedChildWorkItemTypesForItem(currentItem)
 
   return {
-    availableLabels: getAvailableWorkItemLabels(data, team),
+    availableLabels: privateTask
+      ? []
+      : getAvailableWorkItemLabels(data, currentItem, team),
     canCreateChildItem: editable && allowedChildTypes.length > 0,
     cascadeMessage: getWorkItemDeleteCascadeMessage({
       data,
@@ -3100,7 +3169,7 @@ function getWorkItemDetailModel({
     displayedEndDate: currentItem.targetDate ?? currentItem.dueDate,
     linkedDocuments: getLinkedWorkItemDocuments(data, currentItem),
     linkedProjects: getLinkedWorkItemProjects(data, currentItem),
-    mentionCandidates: team ? teamMembers : data.users,
+    mentionCandidates: privateTask ? [] : team ? teamMembers : data.users,
     parentItem: currentItem.parentId
       ? getWorkItem(data, currentItem.parentId)
       : null,
@@ -3113,11 +3182,9 @@ function getWorkItemDetailModel({
       : (sidebarTitle ?? currentItem.title),
     statusOptions: buildPropertyStatusOptions(getStatusOrderForTeam(team)),
     teamMembers,
-    teamProjects: getTeamProjectOptions(
-      data,
-      team?.id,
-      currentItem.primaryProjectId
-    ),
+    teamProjects: privateTask
+      ? []
+      : getTeamProjectOptions(data, team?.id, currentItem.primaryProjectId),
     workCopy: getWorkSurfaceCopy(teamExperience),
   }
 }
@@ -3907,10 +3974,12 @@ function useWorkItemMainSectionController({
 
 function WorkItemDetailBreadcrumb({
   currentItem,
+  isPrivateTask,
   parentItem,
   team,
 }: {
   currentItem: WorkItem
+  isPrivateTask: boolean
   parentItem: WorkItem | null
   team: Team | null
 }) {
@@ -3923,12 +3992,18 @@ function WorkItemDetailBreadcrumb({
       <span className="mr-2 font-mono text-[12px] text-fg-3">
         {currentItem.key}
       </span>
-      <AppLink
-        href={`/team/${team?.slug}/work`}
-        className="shrink-0 text-fg-3 hover:text-foreground"
-      >
-        {team?.name}
-      </AppLink>
+      {isPrivateTask ? (
+        <span className="shrink-0 text-fg-3">Private tasks</span>
+      ) : team ? (
+        <AppLink
+          href={`/team/${team.slug}/work`}
+          className="shrink-0 text-fg-3 hover:text-foreground"
+        >
+          {team.name}
+        </AppLink>
+      ) : (
+        <span className="shrink-0 text-fg-3">Team</span>
+      )}
       <CaretRight className="size-3 shrink-0 text-fg-4" />
       {parentItem ? (
         <>
@@ -4132,15 +4207,17 @@ function WorkItemDetailTopBar({
   onOpenDeleteDialog: () => void
   onToggleProperties: () => void
 }) {
+  const isPrivateTask = isPrivateWorkItem(currentItem)
   const itemTypeLabel = getDisplayLabelForWorkItemType(
     currentItem.type,
-    team?.settings.experience
+    isPrivateTask ? "project-management" : team?.settings.experience
   )
 
   return (
     <div className="flex min-h-10 shrink-0 items-center justify-between gap-1 border-b border-line-soft bg-surface px-3 py-2">
       <WorkItemDetailBreadcrumb
         currentItem={currentItem}
+        isPrivateTask={isPrivateTask}
         parentItem={parentItem}
         team={team}
       />
@@ -5098,6 +5175,7 @@ function WorkItemSidebarProperties({
     data,
     currentItem
   )
+  const workspaceId = getWorkItemDetailWorkspaceId(data, currentItem, team)
 
   return (
     <>
@@ -5168,7 +5246,7 @@ function WorkItemSidebarProperties({
         />
         <DetailSidebarLabelsRow
           item={currentItem}
-          workspaceId={team?.workspaceId}
+          workspaceId={workspaceId}
           labels={availableLabels}
           editable={sidebarEditable}
         />
@@ -5200,11 +5278,7 @@ function WorkItemSidebarProperties({
       {team ? (
         <CustomPropertyDefinitionDialog
           open={customPropertyDialogOpen}
-          scopeType={
-            (currentItem.visibility ?? "team") === "private"
-              ? "private"
-              : "team"
-          }
+          scopeType="team"
           teamId={team.id}
           onOpenChange={setCustomPropertyDialogOpen}
         />
@@ -5245,7 +5319,7 @@ function getWorkDetailSubitemScope(data: AppData, currentItem: WorkItem) {
   }
 
   return {
-    scopeId: currentItem.teamId,
+    scopeId: currentItem.teamId ?? "",
     scopeType: "team" as const,
   }
 }
@@ -5951,7 +6025,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const isCollaborationBootstrapping =
     collaborationLifecycle === "bootstrapping"
   const team = item ? getTeam(data, item.teamId) : null
-  const editable = team ? canEditTeam(data, team.id) : false
+  const editable = item ? canEditWorkItemDetail(data, item, team) : false
   const showDescriptionBootPreview = useInitialCollaborationSyncPreview({
     id: itemId,
     storagePrefix: ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX,

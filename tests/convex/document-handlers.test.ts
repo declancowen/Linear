@@ -529,6 +529,57 @@ describe("document mention notifications", () => {
     expect(queueEmailJobsMock).not.toHaveBeenCalled()
   })
 
+  it("uses work item audience for private item-description document mentions", async () => {
+    const { sendDocumentMentionNotificationsHandler } =
+      await import("@/convex/app/document_handlers")
+    const data = await import("@/convex/app/data")
+    const ctx = createCtx()
+
+    documentRecord = {
+      _id: "item_description_db",
+      id: "document_1",
+      kind: "item-description",
+      workspaceId: "workspace_1",
+      teamId: null,
+      title: "Private description",
+      content:
+        '<p><span class="editor-mention" data-type="mention" data-id="user_3">@taylor</span></p>',
+      createdBy: "user_1",
+      updatedBy: "user_1",
+    }
+    vi.mocked(data.getWorkItemByDescriptionDocId).mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: null,
+      workspaceId: "workspace_1",
+      title: "Private task",
+      descriptionDocId: "document_1",
+      visibility: "private",
+      creatorId: "user_1",
+      assigneeId: null,
+    } as never)
+
+    await expect(
+      sendDocumentMentionNotificationsHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        documentId: "document_1",
+        mentions: [
+          {
+            userId: "user_3",
+            count: 1,
+          },
+        ],
+      })
+    ).rejects.toThrow("One or more mentioned users are invalid for this document")
+
+    expect(getWorkspaceUserIdsMock).not.toHaveBeenCalled()
+    expect(getTeamMemberIdsMock).not.toHaveBeenCalled()
+    expect(createNotificationMock).not.toHaveBeenCalled()
+    expect(queueEmailJobsMock).not.toHaveBeenCalled()
+  })
+
   it("uses item-level private access before updating item descriptions", async () => {
     const { updateItemDescriptionHandler } = await import(
       "@/convex/app/document_handlers"

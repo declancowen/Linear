@@ -88,10 +88,10 @@ function WorkspaceSearchResultRow({
   return (
     <AppLink
       key={result.id}
-      className="flex items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/50"
+      className="flex items-start gap-3 px-3 py-3 transition-colors hover:bg-muted/50"
       href={result.href}
     >
-      <div className="shrink-0 text-muted-foreground">
+      <div className="mt-0.5 shrink-0 text-muted-foreground">
         {searchResultIcon(result.kind)}
       </div>
       <div className="min-w-0 flex-1">

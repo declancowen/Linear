@@ -34,6 +34,7 @@ import {
   getTeam,
   getTeamMembers,
   getUser,
+  hasWorkspaceAccess,
 } from "@/lib/domain/selectors"
 import {
   getCustomPropertyIdFromDisplayReference,
@@ -620,7 +621,18 @@ export function InlineWorkItemPropertyControl({
   variant?: InlinePropertyControlVariant
 }) {
   const team = getTeam(data, item.teamId)
-  const editable = team ? canEditTeam(data, team.id) : false
+  const workspaceId =
+    (item.visibility ?? "team") === "private"
+      ? (item.workspaceId ?? null)
+      : (item.workspaceId ?? team?.workspaceId ?? null)
+  const editable =
+    (item.visibility ?? "team") === "private"
+      ? item.creatorId === data.currentUserId &&
+        Boolean(
+          workspaceId &&
+          hasWorkspaceAccess(data, workspaceId, data.currentUserId)
+        )
+      : canEditTeam(data, team?.id)
   const customPropertyId = getCustomPropertyIdFromDisplayReference(property)
 
   if (customPropertyId) {

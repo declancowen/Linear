@@ -32,12 +32,8 @@ export function getTestWorkItemAudienceUserIds(
   }
 
   return [
-    ...new Set(
-      [item.creatorId, item.assigneeId].filter(
-        (userId): userId is string => Boolean(userId)
-      )
-    ),
-  ].filter((userId) => teamMemberIds.includes(userId))
+    item.creatorId,
+  ].filter((userId): userId is string => Boolean(userId))
 }
 
 export function mockEmptyQueryCollect(ctx: {

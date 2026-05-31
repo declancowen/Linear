@@ -1471,7 +1471,7 @@ export async function createLabelHandler(
     workspaceId: string
     name: string
     color?: string
-    scopeType?: "workspace" | "private"
+    scopeType?: "workspace"
   }
 ) {
   assertServerToken(args.serverToken)
@@ -1495,9 +1495,8 @@ export async function createLabelHandler(
   )
 
   const normalizedName = normalizeLabelNameInput(args.name)
-  const scopeType: "workspace" | "private" =
-    args.scopeType === "private" ? "private" : "workspace"
-  const ownerId = scopeType === "private" ? args.currentUserId : null
+  const scopeType = "workspace" as const
+  const ownerId = null
 
   const existingLabels = await listLabelsByWorkspace(ctx, args.workspaceId)
   const existingLabel = findExistingWorkspaceLabel(
@@ -1538,7 +1537,7 @@ function normalizeLabelNameInput(name: string) {
 function findExistingWorkspaceLabel(
   labels: Awaited<ReturnType<typeof listLabelsByWorkspace>>,
   normalizedName: string,
-  scopeType: "workspace" | "private",
+  scopeType: "workspace",
   ownerId: string | null
 ) {
   return (

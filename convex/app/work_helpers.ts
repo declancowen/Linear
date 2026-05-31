@@ -18,7 +18,6 @@ import {
 import {
   isLabelAssignableToWorkItem,
   getLabelScopeType,
-  isLabelVisibleToUser,
 } from "../../lib/domain/labels"
 import { resolveWorkItemProjectLinkUpdate } from "../../lib/domain/work-item-project-links"
 import type { MutationCtx } from "../_generated/server"
@@ -250,7 +249,7 @@ export async function validatePrivateWorkItemParent(
   }
 
   if (options.workspaceId) {
-    const parentWorkspaceId = await resolvePrivateParentWorkspaceId(ctx, parent)
+    const parentWorkspaceId = resolvePrivateParentWorkspaceId(parent)
 
     if (parentWorkspaceId !== options.workspaceId) {
       throw new Error("Private task parent must be one of your private tasks")
@@ -267,7 +266,9 @@ export async function validatePrivateWorkItemParent(
     }
   )
 
-  if (!canParentWorkItemTypeAcceptChild(normalizedParentType, options.itemType)) {
+  if (
+    !canParentWorkItemTypeAcceptChild(normalizedParentType, options.itemType)
+  ) {
     throw new Error("Parent item type cannot contain this child type")
   }
 
@@ -282,14 +283,8 @@ export async function validatePrivateWorkItemParent(
   return parent
 }
 
-async function resolvePrivateParentWorkspaceId(ctx: AppCtx, parent: WorkItemDoc) {
-  if (parent.workspaceId) {
-    return parent.workspaceId
-  }
-
-  const team = await getTeamDoc(ctx, parent.teamId)
-
-  return team?.workspaceId ?? null
+function resolvePrivateParentWorkspaceId(parent: WorkItemDoc) {
+  return parent.workspaceId ?? null
 }
 
 function assertWorkItemParentExists(
@@ -726,6 +721,31 @@ async function getLabelValidationContext(
   }
 }
 
+async function assertLabelIds(
+  ctx: AppCtx,
+  input: {
+    labelIds: Iterable<string> | null | undefined
+    workspaceId: string
+  },
+  isInvalidLabel: (
+    label: Awaited<ReturnType<typeof listLabelsByWorkspace>>[number] | undefined
+  ) => boolean
+) {
+  const labelContext = await getLabelValidationContext(ctx, input)
+
+  if (!labelContext) {
+    return
+  }
+
+  if (
+    labelContext.uniqueLabelIds.some((labelId) =>
+      isInvalidLabel(labelContext.labelsById.get(labelId))
+    )
+  ) {
+    throw new Error("One or more labels are invalid")
+  }
+}
+
 export async function assertViewLabelIds(
   ctx: AppCtx,
   input: {
@@ -735,34 +755,13 @@ export async function assertViewLabelIds(
     workspaceId: string
   }
 ) {
-  const labelContext = await getLabelValidationContext(ctx, input)
-
-  if (!labelContext) {
-    return
-  }
-
-  const canUsePrivateLabels =
-    input.view.scopeType === "personal" &&
-    input.view.scopeId === input.currentUserId &&
-    input.view.entityKind === "items"
-
-  const invalid = labelContext.uniqueLabelIds.some((labelId) => {
-    const label = labelContext.labelsById.get(labelId)
-
-    if (!label || label.workspaceId !== input.workspaceId) {
-      return true
-    }
-
-    if (canUsePrivateLabels) {
-      return !isLabelVisibleToUser(label, input.currentUserId)
-    }
-
-    return getLabelScopeType(label) !== "workspace"
+  await assertLabelIds(ctx, input, (label) => {
+    return (
+      !label ||
+      label.workspaceId !== input.workspaceId ||
+      getLabelScopeType(label) !== "workspace"
+    )
   })
-
-  if (invalid) {
-    throw new Error("One or more labels are invalid")
-  }
 }
 
 export async function assertWorkItemLabelIds(
@@ -774,15 +773,17 @@ export async function assertWorkItemLabelIds(
     workspaceId: string
   }
 ) {
-  const labelContext = await getLabelValidationContext(ctx, input)
+  const uniqueLabelIds = [...new Set(input.labelIds ?? [])]
 
-  if (!labelContext) {
+  if (uniqueLabelIds.length === 0) {
     return
   }
 
-  const invalid = labelContext.uniqueLabelIds.some((labelId) => {
-    const label = labelContext.labelsById.get(labelId)
+  if ((input.visibility ?? "team") === "private") {
+    throw new Error("Private tasks do not support labels")
+  }
 
+  await assertLabelIds(ctx, input, (label) => {
     return (
       !label ||
       !isLabelAssignableToWorkItem(
@@ -793,10 +794,6 @@ export async function assertWorkItemLabelIds(
       )
     )
   })
-
-  if (invalid) {
-    throw new Error("One or more labels are invalid")
-  }
 }
 
 export async function resolveViewWorkspaceId(

@@ -532,12 +532,23 @@ describe("view item levels", () => {
       createTestWorkItem("private-owned", {
         creatorId: "user_1",
         assigneeId: null,
+        teamId: null,
         visibility: "private",
+        workspaceId: "workspace_1",
+      }),
+      createTestWorkItem("private-owned-other-workspace", {
+        creatorId: "user_1",
+        assigneeId: null,
+        teamId: null,
+        visibility: "private",
+        workspaceId: "workspace_2",
       }),
       createTestWorkItem("private-assigned-by-other-user", {
         creatorId: "user_2",
         assigneeId: "user_1",
+        teamId: null,
         visibility: "private",
+        workspaceId: "workspace_1",
       }),
       createTestWorkItem("team-assigned", {
         assigneeId: "user_1",
@@ -546,7 +557,9 @@ describe("view item levels", () => {
       createTestWorkItem("private-other", {
         creatorId: "user_2",
         assigneeId: null,
+        teamId: null,
         visibility: "private",
+        workspaceId: "workspace_1",
       }),
     ]
 

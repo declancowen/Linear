@@ -830,9 +830,7 @@ export const createLabel = mutation({
     workspaceId: v.string(),
     name: v.string(),
     color: v.optional(v.string()),
-    scopeType: v.optional(
-      v.union(v.literal("workspace"), v.literal("private"))
-    ),
+    scopeType: v.optional(v.literal("workspace")),
   },
   handler: createLabelHandler,
 })
@@ -898,7 +896,7 @@ export const createCustomPropertyDefinition = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     teamId: v.string(),
-    scopeType: v.optional(v.union(v.literal("team"), v.literal("private"))),
+    scopeType: v.optional(v.literal("team")),
     targetType: v.optional(v.literal("workItem")),
     name: v.string(),
     icon: v.string(),
@@ -1494,7 +1492,8 @@ export const createWorkItem = mutation({
     origin: v.string(),
     id: v.optional(v.string()),
     descriptionDocId: v.optional(v.string()),
-    teamId: v.string(),
+    teamId: v.optional(nullableStringValidator),
+    workspaceId: v.optional(nullableStringValidator),
     type: workItemTypeValidator,
     title: v.string(),
     parentId: v.optional(nullableStringValidator),

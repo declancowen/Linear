@@ -285,16 +285,12 @@ async function assertCustomDisplayPropertyAllowed(
 
   if (
     view.scopeType === "personal" &&
-    getCustomPropertyScopeType(definition) === "private" &&
-    (definition.ownerId ?? definition.createdBy) !== currentUserId
+    getCustomPropertyScopeType(definition) !== "team"
   ) {
     throw new Error("Custom property is not available in this view scope")
   }
 
-  if (
-    view.scopeType === "personal" &&
-    getCustomPropertyScopeType(definition) === "team"
-  ) {
+  if (view.scopeType === "personal") {
     await requireReadableTeamAccess(ctx, definition.teamId, currentUserId)
   }
 }
@@ -378,25 +374,9 @@ function createViewConfigPatch(
   args: ViewConfigArgs,
   now: string
 ) {
-  const containerType = getDefinedViewConfigValue(
-    args.containerType,
-    view.containerType ?? null
-  )
-  const containerId = getDefinedViewConfigValue(
-    args.containerId,
-    view.containerId ?? null
-  )
-
-  if (Boolean(containerType) !== Boolean(containerId)) {
-    throw new Error("View container is not valid")
-  }
-
   return {
-    description: args.description ?? view.description,
-    containerType,
-    containerId,
-    route: args.route ?? view.route,
-    layout: args.layout ?? view.layout,
+    ...getViewConfigTextPatch(view, args),
+    ...getViewConfigContainerPatch(view, args),
     itemLevel: getDefinedViewConfigValue(args.itemLevel, view.itemLevel),
     showChildItems: getDefinedViewConfigValue(
       args.showChildItems,
@@ -410,6 +390,39 @@ function createViewConfigPatch(
   }
 }
 
+function getViewConfigTextPatch(
+  view: Awaited<ReturnType<typeof requireViewMutationAccess>>,
+  args: ViewConfigArgs
+) {
+  return {
+    description: getDefinedViewConfigValue(args.description, view.description),
+    route: getDefinedViewConfigValue(args.route, view.route),
+    layout: getDefinedViewConfigValue(args.layout, view.layout),
+  }
+}
+
+function getViewConfigContainerPatch(
+  view: Awaited<ReturnType<typeof requireViewMutationAccess>>,
+  args: ViewConfigArgs
+) {
+  const container = {
+    containerType: getDefinedViewConfigValue(
+      args.containerType,
+      getDefinedViewConfigValue(view.containerType, null)
+    ),
+    containerId: getDefinedViewConfigValue(
+      args.containerId,
+      getDefinedViewConfigValue(view.containerId, null)
+    ),
+  }
+
+  if (Boolean(container.containerType) !== Boolean(container.containerId)) {
+    throw new Error("View container is not valid")
+  }
+
+  return container
+}
+
 function getDefinedViewConfigValue<T>(
   nextValue: T | undefined,
   currentValue: T
@@ -421,17 +434,17 @@ function getViewConfigFiltersPatch(
   view: Awaited<ReturnType<typeof requireViewMutationAccess>>,
   args: ViewConfigArgs
 ) {
-  return args.showCompleted === undefined && args.showEmptyGroups === undefined
-    ? view.filters
-    : {
-        ...view.filters,
-        ...(args.showCompleted === undefined
-          ? {}
-          : { showCompleted: args.showCompleted }),
-        ...(args.showEmptyGroups === undefined
-          ? {}
-          : { showEmptyGroups: args.showEmptyGroups }),
-      }
+  const filters = { ...view.filters }
+
+  if (args.showCompleted !== undefined) {
+    filters.showCompleted = args.showCompleted
+  }
+
+  if (args.showEmptyGroups !== undefined) {
+    filters.showEmptyGroups = args.showEmptyGroups
+  }
+
+  return filters
 }
 
 async function assertUpdateViewRoute(

@@ -15,7 +15,10 @@ import {
   WorkItemDetailScreen,
   WorkspaceItemsScreen,
 } from "@/components/app/screens"
-import { useAppPathname, useAppSearchParams } from "@/lib/browser/app-navigation"
+import {
+  useAppPathname,
+  useAppSearchParams,
+} from "@/lib/browser/app-navigation"
 import {
   getCurrentWorkspace,
   getProjectHref,
@@ -118,46 +121,83 @@ function splitPath(pathname: string) {
   return pathname.split("/").filter(Boolean)
 }
 
-function matchRoute(pathname: string): RouteMatch {
-  const parts = splitPath(pathname)
+function matchTeamProjectDetailRoute(parts: string[]): RouteMatch | null {
+  return parts[0] === "team" && parts[1] && parts[2] === "projects" && parts[3]
+    ? {
+        kind: "detail",
+        type: "project",
+        id: parts[3],
+      }
+    : null
+}
 
-  if (parts[0] === "team" && parts[1]) {
-    return {
-      kind: "team",
-      teamSlug: parts[1],
-      rest: parts.slice(2).join("/") || "work",
-    }
+function matchTeamRoute(parts: string[]): RouteMatch | null {
+  return parts[0] === "team" && parts[1]
+    ? {
+        kind: "team",
+        teamSlug: parts[1],
+        rest: parts.slice(2).join("/") || "work",
+      }
+    : null
+}
+
+function matchDocumentOrItemRoute(parts: string[]): RouteMatch | null {
+  if (!parts[1] || (parts[0] !== "docs" && parts[0] !== "items")) {
+    return null
   }
 
-  if ((parts[0] === "docs" || parts[0] === "items") && parts[1]) {
-    return {
-      kind: "detail",
-      type: parts[0] === "docs" ? "document" : "item",
-      id: parts[1],
-    }
+  return {
+    kind: "detail",
+    type: parts[0] === "docs" ? "document" : "item",
+    id: parts[1],
+  }
+}
+
+function matchPersonRoute(parts: string[]): RouteMatch | null {
+  return parts[0] === "workspace" && parts[1] === "people" && parts[2]
+    ? {
+        kind: "detail",
+        type: "person",
+        id: parts[2],
+      }
+    : null
+}
+
+function matchProjectRoute(parts: string[]): RouteMatch | null {
+  const projectId = parts.at(-1)
+
+  if (!projectId || parts.length <= 1) {
+    return null
   }
 
-  if (parts[0] === "workspace" && parts[1] === "people" && parts[2]) {
-    return {
-      kind: "detail",
-      type: "person",
-      id: parts[2],
-    }
-  }
-
-  if (
-    (parts[0] === "projects" ||
-      (parts[0] === "workspace" &&
-        parts[1] === "projects" &&
-        parts.length > 2)) &&
-    parts.at(-1) &&
-    parts.length > 1
-  ) {
+  if (parts[0] === "projects") {
     return {
       kind: "detail",
       type: "project",
-      id: parts.at(-1) ?? "",
+      id: projectId,
     }
+  }
+
+  return parts[0] === "workspace" && parts[1] === "projects" && parts.length > 2
+    ? {
+        kind: "detail",
+        type: "project",
+        id: projectId,
+      }
+    : null
+}
+
+function matchRoute(pathname: string): RouteMatch {
+  const parts = splitPath(pathname)
+  const route =
+    matchTeamProjectDetailRoute(parts) ??
+    matchTeamRoute(parts) ??
+    matchDocumentOrItemRoute(parts) ??
+    matchPersonRoute(parts) ??
+    matchProjectRoute(parts)
+
+  if (route) {
+    return route
   }
 
   return {
@@ -175,11 +215,7 @@ function LoadingScreen({ label }: { label: string }) {
 }
 
 function MissingScreen({ label }: { label: string }) {
-  return (
-    <div className="p-6 text-sm text-muted-foreground">
-      {label}
-    </div>
-  )
+  return <div className="p-6 text-sm text-muted-foreground">{label}</div>
 }
 
 function WorkspaceProjectsRoute() {

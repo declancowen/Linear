@@ -93,6 +93,10 @@ function projectBelongsToWorkspace(
 
 function getWorkItemWorkspaceId(data: AppData, item: WorkItem) {
   const scopedItem = item as WorkItem & WorkspaceScoped
+  if ((scopedItem.visibility ?? "team") === "private") {
+    return scopedItem.workspaceId ?? null
+  }
+
   return (
     scopedItem.workspaceId ?? getTeamWorkspaceId(data.teams, scopedItem.teamId)
   )

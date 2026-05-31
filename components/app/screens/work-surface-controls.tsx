@@ -187,8 +187,7 @@ export const PROJECT_GROUP_OPTIONS: GroupField[] = [
 ]
 
 export const PROJECT_DISPLAY_PROPERTY_OPTIONS: DisplayProperty[] = [
-  "id",
-  "status",
+  "team",
   "assignee",
   "priority",
   "type",
@@ -563,6 +562,7 @@ function useWorkFilterOptions(
         scopedItems
           .filter((item) => (item.visibility ?? "team") === "team")
           .map((item) => item.teamId)
+          .filter((teamId): teamId is string => teamId !== null)
       ),
     ],
     [scopedItems]

@@ -73,7 +73,7 @@ export type CreateWorkItemInput = CreateStoreWorkItemInput
 
 export type CreateCustomPropertyInput = {
   teamId: string
-  scopeType?: "team" | "private"
+  scopeType?: "team"
   name: string
   icon: string
   type: CustomPropertyType
@@ -351,7 +351,7 @@ export type AppStore = AppData & {
   createLabel: (
     name: string,
     workspaceId?: string | null,
-    options?: { scopeType?: "workspace" | "private" }
+    options?: { scopeType?: "workspace" }
   ) => Promise<Label | null>
   updateWorkItem: (
     itemId: string,

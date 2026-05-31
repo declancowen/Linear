@@ -545,10 +545,10 @@ describe("scoped read model selectors", () => {
 
     expect(
       personalWorkIndex.customPropertyDefinitions?.map((entry) => entry.id)
-    ).toEqual(["property_team", "property_private_own"])
+    ).toEqual(["property_team"])
     expect(
       personalWorkIndex.customPropertyValues?.map((entry) => entry.id)
-    ).toEqual(["value_team", "value_private_own"])
+    ).toEqual(["value_team"])
     expect(
       workItemDetail?.customPropertyValues?.map((entry) => entry.id)
     ).toEqual(["value_team"])
@@ -589,6 +589,64 @@ describe("scoped read model selectors", () => {
       "work-item-detail:item_private_own",
       "work-index:personal_user_1",
     ])
+  })
+
+  it("fails closed for invalid private detail rows without a workspace", () => {
+    const snapshot = createSnapshotFixture()
+    snapshot.workItems = [
+      {
+        ...snapshot.workItems[0],
+        id: "private_parent",
+        key: "PVT-001",
+        title: "Private parent",
+        descriptionDocId: "doc_private_parent",
+        teamId: "team_1",
+        workspaceId: null,
+        assigneeId: null,
+        creatorId: "user_1",
+        parentId: null,
+        primaryProjectId: null,
+        linkedProjectIds: [],
+        linkedDocumentIds: [],
+        visibility: "private",
+      },
+      {
+        ...snapshot.workItems[0],
+        id: "private_child",
+        key: "PVT-002",
+        title: "Private child",
+        descriptionDocId: "doc_private_child",
+        teamId: "team_1",
+        workspaceId: null,
+        assigneeId: null,
+        creatorId: "user_1",
+        parentId: "private_parent",
+        primaryProjectId: null,
+        linkedProjectIds: [],
+        linkedDocumentIds: [],
+        visibility: "private",
+      },
+      {
+        ...snapshot.workItems[0],
+        id: "private_other_workspace",
+        key: "PVT-003",
+        title: "Private other workspace",
+        descriptionDocId: "doc_private_other_workspace",
+        teamId: null,
+        workspaceId: "workspace_2",
+        assigneeId: null,
+        creatorId: "user_1",
+        parentId: null,
+        primaryProjectId: null,
+        linkedProjectIds: [],
+        linkedDocumentIds: [],
+        visibility: "private",
+      },
+    ]
+
+    const patch = selectWorkItemDetailReadModel(snapshot, "private_parent")
+
+    expect(patch?.workItems?.map((item) => item.id)).toEqual(["private_parent"])
   })
 
   it("invalidates document indexes for linked project and work item labels", () => {

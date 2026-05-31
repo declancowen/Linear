@@ -238,4 +238,36 @@ describe("work comment actions", () => {
       "<p>Fresh comment edited</p>"
     )
   })
+
+  it("does not create or sync comments for private work items", async () => {
+    const { backgroundTasks, slice, state } =
+      await createWorkCommentActionsHarness(
+        createTestAppData({
+          currentUserId: "user_1",
+          currentWorkspaceId: "workspace_1",
+          workItems: [
+            createTestWorkItem("private_item", {
+              creatorId: "user_1",
+              teamId: null,
+              workspaceId: "workspace_1",
+              visibility: "private",
+            }),
+          ],
+          comments: [],
+        })
+      )
+
+    slice.addComment({
+      targetType: "workItem",
+      targetId: "private_item",
+      content: "<p>Private comment</p>",
+    })
+
+    expect(state.comments).toEqual([])
+    expect(workCommentTestDoubles.convex.addComment).not.toHaveBeenCalled()
+    expect(backgroundTasks).toEqual([])
+    expect(workCommentTestDoubles.notifications.error).toHaveBeenCalledWith(
+      "Comments are not available on private tasks"
+    )
+  })
 })

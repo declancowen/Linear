@@ -105,7 +105,7 @@ export function getSelectedPropertySelectOption(
 }
 
 export const SCREEN_HEADER_CLASS_NAME =
-  "flex min-h-10 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 py-2"
+  "flex h-11 shrink-0 items-center justify-between gap-2 border-b bg-background px-3.5"
 
 const LABEL_COLOR_TOKENS: Record<string, string> = {
   rose: "var(--label-1)",
@@ -886,21 +886,28 @@ export function useWorkItemLabelEditorState({
   workspaceId: string | null | undefined
 }) {
   const [newLabelName, setNewLabelName] = useState("")
+  const isPrivateTask = (item.visibility ?? "team") === "private"
   const labelNameLimitState = getTextInputLimitState(
     newLabelName,
     labelNameConstraints
   )
   const currentUserId = useAppStore.getState().currentUserId
-  const availableLabels = labels.filter((label) =>
-    workspaceId
-      ? isLabelAssignableToWorkItem(label, item, workspaceId, currentUserId)
-      : false
-  )
+  const availableLabels = isPrivateTask
+    ? []
+    : labels.filter((label) =>
+        workspaceId
+          ? isLabelAssignableToWorkItem(label, item, workspaceId, currentUserId)
+          : false
+      )
   const selectedLabels = availableLabels.filter((label) =>
     item.labelIds.includes(label.id)
   )
 
   function toggleLabel(labelId: string) {
+    if (isPrivateTask) {
+      return
+    }
+
     const nextLabelIds = item.labelIds.includes(labelId)
       ? item.labelIds.filter((currentId) => currentId !== labelId)
       : [...item.labelIds, labelId]
@@ -911,6 +918,10 @@ export function useWorkItemLabelEditorState({
   }
 
   async function handleCreateLabel() {
+    if (isPrivateTask) {
+      return
+    }
+
     if (
       !canCreateWorkItemLabel({
         labelNameLimitState,
@@ -926,8 +937,7 @@ export function useWorkItemLabelEditorState({
     const created = await useAppStore
       .getState()
       .createLabel(newLabelName, workspaceId ?? null, {
-        scopeType:
-          (item.visibility ?? "team") === "private" ? "private" : "workspace",
+        scopeType: "workspace",
       })
 
     if (!created) {
@@ -991,15 +1001,27 @@ export function WorkItemLabelsEditor({
   item: WorkItem
   editable: boolean
 }) {
-  const itemWorkspaceId = useAppStore(
-    (state) =>
-      state.teams.find((team) => team.id === item.teamId)?.workspaceId ?? null
+  const isPrivateTask = (item.visibility ?? "team") === "private"
+  const itemWorkspaceId = useAppStore((state) =>
+    item.visibility === "private"
+      ? (item.workspaceId ?? null)
+      : (item.workspaceId ??
+        state.teams.find((team) => team.id === item.teamId)?.workspaceId ??
+        null)
   )
   const labelPool = useAppStore(
     useShallow((state) =>
-      [...getLabelsForTeamScope(state, item.teamId)].sort((left, right) =>
-        left.name.localeCompare(right.name)
-      )
+      (itemWorkspaceId
+        ? state.labels.filter((label) =>
+            isLabelAssignableToWorkItem(
+              label,
+              item,
+              itemWorkspaceId,
+              state.currentUserId
+            )
+          )
+        : []
+      ).sort((left, right) => left.name.localeCompare(right.name))
     )
   )
   const {
@@ -1015,6 +1037,10 @@ export function WorkItemLabelsEditor({
     labels: labelPool,
     workspaceId: itemWorkspaceId,
   })
+
+  if (isPrivateTask) {
+    return null
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -1276,16 +1302,28 @@ function extractTextContent(content: string) {
 export function getDocumentPreview(
   document: Pick<Document, "content" | "title" | "previewText">
 ) {
-  if (document.previewText && document.previewText.trim().length > 0) {
-    return document.previewText.trim()
+  const storedPreview = getStoredDocumentPreview(document.previewText)
+
+  if (storedPreview) {
+    return storedPreview
   }
 
   const rawPreview = extractTextContent(document.content)
-  const preview = rawPreview.startsWith(document.title)
-    ? rawPreview.slice(document.title.length).trim()
-    : rawPreview
+  return removeDocumentTitlePrefix(rawPreview, document.title)
+}
 
-  return preview.length > 0 ? preview : ""
+function getStoredDocumentPreview(previewText: string | null | undefined) {
+  const preview = previewText?.trim()
+
+  return preview && preview.length > 0 ? preview : null
+}
+
+function removeDocumentTitlePrefix(preview: string, title: string) {
+  if (!preview.startsWith(title)) {
+    return preview
+  }
+
+  return preview.slice(title.length).trim()
 }
 
 function getScalarPatchForField(field: GroupField, value: string) {
@@ -1310,6 +1348,30 @@ function getProjectPatch(data: AppData, value: string) {
   return { primaryProjectId: project?.id ?? null }
 }
 
+function getItemWorkspaceId(data: AppData, item: WorkItem) {
+  return (
+    item.workspaceId ??
+    data.teams.find((team) => team.id === item.teamId)?.workspaceId ??
+    null
+  )
+}
+
+function getLabelPatchPool(data: AppData, item: WorkItem) {
+  if ((item.visibility ?? "team") === "private") {
+    return []
+  }
+
+  const workspaceId = getItemWorkspaceId(data, item)
+
+  if (!workspaceId) {
+    return []
+  }
+
+  return getLabelsForTeamScope(data, item.teamId).filter((label) =>
+    isLabelAssignableToWorkItem(label, item, workspaceId, data.currentUserId)
+  )
+}
+
 function getParentGroupLabel(parent: WorkItem) {
   return `${parent.key} · ${parent.title}`
 }
@@ -1323,7 +1385,7 @@ function getLabelPatch(data: AppData, item: WorkItem | null, value: string) {
     return { labelIds: [] }
   }
 
-  const label = getLabelsForTeamScope(data, item.teamId).find(
+  const label = getLabelPatchPool(data, item).find(
     (entry) => entry.name === value
   )
 

@@ -84,7 +84,7 @@ export async function createLabelAndSelect({
   newLabelName: string
   creatingLabel: boolean
   canSubmit: boolean
-  scopeType?: "workspace" | "private"
+  scopeType?: "workspace"
   workspaceId: string | null
   setCreatingLabel: Dispatch<SetStateAction<boolean>>
   setNewLabelName: Dispatch<SetStateAction<string>>

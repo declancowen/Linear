@@ -3,7 +3,13 @@
 import { useState, type ReactNode } from "react"
 import { useAppRouter } from "@/lib/browser/app-navigation"
 import { useShallow } from "zustand/react/shallow"
-import { ArrowSquareOut, PencilSimple, Trash } from "@phosphor-icons/react"
+import {
+  ArrowSquareOut,
+  Check,
+  CircleDashed,
+  PencilSimple,
+  Trash,
+} from "@phosphor-icons/react"
 
 import { useAppStore } from "@/lib/store/app-store"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
@@ -20,6 +26,9 @@ import { getViewHref, isSystemView } from "@/lib/domain/default-views"
 import {
   type AppData,
   type Project,
+  projectStatuses,
+  projectStatusMeta,
+  type ProjectStatus,
   type ViewDefinition,
 } from "@/lib/domain/types"
 import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
@@ -32,6 +41,9 @@ import {
   ContextMenuItem,
   ContextMenuLabel,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 
@@ -44,6 +56,7 @@ function EntityActionsContextMenu({
   onEdit,
   onOpen,
   onRename,
+  statusSection,
 }: {
   canMutate: boolean
   children: ReactNode
@@ -53,6 +66,7 @@ function EntityActionsContextMenu({
   onEdit?: () => void
   onOpen: () => void
   onRename: () => void
+  statusSection?: ReactNode
 }) {
   return (
     <ContextMenu>
@@ -77,6 +91,7 @@ function EntityActionsContextMenu({
                 {`Edit ${entityTypeLabel}`}
               </ContextMenuItem>
             ) : null}
+            {statusSection}
             <ContextMenuItem
               onSelect={(event) => {
                 event.preventDefault()
@@ -100,6 +115,98 @@ function EntityActionsContextMenu({
         ) : null}
       </ContextMenuContent>
     </ContextMenu>
+  )
+}
+
+function ProjectStatusContextMenuSection({
+  project,
+  onStatusChange,
+}: {
+  project: Project
+  onStatusChange: (status: ProjectStatus) => void
+}) {
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>
+        <CircleDashed className="size-4" />
+        <span>Status</span>
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-44">
+        {projectStatuses.map((status) => (
+          <ContextMenuItem
+            key={`${project.id}-${status}`}
+            onSelect={() => onStatusChange(status)}
+          >
+            {status === project.status ? (
+              <Check className="size-4" />
+            ) : (
+              <span aria-hidden className="size-4" />
+            )}
+            <span>{projectStatusMeta[status].label}</span>
+          </ContextMenuItem>
+        ))}
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  )
+}
+
+function ProjectContextMenuDialogs({
+  deleteOpen,
+  editOpen,
+  onDeleteOpenChange,
+  onEditOpenChange,
+  onRenameOpenChange,
+  project,
+  renameOpen,
+}: {
+  deleteOpen: boolean
+  editOpen: boolean
+  onDeleteOpenChange: (open: boolean) => void
+  onEditOpenChange: (open: boolean) => void
+  onRenameOpenChange: (open: boolean) => void
+  project: Project
+  renameOpen: boolean
+}) {
+  const renameProject = useAppStore((state) => state.renameProject)
+  const deleteProject = useAppStore((state) => state.deleteProject)
+
+  return (
+    <>
+      <CreateProjectDialog
+        key={`${project.id}:${editOpen ? "open" : "closed"}:${project.updatedAt ?? project.name}`}
+        open={editOpen}
+        onOpenChange={onEditOpenChange}
+        defaultTeamId={project.scopeType === "team" ? project.scopeId : null}
+        project={project}
+      />
+      <RenameDialog
+        key={`${project.id}:${renameOpen ? "open" : "closed"}:${project.name}`}
+        open={renameOpen}
+        onOpenChange={onRenameOpenChange}
+        title="Rename project"
+        description="Update the project name."
+        initialValue={project.name}
+        confirmLabel="Rename"
+        minLength={projectNameConstraints.min ?? 1}
+        maxLength={projectNameConstraints.max}
+        onConfirm={(value) => renameProject(project.id, value)}
+      />
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={onDeleteOpenChange}
+        title={`Delete ${project.name}`}
+        description="This project and its saved project views will be permanently removed. This can't be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={() => {
+          void deleteProject(project.id).then((didSucceed) => {
+            if (didSucceed) {
+              onDeleteOpenChange(false)
+            }
+          })
+        }}
+      />
+    </>
   )
 }
 
@@ -204,8 +311,7 @@ export function ProjectContextMenu({
   children: ReactNode
 }) {
   const router = useAppRouter()
-  const renameProject = useAppStore((state) => state.renameProject)
-  const deleteProject = useAppStore((state) => state.deleteProject)
+  const updateProject = useAppStore((state) => state.updateProject)
   const [editOpen, setEditOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -222,42 +328,23 @@ export function ProjectContextMenu({
         onEdit={() => setEditOpen(true)}
         onOpen={() => router.push(href)}
         onRename={() => setRenameOpen(true)}
+        statusSection={
+          <ProjectStatusContextMenuSection
+            project={project}
+            onStatusChange={(status) => updateProject(project.id, { status })}
+          />
+        }
       >
         {children}
       </EntityActionsContextMenu>
-      <CreateProjectDialog
-        key={`${project.id}:${editOpen ? "open" : "closed"}:${project.updatedAt ?? project.name}`}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        defaultTeamId={project.scopeType === "team" ? project.scopeId : null}
+      <ProjectContextMenuDialogs
+        deleteOpen={deleteOpen}
+        editOpen={editOpen}
+        onDeleteOpenChange={setDeleteOpen}
+        onEditOpenChange={setEditOpen}
+        onRenameOpenChange={setRenameOpen}
         project={project}
-      />
-      <RenameDialog
-        key={`${project.id}:${renameOpen ? "open" : "closed"}:${project.name}`}
-        open={renameOpen}
-        onOpenChange={setRenameOpen}
-        title="Rename project"
-        description="Update the project name."
-        initialValue={project.name}
-        confirmLabel="Rename"
-        minLength={projectNameConstraints.min ?? 1}
-        maxLength={projectNameConstraints.max}
-        onConfirm={(value) => renameProject(project.id, value)}
-      />
-      <ConfirmDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        title={`Delete ${project.name}`}
-        description="This project and its saved project views will be permanently removed. This can't be undone."
-        confirmLabel="Delete"
-        variant="destructive"
-        onConfirm={() => {
-          void deleteProject(project.id).then((didSucceed) => {
-            if (didSucceed) {
-              setDeleteOpen(false)
-            }
-          })
-        }}
+        renameOpen={renameOpen}
       />
     </>
   )

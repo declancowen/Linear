@@ -322,7 +322,7 @@ export async function createLabelServer(input: {
   workspaceId: string
   name: string
   color?: string
-  scopeType?: "workspace" | "private"
+  scopeType?: "workspace"
 }) {
   try {
     return await getConvexServerClient().mutation(
@@ -437,7 +437,7 @@ export async function createViewServer(
 export async function createCustomPropertyDefinitionServer(input: {
   currentUserId: string
   teamId: string
-  scopeType?: "team" | "private"
+  scopeType?: "team"
   targetType?: "workItem"
   name: string
   icon: string

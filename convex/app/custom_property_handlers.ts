@@ -33,7 +33,7 @@ type ServerAccessArgs = {
 
 type CustomPropertyDefinitionInput = {
   teamId: string
-  scopeType?: "team" | "private"
+  scopeType?: "team"
   targetType?: "workItem"
   name: string
   icon: string
@@ -158,8 +158,6 @@ async function assertUniquePropertyName(input: {
   ctx: MutationCtx
   exceptPropertyId?: string
   name: string
-  ownerId: string | null
-  scopeType: "team" | "private"
   teamId: string
 }) {
   const normalized = input.name.toLowerCase()
@@ -171,8 +169,7 @@ async function assertUniquePropertyName(input: {
     (definition) =>
       !definition.isArchived &&
       definition.id !== input.exceptPropertyId &&
-      getCustomPropertyScopeType(definition) === input.scopeType &&
-      (definition.ownerId ?? null) === input.ownerId &&
+      getCustomPropertyScopeType(definition) === "team" &&
       definition.name.trim().toLowerCase() === normalized
   )
 
@@ -192,13 +189,11 @@ async function requireEditableDefinition(
     throw new Error("Custom property not found")
   }
 
-  if (getCustomPropertyScopeType(definition) === "private") {
-    if ((definition.ownerId ?? definition.createdBy) !== currentUserId) {
-      throw new Error("Custom property not found")
-    }
-  } else {
-    await requireEditableTeamAccess(ctx, definition.teamId, currentUserId)
+  if (getCustomPropertyScopeType(definition) !== "team") {
+    throw new Error("Custom property not found")
   }
+
+  await requireEditableTeamAccess(ctx, definition.teamId, currentUserId)
 
   return definition
 }
@@ -467,6 +462,10 @@ export async function createCustomPropertyDefinitionHandler(
   ctx: MutationCtx,
   args: CreateCustomPropertyDefinitionArgs
 ) {
+  if ((args.scopeType as string | undefined) === "private") {
+    throw new Error("Private custom properties are not supported")
+  }
+
   const team = await requireCustomPropertyTeamForCreate(ctx, args)
   const name = normalizeName(args.name)
 
@@ -478,20 +477,16 @@ export async function createCustomPropertyDefinitionHandler(
   await assertUniquePropertyName({
     ctx,
     name,
-    ownerId: args.scopeType === "private" ? args.currentUserId : null,
-    scopeType: args.scopeType === "private" ? "private" : "team",
     teamId: args.teamId,
   })
 
   const now = getNow()
-  const scopeType: "team" | "private" =
-    args.scopeType === "private" ? "private" : "team"
   const definition = {
     id: createId("property"),
     workspaceId: team.workspaceId,
     teamId: args.teamId,
-    scopeType,
-    ownerId: scopeType === "private" ? args.currentUserId : null,
+    scopeType: "team" as const,
+    ownerId: null,
     targetType: "workItem" as const,
     name,
     icon: args.icon,
@@ -631,11 +626,6 @@ export async function updateCustomPropertyDefinitionHandler(
     ctx,
     exceptPropertyId: definition.id,
     name: nextName,
-    ownerId:
-      getCustomPropertyScopeType(definition) === "private"
-        ? (definition.ownerId ?? definition.createdBy)
-        : null,
-    scopeType: getCustomPropertyScopeType(definition),
     teamId: definition.teamId,
   })
 

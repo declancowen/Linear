@@ -69,7 +69,7 @@ type AddCommentTargetContext = {
   entityTitle: string
   entityType: CommentEntityType
   followerIds: string[]
-  teamId: string
+  teamId: string | null
   audienceUserIds: string[]
 }
 
@@ -106,7 +106,14 @@ async function resolveWorkItemCommentTarget(
   }
 
   await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
-  const teamMemberIds = await getTeamMemberIds(ctx, item.teamId)
+  const isPrivateItem = (item.visibility ?? "team") === "private"
+
+  if (isPrivateItem) {
+    throw new Error("Comments are not available on private tasks")
+  }
+
+  const teamMemberIds =
+    item.teamId ? await getTeamMemberIds(ctx, item.teamId) : []
 
   await ctx.db.patch(item._id, {
     updatedAt: getNow(),
@@ -477,6 +484,10 @@ export async function toggleCommentReactionHandler(
     }
 
     await requireReadableWorkItemAccess(ctx, item, args.currentUserId)
+
+    if ((item.visibility ?? "team") === "private") {
+      throw new Error("Comments are not available on private tasks")
+    }
   } else {
     await requireReadableDocumentAccess(
       ctx,

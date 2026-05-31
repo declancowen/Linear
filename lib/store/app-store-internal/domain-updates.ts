@@ -172,7 +172,17 @@ function buildRemovalSets(state: AppData, scope: RemovalScope): RemovalSets {
   )
   const deletedWorkItemIds = new Set(
     state.workItems
-      .filter((item) => scope.deletedTeamIds.has(item.teamId))
+      .filter((item) => {
+        if ((item.visibility ?? "team") === "private") {
+          const workspaceId = item.workspaceId ?? null
+
+          return Boolean(
+            workspaceId && scope.deletedWorkspaceIds.has(workspaceId)
+          )
+        }
+
+        return Boolean(item.teamId && scope.deletedTeamIds.has(item.teamId))
+      })
       .map((item) => item.id)
   )
   const deletedDescriptionDocIds = new Set(
@@ -406,7 +416,7 @@ function buildNextStateAfterRemoval(
     return !removal.deletedDocumentIds.has(comment.targetId)
   })
   const attachments = state.attachments.filter((attachment) => {
-    if (removal.deletedTeamIds.has(attachment.teamId)) {
+    if (attachment.teamId && removal.deletedTeamIds.has(attachment.teamId)) {
       return false
     }
 

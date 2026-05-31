@@ -30,10 +30,11 @@ import {
 } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 
-export type ViewsDirectoryGroupField = "none" | "entity" | "scope"
+export type ViewsDirectoryGroupField = "none" | "entity" | "scope" | "project"
 export type ViewsDirectorySortField = "updated" | "name" | "entity"
 export type ViewsDirectoryProperty =
   | "description"
+  | "project"
   | "scope"
   | "updated"
   | "configuration"
@@ -57,21 +58,23 @@ const GROUP_LABELS: Record<
   Exclude<ViewsDirectoryGroupField, "none">,
   string
 > = {
-  entity: "Entity",
-  scope: "Scope",
+  entity: "Type",
+  project: "Project",
+  scope: "Team",
 }
 
 const SORT_LABELS: Record<ViewsDirectorySortField, string> = {
   updated: "Updated",
   name: "Name",
-  entity: "Entity",
+  entity: "Type",
 }
 
 const PROPERTY_LABELS: Record<ViewsDirectoryProperty, string> = {
   description: "Descriptions",
-  scope: "Scope labels",
+  project: "Project",
+  scope: "Team",
   updated: "Updated date",
-  configuration: "Config badges",
+  configuration: "Type",
 }
 
 const ENTITY_LABELS: Record<ViewDefinition["entityKind"], string> = {
@@ -174,7 +177,7 @@ export function ViewsDirectoryFilterPopover({
           onChange={setQuery}
         />
         <PropertyPopoverList>
-          <PropertyPopoverGroup>Entity</PropertyPopoverGroup>
+          <PropertyPopoverGroup>Type</PropertyPopoverGroup>
           {availableEntityKinds
             .filter((entityKind) => matches(ENTITY_LABELS[entityKind]))
             .map((entityKind) => {
@@ -196,7 +199,7 @@ export function ViewsDirectoryFilterPopover({
             })}
           {availableScopes.length > 0 ? (
             <>
-              <PropertyPopoverGroup>Scope</PropertyPopoverGroup>
+              <PropertyPopoverGroup>Team</PropertyPopoverGroup>
               {availableScopes
                 .filter((scope) => matches(SCOPE_LABELS[scope]))
                 .map((scope) => {

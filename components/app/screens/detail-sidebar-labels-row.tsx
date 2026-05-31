@@ -50,6 +50,10 @@ export function DetailSidebarLabelsRow({
     workspaceId,
   })
 
+  if ((item.visibility ?? "team") === "private") {
+    return null
+  }
+
   return (
     <>
       {renderDetailSidebarTerm("Labels", <Tag className="size-[13px]" />)}

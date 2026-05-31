@@ -16,6 +16,7 @@ import {
   getWorkSurfaceCopy,
   type AppData,
   type Conversation,
+  type Project,
   type TeamWorkflowSettings,
   type WorkItem,
 } from "@/lib/domain/types"
@@ -36,7 +37,14 @@ import type {
   WorkItemValidationInput,
 } from "./types"
 
-export function getTeamMemberIds(state: AppData, teamId: string) {
+export function getTeamMemberIds(
+  state: AppData,
+  teamId: string | null | undefined
+) {
+  if (!teamId) {
+    return []
+  }
+
   return state.teamMemberships
     .filter((membership) => membership.teamId === teamId)
     .map((membership) => membership.userId)
@@ -155,6 +163,10 @@ function getWorkItemAssigneeValidationMessage(
     return null
   }
 
+  if (!input.teamId) {
+    return "Team not found"
+  }
+
   const teamMemberIds = new Set(getTeamMemberIds(state, input.teamId))
   const assigneeIds = getResolvedWorkItemMutationAssigneeIds(input)
 
@@ -173,7 +185,11 @@ function getWorkItemLabelValidationMessage(
     return null
   }
 
-  const workspaceId = getWorkItemLabelWorkspaceId(state, input.teamId)
+  if (input.visibility === "private") {
+    return labelIds.length > 0 ? "Private tasks do not support labels" : null
+  }
+
+  const workspaceId = getWorkItemLabelWorkspaceId(state, input)
 
   if (!workspaceId) {
     return "Team not found"
@@ -194,8 +210,17 @@ function getWorkItemValidationLabelIds(input: WorkItemValidationInput) {
   return input.labelIds ?? null
 }
 
-function getWorkItemLabelWorkspaceId(state: AppData, teamId: string) {
-  return state.teams.find((entry) => entry.id === teamId)?.workspaceId ?? null
+function getWorkItemLabelWorkspaceId(
+  state: AppData,
+  input: WorkItemValidationInput
+) {
+  if (input.visibility === "private") {
+    return input.workspaceId ?? null
+  }
+
+  return (
+    state.teams.find((entry) => entry.id === input.teamId)?.workspaceId ?? null
+  )
 }
 
 function hasInvalidWorkItemLabels(
@@ -231,6 +256,14 @@ function isWorkItemLabelInvalid(
 function getPrivateWorkItemValidationMessage(input: WorkItemValidationInput) {
   if (input.visibility !== "private") {
     return null
+  }
+
+  if (input.teamId) {
+    return "Private tasks cannot belong to a team"
+  }
+
+  if (!input.workspaceId) {
+    return "Private tasks must belong to a workspace"
   }
 
   if (input.type !== "task" && input.type !== "sub-task") {
@@ -281,6 +314,81 @@ function getInputParentWorkItem(
     : null
 }
 
+function getPrivateWorkItemParentValidationMessage(
+  state: AppData,
+  input: WorkItemValidationInput,
+  parent: WorkItem
+) {
+  const inputWorkspaceId = input.workspaceId ?? null
+  const parentWorkspaceId = parent.workspaceId ?? null
+
+  return parent.visibility === "private" &&
+    parent.creatorId === state.currentUserId &&
+    parentWorkspaceId === inputWorkspaceId
+    ? null
+    : "Private task parent must be one of your private tasks"
+}
+
+function getTeamWorkItemParentValidationMessage(
+  input: WorkItemValidationInput,
+  parent: WorkItem
+) {
+  if ((parent.visibility ?? "team") === "private") {
+    return "Parent item not found"
+  }
+
+  return parent.teamId === input.teamId
+    ? null
+    : "Parent item must belong to the same team"
+}
+
+function getWorkItemParentScopeValidationMessage(
+  state: AppData,
+  input: WorkItemValidationInput,
+  parent: WorkItem
+) {
+  return input.visibility === "private"
+    ? getPrivateWorkItemParentValidationMessage(state, input, parent)
+    : getTeamWorkItemParentValidationMessage(input, parent)
+}
+
+function getWorkItemHierarchyValidationMessage(
+  state: AppData,
+  input: WorkItemValidationInput,
+  parent: WorkItem
+) {
+  if (isCurrentWorkItemParent(input, parent)) {
+    return "Item cannot be its own parent"
+  }
+
+  if (!canParentWorkItemTypeAcceptChild(parent.type, input.type)) {
+    return "Selected parent cannot contain this work item type"
+  }
+
+  if (isDescendantWorkItemParent(state, input, parent)) {
+    return "Work item hierarchy cannot contain cycles"
+  }
+
+  return null
+}
+
+function isCurrentWorkItemParent(
+  input: WorkItemValidationInput,
+  parent: WorkItem
+) {
+  return Boolean(input.currentItemId) && parent.id === input.currentItemId
+}
+
+function isDescendantWorkItemParent(
+  state: AppData,
+  input: WorkItemValidationInput,
+  parent: WorkItem
+) {
+  return input.currentItemId
+    ? getWorkItemDescendantIds(state, input.currentItemId).has(parent.id)
+    : false
+}
+
 function getWorkItemParentValidationMessage(
   state: AppData,
   input: WorkItemValidationInput,
@@ -294,33 +402,16 @@ function getWorkItemParentValidationMessage(
     return "Parent item not found"
   }
 
-  if (input.visibility === "private") {
-    if (
-      parent.visibility !== "private" ||
-      parent.creatorId !== state.currentUserId
-    ) {
-      return "Private task parent must be one of your private tasks"
-    }
-  } else if ((parent.visibility ?? "team") === "private") {
-    return "Parent item not found"
-  }
+  const scopeValidationMessage = getWorkItemParentScopeValidationMessage(
+    state,
+    input,
+    parent
+  )
 
-  if (input.visibility !== "private" && parent.teamId !== input.teamId) {
-    return "Parent item must belong to the same team"
-  }
-
-  if (input.currentItemId && parent.id === input.currentItemId) {
-    return "Item cannot be its own parent"
-  }
-
-  if (!canParentWorkItemTypeAcceptChild(parent.type, input.type)) {
-    return "Selected parent cannot contain this work item type"
-  }
-
-  return input.currentItemId &&
-    getWorkItemDescendantIds(state, input.currentItemId).has(parent.id)
-    ? "Work item hierarchy cannot contain cycles"
-    : null
+  return (
+    scopeValidationMessage ??
+    getWorkItemHierarchyValidationMessage(state, input, parent)
+  )
 }
 
 function getWorkItemProjectValidationMessage(
@@ -332,6 +423,18 @@ function getWorkItemProjectValidationMessage(
     return null
   }
 
+  return getProjectValidationMessageForSelectedId(state, input, primaryProjectId)
+}
+
+function getProjectValidationMessageForSelectedId(
+  state: AppData,
+  input: WorkItemValidationInput,
+  primaryProjectId: string
+) {
+  if (!input.teamId) {
+    return "Team not found"
+  }
+
   const project = getProjectsForTeamScope(state, input.teamId).find(
     (entry) => entry.id === primaryProjectId
   )
@@ -340,11 +443,122 @@ function getWorkItemProjectValidationMessage(
     return "Project must belong to the same team or workspace"
   }
 
+  if (!isWorkItemTypeAllowedForProject(input, project)) {
+    return "Work item type is not allowed for the selected project template"
+  }
+
+  return null
+}
+
+function isWorkItemTypeAllowedForProject(
+  input: WorkItemValidationInput,
+  project: Project
+) {
   return getAllowedWorkItemTypesForTemplate(project.templateType).includes(
     input.type
   )
+}
+
+function getWorkItemValidationTeam(
+  state: AppData,
+  input: WorkItemValidationInput
+) {
+  return input.teamId
+    ? (state.teams.find((entry) => entry.id === input.teamId) ?? null)
+    : null
+}
+
+function getWorkItemTeamScopeValidationMessage(
+  input: WorkItemValidationInput,
+  team: ReturnType<typeof getWorkItemValidationTeam>
+) {
+  return input.visibility !== "private" && !team ? "Team not found" : null
+}
+
+function getWorkItemWorkspaceAccessValidationMessage(
+  state: AppData,
+  input: WorkItemValidationInput
+) {
+  if (input.visibility !== "private") {
+    return null
+  }
+
+  return hasWorkspaceAccess(
+    state,
+    input.workspaceId ?? "",
+    state.currentUserId
+  )
     ? null
-    : "Work item type is not allowed for the selected project template"
+    : "Workspace not found"
+}
+
+function getWorkItemFeatureValidationMessage(
+  input: WorkItemValidationInput,
+  team: ReturnType<typeof getWorkItemValidationTeam>
+) {
+  return input.visibility !== "private" &&
+    team &&
+    !getTeamFeatureSettings(team).issues
+    ? getWorkSurfaceCopy(team.settings.experience).disabledLabel
+    : null
+}
+
+function getPreProjectWorkItemValidationMessage(
+  state: AppData,
+  input: WorkItemValidationInput,
+  team: ReturnType<typeof getWorkItemValidationTeam>
+) {
+  for (const getValidationMessage of preProjectWorkItemValidators) {
+    const message = getValidationMessage(state, input, team)
+
+    if (message) {
+      return message
+    }
+  }
+
+  return null
+}
+
+const preProjectWorkItemValidators = [
+  (
+    _state: AppData,
+    input: WorkItemValidationInput,
+    team: ReturnType<typeof getWorkItemValidationTeam>
+  ) => getWorkItemTeamScopeValidationMessage(input, team),
+  (_state: AppData, input: WorkItemValidationInput) =>
+    getPrivateWorkItemValidationMessage(input),
+  (state: AppData, input: WorkItemValidationInput) =>
+    getWorkItemWorkspaceAccessValidationMessage(state, input),
+  (
+    _state: AppData,
+    input: WorkItemValidationInput,
+    team: ReturnType<typeof getWorkItemValidationTeam>
+  ) => getWorkItemFeatureValidationMessage(input, team),
+  (state: AppData, input: WorkItemValidationInput) =>
+    getWorkItemAssigneeValidationMessage(state, input),
+  (state: AppData, input: WorkItemValidationInput) =>
+    getWorkItemLabelValidationMessage(state, input),
+  (_state: AppData, input: WorkItemValidationInput) =>
+    getWorkItemDateValidationMessage(input),
+] satisfies Array<
+  (
+    state: AppData,
+    input: WorkItemValidationInput,
+    team: ReturnType<typeof getWorkItemValidationTeam>
+  ) => string | null
+>
+
+function getResolvedPrimaryProjectIdForWorkItemValidation(
+  input: WorkItemValidationInput,
+  parent: WorkItem | null
+) {
+  if (input.visibility === "private") {
+    return null
+  }
+
+  return parent
+    ? (parent.primaryProjectId ?? null)
+    : (input.primaryProjectId ?? null)
 }
 
 export function getWorkItemValidationMessage(
@@ -357,28 +571,13 @@ export function getWorkItemValidationMessage(
     return titleValidationMessage
   }
 
-  const team = state.teams.find((entry) => entry.id === input.teamId)
+  const team = getWorkItemValidationTeam(state, input)
 
-  if (!team) {
-    return "Team not found"
-  }
-
-  if (
-    input.visibility === "private" &&
-    !hasWorkspaceAccess(state, team.workspaceId, state.currentUserId)
-  ) {
-    return "Workspace not found"
-  }
-
-  if (input.visibility !== "private" && !getTeamFeatureSettings(team).issues) {
-    return getWorkSurfaceCopy(team.settings.experience).disabledLabel
-  }
-
-  const preProjectValidationMessage =
-    getPrivateWorkItemValidationMessage(input) ??
-    getWorkItemAssigneeValidationMessage(state, input) ??
-    getWorkItemLabelValidationMessage(state, input) ??
-    getWorkItemDateValidationMessage(input)
+  const preProjectValidationMessage = getPreProjectWorkItemValidationMessage(
+    state,
+    input,
+    team
+  )
 
   if (preProjectValidationMessage) {
     return preProjectValidationMessage
@@ -395,17 +594,10 @@ export function getWorkItemValidationMessage(
     return parentValidationMessage
   }
 
-  const resolvedPrimaryProjectId =
-    input.visibility === "private"
-      ? null
-      : parent
-        ? (parent.primaryProjectId ?? null)
-        : (input.primaryProjectId ?? null)
-
   return getWorkItemProjectValidationMessage(
     state,
     input,
-    resolvedPrimaryProjectId
+    getResolvedPrimaryProjectIdForWorkItemValidation(input, parent)
   )
 }
 
@@ -607,7 +799,14 @@ export function getConversationAudienceUserIds(
   )
 }
 
-export function effectiveRole(data: AppData, teamId: string) {
+export function effectiveRole(
+  data: AppData,
+  teamId: string | null | undefined
+) {
+  if (!teamId) {
+    return null
+  }
+
   return (
     data.teamMemberships.find(
       (membership) =>

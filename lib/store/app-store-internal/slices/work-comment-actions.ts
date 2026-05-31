@@ -8,6 +8,7 @@ import {
   syncToggleCommentReaction,
   syncUpdateComment,
 } from "@/lib/convex/client"
+import { hasWorkspaceAccess } from "@/lib/domain/selectors"
 import {
   collectDocumentCommentFollowerIds,
   collectWorkItemCommentFollowerIds,
@@ -31,7 +32,9 @@ import type { WorkSlice, WorkSliceFactoryArgs } from "./work-shared"
 type CommentEntityType = "workItem" | "document"
 
 type CommentTargetContext = {
-  teamId: string
+  teamId: string | null
+  targetId: string
+  audienceUserIds: string[]
   followerIds: string[]
   entityType: CommentEntityType
   entityTitle: string
@@ -74,9 +77,18 @@ function resolveWorkItemCommentTarget(
   if (!item) {
     return null
   }
+  const isPrivate = (item.visibility ?? "team") === "private"
+
+  if (isPrivate) {
+    return null
+  }
+
+  const audienceUserIds = getTeamMemberIds(state, item.teamId)
 
   return {
     teamId: item.teamId,
+    targetId: item.id,
+    audienceUserIds,
     followerIds: collectWorkItemCommentFollowerIds({
       subscriberIds: item.subscriberIds,
       creatorId: item.creatorId,
@@ -101,8 +113,12 @@ function resolveDocumentCommentTarget(
     return null
   }
 
+  const audienceUserIds = getTeamMemberIds(state, document.teamId)
+
   return {
-    teamId: document.teamId ?? "",
+    teamId: document.teamId,
+    targetId: document.id,
+    audienceUserIds,
     followerIds: collectDocumentCommentFollowerIds({
       createdBy: document.createdBy,
       updatedBy: document.updatedBy,
@@ -129,6 +145,27 @@ function resolveCommentTarget(
 
 function isReadOnlyRole(role: ReturnType<typeof effectiveRole>) {
   return role === "viewer" || role === "guest" || !role
+}
+
+function canEditCommentTarget(state: AppStore, target: CommentTargetContext) {
+  if (target.teamId) {
+    return !isReadOnlyRole(effectiveRole(state, target.teamId))
+  }
+
+  const item =
+    target.entityType === "workItem"
+      ? state.workItems.find((entry) => entry.id === target.targetId)
+      : null
+  const workspaceId = item ? (item.workspaceId ?? null) : null
+
+  if (!workspaceId) {
+    return false
+  }
+
+  return (
+    target.audienceUserIds.includes(state.currentUserId) &&
+    hasWorkspaceAccess(state, workspaceId, state.currentUserId)
+  )
 }
 
 function createOptimisticComment(
@@ -318,6 +355,11 @@ function canMutateOwnComment(
   state: AppStore,
   comment: AppStore["comments"][number]
 ) {
+  if (isPrivateWorkItemComment(state, comment)) {
+    toast.error("Comments are not available on private tasks")
+    return false
+  }
+
   if (comment.createdBy !== state.currentUserId) {
     toast.error("You can only edit or delete your own comments")
     return false
@@ -328,8 +370,7 @@ function canMutateOwnComment(
     return false
   }
 
-  const role = effectiveRole(state, target.teamId)
-  if (isReadOnlyRole(role)) {
+  if (!canEditCommentTarget(state, target)) {
     toast.error("Your current role is read-only")
     return false
   }
@@ -350,6 +391,30 @@ function getMutableOwnComment(
   return comment
 }
 
+function isPrivateWorkItemCommentInput(state: AppStore, input: AddCommentInput) {
+  return (
+    input.targetType === "workItem" &&
+    state.workItems.some(
+      (item) =>
+        item.id === input.targetId && (item.visibility ?? "team") === "private"
+    )
+  )
+}
+
+function isPrivateWorkItemComment(
+  state: AppStore,
+  comment: AppStore["comments"][number]
+) {
+  return (
+    comment.targetType === "workItem" &&
+    state.workItems.some(
+      (item) =>
+        item.id === comment.targetId &&
+        (item.visibility ?? "team") === "private"
+    )
+  )
+}
+
 function updateCommentInState(
   state: AppStore,
   commentId: string,
@@ -362,6 +427,8 @@ function updateCommentInState(
   }
 
   const now = getNow()
+  const target = getCommentMutationTarget(state, comment)
+  const audienceUserIds = target?.audienceUserIds ?? []
 
   return {
     ...state,
@@ -373,18 +440,7 @@ function updateCommentInState(
             mentionUserIds: createMentionIds(
               input.content,
               state.users,
-              comment.targetType === "workItem"
-                ? getTeamMemberIds(
-                    state,
-                    state.workItems.find((item) => item.id === comment.targetId)
-                      ?.teamId ?? ""
-                  )
-                : getTeamMemberIds(
-                    state,
-                    state.documents.find(
-                      (document) => document.id === comment.targetId
-                    )?.teamId ?? ""
-                  )
+              audienceUserIds
             ),
           }
         : entry
@@ -426,14 +482,13 @@ function addCommentToState(
     return state
   }
 
-  const role = effectiveRole(state, target.teamId)
-  if (isReadOnlyRole(role)) {
+  if (!canEditCommentTarget(state, target)) {
     toast.error("Your current role is read-only")
     return state
   }
 
   const now = getNow()
-  const audienceUserIds = getTeamMemberIds(state, target.teamId)
+  const audienceUserIds = target.audienceUserIds
   const mentionUserIds = createMentionIds(
     input.content,
     state.users,
@@ -472,6 +527,11 @@ export function createWorkCommentActions({
       const parsed = commentSchema.safeParse(input)
       if (!parsed.success) {
         toast.error("Comment cannot be empty")
+        return
+      }
+
+      if (isPrivateWorkItemCommentInput(get(), parsed.data)) {
+        toast.error("Comments are not available on private tasks")
         return
       }
 
@@ -548,7 +608,10 @@ export function createWorkCommentActions({
 
       const pendingCreate = pendingCommentCreates.get(commentId)
       const syncTask = pendingCreate
-        ? pendingCreate.then(() => syncDeleteComment(commentId), () => null)
+        ? pendingCreate.then(
+            () => syncDeleteComment(commentId),
+            () => null
+          )
         : syncDeleteComment(commentId)
 
       runtime.syncInBackground(syncTask, "Failed to delete comment")
@@ -556,6 +619,17 @@ export function createWorkCommentActions({
       toast.success("Comment deleted")
     },
     toggleCommentReaction(commentId, emoji) {
+      const comment = get().comments.find((entry) => entry.id === commentId)
+
+      if (!comment) {
+        return
+      }
+
+      if (isPrivateWorkItemComment(get(), comment)) {
+        toast.error("Comments are not available on private tasks")
+        return
+      }
+
       set((state) => ({
         comments: state.comments.map((comment) =>
           comment.id === commentId

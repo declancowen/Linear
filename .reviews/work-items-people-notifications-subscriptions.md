@@ -35,11 +35,82 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-05-31 |
-| **Last reviewed** | 2026-05-31 12:20 BST |
-| **Total turns** | 7 |
+| **Last reviewed** | 2026-05-31 18:09 BST |
+| **Total turns** | 8 |
 | **Open findings** | 0 |
-| **Resolved findings** | 7 |
+| **Resolved findings** | 9 |
 | **Accepted findings** | 0 |
+
+## Turn 8 - 2026-05-31 18:09 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | 21ba8e20 working tree |
+| **IDE / Agent** | Codex |
+
+**Summary:** Ran the requested full local-diff deep review against `origin/main`, including the broad People/profile, work item subscription/private-task, notification, search, project/view, desktop route, and Convex backend changes. Fixed two full-suite test reliability findings discovered during the loop, then reran the normal and deep gates until clean.
+
+**Outcome:** all clear after deep review, full-suite verification, and normal re-review; no open findings.
+
+**Risk score:** high - the branch spans backend authorization and mutation paths, scoped read models, notification delivery, private-task isolation, work/project/view presentation, and packaged desktop routing.
+
+**Change archetypes:** full-branch diff review, backend authorization/tenancy, notification delivery, private-task isolation, scoped read models, desktop route parity, frontend presentation, regression test hardening.
+
+**Intended change:** verify every local change against `origin/main`, fix any review findings, and prepare the branch for a non-draft PR.
+
+**Intent vs actual:** matches intent. The full diff was reviewed as the unit of change. The only new findings were test harness issues exposed by full-suite timing and shared fixture state; both were fixed without weakening production assertions.
+
+**Confidence:** high after full suite, static audit, typecheck, lint, production build, and desktop renderer smoke all passed on the latest tree.
+
+**Coverage note:** component, store, Convex, read-model, desktop, build, and full Vitest coverage passed. In-app Browser visual smoke was attempted earlier in the loop but unavailable because the `iab` browser backend was not present in this session.
+
+**Finding triage:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Full `pnpm test` | Work item detail mention retry test could time out under full-suite load while waiting on external scoped read-model effects unrelated to the seeded editor fixture | resolved | Test reliability / async isolation | Component unit tests with fully seeded local state should not depend on scoped read-model refresh plumbing | Stubbed `useScopedReadModelRefresh` in the work item detail component test so editor/mention assertions own their data boundary |
+| Full `pnpm test` | Status-change activity assertion intermittently read shared store state instead of an explicit sidebar-surface fixture | resolved | Test reliability / fixture isolation | Sidebar-surface tests should render from immutable local `AppData` when asserting persisted activity labels | Added `createWorkItemDetailTestData()` and made the status activity test render from a local fixture |
+
+**Static/analyzer evidence:** `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed on 88 changed files with 0 dead-code issues, 0 complexity findings, and 0 duplication clone groups. Fallow emitted its known `node_modules directory not found` warning but returned a passing verdict.
+
+**Architecture impact:** no new architecture boundary was introduced during this turn. The fixes tightened test isolation around existing component/read-model boundaries and kept production ownership unchanged.
+
+**Deep-review evidence:** Pass A checked authorization/privacy, subscriber notification fanout, private-task CRUD/comment/tag exclusions, project/view routing, people/profile/read-model access, search user navigation, notification read-state/status labels, desktop people/profile route parity, and project property controls. Pass B checked ownership, dead/legacy logic removal, helper placement, static-analysis output, and cross-surface label consistency. Re-review after fixes found no new issue.
+
+**Bug classes / invariants checked:** private tasks never team-board scoped; private tasks have no comments/tags/subscriptions; subscribers receive work item comment/status notifications; project item routes open scoped project boards; child create shows inherited disabled project; People/profile routes work in web and desktop; user search opens profiles; project properties exclude ID and use Type/Team naming; notification status labels show `To-Do`.
+
+**Branch totality:** the full local diff against `origin/main` was reviewed, including all modified and untracked files. The PR branch will include the review ledger and the new `tests/components/directory-controls.test.tsx` file.
+
+**Sibling closure:** checked adjacent work item create/update/comment/document routes, scoped read-model selectors, private/team/workspace filters, project and view tab logic, people/profile selectors, desktop route definitions, global/workspace search, and project context menus.
+
+**Remediation impact surface:** test-only for this turn. Product/runtime code remained as previously reviewed.
+
+**Residual risk / unknowns:** browser visual smoke remains unavailable in this Codex session due the missing in-app browser backend; build, component tests, route tests, and desktop renderer smoke mitigate the route/layout risk.
+
+### Validation
+
+- `git diff --check -- . ':!.reviews/'` - passed.
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` - passed, 88 changed files, 0 dead-code issues, 0 complexity findings, 0 duplication clone groups.
+- `pnpm typecheck` - passed.
+- `pnpm lint` - passed.
+- `pnpm exec vitest run tests/components/create-dialogs.test.tsx tests/components/work-item-detail-screen.test.tsx tests/components/work-item-ui-comments-inline.test.tsx tests/components/views-screen.test.tsx tests/components/project-detail-screen.test.tsx tests/components/people-screen.test.tsx tests/components/directory-controls.test.tsx tests/desktop/desktop-route.test.tsx tests/convex/comment-handlers.test.ts tests/convex/work-item-handlers.test.ts tests/convex/work-helpers.test.ts tests/convex/access.test.ts tests/lib/scoped-read-models.test.ts tests/lib/store/work-item-actions.test.ts tests/lib/store/work-comment-actions.test.ts` - passed, 15 files / 180 tests.
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx` - passed, 29 tests.
+- `pnpm test` - passed, 211 files / 1317 tests.
+- `pnpm build` - passed.
+- `pnpm desktop:renderer:smoke` - passed, desktop renderer build plus 1 file / 9 tests.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** architecture and diff-review skills, work item detail tests, scoped read-model hook boundary, desktop route tests, People screen tests, Convex access/work-item/comment/document handlers, project/view controls, and search selectors.
+- **Prior open findings rechecked:** none open from prior turns.
+- **Prior resolved/adjacent areas revalidated:** private-task backend isolation, subscriber notification delivery, project scoped views, People desktop routing, project property labels, notification status labels, and search user profile navigation.
+- **Hotspots or sibling paths revisited:** `convex/app/access.ts`, `convex/app/work_item_handlers.ts`, `convex/app/comment_handlers.ts`, `convex/app/document_handlers.ts`, `components/app/screens/work-item-detail-screen.tsx`, `components/app/screens/project-detail-screen.tsx`, `components/app/screens.tsx`, `desktop/renderer/desktop-route.tsx`, and search/read-model selectors.
+- **Dependency/adjacent surfaces revalidated:** full test suite, targeted high-risk slice, typecheck, lint, production build, desktop renderer smoke, whitespace check, and Fallow changed-file audit.
+- **Why this is enough:** the latest loop found and fixed the only failures produced by full-suite and static gates, then reran the same gates to a clean state on the current tree.
+
+### Challenger pass
+
+- done - assumed the clean targeted slice might be hiding full-suite timing or shared-state issues. Full suite found two such issues; both were fixed with tighter fixture isolation, and the final full-suite run passed.
 
 ## Turn 7 - 2026-05-31 12:20 BST
 

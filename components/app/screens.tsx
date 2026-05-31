@@ -40,6 +40,7 @@ import {
   getVisibleWorkItems,
   getWorkspaceDocuments,
   getWorkspaceDirectoryViews,
+  hasWorkspaceAccess,
   teamHasFeature,
   workItemMatchesView,
 } from "@/lib/domain/selectors"
@@ -295,8 +296,7 @@ const PROJECT_STATUS_ORDER = [
 ] as const
 
 const DEFAULT_PROJECT_DISPLAY_PROPS: DisplayProperty[] = [
-  "id",
-  "status",
+  "team",
   "assignee",
   "priority",
   "updated",
@@ -306,10 +306,9 @@ const PROJECT_PROPERTY_LABEL: Partial<Record<DisplayProperty, string>> = {
   assignee: "Lead",
   created: "Created",
   dueDate: "Target date",
-  id: "ID",
   priority: "Priority",
-  status: "Status",
-  type: "Template",
+  team: "Team",
+  type: "Type",
   updated: "Updated",
 }
 
@@ -327,24 +326,27 @@ type ProjectDisplayTokenResolver = (input: {
 const PROJECT_DISPLAY_TOKEN_RESOLVERS: Partial<
   Record<DisplayProperty, ProjectDisplayTokenResolver>
 > = {
-  id: ({ project, property }) => ({
+  team: ({ data, project, property }) => ({
     key: property,
-    label: `ID ${project.id.slice(0, 8)}`,
+    label: getProjectTeamLabel(data, project),
   }),
-  status: ({ project, property }) => ({
-    key: property,
-    label:
-      projectStatusMeta[project.status as keyof typeof projectStatusMeta]
-        ?.label ?? "Status",
-  }),
-  priority: ({ project, property }) => ({
-    key: property,
-    label: priorityMeta[project.priority].label,
-  }),
-  assignee: ({ data, project, property }) => ({
-    key: property,
-    label: getUser(data, project.leadId)?.name ?? "Unassigned",
-  }),
+  priority: ({ project, property }) =>
+    project.priority === "none"
+      ? null
+      : {
+          key: property,
+          label: priorityMeta[project.priority].label,
+        },
+  assignee: ({ data, project, property }) => {
+    const lead = getUser(data, project.leadId)
+
+    return lead
+      ? {
+          key: property,
+          label: lead.name,
+        }
+      : null
+  },
   type: ({ project, property }) => ({
     key: property,
     label: templateMeta[project.templateType].label,
@@ -371,6 +373,7 @@ const PROJECT_DISPLAY_TOKEN_RESOLVERS: Partial<
 
 const DEFAULT_VIEW_DIRECTORY_PROPERTIES: ViewsDirectoryProperty[] = [
   "description",
+  "project",
   "scope",
   "updated",
   "configuration",
@@ -397,6 +400,7 @@ type ViewsDirectorySettings = {
 type ViewDirectoryDisplayState = {
   showConfiguration: boolean
   showDescription: boolean
+  showProject: boolean
   showScope: boolean
   showUpdated: boolean
 }
@@ -419,7 +423,7 @@ function getProjectGroupOptionLabel(field: GroupField) {
   }
 
   if (field === "type") {
-    return "Template"
+    return "Type"
   }
 
   return getGroupFieldOptionLabel(field)
@@ -460,7 +464,7 @@ function getProjectAssigneeGroupLabel(data: AppData, key: string) {
 }
 
 function getProjectTypeGroupLabel(_data: AppData, key: string) {
-  return templateMeta[key as keyof typeof templateMeta]?.label ?? "Template"
+  return templateMeta[key as keyof typeof templateMeta]?.label ?? "Type"
 }
 
 function getProjectStatusGroupLabel(_data: AppData, key: string) {
@@ -629,6 +633,43 @@ function getViewDirectoryScopeLabel(input: {
   return input.view.isShared ? "Team" : "Personal"
 }
 
+function getViewDirectoryProjectGroupKey(view: ViewDefinition) {
+  if (view.containerType === "project-items" && view.containerId) {
+    return view.containerId
+  }
+
+  if (view.filters.projectIds.length === 1) {
+    return view.filters.projectIds[0] ?? "__none__"
+  }
+
+  return view.filters.projectIds.length > 1 ? "__multiple__" : "__none__"
+}
+
+function getViewDirectoryProjectLabel(
+  view: ViewDefinition,
+  projectLabels: Record<string, string>
+) {
+  return getViewDirectoryProjectGroupLabel(
+    getViewDirectoryProjectGroupKey(view),
+    projectLabels
+  )
+}
+
+function getViewDirectoryProjectGroupLabel(
+  key: string,
+  projectLabels: Record<string, string>
+) {
+  if (key === "__none__") {
+    return "No project"
+  }
+
+  if (key === "__multiple__") {
+    return "Multiple projects"
+  }
+
+  return projectLabels[key] ?? "Unknown project"
+}
+
 function getViewDirectoryGroupKey(
   view: ViewDefinition,
   field: ViewsDirectoryGroupField,
@@ -637,6 +678,10 @@ function getViewDirectoryGroupKey(
 ) {
   if (field === "entity") {
     return view.entityKind
+  }
+
+  if (field === "project") {
+    return getViewDirectoryProjectGroupKey(view)
   }
 
   return getViewDirectoryScopeLabel({
@@ -648,10 +693,15 @@ function getViewDirectoryGroupKey(
 
 function getViewDirectoryGroupLabel(
   field: ViewsDirectoryGroupField,
-  key: string
+  key: string,
+  projectLabels: Record<string, string>
 ) {
   if (field === "entity") {
     return formatEntityKind(key as ViewDefinition["entityKind"])
+  }
+
+  if (field === "project") {
+    return getViewDirectoryProjectGroupLabel(key, projectLabels)
   }
 
   return key
@@ -806,12 +856,14 @@ function getOrderedDirectoryViews(input: {
 function getViewsDirectorySections({
   grouping,
   orderedViews,
+  projectLabels,
   scopeLabels,
   scopeType,
   subGrouping,
 }: {
   grouping: ViewsDirectoryGroupField
   orderedViews: ViewDefinition[]
+  projectLabels: Record<string, string>
   scopeLabels: Record<string, string>
   scopeType: "team" | "workspace"
   subGrouping: ViewsDirectoryGroupField
@@ -828,13 +880,22 @@ function getViewsDirectorySections({
         scopeLabels
       ),
     getGroupLabel: (field, key) =>
-      getViewDirectoryGroupLabel(field as ViewsDirectoryGroupField, key),
+      getViewDirectoryGroupLabel(
+        field as ViewsDirectoryGroupField,
+        key,
+        projectLabels
+      ),
     compareGroupKeys: (field, left, right) =>
       getViewDirectoryGroupLabel(
         field as ViewsDirectoryGroupField,
-        left
+        left,
+        projectLabels
       ).localeCompare(
-        getViewDirectoryGroupLabel(field as ViewsDirectoryGroupField, right)
+        getViewDirectoryGroupLabel(
+          field as ViewsDirectoryGroupField,
+          right,
+          projectLabels
+        )
       ),
   })
 }
@@ -845,6 +906,7 @@ function getViewDirectoryDisplayState(
   return {
     showConfiguration: properties.includes("configuration"),
     showDescription: properties.includes("description"),
+    showProject: properties.includes("project"),
     showScope: properties.includes("scope"),
     showUpdated: properties.includes("updated"),
   }
@@ -1189,6 +1251,10 @@ const PROJECT_STATUS_ACCENT: Record<Project["status"], string> = {
 }
 
 function ProjectHealthPill({ project }: { project: Project }) {
+  if (project.health === "no-update") {
+    return null
+  }
+
   return (
     <span
       className={cn(
@@ -1206,6 +1272,14 @@ function ProjectHealthPill({ project }: { project: Project }) {
       {PROJECT_HEALTH_LABEL[project.health]}
     </span>
   )
+}
+
+function getProjectTeamLabel(data: AppData, project: Project) {
+  if (project.scopeType === "team") {
+    return getTeam(data, project.scopeId)?.name ?? "Unknown team"
+  }
+
+  return "Workspace"
 }
 
 function ProjectIconTile({ project }: { project: Project }) {
@@ -1230,7 +1304,7 @@ function ProjectIconTile({ project }: { project: Project }) {
   )
 }
 
-function ProjectDisplayTokenRow({
+function ProjectPropertyTokens({
   data,
   project,
   displayProps,
@@ -1241,27 +1315,48 @@ function ProjectDisplayTokenRow({
   displayProps: DisplayProperty[]
   className?: string
 }) {
-  const projectTeam =
-    project.scopeType === "team" ? getTeam(data, project.scopeId) : null
   const tokens = getProjectDisplayTokens(data, project, displayProps)
+
+  if (tokens.length === 0) {
+    return null
+  }
 
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-fg-3",
+        "flex flex-wrap items-center gap-1.5 text-[11px] text-fg-3",
         className
       )}
     >
-      <span>{projectTeam?.name ?? "Workspace"}</span>
       {tokens.map((token) => (
-        <span key={token.key} className="inline-flex items-center gap-2">
-          <span aria-hidden className="text-fg-4">
-            ·
-          </span>
-          <span>{token.label}</span>
+        <span
+          key={token.key}
+          className="inline-flex max-w-[160px] items-center truncate rounded-full border border-line-soft bg-surface px-2 py-0.5"
+        >
+          {token.label}
         </span>
       ))}
     </div>
+  )
+}
+
+function ProjectItemCount({
+  count,
+  className,
+}: {
+  count: number
+  className?: string
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 text-[11.5px] text-fg-4 tabular-nums",
+        className
+      )}
+    >
+      <TreeStructure className="size-3" />
+      {count}
+    </span>
   )
 }
 
@@ -1344,7 +1439,7 @@ function ProjectProgressBar({
 
 function getFilteredDisplayProps(displayProps: DisplayProperty[]) {
   return displayProps.filter(
-    (property) => property !== "status" && property !== "dueDate"
+    (property) => property !== "id" && property !== "status"
   )
 }
 
@@ -1361,7 +1456,6 @@ function getProjectPreviewDisplayContext({
     href,
     progress,
     summary,
-    targetDate: formatCalendarDateLabel(project.targetDate, ""),
   }
 }
 
@@ -1391,22 +1485,21 @@ function ProjectRow({ data, project, displayProps }: ProjectPreviewProps) {
               />
               <ProjectHealthPill project={project} />
             </div>
-            {preview.filteredDisplayProps.length > 0 ? (
-              <ProjectDisplayTokenRow
-                className="mt-1"
-                data={data}
-                project={project}
-                displayProps={preview.filteredDisplayProps}
-              />
-            ) : null}
             {preview.summary ? (
               <p className="mt-1 line-clamp-1 max-w-2xl text-[12px] leading-[1.4] text-fg-3">
                 {preview.summary}
               </p>
             ) : null}
           </div>
-          <div className="hidden shrink-0 items-center gap-5 lg:flex">
-            <div className="flex w-32 items-center gap-2">
+          <div className="hidden w-[360px] shrink-0 flex-col items-end justify-center gap-2 lg:flex">
+            <ProjectPropertyTokens
+              className="max-w-full justify-end"
+              data={data}
+              project={project}
+              displayProps={preview.filteredDisplayProps}
+            />
+            <div className="flex w-full items-center justify-end gap-3">
+              <ProjectItemCount count={preview.progress.scope} />
               <ProjectProgressBar
                 progress={preview.progress}
                 accent={preview.accent}
@@ -1417,16 +1510,6 @@ function ProjectRow({ data, project, displayProps }: ProjectPreviewProps) {
               >
                 {preview.progress.completedPercent}%
               </span>
-            </div>
-            {preview.targetDate ? (
-              <div className="w-20 text-right text-[11.5px] text-fg-3 tabular-nums">
-                {preview.targetDate}
-              </div>
-            ) : (
-              <div className="w-20" aria-hidden />
-            )}
-            <div className="w-16 text-right text-[11.5px] text-fg-3 tabular-nums">
-              {preview.progress.scope} items
             </div>
           </div>
         </div>
@@ -1457,7 +1540,9 @@ function ProjectCard({ data, project, displayProps }: ProjectPreviewProps) {
         >
           <div className="flex items-start justify-between gap-2">
             <ProjectStatusPill project={project} />
-            <ProjectHealthPill project={project} />
+            <div className="flex shrink-0 items-center gap-1.5">
+              <ProjectHealthPill project={project} />
+            </div>
           </div>
           <div className="flex items-center gap-2.5">
             <span
@@ -1479,15 +1564,21 @@ function ProjectCard({ data, project, displayProps }: ProjectPreviewProps) {
               {project.name}
             </h2>
           </div>
+          <ProjectPropertyTokens
+            className="justify-start"
+            data={data}
+            project={project}
+            displayProps={preview.filteredDisplayProps}
+          />
           <div className="flex items-end gap-3">
             <div className="flex-1">
-              <ProjectProgressBar
-                progress={preview.progress}
-                accent={preview.accent}
-                height={7}
-              />
-              <div className="mt-1 text-[11px] text-fg-3">
-                {preview.progress.scope} items
+              <div className="flex items-center gap-3">
+                <ProjectItemCount count={preview.progress.scope} />
+                <ProjectProgressBar
+                  progress={preview.progress}
+                  accent={preview.accent}
+                  height={7}
+                />
               </div>
             </div>
             <span
@@ -1506,21 +1597,6 @@ function ProjectCard({ data, project, displayProps }: ProjectPreviewProps) {
           ) : (
             <p className="text-[12px] text-fg-4 italic">No summary yet.</p>
           )}
-          {preview.filteredDisplayProps.length > 0 ? (
-            <ProjectDisplayTokenRow
-              data={data}
-              project={project}
-              displayProps={preview.filteredDisplayProps}
-            />
-          ) : null}
-          <div className="mt-auto flex items-center justify-between gap-2 border-t border-dashed border-line pt-2.5 text-[11.5px] text-fg-3">
-            <span>{preview.progress.scope} items</span>
-            {preview.targetDate ? (
-              <span className="tabular-nums">Due {preview.targetDate}</span>
-            ) : (
-              <span className="text-fg-4">No target date</span>
-            )}
-          </div>
         </div>
       </AppLink>
     </ProjectContextMenu>
@@ -1789,6 +1865,22 @@ function SavedViewScopeLabel({
   return showScope ? <span className={className}>{scopeLabel}</span> : null
 }
 
+function SavedViewProjectLabel({
+  className,
+  projectLabel,
+  showProject,
+}: {
+  className: string
+  projectLabel: string
+  showProject: boolean
+}) {
+  if (!showProject || projectLabel === "No project") {
+    return null
+  }
+
+  return <span className={className}>{projectLabel}</span>
+}
+
 function SavedViewUpdatedDate({
   className,
   updatedLabel,
@@ -1800,25 +1892,37 @@ function SavedViewUpdatedDate({
 }
 
 function SavedViewCardFooter({
+  projectLabel,
   scopeLabel,
+  showProject,
   showScope,
   updatedLabel,
 }: {
+  projectLabel: string
   scopeLabel: string
+  showProject: boolean
   showScope: boolean
   updatedLabel: string | null
 }) {
-  if (!showScope && !updatedLabel) {
+  const hasProject = showProject && projectLabel !== "No project"
+
+  if (!hasProject && !showScope && !updatedLabel) {
     return null
   }
 
   return (
     <div className="mt-auto flex items-center gap-2 border-t border-dashed border-line pt-2.5 text-[11px] text-fg-3">
-      {showScope ? (
-        <span className="min-w-0 flex-1 truncate">{scopeLabel}</span>
-      ) : (
-        <span className="flex-1" />
-      )}
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        {hasProject ? (
+          <span className="min-w-0 truncate">{projectLabel}</span>
+        ) : null}
+        {hasProject && showScope ? (
+          <span aria-hidden className="size-1 shrink-0 rounded-full bg-line" />
+        ) : null}
+        {showScope ? (
+          <span className="min-w-0 truncate">{scopeLabel}</span>
+        ) : null}
+      </div>
       <SavedViewUpdatedDate
         className="shrink-0 tabular-nums"
         updatedLabel={updatedLabel}
@@ -1827,21 +1931,28 @@ function SavedViewCardFooter({
   )
 }
 
-function SavedViewRow({
-  scopeLabel,
-  showConfiguration,
-  showDescription,
-  showScope,
-  showUpdated,
-  view,
-}: {
+type SavedViewItemProps = {
+  projectLabel: string
   scopeLabel: string
   showConfiguration: boolean
   showDescription: boolean
+  showProject: boolean
   showScope: boolean
   showUpdated: boolean
   view: ViewDefinition
-}) {
+}
+
+function SavedViewRow(props: SavedViewItemProps) {
+  const {
+    projectLabel,
+    scopeLabel,
+    showConfiguration,
+    showDescription,
+    showProject,
+    showScope,
+    showUpdated,
+    view,
+  } = props
   const layoutMeta = viewDirectoryLayoutMeta[view.layout]
   const LayoutIcon = layoutMeta.icon
   const updatedLabel = getSavedViewUpdatedLabel(view, showUpdated)
@@ -1885,6 +1996,11 @@ function SavedViewRow({
             variant="row"
             view={view}
           />
+          <SavedViewProjectLabel
+            className="hidden max-w-[160px] shrink-0 truncate text-[11.5px] text-fg-3 lg:inline"
+            projectLabel={projectLabel}
+            showProject={showProject}
+          />
           <SavedViewScopeLabel
             className="hidden max-w-[160px] shrink-0 truncate text-[11.5px] text-fg-3 md:inline"
             scopeLabel={scopeLabel}
@@ -1900,21 +2016,17 @@ function SavedViewRow({
   )
 }
 
-function SavedViewCard({
-  scopeLabel,
-  showConfiguration,
-  showDescription,
-  showScope,
-  showUpdated,
-  view,
-}: {
-  scopeLabel: string
-  showConfiguration: boolean
-  showDescription: boolean
-  showScope: boolean
-  showUpdated: boolean
-  view: ViewDefinition
-}) {
+function SavedViewCard(props: SavedViewItemProps) {
+  const {
+    projectLabel,
+    scopeLabel,
+    showConfiguration,
+    showDescription,
+    showProject,
+    showScope,
+    showUpdated,
+    view,
+  } = props
   const layoutMeta = viewDirectoryLayoutMeta[view.layout]
   const updatedLabel = getSavedViewUpdatedLabel(view, showUpdated)
 
@@ -1942,7 +2054,9 @@ function SavedViewCard({
             view={view}
           />
           <SavedViewCardFooter
+            projectLabel={projectLabel}
             scopeLabel={scopeLabel}
+            showProject={showProject}
             showScope={showScope}
             updatedLabel={updatedLabel}
           />
@@ -1953,6 +2067,7 @@ function SavedViewCard({
 }
 
 type ViewsDirectoryItemDisplay = ViewDirectoryDisplayState & {
+  projectLabels: Record<string, string>
   scopeLabels: Record<string, string>
   scopeType: "team" | "workspace"
 }
@@ -1962,6 +2077,7 @@ function getSavedViewItemProps(
   display: ViewsDirectoryItemDisplay
 ) {
   return {
+    projectLabel: getViewDirectoryProjectLabel(view, display.projectLabels),
     scopeLabel: getViewDirectoryScopeLabel({
       view,
       scopeLabels: display.scopeLabels,
@@ -1969,6 +2085,7 @@ function getSavedViewItemProps(
     }),
     showConfiguration: display.showConfiguration,
     showDescription: display.showDescription,
+    showProject: display.showProject,
     showScope: display.showScope,
     showUpdated: display.showUpdated,
     view,
@@ -3312,6 +3429,43 @@ function ProjectListContent({
   )
 }
 
+function getProjectsContentStatus(
+  hasLoadedOnce: boolean,
+  visibleProjects: Project[]
+) {
+  if (!hasLoadedOnce && visibleProjects.length === 0) {
+    return "loading"
+  }
+
+  return visibleProjects.length === 0 ? "empty" : "ready"
+}
+
+function ProjectReadyContent({
+  data,
+  displayProps,
+  layout,
+  sections,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[]
+  layout: ViewDefinition["layout"]
+  sections: GroupedSection<Project>[]
+}) {
+  return layout === "board" ? (
+    <ProjectBoardContent
+      data={data}
+      displayProps={displayProps}
+      sections={sections}
+    />
+  ) : (
+    <ProjectListContent
+      data={data}
+      displayProps={displayProps}
+      sections={sections}
+    />
+  )
+}
+
 function ProjectsContent({
   data,
   displayProps,
@@ -3329,11 +3483,13 @@ function ProjectsContent({
   sections: GroupedSection<Project>[]
   visibleProjects: Project[]
 }) {
-  if (!hasLoadedOnce && visibleProjects.length === 0) {
+  const status = getProjectsContentStatus(hasLoadedOnce, visibleProjects)
+
+  if (status === "loading") {
     return <ScopedScreenLoading label="Loading projects..." />
   }
 
-  if (visibleProjects.length === 0) {
+  if (status === "empty") {
     return (
       <MissingState
         icon={Kanban}
@@ -3343,20 +3499,11 @@ function ProjectsContent({
     )
   }
 
-  if (layout === "board") {
-    return (
-      <ProjectBoardContent
-        data={data}
-        displayProps={displayProps}
-        sections={sections}
-      />
-    )
-  }
-
   return (
-    <ProjectListContent
+    <ProjectReadyContent
       data={data}
       displayProps={displayProps}
+      layout={layout}
       sections={sections}
     />
   )
@@ -3817,7 +3964,21 @@ export function UserCalendarScreen() {
     })
   }, [calendarFilterView, calendarItems, data])
   const canEditCalendarItem = useMemo(
-    () => (item: WorkItem) => canEditTeam(data, item.teamId),
+    () => (item: WorkItem) => {
+      if ((item.visibility ?? "team") !== "private") {
+        return canEditTeam(data, item.teamId)
+      }
+
+      const workspaceId = item.workspaceId ?? null
+
+      return (
+        item.creatorId === data.currentUserId &&
+        Boolean(
+          workspaceId &&
+          hasWorkspaceAccess(data, workspaceId, data.currentUserId)
+        )
+      )
+    },
     [data]
   )
   const defaultCreateTeamId = getDefaultUserCalendarCreateTeamId(data)
@@ -3875,9 +4036,7 @@ function useProjectsScreenReadModel(input: {
   )
   const projectViews = useAppStore(
     useShallow((state) =>
-      input.scopeType === "workspace"
-        ? getWorkspaceDirectoryViews(state, input.scopeId, "projects")
-        : getViewsForScope(state, "team", input.scopeId, "projects")
+      getViewsForScope(state, input.scopeType, input.scopeId, "projects")
     )
   )
 
@@ -4172,6 +4331,7 @@ export function ViewsScreen({
   )
   const viewContext = useAppStore(
     useShallow((state) => ({
+      projects: state.projects,
       teams: state.teams,
       workspaces: state.workspaces,
       currentWorkspaceId: state.currentWorkspaceId,
@@ -4183,6 +4343,13 @@ export function ViewsScreen({
         views.map((view) => [view.id, getViewContextLabel(viewContext, view)])
       ),
     [viewContext, views]
+  )
+  const viewProjectLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        viewContext.projects.map((project) => [project.id, project.name])
+      ),
+    [viewContext.projects]
   )
   const directorySurfaceKey = `views-directory:${scopeType}:${scopeId}`
   const directoryConfig = useAppStore(
@@ -4217,6 +4384,7 @@ export function ViewsScreen({
   const viewSections = getViewsDirectorySections({
     grouping,
     orderedViews,
+    projectLabels: viewProjectLabels,
     scopeLabels: viewScopeLabels,
     scopeType,
     subGrouping,
@@ -4282,6 +4450,7 @@ export function ViewsScreen({
         <ViewsDirectoryContent
           display={{
             ...displayState,
+            projectLabels: viewProjectLabels,
             scopeLabels: viewScopeLabels,
             scopeType,
           }}

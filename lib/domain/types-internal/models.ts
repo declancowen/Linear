@@ -183,7 +183,7 @@ export interface Milestone {
 export interface WorkItem {
   id: string
   key: string
-  teamId: string
+  teamId: string | null
   workspaceId?: string | null
   type: WorkItemType
   title: string
@@ -348,7 +348,7 @@ export interface Attachment {
   id: string
   targetType: AttachmentTargetType
   targetId: string
-  teamId: string
+  teamId: string | null
   storageId: string
   fileName: string
   contentType: string

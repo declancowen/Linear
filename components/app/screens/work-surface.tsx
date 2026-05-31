@@ -1196,13 +1196,13 @@ export function WorkSurface({
   })
 
   function handleCreateWorkItem() {
-    if (!resolvedCreateTeamId) {
-      return
-    }
-
     const createsPrivateWorkItem = Boolean(
       compatibleActiveView?.filters.visibility?.includes("private")
     )
+
+    if (!createsPrivateWorkItem && !resolvedCreateTeamId) {
+      return
+    }
 
     openManagedCreateDialog({
       kind: "workItem",
