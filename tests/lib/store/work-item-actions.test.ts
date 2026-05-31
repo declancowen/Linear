@@ -414,6 +414,8 @@ describe("work item actions", () => {
     const state = createState()
     state.workItems = [
       createTestWorkItem("private-task", {
+        teamId: null,
+        workspaceId: "workspace_1",
         creatorId: "user_1",
         type: "task",
         assigneeId: "user_1",
@@ -443,24 +445,27 @@ describe("work item actions", () => {
       {
         assigneeId: null,
         assigneeIds: [],
+        labelIds: [],
         primaryProjectId: null,
         status: "done",
       }
     )
   })
 
-  it("scopes optimistic private work item keys to the current user", async () => {
+  it("scopes optimistic private work item keys to the current user and workspace", async () => {
     const state = createState()
     state.workItems = [
-      createTestWorkItem("private-team-item", {
+      createTestWorkItem("private-item", {
         key: "PVT-001",
-        teamId: "team_1",
+        teamId: null,
+        workspaceId: "workspace_1",
         creatorId: "user_1",
         visibility: "private",
       }),
-      createTestWorkItem("other-team-private-item", {
+      createTestWorkItem("other-private-item", {
         key: "PVT-001",
-        teamId: "team_2",
+        teamId: null,
+        workspaceId: "workspace_2",
         creatorId: "user_1",
         visibility: "private",
       }),
@@ -468,7 +473,8 @@ describe("work item actions", () => {
     const harness = await createWorkItemActionsHarness(state)
 
     const createdItemId = harness.actions.createWorkItem({
-      teamId: "team_1",
+      teamId: null,
+      workspaceId: "workspace_1",
       type: "task",
       title: "Private follow-up",
       primaryProjectId: null,
@@ -480,8 +486,8 @@ describe("work item actions", () => {
     expect(createdItemId).toBeTruthy()
     expect(harness.state.workItems[0]).toMatchObject({
       id: createdItemId,
-      key: "PVT-003",
-      teamId: "team_1",
+      key: "PVT-002",
+      teamId: null,
       workspaceId: "workspace_1",
       visibility: "private",
     })
@@ -503,7 +509,8 @@ describe("work item actions", () => {
     const harness = await createWorkItemActionsHarness(state)
 
     const createdItemId = harness.actions.createWorkItem({
-      teamId: "team_1",
+      teamId: null,
+      workspaceId: "workspace_1",
       type: "task",
       title: "Private note",
       primaryProjectId: null,
@@ -518,6 +525,27 @@ describe("work item actions", () => {
       id: createdItemId,
       visibility: "private",
     })
+  })
+
+  it("rejects private work item creation with labels", async () => {
+    const harness = await createWorkItemActionsHarness(createState())
+
+    const createdItemId = harness.actions.createWorkItem({
+      teamId: null,
+      workspaceId: "workspace_1",
+      type: "task",
+      title: "Tagged private note",
+      primaryProjectId: null,
+      assigneeId: null,
+      labelIds: ["label_1"],
+      priority: "medium",
+      visibility: "private",
+    })
+
+    expect(createdItemId).toBeNull()
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Private tasks do not support labels"
+    )
   })
 
   it("creates work items with selected schedule dates", async () => {

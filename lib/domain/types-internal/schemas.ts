@@ -44,7 +44,6 @@ import {
   entityKinds,
   viewContainerTypes,
   groupFields,
-  labelScopeTypes,
   orderingFields,
   priorities,
   projectNameMaxLength,
@@ -170,7 +169,7 @@ export const nullableTimeZoneSchema = z
 
 export const labelCreateSchema = z.object({
   workspaceId: z.string().trim().min(1).optional(),
-  scopeType: z.enum(labelScopeTypes).optional(),
+  scopeType: z.literal("workspace").optional(),
   name: boundedTrimmedStringSchema(labelNameConstraints),
   color: z.string().trim().min(1).max(24).optional(),
 })
@@ -461,27 +460,57 @@ export const viewSchema = z
     }
   })
 
-export const workItemSchema = z.object({
-  id: z.string().trim().min(1).optional(),
-  descriptionDocId: z.string().trim().min(1).optional(),
-  teamId: z.string().min(1),
-  type: z.enum(workItemTypes),
-  title: boundedTrimmedStringSchema(workItemTitleConstraints),
-  parentId: z.string().nullable().optional(),
-  primaryProjectId: z.string().nullable(),
-  assigneeId: z.string().nullable(),
-  assigneeIds: z.array(z.string().trim().min(1)).optional(),
-  status: z.enum(workStatuses).optional(),
-  priority: z.enum(priorities),
-  labelIds: z.array(z.string()).optional(),
-  visibility: z.enum(workItemVisibilities).optional(),
-  startDate: nullableCalendarDateSchema.optional(),
-  dueDate: nullableCalendarDateSchema.optional(),
-  targetDate: nullableCalendarDateSchema.optional(),
-  startTime: nullableTimeSchema.optional(),
-  endTime: nullableTimeSchema.optional(),
-  scheduleTimeZone: nullableTimeZoneSchema.optional(),
-})
+export const workItemSchema = z
+  .object({
+    id: z.string().trim().min(1).optional(),
+    descriptionDocId: z.string().trim().min(1).optional(),
+    teamId: z.string().min(1).nullable().optional(),
+    workspaceId: z.string().min(1).nullable().optional(),
+    type: z.enum(workItemTypes),
+    title: boundedTrimmedStringSchema(workItemTitleConstraints),
+    parentId: z.string().nullable().optional(),
+    primaryProjectId: z.string().nullable(),
+    assigneeId: z.string().nullable(),
+    assigneeIds: z.array(z.string().trim().min(1)).optional(),
+    status: z.enum(workStatuses).optional(),
+    priority: z.enum(priorities),
+    labelIds: z.array(z.string()).optional(),
+    visibility: z.enum(workItemVisibilities).optional(),
+    startDate: nullableCalendarDateSchema.optional(),
+    dueDate: nullableCalendarDateSchema.optional(),
+    targetDate: nullableCalendarDateSchema.optional(),
+    startTime: nullableTimeSchema.optional(),
+    endTime: nullableTimeSchema.optional(),
+    scheduleTimeZone: nullableTimeZoneSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.visibility === "private") {
+      if (value.teamId) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["teamId"],
+          message: "Private tasks cannot belong to a team",
+        })
+      }
+
+      if (!value.workspaceId) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["workspaceId"],
+          message: "Private tasks must belong to a workspace",
+        })
+      }
+      return
+    }
+
+    if (!value.teamId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["teamId"],
+        message: "Work items must belong to a team",
+      })
+    }
+  })
 
 const customPropertyOptionSchema = z.object({
   id: z.string().trim().min(1).max(80),
@@ -554,9 +583,14 @@ const customPropertyDefinitionPatchBaseSchema = z.object({
 })
 
 export const customPropertyDefinitionSchema =
-  customPropertyDefinitionBaseSchema.superRefine((value, ctx) => {
-    addCustomPropertyOptionValidationIssues(value, ctx)
-  })
+  customPropertyDefinitionBaseSchema
+    .superRefine((value, ctx) => {
+      addCustomPropertyOptionValidationIssues(value, ctx)
+    })
+    .refine((value) => (value.scopeType ?? "team") === "team", {
+      path: ["scopeType"],
+      message: "Private custom properties are not supported",
+    })
 
 export const customPropertyDefinitionPatchSchema =
   customPropertyDefinitionPatchBaseSchema

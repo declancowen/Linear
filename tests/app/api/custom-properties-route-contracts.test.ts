@@ -65,6 +65,20 @@ function createSelectPropertyPayload(overrides?: Record<string, unknown>) {
   }
 }
 
+async function expectInvalidCustomPropertyCreateResponse(response: Response) {
+  expect(response.status).toBe(400)
+  await expect(response.json()).resolves.toEqual({
+    error: "Invalid custom property payload",
+    message: "Invalid custom property payload",
+    code: "ROUTE_INVALID_BODY",
+  })
+  expect(createCustomPropertyDefinitionServerMock).not.toHaveBeenCalled()
+  expect(
+    resolveCustomPropertyDefinitionReadModelScopeKeysServerMock
+  ).not.toHaveBeenCalled()
+  expect(bumpScopedReadModelVersionsServerMock).not.toHaveBeenCalled()
+}
+
 function createSnapshotFixture(): AppSnapshot {
   return {
     ...createEmptyState(),
@@ -150,6 +164,7 @@ describe("custom property route contracts", () => {
     expect(createCustomPropertyDefinitionServerMock).toHaveBeenCalledWith({
       currentUserId: "user_1",
       teamId: "team_1",
+      scopeType: "team",
       targetType: "workItem",
       name: "Risk",
       icon: "Flag",
@@ -180,17 +195,23 @@ describe("custom property route contracts", () => {
       )
     )
 
-    expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({
-      error: "Invalid custom property payload",
-      message: "Invalid custom property payload",
-      code: "ROUTE_INVALID_BODY",
-    })
-    expect(createCustomPropertyDefinitionServerMock).not.toHaveBeenCalled()
-    expect(
-      resolveCustomPropertyDefinitionReadModelScopeKeysServerMock
-    ).not.toHaveBeenCalled()
-    expect(bumpScopedReadModelVersionsServerMock).not.toHaveBeenCalled()
+    await expectInvalidCustomPropertyCreateResponse(response)
+  })
+
+  it("rejects legacy private custom property creation at the route boundary", async () => {
+    const { POST } = await import("@/app/api/custom-properties/route")
+
+    const response = await POST(
+      createJsonRouteRequest(
+        "http://localhost/api/custom-properties",
+        "POST",
+        createSelectPropertyPayload({
+          scopeType: "private",
+        })
+      )
+    )
+
+    await expectInvalidCustomPropertyCreateResponse(response)
   })
 
   it("updates custom properties and invalidates all property definition read models", async () => {

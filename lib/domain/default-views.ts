@@ -304,7 +304,7 @@ function cloneDisplayProps(
 
   return entityKind === "items"
     ? ["id", "status", "assignee", "priority", "project", "updated"]
-    : ["id", "status", "assignee", "priority", "updated"]
+    : ["team", "assignee", "priority", "updated"]
 }
 
 function cloneHiddenState(

@@ -47,7 +47,9 @@ function createCtx() {
   }
 }
 
-function createTeam(features = createDefaultTeamFeatureSettings("software-development")) {
+function createTeam(
+  features = createDefaultTeamFeatureSettings("software-development")
+) {
   return {
     _id: "team_doc_1" as never,
     _creationTime: 0,
@@ -141,12 +143,11 @@ describe("work helpers", () => {
   })
 
   it("validates private work item parents without requiring a team row", async () => {
-    const { validatePrivateWorkItemParent } = await import(
-      "@/convex/app/work_helpers"
-    )
+    const { validatePrivateWorkItemParent } =
+      await import("@/convex/app/work_helpers")
     const parent = {
       id: "parent_1",
-      teamId: "team_deleted",
+      teamId: null,
       workspaceId: "workspace_1",
       type: "task",
       parentId: null,
@@ -170,10 +171,8 @@ describe("work helpers", () => {
   })
 
   it("patches existing team and workspace project views", async () => {
-    const {
-      ensureTeamProjectViews,
-      ensureWorkspaceProjectViews,
-    } = await import("@/convex/app/work_helpers")
+    const { ensureTeamProjectViews, ensureWorkspaceProjectViews } =
+      await import("@/convex/app/work_helpers")
     const ctx = createCtx()
     const team = createTeam()
     const teamProjectViews = buildTeamProjectViews({
@@ -226,27 +225,29 @@ describe("work helpers", () => {
   })
 
   it("collects a work item cascade without revisiting already queued children", async () => {
-    const { collectWorkItemCascadeIds } = await import(
-      "@/convex/app/work_helpers"
-    )
+    const { collectWorkItemCascadeIds } =
+      await import("@/convex/app/work_helpers")
 
     expect(
-      [...collectWorkItemCascadeIds(
-        [
-          { id: "root", parentId: null },
-          { id: "child_1", parentId: "root" },
-          { id: "child_2", parentId: "root" },
-          { id: "grandchild", parentId: "child_1" },
-          { id: "unrelated", parentId: null },
-          { id: "root", parentId: "grandchild" },
-        ],
-        "root"
-      )].sort()
+      [
+        ...collectWorkItemCascadeIds(
+          [
+            { id: "root", parentId: null },
+            { id: "child_1", parentId: "root" },
+            { id: "child_2", parentId: "root" },
+            { id: "grandchild", parentId: "child_1" },
+            { id: "unrelated", parentId: null },
+            { id: "root", parentId: "grandchild" },
+          ],
+          "root"
+        ),
+      ].sort()
     ).toEqual(["child_1", "child_2", "grandchild", "root"])
   })
 
   it("routes view mutation access through the owning scope", async () => {
-    const { requireViewMutationAccess } = await import("@/convex/app/work_helpers")
+    const { requireViewMutationAccess } =
+      await import("@/convex/app/work_helpers")
     const ctx = createCtx()
 
     getViewDocMock.mockResolvedValueOnce(null)
@@ -304,7 +305,7 @@ describe("work helpers", () => {
     )
   })
 
-  it("allows owned private labels in personal item view filters", async () => {
+  it("rejects private labels in personal item view filters", async () => {
     const { assertViewLabelIds } = await import("@/convex/app/work_helpers")
     const ctx = createCtx()
 
@@ -332,7 +333,7 @@ describe("work helpers", () => {
     await expect(
       assertViewLabelIds(ctx as never, {
         currentUserId: "user_1",
-        labelIds: ["label_workspace", "label_private"],
+        labelIds: ["label_workspace"],
         view: {
           scopeType: "personal",
           scopeId: "user_1",
@@ -341,6 +342,19 @@ describe("work helpers", () => {
         workspaceId: "workspace_1",
       })
     ).resolves.toBeUndefined()
+
+    await expect(
+      assertViewLabelIds(ctx as never, {
+        currentUserId: "user_1",
+        labelIds: ["label_private"],
+        view: {
+          scopeType: "personal",
+          scopeId: "user_1",
+          entityKind: "items",
+        },
+        workspaceId: "workspace_1",
+      })
+    ).rejects.toThrow("One or more labels are invalid")
 
     await expect(
       assertViewLabelIds(ctx as never, {

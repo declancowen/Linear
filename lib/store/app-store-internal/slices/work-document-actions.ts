@@ -14,10 +14,11 @@ import {
   syncUpdateItemDescription,
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
+import { hasWorkspaceAccess } from "@/lib/domain/selectors"
 import { documentSchema } from "@/lib/domain/types"
 import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 
-import { createId, getAttachmentTeamId, getNow } from "../helpers"
+import { createId, getNow } from "../helpers"
 import { waitForPendingWorkItemCreation } from "../pending-work-item-creations"
 import {
   canEditWorkspaceDocuments,
@@ -32,19 +33,332 @@ const MAX_ATTACHMENT_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024
 const DEFAULT_ATTACHMENT_CONTENT_TYPE = "application/octet-stream"
 
 type AttachmentUploadTargetType = Parameters<WorkSlice["uploadAttachment"]>[0]
+type SaveWorkItemMainSectionInput = Parameters<
+  WorkSlice["saveWorkItemMainSection"]
+>[0]
+type WorkDocumentRuntime = WorkSliceFactoryArgs["runtime"]
+type WorkDocumentSet = WorkSliceFactoryArgs["set"]
+type WorkDocumentGet = WorkSliceFactoryArgs["get"]
+type WorkItemRecord = AppStore["workItems"][number]
+type DocumentRecord = AppStore["documents"][number]
 
 type AttachmentUploadValidationResult =
   | {
       ok: true
-      teamId: string
+      teamId: string | null
     }
   | {
       ok: false
       message: string
     }
 
+type SaveWorkItemMainSectionTarget =
+  | {
+      ok: true
+      descriptionDocument: DocumentRecord
+      item: WorkItemRecord
+      normalizedTitle: string
+    }
+  | {
+      ok: false
+      message: string
+    }
+
+type WorkItemMainSectionChanges = {
+  descriptionChanged: boolean
+  titleChanged: boolean
+}
+
 function getAttachmentContentType(file: File) {
   return file.type || DEFAULT_ATTACHMENT_CONTENT_TYPE
+}
+
+function canEditPrivateWorkItem(
+  state: AppStore,
+  item: AppStore["workItems"][number]
+) {
+  const workspaceId = item.workspaceId ?? null
+
+  if (!workspaceId) {
+    return false
+  }
+
+  return (
+    item.creatorId === state.currentUserId &&
+    hasWorkspaceAccess(state, workspaceId, state.currentUserId)
+  )
+}
+
+function canEditWorkItemMainSection(state: AppStore, item: WorkItemRecord) {
+  if ((item.visibility ?? "team") === "private") {
+    return canEditPrivateWorkItem(state, item)
+  }
+
+  return !["viewer", "guest", null].includes(effectiveRole(state, item.teamId))
+}
+
+function getWorkItemMainSectionValidationMessage(
+  state: AppStore,
+  item: WorkItemRecord,
+  normalizedTitle: string
+) {
+  return getWorkItemValidationMessage(state, {
+    teamId: item.teamId,
+    type: item.type,
+    title: normalizedTitle,
+    priority: item.priority,
+    assigneeId: item.assigneeId,
+    assigneeIds: getWorkItemAssigneeIds(item),
+    parentId: item.parentId,
+    primaryProjectId: item.primaryProjectId,
+    labelIds: item.labelIds,
+    visibility: item.visibility ?? "team",
+    workspaceId: item.workspaceId ?? null,
+    currentItemId: item.id,
+  })
+}
+
+function resolveWorkItemMainSectionTarget(
+  state: AppStore,
+  input: SaveWorkItemMainSectionInput
+): SaveWorkItemMainSectionTarget {
+  const item = state.workItems.find((entry) => entry.id === input.itemId)
+
+  if (!item) {
+    return { ok: false, message: "Work item not found" }
+  }
+
+  if (!canEditWorkItemMainSection(state, item)) {
+    return { ok: false, message: "Your current role is read-only" }
+  }
+
+  const normalizedTitle = input.title.trim()
+  const validationMessage = getWorkItemMainSectionValidationMessage(
+    state,
+    item,
+    normalizedTitle
+  )
+
+  if (validationMessage) {
+    return { ok: false, message: validationMessage }
+  }
+
+  const descriptionDocument = state.documents.find(
+    (document) => document.id === item.descriptionDocId
+  )
+
+  return descriptionDocument
+    ? { ok: true, descriptionDocument, item, normalizedTitle }
+    : { ok: false, message: "Work item description document not found" }
+}
+
+function getWorkItemMainSectionChanges(
+  input: SaveWorkItemMainSectionInput,
+  target: Extract<SaveWorkItemMainSectionTarget, { ok: true }>
+): WorkItemMainSectionChanges {
+  return {
+    descriptionChanged:
+      input.description !== target.descriptionDocument.content,
+    titleChanged: target.normalizedTitle !== target.item.title,
+  }
+}
+
+function hasWorkItemMainSectionChanges(changes: WorkItemMainSectionChanges) {
+  return changes.descriptionChanged || changes.titleChanged
+}
+
+function getWorkItemMainSectionConflictMessage(
+  item: WorkItemRecord,
+  input: SaveWorkItemMainSectionInput
+) {
+  return item.updatedAt === input.expectedUpdatedAt
+    ? null
+    : "This work item changed while you were editing. Review the latest version and try again."
+}
+
+function applyOptimisticWorkItemMainSectionUpdate({
+  changes,
+  input,
+  normalizedTitle,
+  set,
+  target,
+  updatedAt,
+}: {
+  changes: WorkItemMainSectionChanges
+  input: SaveWorkItemMainSectionInput
+  normalizedTitle: string
+  set: WorkDocumentSet
+  target: Extract<SaveWorkItemMainSectionTarget, { ok: true }>
+  updatedAt: string
+}) {
+  set((current) => ({
+    documents: current.documents.map((document) =>
+      document.id === target.item.descriptionDocId
+        ? {
+            ...document,
+            ...(changes.descriptionChanged
+              ? { content: input.description }
+              : {}),
+            ...(changes.titleChanged
+              ? { title: `${normalizedTitle} description` }
+              : {}),
+            updatedAt,
+            updatedBy: current.currentUserId,
+          }
+        : document
+    ),
+    workItems: current.workItems.map((entry) =>
+      entry.id === target.item.id
+        ? {
+            ...entry,
+            title: normalizedTitle,
+            updatedAt,
+          }
+        : entry
+    ),
+  }))
+}
+
+function restoreWorkItemMainSectionSnapshot({
+  previousDescriptionDocument,
+  previousItem,
+  set,
+}: {
+  previousDescriptionDocument: DocumentRecord
+  previousItem: WorkItemRecord
+  set: WorkDocumentSet
+}) {
+  set((current) => ({
+    documents: current.documents.map((document) =>
+      document.id === previousDescriptionDocument.id
+        ? previousDescriptionDocument
+        : document
+    ),
+    workItems: current.workItems.map((entry) =>
+      entry.id === previousItem.id ? previousItem : entry
+    ),
+  }))
+}
+
+function getWorkItemMainSectionSyncPatch({
+  changes,
+  input,
+  normalizedTitle,
+}: {
+  changes: WorkItemMainSectionChanges
+  input: SaveWorkItemMainSectionInput
+  normalizedTitle: string
+}) {
+  return {
+    ...(changes.titleChanged ? { title: normalizedTitle } : {}),
+    ...(changes.descriptionChanged ? { description: input.description } : {}),
+    expectedUpdatedAt: input.expectedUpdatedAt,
+  }
+}
+
+function getWorkItemMainSectionSyncFailureMessage(error: unknown) {
+  return error instanceof RouteMutationError &&
+    error.code === "WORK_ITEM_EDIT_CONFLICT"
+    ? "This work item changed while you were editing. Review the latest version and try again."
+    : "Failed to save work item"
+}
+
+async function persistWorkItemMainSectionUpdate({
+  changes,
+  get,
+  input,
+  normalizedTitle,
+  runtime,
+  set,
+  target,
+}: {
+  changes: WorkItemMainSectionChanges
+  get: WorkDocumentGet
+  input: SaveWorkItemMainSectionInput
+  normalizedTitle: string
+  runtime: WorkDocumentRuntime
+  set: WorkDocumentSet
+  target: Extract<SaveWorkItemMainSectionTarget, { ok: true }>
+}) {
+  const updatedAt = getNow()
+  const previousItem = target.item
+  const previousDescriptionDocument = target.descriptionDocument
+
+  applyOptimisticWorkItemMainSectionUpdate({
+    changes,
+    input,
+    normalizedTitle,
+    set,
+    target,
+    updatedAt,
+  })
+
+  try {
+    await syncUpdateWorkItem(
+      get().currentUserId,
+      target.item.id,
+      getWorkItemMainSectionSyncPatch({ changes, input, normalizedTitle })
+    )
+
+    return true
+  } catch (error) {
+    restoreWorkItemMainSectionSnapshot({
+      previousDescriptionDocument,
+      previousItem,
+      set,
+    })
+
+    await runtime.handleSyncFailure(
+      error,
+      getWorkItemMainSectionSyncFailureMessage(error)
+    )
+    return false
+  }
+}
+
+function validateEditableAttachmentTarget(
+  state: AppStore,
+  targetType: AttachmentUploadTargetType,
+  targetId: string
+): AttachmentUploadValidationResult {
+  if (targetType === "workItem") {
+    const item = state.workItems.find((entry) => entry.id === targetId)
+
+    if (!item) {
+      return {
+        ok: false,
+        message: "Work item not found",
+      }
+    }
+
+    if ((item.visibility ?? "team") === "private") {
+      return canEditPrivateWorkItem(state, item)
+        ? { ok: true, teamId: null }
+        : {
+            ok: false,
+            message: "Your current role is read-only",
+          }
+    }
+
+    const role = effectiveRole(state, item.teamId)
+
+    return role === "viewer" || role === "guest" || !role
+      ? {
+          ok: false,
+          message: "Your current role is read-only",
+        }
+      : { ok: true, teamId: item.teamId }
+  }
+
+  const document = state.documents.find((entry) => entry.id === targetId)
+  const role = effectiveRole(state, document?.teamId)
+
+  return role === "viewer" || role === "guest" || !role
+    ? {
+        ok: false,
+        message: "Your current role is read-only",
+      }
+    : { ok: true, teamId: document?.teamId ?? null }
 }
 
 function validateAttachmentUpload(
@@ -53,16 +367,26 @@ function validateAttachmentUpload(
   targetId: string,
   file: File | null | undefined
 ): AttachmentUploadValidationResult {
-  const teamId = getAttachmentTeamId(state, targetType, targetId)
-  const role = effectiveRole(state, teamId)
+  const targetValidation = validateEditableAttachmentTarget(
+    state,
+    targetType,
+    targetId
+  )
 
-  if (role === "viewer" || role === "guest" || !role) {
-    return {
-      ok: false,
-      message: "Your current role is read-only",
-    }
+  if (!targetValidation.ok) {
+    return targetValidation
   }
 
+  const fileValidation = validateAttachmentFile(file)
+
+  return fileValidation.ok
+    ? { ok: true, teamId: targetValidation.teamId }
+    : fileValidation
+}
+
+function validateAttachmentFile(
+  file: File | null | undefined
+): AttachmentUploadValidationResult {
   if (!file || file.size <= 0) {
     return {
       ok: false,
@@ -79,7 +403,7 @@ function validateAttachmentUpload(
 
   return {
     ok: true,
-    teamId,
+    teamId: null,
   }
 }
 
@@ -111,7 +435,7 @@ function createOptimisticAttachmentRecord(input: {
   storageId: string
   targetId: string
   targetType: AttachmentUploadTargetType
-  teamId: string
+  teamId: string | null
 }): AppStore["attachments"][number] {
   return {
     id: input.attachmentId,
@@ -489,119 +813,38 @@ export function createWorkDocumentActions({
     },
     async saveWorkItemMainSection(input) {
       const state = get()
-      const item = state.workItems.find((entry) => entry.id === input.itemId)
+      const target = resolveWorkItemMainSectionTarget(state, input)
 
-      if (!item) {
-        toast.error("Work item not found")
+      if (!target.ok) {
+        toast.error(target.message)
         return false
       }
 
-      const role = effectiveRole(state, item.teamId)
+      const changes = getWorkItemMainSectionChanges(input, target)
 
-      if (role === "viewer" || role === "guest" || !role) {
-        toast.error("Your current role is read-only")
-        return false
+      if (!hasWorkItemMainSectionChanges(changes)) {
+        return true
       }
 
-      const normalizedTitle = input.title.trim()
-      const validationMessage = getWorkItemValidationMessage(state, {
-        teamId: item.teamId,
-        type: item.type,
-        title: normalizedTitle,
-        priority: item.priority,
-        assigneeId: item.assigneeId,
-        assigneeIds: getWorkItemAssigneeIds(item),
-        parentId: item.parentId,
-        primaryProjectId: item.primaryProjectId,
-        labelIds: item.labelIds,
-        currentItemId: item.id,
-      })
-
-      if (validationMessage) {
-        toast.error(validationMessage)
-        return false
-      }
-
-      const descriptionDocument = state.documents.find(
-        (document) => document.id === item.descriptionDocId
+      const conflictMessage = getWorkItemMainSectionConflictMessage(
+        target.item,
+        input
       )
 
-      if (!descriptionDocument) {
-        toast.error("Work item description document not found")
+      if (conflictMessage) {
+        toast.error(conflictMessage)
         return false
       }
 
-      const titleChanged = normalizedTitle !== item.title
-      const descriptionChanged =
-        input.description !== descriptionDocument.content
-      const previousItem = item
-      const previousDescriptionDocument = descriptionDocument
-
-      if (!titleChanged && !descriptionChanged) {
-        return true
-      }
-
-      if (item.updatedAt !== input.expectedUpdatedAt) {
-        toast.error(
-          "This work item changed while you were editing. Review the latest version and try again."
-        )
-        return false
-      }
-
-      const updatedAt = getNow()
-
-      set((current) => ({
-        documents: current.documents.map((document) =>
-          document.id === item.descriptionDocId
-            ? {
-                ...document,
-                content: input.description,
-                title: `${normalizedTitle} description`,
-                updatedAt,
-                updatedBy: current.currentUserId,
-              }
-            : document
-        ),
-        workItems: current.workItems.map((entry) =>
-          entry.id === item.id
-            ? {
-                ...entry,
-                title: normalizedTitle,
-                updatedAt,
-              }
-            : entry
-        ),
-      }))
-
-      try {
-        await syncUpdateWorkItem(get().currentUserId, item.id, {
-          ...(titleChanged ? { title: normalizedTitle } : {}),
-          ...(descriptionChanged ? { description: input.description } : {}),
-          expectedUpdatedAt: input.expectedUpdatedAt,
-        })
-
-        return true
-      } catch (error) {
-        set((current) => ({
-          documents: current.documents.map((document) =>
-            document.id === previousDescriptionDocument.id
-              ? previousDescriptionDocument
-              : document
-          ),
-          workItems: current.workItems.map((entry) =>
-            entry.id === previousItem.id ? previousItem : entry
-          ),
-        }))
-
-        const fallbackMessage =
-          error instanceof RouteMutationError &&
-          error.code === "WORK_ITEM_EDIT_CONFLICT"
-            ? "This work item changed while you were editing. Review the latest version and try again."
-            : "Failed to save work item"
-
-        await runtime.handleSyncFailure(error, fallbackMessage)
-        return false
-      }
+      return persistWorkItemMainSectionUpdate({
+        changes,
+        get,
+        input,
+        normalizedTitle: target.normalizedTitle,
+        runtime,
+        set,
+        target,
+      })
     },
     async uploadAttachment(targetType, targetId, file) {
       const state = get()
@@ -686,10 +929,14 @@ export function createWorkDocumentActions({
         return
       }
 
-      const role = effectiveRole(state, attachment.teamId)
+      const validation = validateEditableAttachmentTarget(
+        state,
+        attachment.targetType,
+        attachment.targetId
+      )
 
-      if (role === "viewer" || role === "guest" || !role) {
-        toast.error("Your current role is read-only")
+      if (!validation.ok) {
+        toast.error(validation.message)
         return
       }
 

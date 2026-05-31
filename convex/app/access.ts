@@ -63,15 +63,13 @@ export async function requireReadableTeamAccess(
 export type WorkItemAccessTarget = {
   assigneeId?: string | null
   creatorId?: string | null
-  teamId: string
+  teamId: string | null
   workspaceId?: string | null
   visibility?: "team" | "private" | null
 }
 
 function getPrivateWorkItemAccessUserIds(item: WorkItemAccessTarget) {
-  return [item.creatorId].filter((userId): userId is string =>
-    Boolean(userId)
-  )
+  return [item.creatorId].filter((userId): userId is string => Boolean(userId))
 }
 
 export function getWorkItemAudienceUserIds(
@@ -116,7 +114,7 @@ async function requirePrivateWorkItemAccessIfNeeded(
   }
 
   assertPrivateWorkItemAccess(item, userId)
-  const workspaceId = await resolvePrivateWorkItemWorkspaceId(ctx, item)
+  const workspaceId = resolvePrivateWorkItemWorkspaceId(item)
 
   if (!workspaceId) {
     throw new Error("Work item not found")
@@ -127,17 +125,8 @@ async function requirePrivateWorkItemAccessIfNeeded(
   return true
 }
 
-async function resolvePrivateWorkItemWorkspaceId(
-  ctx: AppCtx,
-  item: WorkItemAccessTarget
-) {
-  if (item.workspaceId) {
-    return item.workspaceId
-  }
-
-  const team = await getTeamDoc(ctx, item.teamId)
-
-  return team?.workspaceId ?? null
+function resolvePrivateWorkItemWorkspaceId(item: WorkItemAccessTarget) {
+  return item.workspaceId ?? null
 }
 
 export async function requireReadableWorkItemAccess(
@@ -147,6 +136,10 @@ export async function requireReadableWorkItemAccess(
 ) {
   if (await requirePrivateWorkItemAccessIfNeeded(ctx, item, userId)) {
     return
+  }
+
+  if (!item.teamId) {
+    throw new Error("Team not found")
   }
 
   await requireReadableTeamAccess(ctx, item.teamId, userId)
@@ -159,6 +152,10 @@ export async function requireEditableWorkItemAccess(
 ) {
   if (await requirePrivateWorkItemAccessIfNeeded(ctx, item, userId)) {
     return
+  }
+
+  if (!item.teamId) {
+    throw new Error("Team not found")
   }
 
   await requireEditableTeamAccess(ctx, item.teamId, userId)

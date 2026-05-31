@@ -16,7 +16,10 @@ import {
   formatLocalCalendarDate,
   shiftCalendarDate,
 } from "@/lib/calendar-date"
-import { getLabelsForWorkspace, hasWorkspaceAccess } from "@/lib/domain/selectors"
+import {
+  getLabelsForWorkspace,
+  hasWorkspaceAccess,
+} from "@/lib/domain/selectors"
 import {
   formatWorkItemKey,
   PRIVATE_WORK_ITEM_KEY_PREFIX,
@@ -98,6 +101,10 @@ function getCreateWorkItemScopeAccessError(input: {
   workspaceId: string
 }) {
   if (input.isPrivate) {
+    if (input.input.teamId) {
+      return "Private tasks cannot belong to a team"
+    }
+
     return hasWorkspaceAccess(
       input.state,
       input.workspaceId,
@@ -111,7 +118,9 @@ function getCreateWorkItemScopeAccessError(input: {
     return "Team not found"
   }
 
-  const role = effectiveRole(input.state, input.input.teamId)
+  const role = input.input.teamId
+    ? effectiveRole(input.state, input.input.teamId)
+    : null
 
   return role === "viewer" || role === "guest" || !role
     ? "Your current role is read-only"
@@ -126,8 +135,10 @@ function getCreateWorkItemScopeItems(
   return state.workItems.filter((item) =>
     isPrivate
       ? (item.visibility ?? "team") === "private" &&
-        item.creatorId === state.currentUserId
-      : item.teamId === input.teamId && (item.visibility ?? "team") !== "private"
+        item.creatorId === state.currentUserId &&
+        item.workspaceId === input.workspaceId
+      : item.teamId === input.teamId &&
+        (item.visibility ?? "team") !== "private"
   )
 }
 
@@ -144,6 +155,26 @@ function getCreateWorkItemPrimaryProjectId(
 }
 
 function canDeleteWorkItem(state: AppStore, deletionPlan: WorkItemDeletePlan) {
+  if ((deletionPlan.item.visibility ?? "team") === "private") {
+    const workspaceId = deletionPlan.item.workspaceId ?? null
+
+    if (
+      deletionPlan.item.creatorId === state.currentUserId &&
+      workspaceId &&
+      hasWorkspaceAccess(state, workspaceId, state.currentUserId)
+    ) {
+      return true
+    }
+
+    toast.error("Work item not found")
+    return false
+  }
+
+  if (!deletionPlan.item.teamId) {
+    toast.error("Team not found")
+    return false
+  }
+
   const role = effectiveRole(state, deletionPlan.item.teamId)
 
   if (role === "viewer" || role === "guest" || !role) {
@@ -222,9 +253,13 @@ function resolveCreateWorkItemScope(
   state: AppStore,
   input: CreateWorkItemInput
 ): CreateWorkItemScope | null {
-  const team = state.teams.find((entry) => entry.id === input.teamId) ?? null
   const isPrivate = input.visibility === "private"
-  const workspaceId = team?.workspaceId ?? state.currentWorkspaceId
+  const team = input.teamId
+    ? (state.teams.find((entry) => entry.id === input.teamId) ?? null)
+    : null
+  const workspaceId = isPrivate
+    ? (input.workspaceId ?? "")
+    : (team?.workspaceId ?? "")
   const accessError = getCreateWorkItemScopeAccessError({
     input,
     isPrivate,
@@ -246,7 +281,7 @@ function resolveCreateWorkItemScope(
   return {
     keyPrefix: isPrivate
       ? PRIVATE_WORK_ITEM_KEY_PREFIX
-      : toTeamKeyPrefix(team?.name, input.teamId),
+      : toTeamKeyPrefix(team?.name, input.teamId ?? ""),
     nextNumber: isPrivate ? teamItems.length + 1 : 1 + teamItems.length + 100,
     parent,
     resolvedPrimaryProjectId: getCreateWorkItemPrimaryProjectId(
@@ -275,7 +310,7 @@ function buildOptimisticDescriptionDocument(input: {
     teamId:
       input.parsedInput.visibility === "private"
         ? null
-        : input.parsedInput.teamId,
+        : (input.parsedInput.teamId ?? null),
     title: `${input.title} description`,
     content: "<p></p>",
     linkedProjectIds: input.scope.resolvedPrimaryProjectId
@@ -303,7 +338,7 @@ function buildOptimisticWorkItem(input: {
   return {
     id: input.itemId,
     key: formatWorkItemKey(input.scope.keyPrefix, input.scope.nextNumber),
-    teamId: input.parsedInput.teamId,
+    teamId: isPrivate ? null : (input.parsedInput.teamId ?? null),
     workspaceId: input.scope.workspaceId,
     type: input.parsedInput.type,
     title: input.parsedInput.title,
@@ -318,7 +353,7 @@ function buildOptimisticWorkItem(input: {
     primaryProjectId: isPrivate ? null : input.scope.resolvedPrimaryProjectId,
     linkedProjectIds: [],
     linkedDocumentIds: [],
-    labelIds: input.parsedInput.labelIds ?? [],
+    labelIds: isPrivate ? [] : (input.parsedInput.labelIds ?? []),
     visibility: input.parsedInput.visibility ?? "team",
     milestoneId: null,
     startDate: input.dates.startDate,
@@ -472,11 +507,13 @@ function getEffectiveLocalWorkItemPatch(
   const privatePatch = { ...rawLocalPatch }
   delete privatePatch.assigneeId
   delete privatePatch.assigneeIds
+  delete privatePatch.labelIds
   delete privatePatch.primaryProjectId
 
   return {
     ...privatePatch,
     ...getWorkItemAssigneeFields([]),
+    labelIds: [],
     primaryProjectId: null,
   }
 }
@@ -492,6 +529,7 @@ function getProjectTemplateValidationMessageForWorkItemUpdate(
 ) {
   if (
     isPrivateWorkItem(existing) ||
+    !existing.teamId ||
     !input.resolvedPrimaryProjectId ||
     !input.shouldCascadeProjectLink
   ) {
@@ -585,6 +623,7 @@ function getUpdatedWorkItemValidationInput(input: {
 
   return {
     teamId: existing.teamId,
+    workspaceId: existing.workspaceId,
     type: existing.type,
     title: localPatch.title ?? existing.title,
     priority: localPatch.priority ?? existing.priority,
@@ -596,7 +635,9 @@ function getUpdatedWorkItemValidationInput(input: {
       existing,
       resolvedPrimaryProjectId
     ),
-    labelIds: getPatchValue(localPatch.labelIds, existing.labelIds),
+    labelIds: isPrivate
+      ? []
+      : getPatchValue(localPatch.labelIds, existing.labelIds),
     startDate: getPatchValue(localPatch.startDate, existing.startDate),
     targetDate: getPatchValue(localPatch.targetDate, existing.targetDate),
     startTime: getPatchValue(localPatch.startTime, existing.startTime),
@@ -986,8 +1027,7 @@ export function createWorkItemActions({
       const existing = getLabelsForWorkspace(get(), resolvedWorkspaceId).find(
         (label) =>
           (label.scopeType ?? "workspace") === scopeType &&
-          (label.ownerId ?? null) ===
-            (scopeType === "private" ? get().currentUserId : null) &&
+          (label.ownerId ?? null) === null &&
           label.name.toLowerCase() === normalizedName.toLowerCase()
       )
 

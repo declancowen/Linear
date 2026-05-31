@@ -246,10 +246,7 @@ function getPersonTeamIds(
     .filter((membership) => {
       const team = accessibleTeamsById.get(membership.teamId)
 
-      return (
-        membership.userId === personId &&
-        team?.workspaceId === workspaceId
-      )
+      return membership.userId === personId && team?.workspaceId === workspaceId
     })
     .map((membership) => membership.teamId)
 }
@@ -480,14 +477,23 @@ export function getWorkspaceSearchIndex(data: AppData): WorkspaceSearchIndex {
       )
     }),
     ...items.map((item) => {
-      const team = accessibleTeamsById.get(item.teamId) ?? null
+      const isPrivateItem = (item.visibility ?? "team") === "private"
+      const team = item.teamId
+        ? (accessibleTeamsById.get(item.teamId) ?? null)
+        : null
+      const contextLabel = isPrivateItem
+        ? "Private tasks"
+        : (team?.name ?? "Team")
+      const experience = isPrivateItem
+        ? "project-management"
+        : team?.settings.experience
 
       return toSearchIndexEntry(
         {
           id: `item-${item.id}`,
           kind: "item" as const,
           title: `${item.key} · ${item.title}`,
-          subtitle: `${statusMeta[item.status].label} · ${team?.name ?? "Team"} · ${getDisplayLabelForWorkItemType(item.type, team?.settings.experience)}`,
+          subtitle: `${statusMeta[item.status].label} · ${contextLabel} · ${getDisplayLabelForWorkItemType(item.type, experience)}`,
           href: `/items/${item.id}`,
           keywords: [
             item.id,
@@ -501,11 +507,11 @@ export function getWorkspaceSearchIndex(data: AppData): WorkspaceSearchIndex {
               (assigneeId) => usersById.get(assigneeId)?.name ?? ""
             ),
           ],
-          teamId: item.teamId,
+          teamId: isPrivateItem ? null : item.teamId,
           status: item.status,
           priority: item.priority,
         },
-        teamSearchTexts.get(item.teamId) ?? null
+        item.teamId ? (teamSearchTexts.get(item.teamId) ?? null) : null
       )
     }),
   ]

@@ -25,6 +25,7 @@ import {
   getTeam,
   getTeamMembers,
   getUser,
+  hasWorkspaceAccess,
 } from "@/lib/domain/selectors"
 import {
   getDisplayLabelForWorkItemType,
@@ -356,14 +357,27 @@ function IssueActionMenuContent({
   >["requestUpdate"]
 }) {
   const team = getTeam(data, item.teamId)
-  const editable = team ? canEditTeam(data, team.id) : false
+  const workspaceId =
+    item.visibility === "private"
+      ? (item.workspaceId ?? null)
+      : (item.workspaceId ?? team?.workspaceId ?? null)
+  const isPrivateItem = item.visibility === "private"
+  const editable = isPrivateItem
+    ? item.creatorId === data.currentUserId &&
+      Boolean(
+        workspaceId && hasWorkspaceAccess(data, workspaceId, data.currentUserId)
+      )
+    : canEditTeam(data, team?.id)
   const itemLabel = getDisplayLabelForWorkItemType(
     item.type,
-    team?.settings.experience
+    isPrivateItem ? "project-management" : team?.settings.experience
   ).toLowerCase()
-  const teamMembers = team ? getTeamMembers(data, team.id) : []
+  const teamMembers = isPrivateItem
+    ? []
+    : team
+      ? getTeamMembers(data, team.id)
+      : []
   const currentUser = getUser(data, data.currentUserId) ?? null
-  const isPrivateItem = item.visibility === "private"
   const assigneeMenuMembers = teamMembers.filter(
     (member) => member.id !== data.currentUserId
   )

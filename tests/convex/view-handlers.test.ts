@@ -231,7 +231,7 @@ describe("view handlers", () => {
     })
   })
 
-  it("rejects private custom properties owned by another user in personal work views", async () => {
+  it("rejects legacy private custom properties in personal work views", async () => {
     const { toggleViewDisplayPropertyHandler } =
       await import("@/convex/app/view_handlers")
     const ctx = createCtx()
@@ -239,7 +239,7 @@ describe("view handlers", () => {
     mockPersonalWorkView()
     mockWorkItemCustomPropertyDefinition({
       scopeType: "private",
-      ownerId: "user_2",
+      ownerId: "user_1",
     })
 
     await expect(

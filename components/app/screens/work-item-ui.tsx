@@ -124,13 +124,17 @@ export function WorkItemTypeBadge({
   className?: string
 }) {
   const team = getTeam(data, item.teamId)
+  const experience =
+    (item.visibility ?? "team") === "private"
+      ? "project-management"
+      : team?.settings.experience
 
   return (
     <Badge
       variant="outline"
       className={cn("h-4 px-1.5 py-0 text-[10px]", className)}
     >
-      {getDisplayLabelForWorkItemType(item.type, team?.settings.experience)}
+      {getDisplayLabelForWorkItemType(item.type, experience)}
     </Badge>
   )
 }
@@ -535,28 +539,46 @@ export function CommentsInline({
       }
     })
   )
-  const targetTeamId = useMemo(
+  const targetWorkItem = useMemo(
     () =>
       targetType === "workItem"
-        ? (workItems.find((item) => item.id === targetId)?.teamId ?? null)
+        ? (workItems.find((item) => item.id === targetId) ?? null)
+        : null,
+    [targetId, targetType, workItems]
+  )
+  const targetTeamId = useMemo(
+    () =>
+      targetWorkItem
+        ? targetWorkItem.teamId
         : (documents.find((document) => document.id === targetId)?.teamId ??
           null),
-    [documents, targetId, targetType, workItems]
+    [documents, targetId, targetWorkItem]
   )
+  const isPrivateWorkItemCommentSurface =
+    targetWorkItem?.visibility === "private"
   const comments = useMemo(
     () =>
-      allComments
-        .filter(
-          (comment) =>
-            comment.targetType === targetType && comment.targetId === targetId
-        )
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
-    [allComments, targetId, targetType]
+      isPrivateWorkItemCommentSurface
+        ? []
+        : allComments
+            .filter(
+              (comment) =>
+                comment.targetType === targetType &&
+                comment.targetId === targetId
+            )
+            .sort((left, right) =>
+              left.createdAt.localeCompare(right.createdAt)
+            ),
+    [allComments, isPrivateWorkItemCommentSurface, targetId, targetType]
   )
   const mentionCandidates = useMemo(() => {
     const candidateUsers = users.filter(
       (candidate) => candidate.id !== currentUserId
     )
+
+    if (targetWorkItem?.visibility === "private") {
+      return []
+    }
 
     if (!targetTeamId) {
       return candidateUsers
@@ -569,7 +591,13 @@ export function CommentsInline({
     )
 
     return candidateUsers.filter((candidate) => memberIds.has(candidate.id))
-  }, [currentUserId, targetTeamId, teamMemberships, users])
+  }, [
+    currentUserId,
+    targetTeamId,
+    targetWorkItem?.visibility,
+    teamMemberships,
+    users,
+  ])
   const usersById = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
     [users]
@@ -586,6 +614,10 @@ export function CommentsInline({
     handleComment,
     setContent,
   } = useCommentComposer(targetType, targetId)
+
+  if (isPrivateWorkItemCommentSurface) {
+    return null
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -787,7 +819,7 @@ function useInlineChildComposerData({
   teamId,
 }: {
   parentItem: WorkItem
-  teamId: string
+  teamId: string | null
 }) {
   const { projects, teamMemberships, teams, users } = useAppStore(
     useShallow((state) => ({
@@ -798,16 +830,21 @@ function useInlineChildComposerData({
     }))
   )
   const team = useMemo(
-    () => teams.find((entry) => entry.id === teamId) ?? null,
+    () =>
+      teamId ? (teams.find((entry) => entry.id === teamId) ?? null) : null,
     [teamId, teams]
   )
   const teamMembers = useMemo(() => {
+    if (!teamId || (parentItem.visibility ?? "team") === "private") {
+      return []
+    }
+
     return getUsersForTeamMemberships({
       teamId,
       teamMemberships,
       users,
     })
-  }, [teamId, teamMemberships, users])
+  }, [parentItem.visibility, teamId, teamMemberships, users])
   const teamProjects = useMemo(() => {
     return getInlineChildTeamProjects({ parentItem, projects, teamId })
   }, [parentItem, projects, teamId])
@@ -1002,7 +1039,7 @@ export function InlineChildIssueComposer({
   onCancel,
   onCreated,
 }: {
-  teamId: string
+  teamId: string | null
   parentItem: WorkItem
   disabled: boolean
   onCancel: () => void
@@ -1012,13 +1049,17 @@ export function InlineChildIssueComposer({
     parentItem,
     teamId,
   })
-  const childCopy = getChildWorkItemCopy(
-    parentItem.type,
-    team?.settings.experience
-  )
+  const isPrivateTask = (parentItem.visibility ?? "team") === "private"
+  const parentWorkspaceId = isPrivateTask
+    ? (parentItem.workspaceId ?? null)
+    : (parentItem.workspaceId ?? team?.workspaceId ?? null)
+  const teamExperience = isPrivateTask
+    ? "project-management"
+    : team?.settings.experience
+  const childCopy = getChildWorkItemCopy(parentItem.type, teamExperience)
   const teamStatuses = getStatusOrderForTeam(team)
   const draft = useInlineChildIssueDraft({
-    teamExperience: team?.settings.experience,
+    teamExperience,
     teamStatuses,
   })
   const model = getInlineChildIssueComposerModel({
@@ -1065,6 +1106,7 @@ export function InlineChildIssueComposer({
       selectedType: model.selectedType,
       status: draft.status,
       teamId,
+      workspaceId: parentWorkspaceId,
     })
 
     if (!createdItemId) {

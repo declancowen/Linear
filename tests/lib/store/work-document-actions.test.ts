@@ -160,9 +160,8 @@ async function createWorkDocumentActionsHarness(
     refreshFromServer?: ReturnType<typeof vi.fn>
   } = {}
 ) {
-  const { createWorkDocumentActions } = await import(
-    "@/lib/store/app-store-internal/slices/work-document-actions"
-  )
+  const { createWorkDocumentActions } =
+    await import("@/lib/store/app-store-internal/slices/work-document-actions")
   let state = initialState
   const handleSyncFailureMock = runtimeOverrides.handleSyncFailure ?? vi.fn()
   const queueRichTextSyncMock = runtimeOverrides.queueRichTextSync ?? vi.fn()
@@ -198,7 +197,9 @@ async function createWorkDocumentActionsHarness(
   }
 }
 
-function getQueuedRichTextSyncTask(queueRichTextSyncMock: ReturnType<typeof vi.fn>) {
+function getQueuedRichTextSyncTask(
+  queueRichTextSyncMock: ReturnType<typeof vi.fn>
+) {
   return queueRichTextSyncMock.mock.calls[0]?.[1] as ActiveSyncTask | undefined
 }
 
@@ -505,6 +506,35 @@ describe("work document actions", () => {
     )
   })
 
+  it("fails closed for private main-section saves without an item workspace", async () => {
+    const state = createState()
+    state.workItems = state.workItems.map((item) =>
+      item.id === "item_1"
+        ? {
+            ...item,
+            teamId: null,
+            workspaceId: null,
+            visibility: "private" as const,
+            creatorId: "user_1",
+          }
+        : item
+    ) as typeof state.workItems
+    const harness = await createWorkDocumentActionsHarness(state)
+
+    const saved = await harness.actions.saveWorkItemMainSection({
+      itemId: "item_1",
+      title: "Private edit",
+      description: "<p>Private details</p>",
+      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+    })
+
+    expect(saved).toBe(false)
+    expect(syncUpdateWorkItemMock).not.toHaveBeenCalled()
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Your current role is read-only"
+    )
+  })
+
   it("sends the last known server version for document body syncs", async () => {
     syncUpdateDocumentContentMock.mockResolvedValue({
       ok: true,
@@ -554,7 +584,10 @@ describe("work document actions", () => {
     waitForPendingWorkItemCreationMock.mockReturnValue(null)
     const harness = await createWorkDocumentActionsHarness()
 
-    harness.actions.updateItemDescription("item_1", "<p>Updated item description</p>")
+    harness.actions.updateItemDescription(
+      "item_1",
+      "<p>Updated item description</p>"
+    )
 
     expect(
       harness.state.documents.find((document) => document.id === "document_1")
@@ -648,11 +681,12 @@ describe("work document actions", () => {
     expect(cancelRichTextSyncMock).toHaveBeenCalledWith("document:document_1")
     expect(queueRichTextSyncMock).not.toHaveBeenCalled()
     expect(syncRenameDocumentMock).not.toHaveBeenCalled()
-    expect(state.documents.find((document) => document.id === "document_1"))
-      .toMatchObject({
-        title: "Metadata-only collaborative rename",
-        content: "<h1>Spec</h1>",
-      })
+    expect(
+      state.documents.find((document) => document.id === "document_1")
+    ).toMatchObject({
+      title: "Metadata-only collaborative rename",
+      content: "<h1>Spec</h1>",
+    })
   })
 
   it("renames document metadata without rewriting the body content", async () => {
@@ -719,7 +753,10 @@ describe("work document actions", () => {
     })
     const harness = await createWorkDocumentActionsHarness()
 
-    harness.actions.updateItemDescription("item_1", "<p>Queued after create</p>")
+    harness.actions.updateItemDescription(
+      "item_1",
+      "<p>Queued after create</p>"
+    )
 
     const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
     const taskPromise = queuedTask?.(ACTIVE_SYNC_CONTEXT)

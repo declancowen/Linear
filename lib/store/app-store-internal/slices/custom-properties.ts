@@ -24,10 +24,77 @@ type CustomPropertySlice = Pick<
   | "setCustomPropertyValue"
 >
 
-function canEditCustomProperties(state: AppStore, teamId: string) {
+function canEditCustomProperties(
+  state: AppStore,
+  teamId: string | null | undefined
+) {
   const role = effectiveRole(state, teamId)
 
   return role === "admin" || role === "member"
+}
+
+function getEditableCustomPropertyDefinition(
+  state: AppStore,
+  propertyId: string
+) {
+  const definition = state.customPropertyDefinitions.find(
+    (entry) => entry.id === propertyId
+  )
+
+  if (!definition) {
+    return { ok: false as const, message: "Property not found" }
+  }
+
+  if (!canEditCustomProperties(state, definition.teamId)) {
+    return { ok: false as const, message: "Your current role is read-only" }
+  }
+
+  return { ok: true as const, definition }
+}
+
+function getEditableCustomPropertyValueTarget(
+  state: AppStore,
+  workItemId: string,
+  propertyId: string
+) {
+  const item = state.workItems.find((entry) => entry.id === workItemId)
+  const definition = state.customPropertyDefinitions.find(
+    (entry) => entry.id === propertyId && !entry.isArchived
+  )
+
+  if (
+    !item ||
+    !definition ||
+    !isCustomPropertyDefinitionForWorkItem(
+      definition,
+      item,
+      state.currentUserId
+    )
+  ) {
+    return { ok: false as const, message: "Property not found" }
+  }
+
+  if (!canEditCustomProperties(state, item.teamId)) {
+    return { ok: false as const, message: "Your current role is read-only" }
+  }
+
+  return { ok: true as const, definition, item }
+}
+
+function hasDuplicateCustomPropertyDefinition(input: {
+  state: AppStore
+  teamId: string
+  name: string
+}) {
+  const normalizedName = input.name.trim().toLowerCase()
+
+  return input.state.customPropertyDefinitions.some(
+    (definition) =>
+      !definition.isArchived &&
+      definition.teamId === input.teamId &&
+      (definition.scopeType ?? "team") === "team" &&
+      definition.name.trim().toLowerCase() === normalizedName
+  )
 }
 
 export function createCustomPropertySlice(
@@ -50,7 +117,6 @@ export function createCustomPropertySlice(
 
       const state = get()
       const team = state.teams.find((entry) => entry.id === parsed.data.teamId)
-      const scopeType = parsed.data.scopeType ?? "team"
 
       if (!team) {
         toast.error("Team not found")
@@ -62,18 +128,13 @@ export function createCustomPropertySlice(
         return null
       }
 
-      const duplicate = state.customPropertyDefinitions.find(
-        (definition) =>
-          !definition.isArchived &&
-          definition.teamId === team.id &&
-          (definition.scopeType ?? "team") === scopeType &&
-          (definition.ownerId ?? null) ===
-            (scopeType === "private" ? state.currentUserId : null) &&
-          definition.name.trim().toLowerCase() ===
-            parsed.data.name.trim().toLowerCase()
-      )
-
-      if (duplicate) {
+      if (
+        hasDuplicateCustomPropertyDefinition({
+          state,
+          teamId: team.id,
+          name: parsed.data.name,
+        })
+      ) {
         toast.error("A property with this name already exists")
         return null
       }
@@ -83,8 +144,8 @@ export function createCustomPropertySlice(
         id: createId("property"),
         workspaceId: team.workspaceId,
         teamId: team.id,
-        scopeType,
-        ownerId: scopeType === "private" ? state.currentUserId : null,
+        scopeType: "team" as const,
+        ownerId: null,
         targetType: "workItem" as const,
         name: parsed.data.name.trim(),
         icon: parsed.data.icon,
@@ -104,7 +165,11 @@ export function createCustomPropertySlice(
       }))
 
       try {
-        const result = await syncCreateCustomPropertyDefinition(parsed.data)
+        const { scopeType, ...parsedProperty } = parsed.data
+        const result = await syncCreateCustomPropertyDefinition({
+          ...parsedProperty,
+          ...(scopeType === "team" ? { scopeType } : {}),
+        })
 
         if (result?.property && typeof result.property === "object") {
           await runtime.refreshFromServer()
@@ -126,18 +191,10 @@ export function createCustomPropertySlice(
       }
     },
     async updateCustomPropertyDefinition(propertyId, patch) {
-      const state = get()
-      const definition = state.customPropertyDefinitions.find(
-        (entry) => entry.id === propertyId
-      )
+      const validation = getEditableCustomPropertyDefinition(get(), propertyId)
 
-      if (!definition) {
-        toast.error("Property not found")
-        return false
-      }
-
-      if (!canEditCustomProperties(state, definition.teamId)) {
-        toast.error("Your current role is read-only")
+      if (!validation.ok) {
+        toast.error(validation.message)
         return false
       }
 
@@ -200,27 +257,14 @@ export function createCustomPropertySlice(
       }
     },
     setCustomPropertyValue(workItemId, propertyId, value) {
-      const state = get()
-      const item = state.workItems.find((entry) => entry.id === workItemId)
-      const definition = state.customPropertyDefinitions.find(
-        (entry) => entry.id === propertyId && !entry.isArchived
+      const target = getEditableCustomPropertyValueTarget(
+        get(),
+        workItemId,
+        propertyId
       )
 
-      if (
-        !item ||
-        !definition ||
-        !isCustomPropertyDefinitionForWorkItem(
-          definition,
-          item,
-          state.currentUserId
-        )
-      ) {
-        toast.error("Property not found")
-        return
-      }
-
-      if (!canEditCustomProperties(state, item.teamId)) {
-        toast.error("Your current role is read-only")
+      if (!target.ok) {
+        toast.error(target.message)
         return
       }
 
@@ -258,8 +302,8 @@ export function createCustomPropertySlice(
           customPropertyValues: [
             {
               id: createId("property_value"),
-              workspaceId: definition.workspaceId,
-              teamId: definition.teamId,
+              workspaceId: target.definition.workspaceId,
+              teamId: target.definition.teamId,
               workItemId,
               propertyId,
               value,

@@ -69,13 +69,15 @@ describe("workspace access helpers", () => {
   })
 
   it("allows only private work item creators through item-level edit access", async () => {
-    const { requireEditableWorkItemAccess } = await import("@/convex/app/access")
+    const { requireEditableWorkItemAccess } =
+      await import("@/convex/app/access")
 
     await expect(
       requireEditableWorkItemAccess(
         {} as never,
         {
-          teamId: "team_1",
+          teamId: null,
+          workspaceId: "workspace_1",
           visibility: "private",
           creatorId: "user_1",
           assigneeId: null,
@@ -88,7 +90,8 @@ describe("workspace access helpers", () => {
       requireEditableWorkItemAccess(
         {} as never,
         {
-          teamId: "team_1",
+          teamId: null,
+          workspaceId: "workspace_1",
           visibility: "private",
           creatorId: "user_1",
           assigneeId: "user_2",
@@ -99,13 +102,15 @@ describe("workspace access helpers", () => {
   })
 
   it("rejects private work item edits from other team editors", async () => {
-    const { requireEditableWorkItemAccess } = await import("@/convex/app/access")
+    const { requireEditableWorkItemAccess } =
+      await import("@/convex/app/access")
 
     await expect(
       requireEditableWorkItemAccess(
         {} as never,
         {
-          teamId: "team_1",
+          teamId: null,
+          workspaceId: "workspace_1",
           visibility: "private",
           creatorId: "user_1",
           assigneeId: null,
@@ -115,8 +120,9 @@ describe("workspace access helpers", () => {
     ).rejects.toThrow("Work item not found")
   })
 
-  it("requires workspace access for legacy private work items", async () => {
-    const { requireEditableWorkItemAccess } = await import("@/convex/app/access")
+  it("requires workspace access for private work items", async () => {
+    const { requireEditableWorkItemAccess } =
+      await import("@/convex/app/access")
 
     getWorkspaceRoleMapForUserMock.mockResolvedValue({})
 
@@ -124,7 +130,8 @@ describe("workspace access helpers", () => {
       requireEditableWorkItemAccess(
         {} as never,
         {
-          teamId: "team_1",
+          teamId: null,
+          workspaceId: "workspace_1",
           visibility: "private",
           creatorId: "user_1",
           assigneeId: null,
@@ -133,11 +140,12 @@ describe("workspace access helpers", () => {
       )
     ).rejects.toThrow("You do not have access to this workspace")
 
-    expect(getTeamDocMock).toHaveBeenCalledWith({}, "team_1")
+    expect(getTeamDocMock).not.toHaveBeenCalled()
   })
 
-  it("rejects legacy private work items with unresolved workspace", async () => {
-    const { requireEditableWorkItemAccess } = await import("@/convex/app/access")
+  it("rejects private work items without a workspace", async () => {
+    const { requireEditableWorkItemAccess } =
+      await import("@/convex/app/access")
 
     getTeamDocMock.mockResolvedValue(null)
 
@@ -145,7 +153,8 @@ describe("workspace access helpers", () => {
       requireEditableWorkItemAccess(
         {} as never,
         {
-          teamId: "team_removed",
+          teamId: null,
+          workspaceId: null,
           visibility: "private",
           creatorId: "user_1",
           assigneeId: null,
@@ -156,19 +165,19 @@ describe("workspace access helpers", () => {
   })
 
   it("routes item-description document edits through private work item access", async () => {
-    const { requireEditableDocumentAccess } = await import(
-      "@/convex/app/access"
-    )
+    const { requireEditableDocumentAccess } =
+      await import("@/convex/app/access")
     const document = {
       id: "doc_1",
       kind: "item-description",
-      teamId: "team_1",
+      teamId: null,
       workspaceId: "workspace_1",
     }
 
     getWorkItemByDescriptionDocIdMock.mockResolvedValue({
       id: "item_1",
-      teamId: "team_1",
+      teamId: null,
+      workspaceId: "workspace_1",
       visibility: "private",
       creatorId: "user_1",
       assigneeId: null,
@@ -182,9 +191,6 @@ describe("workspace access helpers", () => {
       requireEditableDocumentAccess({} as never, document as never, "user_1")
     ).resolves.toBeUndefined()
 
-    expect(getWorkItemByDescriptionDocIdMock).toHaveBeenCalledWith(
-      {},
-      "doc_1"
-    )
+    expect(getWorkItemByDescriptionDocIdMock).toHaveBeenCalledWith({}, "doc_1")
   })
 })

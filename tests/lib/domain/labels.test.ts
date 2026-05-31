@@ -6,7 +6,7 @@ import {
 } from "@/lib/domain/labels"
 
 describe("label and custom property scope helpers", () => {
-  it("keeps workspace labels out of private tasks and private labels out of team tasks", () => {
+  it("keeps labels assignable only to team work items", () => {
     const workspaceLabel = {
       id: "label_workspace",
       workspaceId: "workspace_1",
@@ -43,7 +43,7 @@ describe("label and custom property scope helpers", () => {
         "workspace_1",
         "user_1"
       )
-    ).toBe(true)
+    ).toBe(false)
     expect(
       isLabelAssignableToWorkItem(
         privateLabel,
@@ -54,7 +54,7 @@ describe("label and custom property scope helpers", () => {
     ).toBe(false)
   })
 
-  it("keeps private custom properties scoped to the owning user's private tasks", () => {
+  it("keeps custom properties team-scoped and unavailable to private tasks", () => {
     const teamDefinition = {
       id: "property_team",
       teamId: "team_1",
@@ -91,15 +91,15 @@ describe("label and custom property scope helpers", () => {
     expect(
       isCustomPropertyDefinitionForWorkItem(
         privateDefinition,
-        { teamId: "team_1", visibility: "private" },
+        { teamId: null, visibility: "private" },
         "user_1"
       )
-    ).toBe(true)
+    ).toBe(false)
     expect(
       isCustomPropertyDefinitionForWorkItem(
         privateDefinition,
-        { teamId: "team_1", visibility: "private" },
-        "user_2"
+        { teamId: "team_1", visibility: "team" },
+        "user_1"
       )
     ).toBe(false)
   })

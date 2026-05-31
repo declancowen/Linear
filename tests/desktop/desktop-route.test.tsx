@@ -103,8 +103,9 @@ describe("DesktopRoute", () => {
 
     render(<DesktopRoute />)
 
-    expect(screen.getByText("Workspace projects workspace:workspace_1"))
-      .toBeInTheDocument()
+    expect(
+      screen.getByText("Workspace projects workspace:workspace_1")
+    ).toBeInTheDocument()
     expect(screen.queryByText(/Project detail/u)).not.toBeInTheDocument()
   })
 
@@ -114,6 +115,15 @@ describe("DesktopRoute", () => {
     render(<DesktopRoute />)
 
     expect(screen.getByText("Project detail project_1")).toBeInTheDocument()
+  })
+
+  it("routes team project detail paths to the project detail screen", () => {
+    pathnameMock.mockReturnValue("/team/mvp/projects/project_1")
+
+    render(<DesktopRoute />)
+
+    expect(screen.getByText("Project detail project_1")).toBeInTheDocument()
+    expect(screen.queryByText("Team work mvp")).not.toBeInTheDocument()
   })
 
   it("routes workspace people to the people directory screen", async () => {

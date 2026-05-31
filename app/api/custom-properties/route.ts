@@ -183,7 +183,13 @@ async function createCustomProperty(context: CustomPropertyCreateContext) {
   try {
     const result = await createCustomPropertyDefinitionServer({
       currentUserId: context.currentUserId,
-      ...context.parsed,
+      teamId: context.parsed.teamId,
+      scopeType: "team",
+      targetType: context.parsed.targetType,
+      name: context.parsed.name,
+      icon: context.parsed.icon,
+      type: context.parsed.type,
+      options: context.parsed.options,
     })
     const scopeKeys =
       await resolveCustomPropertyDefinitionReadModelScopeKeysServer(

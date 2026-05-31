@@ -42,10 +42,7 @@ import { ShortcutKeys } from "@/components/app/shortcut-keys"
 function ShortcutHint({ keys, label }: { keys: string[]; label: string }) {
   return (
     <div className="flex items-center gap-2 text-muted-foreground">
-      <ShortcutKeys
-        keys={keys}
-        className="text-[11px] text-muted-foreground"
-      />
+      <ShortcutKeys keys={keys} className="text-[11px] text-muted-foreground" />
       <span>{label}</span>
     </div>
   )
@@ -259,9 +256,12 @@ export function GlobalSearchDialog({
                   <CommandItem
                     key={result.id}
                     value={result.id}
+                    className="items-start"
                     onSelect={() => handleSelect(result.href)}
                   >
-                    {resultIcon(result, team?.icon)}
+                    <span className="mt-0.5 shrink-0 self-start text-muted-foreground">
+                      {resultIcon(result, team?.icon)}
+                    </span>
                     <div className="flex flex-col gap-0.5">
                       <span>{result.title}</span>
                       {subtitle ? (
@@ -289,9 +289,12 @@ export function GlobalSearchDialog({
                       <CommandItem
                         key={result.id}
                         value={result.id}
+                        className="items-start"
                         onSelect={() => handleSelect(result.href)}
                       >
-                        {resultIcon(result, team?.icon)}
+                        <span className="mt-0.5 shrink-0 self-start text-muted-foreground">
+                          {resultIcon(result, team?.icon)}
+                        </span>
                         <div className="flex flex-col gap-0.5">
                           <span>{result.title}</span>
                           {subtitle ? (

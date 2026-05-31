@@ -4,7 +4,6 @@ import type { StateStorage } from "zustand/middleware"
 
 import type {
   AppData,
-  AttachmentTargetType,
   UserStatus,
 } from "@/lib/domain/types"
 import { haveSameIds } from "@/lib/domain/collaboration-utils"
@@ -98,9 +97,9 @@ export function createNotificationDraft(
   }
 }
 
-export function normalizeNotifications<T extends { archivedAt?: string | null }>(
-  notifications: T[] | undefined
-) {
+export function normalizeNotifications<
+  T extends { archivedAt?: string | null },
+>(notifications: T[] | undefined) {
   const entries = notifications ?? []
 
   return entries.map((notification) => ({
@@ -158,9 +157,9 @@ export function normalizeChatMessages<
   }))
 }
 
-export function normalizeChannelPostComments<T extends { mentionUserIds?: string[] }>(
-  channelPostComments: T[] | undefined
-) {
+export function normalizeChannelPostComments<
+  T extends { mentionUserIds?: string[] },
+>(channelPostComments: T[] | undefined) {
   const entries = channelPostComments ?? []
 
   return entries.map((comment) => ({
@@ -242,16 +241,4 @@ export function findWorkspaceDirectConversation(
         right.lastActivityAt.localeCompare(left.lastActivityAt)
       )[0] ?? null
   )
-}
-
-export function getAttachmentTeamId(
-  state: AppData,
-  targetType: AttachmentTargetType,
-  targetId: string
-) {
-  if (targetType === "workItem") {
-    return state.workItems.find((item) => item.id === targetId)?.teamId ?? ""
-  }
-
-  return state.documents.find((document) => document.id === targetId)?.teamId ?? ""
 }

@@ -58,8 +58,9 @@ export function getVisibleWorkItems(
       data.workItems
         .filter(
           (item) =>
-            getWorkItemVisibility(item) === "private" ||
-            teamIds.has(item.teamId)
+            (getWorkItemVisibility(item) === "private"
+              ? isPrivateWorkItemCreatedByCurrentUser(data, item)
+              : teamIds.has(item.teamId ?? ""))
         )
         .map((item) => [item.id, item] as const)
     )
@@ -96,7 +97,8 @@ export function getVisibleWorkItems(
 
   return data.workItems.filter(
     (item) =>
-      teamIds.includes(item.teamId) && getWorkItemVisibility(item) === "team"
+      teamIds.includes(item.teamId ?? "") &&
+      getWorkItemVisibility(item) === "team"
   )
 }
 
@@ -107,7 +109,8 @@ function getWorkItemVisibility(item: WorkItem) {
 function isPrivateWorkItemCreatedByCurrentUser(data: AppData, item: WorkItem) {
   return (
     getWorkItemVisibility(item) === "private" &&
-    item.creatorId === data.currentUserId
+    item.creatorId === data.currentUserId &&
+    item.workspaceId === data.currentWorkspaceId
   )
 }
 
@@ -124,7 +127,7 @@ function isMyItemsWorkItem(
   return (
     (getWorkItemAssigneeIds(item).includes(data.currentUserId) ||
       (includeSubscribed && item.subscriberIds.includes(data.currentUserId))) &&
-    teamIds.has(item.teamId)
+    teamIds.has(item.teamId ?? "")
   )
 }
 
@@ -632,7 +635,10 @@ const groupValueGetters: Partial<Record<GroupField, GroupValueGetter>> = {
   assignee: (data, item) =>
     getUser(data, getWorkItemAssigneeIds(item)[0])?.name ?? "No assignee",
   label: getLabelGroupValue,
-  team: (data, item) => getTeam(data, item.teamId)?.name ?? "Unknown team",
+  team: (data, item) =>
+    getWorkItemVisibility(item) === "private"
+      ? "Private tasks"
+      : (getTeam(data, item.teamId)?.name ?? "Unknown team"),
   parent: getParentGroupValue,
   epic: (data, item) => getAncestorGroupValue(data, item, "epic"),
   feature: (data, item) => getAncestorGroupValue(data, item, "feature"),
@@ -683,29 +689,12 @@ function getAvailableGroupKeyContext(
     projectId?: string | null
   }
 ) {
-  const sourceItems = options?.sourceItems ?? items
-  const teamIds = new Set(sourceItems.map((item) => item.teamId))
-  const project = options?.projectId
-    ? getProject(data, options.projectId)
-    : null
-
-  if (options?.teamId) {
-    teamIds.add(options.teamId)
-  }
-
-  if (project?.scopeType === "team") {
-    teamIds.add(project.scopeId)
-  }
-
-  const workspaceIds = new Set(
-    [...teamIds]
-      .map((teamId) => getTeam(data, teamId)?.workspaceId ?? null)
-      .filter((workspaceId): workspaceId is string => workspaceId !== null)
-  )
-
-  if (project?.scopeType === "workspace") {
-    workspaceIds.add(project.scopeId)
-  }
+  const sourceItems = getAvailableGroupSourceItems(items, options)
+  const project = getAvailableGroupProject(data, options)
+  const teamIds = getAvailableGroupTeamIds(sourceItems)
+  addAvailableGroupTeamScopes(teamIds, options, project)
+  const workspaceIds = getAvailableGroupWorkspaceIds(data, teamIds)
+  addAvailableGroupWorkspaceScopes(workspaceIds, project)
 
   return {
     data,
@@ -714,6 +703,63 @@ function getAvailableGroupKeyContext(
     sourceItems,
     teamIds,
     workspaceIds,
+  }
+}
+
+function getAvailableGroupSourceItems(
+  items: WorkItem[],
+  options?: {
+    sourceItems?: WorkItem[]
+  }
+) {
+  return options?.sourceItems ?? items
+}
+
+function getAvailableGroupProject(
+  data: AppData,
+  options?: {
+    projectId?: string | null
+  }
+) {
+  return options?.projectId ? getProject(data, options.projectId) : null
+}
+
+function getAvailableGroupTeamIds(sourceItems: WorkItem[]) {
+  return new Set(
+    sourceItems
+      .map((item) => item.teamId)
+      .filter((teamId): teamId is string => teamId !== null)
+  )
+}
+
+function addAvailableGroupTeamScopes(
+  teamIds: Set<string>,
+  options: { teamId?: string | null } | undefined,
+  project: ReturnType<typeof getAvailableGroupProject>
+) {
+  if (options?.teamId) {
+    teamIds.add(options.teamId)
+  }
+
+  if (project?.scopeType === "team") {
+    teamIds.add(project.scopeId)
+  }
+}
+
+function getAvailableGroupWorkspaceIds(data: AppData, teamIds: Set<string>) {
+  return new Set(
+    [...teamIds]
+      .map((teamId) => getTeam(data, teamId)?.workspaceId ?? null)
+      .filter((workspaceId): workspaceId is string => workspaceId !== null)
+  )
+}
+
+function addAvailableGroupWorkspaceScopes(
+  workspaceIds: Set<string>,
+  project: ReturnType<typeof getAvailableGroupProject>
+) {
+  if (project?.scopeType === "workspace") {
+    workspaceIds.add(project.scopeId)
   }
 }
 
@@ -1057,7 +1103,13 @@ function getStatusOrderForItems(data: AppData, items: WorkItem[]) {
     return [...workStatuses]
   }
 
-  const teamIds = [...new Set(items.map((item) => item.teamId))]
+  const teamIds = [
+    ...new Set(
+      items
+        .map((item) => item.teamId)
+        .filter((teamId): teamId is string => teamId !== null)
+    ),
+  ]
 
   if (teamIds.length !== 1) {
     return [...workStatuses]

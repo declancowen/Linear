@@ -24,7 +24,9 @@ export function isLabelVisibleToUser(
   label: Pick<Label, "ownerId" | "scopeType">,
   userId: string
 ) {
-  return getLabelScopeType(label) === "workspace" || label.ownerId === userId
+  void userId
+
+  return getLabelScopeType(label) === "workspace"
 }
 
 export function isLabelAssignableToWorkItem(
@@ -38,7 +40,8 @@ export function isLabelAssignableToWorkItem(
   }
 
   if ((item.visibility ?? "team") === "private") {
-    return getLabelScopeType(label) === "private" && label.ownerId === userId
+    void userId
+    return false
   }
 
   return getLabelScopeType(label) === "workspace"
@@ -57,10 +60,9 @@ export function isCustomPropertyDefinitionVisibleToUser(
   >,
   userId: string
 ) {
-  return (
-    getCustomPropertyScopeType(definition) === "team" ||
-    (definition.ownerId ?? definition.createdBy) === userId
-  )
+  void userId
+
+  return getCustomPropertyScopeType(definition) === "team"
 }
 
 export function isCustomPropertyDefinitionForWorkItem(
@@ -76,20 +78,17 @@ export function isCustomPropertyDefinitionForWorkItem(
   item: Pick<WorkItem, "teamId" | "visibility">,
   userId: string
 ) {
+  void userId
+
   if (
     definition.isArchived ||
     definition.teamId !== item.teamId ||
-    definition.targetType !== "workItem"
+    definition.targetType !== "workItem" ||
+    getCustomPropertyScopeType(definition) !== "team" ||
+    (item.visibility ?? "team") === "private"
   ) {
     return false
   }
 
-  if ((item.visibility ?? "team") === "private") {
-    return (
-      getCustomPropertyScopeType(definition) === "private" &&
-      (definition.ownerId ?? definition.createdBy) === userId
-    )
-  }
-
-  return getCustomPropertyScopeType(definition) === "team"
+  return true
 }

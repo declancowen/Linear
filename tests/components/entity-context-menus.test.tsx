@@ -40,6 +40,15 @@ vi.mock("@/components/ui/context-menu", () => ({
     <div>{children}</div>
   ),
   ContextMenuSeparator: () => null,
+  ContextMenuSub: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  ContextMenuSubContent: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  ContextMenuSubTrigger: ({ children }: { children: ReactNode }) => (
+    <button type="button">{children}</button>
+  ),
   ContextMenuItem: ({
     children,
     onSelect,
@@ -64,6 +73,7 @@ vi.mock("@phosphor-icons/react", async (importOriginal) => {
     CaretDown: Icon,
     ChartBarHorizontal: Icon,
     Check: Icon,
+    CircleDashed: Icon,
     DotsSixVertical: Icon,
     Eye: Icon,
     FadersHorizontal: Icon,
@@ -467,5 +477,25 @@ describe("ProjectContextMenu", () => {
     await waitFor(() => {
       expect(screen.getAllByText("Edit project").length).toBeGreaterThan(1)
     })
+  })
+
+  it("updates project status from the context menu", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      projects: [createProject()],
+    }))
+
+    render(
+      <ProjectContextMenu
+        data={useAppStore.getState()}
+        project={createProject()}
+      >
+        <button type="button">Open</button>
+      </ProjectContextMenu>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "In progress" }))
+
+    expect(useAppStore.getState().projects[0]?.status).toBe("in-progress")
   })
 })

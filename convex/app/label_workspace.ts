@@ -15,7 +15,12 @@ function addInferredLabelWorkspaceId(
 
 export type LabelWorkspaceInferenceInput = {
   teams: Array<{ id: string; workspaceId: string }>
-  workItems: Array<{ teamId: string; labelIds: string[] }>
+  workItems: Array<{
+    teamId: string | null
+    workspaceId?: string | null
+    visibility?: "team" | "private" | null
+    labelIds: string[]
+  }>
   views: Array<{
     scopeType: "personal" | "team" | "workspace"
     scopeId: string
@@ -59,7 +64,13 @@ function inferWorkItemLabelWorkspaceIds(
     addLabelIdsForWorkspace({
       labelIds: workItem.labelIds,
       labelWorkspaceIds: input.labelWorkspaceIds,
-      workspaceId: input.teamWorkspaceIdByTeamId.get(workItem.teamId),
+      workspaceId:
+        (workItem.visibility ?? "team") === "private"
+          ? (workItem.workspaceId ?? null)
+          : (workItem.workspaceId ??
+            (workItem.teamId
+              ? input.teamWorkspaceIdByTeamId.get(workItem.teamId)
+              : null)),
     })
   }
 }

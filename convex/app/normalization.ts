@@ -348,7 +348,8 @@ export function normalizeDocument<
 
 export function normalizeWorkItem<
   T extends {
-    teamId: string
+    teamId: string | null
+    visibility?: "team" | "private" | null
     type: StoredWorkItemType
     parentId?: string | null
   },
@@ -362,8 +363,10 @@ export function normalizeWorkItem<
   }>
 ) {
   const experience =
-    teams.find((team) => team.id === item.teamId)?.settings?.experience ??
-    "software-development"
+    (item.visibility ?? "team") === "private"
+      ? "project-management"
+      : (teams.find((team) => team.id === item.teamId)?.settings?.experience ??
+        "software-development")
 
   return {
     ...item,

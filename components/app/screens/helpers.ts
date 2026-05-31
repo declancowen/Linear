@@ -12,6 +12,7 @@ import {
   canEditTeam,
   getProject,
   getProjectsForScope,
+  getTeam,
   getWorkItemDescendantIds,
   sortItems,
 } from "@/lib/domain/selectors"
@@ -338,15 +339,37 @@ export function getWorkItemPresenceSessionId(currentUserId?: string | null) {
 
 export function getEligibleParentWorkItems(data: AppData, item: WorkItem) {
   const blockedIds = getWorkItemDescendantIds(data, item.id)
+  const isPrivateItem = (item.visibility ?? "team") === "private"
+  const itemWorkspaceId =
+    isPrivateItem
+      ? (item.workspaceId ?? null)
+      : (item.workspaceId ?? getTeam(data, item.teamId)?.workspaceId ?? null)
 
   return sortItems(
-    data.workItems.filter(
-      (candidate) =>
+    data.workItems.filter((candidate) => {
+      if (
+        candidate.id === item.id ||
+        blockedIds.has(candidate.id) ||
+        !canParentWorkItemTypeAcceptChild(candidate.type, item.type)
+      ) {
+        return false
+      }
+
+      if (isPrivateItem) {
+        const candidateWorkspaceId = candidate.workspaceId ?? null
+
+        return (
+          (candidate.visibility ?? "team") === "private" &&
+          candidate.creatorId === item.creatorId &&
+          candidateWorkspaceId === itemWorkspaceId
+        )
+      }
+
+      return (
         candidate.teamId === item.teamId &&
-        candidate.id !== item.id &&
-        !blockedIds.has(candidate.id) &&
-        canParentWorkItemTypeAcceptChild(candidate.type, item.type)
-    ),
+        (candidate.visibility ?? "team") === "team"
+      )
+    }),
     "priority"
   )
 }

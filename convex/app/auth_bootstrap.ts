@@ -1284,7 +1284,11 @@ function getBootstrapWorkItemWorkspaceId(
   workItem: Awaited<ReturnType<typeof listWorkItemsByTeams>>[number],
   teamsById: ReadonlyMap<string, { workspaceId: string }>
 ) {
-  return workItem.workspaceId ?? teamsById.get(workItem.teamId)?.workspaceId
+  if ((workItem.visibility ?? "team") === "private") {
+    return workItem.workspaceId ?? null
+  }
+
+  return workItem.workspaceId ?? teamsById.get(workItem.teamId ?? "")?.workspaceId
 }
 
 function canCurrentUserSeeBootstrapWorkItem(
@@ -1489,14 +1493,8 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
       ? listPrivateWorkItemsByCreator(ctx, currentUserId)
       : Promise.resolve([]),
   ])
-  const privateWorkItemTeams = await listTeamsByIds(
-    ctx,
-    privateWorkItems.map((workItem) => workItem.teamId)
-  )
   const visibleTeamsById = new Map(
-    [...visibleTeams, ...privateWorkItemTeams].map(
-      (team) => [team.id, team] as const
-    )
+    visibleTeams.map((team) => [team.id, team] as const)
   )
   const visibleWorkItems = dedupeById([
     ...teamWorkItems,

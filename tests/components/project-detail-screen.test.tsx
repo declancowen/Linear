@@ -393,7 +393,7 @@ describe("ProjectDetailScreen", () => {
 
     expect(screen.getByText("List layout")).toBeInTheDocument()
 
-    await clickProjectDetailButton("All work")
+    await clickProjectDetailButton("All")
 
     expect(screen.getByText("Board layout")).toBeInTheDocument()
     expect(screen.queryByText("List layout")).not.toBeInTheDocument()

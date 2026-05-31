@@ -140,6 +140,37 @@ describe("comment handlers", () => {
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 
+  it("rejects comments on editable private work items", async () => {
+    const { addCommentHandler } = await import("@/convex/app/comment_handlers")
+    const ctx = createCtx()
+
+    getWorkItemDocMock.mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: null,
+      title: "Private task",
+      visibility: "private",
+      creatorId: "user_1",
+      assigneeId: null,
+      assigneeIds: [],
+      subscriberIds: [],
+    })
+
+    await expect(
+      addCommentHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        targetType: "workItem",
+        targetId: "item_1",
+        content: "<p>No thread</p>",
+      })
+    ).rejects.toThrow("Comments are not available on private tasks")
+
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
   it("uses a supplied client comment id when adding work item comments", async () => {
     const { addCommentHandler } = await import("@/convex/app/comment_handlers")
     const ctx = createCtx()
@@ -209,6 +240,40 @@ describe("comment handlers", () => {
         emoji: "like",
       })
     ).rejects.toThrow("Work item not found")
+
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("rejects reactions on existing private work item comments", async () => {
+    const { toggleCommentReactionHandler } =
+      await import("@/convex/app/comment_handlers")
+    const ctx = createCtx()
+
+    getCommentDocMock.mockResolvedValue({
+      _id: "comment_1_db",
+      id: "comment_1",
+      targetType: "workItem",
+      targetId: "item_1",
+      reactions: [],
+    })
+    getWorkItemDocMock.mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: null,
+      visibility: "private",
+      creatorId: "user_1",
+      assigneeId: null,
+      assigneeIds: [],
+    })
+
+    await expect(
+      toggleCommentReactionHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        commentId: "comment_1",
+        emoji: "like",
+      })
+    ).rejects.toThrow("Comments are not available on private tasks")
 
     expect(ctx.db.patch).not.toHaveBeenCalled()
   })

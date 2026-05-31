@@ -858,7 +858,7 @@ function renderWorkItemLabelsProperty({
   item,
   variant,
 }: WorkItemDisplayPropertyContext) {
-  if (item.labelIds.length === 0) {
+  if ((item.visibility ?? "team") === "private" || item.labelIds.length === 0) {
     return null
   }
 

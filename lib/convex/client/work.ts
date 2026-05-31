@@ -284,7 +284,7 @@ export function syncClearViewFilters(viewId: string) {
 
 export function syncCreateCustomPropertyDefinition(input: {
   teamId: string
-  scopeType?: "team" | "private"
+  scopeType?: "team"
   targetType?: "workItem"
   name: string
   icon: string
@@ -422,7 +422,7 @@ export function syncCreateLabel(input: {
   workspaceId?: string
   name: string
   color?: string
-  scopeType?: "workspace" | "private"
+  scopeType?: "workspace"
 }) {
   return runRouteMutation<unknown>("/api/labels", {
     method: "POST",

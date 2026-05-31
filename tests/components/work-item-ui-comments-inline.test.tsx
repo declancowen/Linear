@@ -1,5 +1,13 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import "@/tests/lib/fixtures/rich-text-composer-mocks"
 import { CommentsInline } from "@/components/app/screens/work-item-ui"
@@ -140,9 +148,7 @@ describe("CommentsInline", () => {
           experience: "project-management",
         },
       }),
-      teamMembers: [
-        createTestUser({ id: "user_2", name: "Taylor" }),
-      ],
+      teamMembers: [createTestUser({ id: "user_2", name: "Taylor" })],
       teamProjects,
       title: " Child task ",
       type: "sub-task",
@@ -178,6 +184,7 @@ describe("CommentsInline", () => {
         selectedType: "task",
         status: "todo",
         teamId: "team_1",
+        workspaceId: null,
       })
     ).toBe("item_child")
 
@@ -220,7 +227,9 @@ describe("CommentsInline", () => {
       }))
     })
 
-    rerender(<CommentsInline targetType="workItem" targetId="item_1" editable />)
+    rerender(
+      <CommentsInline targetType="workItem" targetId="item_1" editable />
+    )
 
     const errorMessages = consoleErrorSpy.mock.calls
       .flat()

@@ -800,7 +800,7 @@ function buildProjectBuiltinItemViews({
   const fallbackProjectItemsView =
     createViewDefinition({
       id: `fallback-project-items-${project.id}`,
-      name: `All ${lowerSurfaceLabel}`,
+      name: "All",
       description: `All ${lowerSurfaceLabel} linked to this project.`,
       scopeType: project.scopeType,
       scopeId: project.scopeId,

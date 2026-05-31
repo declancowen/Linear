@@ -266,7 +266,10 @@ function assertExpectedDocumentUpdatedAt(
   expectedUpdatedAt: string | undefined,
   message: string
 ) {
-  if (expectedUpdatedAt !== undefined && document.updatedAt !== expectedUpdatedAt) {
+  if (
+    expectedUpdatedAt !== undefined &&
+    document.updatedAt !== expectedUpdatedAt
+  ) {
     throw new Error(message)
   }
 }
@@ -680,20 +683,22 @@ async function getDocumentMentionAudienceUserIds(
   ctx: MutationCtx,
   document: DocumentDoc
 ) {
-  if (document.teamId) {
-    const teamMemberIds = await getTeamMemberIds(ctx, document.teamId)
+  if (document.kind === "item-description") {
+    const item = await getWorkItemByDescriptionDocId(ctx, document.id)
 
-    if (document.kind === "item-description") {
-      const item = await getWorkItemByDescriptionDocId(ctx, document.id)
-
-      if (!item) {
-        throw new Error("Work item not found")
-      }
-
-      return new Set(getWorkItemAudienceUserIds(item, teamMemberIds))
+    if (!item) {
+      throw new Error("Work item not found")
     }
 
-    return new Set(teamMemberIds)
+    const teamMemberIds = item.teamId
+      ? await getTeamMemberIds(ctx, item.teamId)
+      : []
+
+    return new Set(getWorkItemAudienceUserIds(item, teamMemberIds))
+  }
+
+  if (document.teamId) {
+    return new Set(await getTeamMemberIds(ctx, document.teamId))
   }
 
   if (document.workspaceId) {
@@ -823,7 +828,10 @@ export async function sendItemDescriptionMentionNotificationsHandler(
     await requireEditableItemDescriptionDocument(ctx, args)
 
   const audienceUserIds = new Set(
-    getWorkItemAudienceUserIds(item, await getTeamMemberIds(ctx, item.teamId))
+    getWorkItemAudienceUserIds(
+      item,
+      item.teamId ? await getTeamMemberIds(ctx, item.teamId) : []
+    )
   )
   const mentionTracking = getMentionTrackingState(
     descriptionDocument.content,
@@ -856,7 +864,7 @@ export async function sendItemDescriptionMentionNotificationsHandler(
     mentionCounts
   )
   const actorName = usersById.get(args.currentUserId)?.name ?? "Someone"
-  const team = await getTeamDoc(ctx, item.teamId)
+  const team = item.teamId ? await getTeamDoc(ctx, item.teamId) : null
   const teamName = team ? normalizeTeam(team).name : null
   const itemTitle = item.title.trim() || item.key
   const delivery = await deliverMentionNotifications({
@@ -1028,11 +1036,7 @@ export async function generateAttachmentUploadUrlHandler(
   args: GenerateAttachmentUploadUrlArgs
 ) {
   assertServerToken(args.serverToken)
-  await resolveAttachmentTarget(
-    ctx,
-    args.targetType,
-    args.targetId
-  )
+  await resolveAttachmentTarget(ctx, args.targetType, args.targetId)
   await requireEditableAttachmentTargetAccess(ctx, args)
 
   return {
@@ -1104,10 +1108,7 @@ function createAttachmentRecord(
 
 async function requireEditableAttachmentTargetAccess(
   ctx: MutationCtx,
-  args: Pick<
-    CreateAttachmentArgs,
-    "currentUserId" | "targetId" | "targetType"
-  >
+  args: Pick<CreateAttachmentArgs, "currentUserId" | "targetId" | "targetType">
 ) {
   if (args.targetType === "workItem") {
     const item = await getWorkItemDoc(ctx, args.targetId)

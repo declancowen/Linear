@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { type ReactNode, useMemo, useState } from "react"
 import {
   CalendarBlank,
   CaretDown,
@@ -80,31 +80,70 @@ function createOption(label = "Option"): CustomPropertyOption {
   }
 }
 
+const CUSTOM_PROPERTY_VALUE_NORMALIZERS = {
+  text: normalizeStringCustomPropertyValue,
+  date: normalizeStringCustomPropertyValue,
+  email: normalizeStringCustomPropertyValue,
+  phone: normalizeStringCustomPropertyValue,
+  person: normalizeStringCustomPropertyValue,
+  select: normalizeStringCustomPropertyValue,
+  url: normalizeStringCustomPropertyValue,
+  integer: normalizeIntegerCustomPropertyValue,
+  checkbox: normalizeCheckboxCustomPropertyValue,
+  multiSelect: normalizeMultiSelectCustomPropertyValue,
+} satisfies Record<
+  CustomPropertyType,
+  (value: CustomPropertyValue | undefined) => CustomPropertyValue
+>
+
+const TEXT_INPUT_TYPES: Partial<Record<CustomPropertyType, string>> = {
+  date: "date",
+  email: "email",
+  integer: "number",
+  url: "url",
+}
+
 function normalizeValueForType(
   type: CustomPropertyType,
   value: CustomPropertyValue | undefined
 ): CustomPropertyValue {
-  if (value === undefined) {
-    return null
-  }
+  return CUSTOM_PROPERTY_VALUE_NORMALIZERS[type](value)
+}
 
-  if (type === "integer") {
-    return typeof value === "number" ? value : null
-  }
-
-  if (type === "checkbox") {
-    return typeof value === "boolean" ? value : false
-  }
-
-  if (type === "multiSelect") {
-    return Array.isArray(value) ? value : []
-  }
-
+function normalizeStringCustomPropertyValue(
+  value: CustomPropertyValue | undefined
+) {
   return typeof value === "string" ? value : null
+}
+
+function normalizeIntegerCustomPropertyValue(
+  value: CustomPropertyValue | undefined
+) {
+  return typeof value === "number" ? value : null
+}
+
+function normalizeCheckboxCustomPropertyValue(
+  value: CustomPropertyValue | undefined
+) {
+  return typeof value === "boolean" ? value : false
+}
+
+function normalizeMultiSelectCustomPropertyValue(
+  value: CustomPropertyValue | undefined
+) {
+  return Array.isArray(value) ? value : []
 }
 
 type CustomPropertyDefinition = AppData["customPropertyDefinitions"][number]
 type CustomPropertyControlVariant = "row" | "chip"
+type CustomPropertyRendererProps = {
+  commit: (nextValue: CustomPropertyValue) => void
+  currentValue: CustomPropertyValue
+  definition: CustomPropertyDefinition
+  editable: boolean
+  users: AppData["users"]
+  variant: CustomPropertyControlVariant
+}
 
 function getChoiceSelectedIds(
   definition: CustomPropertyDefinition,
@@ -118,23 +157,7 @@ function getChoiceSelectedIds(
 }
 
 function getTextInputType(type: CustomPropertyType) {
-  if (type === "integer") {
-    return "number"
-  }
-
-  if (type === "date") {
-    return "date"
-  }
-
-  if (type === "email") {
-    return "email"
-  }
-
-  if (type === "url") {
-    return "url"
-  }
-
-  return "text"
+  return TEXT_INPUT_TYPES[type] ?? "text"
 }
 
 function renderTextInputIcon(type: CustomPropertyType) {
@@ -168,6 +191,28 @@ function parseTextInputValue(
   return rawValue
 }
 
+function getNextSingleSelectValue(selectedIds: string[], optionId: string) {
+  return selectedIds.includes(optionId) ? null : optionId
+}
+
+function getNextMultiSelectValue(selectedIds: string[], optionId: string) {
+  const nextIds = selectedIds.includes(optionId)
+    ? selectedIds.filter((id) => id !== optionId)
+    : [...selectedIds, optionId]
+
+  return nextIds.length === 0 ? null : nextIds
+}
+
+function getNextChoiceValue(
+  definition: CustomPropertyDefinition,
+  selectedIds: string[],
+  optionId: string
+) {
+  return definition.type === "multiSelect"
+    ? getNextMultiSelectValue(selectedIds, optionId)
+    : getNextSingleSelectValue(selectedIds, optionId)
+}
+
 export function CustomPropertyDefinitionDialog({
   open,
   scopeType = "team",
@@ -175,7 +220,7 @@ export function CustomPropertyDefinitionDialog({
   onOpenChange,
 }: {
   open: boolean
-  scopeType?: "team" | "private"
+  scopeType?: "team"
   teamId: string
   onOpenChange: (open: boolean) => void
 }) {
@@ -332,13 +377,7 @@ function CustomPropertyChoiceControl({
   definition,
   editable,
   variant,
-}: {
-  commit: (nextValue: CustomPropertyValue) => void
-  currentValue: CustomPropertyValue
-  definition: CustomPropertyDefinition
-  editable: boolean
-  variant: CustomPropertyControlVariant
-}) {
+}: CustomPropertyRendererProps) {
   const selectedIds = getChoiceSelectedIds(definition, currentValue)
   const selectedOptions = definition.options.filter((option) =>
     selectedIds.includes(option.id)
@@ -347,19 +386,6 @@ function CustomPropertyChoiceControl({
     selectedOptions.length === 0
       ? definition.name
       : selectedOptions.map((option) => option.label).join(", ")
-
-  function toggleOption(optionId: string) {
-    if (definition.type !== "multiSelect") {
-      commit(selectedIds.includes(optionId) ? null : optionId)
-      return
-    }
-
-    const nextIds = selectedIds.includes(optionId)
-      ? selectedIds.filter((id) => id !== optionId)
-      : [...selectedIds, optionId]
-
-    commit(nextIds.length === 0 ? null : nextIds)
-  }
 
   return (
     <Popover>
@@ -402,7 +428,9 @@ function CustomPropertyChoiceControl({
               <PropertyPopoverItem
                 key={option.id}
                 selected={selected}
-                onClick={() => toggleOption(option.id)}
+                onClick={() =>
+                  commit(getNextChoiceValue(definition, selectedIds, option.id))
+                }
                 trailing={
                   selected ? (
                     <Check className="size-[14px] text-foreground" />
@@ -429,12 +457,7 @@ function CustomPropertyPersonControl({
   currentValue,
   editable,
   users,
-}: {
-  commit: (nextValue: CustomPropertyValue) => void
-  currentValue: CustomPropertyValue
-  editable: boolean
-  users: AppData["users"]
-}) {
+}: CustomPropertyRendererProps) {
   return (
     <Select
       value={typeof currentValue === "string" ? currentValue : "none"}
@@ -464,13 +487,7 @@ function CustomPropertyTextControl({
   definition,
   editable,
   variant,
-}: {
-  commit: (nextValue: CustomPropertyValue) => void
-  currentValue: CustomPropertyValue
-  definition: CustomPropertyDefinition
-  editable: boolean
-  variant: CustomPropertyControlVariant
-}) {
+}: CustomPropertyRendererProps) {
   return (
     <div className="relative min-w-0">
       {renderTextInputIcon(definition.type)}
@@ -496,6 +513,37 @@ function CustomPropertyTextControl({
     </div>
   )
 }
+
+function CustomPropertyCheckboxControl({
+  commit,
+  currentValue,
+  editable,
+}: CustomPropertyRendererProps) {
+  return (
+    <Switch
+      size="sm"
+      checked={Boolean(currentValue)}
+      disabled={!editable}
+      onCheckedChange={commit}
+    />
+  )
+}
+
+const CUSTOM_PROPERTY_VALUE_CONTROLS = {
+  checkbox: CustomPropertyCheckboxControl,
+  date: CustomPropertyTextControl,
+  email: CustomPropertyTextControl,
+  integer: CustomPropertyTextControl,
+  multiSelect: CustomPropertyChoiceControl,
+  person: CustomPropertyPersonControl,
+  phone: CustomPropertyTextControl,
+  select: CustomPropertyChoiceControl,
+  text: CustomPropertyTextControl,
+  url: CustomPropertyTextControl,
+} satisfies Record<
+  CustomPropertyType,
+  (props: CustomPropertyRendererProps) => ReactNode
+>
 
 export function CustomPropertyValueControl({
   data,
@@ -532,46 +580,14 @@ export function CustomPropertyValueControl({
     setCustomPropertyValue(item.id, definition.id, nextValue)
   }
 
-  if (definition.type === "checkbox") {
-    return (
-      <Switch
-        size="sm"
-        checked={Boolean(currentValue)}
-        disabled={!editable}
-        onCheckedChange={commit}
-      />
-    )
-  }
-
-  if (definition.type === "select" || definition.type === "multiSelect") {
-    return (
-      <CustomPropertyChoiceControl
-        commit={commit}
-        currentValue={currentValue}
-        definition={definition}
-        editable={editable}
-        variant={variant}
-      />
-    )
-  }
-
-  if (definition.type === "person") {
-    return (
-      <CustomPropertyPersonControl
-        commit={commit}
-        currentValue={currentValue}
-        editable={editable}
-        users={users}
-      />
-    )
-  }
-
+  const ValueControl = CUSTOM_PROPERTY_VALUE_CONTROLS[definition.type]
   return (
-    <CustomPropertyTextControl
+    <ValueControl
       commit={commit}
       currentValue={currentValue}
       definition={definition}
       editable={editable}
+      users={users}
       variant={variant}
     />
   )

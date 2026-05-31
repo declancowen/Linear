@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
-import { PropertiesChipPopover } from "@/components/app/screens/work-surface-controls"
+import {
+  PROJECT_DISPLAY_PROPERTY_OPTIONS,
+  PROJECT_GROUP_OPTIONS,
+  PropertiesChipPopover,
+} from "@/components/app/screens/work-surface-controls"
 import {
   getProjectStatusIconStatus,
   getReorderedDisplayPropertiesAfterDrag,
@@ -57,6 +61,21 @@ function createPrivateTaskView(
 }
 
 describe("PropertiesChipPopover", () => {
+  it("keeps project dropdown options free of ID and status metadata", () => {
+    expect(PROJECT_DISPLAY_PROPERTY_OPTIONS).toEqual([
+      "team",
+      "assignee",
+      "priority",
+      "type",
+      "dueDate",
+      "created",
+      "updated",
+    ])
+    expect(PROJECT_DISPLAY_PROPERTY_OPTIONS).not.toContain("id")
+    expect(PROJECT_DISPLAY_PROPERTY_OPTIONS).not.toContain("status")
+    expect(PROJECT_GROUP_OPTIONS).not.toContain("id")
+  })
+
   it("maps project statuses to status-ring display buckets", () => {
     expect(getProjectStatusIconStatus("in-progress")).toBe("in-progress")
     expect(getProjectStatusIconStatus("completed")).toBe("completed")

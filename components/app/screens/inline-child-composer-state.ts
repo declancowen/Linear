@@ -24,8 +24,12 @@ export function getInlineChildTeamProjects({
 }: {
   parentItem: WorkItem
   projects: AppData["projects"]
-  teamId: string
+  teamId: string | null
 }) {
+  if (!teamId || (parentItem.visibility ?? "team") === "private") {
+    return []
+  }
+
   const scopedProjects = projects.filter(
     (project) => project.scopeType === "team" && project.scopeId === teamId
   )
@@ -100,18 +104,23 @@ export function createInlineChildWorkItem(input: {
   projectId: string
   selectedType: WorkItemType
   status: WorkStatus
-  teamId: string
+  teamId: string | null
+  workspaceId: string | null
 }) {
+  const isPrivate = (input.parentItem.visibility ?? "team") === "private"
   const createdItemId = useAppStore.getState().createWorkItem({
-    teamId: input.teamId,
+    teamId: isPrivate ? null : input.teamId,
+    workspaceId: isPrivate ? input.workspaceId : undefined,
     type: input.selectedType,
     title: input.normalizedTitle,
     priority: input.priority,
     status: input.status,
     parentId: input.parentItem.id,
-    assigneeId: input.assigneeIds[0] ?? null,
-    assigneeIds: input.assigneeIds,
-    primaryProjectId: input.projectId === "none" ? null : input.projectId,
+    assigneeId: isPrivate ? null : (input.assigneeIds[0] ?? null),
+    assigneeIds: isPrivate ? [] : input.assigneeIds,
+    primaryProjectId:
+      isPrivate || input.projectId === "none" ? null : input.projectId,
+    visibility: isPrivate ? "private" : "team",
   })
 
   if (!createdItemId || !input.description.trim()) {
@@ -139,8 +148,12 @@ export function getInlineChildIssueComposerModel(input: {
   title: string
   type: WorkItemType
 }) {
+  const isPrivate = (input.parentItem.visibility ?? "team") === "private"
+  const teamExperience = isPrivate
+    ? "project-management"
+    : input.team?.settings.experience
   const fallbackType = getPreferredWorkItemTypeForTeamExperience(
-    input.team?.settings.experience,
+    teamExperience,
     {
       parent: true,
     }
@@ -152,7 +165,7 @@ export function getInlineChildIssueComposerModel(input: {
   const availableItemTypes = getInlineChildAvailableItemTypes({
     parentItem: input.parentItem,
     selectedProject,
-    teamExperience: input.team?.settings.experience,
+    teamExperience,
   })
   const selectedType = getInlineChildSelectedType({
     availableItemTypes,
@@ -178,7 +191,7 @@ export function getInlineChildIssueComposerModel(input: {
     selectedType,
     selectedTypeLabel: getDisplayLabelForWorkItemType(
       selectedType,
-      input.team?.settings.experience
+      teamExperience
     ),
     titleLimitState,
   }

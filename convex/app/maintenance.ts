@@ -275,7 +275,9 @@ function countInvitesWithOutdatedNormalizedEmails(
   ).length
 }
 
-function createLabelWorkspaceInferenceInput(input: NormalizedLookupStatusInput) {
+function createLabelWorkspaceInferenceInput(
+  input: NormalizedLookupStatusInput
+) {
   return {
     teams: input.teams.map((team) => ({
       id: team.id,
@@ -287,7 +289,9 @@ function createLabelWorkspaceInferenceInput(input: NormalizedLookupStatusInput) 
   }
 }
 
-function getOnlyWorkspaceId(workspaces: NormalizedLookupStatusInput["workspaces"]) {
+function getOnlyWorkspaceId(
+  workspaces: NormalizedLookupStatusInput["workspaces"]
+) {
   return workspaces.length === 1 ? (workspaces[0]?.id ?? null) : null
 }
 
@@ -297,8 +301,9 @@ function getInferredLabelWorkspaceId(input: {
   onlyWorkspaceId: string | null
 }) {
   return (
-    getUniqueLabelWorkspaceId(input.inferredLabelWorkspaceIds.get(input.labelId)) ??
-    input.onlyWorkspaceId
+    getUniqueLabelWorkspaceId(
+      input.inferredLabelWorkspaceIds.get(input.labelId)
+    ) ?? input.onlyWorkspaceId
   )
 }
 
@@ -314,7 +319,8 @@ function getLabelWorkspaceNormalizationState(input: {
   })
 
   return {
-    needsNormalization: (input.label.workspaceId ?? null) !== inferredWorkspaceId,
+    needsNormalization:
+      (input.label.workspaceId ?? null) !== inferredWorkspaceId,
     unresolved: !inferredWorkspaceId,
   }
 }
@@ -579,6 +585,7 @@ function inferLegacyLabelWorkspaceIds(tables: LookupTables) {
     })),
     workItems: tables.workItems.map((workItem) => ({
       teamId: workItem.teamId,
+      workspaceId: workItem.workspaceId,
       labelIds: workItem.labelIds,
     })),
     views: tables.views.map((view) => ({

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, within } from "@testing-library/react"
 
 import "@/tests/lib/fixtures/common-screen-mocks"
 import {
@@ -15,7 +15,11 @@ import { DocsContent } from "@/components/app/screens/docs-content"
 import { getDocumentListRowMeta } from "@/components/app/screens/document-list-row-meta"
 import { buildGroupedSections } from "@/components/app/screens/grouped-sections"
 import { createEmptyState } from "@/lib/domain/empty-state"
-import type { CreateDialogState, ViewDefinition } from "@/lib/domain/types"
+import type {
+  CreateDialogState,
+  Project,
+  ViewDefinition,
+} from "@/lib/domain/types"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { useAppStore } from "@/lib/store/app-store"
 import { getViewerScopedDirectoryKey } from "@/lib/domain/viewer-view-config"
@@ -154,8 +158,7 @@ vi.mock("@/components/app/screens/work-surface-controls", () => {
       </button>
     ),
     PROJECT_DISPLAY_PROPERTY_OPTIONS: [
-      "id",
-      "status",
+      "team",
       "assignee",
       "priority",
       "updated",
@@ -310,7 +313,7 @@ function seedState() {
   useAppStore.setState(createTestWorkspaceDirectoryAppData())
 }
 
-function createLaunchProject() {
+function createLaunchProject(overrides: Partial<Project> = {}) {
   return createTestProject({
     id: "project_1",
     scopeType: "team",
@@ -321,6 +324,7 @@ function createLaunchProject() {
     createdAt: "2026-04-18T09:00:00.000Z",
     updatedAt: "2026-04-18T10:00:00.000Z",
     presentation: undefined,
+    ...overrides,
   })
 }
 
@@ -393,7 +397,9 @@ describe("ViewsScreen", () => {
           }),
           createTestWorkItem("private", {
             creatorId: "user_1",
+            teamId: null,
             visibility: "private",
+            workspaceId: "workspace_1",
           }),
           createTestWorkItem("not-mine", {
             assigneeId: null,
@@ -432,7 +438,9 @@ describe("ViewsScreen", () => {
           createTestWorkItem("private", {
             creatorId: "user_1",
             status: "in-progress",
+            teamId: null,
             visibility: "private",
+            workspaceId: "workspace_1",
           }),
           createTestWorkItem("not-mine", {
             assigneeId: null,
@@ -562,17 +570,45 @@ describe("ViewsScreen", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Props:id,status,assignee,priority,updated",
+        name: "Props:team,assignee,priority,updated",
       })
     )
     expect(
       screen.getByRole("button", {
-        name: "Props:id,status,assignee,priority,updated,dueDate",
+        name: "Props:team,assignee,priority,updated,dueDate",
       })
     ).toBeInTheDocument()
   })
 
-  it("wires workspace project screens to workspace directory project views", () => {
+  it("keeps project preview metadata out of the secondary text row", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      views: [],
+      projects: [
+        createLaunchProject({
+          description: "Imported frontend audit backlog.",
+          health: "no-update",
+          priority: "none",
+        }),
+      ],
+      workItems: [],
+    }))
+
+    renderTeamProjectsScreen()
+
+    const projectLink = screen.getByRole("link", { name: /Launch/ })
+    const projectPreview = within(projectLink)
+
+    expect(projectPreview.getByText("Platform")).toBeInTheDocument()
+    expect(
+      projectPreview.getByText("Imported frontend audit backlog.")
+    ).toBeInTheDocument()
+    expect(projectPreview.queryByText(/ID project_/)).not.toBeInTheDocument()
+    expect(projectPreview.queryByText("No update")).not.toBeInTheDocument()
+    expect(projectPreview.queryByText("None")).not.toBeInTheDocument()
+  })
+
+  it("keeps workspace project tabs scoped to workspace project views", () => {
     useAppStore.setState((state) => ({
       ...state,
       projects: [createLaunchProject()],
@@ -584,8 +620,9 @@ describe("ViewsScreen", () => {
       screen.getByRole("button", { name: "Workspace roadmap" })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "Platform board" })
+      screen.getByRole("button", { name: "Legacy workspace board" })
     ).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Platform board" })).toBeNull()
     expect(screen.queryByRole("button", { name: "Design board" })).toBeNull()
   })
 

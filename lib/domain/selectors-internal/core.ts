@@ -271,7 +271,11 @@ export function hasWorkspaceAccess(
   )
 }
 
-export function canEditTeam(data: AppData, teamId: string) {
+export function canEditTeam(data: AppData, teamId: string | null | undefined) {
+  if (!teamId) {
+    return false
+  }
+
   const role = getTeamRole(data, teamId)
   return canEditRole(role)
 }
@@ -289,7 +293,11 @@ export function canEditWorkspace(data: AppData, workspaceId: string) {
   return canEditRole(role)
 }
 
-export function canAdminTeam(data: AppData, teamId: string) {
+export function canAdminTeam(data: AppData, teamId: string | null | undefined) {
+  if (!teamId) {
+    return false
+  }
+
   return getTeamRole(data, teamId) === "admin"
 }
 
@@ -346,7 +354,11 @@ export function getWorkItemDescendantIds(data: AppData, itemId: string) {
   return descendants
 }
 
-export function getTeam(data: AppData, teamId: string) {
+export function getTeam(data: AppData, teamId: string | null | undefined) {
+  if (!teamId) {
+    return null
+  }
+
   return data.teams.find((team) => team.id === teamId) ?? null
 }
 
@@ -366,7 +378,14 @@ export function teamHasFeature(
   return getTeamFeatureSettings(team)[feature]
 }
 
-export function getTeamMembers(data: AppData, teamId: string) {
+export function getTeamMembers(
+  data: AppData,
+  teamId: string | null | undefined
+) {
+  if (!teamId) {
+    return []
+  }
+
   const memberIds = new Set(
     data.teamMemberships
       .filter((membership) => membership.teamId === teamId)
@@ -456,7 +475,10 @@ export function getLabelsForWorkspace(data: AppData, workspaceId: string) {
   return data.labels.filter((label) => label.workspaceId === workspaceId)
 }
 
-export function getLabelsForTeamScope(data: AppData, teamId: string) {
+export function getLabelsForTeamScope(
+  data: AppData,
+  teamId: string | null | undefined
+) {
   const team = getTeam(data, teamId)
 
   if (!team) {

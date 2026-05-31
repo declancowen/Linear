@@ -16,6 +16,7 @@ import {
   WorkItemDetailSidebarSurface,
 } from "@/components/app/screens/work-item-detail-screen"
 import { createEmptyState } from "@/lib/domain/empty-state"
+import type { AppData } from "@/lib/domain/types"
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import { useAppStore } from "@/lib/store/app-store"
 import {
@@ -78,6 +79,14 @@ vi.mock("@/lib/convex/client", () => ({
 
 vi.mock("@/hooks/use-document-collaboration", () => ({
   useDocumentCollaboration: useDocumentCollaborationMock,
+}))
+
+vi.mock("@/hooks/use-scoped-read-model-refresh", () => ({
+  useScopedReadModelRefresh: () => ({
+    error: null,
+    hasLoadedOnce: true,
+    refreshing: false,
+  }),
 }))
 
 vi.mock("@/components/app/rich-text-editor", () => ({
@@ -321,55 +330,58 @@ vi.mock("@phosphor-icons/react", async (importOriginal) => {
   }
 })
 
+function createWorkItemDetailTestData(overrides: Partial<AppData> = {}) {
+  return createTestAppData({
+    users: [
+      createTestUser({
+        title: "Founder",
+        hasExplicitStatus: false,
+      }),
+      createTestUser({
+        id: "user_2",
+        name: "Taylor",
+        handle: "taylor",
+        email: "taylor@example.com",
+        hasExplicitStatus: false,
+      }),
+    ],
+    teamMemberships: [createTestTeamMembership()],
+    documents: [
+      createTestDocument({
+        id: "document_1",
+        kind: "item-description",
+        title: "Plan launch",
+        content: "<p>Initial description</p>",
+        linkedWorkItemIds: ["item_1"],
+      }),
+      createTestDocument({
+        id: "document_2",
+        kind: "item-description",
+        title: "Follow up",
+        content: "<p>Second description</p>",
+        linkedWorkItemIds: ["item_2"],
+      }),
+    ],
+    workItems: [
+      createTestWorkItem("item_1", {
+        key: "PLA-1",
+        title: "Plan launch",
+        descriptionDocId: "document_1",
+        subscriberIds: [],
+      }),
+      createTestWorkItem("item_2", {
+        key: "PLA-2",
+        title: "Follow up",
+        descriptionDocId: "document_2",
+        subscriberIds: [],
+      }),
+    ],
+    ...overrides,
+  })
+}
+
 function seedState() {
-  useAppStore.setState(
-    createTestAppData({
-      users: [
-        createTestUser({
-          title: "Founder",
-          hasExplicitStatus: false,
-        }),
-        createTestUser({
-          id: "user_2",
-          name: "Taylor",
-          handle: "taylor",
-          email: "taylor@example.com",
-          hasExplicitStatus: false,
-        }),
-      ],
-      teamMemberships: [createTestTeamMembership()],
-      documents: [
-        createTestDocument({
-          id: "document_1",
-          kind: "item-description",
-          title: "Plan launch",
-          content: "<p>Initial description</p>",
-          linkedWorkItemIds: ["item_1"],
-        }),
-        createTestDocument({
-          id: "document_2",
-          kind: "item-description",
-          title: "Follow up",
-          content: "<p>Second description</p>",
-          linkedWorkItemIds: ["item_2"],
-        }),
-      ],
-      workItems: [
-        createTestWorkItem("item_1", {
-          key: "PLA-1",
-          title: "Plan launch",
-          descriptionDocId: "document_1",
-          subscriberIds: [],
-        }),
-        createTestWorkItem("item_2", {
-          key: "PLA-2",
-          title: "Follow up",
-          descriptionDocId: "document_2",
-          subscriberIds: [],
-        }),
-      ],
-    })
-  )
+  useAppStore.setState(createWorkItemDetailTestData())
 }
 
 function getSeededWorkItemDetailSidebarFixture() {
@@ -1051,29 +1063,34 @@ describe("work item detail screen", () => {
     expect(screen.getByRole("button", { name: "Status" })).toBeInTheDocument()
     expect(screen.queryByText("Activity")).not.toBeInTheDocument()
 
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+    })
+
     await waitFor(() =>
       expect(screen.getByText("Activity")).toBeInTheDocument()
     )
   })
 
   it("renders persisted work item status changes in activity", async () => {
-    act(() => {
-      useAppStore.setState((state) => ({
-        ...state,
-        workItemActivities: [
-          {
-            id: "activity_1",
-            itemId: "item_1",
-            actorId: "user_1",
-            type: "status-change",
-            fromStatus: "todo",
-            toStatus: "done",
-            createdAt: "2026-04-20T22:20:00.000Z",
-          },
-        ],
-      }))
+    const data = createWorkItemDetailTestData({
+      workItemActivities: [
+        {
+          id: "activity_1",
+          itemId: "item_1",
+          actorId: "user_1",
+          type: "status-change",
+          fromStatus: "todo",
+          toStatus: "done",
+          createdAt: "2026-04-20T22:20:00.000Z",
+        },
+      ],
     })
-    const { data, item } = getSeededWorkItemDetailSidebarFixture()
+    const item = data.workItems.find((candidate) => candidate.id === "item_1")
+
+    if (!item) {
+      throw new Error("Expected seeded work item")
+    }
 
     render(
       <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
@@ -1081,7 +1098,7 @@ describe("work item detail screen", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText("moved this item from Todo to Done")
+        screen.getByText("moved this item from To-Do to Done")
       ).toBeInTheDocument()
     )
   })
@@ -1186,6 +1203,13 @@ describe("work item detail screen", () => {
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Project" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Manage labels" })
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByText("Activity").length).toBeGreaterThan(0)
+    expect(
+      screen.queryByLabelText(/Leave a comment/i)
     ).not.toBeInTheDocument()
   })
 
