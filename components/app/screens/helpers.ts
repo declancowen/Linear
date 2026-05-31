@@ -49,6 +49,7 @@ export type PersistedViewFilterKey =
   | "priority"
   | "assigneeIds"
   | "creatorIds"
+  | "subscriberIds"
   | "updatedByIds"
   | "documentKinds"
   | "linkedWorkItemIds"
@@ -72,6 +73,7 @@ export type ViewConfigPatchInput = {
   showChildItems?: boolean
   showCompleted?: boolean
   showEmptyGroups?: boolean
+  filters?: Partial<ViewDefinition["filters"]>
 }
 
 export function createEmptyViewFilters(): ViewDefinition["filters"] {
@@ -86,6 +88,7 @@ export function isPersistedViewFilterKey(
     "priority",
     "assigneeIds",
     "creatorIds",
+    "subscriberIds",
     "updatedByIds",
     "documentKinds",
     "linkedWorkItemIds",
@@ -139,13 +142,14 @@ export function applyViewConfigPatch<
 >(current: TConfig, patch: ViewConfigPatchInput): TConfig {
   const nextConfig = { ...current } as TConfig & Record<string, unknown>
   const mutableConfig = nextConfig as Record<string, unknown>
+  const { filters, ...scalarPatch } = patch
   const patchEntries = [
-    ["layout", patch.layout],
-    ["grouping", patch.grouping],
-    ["subGrouping", patch.subGrouping],
-    ["ordering", patch.ordering],
-    ["itemLevel", patch.itemLevel],
-    ["showChildItems", patch.showChildItems],
+    ["layout", scalarPatch.layout],
+    ["grouping", scalarPatch.grouping],
+    ["subGrouping", scalarPatch.subGrouping],
+    ["ordering", scalarPatch.ordering],
+    ["itemLevel", scalarPatch.itemLevel],
+    ["showChildItems", scalarPatch.showChildItems],
   ] as const
 
   for (const [key, value] of patchEntries) {
@@ -155,11 +159,13 @@ export function applyViewConfigPatch<
   }
 
   if (
+    filters !== undefined ||
     patch.showCompleted !== undefined ||
     patch.showEmptyGroups !== undefined
   ) {
     mutableConfig.filters = {
       ...(current.filters ?? createDefaultViewFilters()),
+      ...filters,
       ...(patch.showCompleted === undefined
         ? {}
         : { showCompleted: patch.showCompleted }),
@@ -210,6 +216,7 @@ export function selectAppDataSnapshot(state: AppStore): AppData {
     projects: state.projects,
     milestones: state.milestones,
     workItems: state.workItems,
+    workItemActivities: state.workItemActivities,
     customPropertyDefinitions: state.customPropertyDefinitions,
     customPropertyValues: state.customPropertyValues,
     documents: state.documents,

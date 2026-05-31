@@ -1,7 +1,13 @@
 "use client"
 
 import { type ReactNode } from "react"
-import { CopySimple, EnvelopeSimple, Hash, Quotes, UsersThree } from "@phosphor-icons/react"
+import {
+  CopySimple,
+  EnvelopeSimple,
+  Hash,
+  Quotes,
+  UsersThree,
+} from "@phosphor-icons/react"
 import { toast } from "sonner"
 import { useShallow } from "zustand/react/shallow"
 
@@ -200,7 +206,7 @@ function SurfaceSidebarHeroDetailsEmail({ email }: { email: string }) {
         type="button"
         variant="ghost"
         size="icon-xs"
-        className="size-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+        className="size-5 shrink-0 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
         onClick={() => void copySurfaceSidebarEmail(email)}
         aria-label="Copy email"
         title="Copy email"
@@ -349,6 +355,7 @@ function SurfaceSidebarMemberRow({
       userId={member.id}
       currentUserId={context.currentUserId}
       workspaceId={context.currentWorkspaceId}
+      portalled={false}
     >
       <div className="flex items-center gap-2.5 rounded-md px-1.5 py-1 text-[12.5px] transition-colors hover:bg-surface-2">
         <div className="shrink-0">

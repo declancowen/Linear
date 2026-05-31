@@ -2,9 +2,7 @@ import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 
-import {
-  SurfaceSidebarContent,
-} from "@/components/app/collaboration-screens/shared-ui"
+import { SurfaceSidebarContent } from "@/components/app/collaboration-screens/shared-ui"
 import { getSurfaceSidebarHeroDisplay } from "@/components/app/collaboration-screens/surface-sidebar-display"
 import { UserHoverCard } from "@/components/app/user-presence"
 import { useAppStore } from "@/lib/store/app-store"
@@ -177,11 +175,9 @@ describe("workspace former-member presence", () => {
     expect(screen.queryByText("Offline")).not.toBeInTheDocument()
   })
 
-  it("starts a direct workspace chat from the hover card message action", () => {
-    const createWorkspaceChat = vi.fn().mockReturnValue("chat_1")
+  it("opens the workspace profile from the hover card profile action", () => {
     useAppStore.setState((state) => ({
       ...state,
-      createWorkspaceChat: createWorkspaceChat as never,
       workspaceMemberships: [
         {
           workspaceId: "workspace_1",
@@ -202,14 +198,14 @@ describe("workspace former-member presence", () => {
       </UserHoverCard>
     )
 
-    fireEvent.click(screen.getByRole("button", { name: "Message" }))
+    expect(
+      screen.queryByRole("button", { name: "Message" })
+    ).not.toBeInTheDocument()
 
-    expect(createWorkspaceChat).toHaveBeenCalledWith({
-      participantIds: [formerUser.id],
-      workspaceId: "workspace_1",
-      title: "",
-      description: "",
-    })
-    expect(routerPushMock).toHaveBeenCalledWith("/chats?chatId=chat_1")
+    fireEvent.click(screen.getByRole("button", { name: "Profile" }))
+
+    expect(routerPushMock).toHaveBeenCalledWith(
+      `/workspace/people/${formerUser.id}`
+    )
   })
 })

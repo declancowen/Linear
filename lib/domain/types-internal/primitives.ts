@@ -107,6 +107,8 @@ export type NotificationType =
   | "invite"
   | "status-change"
 
+export type WorkItemActivityType = "status-change"
+
 export type NotificationEntityType =
   | "workItem"
   | "document"
@@ -341,6 +343,7 @@ export type ViewFilters = {
   priority: Priority[]
   assigneeIds: string[]
   creatorIds: string[]
+  subscriberIds?: string[]
   updatedByIds?: string[]
   documentKinds?: DocumentKind[]
   linkedWorkItemIds?: string[]
@@ -374,6 +377,7 @@ function createEmptyViewFilterSelections() {
     priority: [],
     assigneeIds: [],
     creatorIds: [],
+    subscriberIds: [],
     updatedByIds: [],
     documentKinds: [],
     linkedWorkItemIds: [],
@@ -419,6 +423,7 @@ export function cloneViewFilters(
     priority: [...filters.priority],
     assigneeIds: [...filters.assigneeIds],
     creatorIds: [...filters.creatorIds],
+    subscriberIds: [...(filters.subscriberIds ?? [])],
     updatedByIds: [...(filters.updatedByIds ?? [])],
     documentKinds: [...(filters.documentKinds ?? [])],
     linkedWorkItemIds: [...(filters.linkedWorkItemIds ?? [])],

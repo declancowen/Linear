@@ -30,6 +30,7 @@ import {
   SignOut,
   SquaresFour,
   UserCircle,
+  Users,
   X,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
@@ -1815,6 +1816,12 @@ function ShellWorkspaceSection({
               active={pathname.startsWith("/workspace/channel")}
             />
             <SidebarLink
+              href="/workspace/people"
+              icon={<Users />}
+              label="People"
+              active={pathname.startsWith("/workspace/people")}
+            />
+            <SidebarLink
               href="/workspace/docs"
               icon={<FileText />}
               label="Docs"
@@ -2227,7 +2234,10 @@ function ShellUserFooter({
                 userId={user.id}
                 currentUserId={userId}
                 workspaceId={workspaceId}
-                side="right"
+                align="start"
+                className="w-56"
+                portalled={false}
+                side="top"
               >
                 <DropdownMenuLabel className="space-y-1.5">
                   <div className="font-medium text-foreground">{user.name}</div>

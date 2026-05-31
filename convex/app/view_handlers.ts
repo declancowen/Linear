@@ -135,6 +135,7 @@ type ViewFilterValueArgs = ServerAccessArgs & {
     | "priority"
     | "assigneeIds"
     | "creatorIds"
+    | "subscriberIds"
     | "updatedByIds"
     | "documentKinds"
     | "linkedWorkItemIds"

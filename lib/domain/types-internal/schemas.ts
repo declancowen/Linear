@@ -283,6 +283,7 @@ export const profileSchema = z.object({
   preferences: z.object({
     emailMentions: z.boolean(),
     emailAssignments: z.boolean(),
+    emailComments: z.boolean().default(true),
     emailDigest: z.boolean(),
     theme: z.enum(themePreferences).default("light"),
     timeZone: z
@@ -300,6 +301,7 @@ const viewFiltersSchema = z.object({
   priority: z.array(z.enum(priorities)),
   assigneeIds: z.array(z.string()),
   creatorIds: z.array(z.string()),
+  subscriberIds: z.array(z.string()).default([]),
   updatedByIds: z.array(z.string()).default([]),
   documentKinds: z
     .array(

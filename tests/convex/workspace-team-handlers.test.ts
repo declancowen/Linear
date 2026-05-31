@@ -813,12 +813,14 @@ describe("workspace and team deletion handlers", () => {
       teamId: "team_1",
       syncWorkspaceChannel: false,
       cleanupGlobalState: false,
+      includePrivateWorkItems: true,
     })
     expect(cascadeDeleteTeamDataMock).toHaveBeenNthCalledWith(2, ctx, {
       currentUserId: "user_1",
       teamId: "team_2",
       syncWorkspaceChannel: false,
       cleanupGlobalState: false,
+      includePrivateWorkItems: true,
     })
     expect(ctx.db.insert).not.toHaveBeenCalled()
     expect(buildAccessChangeEmailJobsMock).toHaveBeenCalledWith({

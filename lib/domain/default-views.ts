@@ -421,6 +421,7 @@ export function buildAssignedWorkViews(
         showChildItems: true,
         filters: {
           ...createDefaultViewFilters(),
+          itemTypes: ["task", "sub-task"],
           visibility: ["private"],
         },
         displayProps: ["id", "status", "priority", "dueDate"],
@@ -493,6 +494,28 @@ export function buildAssignedWorkViews(
         ordering: "targetDate",
         displayProps: ["id", "project", "priority", "dueDate"],
         hiddenState: { groups: [], subgroups: [] },
+      },
+    }),
+    createViewDefinition({
+      id: "view_assigned_subscribed_items",
+      name: "Subscribed",
+      description: "Team work items you are subscribed to.",
+      scopeType: "personal",
+      scopeId: input.userId,
+      entityKind: "items",
+      route: "/assigned",
+      defaultItemLevelExperience: input.experience,
+      isShared: false,
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+      overrides: {
+        showChildItems: true,
+        filters: {
+          ...createDefaultViewFilters(),
+          subscriberIds: [input.userId],
+          visibility: ["team"],
+        },
+        displayProps: ASSIGNED_WORK_ITEM_DISPLAY_PROPS,
       },
     }),
   ].filter(Boolean) as ViewDefinition[]
@@ -636,7 +659,10 @@ function isCanonicalSystemViewId(
   }
 
   if (entityKind === "items") {
-    return /^view_.+_(all|active|backlog)_items$/.test(id)
+    return (
+      /^view_.+_(all|active|backlog|subscribed)_items$/.test(id) ||
+      /^view_.+_private_tasks$/.test(id)
+    )
   }
 
   if (entityKind === "docs") {

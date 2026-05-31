@@ -40,6 +40,7 @@ type UiSlice = Pick<
   | "closeCreateDialog"
   | "setSelectedView"
   | "patchViewerViewConfig"
+  | "resetViewerViewConfig"
   | "toggleViewerViewFilterValue"
   | "clearViewerViewFilters"
   | "toggleViewerViewDisplayProperty"
@@ -55,6 +56,7 @@ const FILTER_KEYS: ViewFilterValueKey[] = [
   "priority",
   "assigneeIds",
   "creatorIds",
+  "subscriberIds",
   "updatedByIds",
   "documentKinds",
   "linkedWorkItemIds",
@@ -130,6 +132,24 @@ function mergeByKey<T>(
   }
 
   return [...entries.values()]
+}
+
+function preserveLocalNotificationReadState(
+  existing: AppData["notifications"],
+  incoming: AppData["notifications"]
+) {
+  const existingById = new Map(existing.map((entry) => [entry.id, entry]))
+
+  return incoming.map((notification) => {
+    const current = existingById.get(notification.id)
+
+    return current?.readAt && !notification.readAt
+      ? {
+          ...notification,
+          readAt: current.readAt,
+        }
+      : notification
+  })
 }
 
 function mergeProtectedDocuments(
@@ -287,6 +307,7 @@ type ArrayDomainKey =
   | "projects"
   | "milestones"
   | "workItems"
+  | "workItemActivities"
   | "customPropertyDefinitions"
   | "customPropertyValues"
   | "documents"
@@ -313,6 +334,7 @@ function shouldPreserveExistingDocumentBodies(
     (instruction) =>
       instruction.kind === "document-index" ||
       instruction.kind === "project-detail" ||
+      instruction.kind === "workspace-people" ||
       instruction.kind === "search-seed"
   )
 }
@@ -341,6 +363,7 @@ type ArrayDomainEntry =
   | AppData["projects"][number]
   | AppData["milestones"][number]
   | AppData["workItems"][number]
+  | AppData["workItemActivities"][number]
   | AppData["customPropertyDefinitions"][number]
   | AppData["customPropertyValues"][number]
   | AppData["documents"][number]
@@ -368,6 +391,8 @@ const domainKeyResolvers: {
   projects: (value: AppData["projects"][number]) => value.id,
   milestones: (value: AppData["milestones"][number]) => value.id,
   workItems: (value: AppData["workItems"][number]) => value.id,
+  workItemActivities: (value: AppData["workItemActivities"][number]) =>
+    value.id,
   customPropertyDefinitions: (
     value: AppData["customPropertyDefinitions"][number]
   ) => value.id,
@@ -485,7 +510,12 @@ function applyReplacedDomainData(state: AppStore, data: Partial<AppData>) {
     views: reconciledViews.views,
     users: normalizeUsers(data.users ?? state.users),
     notifications: normalizeNotifications(
-      data.notifications ?? state.notifications
+      data.notifications
+        ? preserveLocalNotificationReadState(
+            state.notifications,
+            data.notifications
+          )
+        : state.notifications
     ),
     comments: normalizeComments(data.comments ?? state.comments),
     chatMessages: normalizeChatMessages(
@@ -572,6 +602,11 @@ function applyMergedReadModelData(
       data.workItems,
       (value) => value.id
     ),
+    workItemActivities: mergeByKey(
+      prunedState.workItemActivities,
+      data.workItemActivities,
+      (value) => value.id
+    ),
     documents: mergeProtectedDocuments(
       prunedState.documents,
       data.documents,
@@ -591,11 +626,16 @@ function applyMergedReadModelData(
       (value) => value.id
     ),
     notifications: normalizeNotifications(
-      mergeByKey(
-        prunedState.notifications,
-        data.notifications,
-        (value) => value.id
-      )
+      data.notifications
+        ? preserveLocalNotificationReadState(
+            prunedState.notifications,
+            mergeByKey(
+              prunedState.notifications,
+              data.notifications,
+              (value) => value.id
+            )
+          )
+        : prunedState.notifications
     ),
     invites: mergeByKey(prunedState.invites, data.invites, (value) => value.id),
     projectUpdates: mergeByKey(
@@ -740,6 +780,31 @@ export function createUiSlice(
                 },
               }),
         }))
+      })
+    },
+    resetViewerViewConfig(surfaceKey, viewId) {
+      set((state) => {
+        const storageKey = getViewerScopedViewKey(
+          state.currentUserId,
+          surfaceKey,
+          viewId
+        )
+
+        if (!(storageKey in state.ui.viewerViewConfigByRoute)) {
+          return state
+        }
+
+        const viewerViewConfigByRoute = {
+          ...state.ui.viewerViewConfigByRoute,
+        }
+        delete viewerViewConfigByRoute[storageKey]
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerViewConfigByRoute,
+          },
+        }
       })
     },
     toggleViewerViewFilterValue(surfaceKey, viewId, key, value) {

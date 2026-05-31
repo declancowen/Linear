@@ -36,6 +36,7 @@ import {
   listTeamsByIds,
   listViewsByScopes,
   listViewsByScope,
+  listWorkItemActivitiesByWorkItems,
   listWorkItemsByTeam,
   listWorkspaceMembershipsByUser,
   listWorkspacesOwnedByUser,
@@ -963,6 +964,19 @@ async function getWorkspaceLabelCleanupScope(
   }
 }
 
+async function listWorkspacePrivateWorkItemLabelReferences(
+  ctx: MutationCtx,
+  workspaceId: string
+) {
+  const workItems = await ctx.db.query("workItems").collect()
+
+  return workItems.filter(
+    (workItem) =>
+      (workItem.visibility ?? "team") === "private" &&
+      workItem.workspaceId === workspaceId
+  )
+}
+
 async function listWorkspaceLabelReferences(
   ctx: MutationCtx,
   workspaceId: string
@@ -973,19 +987,21 @@ async function listWorkspaceLabelReferences(
 }> {
   const { scopedEntities, workspaceTeams, workspaceUserIds } =
     await getWorkspaceLabelCleanupScope(ctx, workspaceId)
-  const [workItemsByTeam, views, personalViews, projects] = await Promise.all([
-    Promise.all(
-      workspaceTeams.map((team) => listWorkItemsByTeam(ctx, team.id))
-    ),
-    listViewsByScopes(ctx, scopedEntities),
-    listPersonalViewsByUsers(ctx, workspaceUserIds),
-    listProjectsByScopes(ctx, scopedEntities),
-  ])
+  const [workItemsByTeam, privateWorkItems, views, personalViews, projects] =
+    await Promise.all([
+      Promise.all(
+        workspaceTeams.map((team) => listWorkItemsByTeam(ctx, team.id))
+      ),
+      listWorkspacePrivateWorkItemLabelReferences(ctx, workspaceId),
+      listViewsByScopes(ctx, scopedEntities),
+      listPersonalViewsByUsers(ctx, workspaceUserIds),
+      listProjectsByScopes(ctx, scopedEntities),
+    ])
 
   return {
     projects,
     relevantViews: [...views, ...personalViews],
-    workItems: workItemsByTeam.flat(),
+    workItems: dedupeById([...workItemsByTeam.flat(), ...privateWorkItems]),
   }
 }
 
@@ -1278,6 +1294,7 @@ async function getUnreferencedUserReferenceSnapshot(ctx: MutationCtx) {
     comments,
     attachments,
     notifications,
+    workItemActivities,
     invites,
     projectUpdates,
     conversations,
@@ -1297,6 +1314,7 @@ async function getUnreferencedUserReferenceSnapshot(ctx: MutationCtx) {
     ctx.db.query("comments").collect(),
     ctx.db.query("attachments").collect(),
     ctx.db.query("notifications").collect(),
+    ctx.db.query("workItemActivities").collect(),
     ctx.db.query("invites").collect(),
     ctx.db.query("projectUpdates").collect(),
     ctx.db.query("conversations").collect(),
@@ -1317,6 +1335,7 @@ async function getUnreferencedUserReferenceSnapshot(ctx: MutationCtx) {
     documents,
     invites,
     notifications,
+    workItemActivities,
     projectUpdates,
     projects,
     teamMemberships,
@@ -1385,6 +1404,8 @@ const USER_REFERENCE_PREDICATES: UserReferencePredicate[] = [
       (notification) =>
         notification.userId === userId || notification.actorId === userId
     ),
+  (snapshot, userId) =>
+    snapshot.workItemActivities.some((activity) => activity.actorId === userId),
   (snapshot, userId) =>
     snapshot.invites.some((invite) => invite.invitedBy === userId),
   (snapshot, userId) =>
@@ -1530,6 +1551,7 @@ export async function cascadeDeleteTeamData(
     teamId: string
     syncWorkspaceChannel?: boolean
     cleanupGlobalState?: boolean
+    includePrivateWorkItems?: boolean
   }
 ) {
   const team = await getTeamDoc(ctx, input.teamId)
@@ -1555,15 +1577,36 @@ export async function cascadeDeleteTeamData(
     scopeId: team.id,
     scopeType: "team",
   })
-  const workItems = await listWorkItemsByTeam(ctx, team.id)
+  const allWorkItems = await listWorkItemsByTeam(ctx, team.id)
+  const preservedPrivateWorkItems = input.includePrivateWorkItems
+    ? []
+    : allWorkItems.filter(
+        (workItem) => (workItem.visibility ?? "team") === "private"
+      )
+  const workItems = input.includePrivateWorkItems
+    ? allWorkItems
+    : allWorkItems.filter(
+        (workItem) => (workItem.visibility ?? "team") !== "private"
+      )
   const deletedWorkItemIds = new Set(workItems.map((workItem) => workItem.id))
   const deletedDescriptionDocIds = new Set(
     workItems.map((workItem) => workItem.descriptionDocId)
   )
-  const [teamDocuments, descriptionDocuments] = await Promise.all([
+  const preservedPrivateDescriptionDocIds = new Set(
+    preservedPrivateWorkItems.map((workItem) => workItem.descriptionDocId)
+  )
+  const [
+    allTeamDocuments,
+    descriptionDocuments,
+    preservedPrivateDescriptionDocuments,
+  ] = await Promise.all([
     listTeamDocuments(ctx, team.id),
     listDocumentsByIds(ctx, deletedDescriptionDocIds),
+    listDocumentsByIds(ctx, preservedPrivateDescriptionDocIds),
   ])
+  const teamDocuments = input.includePrivateWorkItems
+    ? allTeamDocuments
+    : allTeamDocuments.filter((document) => document.kind !== "item-description")
   const documents = dedupeById([...teamDocuments, ...descriptionDocuments])
   const deletedDocumentIds = new Set(documents.map((document) => document.id))
   const views = await listViewsByScope(ctx, "team", team.id)
@@ -1583,6 +1626,7 @@ export async function cascadeDeleteTeamData(
     documentComments,
     documentPresence,
     invites,
+    workItemActivities,
   ] = await Promise.all([
     listAttachmentsByTargets(ctx, {
       targetType: "workItem",
@@ -1602,6 +1646,7 @@ export async function cascadeDeleteTeamData(
     }),
     listDocumentPresenceByDocuments(ctx, deletedDocumentIds),
     listInvitesByTeam(ctx, team.id),
+    listWorkItemActivitiesByWorkItems(ctx, deletedWorkItemIds),
   ])
   const attachments = [...workItemAttachments, ...documentAttachments]
   const comments = [...workItemComments, ...documentComments]
@@ -1635,6 +1680,11 @@ export async function cascadeDeleteTeamData(
     ctx,
     attachments.map((attachment) => attachment.storageId as string)
   )
+  await preservePrivateWorkItemsForTeamDelete(ctx, {
+    descriptionDocuments: preservedPrivateDescriptionDocuments,
+    teamWorkspaceId: team.workspaceId,
+    workItems: preservedPrivateWorkItems,
+  })
   await deleteDocGroups(
     ctx,
     channelPostComments,
@@ -1644,6 +1694,7 @@ export async function cascadeDeleteTeamData(
     comments,
     attachments,
     documentPresence,
+    workItemActivities,
     notifications,
     projectUpdates,
     invites,
@@ -1699,5 +1750,34 @@ export async function cascadeDeleteTeamData(
     membershipUserIds,
     deletedLabelIds,
     deletedUserIds,
+  }
+}
+
+async function preservePrivateWorkItemsForTeamDelete(
+  ctx: MutationCtx,
+  input: {
+    descriptionDocuments: Awaited<ReturnType<typeof listDocumentsByIds>>
+    teamWorkspaceId: string
+    workItems: Awaited<ReturnType<typeof listWorkItemsByTeam>>
+  }
+) {
+  for (const workItem of input.workItems) {
+    if (workItem.workspaceId !== input.teamWorkspaceId) {
+      await ctx.db.patch(workItem._id, {
+        workspaceId: input.teamWorkspaceId,
+      })
+    }
+  }
+
+  for (const document of input.descriptionDocuments) {
+    if (
+      document.workspaceId !== input.teamWorkspaceId ||
+      document.teamId !== null
+    ) {
+      await ctx.db.patch(document._id, {
+        workspaceId: input.teamWorkspaceId,
+        teamId: null,
+      })
+    }
   }
 }

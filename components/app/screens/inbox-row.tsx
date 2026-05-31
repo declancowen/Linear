@@ -32,11 +32,12 @@ export function InboxRow({
   const unread = !notification.readAt
   const actorName = actor?.name ?? "Someone"
   const subtitle = buildInboxNotificationSubtitle(notification, actorName)
+  const relativeCreatedAt = getShortRelativeTimestamp(notification.createdAt)
 
   return (
     <div
       className={cn(
-        "group/row relative flex items-center border-b border-line-soft transition-colors",
+        "group/row relative flex w-full min-w-0 items-center border-b border-line-soft transition-colors",
         active ? "bg-accent" : "hover:bg-accent/40"
       )}
     >
@@ -49,7 +50,7 @@ export function InboxRow({
       />
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-start gap-3 py-2.5 pr-2 pl-4 text-left"
+        className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 py-2.5 pr-9 pl-4 text-left"
         onClick={onSelect}
       >
         <InboxRowAvatar
@@ -60,6 +61,7 @@ export function InboxRow({
         <InboxRowContent
           actorName={actorName}
           notification={notification}
+          relativeCreatedAt={relativeCreatedAt}
           subtitle={subtitle}
           unread={unread}
         />
@@ -75,31 +77,48 @@ export function InboxRow({
 function InboxRowContent({
   actorName,
   notification,
+  relativeCreatedAt,
   subtitle,
   unread,
 }: {
   actorName: string
   notification: Notification
+  relativeCreatedAt: ReturnType<typeof getShortRelativeTimestamp>
   subtitle: string
   unread: boolean
 }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <div className="flex min-w-0 items-baseline gap-1.5">
-        <span
-          className={cn(
-            "truncate text-[12.5px] leading-5 text-foreground",
-            unread && "font-semibold"
-          )}
-        >
-          {actorName}
-        </span>
-        <span className="shrink-0 text-[10.5px] text-muted-foreground/70">
-          ·
-        </span>
-        <span className="truncate text-[11.5px] text-muted-foreground">
-          {ENTITY_LABEL[notification.entityType]}
-        </span>
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2">
+        <div className="flex min-w-0 items-baseline gap-1.5 overflow-hidden">
+          <span
+            className={cn(
+              "truncate text-[12.5px] leading-5 text-foreground",
+              unread && "font-semibold"
+            )}
+          >
+            {actorName}
+          </span>
+          <span className="shrink-0 text-[10.5px] text-muted-foreground/70">
+            ·
+          </span>
+          <span className="truncate text-[11.5px] text-muted-foreground">
+            {ENTITY_LABEL[notification.entityType]}
+          </span>
+        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <time
+              className="max-w-16 shrink-0 overflow-hidden text-right text-[11px] text-ellipsis whitespace-nowrap text-muted-foreground tabular-nums"
+              dateTime={notification.createdAt}
+            >
+              {relativeCreatedAt.label}
+            </time>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={6}>
+            {formatFullTimestamp(notification.createdAt)}
+          </TooltipContent>
+        </Tooltip>
       </div>
       <span
         className={cn(
@@ -120,29 +139,15 @@ function InboxRowTimestampActions({
   notification: Notification
   onToggleArchive: () => void
 }) {
-  const relativeCreatedAt = getShortRelativeTimestamp(notification.createdAt)
-
   return (
-    <div className="relative flex shrink-0 items-center pr-2">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="pr-1 text-[11px] text-muted-foreground tabular-nums transition-opacity group-focus-within/row:opacity-0 group-hover/row:opacity-0">
-            {relativeCreatedAt.label}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent sideOffset={6}>
-          {formatFullTimestamp(notification.createdAt)}
-        </TooltipContent>
-      </Tooltip>
-      <div className="absolute inset-y-0 right-2 flex items-center opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100">
-        <InboxArchiveButton
-          notification={notification}
-          onArchive={(event) => {
-            event.stopPropagation()
-            onToggleArchive()
-          }}
-        />
-      </div>
+    <div className="absolute inset-y-0 right-2 flex items-center opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100">
+      <InboxArchiveButton
+        notification={notification}
+        onArchive={(event) => {
+          event.stopPropagation()
+          onToggleArchive()
+        }}
+      />
     </div>
   )
 }

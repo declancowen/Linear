@@ -3,10 +3,10 @@
 import type { ReactElement } from "react"
 import { useAppRouter } from "@/lib/browser/app-navigation"
 import {
-  ChatCircle,
   CopySimple,
   EnvelopeSimple,
   Quotes,
+  UserCircle,
   X,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
@@ -119,7 +119,7 @@ export function UserAvatar({
 
 type UserHoverDisplayState = {
   canEmail: boolean
-  canMessage: boolean
+  canProfile: boolean
   displayUser: NonNullable<ReturnType<typeof buildWorkspaceUserPresenceView>>
   hasStatusMessage: boolean
   resolvedStatus: UserStatus
@@ -160,11 +160,9 @@ function getUserHoverDisplayState({
 
   return {
     canEmail: Boolean(displayUser.email) && !isSelf,
-    canMessage:
+    canProfile:
       userId != null &&
-      currentUserId != null &&
       workspaceId != null &&
-      userId !== currentUserId &&
       !displayUser.isDeletedAccount &&
       hasActiveWorkspaceAccess,
     displayUser,
@@ -238,16 +236,16 @@ function UserHoverPresenceDetails({
 
 function UserHoverActions({
   canEmail,
-  canMessage,
+  canProfile,
   email,
-  onMessage,
+  onProfile,
 }: {
   canEmail: boolean
-  canMessage: boolean
+  canProfile: boolean
   email: string | null | undefined
-  onMessage: () => void
+  onProfile: () => void
 }) {
-  if (!canEmail && !canMessage) {
+  if (!canEmail && !canProfile) {
     return null
   }
 
@@ -260,7 +258,7 @@ function UserHoverActions({
           size="sm"
           className={cn(
             "min-w-0 border-border bg-muted text-foreground hover:bg-accent hover:text-foreground",
-            canMessage ? "flex-1" : "w-full"
+            canProfile ? "flex-1" : "w-full"
           )}
         >
           <a href={`mailto:${email}`}>
@@ -269,7 +267,7 @@ function UserHoverActions({
           </a>
         </Button>
       ) : null}
-      {canMessage ? (
+      {canProfile ? (
         <Button
           variant="outline"
           size="sm"
@@ -277,10 +275,10 @@ function UserHoverActions({
             "min-w-0 border-border bg-muted text-foreground hover:bg-accent hover:text-foreground",
             email ? "flex-1" : "w-full"
           )}
-          onClick={onMessage}
+          onClick={onProfile}
         >
-          <ChatCircle className="size-3.5" />
-          Message
+          <UserCircle className="size-3.5" />
+          Profile
         </Button>
       ) : null}
     </div>
@@ -290,15 +288,15 @@ function UserHoverActions({
 function UserHoverCardPanel({
   state,
   onCopyEmail,
-  onMessage,
+  onProfile,
 }: {
   state: UserHoverDisplayState
   onCopyEmail: () => void
-  onMessage: () => void
+  onProfile: () => void
 }) {
   const {
     canEmail,
-    canMessage,
+    canProfile,
     displayUser,
     hasStatusMessage,
     resolvedStatus,
@@ -355,9 +353,9 @@ function UserHoverCardPanel({
         />
         <UserHoverActions
           canEmail={canEmail}
-          canMessage={canMessage}
+          canProfile={canProfile}
           email={displayUser.email}
-          onMessage={onMessage}
+          onProfile={onProfile}
         />
       </div>
     </div>
@@ -373,6 +371,7 @@ export function UserHoverCard({
   userId,
   currentUserId,
   workspaceId,
+  portalled = true,
 }: {
   user: UserPresenceData | null | undefined
   children: ReactElement
@@ -382,6 +381,7 @@ export function UserHoverCard({
   userId?: string | null
   currentUserId?: string | null
   workspaceId?: string | null
+  portalled?: boolean
 }) {
   const router = useAppRouter()
   const hasActiveWorkspaceAccess = useAppStore((state) => {
@@ -422,23 +422,12 @@ export function UserHoverCard({
     }
   }
 
-  function handleMessage() {
-    if (!resolvedDisplayState.canMessage || !userId || !workspaceId) {
+  function handleProfile() {
+    if (!resolvedDisplayState.canProfile || !userId || !workspaceId) {
       return
     }
 
-    const conversationId = useAppStore.getState().createWorkspaceChat({
-      participantIds: [userId],
-      workspaceId,
-      title: "",
-      description: "",
-    })
-
-    if (!conversationId) {
-      return
-    }
-
-    router.push(`/chats?chatId=${conversationId}`)
+    router.push(`/workspace/people/${userId}`)
   }
 
   return (
@@ -447,12 +436,13 @@ export function UserHoverCard({
       <HoverCardContent
         align={align}
         side={side}
+        portalled={portalled}
         className={cn("w-[22rem]", className)}
       >
         <UserHoverCardPanel
           state={resolvedDisplayState}
           onCopyEmail={() => void handleCopyEmail()}
-          onMessage={handleMessage}
+          onProfile={handleProfile}
         />
       </HoverCardContent>
     </HoverCard>

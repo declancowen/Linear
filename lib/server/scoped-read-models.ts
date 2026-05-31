@@ -16,7 +16,6 @@ import {
   getCustomPropertyDefinitionScopeKeys,
   getDocumentIndexScopeKeys,
   getDocumentRelatedScopeKeys,
-  getDocumentDetailScopeKeys,
   getNotificationInboxScopeKeys,
   getPrivateDocumentIndexScopeKeys,
   getPrivateSearchSeedScopeKeys,
@@ -126,6 +125,79 @@ function isAuthorizedCollectionScope(input: {
   }
 }
 
+type ReadModelScopeDescriptor = NonNullable<
+  ReturnType<typeof parseReadModelScopeKey>
+>
+
+type ReadModelScopeAuthorizationContext = {
+  conversationIds: ReadonlySet<string>
+  documentIds: ReadonlySet<string>
+  projectIds: ReadonlySet<string>
+  teamIds: ReadonlySet<string>
+  workItemIds: ReadonlySet<string>
+  workspaceIds: ReadonlySet<string>
+}
+
+const workspaceSinglePartScopeKinds = new Set<string>([
+  READ_MODEL_SCOPE_KINDS.workspaceMembership,
+  READ_MODEL_SCOPE_KINDS.workspacePeople,
+  READ_MODEL_SCOPE_KINDS.searchSeed,
+])
+
+const privateWorkspaceScopeKinds = new Set<string>([
+  READ_MODEL_SCOPE_KINDS.privateDocumentIndex,
+  READ_MODEL_SCOPE_KINDS.privateSearchSeed,
+])
+
+const currentUserScopeKinds = new Set<string>([
+  READ_MODEL_SCOPE_KINDS.notificationInbox,
+  READ_MODEL_SCOPE_KINDS.conversationList,
+])
+
+const collectionScopeKinds = new Set<string>([
+  READ_MODEL_SCOPE_KINDS.documentIndex,
+  READ_MODEL_SCOPE_KINDS.projectIndex,
+  READ_MODEL_SCOPE_KINDS.viewCatalog,
+])
+
+function getReadModelScopeAuthorizationContext(
+  snapshot: AppSnapshot
+): ReadModelScopeAuthorizationContext {
+  return {
+    conversationIds: new Set(
+      snapshot.conversations.map((conversation) => conversation.id)
+    ),
+    documentIds: new Set(
+      snapshot.documents.map((document) => document.id)
+    ),
+    projectIds: new Set(snapshot.projects.map((project) => project.id)),
+    teamIds: new Set(snapshot.teams.map((team) => team.id)),
+    workItemIds: new Set(snapshot.workItems.map((item) => item.id)),
+    workspaceIds: new Set(
+      snapshot.workspaces.map((workspace) => workspace.id)
+    ),
+  }
+}
+
+function getKnownEntityScopeIds(
+  context: ReadModelScopeAuthorizationContext,
+  kind: string
+) {
+  switch (kind) {
+    case READ_MODEL_SCOPE_KINDS.documentDetail:
+      return context.documentIds
+    case READ_MODEL_SCOPE_KINDS.workItemDetail:
+      return context.workItemIds
+    case READ_MODEL_SCOPE_KINDS.projectDetail:
+      return context.projectIds
+    case READ_MODEL_SCOPE_KINDS.conversationThread:
+    case READ_MODEL_SCOPE_KINDS.channelFeed:
+      return context.conversationIds
+    default:
+      return null
+  }
+}
+
 function isAuthorizedReadModelScope(snapshot: AppSnapshot, scopeKey: string) {
   const descriptor = parseReadModelScopeKey(scopeKey)
 
@@ -133,80 +205,65 @@ function isAuthorizedReadModelScope(snapshot: AppSnapshot, scopeKey: string) {
     throw new Error(`Invalid scoped read model key: ${scopeKey}`)
   }
 
-  const workspaceIds = new Set(
-    snapshot.workspaces.map((workspace) => workspace.id)
+  return isAuthorizedReadModelDescriptor(
+    snapshot,
+    descriptor,
+    getReadModelScopeAuthorizationContext(snapshot)
   )
-  const teamIds = new Set(snapshot.teams.map((team) => team.id))
-  const documentIds = new Set(snapshot.documents.map((document) => document.id))
-  const workItemIds = new Set(snapshot.workItems.map((item) => item.id))
-  const projectIds = new Set(snapshot.projects.map((project) => project.id))
-  const conversationIds = new Set(
-    snapshot.conversations.map((conversation) => conversation.id)
-  )
+}
 
-  switch (descriptor.kind) {
-    case READ_MODEL_SCOPE_KINDS.shellContext:
-      return true
-
-    case READ_MODEL_SCOPE_KINDS.workspaceMembership:
-    case READ_MODEL_SCOPE_KINDS.searchSeed:
-      return hasSingleKnownPart(descriptor.parts, workspaceIds)
-
-    case READ_MODEL_SCOPE_KINDS.privateDocumentIndex:
-    case READ_MODEL_SCOPE_KINDS.privateSearchSeed:
-      return isPrivateWorkspaceScopedPart(
-        snapshot,
-        descriptor.parts,
-        workspaceIds
-      )
-
-    case READ_MODEL_SCOPE_KINDS.notificationInbox:
-    case READ_MODEL_SCOPE_KINDS.conversationList:
-      return isCurrentUserScopedPart(snapshot, descriptor.parts)
-
-    case READ_MODEL_SCOPE_KINDS.documentDetail:
-      return hasSingleKnownPart(descriptor.parts, documentIds)
-
-    case READ_MODEL_SCOPE_KINDS.workItemDetail:
-      return hasSingleKnownPart(descriptor.parts, workItemIds)
-
-    case READ_MODEL_SCOPE_KINDS.projectDetail:
-      return hasSingleKnownPart(descriptor.parts, projectIds)
-
-    case READ_MODEL_SCOPE_KINDS.conversationThread:
-    case READ_MODEL_SCOPE_KINDS.channelFeed:
-      return hasSingleKnownPart(descriptor.parts, conversationIds)
-
-    case READ_MODEL_SCOPE_KINDS.documentIndex:
-    case READ_MODEL_SCOPE_KINDS.projectIndex:
-    case READ_MODEL_SCOPE_KINDS.viewCatalog: {
-      if (descriptor.parts.length !== 1) {
-        return false
-      }
-
-      return isAuthorizedCollectionScope({
-        rawScopeId: descriptor.parts[0],
-        workspaceIds,
-        teamIds,
-      })
-    }
-
-    case READ_MODEL_SCOPE_KINDS.workIndex: {
-      if (descriptor.parts.length !== 1) {
-        return false
-      }
-
-      return isAuthorizedCollectionScope({
-        rawScopeId: descriptor.parts[0],
-        workspaceIds,
-        teamIds,
-        currentUserId: snapshot.currentUserId,
-      })
-    }
-
-    default:
-      return false
+function isAuthorizedReadModelDescriptor(
+  snapshot: AppSnapshot,
+  descriptor: ReadModelScopeDescriptor,
+  context: ReadModelScopeAuthorizationContext
+) {
+  if (descriptor.kind === READ_MODEL_SCOPE_KINDS.shellContext) {
+    return true
   }
+
+  if (workspaceSinglePartScopeKinds.has(descriptor.kind)) {
+    return hasSingleKnownPart(descriptor.parts, context.workspaceIds)
+  }
+
+  if (privateWorkspaceScopeKinds.has(descriptor.kind)) {
+    return isPrivateWorkspaceScopedPart(
+      snapshot,
+      descriptor.parts,
+      context.workspaceIds
+    )
+  }
+
+  if (currentUserScopeKinds.has(descriptor.kind)) {
+    return isCurrentUserScopedPart(snapshot, descriptor.parts)
+  }
+
+  const knownIds = getKnownEntityScopeIds(context, descriptor.kind)
+
+  if (knownIds) {
+    return hasSingleKnownPart(descriptor.parts, knownIds)
+  }
+
+  if (collectionScopeKinds.has(descriptor.kind)) {
+    return (
+      descriptor.parts.length === 1 &&
+      isAuthorizedCollectionScope({
+        rawScopeId: descriptor.parts[0],
+        workspaceIds: context.workspaceIds,
+        teamIds: context.teamIds,
+      })
+    )
+  }
+
+  return (
+    descriptor.kind === READ_MODEL_SCOPE_KINDS.workIndex &&
+    descriptor.parts.length === 1 &&
+    isAuthorizedCollectionScope({
+      rawScopeId: descriptor.parts[0],
+      workspaceIds: context.workspaceIds,
+      teamIds: context.teamIds,
+      currentUserId: snapshot.currentUserId,
+    })
+  )
 }
 
 export async function authorizeScopedReadModelScopeKeysServer(
@@ -220,12 +277,6 @@ export async function authorizeScopedReadModelScopeKeysServer(
       throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
     }
   }
-}
-
-async function bumpDocumentReadModelScopesServer(documentId: string) {
-  await bumpScopedReadModelVersionsServer({
-    scopeKeys: getDocumentDetailScopeKeys(documentId),
-  })
 }
 
 export async function resolveDocumentReadModelScopeKeysServer(
@@ -400,7 +451,11 @@ export async function bumpCommentTargetReadModelScopesServer(
   }
 ) {
   if (input.targetType === "document") {
-    await bumpDocumentReadModelScopesServer(input.targetId)
+    const snapshot = await loadScopedReadModelSnapshotForSession(session)
+
+    await bumpScopedReadModelVersionsServer({
+      scopeKeys: getDocumentRelatedScopeKeys(snapshot, input.targetId),
+    })
     return
   }
 

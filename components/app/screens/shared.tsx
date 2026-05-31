@@ -104,7 +104,7 @@ export function getSelectedPropertySelectOption(
   )
 }
 
-const SCREEN_HEADER_CLASS_NAME =
+export const SCREEN_HEADER_CLASS_NAME =
   "flex min-h-10 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 py-2"
 
 const LABEL_COLOR_TOKENS: Record<string, string> = {

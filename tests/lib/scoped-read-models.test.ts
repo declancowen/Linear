@@ -10,11 +10,13 @@ import {
   getProjectDetailScopeKeys,
   getProjectRelatedScopeKeys,
   getWorkItemDetailScopeKeys,
+  getWorkspacePeopleScopeKeys,
   selectDocumentDetailReadModel,
   selectDocumentIndexReadModel,
   selectProjectDetailReadModel,
   selectProjectIndexReadModel,
   selectViewCatalogReadModel,
+  selectWorkspacePeopleReadModel,
   selectWorkItemDetailReadModel,
   selectWorkIndexReadModel,
 } from "@/lib/scoped-sync/read-models"
@@ -409,10 +411,20 @@ describe("scoped read model selectors", () => {
 
   it("selects the work item detail subset and related project scopes", () => {
     const snapshot = createSnapshotFixture()
+    snapshot.workItemActivities.push({
+      id: "activity_1",
+      itemId: "item_1",
+      actorId: "user_2",
+      type: "status-change",
+      fromStatus: "todo",
+      toStatus: "done",
+      createdAt: "2026-04-22T01:00:00.000Z",
+    })
     const patch = selectWorkItemDetailReadModel(snapshot, "item_1")
 
     expect(patch).toMatchObject({
       workItems: [{ id: "item_1" }],
+      workItemActivities: [{ id: "activity_1" }],
       documents: [{ id: "doc_description" }, { id: "doc_linked" }],
       comments: [{ id: "comment_2" }],
       attachments: [{ id: "attachment_2" }],
@@ -429,6 +441,7 @@ describe("scoped read model selectors", () => {
       "work-index:personal_user_2",
       "work-index:team_team_1",
       "work-item-detail:item_1",
+      "workspace-people:workspace_1",
     ])
   })
 
@@ -536,9 +549,9 @@ describe("scoped read model selectors", () => {
     expect(
       personalWorkIndex.customPropertyValues?.map((entry) => entry.id)
     ).toEqual(["value_team", "value_private_own"])
-    expect(workItemDetail?.customPropertyValues?.map((entry) => entry.id)).toEqual(
-      ["value_team"]
-    )
+    expect(
+      workItemDetail?.customPropertyValues?.map((entry) => entry.id)
+    ).toEqual(["value_team"])
   })
 
   it("scopes private work indexes and invalidations to the creator", () => {
@@ -586,10 +599,104 @@ describe("scoped read model selectors", () => {
       "project-detail:project_1",
       "project-index:team_team_1",
       "search-seed:workspace_1",
+      "workspace-people:workspace_1",
     ])
     expect(getWorkItemDetailScopeKeys(snapshot, "item_1")).toContain(
       "document-index:team_team_1"
     )
+  })
+
+  it("selects a workspace people read model without direct chat messages", () => {
+    const snapshot = createSnapshotFixture()
+    snapshot.conversations = [
+      {
+        id: "channel_1",
+        kind: "channel",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        variant: "team",
+        title: "General",
+        description: "",
+        participantIds: [],
+        roomId: null,
+        roomName: null,
+        createdBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+        lastActivityAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
+        id: "chat_1",
+        kind: "chat",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        variant: "direct",
+        title: "Direct",
+        description: "",
+        participantIds: ["user_1", "user_2"],
+        roomId: null,
+        roomName: null,
+        createdBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+        lastActivityAt: "2026-04-22T00:00:00.000Z",
+      },
+    ]
+    snapshot.channelPosts = [
+      {
+        id: "post_1",
+        conversationId: "channel_1",
+        title: "Launch",
+        content: "We shipped",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_2",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+    ]
+    snapshot.channelPostComments = [
+      {
+        id: "post_comment_1",
+        postId: "post_1",
+        content: "Nice",
+        mentionUserIds: [],
+        createdBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+      },
+    ]
+    snapshot.chatMessages = [
+      {
+        id: "message_1",
+        conversationId: "chat_1",
+        kind: "text",
+        content: "Private chat",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_2",
+        createdAt: "2026-04-22T00:00:00.000Z",
+      },
+    ]
+
+    const patch = selectWorkspacePeopleReadModel(snapshot, "workspace_1")
+
+    expect(patch).toMatchObject({
+      workspaces: [{ id: "workspace_1" }],
+      teams: [{ id: "team_1" }],
+      users: [{ id: "user_1" }, { id: "user_2" }],
+      workItems: [{ id: "item_1" }],
+      documents: [{ id: "doc_1" }, { id: "doc_linked" }],
+      comments: [{ id: "comment_1" }, { id: "comment_2" }],
+      projects: [{ id: "project_1" }],
+      projectUpdates: [{ id: "update_1" }],
+      conversations: [{ id: "channel_1" }],
+      channelPosts: [{ id: "post_1" }],
+      channelPostComments: [{ id: "post_comment_1" }],
+    })
+    expect(patch?.chatMessages).toBeUndefined()
+    expect(getWorkspacePeopleScopeKeys("workspace_1")).toEqual([
+      "workspace-people:workspace_1",
+    ])
   })
 
   it("resolves custom property definition invalidations for indexes, details, and view catalogs", () => {
@@ -781,6 +888,9 @@ describe("scoped read model selectors", () => {
     expect(
       getConversationRelatedScopeKeys(snapshot, "conversation_workspace").sort()
     ).toContain("conversation-list:user_3")
+    expect(
+      getConversationRelatedScopeKeys(snapshot, "conversation_workspace").sort()
+    ).toContain("workspace-people:workspace_1")
     expect(getConversationRelatedScopeKeys(snapshot, "missing")).toEqual([])
   })
 })

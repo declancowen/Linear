@@ -1056,6 +1056,36 @@ describe("work item detail screen", () => {
     )
   })
 
+  it("renders persisted work item status changes in activity", async () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        workItemActivities: [
+          {
+            id: "activity_1",
+            itemId: "item_1",
+            actorId: "user_1",
+            type: "status-change",
+            fromStatus: "todo",
+            toStatus: "done",
+            createdAt: "2026-04-20T22:20:00.000Z",
+          },
+        ],
+      }))
+    })
+    const { data, item } = getSeededWorkItemDetailSidebarFixture()
+
+    render(
+      <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("moved this item from Todo to Done")
+      ).toBeInTheDocument()
+    )
+  })
+
   it.each([
     ["Start", "startTime"],
     ["Due", "endTime"],

@@ -3,6 +3,7 @@ import {
   Folders,
   MagnifyingGlass,
   Target,
+  UserCircle,
   UsersThree,
 } from "@phosphor-icons/react"
 
@@ -15,6 +16,10 @@ export function searchResultIcon(kind: GlobalSearchResult["kind"]) {
 
   if (kind === "team") {
     return <UsersThree className="size-4" />
+  }
+
+  if (kind === "person") {
+    return <UserCircle className="size-4" />
   }
 
   if (kind === "project") {

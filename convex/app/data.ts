@@ -581,12 +581,43 @@ export async function listWorkItemsByTeam(ctx: AppCtx, teamId: string) {
     .collect()
 }
 
+export async function listPrivateWorkItemsByCreator(
+  ctx: AppCtx,
+  creatorId: string
+) {
+  const workItems = await ctx.db
+    .query("workItems")
+    .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+    .collect()
+
+  return workItems.filter((workItem) => workItem.visibility === "private")
+}
+
 export async function listWorkItemsByTeams(
   ctx: AppCtx,
   teamIds: Iterable<string>
 ) {
   return flatMapInBatches([...new Set(teamIds)], (teamId) =>
     listWorkItemsByTeam(ctx, teamId)
+  )
+}
+
+export async function listWorkItemActivitiesByWorkItem(
+  ctx: AppCtx,
+  workItemId: string
+) {
+  return ctx.db
+    .query("workItemActivities")
+    .withIndex("by_item", (q) => q.eq("itemId", workItemId))
+    .collect()
+}
+
+export async function listWorkItemActivitiesByWorkItems(
+  ctx: AppCtx,
+  workItemIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(workItemIds)], (workItemId) =>
+    listWorkItemActivitiesByWorkItem(ctx, workItemId)
   )
 }
 

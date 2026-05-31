@@ -51,6 +51,20 @@ export type MentionEmail = {
   mentionCount?: number
 }
 
+export type CommentEmail = {
+  notificationId: string
+  email: string
+  name: string
+  entityTitle: string
+  entityType: "workItem" | "document" | "channelPost"
+  entityId: string
+  entityPath?: string
+  entityLabel?: string
+  actorName: string
+  commentText: string
+  isReply?: boolean
+}
+
 export type TeamInviteEmail = {
   email: string
   workspaceName: string
@@ -74,7 +88,7 @@ type EmailMessage = {
 }
 
 export type QueuedEmailJob = {
-  kind: "mention" | "assignment" | "invite" | "access-change"
+  kind: "mention" | "assignment" | "comment" | "invite" | "access-change"
   notificationId?: string
   toEmail: string
   subject: string
@@ -95,6 +109,14 @@ export type QueuedAssignmentEmailJob = Omit<
   "kind" | "notificationId"
 > & {
   kind: "assignment"
+  notificationId: string
+}
+
+export type QueuedCommentEmailJob = Omit<
+  QueuedEmailJob,
+  "kind" | "notificationId"
+> & {
+  kind: "comment"
   notificationId: string
 }
 
@@ -483,7 +505,10 @@ function getAssignmentTeamName(input: AssignmentEmailInput) {
   return input.teamName?.trim() ? input.teamName : null
 }
 
-function getAssignmentSubject(input: AssignmentEmailInput, teamName: string | null) {
+function getAssignmentSubject(
+  input: AssignmentEmailInput,
+  teamName: string | null
+) {
   return teamName
     ? `${input.actorName} assigned you "${input.itemTitle}" in ${teamName}`
     : `${input.actorName} assigned you "${input.itemTitle}"`
@@ -648,6 +673,83 @@ function renderMentionEmail(input: {
   }
 }
 
+function renderCommentEmail(input: {
+  origin: string
+  name: string
+  entityTitle: string
+  entityType: CommentEmail["entityType"]
+  entityId: string
+  entityPath?: string
+  entityLabel?: string
+  actorName: string
+  commentText: string
+  isReply?: boolean
+}): EmailMessage {
+  const entityPath =
+    input.entityPath ?? getEntityPath(input.entityType, input.entityId)
+  const entityUrl = buildAbsoluteUrl(input.origin, entityPath)
+  const entityLabel =
+    input.entityLabel ??
+    getEntityLabel({
+      notificationId: "",
+      email: "",
+      name: "",
+      entityTitle: input.entityTitle,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      actorName: input.actorName,
+      commentText: input.commentText,
+    })
+  const action = input.isReply ? "replied in" : "commented on"
+  const openLabel = `Open ${entityLabel}`
+  const summary = `${input.actorName} ${action} ${input.entityTitle}.`
+
+  return {
+    subject: `${input.actorName} ${action} ${input.entityTitle}`,
+    text: [
+      `Hi ${input.name},`,
+      "",
+      summary,
+      "",
+      input.isReply ? "Reply:" : "Comment:",
+      input.commentText,
+      "",
+      `${toTitleCase(openLabel)}: ${entityUrl}`,
+    ].join("\n"),
+    html: renderEmailLayout({
+      origin: input.origin,
+      logoUrl: buildAbsoluteUrl(input.origin, "/app-icon.png"),
+      eyebrow: input.isReply ? "New reply" : "New comment",
+      preheader: summary,
+      content: [
+        renderHeadline(
+          `${input.actorName} ${input.isReply ? "replied" : "commented"}`
+        ),
+        renderSubheading(
+          `in <strong style="color: ${EMAIL_COLORS.textStrong}; font-weight: 600;">${escapeHtml(input.entityTitle)}</strong>`
+        ),
+        renderQuoteCard({
+          label: input.isReply ? "Reply" : "Comment",
+          body: input.commentText,
+        }),
+        `<div style="margin-top: 24px;">${renderEmailButton({
+          href: entityUrl,
+          label: openLabel,
+          variant: "primary",
+        })}</div>`,
+        renderFallbackLinks({
+          links: [
+            {
+              href: entityUrl,
+              label: toTitleCase(openLabel),
+            },
+          ],
+        }),
+      ].join(""),
+    }),
+  }
+}
+
 export function buildMentionEmailJobs(input: {
   origin: string
   emails: MentionEmail[]
@@ -672,6 +774,37 @@ export function buildMentionEmailJobs(input: {
 
     return {
       kind: "mention",
+      notificationId: email.notificationId,
+      toEmail: email.email,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    }
+  })
+}
+
+export function buildCommentEmailJobs(input: {
+  origin: string
+  emails: CommentEmail[]
+}): QueuedCommentEmailJob[] {
+  const origin = input.origin
+
+  return input.emails.map((email) => {
+    const message = renderCommentEmail({
+      origin,
+      name: email.name,
+      entityTitle: email.entityTitle,
+      entityType: email.entityType,
+      entityId: email.entityId,
+      entityPath: email.entityPath,
+      entityLabel: email.entityLabel,
+      actorName: email.actorName,
+      commentText: email.commentText,
+      isReply: email.isReply,
+    })
+
+    return {
+      kind: "comment",
       notificationId: email.notificationId,
       toEmail: email.email,
       subject: message.subject,

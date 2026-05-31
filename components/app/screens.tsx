@@ -3594,12 +3594,18 @@ export function AssignedScreen() {
   )
   const assignedItems = useAppStore(
     useShallow((state) =>
-      getVisibleWorkItems(state, { assignedToCurrentUser: true })
+      getVisibleWorkItems(state, {
+        assignedToCurrentUser: true,
+        includeSubscribed: true,
+      })
     )
   )
   const items = useAppStore(
     useShallow((state) =>
-      getVisibleWorkItems(state, { assignedToCurrentUserWithAncestors: true })
+      getVisibleWorkItems(state, {
+        assignedToCurrentUserWithAncestors: true,
+        includeSubscribed: true,
+      })
     )
   )
   const fallbackViews = useMemo(() => {

@@ -141,6 +141,7 @@ export type UpdateProfileInput = {
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
+    emailComments?: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
     timeZone?: string
@@ -222,6 +223,7 @@ export type ViewFilterValueKey =
   | "priority"
   | "assigneeIds"
   | "creatorIds"
+  | "subscriberIds"
   | "updatedByIds"
   | "documentKinds"
   | "linkedWorkItemIds"
@@ -264,6 +266,7 @@ export type AppStore = AppData & {
     viewId: string,
     patch: ViewConfigPatch
   ) => void
+  resetViewerViewConfig: (surfaceKey: string, viewId: string) => void
   toggleViewerViewFilterValue: (
     surfaceKey: string,
     viewId: string,
@@ -355,6 +358,7 @@ export type AppStore = AppData & {
     patch: WorkItemPatch,
     options?: WorkItemUpdateOptions
   ) => WorkItemUpdateResult
+  setWorkItemSubscription: (itemId: string, subscribed: boolean) => void
   createCustomPropertyDefinition: (
     input: CreateCustomPropertyInput
   ) => Promise<AppData["customPropertyDefinitions"][number] | null>
@@ -471,6 +475,7 @@ export type WorkItemCascadeDeletePlan = {
   deletedCommentIds: Set<string>
   deletedAttachmentIds: Set<string>
   deletedNotificationIds: Set<string>
+  deletedWorkItemActivityIds: Set<string>
   nextWorkItems: WorkItem[]
   nextDocuments: AppData["documents"]
 }

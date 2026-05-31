@@ -802,6 +802,38 @@ function clearPendingChannelPostUpdateAliases(
   }
 }
 
+function rollbackOptimisticChannelPostCreate(
+  set: CollaborationSliceFactoryArgs["set"],
+  postId: string
+) {
+  set((state) => ({
+    ...state,
+    channelPosts: state.channelPosts.filter((post) => post.id !== postId),
+    channelPostComments: state.channelPostComments.filter(
+      (comment) => comment.postId !== postId
+    ),
+    notifications: state.notifications.filter(
+      (notification) =>
+        !(
+          notification.entityType === "channelPost" &&
+          notification.entityId === postId
+        )
+    ),
+  }))
+}
+
+function rollbackOptimisticChannelPostCommentCreate(
+  set: CollaborationSliceFactoryArgs["set"],
+  commentId: string
+) {
+  set((state) => ({
+    ...state,
+    channelPostComments: state.channelPostComments.filter(
+      (comment) => comment.id !== commentId
+    ),
+  }))
+}
+
 export function createCollaborationChannelActions({
   get,
   runtime,
@@ -891,6 +923,10 @@ export function createCollaborationChannelActions({
           }
 
           return result
+        })
+        .catch((error) => {
+          rollbackOptimisticChannelPostCreate(set, postId)
+          throw error
         })
         .finally(() => {
           pendingChannelPostCreates.delete(postId)
@@ -1037,19 +1073,7 @@ export function createCollaborationChannelActions({
       }
 
       const optimisticCommentId = createId("channel_comment")
-      const createCommentTask: Promise<{ commentId: string }> | null =
-        syncAddChannelPostComment(
-          parsed.data.postId,
-          preparedContent.sanitized,
-          optimisticCommentId
-        )
-
-      if (createCommentTask) {
-        pendingChannelPostCommentCreates.set(
-          optimisticCommentId,
-          createCommentTask
-        )
-      }
+      let shouldSync = false
 
       set((state) => {
         const post = state.channelPosts.find(
@@ -1070,6 +1094,7 @@ export function createCollaborationChannelActions({
           return state
         }
 
+        shouldSync = true
         const now = getNow()
         const audienceUserIds = getConversationAudienceUserIds(
           state,
@@ -1115,40 +1140,53 @@ export function createCollaborationChannelActions({
         }
       })
 
+      if (!shouldSync) {
+        return
+      }
+
+      const createCommentTask = syncAddChannelPostComment(
+        parsed.data.postId,
+        preparedContent.sanitized,
+        optimisticCommentId
+      )
+      pendingChannelPostCommentCreates.set(
+        optimisticCommentId,
+        createCommentTask
+      )
+
       const syncTask = createCommentTask
-        ? createCommentTask
-            .then((result) => {
-              let shouldDeleteCreatedComment = false
+        .then((result) => {
+          let shouldDeleteCreatedComment = false
 
-              set((state) => {
-                const reconciliation = reconcileCreatedChannelPostComment(
-                  state,
-                  {
-                    createdCommentId: result.commentId,
-                    optimisticCommentId,
-                  }
-                )
-
-                shouldDeleteCreatedComment =
-                  reconciliation.shouldDeleteCreatedComment
-
-                return reconciliation.state
-              })
-
-              if (shouldDeleteCreatedComment) {
-                runtime.syncInBackground(
-                  syncDeleteChannelPostComment(
-                    parsed.data.postId,
-                    result.commentId
-                  ),
-                  "Failed to delete comment"
-                )
-              }
+          set((state) => {
+            const reconciliation = reconcileCreatedChannelPostComment(state, {
+              createdCommentId: result.commentId,
+              optimisticCommentId,
             })
-            .finally(() => {
-              pendingChannelPostCommentCreates.delete(optimisticCommentId)
-            })
-        : null
+
+            shouldDeleteCreatedComment =
+              reconciliation.shouldDeleteCreatedComment
+
+            return reconciliation.state
+          })
+
+          if (shouldDeleteCreatedComment) {
+            runtime.syncInBackground(
+              syncDeleteChannelPostComment(
+                parsed.data.postId,
+                result.commentId
+              ),
+              "Failed to delete comment"
+            )
+          }
+        })
+        .catch((error) => {
+          rollbackOptimisticChannelPostCommentCreate(set, optimisticCommentId)
+          throw error
+        })
+        .finally(() => {
+          pendingChannelPostCommentCreates.delete(optimisticCommentId)
+        })
 
       runtime.syncInBackground(syncTask, "Failed to post reply")
     },

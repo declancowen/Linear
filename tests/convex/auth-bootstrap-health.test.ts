@@ -183,6 +183,7 @@ function createBootstrapCtx() {
     projects: [],
     milestones: [],
     workItems: [],
+    workItemActivities: [],
     customPropertyDefinitions: [],
     customPropertyValues: [],
     documents: [],
@@ -691,6 +692,14 @@ describe("auth bootstrap handlers", () => {
         creatorId: "user_1",
         assigneeId: "user_1",
         descriptionDocId: "doc_private_own",
+        visibility: "private",
+      }) as never,
+      createBootstrapWorkItem({
+        id: "item_private_legacy_orphan",
+        teamId: "team_removed",
+        creatorId: "user_1",
+        assigneeId: "user_1",
+        descriptionDocId: "doc_private_legacy_orphan",
         visibility: "private",
       }) as never,
       createBootstrapWorkItem({

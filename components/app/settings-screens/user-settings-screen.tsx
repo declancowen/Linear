@@ -87,6 +87,7 @@ type PersistedProfileSnapshot = {
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
+    emailComments: boolean
     emailDigest: boolean
     theme: ThemePreference
     timeZone: string
@@ -522,7 +523,7 @@ function TimeZoneSettingsSection({
               id="profile-time-zone"
               value={timeZone}
               onChange={(event) => onTimeZoneChange(event.target.value)}
-              className="h-9 w-full max-w-md rounded-md border border-input bg-background px-3.5 pr-8 text-[12.5px] text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="h-9 w-full max-w-md rounded-md border border-input bg-background px-3.5 pr-8 text-[12.5px] text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
             >
               {timeZones.map((option) => (
                 <option key={option} value={option}>
@@ -543,16 +544,20 @@ function TimeZoneSettingsSection({
 function NotificationsSettingsSection({
   emailMentions,
   emailAssignments,
+  emailComments,
   emailDigest,
   onEmailMentionsChange,
   onEmailAssignmentsChange,
+  onEmailCommentsChange,
   onEmailDigestChange,
 }: {
   emailMentions: boolean
   emailAssignments: boolean
+  emailComments: boolean
   emailDigest: boolean
   onEmailMentionsChange: (value: boolean) => void
   onEmailAssignmentsChange: (value: boolean) => void
+  onEmailCommentsChange: (value: boolean) => void
   onEmailDigestChange: (value: boolean) => void
 }) {
   return (
@@ -572,6 +577,12 @@ function NotificationsSettingsSection({
           description="Send an email when work is assigned to you."
           title="Email assignments"
           onCheckedChange={onEmailAssignmentsChange}
+        />
+        <SettingsToggleRow
+          checked={emailComments}
+          description="Send an email when someone comments on work or posts you follow."
+          title="Email comments"
+          onCheckedChange={onEmailCommentsChange}
         />
         <SettingsToggleRow
           checked={emailDigest}
@@ -707,6 +718,7 @@ function createPersistedProfileSnapshot(
     preferences: {
       emailMentions: currentUser.preferences.emailMentions,
       emailAssignments: currentUser.preferences.emailAssignments,
+      emailComments: currentUser.preferences.emailComments ?? true,
       emailDigest: currentUser.preferences.emailDigest,
       theme: currentUser.preferences.theme,
       timeZone: normalizeTimeZone(currentUser.preferences.timeZone),
@@ -758,6 +770,7 @@ function updateStoredUserProfile({
   avatarUrl,
   clearAvatarImage,
   emailAssignments,
+  emailComments,
   emailDigest,
   emailMentions,
   name,
@@ -769,6 +782,7 @@ function updateStoredUserProfile({
   avatarUrl: string
   clearAvatarImage: boolean
   emailAssignments: boolean
+  emailComments: boolean
   emailDigest: boolean
   emailMentions: boolean
   name: string
@@ -789,6 +803,7 @@ function updateStoredUserProfile({
             preferences: {
               emailMentions,
               emailAssignments,
+              emailComments,
               emailDigest,
               theme: themePreference,
               timeZone,
@@ -823,7 +838,9 @@ function useUserAccountActions({
       : null
   }
 
-  function handleEmailChangeSuccess(payload: Awaited<ReturnType<typeof syncRequestAccountEmailChange>>) {
+  function handleEmailChangeSuccess(
+    payload: Awaited<ReturnType<typeof syncRequestAccountEmailChange>>
+  ) {
     const notice =
       payload?.notice ??
       "Email updated. Verify the new address and then sign back in."
@@ -932,6 +949,7 @@ function useUserProfileDraft(currentUser: UserProfile | null) {
   const [emailAssignments, setEmailAssignments] = useState(
     source.emailAssignments
   )
+  const [emailComments, setEmailComments] = useState(source.emailComments)
   const [emailDigest, setEmailDigest] = useState(source.emailDigest)
   const [timeZone, setTimeZone] = useState(source.timeZone)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
@@ -970,6 +988,7 @@ function useUserProfileDraft(currentUser: UserProfile | null) {
     setEmail(source.email)
     setEmailMentions(source.emailMentions)
     setEmailAssignments(source.emailAssignments)
+    setEmailComments(source.emailComments)
     setEmailDigest(source.emailDigest)
     setTimeZone(source.timeZone)
   }, [
@@ -977,6 +996,7 @@ function useUserProfileDraft(currentUser: UserProfile | null) {
     source.avatarUrl,
     source.email,
     source.emailAssignments,
+    source.emailComments,
     source.emailDigest,
     source.emailMentions,
     source.timeZone,
@@ -1017,6 +1037,7 @@ function useUserProfileDraft(currentUser: UserProfile | null) {
     clearAvatarImage,
     email,
     emailAssignments,
+    emailComments,
     emailDigest,
     emailMentions,
     handleAvatarClear,
@@ -1026,6 +1047,7 @@ function useUserProfileDraft(currentUser: UserProfile | null) {
     setAvatarUrl,
     setEmail,
     setEmailAssignments,
+    setEmailComments,
     setEmailDigest,
     setEmailMentions,
     setTimeZone,
@@ -1165,6 +1187,7 @@ function useUserProfilePersistence({
         preferences: {
           emailMentions: draft.emailMentions,
           emailAssignments: draft.emailAssignments,
+          emailComments: draft.emailComments,
           emailDigest: draft.emailDigest,
           theme: themePreference,
           timeZone: draft.timeZone,
@@ -1180,6 +1203,7 @@ function useUserProfilePersistence({
           {
             emailMentions: draft.emailMentions,
             emailAssignments: draft.emailAssignments,
+            emailComments: draft.emailComments,
             emailDigest: draft.emailDigest,
             theme: themePreference,
             timeZone: draft.timeZone,
@@ -1202,6 +1226,7 @@ function useUserProfilePersistence({
         avatarUrl: draft.avatarUrl,
         clearAvatarImage: draft.clearAvatarImage,
         emailAssignments: draft.emailAssignments,
+        emailComments: draft.emailComments,
         emailDigest: draft.emailDigest,
         emailMentions: draft.emailMentions,
         name: draft.name,
@@ -1308,9 +1333,11 @@ export function UserSettingsScreen() {
       <NotificationsSettingsSection
         emailMentions={draft.emailMentions}
         emailAssignments={draft.emailAssignments}
+        emailComments={draft.emailComments}
         emailDigest={draft.emailDigest}
         onEmailMentionsChange={draft.setEmailMentions}
         onEmailAssignmentsChange={draft.setEmailAssignments}
+        onEmailCommentsChange={draft.setEmailComments}
         onEmailDigestChange={draft.setEmailDigest}
       />
 

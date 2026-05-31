@@ -38,7 +38,9 @@ function documentReadModelRequest(documentId: string) {
   })
 }
 
-async function getDocumentIndexReadModelResponse(snapshot: Partial<AppSnapshot>) {
+async function getDocumentIndexReadModelResponse(
+  snapshot: Partial<AppSnapshot>
+) {
   const { GET } = await import("@/app/api/read-models/documents/index/route")
 
   getSnapshotServerMock.mockResolvedValue(snapshot)
@@ -402,6 +404,34 @@ describe("read model route contracts", () => {
       email: "alex@example.com",
       workspaceId: "workspace_1",
     })
+  })
+
+  it("returns a workspace people read model without direct chat messages", async () => {
+    const { GET } =
+      await import("@/app/api/read-models/workspaces/[workspaceId]/people/route")
+
+    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+
+    const response = await GET(
+      ...readModelRequest({ workspaceId: "workspace_1" })
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({
+      data: {
+        workspaces: [{ id: "workspace_1" }],
+        teams: [{ id: "team_1" }],
+        users: [{ id: "user_1" }],
+        workItems: [{ id: "item_1" }],
+        documents: [{ id: "doc_1" }, { id: "doc_2" }, { id: "doc_3" }],
+        projects: [{ id: "project_1" }],
+        conversations: [{ id: "channel_1" }],
+        channelPosts: [{ id: "post_1" }],
+        channelPostComments: [{ id: "comment_1" }],
+      },
+    })
+    expect(body.data.chatMessages).toBeUndefined()
   })
 
   it("returns a project index read model", async () => {

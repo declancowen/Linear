@@ -56,6 +56,7 @@ describe("Inbox row primitives", () => {
 
     expect(document.querySelector("[data-inbox-list-pane]")).toHaveStyle({
       flexBasis: "50%",
+      minWidth: "240px",
       width: "50%",
     })
     expect(screen.getByLabelText("Resize inbox list")).toHaveAttribute(
@@ -93,6 +94,9 @@ describe("Inbox row primitives", () => {
 
     expect(screen.getAllByText("Maya")).toHaveLength(2)
     expect(screen.getByText("Commented on Test item")).toBeInTheDocument()
+    expect(
+      document.querySelector('time[datetime="2026-04-18T10:00:00.000Z"]')
+    ).toHaveClass("max-w-16", "text-ellipsis")
     expect(onSelect).toHaveBeenCalledTimes(1)
     expect(onToggleArchive).toHaveBeenCalledTimes(1)
   })

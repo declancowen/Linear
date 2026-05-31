@@ -96,6 +96,7 @@ export {
   syncShiftTimelineItem,
   syncToggleCommentReaction,
   syncToggleNotificationRead,
+  syncSetWorkItemSubscription,
   syncToggleViewDisplayProperty,
   syncToggleViewFilterValue,
   syncToggleViewHiddenValue,

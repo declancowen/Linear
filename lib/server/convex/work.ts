@@ -123,6 +123,11 @@ const WORK_ITEM_MUTATION_ERROR_MAPPINGS = [
     code: "WORK_ITEM_EDIT_CONFLICT",
   },
   {
+    match: "Private tasks do not support subscriptions",
+    status: 400,
+    code: "WORK_ITEM_SUBSCRIPTION_UNSUPPORTED",
+  },
+  {
     match: (message: string) =>
       message === "Your current role is read-only" ||
       message === "You do not have access to this team" ||
@@ -285,6 +290,24 @@ export async function updateWorkItemServer(input: {
         ...input,
         origin,
       })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...WORK_ITEM_MUTATION_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
+export async function setWorkItemSubscriptionServer(input: {
+  currentUserId: string
+  itemId: string
+  subscribed: boolean
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.setWorkItemSubscription,
+      withServerToken(input)
     )
   } catch (error) {
     throw (
@@ -557,6 +580,7 @@ export async function toggleViewFilterValueServer(input: {
     | "priority"
     | "assigneeIds"
     | "creatorIds"
+    | "subscriberIds"
     | "updatedByIds"
     | "documentKinds"
     | "linkedWorkItemIds"

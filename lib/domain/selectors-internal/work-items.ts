@@ -37,16 +37,17 @@ export function getVisibleWorkItems(
   params:
     | { teamId: string }
     | { workspaceId: string }
-    | { assignedToCurrentUser: true }
-    | { assignedToCurrentUserWithAncestors: true }
+    | { assignedToCurrentUser: true; includeSubscribed?: boolean }
+    | { assignedToCurrentUserWithAncestors: true; includeSubscribed?: boolean }
 ) {
   if (
     "assignedToCurrentUser" in params ||
     "assignedToCurrentUserWithAncestors" in params
   ) {
     const teamIds = new Set(getAccessibleTeams(data).map((team) => team.id))
+    const includeSubscribed = params.includeSubscribed ?? false
     const assignedItems = data.workItems.filter((item) =>
-      isMyItemsWorkItem(data, item, teamIds)
+      isMyItemsWorkItem(data, item, teamIds, includeSubscribed)
     )
 
     if ("assignedToCurrentUser" in params) {
@@ -113,14 +114,16 @@ function isPrivateWorkItemCreatedByCurrentUser(data: AppData, item: WorkItem) {
 function isMyItemsWorkItem(
   data: AppData,
   item: WorkItem,
-  teamIds: Set<string>
+  teamIds: Set<string>,
+  includeSubscribed: boolean
 ) {
   if (getWorkItemVisibility(item) === "private") {
     return isPrivateWorkItemCreatedByCurrentUser(data, item)
   }
 
   return (
-    getWorkItemAssigneeIds(item).includes(data.currentUserId) &&
+    (getWorkItemAssigneeIds(item).includes(data.currentUserId) ||
+      (includeSubscribed && item.subscriberIds.includes(data.currentUserId))) &&
     teamIds.has(item.teamId)
   )
 }
@@ -130,11 +133,66 @@ function isAssignedDescendantWorkItem(data: AppData, item: WorkItem) {
     return isPrivateWorkItemCreatedByCurrentUser(data, item)
   }
 
-  return getWorkItemAssigneeIds(item).includes(data.currentUserId)
+  return (
+    getWorkItemAssigneeIds(item).includes(data.currentUserId) ||
+    item.subscriberIds.includes(data.currentUserId)
+  )
+}
+
+function isCurrentUserWorkItemAnchor(data: AppData, item: WorkItem) {
+  return isAssignedDescendantWorkItem(data, item)
+}
+
+function getAncestorIdByItemLevels(
+  itemsById: Map<string, WorkItem>,
+  item: WorkItem,
+  itemLevels: readonly WorkItem["type"][]
+) {
+  if (itemLevels.length === 0) {
+    return null
+  }
+
+  let cursor: WorkItem | null = item
+  const itemLevelSet = new Set(itemLevels)
+  const visitedIds = new Set<string>()
+
+  while (cursor && !visitedIds.has(cursor.id)) {
+    if (itemLevelSet.has(cursor.type)) {
+      return cursor.id
+    }
+
+    visitedIds.add(cursor.id)
+    cursor = getParentItem(itemsById, cursor)
+  }
+
+  return null
 }
 
 export function getDirectChildWorkItems(data: AppData, itemId: string) {
   return data.workItems.filter((item) => item.parentId === itemId)
+}
+
+function getSortableDirectChildWorkItems(
+  item: WorkItem,
+  sourcePool: WorkItem[],
+  ordering: OrderingField,
+  predicate?: (candidate: WorkItem) => boolean
+) {
+  const allowedChildTypes = getAllowedChildWorkItemTypesForItem(item)
+
+  if (allowedChildTypes.length !== 1) {
+    return []
+  }
+
+  return sortItems(
+    sourcePool.filter(
+      (candidate) =>
+        candidate.parentId === item.id &&
+        allowedChildTypes.includes(candidate.type) &&
+        (!predicate || predicate(candidate))
+    ),
+    ordering
+  )
 }
 
 export function getDirectChildWorkItemsForDisplay(
@@ -156,10 +214,21 @@ export function getDirectChildWorkItemsForDisplay(
     const sourceItemsById = new Map(
       sourcePool.map((candidate) => [candidate.id, candidate] as const)
     )
+    const parentIsAnchor =
+      isCurrentUserWorkItemAnchor(data, item) &&
+      (!view ||
+        itemMatchesView(data, item, view, {
+          ignoreItemLevel: true,
+        }))
+
+    if (parentIsAnchor) {
+      return getSortableDirectChildWorkItems(item, sourcePool, ordering)
+    }
+
     const assignedDescendants = sourcePool.filter((candidate) => {
       if (
         candidate.id === item.id ||
-        !isAssignedDescendantWorkItem(data, candidate)
+        !isCurrentUserWorkItemAnchor(data, candidate)
       ) {
         return false
       }
@@ -215,22 +284,14 @@ export function getDirectChildWorkItemsForDisplay(
     )
   }
 
-  const allowedChildTypes = getAllowedChildWorkItemTypesForItem(item)
-
-  if (allowedChildTypes.length !== 1) {
-    return []
-  }
-
-  return sortItems(
-    sourcePool.filter(
-      (candidate) =>
-        candidate.parentId === item.id &&
-        allowedChildTypes.includes(candidate.type) &&
-        (!filterChildren ||
-          !view ||
-          itemMatchesView(data, candidate, view, { ignoreItemLevel: true }))
-    ),
-    ordering
+  return getSortableDirectChildWorkItems(
+    item,
+    sourcePool,
+    ordering,
+    (candidate) =>
+      !filterChildren ||
+      !view ||
+      itemMatchesView(data, candidate, view, { ignoreItemLevel: true })
   )
 }
 
@@ -283,6 +344,9 @@ function itemMatchesView(
       ...(getWorkItemAssigneeIds(item).length === 0 ? [""] : []),
     ]),
     matchesOptionalFilter(view.filters.creatorIds, item.creatorId),
+    matchesAnyOptionalFilter(view.filters.subscriberIds ?? [], [
+      ...item.subscriberIds,
+    ]),
     matchesOptionalFilter(view.filters.projectIds, item.primaryProjectId ?? ""),
     matchesParentFilter(view.filters.parentIds ?? [], item.parentId),
     matchesOptionalFilter(view.filters.itemTypes, item.type),
@@ -386,6 +450,36 @@ function getRootAncestorId(itemsById: Map<string, WorkItem>, item: WorkItem) {
   return null
 }
 
+function itemMatchesAssignedDescendantContainerView(
+  item: WorkItem,
+  view: ViewDefinition
+) {
+  if (view.itemLevel && item.type !== view.itemLevel) {
+    return false
+  }
+
+  if (
+    view.filters.itemTypes.length > 0 &&
+    !view.filters.itemTypes.includes(item.type)
+  ) {
+    return false
+  }
+
+  if (
+    !matchesOptionalFilter(
+      view.filters.visibility ?? [],
+      getWorkItemVisibility(item)
+    )
+  ) {
+    return false
+  }
+
+  return matchesOptionalFilter(
+    view.filters.teamIds,
+    getWorkItemVisibility(item) === "team" ? item.teamId : ""
+  )
+}
+
 function getAssignedDescendantContainerId(
   data: AppData,
   itemsById: Map<string, WorkItem>,
@@ -394,7 +488,8 @@ function getAssignedDescendantContainerId(
 ) {
   const containerId = view.itemLevel
     ? getAncestorIdByItemLevel(itemsById, item, view.itemLevel)
-    : getRootAncestorId(itemsById, item)
+    : (getAncestorIdByItemLevels(itemsById, item, view.filters.itemTypes) ??
+      getRootAncestorId(itemsById, item))
 
   if (!containerId) {
     return null
@@ -404,7 +499,7 @@ function getAssignedDescendantContainerId(
 
   if (
     !container ||
-    !itemMatchesView(data, container, view, { ignoreItemLevel: false })
+    !itemMatchesAssignedDescendantContainerView(container, view)
   ) {
     return null
   }
@@ -466,7 +561,11 @@ export function getVisibleItemsForView(
     itemMatchesView(data, item, view)
   )
 
-  if (view.entityKind === "items" && !view.itemLevel) {
+  if (
+    view.entityKind === "items" &&
+    !view.itemLevel &&
+    view.filters.itemTypes.length === 0
+  ) {
     return filteredItems.filter((item) => item.parentId === null)
   }
 

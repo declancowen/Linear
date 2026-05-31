@@ -2,6 +2,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server"
 
 import {
   buildMentionEmailJobs,
+  type CommentEmail,
   type MentionEmail,
 } from "../../lib/email/builders"
 import { getPlainTextContent } from "../../lib/utils"
@@ -53,7 +54,10 @@ import {
   getChatConversationPath,
 } from "./notifications"
 import { normalizeTeam } from "./normalization"
-import { queueEmailJobs } from "./email_job_handlers"
+import {
+  queueEmailJobs,
+  queueMentionAndCommentEmailJobs,
+} from "./email_job_handlers"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -1298,11 +1302,10 @@ export async function toggleChatMessageReactionHandler(
   }
 }
 
-export async function createChannelPostHandler(
+async function requireChannelPostCreateConversation(
   ctx: MutationCtx,
   args: CreateChannelPostArgs
 ) {
-  assertServerToken(args.serverToken)
   const conversation = await requireConversationAccess(
     ctx,
     await getConversationDoc(ctx, args.conversationId),
@@ -1314,6 +1317,25 @@ export async function createChannelPostHandler(
     throw new Error("Posts can only be created in channels")
   }
 
+  return conversation
+}
+
+async function assertChannelPostIdAvailable(
+  ctx: MutationCtx,
+  args: CreateChannelPostArgs,
+  postId: string
+) {
+  if (args.postId && (await getChannelPostDoc(ctx, postId))) {
+    throw new Error("Channel post id already exists")
+  }
+}
+
+export async function createChannelPostHandler(
+  ctx: MutationCtx,
+  args: CreateChannelPostArgs
+) {
+  assertServerToken(args.serverToken)
+  const conversation = await requireChannelPostCreateConversation(ctx, args)
   const audience = await getMentionAudienceContext(ctx, {
     actorUserId: args.currentUserId,
     audienceUserIds: await getConversationAudienceUserIds(ctx, conversation),
@@ -1321,9 +1343,7 @@ export async function createChannelPostHandler(
   const now = getNow()
   const postId = args.postId?.trim() || createId("channel_post")
 
-  if (args.postId && (await getChannelPostDoc(ctx, postId))) {
-    throw new Error("Channel post id already exists")
-  }
+  await assertChannelPostIdAvailable(ctx, args, postId)
 
   const mentionUserIds = createMentionIds(
     args.content,
@@ -1573,13 +1593,17 @@ async function insertChannelPostFollowerNotifications(
   input: {
     actorName: string
     audienceUserIds: string[]
+    commentText: string
     currentUserId: string
+    entityPath: string
     entityTitle: string
     existingComments: Array<{ createdBy: string }>
     notifiedUserIds: Set<string>
     post: ChannelPostDoc
+    usersById: ChannelCommentAudience["usersById"]
   }
 ) {
+  const commentEmails: CommentEmail[] = []
   const followerIds = [
     input.post.createdBy,
     ...input.existingComments.map((comment) => comment.createdBy),
@@ -1595,20 +1619,38 @@ async function insertChannelPostFollowerNotifications(
       continue
     }
 
-    await ctx.db.insert(
-      "notifications",
-      createNotification(
-        followerId,
-        input.currentUserId,
-        `${input.actorName} commented on ${input.entityTitle}`,
-        "channelPost",
-        input.post.id,
-        "comment"
-      )
+    const notification = createNotification(
+      followerId,
+      input.currentUserId,
+      `${input.actorName} commented on ${input.entityTitle}`,
+      "channelPost",
+      input.post.id,
+      "comment"
     )
+
+    await ctx.db.insert("notifications", notification)
+
+    const follower = input.usersById.get(followerId)
+
+    if (follower && (follower.preferences.emailComments ?? true)) {
+      commentEmails.push({
+        notificationId: notification.id,
+        email: follower.email,
+        name: follower.name,
+        entityTitle: input.entityTitle,
+        entityType: "channelPost",
+        entityId: input.post.id,
+        entityPath: input.entityPath,
+        entityLabel: "channel post",
+        actorName: input.actorName,
+        commentText: input.commentText,
+      })
+    }
 
     input.notifiedUserIds.add(followerId)
   }
+
+  return commentEmails
 }
 
 async function touchChannelPostCommentThread(
@@ -1684,14 +1726,17 @@ export async function addChannelPostCommentHandler(
     postId: post.id,
     usersById: audience.usersById,
   })
-  await insertChannelPostFollowerNotifications(ctx, {
+  const commentEmails = await insertChannelPostFollowerNotifications(ctx, {
     actorName: audience.actorName,
     audienceUserIds: audience.audienceUserIds,
+    commentText,
     currentUserId: args.currentUserId,
+    entityPath,
     entityTitle,
     existingComments,
     notifiedUserIds,
     post,
+    usersById: audience.usersById,
   })
   await touchChannelPostCommentThread(ctx, {
     conversation,
@@ -1699,17 +1744,16 @@ export async function addChannelPostCommentHandler(
     post,
   })
 
-  await queueEmailJobs(
-    ctx,
-    buildMentionEmailJobs({
-      origin: args.origin,
-      emails: mentionEmails,
-    })
-  )
+  await queueMentionAndCommentEmailJobs(ctx, {
+    origin: args.origin,
+    mentionEmails,
+    commentEmails,
+  })
 
   return {
     commentId,
     mentionEmails,
+    commentEmails,
   }
 }
 

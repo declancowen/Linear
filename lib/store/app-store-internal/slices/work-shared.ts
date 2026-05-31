@@ -7,6 +7,7 @@ export type WorkSlice = Pick<
   AppStore,
   | "createLabel"
   | "updateWorkItem"
+  | "setWorkItemSubscription"
   | "deleteWorkItem"
   | "shiftTimelineItem"
   | "updateDocumentContent"

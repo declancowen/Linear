@@ -8,6 +8,7 @@ import {
   syncCreateWorkItem,
   syncDeleteWorkItem,
   syncShiftTimelineItem,
+  syncSetWorkItemSubscription,
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
 import {
@@ -15,7 +16,7 @@ import {
   formatLocalCalendarDate,
   shiftCalendarDate,
 } from "@/lib/calendar-date"
-import { getLabelsForWorkspace } from "@/lib/domain/selectors"
+import { getLabelsForWorkspace, hasWorkspaceAccess } from "@/lib/domain/selectors"
 import {
   formatWorkItemKey,
   PRIVATE_WORK_ITEM_KEY_PREFIX,
@@ -81,8 +82,66 @@ type WorkItemDeletePlan = NonNullable<
 >
 type WorkItemDeletePreviousState = Pick<
   AppStore,
-  "attachments" | "comments" | "documents" | "notifications" | "workItems"
+  | "attachments"
+  | "comments"
+  | "documents"
+  | "notifications"
+  | "workItemActivities"
+  | "workItems"
 >
+
+function getCreateWorkItemScopeAccessError(input: {
+  input: CreateWorkItemInput
+  isPrivate: boolean
+  state: AppStore
+  team: AppStore["teams"][number] | null
+  workspaceId: string
+}) {
+  if (input.isPrivate) {
+    return hasWorkspaceAccess(
+      input.state,
+      input.workspaceId,
+      input.state.currentUserId
+    )
+      ? null
+      : "You do not have access to this workspace"
+  }
+
+  if (!input.team) {
+    return "Team not found"
+  }
+
+  const role = effectiveRole(input.state, input.input.teamId)
+
+  return role === "viewer" || role === "guest" || !role
+    ? "Your current role is read-only"
+    : null
+}
+
+function getCreateWorkItemScopeItems(
+  state: AppStore,
+  input: CreateWorkItemInput,
+  isPrivate: boolean
+) {
+  return state.workItems.filter((item) =>
+    isPrivate
+      ? (item.visibility ?? "team") === "private" &&
+        item.creatorId === state.currentUserId
+      : item.teamId === input.teamId && (item.visibility ?? "team") !== "private"
+  )
+}
+
+function getCreateWorkItemPrimaryProjectId(
+  input: CreateWorkItemInput,
+  isPrivate: boolean,
+  parent: WorkItem | null
+) {
+  if (isPrivate) {
+    return null
+  }
+
+  return parent ? (parent.primaryProjectId ?? null) : input.primaryProjectId
+}
 
 function canDeleteWorkItem(state: AppStore, deletionPlan: WorkItemDeletePlan) {
   const role = effectiveRole(state, deletionPlan.item.teamId)
@@ -104,6 +163,7 @@ function getWorkItemDeletePreviousState(
     comments: state.comments,
     attachments: state.attachments,
     notifications: state.notifications,
+    workItemActivities: state.workItemActivities,
   }
 }
 
@@ -123,6 +183,9 @@ function applyWorkItemCascadeDeletePlan(
     ),
     notifications: current.notifications.filter(
       (entry) => !deletionPlan.deletedNotificationIds.has(entry.id)
+    ),
+    workItemActivities: current.workItemActivities.filter(
+      (entry) => !deletionPlan.deletedWorkItemActivityIds.has(entry.id)
     ),
   }
 }
@@ -159,26 +222,26 @@ function resolveCreateWorkItemScope(
   state: AppStore,
   input: CreateWorkItemInput
 ): CreateWorkItemScope | null {
-  const role = effectiveRole(state, input.teamId)
+  const team = state.teams.find((entry) => entry.id === input.teamId) ?? null
+  const isPrivate = input.visibility === "private"
+  const workspaceId = team?.workspaceId ?? state.currentWorkspaceId
+  const accessError = getCreateWorkItemScopeAccessError({
+    input,
+    isPrivate,
+    state,
+    team,
+    workspaceId,
+  })
 
-  if (role === "viewer" || role === "guest" || !role) {
-    toast.error("Your current role is read-only")
+  if (accessError) {
+    toast.error(accessError)
     return null
   }
 
   const parent = input.parentId
     ? (state.workItems.find((item) => item.id === input.parentId) ?? null)
     : null
-  const team = state.teams.find((entry) => entry.id === input.teamId) ?? null
-  const isPrivate = input.visibility === "private"
-  const teamItems = state.workItems.filter((item) =>
-    isPrivate
-      ? (item.visibility ?? "team") === "private" &&
-        item.teamId === input.teamId &&
-        item.creatorId === state.currentUserId
-      : item.teamId === input.teamId &&
-        (item.visibility ?? "team") !== "private"
-  )
+  const teamItems = getCreateWorkItemScopeItems(state, input, isPrivate)
 
   return {
     keyPrefix: isPrivate
@@ -186,11 +249,13 @@ function resolveCreateWorkItemScope(
       : toTeamKeyPrefix(team?.name, input.teamId),
     nextNumber: isPrivate ? teamItems.length + 1 : 1 + teamItems.length + 100,
     parent,
-    resolvedPrimaryProjectId: parent
-      ? (parent.primaryProjectId ?? null)
-      : input.primaryProjectId,
+    resolvedPrimaryProjectId: getCreateWorkItemPrimaryProjectId(
+      input,
+      isPrivate,
+      parent
+    ),
     team,
-    workspaceId: team?.workspaceId ?? "",
+    workspaceId,
   }
 }
 
@@ -207,7 +272,10 @@ function buildOptimisticDescriptionDocument(input: {
     id: input.descriptionDocId,
     kind: "item-description" as const,
     workspaceId: input.scope.workspaceId,
-    teamId: input.parsedInput.teamId,
+    teamId:
+      input.parsedInput.visibility === "private"
+        ? null
+        : input.parsedInput.teamId,
     title: `${input.title} description`,
     content: "<p></p>",
     linkedProjectIds: input.scope.resolvedPrimaryProjectId
@@ -230,22 +298,24 @@ function buildOptimisticWorkItem(input: {
   scope: CreateWorkItemScope
 }) {
   const now = getNow()
+  const isPrivate = input.parsedInput.visibility === "private"
 
   return {
     id: input.itemId,
     key: formatWorkItemKey(input.scope.keyPrefix, input.scope.nextNumber),
     teamId: input.parsedInput.teamId,
+    workspaceId: input.scope.workspaceId,
     type: input.parsedInput.type,
     title: input.parsedInput.title,
     descriptionDocId: input.descriptionDocId,
     status: input.parsedInput.status ?? ("backlog" as const),
     priority: input.parsedInput.priority,
     ...getWorkItemAssigneeFields(
-      getResolvedWorkItemMutationAssigneeIds(input.parsedInput)
+      isPrivate ? [] : getResolvedWorkItemMutationAssigneeIds(input.parsedInput)
     ),
     creatorId: input.currentUserId,
     parentId: input.scope.parent?.id ?? null,
-    primaryProjectId: input.scope.resolvedPrimaryProjectId,
+    primaryProjectId: isPrivate ? null : input.scope.resolvedPrimaryProjectId,
     linkedProjectIds: [],
     linkedDocumentIds: [],
     labelIds: input.parsedInput.labelIds ?? [],
@@ -257,7 +327,7 @@ function buildOptimisticWorkItem(input: {
     startTime: input.dates.startTime,
     endTime: input.dates.endTime,
     scheduleTimeZone: input.dates.scheduleTimeZone,
-    subscriberIds: [input.currentUserId],
+    subscriberIds: isPrivate ? [] : [input.currentUserId],
     createdAt: now,
     updatedAt: now,
   }
@@ -271,7 +341,10 @@ function buildCreateWorkItemNotifications(
     workItemId: string
   }
 ) {
-  const assigneeIds = getResolvedWorkItemMutationAssigneeIds(input.parsedInput)
+  const assigneeIds =
+    input.parsedInput.visibility === "private"
+      ? []
+      : getResolvedWorkItemMutationAssigneeIds(input.parsedInput)
 
   if (assigneeIds.length === 0) {
     return state.notifications
@@ -401,7 +474,11 @@ function getEffectiveLocalWorkItemPatch(
   delete privatePatch.assigneeIds
   delete privatePatch.primaryProjectId
 
-  return privatePatch
+  return {
+    ...privatePatch,
+    ...getWorkItemAssigneeFields([]),
+    primaryProjectId: null,
+  }
 }
 
 function getProjectTemplateValidationMessageForWorkItemUpdate(
@@ -467,57 +544,67 @@ function getEffectivePrimaryProjectIdForWorkItemUpdate(
   return isPrivateWorkItem(item) ? null : resolvedPrimaryProjectId
 }
 
+function getPatchValue<T>(patchValue: T | undefined, existingValue: T) {
+  return patchValue === undefined ? existingValue : patchValue
+}
+
+function getUpdatedAssigneeId(
+  existing: WorkItem,
+  localPatch: LocalWorkItemPatch,
+  isPrivate: boolean
+) {
+  if (isPrivate) {
+    return null
+  }
+
+  return getPatchValue(localPatch.assigneeId, existing.assigneeId)
+}
+
+function getUpdatedAssigneeIds(
+  existing: WorkItem,
+  localPatch: LocalWorkItemPatch,
+  isPrivate: boolean
+) {
+  if (isPrivate) {
+    return []
+  }
+
+  return localPatch.assigneeIds !== undefined ||
+    localPatch.assigneeId !== undefined
+    ? getResolvedWorkItemMutationAssigneeIds(localPatch)
+    : getWorkItemAssigneeIds(existing)
+}
+
 function getUpdatedWorkItemValidationInput(input: {
   existing: WorkItem
   localPatch: LocalWorkItemPatch
   resolvedPrimaryProjectId: string | null
 }) {
   const { existing, localPatch, resolvedPrimaryProjectId } = input
+  const isPrivate = isPrivateWorkItem(existing)
 
   return {
     teamId: existing.teamId,
     type: existing.type,
     title: localPatch.title ?? existing.title,
     priority: localPatch.priority ?? existing.priority,
-    assigneeId:
-      localPatch.assigneeId === undefined
-        ? existing.assigneeId
-        : localPatch.assigneeId,
-    assigneeIds:
-      localPatch.assigneeIds !== undefined ||
-      localPatch.assigneeId !== undefined
-        ? getResolvedWorkItemMutationAssigneeIds(localPatch)
-        : getWorkItemAssigneeIds(existing),
-    parentId:
-      localPatch.parentId === undefined
-        ? existing.parentId
-        : localPatch.parentId,
+    visibility: existing.visibility ?? "team",
+    assigneeId: getUpdatedAssigneeId(existing, localPatch, isPrivate),
+    assigneeIds: getUpdatedAssigneeIds(existing, localPatch, isPrivate),
+    parentId: getPatchValue(localPatch.parentId, existing.parentId),
     primaryProjectId: getEffectivePrimaryProjectIdForWorkItemUpdate(
       existing,
       resolvedPrimaryProjectId
     ),
-    labelIds:
-      localPatch.labelIds === undefined
-        ? existing.labelIds
-        : localPatch.labelIds,
-    startDate:
-      localPatch.startDate === undefined
-        ? existing.startDate
-        : localPatch.startDate,
-    targetDate:
-      localPatch.targetDate === undefined
-        ? existing.targetDate
-        : localPatch.targetDate,
-    startTime:
-      localPatch.startTime === undefined
-        ? existing.startTime
-        : localPatch.startTime,
-    endTime:
-      localPatch.endTime === undefined ? existing.endTime : localPatch.endTime,
-    scheduleTimeZone:
-      localPatch.scheduleTimeZone === undefined
-        ? existing.scheduleTimeZone
-        : localPatch.scheduleTimeZone,
+    labelIds: getPatchValue(localPatch.labelIds, existing.labelIds),
+    startDate: getPatchValue(localPatch.startDate, existing.startDate),
+    targetDate: getPatchValue(localPatch.targetDate, existing.targetDate),
+    startTime: getPatchValue(localPatch.startTime, existing.startTime),
+    endTime: getPatchValue(localPatch.endTime, existing.endTime),
+    scheduleTimeZone: getPatchValue(
+      localPatch.scheduleTimeZone,
+      existing.scheduleTimeZone
+    ),
     currentItemId: existing.id,
   }
 }
@@ -730,18 +817,22 @@ function createOptimisticStatusNotifications(
   )
   const status = input.localPatch.status
 
+  const recipientIds = [
+    ...new Set([...resolvedAssigneeIds, ...input.currentItem.subscriberIds]),
+  ].filter((recipientId) => recipientId !== state.currentUserId)
+
   if (
     !status ||
     status === input.currentItem.status ||
-    resolvedAssigneeIds.length === 0
+    recipientIds.length === 0
   ) {
     return []
   }
 
-  return resolvedAssigneeIds.map((resolvedAssigneeId) =>
+  return recipientIds.map((recipientId) =>
     createOptimisticWorkItemNotification(state, {
       currentItem: input.currentItem,
-      recipientId: resolvedAssigneeId,
+      recipientId,
       type: "status-change",
       message: (actorName, teamName) =>
         buildWorkItemStatusChangeNotificationMessage(
@@ -871,6 +962,7 @@ export function createWorkItemActions({
   WorkSlice,
   | "createLabel"
   | "updateWorkItem"
+  | "setWorkItemSubscription"
   | "deleteWorkItem"
   | "shiftTimelineItem"
   | "createWorkItem"
@@ -1012,6 +1104,52 @@ export function createWorkItemActions({
       return {
         status: "updated",
       }
+    },
+    setWorkItemSubscription(itemId, subscribed) {
+      const state = get()
+      const item = state.workItems.find((entry) => entry.id === itemId)
+
+      if (!item) {
+        toast.error("Work item not found")
+        return
+      }
+
+      if ((item.visibility ?? "team") === "private") {
+        toast.error("Private tasks do not support subscriptions")
+        return
+      }
+
+      const currentlySubscribed = item.subscriberIds.includes(
+        state.currentUserId
+      )
+
+      if (currentlySubscribed === subscribed) {
+        return
+      }
+
+      const nextSubscriberIds = subscribed
+        ? [...item.subscriberIds, state.currentUserId]
+        : item.subscriberIds.filter(
+            (subscriberId) => subscriberId !== state.currentUserId
+          )
+
+      set((currentState) => ({
+        workItems: currentState.workItems.map((entry) =>
+          entry.id === itemId
+            ? {
+                ...entry,
+                subscriberIds: nextSubscriberIds,
+                updatedAt: getNow(),
+              }
+            : entry
+        ),
+      }))
+
+      runtime.syncInBackground(
+        syncSetWorkItemSubscription(itemId, subscribed),
+        "Failed to update subscription"
+      )
+      toast.success(subscribed ? "Subscribed" : "Unsubscribed")
     },
     async deleteWorkItem(itemId) {
       const state = get()

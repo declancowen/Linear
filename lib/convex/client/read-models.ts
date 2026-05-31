@@ -25,6 +25,7 @@ type ScopedArrayDomainKey = keyof Pick<
   | "projects"
   | "milestones"
   | "workItems"
+  | "workItemActivities"
   | "documents"
   | "views"
   | "comments"
@@ -49,12 +50,13 @@ const EMPTY_SCOPED_ARRAY_DOMAINS_BY_REPLACE_KIND = {
     "projects",
     "milestones",
     "documents",
+    "workItemActivities",
     "comments",
     "attachments",
     "teamMemberships",
     "users",
   ],
-  "missing-work-item-detail": ["workItems"],
+  "missing-work-item-detail": ["workItems", "workItemActivities"],
   "work-index": [
     "workspaces",
     "workspaceMemberships",
@@ -86,6 +88,21 @@ const EMPTY_SCOPED_ARRAY_DOMAINS_BY_REPLACE_KIND = {
     "labels",
     "users",
     "invites",
+  ],
+  "workspace-people": [
+    "workspaces",
+    "workspaceMemberships",
+    "teams",
+    "teamMemberships",
+    "users",
+    "workItems",
+    "documents",
+    "comments",
+    "projects",
+    "projectUpdates",
+    "conversations",
+    "channelPosts",
+    "channelPostComments",
   ],
   "view-catalog": [
     "workspaces",
@@ -211,6 +228,7 @@ function createMissingScopedReadModelData(
         break
       case "missing-work-item-detail":
         result.workItems = []
+        result.workItemActivities = []
         break
       case "missing-project-detail":
         result.projects = []
@@ -299,6 +317,15 @@ export function fetchWorkspaceMembershipReadModel(workspaceId: string) {
       },
     ]
   )
+}
+
+export function fetchWorkspacePeopleReadModel(workspaceId: string) {
+  return fetchReadModel(`/api/read-models/workspaces/${workspaceId}/people`, [
+    {
+      kind: "workspace-people",
+      workspaceId,
+    },
+  ])
 }
 
 export function selectCurrentWorkspaceReadModel(workspaceId: string) {

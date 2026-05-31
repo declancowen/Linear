@@ -356,6 +356,7 @@ describe("workspace and profile route contracts", () => {
       preferences: {
         emailMentions: true,
         emailAssignments: true,
+        emailComments: true,
         emailDigest: true,
         theme: "system",
         timeZone: "UTC",
