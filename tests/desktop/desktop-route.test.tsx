@@ -64,6 +64,13 @@ vi.mock("@/components/app/workspace-search-screen", () => ({
   WorkspaceSearchScreen: () => <div>Workspace search screen</div>,
 }))
 
+vi.mock("@/components/app/people-screen", () => ({
+  PeopleProfileScreen: ({ userId }: { userId: string }) => (
+    <div>People profile {userId}</div>
+  ),
+  PeopleScreen: () => <div>People screen</div>,
+}))
+
 vi.mock("@/lib/browser/app-navigation", () => ({
   useAppPathname: () => pathnameMock(),
   useAppSearchParams: () => new URLSearchParams(),
@@ -107,5 +114,23 @@ describe("DesktopRoute", () => {
     render(<DesktopRoute />)
 
     expect(screen.getByText("Project detail project_1")).toBeInTheDocument()
+  })
+
+  it("routes workspace people to the people directory screen", async () => {
+    pathnameMock.mockReturnValue("/workspace/people")
+
+    render(<DesktopRoute />)
+
+    expect(await screen.findByText("People screen")).toBeInTheDocument()
+  })
+
+  it("routes workspace people detail paths to the profile screen", async () => {
+    pathnameMock.mockReturnValue("/workspace/people/user_maya")
+
+    render(<DesktopRoute />)
+
+    expect(
+      await screen.findByText("People profile user_maya")
+    ).toBeInTheDocument()
   })
 })

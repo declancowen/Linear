@@ -275,7 +275,8 @@ describe("people workspace screens", () => {
 
     expect(screen.getByRole("heading", { name: "People" })).toBeInTheDocument()
     expect(screen.getByTestId("people-grid")).toHaveClass(
-      "grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))]"
+      "grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),20rem))]",
+      "justify-start"
     )
     expect(screen.getByText("Maya Singh")).toBeInTheDocument()
     expect(screen.getAllByText("Product Designer").length).toBeGreaterThan(0)

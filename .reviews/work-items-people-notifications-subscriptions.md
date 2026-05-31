@@ -35,11 +35,78 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-05-31 |
-| **Last reviewed** | 2026-05-31 11:41 BST |
-| **Total turns** | 6 |
+| **Last reviewed** | 2026-05-31 12:20 BST |
+| **Total turns** | 7 |
 | **Open findings** | 0 |
-| **Resolved findings** | 6 |
+| **Resolved findings** | 7 |
 | **Accepted findings** | 0 |
+
+## Turn 7 - 2026-05-31 12:20 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | cc39a368 working tree |
+| **IDE / Agent** | Codex |
+
+**Summary:** Added packaged Electron routing for the workspace People directory and profile pages, changed the People board grid from `auto-fit` to `auto-fill` so short rows keep the current responsive column geometry, and refactored the desktop static-route dispatcher into a route table after deep review caught a Fallow complexity regression.
+
+**Outcome:** all clear after deep review, one maintainability finding fixed, and normal re-review passed.
+
+**Risk score:** medium - packaged Electron routing is a separate presentation boundary from Next App Router, and the People surface has user-facing navigation/layout behavior.
+
+**Change archetypes:** desktop packaged renderer routing, presentation layout, route-contract regression, static-analysis remediation.
+
+**Intended change:** make `/workspace/people` and `/workspace/people/:userId` reachable in the packaged desktop renderer and prevent People cards from stretching across a partially filled responsive row.
+
+**Intent vs actual:** matches intent. `DesktopRoute` now owns the people collection/profile routes alongside existing workspace routes; profile routes resolve to `PeopleProfileScreen`; the board grid keeps empty responsive tracks via `auto-fill`.
+
+**Confidence:** high for the targeted desktop route and grid invariants. Focused route/layout tests, typecheck, lint on changed files, whitespace check, and changed-file Fallow audit passed.
+
+**Coverage note:** focused desktop route and People screen tests cover the new Electron route boundary and grid class. Full app/Vercel/desktop builds are run after the review loop as release verification.
+
+**Finding triage:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Deep diff review / Fallow changed-file audit | Adding People as another `StaticRoute` branch pushed desktop route dispatch above the cognitive-complexity gate | resolved | Maintainability / route dispatcher growth | Packaged desktop route ownership must not degrade into an ever-growing branch chain | Replaced static route branching with a data-driven `STATIC_ROUTE_DEFINITIONS` table and reran Fallow successfully |
+
+**Static/analyzer evidence:** First changed-file Fallow audit failed with 1 introduced moderate complexity finding in `StaticRoute`. After the route-table fix, `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed with 4 changed files, 0 dead-code issues, 0 complexity findings, and 0 duplication clone groups. Existing production/full advisory inventories remain unrelated baseline debt.
+
+**Architecture impact:** strengthened the existing presentation boundary. Packaged Electron route admission remains centralized in `desktop/renderer/desktop-route.tsx`; the People domain/read-model logic remains in `components/app/people-screen.tsx` and domain selectors. No data, auth, or backend ownership moved into Electron.
+
+**Deep-review evidence:** Pass A (correctness/safety) checked desktop path matching, collection/profile dispatch, fallback route behavior, search-param preservation for existing static routes, and People grid behavior. Pass B (maintainability/structure) found and fixed the route-branch complexity regression, then rechecked the route table for local ownership and no new generic helper bucket.
+
+**Bug classes / invariants checked:** packaged renderer route parity with Next routes; workspace People collection and profile detail path separation; short People rows must occupy only populated responsive columns; existing static routes still resolve through the same desktop route owner.
+
+**Branch totality:** current working tree delta was reviewed against `origin/main`, with all changed files read and route/layout sibling paths traced in the desktop renderer.
+
+**Sibling closure:** checked workspace projects/detail, docs/items detail matching, existing static routes, People board layout test, and profile navigation path.
+
+**Remediation impact surface:** presentation-only and narrow: `desktop/renderer/desktop-route.tsx`, `components/app/people-screen.tsx`, and focused tests.
+
+**Residual risk / unknowns:** no browser visual smoke has been run yet for the People board because the requested final verification is Vercel build plus desktop rebuild; layout behavior is still represented by the Tailwind class contract test.
+
+### Validation
+
+- `pnpm vitest run tests/desktop/desktop-route.test.tsx tests/components/people-screen.test.tsx` - passed, 2 files / 6 tests.
+- `pnpm exec eslint desktop/renderer/desktop-route.tsx components/app/people-screen.tsx tests/desktop/desktop-route.test.tsx tests/components/people-screen.test.tsx --max-warnings 0` - passed.
+- `pnpm typecheck` - passed.
+- `git diff --check` - passed.
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` - passed after the route-table fix.
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh` - completed; changed-file Fallow summary clean after fix.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** `desktop/renderer/desktop-route.tsx`, `desktop/renderer/adapters/app-navigation.tsx`, Next People pages, People screen/profile component, desktop route tests, People screen tests.
+- **Prior open findings rechecked:** none open in this scope.
+- **Prior resolved/adjacent areas revalidated:** desktop packaged renderer route ownership and People surface privacy/read-model ownership remain in their existing boundaries.
+- **Hotspots or sibling paths revisited:** project/detail route distinction, docs/items detail routes, workspace static routes, search static route context, People collection/profile split.
+- **Dependency/adjacent surfaces revalidated:** desktop navigation adapter still supplies pathname/search params; People links already use `AppLink`.
+- **Why this is enough:** the only new runtime contract is route admission in the packaged renderer, and it now has focused coverage plus a clean changed-file static gate.
+
+### Challenger pass
+
+- `not needed` - risk is medium, not high/critical; the weakest variant was route-table growth and it was directly fixed and rechecked with Fallow.
 
 ## Turn 6 - 2026-05-31 11:41 BST
 

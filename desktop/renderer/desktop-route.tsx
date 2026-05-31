@@ -1,6 +1,6 @@
 "use client"
 
-import { lazy, Suspense, useMemo } from "react"
+import { lazy, Suspense, useMemo, type ReactNode } from "react"
 
 import {
   AssignedScreen,
@@ -50,6 +50,16 @@ const WorkspaceSearchScreen = lazy(() =>
     default: module.WorkspaceSearchScreen,
   }))
 )
+const PeopleScreen = lazy(() =>
+  import("@/components/app/people-screen").then((module) => ({
+    default: module.PeopleScreen,
+  }))
+)
+const PeopleProfileScreen = lazy(() =>
+  import("@/components/app/people-screen").then((module) => ({
+    default: module.PeopleProfileScreen,
+  }))
+)
 const CreateTeamScreen = lazy(() =>
   import("@/components/app/settings-screens/create-team-screen").then(
     (module) => ({
@@ -92,8 +102,17 @@ type RouteMatch =
   | {
       id: string
       kind: "detail"
-      type: "document" | "item" | "project"
+      type: "document" | "item" | "person" | "project"
     }
+
+type StaticRouteContext = {
+  initialSearchQuery: string
+}
+
+type StaticRouteDefinition = {
+  paths: readonly string[]
+  render: (context: StaticRouteContext) => ReactNode
+}
 
 function splitPath(pathname: string) {
   return pathname.split("/").filter(Boolean)
@@ -115,6 +134,14 @@ function matchRoute(pathname: string): RouteMatch {
       kind: "detail",
       type: parts[0] === "docs" ? "document" : "item",
       id: parts[1],
+    }
+  }
+
+  if (parts[0] === "workspace" && parts[1] === "people" && parts[2]) {
+    return {
+      kind: "detail",
+      type: "person",
+      id: parts[2],
     }
   }
 
@@ -289,66 +316,80 @@ function ProjectDetailRoute({ projectId }: { projectId: string }) {
   return <ProjectDetailScreen projectId={projectId} />
 }
 
+const STATIC_ROUTE_DEFINITIONS: readonly StaticRouteDefinition[] = [
+  {
+    paths: ["/", "/workspace/projects"],
+    render: () => <WorkspaceProjectsRoute />,
+  },
+  {
+    paths: ["/workspace/items"],
+    render: () => <WorkspaceItemsScreen />,
+  },
+  {
+    paths: ["/workspace/views"],
+    render: () => <WorkspaceViewsRoute />,
+  },
+  {
+    paths: ["/workspace/docs"],
+    render: () => <WorkspaceDocsRoute />,
+  },
+  {
+    paths: ["/workspace/people"],
+    render: () => <PeopleScreen />,
+  },
+  {
+    paths: ["/workspace/channel", "/workspace/channels"],
+    render: () => <WorkspaceChannelsScreen />,
+  },
+  {
+    paths: ["/chats"],
+    render: () => <WorkspaceChatsScreen />,
+  },
+  {
+    paths: ["/assigned"],
+    render: () => <AssignedScreen />,
+  },
+  {
+    paths: ["/calendar"],
+    render: () => <UserCalendarScreen />,
+  },
+  {
+    paths: ["/inbox"],
+    render: () => <InboxScreen />,
+  },
+  {
+    paths: ["/workspace/search"],
+    render: ({ initialSearchQuery }) => (
+      <WorkspaceSearchScreen initialQuery={initialSearchQuery} />
+    ),
+  },
+  {
+    paths: ["/workspace/settings"],
+    render: () => <WorkspaceSettingsScreen />,
+  },
+  {
+    paths: ["/workspace/create-team"],
+    render: () => <CreateTeamScreen />,
+  },
+  {
+    paths: ["/settings/profile"],
+    render: () => <UserSettingsScreen />,
+  },
+]
+
+function getStaticRouteDefinition(path: string) {
+  return STATIC_ROUTE_DEFINITIONS.find((route) => route.paths.includes(path))
+}
+
 function StaticRoute({ path }: { path: string }) {
   const searchParams = useAppSearchParams()
   const initialSearchQuery = useMemo(
     () => searchParams.get("q") ?? "",
     [searchParams]
   )
+  const route = getStaticRouteDefinition(path)
 
-  if (path === "/" || path === "/workspace/projects") {
-    return <WorkspaceProjectsRoute />
-  }
-
-  if (path === "/workspace/items") {
-    return <WorkspaceItemsScreen />
-  }
-
-  if (path === "/workspace/views") {
-    return <WorkspaceViewsRoute />
-  }
-
-  if (path === "/workspace/docs") {
-    return <WorkspaceDocsRoute />
-  }
-
-  if (path === "/workspace/channel" || path === "/workspace/channels") {
-    return <WorkspaceChannelsScreen />
-  }
-
-  if (path === "/chats") {
-    return <WorkspaceChatsScreen />
-  }
-
-  if (path === "/assigned") {
-    return <AssignedScreen />
-  }
-
-  if (path === "/calendar") {
-    return <UserCalendarScreen />
-  }
-
-  if (path === "/inbox") {
-    return <InboxScreen />
-  }
-
-  if (path === "/workspace/search") {
-    return <WorkspaceSearchScreen initialQuery={initialSearchQuery} />
-  }
-
-  if (path === "/workspace/settings") {
-    return <WorkspaceSettingsScreen />
-  }
-
-  if (path === "/workspace/create-team") {
-    return <CreateTeamScreen />
-  }
-
-  if (path === "/settings/profile") {
-    return <UserSettingsScreen />
-  }
-
-  return <WorkspaceProjectsRoute />
+  return route?.render({ initialSearchQuery }) ?? <WorkspaceProjectsRoute />
 }
 
 export function DesktopRoute() {
@@ -364,6 +405,8 @@ export function DesktopRoute() {
           <DocumentDetailScreen documentId={route.id} />
         ) : route.type === "item" ? (
           <WorkItemDetailScreen itemId={route.id} />
+        ) : route.type === "person" ? (
+          <PeopleProfileScreen userId={route.id} />
         ) : (
           <ProjectDetailRoute projectId={route.id} />
         )

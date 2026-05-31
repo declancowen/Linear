@@ -286,7 +286,7 @@ export function PeopleScreen() {
             <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-6 py-6">
               <div
                 data-testid="people-grid"
-                className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-4"
+                className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),20rem))] justify-start gap-4"
               >
                 {people.map((person) => (
                   <PersonCard
