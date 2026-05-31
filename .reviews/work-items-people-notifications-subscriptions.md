@@ -35,11 +35,97 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-05-31 |
-| **Last reviewed** | 2026-05-31 10:49 BST |
-| **Total turns** | 3 |
+| **Last reviewed** | 2026-05-31 11:06 BST |
+| **Total turns** | 4 |
 | **Open findings** | 0 |
-| **Resolved findings** | 1 |
+| **Resolved findings** | 2 |
 | **Accepted findings** | 0 |
+
+## Turn 4 - 2026-05-31 11:06 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | 938e6758 working tree |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the Codex PR review feedback on PR #45 and fixed the live P1 bootstrap privacy bug. Legacy/private work items are now authorized only when their workspace can be resolved and the user still has access to that workspace. The bootstrap path resolves legacy private item team records from storage before filtering, and unknown/orphaned private item workspace is denied instead of allowed.
+
+**Outcome:** all clear after deep review and normal re-review; no open findings.
+
+**Risk score:** high - auth/bootstrap read model, private item privacy, legacy-data compatibility, and workspace/team tenancy boundaries.
+
+**Change archetypes:** external PR finding, authorization/tenancy, compatibility/legacy data, read model/bootstrap snapshot, regression hardening.
+
+**Intended change:** address the PR review finding without relying on manual legacy data deletion as the only control.
+
+**Intent vs actual:** matches intent. The user deleted legacy PVT tasks, but the code still fails closed for future orphaned/imported/restored rows and preserves valid legacy private rows only when their team resolves to an accessible workspace.
+
+**Confidence:** high for the targeted backend privacy fix. The fix has focused regression coverage plus full test/build/type/lint/static checks.
+
+**Coverage note:** targeted auth-bootstrap test, full test suite, typecheck, lint, build, diff whitespace check, and changed-file Fallow audit all passed.
+
+**Finding triage:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Codex PR review | Private bootstrap allowed creator-owned private items when workspace could not be resolved | resolved | Scope and Tenancy / Compatibility and Legacy Data | Legacy private item with no `workspaceId` and missing/non-visible team must fail closed | Resolved by resolving private item teams from storage and denying unknown workspace; added orphaned legacy private item regression |
+
+**Static/analyzer evidence:** `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed with 94 changed files, 0 dead-code issues, 0 complexity findings, and 0 duplication clone groups. The preflight's transient changed-file Fallow failure was not reproduced by the direct audit.
+
+**Architecture impact:** strengthened the bootstrap/read-model authorization boundary. The server-side snapshot owner now resolves legacy private item workspace information from persisted team records and denies unresolved scope rather than letting presentation or cleaned data carry the invariant.
+
+**Deep-review evidence:** Pass A (correctness/safety) found the PR review issue live and confirmed the fix closes both unknown workspace and inaccessible workspace variants. Pass B (maintainability/structure) found the minimal extra team lookup acceptable because it stays in the bootstrap query boundary and avoids spreading compatibility rules into UI or domain display selectors. Normal re-review after the fix found no additional issue.
+
+**Bug classes / invariants checked:** private item visibility requires creator ownership plus resolvable accessible workspace; unknown workspace is unauthorized; fetching a private item's team for authorization must not itself expose the item; orphaned legacy private item descriptions remain excluded because only visible work item description IDs are loaded.
+
+**Branch totality:** current PR branch state and current working-tree delta were re-reviewed, with special focus on `convex/app/auth_bootstrap.ts`, private item data helpers, document visibility, scoped read-model selectors, and prior private-task cleanup fixes.
+
+**Sibling closure:** checked bootstrap private work item filtering, item-description document filtering, workspace access collection, stored team resolution, private item data loading, and adjacent read-model/private task selectors for the same fail-open pattern.
+
+**Remediation impact surface:** small and backend-owned. Only bootstrap snapshot filtering and its regression test changed this turn.
+
+**Residual risk / unknowns:** browser smoke remains unavailable in this environment, but this turn did not change presentation behavior.
+
+### Validation
+
+- `python3 /Users/declancowen/.codex/plugins/cache/openai-curated/github/fef63ecf/skills/gh-address-comments/scripts/fetch_comments.py` - fetched 1 unresolved PR review thread.
+- `pnpm vitest run tests/convex/auth-bootstrap-health.test.ts` - passed, 1 file / 9 tests.
+- `pnpm typecheck` - passed.
+- `/Users/declancowen/.codex/skills/diff-review/scripts/review-preflight.sh` - completed.
+- `git diff --check` - passed.
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` - passed.
+- `pnpm lint` - passed.
+- `pnpm build` - passed.
+- `pnpm test` - passed, 210 files / 1292 tests.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** PR review thread, bootstrap workspace access context, private work item snapshot filtering, item-description document visibility, private item data helpers, and prior private-task cleanup paths.
+- **Prior open findings rechecked:** WI-PVT-001 remains resolved; the new bootstrap issue is recorded below as WI-PVT-002 and resolved in this turn.
+- **Prior resolved/adjacent areas revalidated:** private task cleanup, private description docs, work item activities, scoped read-model privacy, and people activity direct-chat/private exclusions remain unaffected.
+- **Hotspots or sibling paths revisited:** `canCurrentUserSeeBootstrapWorkItem`, `getBootstrapWorkItemWorkspaceId`, `loadVisibleBootstrapDocuments`, `isVisibleTeamScopedBootstrapDocument`, `listPrivateWorkItemsByCreator`, and accessible workspace collection.
+- **Dependency/adjacent surfaces revalidated:** tests, typecheck, lint, build, full Vitest, and Fallow changed-file audit.
+- **Why this is enough:** the bug was isolated to bootstrap's private item workspace fallback; the fix changes the authoritative server snapshot filter and adds a regression for the weak legacy/orphaned variant.
+
+### Challenger pass
+
+- done - assumed another private bootstrap leak remained and checked unknown workspace, inaccessible workspace, visible-team legacy row, item-description document load, and private item loading by creator. No further live leak found.
+
+### Resolved / Carried / New findings
+
+#### WI-PVT-002 [High] Bootstrap authorizes private items with unknown workspace - resolved
+
+The PR review correctly identified that `!workspaceId` allowed creator-owned private work items into the full bootstrap snapshot when `workspaceId` was missing and the legacy `teamId` was no longer visible. That could expose private item data after workspace/team access had been removed.
+
+**Fix:** bootstrap now loads the teams referenced by creator-owned private work items, resolves workspace from `workItem.workspaceId` or the stored team, and denies the item when no workspace can be resolved or the workspace is not accessible.
+
+**Resolution evidence:** `convex/app/auth_bootstrap.ts`, `tests/convex/auth-bootstrap-health.test.ts`.
+
+### Recommendations
+
+1. **Fix first:** none.
+2. **Then address:** after push, wait for the automated PR review to re-run before starting any further feedback loop.
+3. **Patterns noticed:** legacy-data fallbacks in auth/read-model code should fail closed unless they can resolve tenancy from storage.
 
 ## Turn 3 - 2026-05-31 10:49 BST
 

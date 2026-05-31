@@ -1305,7 +1305,7 @@ function canCurrentUserSeeBootstrapWorkItem(
 
   const workspaceId = getBootstrapWorkItemWorkspaceId(workItem, input.teamsById)
 
-  return !workspaceId || input.accessibleWorkspaceIds.has(workspaceId)
+  return Boolean(workspaceId && input.accessibleWorkspaceIds.has(workspaceId))
 }
 
 function createTeamConversationScopes(teamIds: string[]) {
@@ -1489,8 +1489,14 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
       ? listPrivateWorkItemsByCreator(ctx, currentUserId)
       : Promise.resolve([]),
   ])
+  const privateWorkItemTeams = await listTeamsByIds(
+    ctx,
+    privateWorkItems.map((workItem) => workItem.teamId)
+  )
   const visibleTeamsById = new Map(
-    visibleTeams.map((team) => [team.id, team] as const)
+    [...visibleTeams, ...privateWorkItemTeams].map(
+      (team) => [team.id, team] as const
+    )
   )
   const visibleWorkItems = dedupeById([
     ...teamWorkItems,

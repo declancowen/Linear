@@ -695,6 +695,14 @@ describe("auth bootstrap handlers", () => {
         visibility: "private",
       }) as never,
       createBootstrapWorkItem({
+        id: "item_private_legacy_orphan",
+        teamId: "team_removed",
+        creatorId: "user_1",
+        assigneeId: "user_1",
+        descriptionDocId: "doc_private_legacy_orphan",
+        visibility: "private",
+      }) as never,
+      createBootstrapWorkItem({
         id: "item_private_other",
         creatorId: "owner_1",
         assigneeId: "owner_1",
