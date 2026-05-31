@@ -35,11 +35,105 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-05-31 |
-| **Last reviewed** | 2026-05-31 11:26 BST |
-| **Total turns** | 5 |
+| **Last reviewed** | 2026-05-31 11:41 BST |
+| **Total turns** | 6 |
 | **Open findings** | 0 |
-| **Resolved findings** | 4 |
+| **Resolved findings** | 6 |
 | **Accepted findings** | 0 |
+
+## Turn 6 - 2026-05-31 11:41 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | 5a9c2692 working tree |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the latest Codex PR review feedback on PR #45 and fixed both live private-task compatibility/security issues. Direct private work item APIs now require a resolvable workspace even for legacy rows, and preserved private subtasks can be updated after team deletion when the parent is unchanged.
+
+**Outcome:** all clear after deep review and normal re-review; no open findings.
+
+**Risk score:** high - shared work-item authorization, legacy private data, deleted-team compatibility, and parent/child validation.
+
+**Change archetypes:** external PR finding, authorization/tenancy, compatibility/legacy data, parent validation, regression hardening.
+
+**Intended change:** close the latest PR review findings without weakening the private-task model or relying on deleted legacy records as the only guard.
+
+**Intent vs actual:** matches intent. Missing-workspace private rows now fail closed unless workspace can be resolved through their team, and unchanged private parents no longer force a deleted-team validation path. Explicit private parent changes still validate private ownership, workspace scope, child type, and cycles.
+
+**Confidence:** high for the targeted backend fixes. The changed paths have focused regressions plus full test/build/type/lint/static checks.
+
+**Coverage note:** targeted access/work-item/work-helper/cleanup/bootstrap tests, full Vitest suite, typecheck, lint, build, diff whitespace check, and changed-file Fallow audit all passed.
+
+**Finding triage:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Codex PR review | Shared private work-item access allows legacy rows without workspace check | resolved | Scope and Tenancy / Compatibility and Legacy Data | Creator ownership alone is not enough; private item access also requires resolvable accessible workspace | Resolved by resolving workspace from `workspaceId` or stored team before authorizing private item APIs |
+| Codex PR review | Preserved private subtasks with unchanged parent become uneditable after team deletion | resolved | Compatibility and Legacy Data / Variant State | Unrelated private item edits must not revalidate unchanged parent through a deleted team | Resolved by skipping unchanged private parent validation and adding team-free private parent validation for explicit parent changes |
+
+**Static/analyzer evidence:** `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed with 97 changed files, 0 dead-code issues, 0 complexity findings, and 0 duplication clone groups. Fallow still emits the known `node_modules directory not found` warnings while returning a passing verdict.
+
+**Architecture impact:** strengthened the authoritative application boundaries. Authorization remains in `convex/app/access.ts`; parent validation remains in `convex/app/work_helpers.ts`; update orchestration only decides when private parent validation is needed.
+
+**Deep-review evidence:** Pass A (correctness/safety) confirmed both latest PR findings were live and checked direct item APIs, private description document access, deleted-team updates, explicit parent changes, workspace resolution, and prior cleanup/bootstrap fixes. Pass B (maintainability/structure) found the new helper acceptable because it is a narrow production-used validation boundary, not a test-only export or generic helper bucket. Normal re-review after the fixes found no additional issue.
+
+**Bug classes / invariants checked:** private item access requires creator plus accessible workspace; missing workspace is unauthorized unless resolved from storage; unchanged private parent relationships are preserved through unrelated edits; explicit private parent changes stay creator-private, workspace-scoped, type-compatible, and cycle-safe.
+
+**Branch totality:** current PR branch state and current working-tree delta were re-reviewed, with focus on `convex/app/access.ts`, `convex/app/work_item_handlers.ts`, `convex/app/work_helpers.ts`, bootstrap private item filtering, team deletion preservation, and private description access.
+
+**Sibling closure:** checked readable/editable work item access, item-description document access, private parent change/no-change variants, cleanup preserved private rows, bootstrap workspace resolution, and workspace label cleanup.
+
+**Remediation impact surface:** backend-owned and narrow. The changes affect shared work-item access, private parent validation, update handler branching, and focused Convex tests.
+
+**Residual risk / unknowns:** no browser smoke needed for this backend-only turn. Existing full-branch browser smoke gap from broad UI changes remains unchanged.
+
+### Validation
+
+- `python3 /Users/declancowen/.codex/plugins/cache/openai-curated/github/fef63ecf/skills/gh-address-comments/scripts/fetch_comments.py` - fetched latest PR review threads.
+- `pnpm vitest run tests/convex/access.test.ts tests/convex/work-item-handlers.test.ts tests/convex/work-helpers.test.ts tests/convex/cleanup.test.ts tests/convex/auth-bootstrap-health.test.ts` - passed, 5 files / 49 tests.
+- `pnpm typecheck` - passed.
+- `git diff --check` - passed.
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` - passed.
+- `pnpm lint` - passed.
+- `pnpm test` - passed, 210 files / 1297 tests.
+- `pnpm build` - passed.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** private work-item access helper, workspace access helper, document access route through private work item access, parent validation helper, work item update handler, cleanup preservation, and auth bootstrap.
+- **Prior open findings rechecked:** WI-PVT-003 and WI-PVT-004 remain resolved; the new PR feedback is recorded below as WI-PVT-005 and WI-PVT-006 and resolved in this turn.
+- **Prior resolved/adjacent areas revalidated:** bootstrap fail-closed private rows, team deletion workspace backfill, preserved description docs, preserved private labels, private item activities, and workspace deletion include-private cascade remain valid.
+- **Hotspots or sibling paths revisited:** `requireReadableWorkItemAccess`, `requireEditableWorkItemAccess`, `requireEditableDocumentAccess`, `validateWorkItemParentPatch`, `validatePrivateWorkItemParent`, `cascadeDeleteTeamData`, and `canCurrentUserSeeBootstrapWorkItem`.
+- **Dependency/adjacent surfaces revalidated:** focused tests, full test suite, typecheck, lint, build, diff whitespace, and Fallow changed-file audit.
+- **Why this is enough:** both bugs were at authoritative backend boundaries; each fix now has a direct regression test and sibling paths were swept for the same missing workspace/deleted-team variants.
+
+### Challenger pass
+
+- done - assumed another legacy private row could bypass workspace checks or become uneditable after team deletion. Checked direct work item APIs, document access, bootstrap, cleanup, parent unchanged/changed variants, missing parent workspace, and explicit cross-workspace private parents. No further live issue found.
+
+### Resolved / Carried / New findings
+
+#### WI-PVT-005 [High] Direct private work item APIs authorize legacy rows without workspace access - resolved
+
+The PR review correctly identified that `requirePrivateWorkItemAccessIfNeeded()` only checked creator ownership for private rows whose `workspaceId` was missing. A removed creator who knew the item ID could still hit direct readable/editable work item APIs if the row had no workspace.
+
+**Fix:** private work item access now resolves workspace from `workspaceId` or the stored team and requires readable workspace access. If no workspace can be resolved, the item is denied.
+
+**Resolution evidence:** `convex/app/access.ts`, `tests/convex/access.test.ts`.
+
+#### WI-PVT-006 [Medium] Preserved private subtasks revalidate unchanged parent through deleted team - resolved
+
+The PR review correctly identified that private subtasks preserved after team deletion could fail ordinary title/status edits because update validation rechecked the existing parent through `validateWorkItemParent()`, which requires the deleted team row.
+
+**Fix:** unchanged private parents are not revalidated on unrelated edits. Explicit private parent changes use a private-specific parent validator that avoids the deleted-team path while still enforcing private ownership, workspace scope, child type, and cycle checks.
+
+**Resolution evidence:** `convex/app/work_item_handlers.ts`, `convex/app/work_helpers.ts`, `tests/convex/work-item-handlers.test.ts`, `tests/convex/work-helpers.test.ts`.
+
+### Recommendations
+
+1. **Fix first:** none.
+2. **Then address:** push the branch and wait for the automated PR review/checks before starting another review loop.
+3. **Patterns noticed:** private-task compatibility needs both read-side and direct mutation/API authorization proof; bootstrap-only fixes are not enough.
 
 ## Turn 5 - 2026-05-31 11:26 BST
 

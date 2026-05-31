@@ -68,6 +68,7 @@ import {
   collectWorkItemCascadeIds,
   getResolvedProjectLinkForWorkItemUpdate,
   projectBelongsToTeamScope,
+  validatePrivateWorkItemParent,
   validateWorkItemParent,
 } from "./work_helpers"
 import {
@@ -229,8 +230,24 @@ async function validateWorkItemParentPatch(
   ctx: MutationCtx,
   existing: WorkItemDoc,
   patch: WorkItemPatch,
-  itemType: WorkItemType
+  itemType: WorkItemType,
+  teamWorkspaceId?: string | null
 ) {
+  if ((existing.visibility ?? "team") === "private") {
+    if (patch.parentId === undefined) {
+      return
+    }
+
+    await validatePrivateWorkItemParent(ctx, {
+      creatorId: existing.creatorId,
+      currentItemId: existing.id,
+      itemType,
+      parentId: patch.parentId,
+      workspaceId: existing.workspaceId ?? teamWorkspaceId ?? null,
+    })
+    return
+  }
+
   const parent = await validateWorkItemParent(ctx, {
     teamId: existing.teamId,
     itemType,
@@ -242,14 +259,7 @@ async function validateWorkItemParentPatch(
     return
   }
 
-  if ((existing.visibility ?? "team") === "private") {
-    if (
-      (parent.visibility ?? "team") !== "private" ||
-      parent.creatorId !== existing.creatorId
-    ) {
-      throw new Error("Private task parent must be one of your private tasks")
-    }
-  } else if ((parent.visibility ?? "team") === "private") {
+  if ((parent.visibility ?? "team") === "private") {
     throw new Error("Parent item not found")
   }
 }
@@ -840,7 +850,8 @@ export async function updateWorkItemHandler(
     ctx,
     existing,
     patch,
-    normalizedExistingType
+    normalizedExistingType,
+    team?.workspaceId
   )
 
   const {

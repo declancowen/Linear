@@ -4,12 +4,13 @@ const getWorkspaceMembershipDocMock = vi.fn()
 const getWorkspaceRoleMapForUserMock = vi.fn()
 const getWorkItemByDescriptionDocIdMock = vi.fn()
 const getEffectiveRoleMock = vi.fn()
+const getTeamDocMock = vi.fn()
 const isWorkspaceOwnerMock = vi.fn()
 
 vi.mock("@/convex/app/data", () => ({
   getDocumentDoc: vi.fn(),
   getEffectiveRole: getEffectiveRoleMock,
-  getTeamDoc: vi.fn(),
+  getTeamDoc: getTeamDocMock,
   getWorkItemByDescriptionDocId: getWorkItemByDescriptionDocIdMock,
   getWorkspaceMembershipDoc: getWorkspaceMembershipDocMock,
   getWorkspaceEditRole: vi.fn(),
@@ -23,9 +24,14 @@ describe("workspace access helpers", () => {
     getWorkspaceRoleMapForUserMock.mockReset()
     getWorkItemByDescriptionDocIdMock.mockReset()
     getEffectiveRoleMock.mockReset()
+    getTeamDocMock.mockReset()
     isWorkspaceOwnerMock.mockReset()
 
     getEffectiveRoleMock.mockResolvedValue("member")
+    getTeamDocMock.mockResolvedValue({
+      id: "team_1",
+      workspaceId: "workspace_1",
+    })
     isWorkspaceOwnerMock.mockResolvedValue(false)
     getWorkspaceMembershipDocMock.mockResolvedValue(null)
     getWorkspaceRoleMapForUserMock.mockResolvedValue({
@@ -105,6 +111,46 @@ describe("workspace access helpers", () => {
           assigneeId: null,
         },
         "user_2"
+      )
+    ).rejects.toThrow("Work item not found")
+  })
+
+  it("requires workspace access for legacy private work items", async () => {
+    const { requireEditableWorkItemAccess } = await import("@/convex/app/access")
+
+    getWorkspaceRoleMapForUserMock.mockResolvedValue({})
+
+    await expect(
+      requireEditableWorkItemAccess(
+        {} as never,
+        {
+          teamId: "team_1",
+          visibility: "private",
+          creatorId: "user_1",
+          assigneeId: null,
+        },
+        "user_1"
+      )
+    ).rejects.toThrow("You do not have access to this workspace")
+
+    expect(getTeamDocMock).toHaveBeenCalledWith({}, "team_1")
+  })
+
+  it("rejects legacy private work items with unresolved workspace", async () => {
+    const { requireEditableWorkItemAccess } = await import("@/convex/app/access")
+
+    getTeamDocMock.mockResolvedValue(null)
+
+    await expect(
+      requireEditableWorkItemAccess(
+        {} as never,
+        {
+          teamId: "team_removed",
+          visibility: "private",
+          creatorId: "user_1",
+          assigneeId: null,
+        },
+        "user_1"
       )
     ).rejects.toThrow("Work item not found")
   })

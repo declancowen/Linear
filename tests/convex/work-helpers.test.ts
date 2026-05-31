@@ -140,6 +140,35 @@ describe("work helpers", () => {
     expect(ctx.db.insert).toHaveBeenCalledTimes(canonicalViews.length - 1)
   })
 
+  it("validates private work item parents without requiring a team row", async () => {
+    const { validatePrivateWorkItemParent } = await import(
+      "@/convex/app/work_helpers"
+    )
+    const parent = {
+      id: "parent_1",
+      teamId: "team_deleted",
+      workspaceId: "workspace_1",
+      type: "task",
+      parentId: null,
+      visibility: "private",
+      creatorId: "user_1",
+    }
+
+    getWorkItemDocMock.mockResolvedValue(parent)
+
+    await expect(
+      validatePrivateWorkItemParent({} as never, {
+        creatorId: "user_1",
+        currentItemId: "item_1",
+        itemType: "sub-task",
+        parentId: "parent_1",
+        workspaceId: "workspace_1",
+      })
+    ).resolves.toBe(parent)
+
+    expect(getTeamDocMock).not.toHaveBeenCalled()
+  })
+
   it("patches existing team and workspace project views", async () => {
     const {
       ensureTeamProjectViews,

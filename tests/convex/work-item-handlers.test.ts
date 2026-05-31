@@ -508,6 +508,57 @@ describe("work item handlers", () => {
     expect(createNotificationMock).not.toHaveBeenCalled()
   })
 
+  it("updates preserved private subtasks without revalidating an unchanged parent through the deleted team", async () => {
+    const { updateWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    const privateSubtask = {
+      _id: "db_item_1",
+      id: "item_1",
+      teamId: "team_deleted",
+      workspaceId: "workspace_1",
+      type: "sub-task",
+      title: "Private subtask",
+      updatedAt: "2026-04-20T22:00:00.000Z",
+      parentId: "parent_1",
+      primaryProjectId: null,
+      startDate: null,
+      targetDate: null,
+      descriptionDocId: "doc_1",
+      assigneeId: null,
+      creatorId: "user_1",
+      subscriberIds: [],
+      status: "todo",
+      visibility: "private",
+    }
+    getTeamDocMock.mockResolvedValue(null)
+    getWorkItemDocMock.mockResolvedValue(privateSubtask)
+    ctx.db.query.mockReturnValue({
+      withIndex: vi.fn(() => ({
+        collect: vi.fn().mockResolvedValue([privateSubtask]),
+      })),
+    })
+
+    await updateWorkItemHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+      itemId: "item_1",
+      patch: {
+        status: "done",
+      },
+    })
+
+    expect(validateWorkItemParentMock).not.toHaveBeenCalled()
+    expect(ctx.db.patch).toHaveBeenCalledWith(
+      "db_item_1",
+      expect.objectContaining({
+        status: "done",
+        title: "Private subtask",
+      })
+    )
+  })
+
   it("treats any provided expectedUpdatedAt value as a CAS guard", async () => {
     const { updateWorkItemHandler } =
       await import("@/convex/app/work_item_handlers")

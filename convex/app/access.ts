@@ -116,11 +116,28 @@ async function requirePrivateWorkItemAccessIfNeeded(
   }
 
   assertPrivateWorkItemAccess(item, userId)
-  if (item.workspaceId) {
-    await requireReadableWorkspaceAccess(ctx, item.workspaceId, userId)
+  const workspaceId = await resolvePrivateWorkItemWorkspaceId(ctx, item)
+
+  if (!workspaceId) {
+    throw new Error("Work item not found")
   }
 
+  await requireReadableWorkspaceAccess(ctx, workspaceId, userId)
+
   return true
+}
+
+async function resolvePrivateWorkItemWorkspaceId(
+  ctx: AppCtx,
+  item: WorkItemAccessTarget
+) {
+  if (item.workspaceId) {
+    return item.workspaceId
+  }
+
+  const team = await getTeamDoc(ctx, item.teamId)
+
+  return team?.workspaceId ?? null
 }
 
 export async function requireReadableWorkItemAccess(

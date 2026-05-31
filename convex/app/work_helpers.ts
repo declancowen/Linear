@@ -224,6 +224,74 @@ export async function validateWorkItemParent(
   return parent
 }
 
+export async function validatePrivateWorkItemParent(
+  ctx: AppCtx,
+  options: {
+    creatorId: string
+    currentItemId?: string
+    itemType: WorkItemType
+    parentId: string | null
+    workspaceId?: string | null
+  }
+) {
+  if (!options.parentId) {
+    return null
+  }
+
+  const parent = await getWorkItemDoc(ctx, options.parentId)
+
+  assertWorkItemParentExists(parent)
+
+  if (
+    (parent.visibility ?? "team") !== "private" ||
+    parent.creatorId !== options.creatorId
+  ) {
+    throw new Error("Private task parent must be one of your private tasks")
+  }
+
+  if (options.workspaceId) {
+    const parentWorkspaceId = await resolvePrivateParentWorkspaceId(ctx, parent)
+
+    if (parentWorkspaceId !== options.workspaceId) {
+      throw new Error("Private task parent must be one of your private tasks")
+    }
+  }
+
+  assertWorkItemParentIsNotCurrentItem(parent, options.currentItemId)
+
+  const normalizedParentType = normalizeStoredWorkItemType(
+    parent.type as StoredWorkItemType,
+    "project-management",
+    {
+      parentId: parent.parentId,
+    }
+  )
+
+  if (!canParentWorkItemTypeAcceptChild(normalizedParentType, options.itemType)) {
+    throw new Error("Parent item type cannot contain this child type")
+  }
+
+  if (options.currentItemId) {
+    await assertWorkItemParentDoesNotCreateCycle(
+      ctx,
+      parent,
+      options.currentItemId
+    )
+  }
+
+  return parent
+}
+
+async function resolvePrivateParentWorkspaceId(ctx: AppCtx, parent: WorkItemDoc) {
+  if (parent.workspaceId) {
+    return parent.workspaceId
+  }
+
+  const team = await getTeamDoc(ctx, parent.teamId)
+
+  return team?.workspaceId ?? null
+}
+
 function assertWorkItemParentExists(
   parent: WorkItemDoc | null | undefined
 ): asserts parent is WorkItemDoc {
