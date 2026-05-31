@@ -9,6 +9,14 @@ type ConvexTestTables = Record<string, ConvexTestRecord[]>
 
 export function createConvexTestQuery(records: ConvexTestRecord[]) {
   return {
+    collect: async () => records,
+    take: async (count: number) => records.slice(0, count),
+    unique: async () => records[0] ?? null,
+    async *[Symbol.asyncIterator]() {
+      for (const record of records) {
+        yield record
+      }
+    },
     withIndex: (
       _indexName: string,
       build?: (query: {

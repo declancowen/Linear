@@ -9,10 +9,15 @@ const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
 const requireEditableTeamDocMock = vi.fn()
 const requireEditableWorkItemAccessMock = vi.fn()
+const requireReadableWorkItemAccessMock = vi.fn()
+const requireReadableTeamAccessMock = vi.fn()
+const requireReadableWorkspaceAccessMock = vi.fn()
 const getDocumentDocMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const getUserDocMock = vi.fn()
 const getWorkItemDocMock = vi.fn()
+const listPrivateWorkItemsByCreatorMock = vi.fn()
+const listWorkItemActivitiesByWorkItemsMock = vi.fn()
 const normalizeTeamMock = vi.fn()
 const validateWorkItemParentMock = vi.fn()
 const getResolvedProjectLinkForWorkItemUpdateMock = vi.fn()
@@ -30,6 +35,9 @@ vi.mock("@/convex/app/access", () => ({
   requireEditableTeamAccess: requireEditableTeamAccessMock,
   requireEditableTeamDoc: requireEditableTeamDocMock,
   requireEditableWorkItemAccess: requireEditableWorkItemAccessMock,
+  requireReadableWorkItemAccess: requireReadableWorkItemAccessMock,
+  requireReadableTeamAccess: requireReadableTeamAccessMock,
+  requireReadableWorkspaceAccess: requireReadableWorkspaceAccessMock,
 }))
 
 vi.mock("@/convex/app/data", () => ({
@@ -37,6 +45,8 @@ vi.mock("@/convex/app/data", () => ({
   getTeamDoc: getTeamDocMock,
   getUserDoc: getUserDocMock,
   getWorkItemDoc: getWorkItemDocMock,
+  listPrivateWorkItemsByCreator: listPrivateWorkItemsByCreatorMock,
+  listWorkItemActivitiesByWorkItems: listWorkItemActivitiesByWorkItemsMock,
 }))
 
 vi.mock("@/convex/app/normalization", () => ({
@@ -87,10 +97,15 @@ describe("work item handlers", () => {
     requireEditableTeamAccessMock.mockReset()
     requireEditableTeamDocMock.mockReset()
     requireEditableWorkItemAccessMock.mockReset()
+    requireReadableWorkItemAccessMock.mockReset()
+    requireReadableTeamAccessMock.mockReset()
+    requireReadableWorkspaceAccessMock.mockReset()
     getDocumentDocMock.mockReset()
     getTeamDocMock.mockReset()
     getUserDocMock.mockReset()
     getWorkItemDocMock.mockReset()
+    listPrivateWorkItemsByCreatorMock.mockReset()
+    listWorkItemActivitiesByWorkItemsMock.mockReset()
     normalizeTeamMock.mockReset()
     validateWorkItemParentMock.mockReset()
     getResolvedProjectLinkForWorkItemUpdateMock.mockReset()
@@ -117,6 +132,9 @@ describe("work item handlers", () => {
       settings: {},
     })
     requireEditableWorkItemAccessMock.mockResolvedValue("member")
+    requireReadableWorkItemAccessMock.mockResolvedValue("member")
+    requireReadableTeamAccessMock.mockResolvedValue("member")
+    requireReadableWorkspaceAccessMock.mockResolvedValue("member")
     getWorkItemDocMock.mockResolvedValue({
       _id: "db_item_1",
       id: "item_1",
@@ -130,6 +148,7 @@ describe("work item handlers", () => {
       targetDate: null,
       descriptionDocId: "doc_1",
       assigneeId: null,
+      subscriberIds: [],
       status: "backlog",
     })
     normalizeTeamMock.mockReturnValue({
@@ -145,15 +164,27 @@ describe("work item handlers", () => {
       resolvedPrimaryProjectId: null,
       shouldCascadeProjectLink: false,
     })
+    listPrivateWorkItemsByCreatorMock.mockResolvedValue([])
+    listWorkItemActivitiesByWorkItemsMock.mockResolvedValue([])
     getClampedNotifiedMentionCountsMock.mockReturnValue({})
-    createNotificationMock.mockReturnValue({
-      id: "notification_1",
-      userId: "user_2",
-      actorId: "user_1",
-      entityType: "workItem",
-      entityId: "item_1",
-      type: "assignment",
-    })
+    createNotificationMock.mockImplementation(
+      (
+        userId: string,
+        actorId: string,
+        message: string,
+        entityType: string,
+        entityId: string,
+        type: string
+      ) => ({
+        id: "notification_1",
+        userId,
+        actorId,
+        message,
+        entityType,
+        entityId,
+        type,
+      })
+    )
   })
 
   it("rejects invalid schedule strings on create before inserting", async () => {
@@ -230,10 +261,73 @@ describe("work item handlers", () => {
         key: "PVT-001",
         primaryProjectId: null,
         visibility: "private",
+        workspaceId: "workspace_1",
       })
+    )
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "documents",
+      expect.objectContaining({
+        kind: "item-description",
+        teamId: null,
+        workspaceId: "workspace_1",
+      })
+    )
+    expect(requireEditableTeamDocMock).not.toHaveBeenCalled()
+    expect(requireReadableWorkspaceAccessMock).toHaveBeenCalledWith(
+      ctx,
+      "workspace_1",
+      "user_1"
     )
     expect(createNotificationMock).not.toHaveBeenCalled()
     expect(result.assignmentEmails).toEqual([])
+  })
+
+  it("numbers private creates by current user across team ids", async () => {
+    const { createWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    mockEmptyQueryCollect(ctx)
+    listPrivateWorkItemsByCreatorMock.mockResolvedValue([
+      {
+        id: "private_1",
+        creatorId: "user_1",
+        key: "PVT-001",
+        teamId: "team_1",
+        visibility: "private",
+      },
+      {
+        id: "private_2",
+        creatorId: "user_1",
+        key: "PVT-002",
+        teamId: "team_2",
+        visibility: "private",
+      },
+    ])
+
+    await createWorkItemHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+      teamId: "team_1",
+      type: "task",
+      title: "Private task",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      visibility: "private",
+    })
+
+    expect(listPrivateWorkItemsByCreatorMock).toHaveBeenCalledWith(
+      ctx,
+      "user_1"
+    )
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "workItems",
+      expect.objectContaining({
+        key: "PVT-003",
+        visibility: "private",
+      })
+    )
   })
 
   it("creates work items with empty description documents", async () => {
@@ -404,12 +498,13 @@ describe("work item handlers", () => {
     expect(ctx.db.patch).toHaveBeenCalledWith(
       "db_item_1",
       expect.objectContaining({
+        assigneeId: null,
+        assigneeIds: [],
         primaryProjectId: null,
         status: "done",
         title: "Private task",
       })
     )
-    expect(ctx.db.patch.mock.calls[0][1]).not.toHaveProperty("assigneeId")
     expect(createNotificationMock).not.toHaveBeenCalled()
   })
 
@@ -673,7 +768,7 @@ describe("work item handlers", () => {
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 
-  it("creates status notifications for the resolved assignee only on status changes", async () => {
+  it("creates status notifications for the resolved assignee and subscribers on status changes", async () => {
     const { createStatusChangeNotificationForWorkItemUpdate } =
       await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
@@ -688,17 +783,37 @@ describe("work item handlers", () => {
       existing: {
         id: "item_1",
         assigneeId: "user_2",
+        subscriberIds: ["user_3"],
         status: "todo",
       } as never,
       actorName: "Alex",
       teamName: "Launch",
       nextTitle: "Launch task",
     })
+    expect(ctx.db.insert).toHaveBeenCalledTimes(2)
     expect(ctx.db.insert).toHaveBeenCalledWith(
       "notifications",
       expect.objectContaining({
         id: "notification_1",
       })
+    )
+    expect(createNotificationMock).toHaveBeenNthCalledWith(
+      1,
+      "user_2",
+      "user_1",
+      expect.stringContaining('moved "Launch task" to Done'),
+      "workItem",
+      "item_1",
+      "status-change"
+    )
+    expect(createNotificationMock).toHaveBeenNthCalledWith(
+      2,
+      "user_3",
+      "user_1",
+      expect.stringContaining('moved "Launch task" to Done'),
+      "workItem",
+      "item_1",
+      "status-change"
     )
 
     ctx.db.insert.mockClear()
@@ -712,12 +827,68 @@ describe("work item handlers", () => {
       existing: {
         id: "item_1",
         assigneeId: "user_2",
+        subscriberIds: [],
         status: "todo",
       } as never,
       actorName: "Alex",
       teamName: "Launch",
       nextTitle: "Launch task",
     })
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
+  it("records status change activity independently of notification recipients", async () => {
+    const { createStatusChangeActivityForWorkItemUpdate } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      createStatusChangeActivityForWorkItemUpdate(ctx as never, {
+        args: {
+          currentUserId: "user_1",
+          patch: {
+            status: "done",
+          },
+        } as never,
+        existing: {
+          id: "item_1",
+          status: "todo",
+        } as never,
+        now: "2026-04-20T22:20:00.000Z",
+      })
+    ).resolves.toMatchObject({
+      itemId: "item_1",
+      actorId: "user_1",
+      type: "status-change",
+      fromStatus: "todo",
+      toStatus: "done",
+      createdAt: "2026-04-20T22:20:00.000Z",
+    })
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "workItemActivities",
+      expect.objectContaining({
+        itemId: "item_1",
+        fromStatus: "todo",
+        toStatus: "done",
+      })
+    )
+
+    ctx.db.insert.mockClear()
+    await expect(
+      createStatusChangeActivityForWorkItemUpdate(ctx as never, {
+        args: {
+          currentUserId: "user_1",
+          patch: {
+            status: "todo",
+          },
+        } as never,
+        existing: {
+          id: "item_1",
+          status: "todo",
+        } as never,
+        now: "2026-04-20T22:20:00.000Z",
+      })
+    ).resolves.toBeNull()
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 
@@ -745,5 +916,92 @@ describe("work item handlers", () => {
     })
 
     expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
+  it("sets work item subscriptions explicitly", async () => {
+    const { setWorkItemSubscriptionHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    getWorkItemDocMock.mockResolvedValue({
+      _id: "db_item_1",
+      id: "item_1",
+      teamId: "team_1",
+      type: "task",
+      title: "Launch task",
+      updatedAt: "2026-04-20T22:00:00.000Z",
+      parentId: null,
+      primaryProjectId: null,
+      startDate: null,
+      targetDate: null,
+      descriptionDocId: "doc_1",
+      assigneeId: null,
+      creatorId: "user_2",
+      subscriberIds: ["user_2"],
+      status: "todo",
+      visibility: "team",
+    })
+
+    await expect(
+      setWorkItemSubscriptionHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        itemId: "item_1",
+        subscribed: true,
+      })
+    ).resolves.toEqual({ subscribed: true })
+    expect(ctx.db.patch).toHaveBeenCalledWith("db_item_1", {
+      subscriberIds: ["user_2", "user_1"],
+      updatedAt: "2026-04-20T22:20:00.000Z",
+    })
+
+    ctx.db.patch.mockClear()
+    await expect(
+      setWorkItemSubscriptionHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        itemId: "item_1",
+        subscribed: false,
+      })
+    ).resolves.toEqual({ subscribed: false })
+    expect(ctx.db.patch).toHaveBeenCalledWith("db_item_1", {
+      subscriberIds: ["user_2"],
+      updatedAt: "2026-04-20T22:20:00.000Z",
+    })
+  })
+
+  it("rejects private work item subscriptions", async () => {
+    const { setWorkItemSubscriptionHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    getWorkItemDocMock.mockResolvedValue({
+      _id: "db_item_1",
+      id: "item_1",
+      teamId: "team_1",
+      type: "task",
+      title: "Private task",
+      updatedAt: "2026-04-20T22:00:00.000Z",
+      parentId: null,
+      primaryProjectId: null,
+      startDate: null,
+      targetDate: null,
+      descriptionDocId: "doc_1",
+      assigneeId: null,
+      creatorId: "user_1",
+      subscriberIds: [],
+      status: "todo",
+      visibility: "private",
+    })
+
+    await expect(
+      setWorkItemSubscriptionHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        itemId: "item_1",
+        subscribed: true,
+      })
+    ).rejects.toThrow("Private tasks do not support subscriptions")
+    expect(ctx.db.patch).not.toHaveBeenCalled()
   })
 })

@@ -90,6 +90,7 @@ function isSnapshotRecord(value: unknown): value is AppSnapshot {
       "projects",
       "milestones",
       "workItems",
+      "workItemActivities",
       "customPropertyDefinitions",
       "customPropertyValues",
       "documents",

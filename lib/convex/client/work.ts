@@ -241,6 +241,7 @@ export function syncToggleViewFilterValue(
     | "priority"
     | "assigneeIds"
     | "creatorIds"
+    | "subscriberIds"
     | "updatedByIds"
     | "documentKinds"
     | "linkedWorkItemIds"
@@ -355,6 +356,24 @@ export function syncUpdateWorkItem(
     },
     body: JSON.stringify(patch),
   })
+}
+
+export function syncSetWorkItemSubscription(
+  itemId: string,
+  subscribed: boolean
+) {
+  return runRouteMutation<{ subscribed: boolean }>(
+    `/api/items/${itemId}/subscription`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        subscribed,
+      }),
+    }
+  )
 }
 
 export async function syncHeartbeatWorkItemPresence(

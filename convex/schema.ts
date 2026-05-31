@@ -26,6 +26,7 @@ import {
   teamMembershipFields,
   userFields,
   viewDefinitionFields,
+  workItemActivityFields,
   workItemFields,
   workspaceMembershipFields,
   workspaceFields,
@@ -88,6 +89,7 @@ export default defineSchema({
   workItems: defineTable(workItemFields)
     .index("by_domain_id", ["id"])
     .index("by_team_id", ["teamId"])
+    .index("by_creator", ["creatorId"])
     .index("by_description_doc", ["descriptionDocId"]),
   customPropertyDefinitions: defineTable(customPropertyDefinitionFields)
     .index("by_domain_id", ["id"])
@@ -133,6 +135,9 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_emailed_at", ["emailedAt"])
     .index("by_entity", ["entityType", "entityId"]),
+  workItemActivities: defineTable(workItemActivityFields)
+    .index("by_domain_id", ["id"])
+    .index("by_item", ["itemId"]),
   emailJobs: defineTable(emailJobFields)
     .index("by_domain_id", ["id"])
     .index("by_sent_at", ["sentAt"])

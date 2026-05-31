@@ -5,7 +5,7 @@ import {
   collectWorkItemCommentFollowerIds,
 } from "../../lib/domain/comment-followers"
 import { collectCommentDescendantIds } from "../../lib/domain/comment-threads"
-import { buildMentionEmailJobs } from "../../lib/email/builders"
+import type { CommentEmail } from "../../lib/email/builders"
 import { getPlainTextContent } from "../../lib/utils"
 import {
   createMentionIds,
@@ -31,7 +31,7 @@ import {
   getWorkItemAudienceUserIds,
 } from "./access"
 import { getTeamMemberIds } from "./conversations"
-import { queueEmailJobs } from "./email_job_handlers"
+import { queueMentionAndCommentEmailJobs } from "./email_job_handlers"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -319,21 +319,26 @@ async function notifyCommentFollowers({
   ctx,
   args,
   audienceUserIds,
+  commentText,
   entityTitle,
   entityType,
   followerIds,
   notifiedUserIds,
   actorName,
+  usersById,
 }: {
   ctx: MutationCtx
   args: AddCommentArgs
   audienceUserIds: Set<string>
+  commentText: string
   entityTitle: string
   entityType: CommentEntityType
   followerIds: string[]
   notifiedUserIds: Set<string>
   actorName: string
+  usersById: ReadonlyMap<string, MentionAudienceUser>
 }) {
+  const commentEmails: CommentEmail[] = []
   const followerMessage = getCommentFollowerMessage({
     actorName,
     entityTitle,
@@ -352,19 +357,37 @@ async function notifyCommentFollowers({
       continue
     }
 
-    await ctx.db.insert(
-      "notifications",
-      createNotification(
-        followerId,
-        args.currentUserId,
-        followerMessage,
-        entityType,
-        args.targetId,
-        "comment"
-      )
+    const notification = createNotification(
+      followerId,
+      args.currentUserId,
+      followerMessage,
+      entityType,
+      args.targetId,
+      "comment"
     )
+
+    await ctx.db.insert("notifications", notification)
+
+    const follower = usersById.get(followerId)
+
+    if (follower && (follower.preferences.emailComments ?? true)) {
+      commentEmails.push({
+        notificationId: notification.id,
+        email: follower.email,
+        name: follower.name,
+        entityTitle,
+        entityType,
+        entityId: args.targetId,
+        actorName,
+        commentText,
+        isReply: Boolean(args.parentCommentId),
+      })
+    }
+
     notifiedUserIds.add(followerId)
   }
+
+  return commentEmails
 }
 
 export async function addCommentHandler(
@@ -409,28 +432,29 @@ export async function addCommentHandler(
     usersById: audience.usersById,
   })
 
-  await notifyCommentFollowers({
+  const commentEmails = await notifyCommentFollowers({
     ctx,
     args,
     actorName: audience.actorName,
     audienceUserIds: new Set(audience.audienceUserIds),
+    commentText: getPlainTextContent(args.content),
     entityTitle: targetContext.entityTitle,
     entityType: targetContext.entityType,
     followerIds: targetContext.followerIds,
     notifiedUserIds,
+    usersById: audience.usersById,
   })
 
-  await queueEmailJobs(
-    ctx,
-    buildMentionEmailJobs({
-      origin: args.origin,
-      emails: mentionEmails,
-    })
-  )
+  await queueMentionAndCommentEmailJobs(ctx, {
+    origin: args.origin,
+    mentionEmails,
+    commentEmails,
+  })
 
   return {
     commentId,
     mentionEmails,
+    commentEmails,
   }
 }
 

@@ -35,6 +35,7 @@ describe("scoped read model client helpers", () => {
     ).toEqual({
       data: {
         workItems: [],
+        workItemActivities: [],
       },
       replace: [
         {

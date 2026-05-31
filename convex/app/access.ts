@@ -64,6 +64,7 @@ export type WorkItemAccessTarget = {
   assigneeId?: string | null
   creatorId?: string | null
   teamId: string
+  workspaceId?: string | null
   visibility?: "team" | "private" | null
 }
 
@@ -83,9 +84,7 @@ export function getWorkItemAudienceUserIds(
     return [...teamMemberIdSet]
   }
 
-  return getPrivateWorkItemAccessUserIds(item).filter((userId) =>
-    teamMemberIdSet.has(userId)
-  )
+  return getPrivateWorkItemAccessUserIds(item)
 }
 
 function canUserAccessPrivateWorkItem(
@@ -107,13 +106,33 @@ function assertPrivateWorkItemAccess(
   }
 }
 
+async function requirePrivateWorkItemAccessIfNeeded(
+  ctx: AppCtx,
+  item: WorkItemAccessTarget,
+  userId: string
+) {
+  if ((item.visibility ?? "team") !== "private") {
+    return false
+  }
+
+  assertPrivateWorkItemAccess(item, userId)
+  if (item.workspaceId) {
+    await requireReadableWorkspaceAccess(ctx, item.workspaceId, userId)
+  }
+
+  return true
+}
+
 export async function requireReadableWorkItemAccess(
   ctx: AppCtx,
   item: WorkItemAccessTarget,
   userId: string
 ) {
+  if (await requirePrivateWorkItemAccessIfNeeded(ctx, item, userId)) {
+    return
+  }
+
   await requireReadableTeamAccess(ctx, item.teamId, userId)
-  assertPrivateWorkItemAccess(item, userId)
 }
 
 export async function requireEditableWorkItemAccess(
@@ -121,8 +140,11 @@ export async function requireEditableWorkItemAccess(
   item: WorkItemAccessTarget,
   userId: string
 ) {
+  if (await requirePrivateWorkItemAccessIfNeeded(ctx, item, userId)) {
+    return
+  }
+
   await requireEditableTeamAccess(ctx, item.teamId, userId)
-  assertPrivateWorkItemAccess(item, userId)
 }
 
 export async function requireTeamAdminAccess(

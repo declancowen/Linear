@@ -1385,12 +1385,16 @@ function getSelectedAssignees(
 }
 
 function getParentOptionsForCreate({
+  currentUserId,
+  privateTaskMode,
   workItems,
   selectedTeamId,
   selectedType,
   scopedProjectId,
   selectedParentId,
 }: {
+  currentUserId: string
+  privateTaskMode: boolean
   workItems: WorkItem[]
   selectedTeamId: string
   selectedType: WorkItemType | null
@@ -1405,6 +1409,9 @@ function getParentOptionsForCreate({
     .filter(
       (item) =>
         item.teamId === selectedTeamId &&
+        (privateTaskMode
+          ? item.visibility === "private" && item.creatorId === currentUserId
+          : (item.visibility ?? "team") === "team") &&
         canParentWorkItemTypeAcceptChild(item.type, selectedType)
     )
     .filter((item) => {
@@ -2024,6 +2031,8 @@ export function CreateWorkItemDialog({
   const selectedType = getSelectedWorkItemType(availableItemTypes, type)
   const scopedProjectId = projectId === "none" ? null : projectId
   const parentOptions = getParentOptionsForCreate({
+    currentUserId,
+    privateTaskMode,
     workItems,
     selectedTeamId,
     selectedType,

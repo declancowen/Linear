@@ -116,6 +116,7 @@ type WorkspaceBrandingArgs = ServerAccessArgs & {
 type UserPreferences = {
   emailMentions: boolean
   emailAssignments: boolean
+  emailComments?: boolean
   emailDigest: boolean
   theme?: ThemePreference
   timeZone?: string
@@ -824,6 +825,7 @@ export async function deleteWorkspaceHandler(
       teamId: team.id,
       syncWorkspaceChannel: false,
       cleanupGlobalState: false,
+      includePrivateWorkItems: true,
     })
   }
 

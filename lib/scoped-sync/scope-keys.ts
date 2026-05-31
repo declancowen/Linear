@@ -3,6 +3,7 @@ const SCOPE_PART_PATTERN = /^[A-Za-z0-9_-]+$/
 export const READ_MODEL_SCOPE_KINDS = {
   shellContext: "shell-context",
   workspaceMembership: "workspace-membership",
+  workspacePeople: "workspace-people",
   workIndex: "work-index",
   workItemDetail: "work-item-detail",
   documentIndex: "document-index",
@@ -103,6 +104,13 @@ export function createShellContextScopeKey() {
 export function createWorkspaceMembershipScopeKey(workspaceId: string) {
   return createReadModelScopeKey(
     READ_MODEL_SCOPE_KINDS.workspaceMembership,
+    workspaceId
+  )
+}
+
+export function createWorkspacePeopleScopeKey(workspaceId: string) {
+  return createReadModelScopeKey(
+    READ_MODEL_SCOPE_KINDS.workspacePeople,
     workspaceId
   )
 }

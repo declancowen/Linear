@@ -1,6 +1,12 @@
 import type { Doc } from "../_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "../_generated/server"
-import type { QueuedEmailJob } from "../../lib/email/builders"
+import {
+  buildCommentEmailJobs,
+  buildMentionEmailJobs,
+  type CommentEmail,
+  type MentionEmail,
+  type QueuedEmailJob,
+} from "../../lib/email/builders"
 
 import { internal } from "../_generated/api"
 import { assertServerToken, createId, getNow } from "./core"
@@ -11,7 +17,7 @@ type ServerAccessArgs = {
 }
 
 type EmailJobInput = {
-  kind: "mention" | "assignment" | "invite" | "access-change"
+  kind: "mention" | "assignment" | "comment" | "invite" | "access-change"
   notificationId?: string
   toEmail: string
   subject: string
@@ -66,7 +72,7 @@ type ReleaseEmailJobClaimInput = {
 
 export type ClaimedEmailJob = {
   id: string
-  kind: "mention" | "assignment" | "invite" | "access-change"
+  kind: "mention" | "assignment" | "comment" | "invite" | "access-change"
   notificationId?: string
   toEmail: string
   subject: string
@@ -285,6 +291,26 @@ export async function queueEmailJobs(ctx: MutationCtx, jobs: QueuedEmailJob[]) {
   }
 
   return jobs.length
+}
+
+export async function queueMentionAndCommentEmailJobs(
+  ctx: MutationCtx,
+  input: {
+    origin: string
+    mentionEmails: MentionEmail[]
+    commentEmails: CommentEmail[]
+  }
+) {
+  await queueEmailJobs(ctx, [
+    ...buildMentionEmailJobs({
+      origin: input.origin,
+      emails: input.mentionEmails,
+    }),
+    ...buildCommentEmailJobs({
+      origin: input.origin,
+      emails: input.commentEmails,
+    }),
+  ])
 }
 
 export async function triggerEmailJobProcessingHandler(

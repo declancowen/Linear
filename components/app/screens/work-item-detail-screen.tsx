@@ -24,6 +24,8 @@ import { useShallow } from "zustand/react/shallow"
 import {
   CalendarBlank,
   ArrowBendDoubleUpLeft,
+  BellSimpleRinging,
+  BellSimpleSlash,
   CaretDown,
   CaretRight,
   Check,
@@ -1039,6 +1041,10 @@ function getWorkItemActivityContext(input: {
   const comments = getCommentsForTarget(input.data, "workItem", input.item.id)
   const rootComments = getRootComments(comments)
   const repliesByParentId = groupCommentsByParentId(comments)
+  const statusEvents = getWorkItemStatusChangeActivityEvents(
+    input.data,
+    input.item
+  )
 
   return {
     assignees: getWorkItemAssigneeIds(input.item)
@@ -1050,8 +1056,37 @@ function getWorkItemActivityContext(input: {
     ),
     repliesByParentId,
     rootComments,
+    statusEvents,
     usersById: new Map(input.data.users.map((user) => [user.id, user])),
   }
+}
+
+function getWorkItemStatusChangeActivityEvents(data: AppData, item: WorkItem) {
+  const seen = new Set<string>()
+
+  return data.workItemActivities
+    .filter(
+      (activity) =>
+        activity.itemId === item.id && activity.type === "status-change"
+    )
+    .flatMap((activity) => {
+      const actor = getUser(data, activity.actorId)
+      const key = `${activity.actorId}:${activity.createdAt}:${activity.fromStatus}:${activity.toStatus}`
+
+      if (!actor || seen.has(key)) {
+        return []
+      }
+
+      seen.add(key)
+      return [
+        {
+          id: `${item.id}-status-${key}`,
+          user: actor,
+          body: `moved this item from ${statusMeta[activity.fromStatus].label} to ${statusMeta[activity.toStatus].label}`,
+          when: activity.createdAt,
+        },
+      ]
+    })
 }
 
 function useWorkItemCommentComposer(itemId: string) {
@@ -1181,6 +1216,7 @@ function DetailSidebarActivity({
     mentionCandidates,
     repliesByParentId,
     rootComments,
+    statusEvents,
     usersById,
   } = getWorkItemActivityContext({ currentUserId, data, item })
   const {
@@ -1206,7 +1242,8 @@ function DetailSidebarActivity({
         body: "is assigned to this item",
         when: item.updatedAt,
       })),
-  ]
+    ...statusEvents,
+  ].sort((left, right) => left.when.localeCompare(right.when))
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -1691,43 +1728,88 @@ function MainActivityCommentReplies({
   }
 
   const flatReplies = flattenReplyThread(replies, repliesByParentId)
-  const replyCount = flatReplies.length
-  const replyNoun = replyCount === 1 ? "reply" : "replies"
 
   return (
     <div className="border-t border-line-soft">
-      <button
-        type="button"
-        className="flex w-full items-center gap-1.5 px-3.5 py-1.5 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-        aria-expanded={open}
-        onClick={onToggle}
-      >
-        {open ? (
-          <CaretDown className="size-3" />
-        ) : (
-          <CaretRight className="size-3" />
-        )}
-        <span>
-          {open ? "Hide" : "Show"} {replyCount} {replyNoun}
-        </span>
-      </button>
+      <MainActivityCommentRepliesToggle
+        open={open}
+        replyCount={flatReplies.length}
+        onToggle={onToggle}
+      />
       {open ? (
-        <ul className="flex flex-col divide-y divide-line-soft border-t border-line-soft px-3.5">
-          {flatReplies.map((reply) => (
-            <li key={reply.id} className="py-2.5 first:pt-3 last:pb-3">
-              <MainActivityCommentReplyRow
-                data={data}
-                comment={reply}
-                currentUserId={currentUserId}
-                editable={editable}
-                mentionCandidates={mentionCandidates}
-                usersById={usersById}
-              />
-            </li>
-          ))}
-        </ul>
+        <MainActivityCommentRepliesList
+          data={data}
+          replies={flatReplies}
+          currentUserId={currentUserId}
+          editable={editable}
+          mentionCandidates={mentionCandidates}
+          usersById={usersById}
+        />
       ) : null}
     </div>
+  )
+}
+
+function MainActivityCommentRepliesToggle({
+  open,
+  replyCount,
+  onToggle,
+}: {
+  open: boolean
+  replyCount: number
+  onToggle: () => void
+}) {
+  const replyNoun = replyCount === 1 ? "reply" : "replies"
+
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-1.5 px-3.5 py-1.5 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+      aria-expanded={open}
+      onClick={onToggle}
+    >
+      {open ? (
+        <CaretDown className="size-3" />
+      ) : (
+        <CaretRight className="size-3" />
+      )}
+      <span>
+        {open ? "Hide" : "Show"} {replyCount} {replyNoun}
+      </span>
+    </button>
+  )
+}
+
+function MainActivityCommentRepliesList({
+  data,
+  replies,
+  currentUserId,
+  editable,
+  mentionCandidates,
+  usersById,
+}: {
+  data: AppData
+  replies: AppData["comments"]
+  currentUserId: string
+  editable: boolean
+  mentionCandidates: AppData["users"]
+  usersById: ReadonlyMap<string, AppData["users"][number]>
+}) {
+  return (
+    <ul className="flex flex-col divide-y divide-line-soft border-t border-line-soft px-3.5">
+      {replies.map((reply) => (
+        <li key={reply.id} className="py-2.5 first:pt-3 last:pb-3">
+          <MainActivityCommentReplyRow
+            data={data}
+            comment={reply}
+            currentUserId={currentUserId}
+            editable={editable}
+            mentionCandidates={mentionCandidates}
+            usersById={usersById}
+          />
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -1963,6 +2045,228 @@ function MainActivityReplyComposer({
   )
 }
 
+type MainActivityTimelineEntry =
+  | {
+      kind: "event"
+      id: string
+      user: AppData["users"][number]
+      body: string
+      when: string
+    }
+  | {
+      kind: "comment"
+      id: string
+      comment: AppData["comments"][number]
+      when: string
+    }
+
+function getMainActivityCreatorEntry(
+  item: WorkItem,
+  creator: AppData["users"][number] | null
+): MainActivityTimelineEntry[] {
+  return creator
+    ? [
+        {
+          kind: "event",
+          id: `${item.id}-created`,
+          user: creator,
+          body: "created this item",
+          when: item.createdAt,
+        },
+      ]
+    : []
+}
+
+function getMainActivityAssigneeEntries(
+  item: WorkItem,
+  assignees: AppData["users"],
+  creator: AppData["users"][number] | null
+): MainActivityTimelineEntry[] {
+  return assignees
+    .filter((candidate) => candidate.id !== creator?.id)
+    .map((assignee) => ({
+      kind: "event" as const,
+      id: `${item.id}-assignee-${assignee.id}`,
+      user: assignee,
+      body: "was assigned to this item",
+      when: item.updatedAt,
+    }))
+}
+
+function getMainActivityStatusEntries(
+  statusEvents: Array<Omit<Extract<MainActivityTimelineEntry, { kind: "event" }>, "kind">>
+): MainActivityTimelineEntry[] {
+  return statusEvents.map((event) => ({
+    kind: "event",
+    ...event,
+  }))
+}
+
+function getMainActivityCommentEntries(
+  rootComments: AppData["comments"]
+): MainActivityTimelineEntry[] {
+  return rootComments.map((rootComment) => ({
+    kind: "comment" as const,
+    id: rootComment.id,
+    comment: rootComment,
+    when: rootComment.createdAt,
+  }))
+}
+
+function getMainActivityTimelineEntries(input: {
+  assignees: AppData["users"]
+  creator: AppData["users"][number] | null
+  item: WorkItem
+  rootComments: AppData["comments"]
+  statusEvents: Array<
+    Omit<Extract<MainActivityTimelineEntry, { kind: "event" }>, "kind">
+  >
+}) {
+  return [
+    ...getMainActivityCreatorEntry(input.item, input.creator),
+    ...getMainActivityAssigneeEntries(
+      input.item,
+      input.assignees,
+      input.creator
+    ),
+    ...getMainActivityStatusEntries(input.statusEvents),
+    ...getMainActivityCommentEntries(input.rootComments),
+  ].sort((left, right) => left.when.localeCompare(right.when))
+}
+
+function MainActivityEventEntry({
+  entry,
+}: {
+  entry: Extract<MainActivityTimelineEntry, { kind: "event" }>
+}) {
+  return (
+    <MainActivityThreadItem
+      avatar={
+        <UserAvatar
+          name={entry.user.name}
+          avatarImageUrl={entry.user.avatarImageUrl}
+          avatarUrl={entry.user.avatarUrl}
+          status={entry.user.status}
+          size="sm"
+          showStatus={false}
+          className="size-6"
+        />
+      }
+    >
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[12.5px] leading-[1.55] text-fg-2">
+        <span className="font-medium text-foreground">{entry.user.name}</span>
+        <span className="text-fg-3">{entry.body}</span>
+        <span className="text-[11px] text-fg-4">
+          · {formatRelativeTimestamp(entry.when)}
+        </span>
+      </div>
+    </MainActivityThreadItem>
+  )
+}
+
+function getTimelineCommentAuthorAvatarProps(
+  author: AppData["users"][number] | null
+) {
+  if (!author) {
+    return {
+      name: "Unknown",
+      avatarImageUrl: undefined,
+      avatarUrl: undefined,
+      status: undefined,
+    }
+  }
+
+  return {
+    name: author.name,
+    avatarImageUrl: author.avatarImageUrl,
+    avatarUrl: author.avatarUrl,
+    status: author.status,
+  }
+}
+
+function MainActivityCommentEntry({
+  data,
+  entry,
+  currentUserId,
+  editable,
+  mentionCandidates,
+  repliesByParentId,
+  usersById,
+}: {
+  data: AppData
+  entry: Extract<MainActivityTimelineEntry, { kind: "comment" }>
+  currentUserId: string
+  editable: boolean
+  mentionCandidates: AppData["users"]
+  repliesByParentId: Record<string, AppData["comments"]>
+  usersById: ReadonlyMap<string, AppData["users"][number]>
+}) {
+  const author = getTimelineCommentAuthorAvatarProps(
+    getUser(data, entry.comment.createdBy)
+  )
+
+  return (
+    <MainActivityThreadItem
+      variant="comment"
+      avatar={
+        <UserAvatar
+          name={author.name}
+          avatarImageUrl={author.avatarImageUrl}
+          avatarUrl={author.avatarUrl}
+          status={author.status}
+          size="sm"
+          showStatus={false}
+          className="size-7"
+        />
+      }
+    >
+      <MainActivityCommentCard
+        data={data}
+        comment={entry.comment}
+        repliesByParentId={repliesByParentId}
+        currentUserId={currentUserId}
+        editable={editable}
+        mentionCandidates={mentionCandidates}
+        usersById={usersById}
+      />
+    </MainActivityThreadItem>
+  )
+}
+
+function MainActivityTimelineEntryItem({
+  data,
+  entry,
+  currentUserId,
+  editable,
+  mentionCandidates,
+  repliesByParentId,
+  usersById,
+}: {
+  data: AppData
+  entry: MainActivityTimelineEntry
+  currentUserId: string
+  editable: boolean
+  mentionCandidates: AppData["users"]
+  repliesByParentId: Record<string, AppData["comments"]>
+  usersById: ReadonlyMap<string, AppData["users"][number]>
+}) {
+  if (entry.kind === "event") {
+    return <MainActivityEventEntry entry={entry} />
+  }
+
+  return (
+    <MainActivityCommentEntry
+      data={data}
+      entry={entry}
+      currentUserId={currentUserId}
+      editable={editable}
+      mentionCandidates={mentionCandidates}
+      repliesByParentId={repliesByParentId}
+      usersById={usersById}
+    />
+  )
+}
+
 function MainActivityTimeline({
   data,
   item,
@@ -1980,6 +2284,7 @@ function MainActivityTimeline({
     mentionCandidates,
     repliesByParentId,
     rootComments,
+    statusEvents,
     usersById,
   } = getWorkItemActivityContext({ currentUserId, data, item })
   const currentUser = getUser(data, currentUserId)
@@ -1990,119 +2295,28 @@ function MainActivityTimeline({
     handleComment,
     setContent,
   } = useWorkItemCommentComposer(item.id)
-
-  type TimelineEntry =
-    | {
-        kind: "event"
-        id: string
-        user: AppData["users"][number]
-        body: string
-        when: string
-      }
-    | {
-        kind: "comment"
-        id: string
-        comment: AppData["comments"][number]
-        when: string
-      }
-
-  const entries: TimelineEntry[] = []
-
-  if (creator) {
-    entries.push({
-      kind: "event",
-      id: `${item.id}-created`,
-      user: creator,
-      body: "created this item",
-      when: item.createdAt,
-    })
-  }
-
-  for (const assignee of assignees.filter(
-    (candidate) => candidate.id !== creator?.id
-  )) {
-    entries.push({
-      kind: "event",
-      id: `${item.id}-assignee-${assignee.id}`,
-      user: assignee,
-      body: "was assigned to this item",
-      when: item.updatedAt,
-    })
-  }
-
-  for (const rootComment of rootComments) {
-    entries.push({
-      kind: "comment",
-      id: rootComment.id,
-      comment: rootComment,
-      when: rootComment.createdAt,
-    })
-  }
-
-  entries.sort((left, right) => left.when.localeCompare(right.when))
+  const entries = getMainActivityTimelineEntries({
+    assignees,
+    creator,
+    item,
+    rootComments,
+    statusEvents,
+  })
 
   return (
     <ol className="flex flex-col">
-      {entries.map((entry) => {
-        if (entry.kind === "event") {
-          return (
-            <MainActivityThreadItem
-              key={entry.id}
-              avatar={
-                <UserAvatar
-                  name={entry.user.name}
-                  avatarImageUrl={entry.user.avatarImageUrl}
-                  avatarUrl={entry.user.avatarUrl}
-                  status={entry.user.status}
-                  size="sm"
-                  showStatus={false}
-                  className="size-6"
-                />
-              }
-            >
-              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[12.5px] leading-[1.55] text-fg-2">
-                <span className="font-medium text-foreground">
-                  {entry.user.name}
-                </span>
-                <span className="text-fg-3">{entry.body}</span>
-                <span className="text-[11px] text-fg-4">
-                  · {formatRelativeTimestamp(entry.when)}
-                </span>
-              </div>
-            </MainActivityThreadItem>
-          )
-        }
-
-        const author = getUser(data, entry.comment.createdBy)
-
-        return (
-          <MainActivityThreadItem
-            key={entry.id}
-            variant="comment"
-            avatar={
-              <UserAvatar
-                name={author?.name ?? "Unknown"}
-                avatarImageUrl={author?.avatarImageUrl}
-                avatarUrl={author?.avatarUrl}
-                status={author?.status}
-                size="sm"
-                showStatus={false}
-                className="size-7"
-              />
-            }
-          >
-            <MainActivityCommentCard
-              data={data}
-              comment={entry.comment}
-              repliesByParentId={repliesByParentId}
-              currentUserId={currentUserId}
-              editable={editable}
-              mentionCandidates={mentionCandidates}
-              usersById={usersById}
-            />
-          </MainActivityThreadItem>
-        )
-      })}
+      {entries.map((entry) => (
+        <MainActivityTimelineEntryItem
+          key={entry.id}
+          data={data}
+          entry={entry}
+          currentUserId={currentUserId}
+          editable={editable}
+          mentionCandidates={mentionCandidates}
+          repliesByParentId={repliesByParentId}
+          usersById={usersById}
+        />
+      ))}
 
       <MainActivityThreadItem
         showLine={false}
@@ -2227,6 +2441,140 @@ function renderSidebarAssigneeOption(
   )
 }
 
+function getWorkItemSidebarAssigneeValueLabel(selectedAssignees: UserProfile[]) {
+  if (selectedAssignees.length === 0) {
+    return "Assign"
+  }
+
+  if (selectedAssignees.length === 1) {
+    return selectedAssignees[0]?.name
+  }
+
+  return `${selectedAssignees.length} assignees`
+}
+
+function WorkItemSidebarAssigneeValue({
+  selectedAssignees,
+  valueLabel,
+}: {
+  selectedAssignees: UserProfile[]
+  valueLabel: string | undefined
+}) {
+  return (
+    <span
+      className={cn(
+        "flex min-w-0 flex-1 items-center gap-2",
+        selectedAssignees.length === 0 && "text-fg-4"
+      )}
+    >
+      {selectedAssignees.length > 0 ? (
+        <span className="flex -space-x-1">
+          {selectedAssignees.slice(0, 3).map((user) => (
+            <WorkItemAssigneeAvatar
+              key={user.id}
+              user={user}
+              className="border border-surface data-[size=sm]:size-4"
+            />
+          ))}
+        </span>
+      ) : null}
+      <span className="truncate">{valueLabel}</span>
+    </span>
+  )
+}
+
+function WorkItemSidebarAssigneeOptionRow({
+  selected,
+  user,
+  teamMembers,
+  onSelect,
+}: {
+  selected: boolean
+  user: UserProfile
+  teamMembers: UserProfile[]
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "flex min-h-8 w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
+        selected && "bg-primary/10 text-foreground"
+      )}
+      onClick={onSelect}
+    >
+      <span className="min-w-0 flex-1">
+        {renderSidebarAssigneeOption(user.id, user.name, teamMembers, false)}
+      </span>
+      {selected ? <Check className="size-[14px]" /> : null}
+    </button>
+  )
+}
+
+function WorkItemSidebarAssigneePopoverContent({
+  assigneeIdSet,
+  filteredMembers,
+  query,
+  selectedAssignees,
+  teamMembers,
+  onAssigneeChange,
+  onClose,
+  onQueryChange,
+}: {
+  assigneeIdSet: ReadonlySet<string>
+  filteredMembers: UserProfile[]
+  query: string
+  selectedAssignees: UserProfile[]
+  teamMembers: UserProfile[]
+  onAssigneeChange: (value: string) => void
+  onClose: () => void
+  onQueryChange: (value: string) => void
+}) {
+  return (
+    <PopoverContent
+      align="end"
+      className="w-[300px] overflow-hidden rounded-lg border border-line bg-surface p-1 shadow-lg"
+    >
+      <div className="flex items-center gap-2 border-b border-line-soft px-2 py-1.5">
+        <MagnifyingGlass className="size-[14px] text-fg-4" />
+        <Input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="Assign to..."
+          className="h-7 border-none bg-transparent px-0 text-[12.5px] shadow-none focus-visible:ring-0"
+        />
+      </div>
+      <div className="no-scrollbar flex max-h-[320px] flex-col gap-0.5 overflow-y-auto py-1">
+        <button
+          type="button"
+          className={cn(
+            "flex min-h-8 w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
+            selectedAssignees.length === 0 && "bg-primary/10 text-foreground"
+          )}
+          onClick={() => {
+            onAssigneeChange("unassigned")
+            onClose()
+          }}
+        >
+          <span className="min-w-0 flex-1">Unassigned</span>
+          {selectedAssignees.length === 0 ? (
+            <Check className="size-[14px]" />
+          ) : null}
+        </button>
+        {filteredMembers.map((user) => (
+          <WorkItemSidebarAssigneeOptionRow
+            key={user.id}
+            selected={assigneeIdSet.has(user.id)}
+            user={user}
+            teamMembers={teamMembers}
+            onSelect={() => onAssigneeChange(user.id)}
+          />
+        ))}
+      </div>
+    </PopoverContent>
+  )
+}
+
 function WorkItemSidebarAssigneeRow({
   currentItem,
   disabled,
@@ -2253,13 +2601,7 @@ function WorkItemSidebarAssigneeRow({
   const filteredMembers = teamMembers.filter((user) =>
     user.name.toLowerCase().includes(query.trim().toLowerCase())
   )
-
-  const valueLabel =
-    selectedAssignees.length === 0
-      ? "Assign"
-      : selectedAssignees.length === 1
-        ? selectedAssignees[0]?.name
-        : `${selectedAssignees.length} assignees`
+  const valueLabel = getWorkItemSidebarAssigneeValueLabel(selectedAssignees)
 
   return (
     <>
@@ -2271,86 +2613,23 @@ function WorkItemSidebarAssigneeRow({
               disabled,
               label: "Assignee",
               children: (
-                <span
-                  className={cn(
-                    "flex min-w-0 flex-1 items-center gap-2",
-                    selectedAssignees.length === 0 && "text-fg-4"
-                  )}
-                >
-                  {selectedAssignees.length > 0 ? (
-                    <span className="flex -space-x-1">
-                      {selectedAssignees.slice(0, 3).map((user) => (
-                        <WorkItemAssigneeAvatar
-                          key={user.id}
-                          user={user}
-                          className="border border-surface data-[size=sm]:size-4"
-                        />
-                      ))}
-                    </span>
-                  ) : null}
-                  <span className="truncate">{valueLabel}</span>
-                </span>
+                <WorkItemSidebarAssigneeValue
+                  selectedAssignees={selectedAssignees}
+                  valueLabel={valueLabel}
+                />
               ),
             })}
           </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            className="w-[300px] overflow-hidden rounded-lg border border-line bg-surface p-1 shadow-lg"
-          >
-            <div className="flex items-center gap-2 border-b border-line-soft px-2 py-1.5">
-              <MagnifyingGlass className="size-[14px] text-fg-4" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Assign to..."
-                className="h-7 border-none bg-transparent px-0 text-[12.5px] shadow-none focus-visible:ring-0"
-              />
-            </div>
-            <div className="no-scrollbar flex max-h-[320px] flex-col gap-0.5 overflow-y-auto py-1">
-              <button
-                type="button"
-                className={cn(
-                  "flex min-h-8 w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
-                  selectedAssignees.length === 0 &&
-                    "bg-primary/10 text-foreground"
-                )}
-                onClick={() => {
-                  onAssigneeChange("unassigned")
-                  setOpen(false)
-                }}
-              >
-                <span className="min-w-0 flex-1">Unassigned</span>
-                {selectedAssignees.length === 0 ? (
-                  <Check className="size-[14px]" />
-                ) : null}
-              </button>
-              {filteredMembers.map((user) => {
-                const selected = assigneeIdSet.has(user.id)
-
-                return (
-                  <button
-                    key={user.id}
-                    type="button"
-                    className={cn(
-                      "flex min-h-8 w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground",
-                      selected && "bg-primary/10 text-foreground"
-                    )}
-                    onClick={() => onAssigneeChange(user.id)}
-                  >
-                    <span className="min-w-0 flex-1">
-                      {renderSidebarAssigneeOption(
-                        user.id,
-                        user.name,
-                        teamMembers,
-                        false
-                      )}
-                    </span>
-                    {selected ? <Check className="size-[14px]" /> : null}
-                  </button>
-                )
-              })}
-            </div>
-          </PopoverContent>
+          <WorkItemSidebarAssigneePopoverContent
+            assigneeIdSet={assigneeIdSet}
+            filteredMembers={filteredMembers}
+            query={query}
+            selectedAssignees={selectedAssignees}
+            teamMembers={teamMembers}
+            onAssigneeChange={onAssigneeChange}
+            onClose={() => setOpen(false)}
+            onQueryChange={setQuery}
+          />
         </Popover>
       </dd>
     </>
@@ -4016,6 +4295,92 @@ function WorkItemStaleDraftNotice({
   )
 }
 
+function WorkItemDescriptionBootPreview({
+  bootstrapContent,
+  collaborationDescriptionContent,
+}: {
+  bootstrapContent: DetailBootstrapContent
+  collaborationDescriptionContent: string
+}) {
+  return (
+    <RichTextContent
+      content={
+        typeof bootstrapContent === "string"
+          ? bootstrapContent
+          : collaborationDescriptionContent
+      }
+      className="text-fg-1 min-h-24 text-sm [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+    />
+  )
+}
+
+function getAttachedDescriptionCollaboration(input: {
+  collaboration: DetailCollaborationBinding
+  editorCollaboration: DetailEditorCollaboration
+  isCollaborationAttached: boolean
+}) {
+  if (!input.isCollaborationAttached) {
+    return undefined
+  }
+
+  return input.editorCollaboration ?? input.collaboration ?? undefined
+}
+
+type WorkItemDescriptionRichTextEditorProps = {
+  collaborationDescriptionContent: string
+  isCollaborationAttached: boolean
+  editorCollaboration: DetailEditorCollaboration
+  collaboration: DetailCollaborationBinding
+  currentUserId: string
+  editable: boolean
+  isCollaborationBootstrapping: boolean
+  otherDescriptionViewers: DocumentPresenceViewer[]
+  mentionCandidates: UserProfile[]
+  onLegacyActiveBlockChange: (activeBlockId: string | null) => void
+  onDescriptionChange: (content: string) => void
+  onUploadAttachment: DetailUploadAttachmentHandler
+}
+
+type WorkItemDescriptionEditorProps = WorkItemDescriptionRichTextEditorProps & {
+  showDescriptionBootPreview: boolean
+  bootstrapContent: DetailBootstrapContent
+}
+
+function WorkItemDescriptionRichTextEditor({
+  collaborationDescriptionContent,
+  isCollaborationAttached,
+  editorCollaboration,
+  collaboration,
+  currentUserId,
+  editable,
+  isCollaborationBootstrapping,
+  otherDescriptionViewers,
+  mentionCandidates,
+  onLegacyActiveBlockChange,
+  onDescriptionChange,
+  onUploadAttachment,
+}: WorkItemDescriptionRichTextEditorProps) {
+  return (
+    <RichTextEditor
+      content={collaborationDescriptionContent}
+      collaboration={getAttachedDescriptionCollaboration({
+        collaboration,
+        editorCollaboration,
+        isCollaborationAttached,
+      })}
+      currentPresenceUserId={currentUserId}
+      editable={editable && !isCollaborationBootstrapping}
+      showStats={false}
+      placeholder="Add a description…"
+      presenceViewers={otherDescriptionViewers}
+      onActiveBlockChange={onLegacyActiveBlockChange}
+      mentionCandidates={mentionCandidates}
+      onChange={onDescriptionChange}
+      onUploadAttachment={onUploadAttachment}
+    />
+  )
+}
+
 function WorkItemDescriptionEditor({
   showDescriptionBootPreview,
   bootstrapContent,
@@ -4031,49 +4396,27 @@ function WorkItemDescriptionEditor({
   onLegacyActiveBlockChange,
   onDescriptionChange,
   onUploadAttachment,
-}: {
-  showDescriptionBootPreview: boolean
-  bootstrapContent: DetailBootstrapContent
-  collaborationDescriptionContent: string
-  isCollaborationAttached: boolean
-  editorCollaboration: DetailEditorCollaboration
-  collaboration: DetailCollaborationBinding
-  currentUserId: string
-  editable: boolean
-  isCollaborationBootstrapping: boolean
-  otherDescriptionViewers: DocumentPresenceViewer[]
-  mentionCandidates: UserProfile[]
-  onLegacyActiveBlockChange: (activeBlockId: string | null) => void
-  onDescriptionChange: (content: string) => void
-  onUploadAttachment: DetailUploadAttachmentHandler
-}) {
+}: WorkItemDescriptionEditorProps) {
   return (
     <div className="rounded-xl border border-line bg-surface px-4 py-3 transition-colors focus-within:border-fg-3">
       {showDescriptionBootPreview ? (
-        <RichTextContent
-          content={
-            typeof bootstrapContent === "string"
-              ? bootstrapContent
-              : collaborationDescriptionContent
-          }
-          className="text-fg-1 min-h-24 text-sm [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
+        <WorkItemDescriptionBootPreview
+          bootstrapContent={bootstrapContent}
+          collaborationDescriptionContent={collaborationDescriptionContent}
         />
       ) : (
-        <RichTextEditor
-          content={collaborationDescriptionContent}
-          collaboration={
-            isCollaborationAttached
-              ? (editorCollaboration ?? collaboration ?? undefined)
-              : undefined
-          }
-          currentPresenceUserId={currentUserId}
-          editable={editable && !isCollaborationBootstrapping}
-          showStats={false}
-          placeholder="Add a description…"
-          presenceViewers={otherDescriptionViewers}
-          onActiveBlockChange={onLegacyActiveBlockChange}
+        <WorkItemDescriptionRichTextEditor
+          collaborationDescriptionContent={collaborationDescriptionContent}
+          isCollaborationAttached={isCollaborationAttached}
+          editorCollaboration={editorCollaboration}
+          collaboration={collaboration}
+          currentUserId={currentUserId}
+          editable={editable}
+          isCollaborationBootstrapping={isCollaborationBootstrapping}
+          otherDescriptionViewers={otherDescriptionViewers}
           mentionCandidates={mentionCandidates}
-          onChange={onDescriptionChange}
+          onLegacyActiveBlockChange={onLegacyActiveBlockChange}
+          onDescriptionChange={onDescriptionChange}
           onUploadAttachment={onUploadAttachment}
         />
       )}
@@ -5166,6 +5509,121 @@ function useDeferredDetailSidebarSections({
   return enabled && state.itemId === itemId && state.ready
 }
 
+function WorkItemDetailSidebarHeader({
+  currentItem,
+  headerClassName,
+  isPrivateTask,
+  isSubscribed,
+  onCopyItemLink,
+  onSetSubscription,
+  onClose,
+}: {
+  currentItem: WorkItem
+  headerClassName?: string
+  isPrivateTask: boolean
+  isSubscribed: boolean
+  onCopyItemLink: () => void
+  onSetSubscription: (subscribed: boolean) => void
+  onClose?: () => void
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1 border-b border-line-soft px-3",
+        headerClassName ?? "h-9"
+      )}
+    >
+      <span className="mr-2 font-mono text-[12px] text-fg-3">
+        {currentItem.key}
+      </span>
+      <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-2">
+        <StatusIcon status={currentItem.status} />
+        <span className="truncate">{statusMeta[currentItem.status].label}</span>
+      </span>
+      <div className="ml-auto flex items-center gap-0.5">
+        <button
+          type="button"
+          className={detailIconButtonClassName}
+          aria-label="Copy item link"
+          onClick={onCopyItemLink}
+        >
+          <LinkSimple className="size-[14px]" />
+        </button>
+        {!isPrivateTask ? (
+          <button
+            type="button"
+            className={detailIconButtonClassName}
+            aria-label={
+              isSubscribed
+                ? "Unsubscribe from work item"
+                : "Subscribe to work item"
+            }
+            title={isSubscribed ? "Unsubscribe" : "Subscribe"}
+            onClick={() => onSetSubscription(!isSubscribed)}
+          >
+            {isSubscribed ? (
+              <BellSimpleSlash className="size-[14px]" />
+            ) : (
+              <BellSimpleRinging className="size-[14px]" />
+            )}
+          </button>
+        ) : null}
+        {onClose ? (
+          <button
+            type="button"
+            className={detailIconButtonClassName}
+            aria-label="Close item details"
+            onClick={onClose}
+          >
+            <X className="size-[14px]" />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function WorkItemDetailSidebarFrame({
+  children,
+  floatingMaxHeight,
+  open,
+  variant,
+}: {
+  children: ReactNode
+  floatingMaxHeight?: number
+  open: boolean
+  variant: WorkItemDetailSidebarVariant
+}) {
+  if (variant === "floating") {
+    return (
+      <aside
+        className="flex max-h-[min(680px,calc(100vh-24px))] min-h-0 w-full flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-xl [contain:layout_paint_style]"
+        style={floatingMaxHeight ? { maxHeight: floatingMaxHeight } : undefined}
+      >
+        {children}
+      </aside>
+    )
+  }
+
+  if (variant === "inline") {
+    return (
+      <aside className="flex h-full min-h-0 w-[26.25rem] shrink-0 flex-col overflow-hidden border-l border-line bg-surface [contain:layout_paint_style]">
+        {children}
+      </aside>
+    )
+  }
+
+  return (
+    <CollapsibleRightSidebar
+      open={open}
+      width="26.25rem"
+      className="border-l border-line bg-surface"
+    >
+      {children}
+    </CollapsibleRightSidebar>
+  )
+}
+
 function WorkItemDetailSidebar({
   open,
   data,
@@ -5193,6 +5651,7 @@ function WorkItemDetailSidebar({
   headerClassName,
   floatingMaxHeight,
   onCopyItemLink,
+  onSetSubscription,
   onClose,
   onStatusChange,
   onPriorityChange,
@@ -5232,11 +5691,14 @@ function WorkItemDetailSidebar({
   headerClassName?: string
   floatingMaxHeight?: number
   onCopyItemLink: () => void
+  onSetSubscription: (subscribed: boolean) => void
   onClose?: () => void
   onCloseChildComposer: () => void
 } & DetailPropertyChangeHandlers) {
   const displayedEndDate = currentItem.targetDate ?? currentItem.dueDate
   const showExtendedSections = variant !== "floating"
+  const isPrivateTask = (currentItem.visibility ?? "team") === "private"
+  const isSubscribed = currentItem.subscriberIds.includes(currentUserId)
   const showDeferredExtendedSections = useDeferredDetailSidebarSections({
     enabled: open && showExtendedSections,
     itemId: currentItem.id,
@@ -5244,42 +5706,15 @@ function WorkItemDetailSidebar({
 
   const content = (
     <>
-      <div
-        className={cn(
-          "flex items-center gap-1 border-b border-line-soft px-3",
-          headerClassName ?? "h-9"
-        )}
-      >
-        <span className="mr-2 font-mono text-[12px] text-fg-3">
-          {currentItem.key}
-        </span>
-        <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-2">
-          <StatusIcon status={currentItem.status} />
-          <span className="truncate">
-            {statusMeta[currentItem.status].label}
-          </span>
-        </span>
-        <div className="ml-auto flex items-center gap-0.5">
-          <button
-            type="button"
-            className={detailIconButtonClassName}
-            aria-label="Copy item link"
-            onClick={onCopyItemLink}
-          >
-            <LinkSimple className="size-[14px]" />
-          </button>
-          {onClose ? (
-            <button
-              type="button"
-              className={detailIconButtonClassName}
-              aria-label="Close item details"
-              onClick={onClose}
-            >
-              <X className="size-[14px]" />
-            </button>
-          ) : null}
-        </div>
-      </div>
+      <WorkItemDetailSidebarHeader
+        currentItem={currentItem}
+        headerClassName={headerClassName}
+        isPrivateTask={isPrivateTask}
+        isSubscribed={isSubscribed}
+        onCopyItemLink={onCopyItemLink}
+        onSetSubscription={onSetSubscription}
+        onClose={onClose}
+      />
 
       <div className="no-scrollbar flex-1 overflow-y-auto px-6 py-[22px]">
         <h2 className="mb-2.5 text-[22px] leading-[1.25] font-semibold tracking-[-0.012em]">
@@ -5345,33 +5780,14 @@ function WorkItemDetailSidebar({
     </>
   )
 
-  if (variant === "floating") {
-    return (
-      <aside
-        className="flex max-h-[min(680px,calc(100vh-24px))] min-h-0 w-full flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-xl [contain:layout_paint_style]"
-        style={floatingMaxHeight ? { maxHeight: floatingMaxHeight } : undefined}
-      >
-        {content}
-      </aside>
-    )
-  }
-
-  if (variant === "inline") {
-    return (
-      <aside className="flex h-full min-h-0 w-[26.25rem] shrink-0 flex-col overflow-hidden border-l border-line bg-surface [contain:layout_paint_style]">
-        {content}
-      </aside>
-    )
-  }
-
   return (
-    <CollapsibleRightSidebar
+    <WorkItemDetailSidebarFrame
       open={open}
-      width="26.25rem"
-      className="border-l border-line bg-surface"
+      variant={variant}
+      floatingMaxHeight={floatingMaxHeight}
     >
       {content}
-    </CollapsibleRightSidebar>
+    </WorkItemDetailSidebarFrame>
   )
 }
 
@@ -5462,6 +5878,11 @@ export function WorkItemDetailSidebarSurface({
         floatingMaxHeight={floatingMaxHeight}
         onClose={onClose}
         onCopyItemLink={handleCopyItemLink}
+        onSetSubscription={(subscribed) =>
+          useAppStore
+            .getState()
+            .setWorkItemSubscription(currentItem.id, subscribed)
+        }
         {...propertyHandlers}
         onCloseChildComposer={() => setSidebarChildComposerOpen(false)}
       />
@@ -5800,6 +6221,11 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
             onCopyItemLink={() => {
               void handleCopyItemLink()
             }}
+            onSetSubscription={(subscribed) =>
+              useAppStore
+                .getState()
+                .setWorkItemSubscription(currentItem.id, subscribed)
+            }
             {...propertyHandlers}
             onCloseChildComposer={() => setSidebarChildComposerOpen(false)}
           />

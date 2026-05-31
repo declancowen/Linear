@@ -44,6 +44,7 @@ function createSearchFixture(): AppData {
       preferences: {
         emailMentions: true,
         emailAssignments: true,
+        emailComments: true,
         emailDigest: true,
         theme: "system",
       },
@@ -62,6 +63,7 @@ function createSearchFixture(): AppData {
       preferences: {
         emailMentions: true,
         emailAssignments: true,
+        emailComments: true,
         emailDigest: true,
         theme: "system",
       },
@@ -80,6 +82,7 @@ function createSearchFixture(): AppData {
       preferences: {
         emailMentions: true,
         emailAssignments: true,
+        emailComments: true,
         emailDigest: true,
         theme: "system",
       },
@@ -147,6 +150,18 @@ function createSearchFixture(): AppData {
     {
       teamId: "team_beta",
       userId: "user_current",
+      role: "member",
+    },
+  ]
+  data.workspaceMemberships = [
+    {
+      workspaceId: "workspace_1",
+      userId: "user_current",
+      role: "admin",
+    },
+    {
+      workspaceId: "workspace_1",
+      userId: "user_lead",
       role: "member",
     },
   ]
@@ -394,7 +409,16 @@ describe("workspace search read model", () => {
 
     expect(
       searchWorkspace(data, "team:beta").map((result) => result.id)
-    ).toEqual(["team-team_beta", "item-item_beta"])
+    ).toEqual(["person-user_current", "team-team_beta", "item-item_beta"])
+
+    expect(searchWorkspace(data, "priya").map((result) => result.id)).toEqual([
+      "person-user_lead",
+      "project-project_alpha",
+    ])
+
+    expect(
+      searchWorkspace(data, "kind:user priya").map((result) => result.id)
+    ).toEqual(["person-user_lead"])
 
     expect(
       searchWorkspace(data, "kind:doc narrative").map((result) => result.id)

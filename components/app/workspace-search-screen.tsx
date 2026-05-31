@@ -42,6 +42,7 @@ const kindTabs: Array<{
 }> = [
   { label: "All", value: "all" },
   { label: "Work", value: "item" },
+  { label: "People", value: "person" },
   { label: "Projects", value: "project" },
   { label: "Docs", value: "document" },
   { label: "Teams", value: "team" },
@@ -52,6 +53,7 @@ const searchResultLabels: Record<GlobalSearchResult["kind"], string> = {
   document: "Document",
   item: "Work item",
   navigation: "Navigation",
+  person: "Person",
   project: "Project",
   team: "Team",
 }

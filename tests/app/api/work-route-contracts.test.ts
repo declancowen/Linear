@@ -14,6 +14,7 @@ const requireAppContextMock = vi.fn()
 const requireConvexUserMock = vi.fn()
 const createWorkItemServerMock = vi.fn()
 const updateWorkItemServerMock = vi.fn()
+const setWorkItemSubscriptionServerMock = vi.fn()
 const deleteWorkItemServerMock = vi.fn()
 const shiftTimelineItemServerMock = vi.fn()
 const heartbeatWorkItemPresenceServerMock = vi.fn()
@@ -49,6 +50,7 @@ vi.mock("@/lib/server/route-auth", () => ({
 vi.mock("@/lib/server/convex", () => ({
   createWorkItemServer: createWorkItemServerMock,
   updateWorkItemServer: updateWorkItemServerMock,
+  setWorkItemSubscriptionServer: setWorkItemSubscriptionServerMock,
   deleteWorkItemServer: deleteWorkItemServerMock,
   shiftTimelineItemServer: shiftTimelineItemServerMock,
   heartbeatWorkItemPresenceServer: heartbeatWorkItemPresenceServerMock,
@@ -73,14 +75,12 @@ vi.mock("@/lib/server/scoped-read-models", () => ({
   bumpWorkItemReadModelScopesServer: bumpWorkItemReadModelScopesServerMock,
   bumpProjectIndexReadModelScopesServer:
     bumpProjectIndexReadModelScopesServerMock,
-  bumpSearchSeedReadModelScopesServer:
-    bumpSearchSeedReadModelScopesServerMock,
+  bumpSearchSeedReadModelScopesServer: bumpSearchSeedReadModelScopesServerMock,
   resolveWorkItemReadModelScopeKeysServer:
     resolveWorkItemReadModelScopeKeysServerMock,
   resolveProjectReadModelScopeKeysServer:
     resolveProjectReadModelScopeKeysServerMock,
-  resolveViewReadModelScopeKeysServer:
-    resolveViewReadModelScopeKeysServerMock,
+  resolveViewReadModelScopeKeysServer: resolveViewReadModelScopeKeysServerMock,
 }))
 
 vi.mock("@/lib/server/email", () => ({
@@ -134,6 +134,7 @@ describe("work route contracts", () => {
     requireConvexUserMock.mockReset()
     createWorkItemServerMock.mockReset()
     updateWorkItemServerMock.mockReset()
+    setWorkItemSubscriptionServerMock.mockReset()
     deleteWorkItemServerMock.mockReset()
     shiftTimelineItemServerMock.mockReset()
     heartbeatWorkItemPresenceServerMock.mockReset()
@@ -443,8 +444,77 @@ describe("work route contracts", () => {
     expect(response.status).toBe(200)
   })
 
+  it("sets work-item subscription state and bumps resolved scopes", async () => {
+    const subscriptionRoute =
+      await import("@/app/api/items/[itemId]/subscription/route")
+
+    setWorkItemSubscriptionServerMock.mockResolvedValue({
+      subscribed: true,
+    })
+
+    const response = await subscriptionRoute.POST(
+      new Request("http://localhost/api/items/item_1/subscription", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          subscribed: true,
+        }),
+      }),
+      {
+        params: Promise.resolve({
+          itemId: "item_1",
+        }),
+      }
+    )
+
+    expect(setWorkItemSubscriptionServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      itemId: "item_1",
+      subscribed: true,
+    })
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
+      scopeKeys: ["work-item-detail:item_1"],
+    })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      subscribed: true,
+    })
+  })
+
+  it("rejects invalid work-item subscription payloads before calling the server", async () => {
+    const subscriptionRoute =
+      await import("@/app/api/items/[itemId]/subscription/route")
+
+    const response = await subscriptionRoute.POST(
+      new Request("http://localhost/api/items/item_1/subscription", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      }),
+      {
+        params: Promise.resolve({
+          itemId: "item_1",
+        }),
+      }
+    )
+
+    expect(setWorkItemSubscriptionServerMock).not.toHaveBeenCalled()
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid work item subscription payload",
+      message: "Invalid work item subscription payload",
+      code: "ROUTE_INVALID_BODY",
+    })
+  })
+
   it("accepts work-item presence heartbeats and leave", async () => {
-    const itemPresenceRoute = await import("@/app/api/items/[itemId]/presence/route")
+    const itemPresenceRoute =
+      await import("@/app/api/items/[itemId]/presence/route")
 
     heartbeatWorkItemPresenceServerMock.mockResolvedValue([
       {
@@ -504,7 +574,8 @@ describe("work route contracts", () => {
   })
 
   it("maps work-item presence failures to typed error responses", async () => {
-    const itemPresenceRoute = await import("@/app/api/items/[itemId]/presence/route")
+    const itemPresenceRoute =
+      await import("@/app/api/items/[itemId]/presence/route")
 
     heartbeatWorkItemPresenceServerMock.mockRejectedValue(
       new ApplicationError("Document presence session is already in use", 409, {
@@ -525,7 +596,8 @@ describe("work route contracts", () => {
   })
 
   it("gracefully degrades when work-item presence is unavailable", async () => {
-    const itemPresenceRoute = await import("@/app/api/items/[itemId]/presence/route")
+    const itemPresenceRoute =
+      await import("@/app/api/items/[itemId]/presence/route")
 
     heartbeatWorkItemPresenceServerMock.mockRejectedValue(
       new ApplicationError("Work item presence is unavailable", 503, {
@@ -573,7 +645,8 @@ describe("work route contracts", () => {
 
   it("maps project failures to typed error responses", async () => {
     const projectCreateRoute = await import("@/app/api/projects/route")
-    const projectUpdateRoute = await import("@/app/api/projects/[projectId]/route")
+    const projectUpdateRoute =
+      await import("@/app/api/projects/[projectId]/route")
 
     createProjectServerMock.mockRejectedValue(
       new ApplicationError("Settings team not found", 404, {

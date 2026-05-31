@@ -36,7 +36,9 @@ vi.mock("@/lib/domain/selectors", () => ({
 }))
 
 vi.mock("@/components/ui/button", async () =>
-  (await import("@/tests/lib/fixtures/component-stubs")).createButtonStubModule()
+  (
+    await import("@/tests/lib/fixtures/component-stubs")
+  ).createButtonStubModule()
 )
 
 vi.mock("@/components/ui/template-primitives", async () =>
@@ -90,6 +92,7 @@ vi.mock("@/components/app/screens/work-surface-view", () => ({
 }))
 
 vi.mock("@phosphor-icons/react", () => ({
+  ArrowCounterClockwise: () => null,
   CalendarBlank: () => null,
   ChartBarHorizontal: () => null,
   Plus: () => null,
@@ -376,11 +379,11 @@ describe("WorkSurface", () => {
       expect.anything(),
       [privateItem],
       expect.objectContaining({
-          filters: expect.objectContaining({
-            assigneeIds: [],
-            creatorIds: [],
-            projectIds: [],
-            teamIds: [],
+        filters: expect.objectContaining({
+          assigneeIds: [],
+          creatorIds: [],
+          projectIds: [],
+          teamIds: [],
           visibility: ["private"],
         }),
       }),
@@ -478,9 +481,9 @@ describe("WorkSurface", () => {
 
     renderAssignedFallbackSurface()
 
-    const initialFilterProps = (
-      filterPopoverMock.mock.calls as unknown[][]
-    ).at(-1)?.[0] as
+    const initialFilterProps = (filterPopoverMock.mock.calls as unknown[][]).at(
+      -1
+    )?.[0] as
       | {
           view: ViewDefinition
           onToggleFilterValue?: (key: string, value: string) => void
@@ -493,9 +496,9 @@ describe("WorkSurface", () => {
       initialFilterProps?.onToggleFilterValue?.("status", "todo")
     })
 
-    const updatedFilterProps = (
-      filterPopoverMock.mock.calls as unknown[][]
-    ).at(-1)?.[0] as
+    const updatedFilterProps = (filterPopoverMock.mock.calls as unknown[][]).at(
+      -1
+    )?.[0] as
       | {
           view: ViewDefinition
         }
@@ -504,9 +507,9 @@ describe("WorkSurface", () => {
     expect(updatedFilterProps?.view.filters.status).toEqual(["todo"])
     expect(updatedFilterProps?.view.displayProps).toEqual(["id", "status"])
 
-    const propertyProps = (
-      propertiesPopoverMock.mock.calls as unknown[][]
-    ).at(-1)?.[0] as
+    const propertyProps = (propertiesPopoverMock.mock.calls as unknown[][]).at(
+      -1
+    )?.[0] as
       | {
           onToggleDisplayProperty?: (
             property: ViewDefinition["displayProps"][number]
@@ -518,9 +521,9 @@ describe("WorkSurface", () => {
       propertyProps?.onToggleDisplayProperty?.("priority")
     })
 
-    const latestFilterProps = (
-      filterPopoverMock.mock.calls as unknown[][]
-    ).at(-1)?.[0] as
+    const latestFilterProps = (filterPopoverMock.mock.calls as unknown[][]).at(
+      -1
+    )?.[0] as
       | {
           view: ViewDefinition
         }

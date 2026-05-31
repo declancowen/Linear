@@ -97,9 +97,12 @@ const notificationTypeLiterals = [
   v.literal("status-change"),
 ] as const
 
+const workItemActivityTypeLiterals = [v.literal("status-change")] as const
+
 const emailJobKindLiterals = [
   v.literal("mention"),
   v.literal("assignment"),
+  v.literal("comment"),
   v.literal("invite"),
   v.literal("access-change"),
 ] as const
@@ -268,6 +271,9 @@ export const projectHealthValidator = v.union(...projectHealthLiterals)
 export const projectStatusValidator = v.union(...projectStatusLiterals)
 export const viewFilterStatusValidator = v.union(...viewFilterStatusLiterals)
 export const notificationTypeValidator = v.union(...notificationTypeLiterals)
+export const workItemActivityTypeValidator = v.union(
+  ...workItemActivityTypeLiterals
+)
 export const emailJobKindValidator = v.union(...emailJobKindLiterals)
 export const viewLayoutValidator = v.union(...viewLayoutLiterals)
 export const viewScopeTypeValidator = v.union(...viewScopeTypeLiterals)
@@ -422,6 +428,7 @@ export const userFields = {
   preferences: v.object({
     emailMentions: v.boolean(),
     emailAssignments: v.boolean(),
+    emailComments: v.optional(v.boolean()),
     emailDigest: v.boolean(),
     theme: themePreferenceValidator,
     timeZone: v.optional(v.string()),
@@ -442,6 +449,7 @@ const baseViewFilterFields = {
   priority: v.array(priorityValidator),
   assigneeIds: v.array(v.string()),
   creatorIds: v.array(v.string()),
+  subscriberIds: v.optional(v.array(v.string())),
   updatedByIds: v.optional(v.array(v.string())),
   documentKinds: v.optional(v.array(documentKindValidator)),
   linkedWorkItemIds: v.optional(v.array(v.string())),
@@ -513,6 +521,7 @@ export const workItemFields = {
   id: v.string(),
   key: v.string(),
   teamId: v.string(),
+  workspaceId: v.optional(nullableString),
   type: storedWorkItemTypeValidator,
   title: v.string(),
   descriptionDocId: v.string(),
@@ -693,6 +702,16 @@ export const notificationFields = {
   emailedAt: nullableString,
   digestClaimId: v.optional(nullableString),
   digestClaimedAt: v.optional(nullableString),
+  createdAt: v.string(),
+}
+
+export const workItemActivityFields = {
+  id: v.string(),
+  itemId: v.string(),
+  actorId: v.string(),
+  type: workItemActivityTypeValidator,
+  fromStatus: workStatusValidator,
+  toStatus: workStatusValidator,
   createdAt: v.string(),
 }
 

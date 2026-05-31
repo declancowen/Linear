@@ -154,6 +154,7 @@ describe("buildAssignedWorkViews", () => {
       "All tasks",
       "Active",
       "Backlog",
+      "Subscribed",
     ])
     expect(views.every((view) => view.route === "/assigned")).toBe(true)
     expect(views.every((view) => view.scopeType === "personal")).toBe(true)
@@ -170,10 +171,13 @@ describe("buildAssignedWorkViews", () => {
       "All work",
       "Active",
       "Backlog",
+      "Subscribed",
     ])
     expect(views[0]?.itemLevel).toBe("task")
     expect(views[0]?.layout).toBe("list")
+    expect(views[0]?.filters.itemTypes).toEqual(["task", "sub-task"])
     expect(views[0]?.filters.visibility).toEqual(["private"])
+    expect(views.at(-1)?.filters.subscriberIds).toEqual(["user_1"])
     expect(views[0]?.displayProps).not.toContain("assignee")
     expect(views[0]?.displayProps).not.toContain("project")
     expect(

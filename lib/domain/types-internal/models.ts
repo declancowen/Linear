@@ -35,6 +35,7 @@ import type {
   ViewFilters,
   ViewLayout,
   ViewScopeType,
+  WorkItemActivityType,
   WorkItemType,
   WorkItemVisibility,
   WorkStatus,
@@ -101,6 +102,7 @@ export interface UserProfile {
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
+    emailComments?: boolean
     emailDigest: boolean
     theme: ThemePreference
     timeZone?: string
@@ -182,6 +184,7 @@ export interface WorkItem {
   id: string
   key: string
   teamId: string
+  workspaceId?: string | null
   type: WorkItemType
   title: string
   descriptionDocId: string
@@ -206,6 +209,16 @@ export interface WorkItem {
   subscriberIds: string[]
   createdAt: string
   updatedAt: string
+}
+
+export interface WorkItemActivity {
+  id: string
+  itemId: string
+  actorId: string
+  type: WorkItemActivityType
+  fromStatus: WorkStatus
+  toStatus: WorkStatus
+  createdAt: string
 }
 
 export interface Document {
@@ -267,6 +280,7 @@ export type ViewConfigPatch = Partial<{
   showChildItems: boolean
   showCompleted: boolean
   showEmptyGroups: boolean
+  filters: Partial<ViewFilters>
   description: string
   containerType: ViewContainerType | null
   containerId: string | null
@@ -533,6 +547,7 @@ export interface AppData {
   projects: Project[]
   milestones: Milestone[]
   workItems: WorkItem[]
+  workItemActivities: WorkItemActivity[]
   customPropertyDefinitions: CustomPropertyDefinition[]
   customPropertyValues: CustomPropertyValueRecord[]
   documents: Document[]

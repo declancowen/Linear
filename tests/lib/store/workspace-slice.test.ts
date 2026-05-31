@@ -395,6 +395,7 @@ describe("workspace slice", () => {
       "AU",
       {
         emailAssignments: false,
+        emailComments: true,
         emailDigest: true,
         emailMentions: true,
         theme: "dark",

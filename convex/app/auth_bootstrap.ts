@@ -55,8 +55,10 @@ import {
   listInvitesByNormalizedEmail,
   listInvitesByTeams,
   listPersonalViewsByUsers,
+  listPrivateWorkItemsByCreator,
   listUsersByIds,
   listViewsByScopes,
+  listWorkItemActivitiesByWorkItems,
   listWorkItemsByTeams,
   listWorkspacesByIds,
   listWorkspaceMembershipsByUser,
@@ -961,6 +963,7 @@ export type SnapshotVisibleUserIdInput = {
     assigneeIds?: string[] | null
     subscriberIds: string[]
   }>
+  visibleWorkItemActivities: Array<{ actorId: string }>
   visibleDocuments: Array<{ createdBy: string; updatedBy: string }>
   visibleViews: Array<{
     scopeType: string
@@ -1034,6 +1037,12 @@ function addSnapshotWorkItemUserIds(input: SnapshotVisibleUserIdInput) {
     for (const subscriberId of workItem.subscriberIds) {
       input.visibleUserIds.add(subscriberId)
     }
+  }
+}
+
+function addSnapshotWorkItemActivityUserIds(input: SnapshotVisibleUserIdInput) {
+  for (const activity of input.visibleWorkItemActivities) {
+    input.visibleUserIds.add(activity.actorId)
   }
 }
 
@@ -1150,6 +1159,7 @@ function collectSnapshotVisibleUserIds(input: SnapshotVisibleUserIdInput) {
   addSnapshotWorkspaceUserIds(input)
   addSnapshotProjectUserIds(input)
   addSnapshotWorkItemUserIds(input)
+  addSnapshotWorkItemActivityUserIds(input)
   addSnapshotDocumentUserIds(input)
   addSnapshotViewUserIds(input)
   addSnapshotCommentUserIds(input)
@@ -1270,15 +1280,32 @@ async function loadVisibleBootstrapDocuments(
     .map((document) => normalizeDocument(document, input.visibleTeams))
 }
 
+function getBootstrapWorkItemWorkspaceId(
+  workItem: Awaited<ReturnType<typeof listWorkItemsByTeams>>[number],
+  teamsById: ReadonlyMap<string, { workspaceId: string }>
+) {
+  return workItem.workspaceId ?? teamsById.get(workItem.teamId)?.workspaceId
+}
+
 function canCurrentUserSeeBootstrapWorkItem(
   workItem: Awaited<ReturnType<typeof listWorkItemsByTeams>>[number],
-  currentUserId: string
+  input: {
+    accessibleWorkspaceIds: ReadonlySet<string>
+    currentUserId: string
+    teamsById: ReadonlyMap<string, { workspaceId: string }>
+  }
 ) {
   if ((workItem.visibility ?? "team") !== "private") {
     return true
   }
 
-  return workItem.creatorId === currentUserId
+  if (workItem.creatorId !== input.currentUserId) {
+    return false
+  }
+
+  const workspaceId = getBootstrapWorkItemWorkspaceId(workItem, input.teamsById)
+
+  return !workspaceId || input.accessibleWorkspaceIds.has(workspaceId)
 }
 
 function createTeamConversationScopes(teamIds: string[]) {
@@ -1456,13 +1483,31 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   const visibleProjectIds = new Set(
     visibleProjects.map((project) => project.id)
   )
-  const visibleWorkItems = (
-    await listWorkItemsByTeams(ctx, accessibleTeamIdList)
-  ).filter((workItem) =>
-    canCurrentUserSeeBootstrapWorkItem(workItem, currentUserId)
+  const [teamWorkItems, privateWorkItems] = await Promise.all([
+    listWorkItemsByTeams(ctx, accessibleTeamIdList),
+    currentUserId
+      ? listPrivateWorkItemsByCreator(ctx, currentUserId)
+      : Promise.resolve([]),
+  ])
+  const visibleTeamsById = new Map(
+    visibleTeams.map((team) => [team.id, team] as const)
+  )
+  const visibleWorkItems = dedupeById([
+    ...teamWorkItems,
+    ...privateWorkItems,
+  ]).filter((workItem) =>
+    canCurrentUserSeeBootstrapWorkItem(workItem, {
+      accessibleWorkspaceIds,
+      currentUserId,
+      teamsById: visibleTeamsById,
+    })
   )
   const visibleWorkItemIds = new Set(
     visibleWorkItems.map((workItem) => workItem.id)
+  )
+  const visibleWorkItemActivities = await listWorkItemActivitiesByWorkItems(
+    ctx,
+    visibleWorkItemIds
   )
   const visibleWorkItemDescriptionDocIds = new Set(
     visibleWorkItems.map((workItem) => workItem.descriptionDocId)
@@ -1575,6 +1620,7 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     visibleWorkspaces,
     visibleProjects,
     visibleWorkItems,
+    visibleWorkItemActivities,
     visibleDocuments,
     visibleViews,
     visibleComments,
@@ -1613,6 +1659,7 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     workItems: visibleWorkItems.map((item) =>
       normalizeWorkItem(item, normalizedVisibleTeams)
     ),
+    workItemActivities: visibleWorkItemActivities,
     customPropertyDefinitions: returnedCustomPropertyDefinitions,
     customPropertyValues: visibleCustomPropertyValues.filter(
       (value) =>

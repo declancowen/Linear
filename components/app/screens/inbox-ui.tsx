@@ -8,6 +8,7 @@ import {
   Bell,
   CheckCircle,
   Circle,
+  DotsSixVertical,
   Trash,
 } from "@phosphor-icons/react"
 
@@ -52,6 +53,7 @@ const BUCKET_LABEL: Record<BucketKey, string> = {
   earlier: "Earlier",
 }
 const INBOX_TOOLBAR_CLASS = "h-11 min-h-11"
+const INBOX_LIST_MIN_WIDTH = "240px"
 
 function bucketForDate(iso: string): BucketKey {
   const date = new Date(iso)
@@ -366,14 +368,17 @@ function InboxResizeHandle({
   onResizeStart: (event: React.PointerEvent<HTMLButtonElement>) => void
   onResetWidth: () => void
 }) {
+  const stateKey = resizing ? "resizing" : "idle"
+  const stateClasses = inboxResizeHandleClasses[stateKey]
+
   return (
     <button
       type="button"
       aria-label="Resize inbox list"
       title="Drag to resize. Double-click to reset to 50/50."
       className={cn(
-        "group absolute top-0 -right-2 z-10 hidden h-full w-4 cursor-col-resize touch-none select-none md:block",
-        resizing && "bg-primary/6"
+        "group absolute top-0 -right-2 z-30 h-full w-4 cursor-col-resize touch-none select-none",
+        stateClasses.button
       )}
       onPointerDown={onResizeStart}
       onDoubleClick={onResetWidth}
@@ -382,20 +387,42 @@ function InboxResizeHandle({
         aria-hidden="true"
         className={cn(
           "pointer-events-none absolute inset-y-2 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-colors",
-          resizing ? "bg-primary/10" : "group-hover:bg-accent"
+          stateClasses.rail
         )}
       />
       <span
         aria-hidden="true"
         className={cn(
           "pointer-events-none absolute inset-y-2 left-1/2 w-px -translate-x-1/2 rounded-full bg-border/80 transition-all",
-          resizing
-            ? "w-0.5 bg-primary/55"
-            : "group-hover:w-0.5 group-hover:bg-primary/45"
+          stateClasses.line
         )}
       />
+      <span
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute top-1/2 left-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-md bg-background text-muted-foreground opacity-70 shadow-sm ring-1 ring-border transition-opacity",
+          stateClasses.grip
+        )}
+      >
+        <DotsSixVertical className="size-3.5" />
+      </span>
     </button>
   )
+}
+
+const inboxResizeHandleClasses = {
+  idle: {
+    button: "",
+    grip: "group-hover:opacity-100",
+    line: "group-hover:w-0.5 group-hover:bg-primary/45",
+    rail: "group-hover:bg-accent",
+  },
+  resizing: {
+    button: "bg-primary/6",
+    grip: "opacity-100",
+    line: "w-0.5 bg-primary/55",
+    rail: "bg-primary/10",
+  },
 }
 
 export function InboxListPane({
@@ -436,8 +463,9 @@ export function InboxListPane({
   return (
     <div
       data-inbox-list-pane
-      className="relative flex min-h-0 shrink-0 flex-col border-r"
+      className="relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-r"
       style={{
+        minWidth: INBOX_LIST_MIN_WIDTH,
         width: paneWidth,
         flexBasis: paneWidth,
       }}

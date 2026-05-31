@@ -11,17 +11,19 @@ import {
   getProjectsForScope,
 } from "@/lib/domain/selectors-internal/core"
 import { getSearchableDocuments } from "@/lib/domain/selectors-internal/content"
+import { getWorkspacePeople } from "@/lib/domain/selectors-internal/people"
 import { getVisibleWorkItems } from "@/lib/domain/selectors-internal/work-items"
 import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 
 export type GlobalSearchResult = {
   id: string
-  kind: "navigation" | "team" | "project" | "item" | "document"
+  kind: "navigation" | "team" | "project" | "item" | "document" | "person"
   title: string
   subtitle?: string | null
   href: string
   keywords: string[]
   teamId?: string | null
+  teamIds?: string[]
   status?: WorkStatus | null
   priority?: Priority | null
 }
@@ -90,6 +92,14 @@ const navigationResults: GlobalSearchResult[] = [
     keywords: ["workspace", "channel", "channels", "announcements"],
   },
   {
+    id: "nav-people",
+    kind: "navigation",
+    title: "People",
+    subtitle: "Workspace members, teams, and profile activity",
+    href: "/workspace/people",
+    keywords: ["people", "members", "users", "profiles", "workspace"],
+  },
+  {
     id: "nav-docs",
     kind: "navigation",
     title: "Workspace Docs",
@@ -155,6 +165,7 @@ function toSearchResult(entry: WorkspaceSearchIndexEntry): GlobalSearchResult {
     status: entry.status,
     subtitle: entry.subtitle,
     teamId: entry.teamId,
+    teamIds: entry.teamIds,
     title: entry.title,
   }
 }
@@ -211,8 +222,51 @@ const SEARCH_KIND_ALIASES: Record<string, GlobalSearchResult["kind"]> = {
   navigation: "navigation",
   project: "project",
   projects: "project",
+  people: "person",
+  person: "person",
+  profile: "person",
+  profiles: "person",
   team: "team",
   teams: "team",
+  user: "person",
+  users: "person",
+}
+
+function getPersonName(person: AppData["users"][number]) {
+  return person.name.trim() || person.email || person.handle || "Unknown user"
+}
+
+function getPersonTeamIds(
+  data: AppData,
+  workspaceId: string,
+  personId: string,
+  accessibleTeamsById: Map<string, Team>
+) {
+  return data.teamMemberships
+    .filter((membership) => {
+      const team = accessibleTeamsById.get(membership.teamId)
+
+      return (
+        membership.userId === personId &&
+        team?.workspaceId === workspaceId
+      )
+    })
+    .map((membership) => membership.teamId)
+}
+
+function getPersonSubtitle(
+  person: AppData["users"][number],
+  teamNames: string[]
+) {
+  return [
+    person.title.trim() || null,
+    person.email || null,
+    teamNames.length > 0
+      ? `${teamNames.length} ${teamNames.length === 1 ? "team" : "teams"}`
+      : "No teams",
+  ]
+    .filter(Boolean)
+    .join(" · ")
 }
 
 function parseWorkspaceSearchQuery(query: string) {
@@ -295,9 +349,59 @@ export function getWorkspaceSearchIndex(data: AppData): WorkspaceSearchIndex {
   const items = getVisibleWorkItems(data, {
     workspaceId: data.currentWorkspaceId,
   })
+  const people = getWorkspacePeople(data, data.currentWorkspaceId)
 
   const results = [
     ...navigationResults.map((result) => toSearchIndexEntry(result)),
+    ...people.map((person) => {
+      const teamIds = getPersonTeamIds(
+        data,
+        data.currentWorkspaceId,
+        person.id,
+        accessibleTeamsById
+      )
+      const teamNames = teamIds
+        .map((teamId) => accessibleTeamsById.get(teamId)?.name ?? "")
+        .filter(Boolean)
+      const teamSearchText = toSearchText(
+        teamIds.flatMap((teamId) => {
+          const team = accessibleTeamsById.get(teamId)
+
+          return team
+            ? [
+                team.id,
+                team.name,
+                team.slug,
+                team.settings.joinCode,
+                team.settings.summary,
+              ]
+            : []
+        })
+      )
+
+      return toSearchIndexEntry(
+        {
+          id: `person-${person.id}`,
+          kind: "person" as const,
+          title: getPersonName(person),
+          subtitle: getPersonSubtitle(person, teamNames),
+          href: `/workspace/people/${person.id}`,
+          keywords: [
+            person.id,
+            person.handle,
+            person.email,
+            person.title,
+            person.status,
+            person.statusMessage,
+          ],
+          teamId: null,
+          teamIds,
+          status: null,
+          priority: null,
+        },
+        teamSearchText || null
+      )
+    }),
     ...accessibleTeams.map((team) =>
       toSearchIndexEntry(
         {
@@ -482,7 +586,9 @@ function matchesTeamFilter(
   filters: WorkspaceSearchFilters
 ) {
   if (filters.teamIdFilter && entry.teamId !== filters.teamIdFilter) {
-    return false
+    if (!entry.teamIds?.includes(filters.teamIdFilter)) {
+      return false
+    }
   }
 
   return (

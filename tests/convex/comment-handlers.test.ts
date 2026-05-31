@@ -13,6 +13,7 @@ const requireReadableDocumentAccessMock = vi.fn()
 const requireReadableWorkItemAccessMock = vi.fn()
 const getTeamMemberIdsMock = vi.fn()
 const queueEmailJobsMock = vi.fn()
+const queueMentionAndCommentEmailJobsMock = vi.fn()
 
 vi.mock("@/convex/app/core", () => ({
   assertServerToken: assertServerTokenMock,
@@ -48,6 +49,7 @@ vi.mock("@/convex/app/conversations", () => ({
 
 vi.mock("@/convex/app/email_job_handlers", () => ({
   queueEmailJobs: queueEmailJobsMock,
+  queueMentionAndCommentEmailJobs: queueMentionAndCommentEmailJobsMock,
 }))
 
 function createCtx() {
@@ -75,6 +77,7 @@ describe("comment handlers", () => {
     requireReadableWorkItemAccessMock.mockReset()
     getTeamMemberIdsMock.mockReset()
     queueEmailJobsMock.mockReset()
+    queueMentionAndCommentEmailJobsMock.mockReset()
 
     listCommentsByTargetMock.mockResolvedValue([])
     listUsersByIdsMock.mockResolvedValue([

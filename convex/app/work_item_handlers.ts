@@ -46,9 +46,11 @@ import {
   getUserDoc,
   getWorkItemDoc,
   isTeamMember,
+  listPrivateWorkItemsByCreator,
   listAttachmentsByTargets,
   listCommentsByTargets,
   listNotificationsByEntities,
+  listWorkItemActivitiesByWorkItems,
   listTeamDocuments,
   listWorkspaceDocuments,
 } from "./data"
@@ -68,7 +70,12 @@ import {
   projectBelongsToTeamScope,
   validateWorkItemParent,
 } from "./work_helpers"
-import { requireEditableTeamDoc, requireEditableWorkItemAccess } from "./access"
+import {
+  requireEditableTeamDoc,
+  requireEditableWorkItemAccess,
+  requireReadableWorkItemAccess,
+  requireReadableWorkspaceAccess,
+} from "./access"
 import { queueEmailJobs } from "./email_job_handlers"
 
 type ServerAccessArgs = {
@@ -97,6 +104,12 @@ type PersistCollaborationWorkItemArgs = ServerAccessArgs & {
 type DeleteWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
   itemId: string
+}
+
+type SetWorkItemSubscriptionArgs = ServerAccessArgs & {
+  currentUserId: string
+  itemId: string
+  subscribed: boolean
 }
 
 type WorkItemPresenceArgs = ServerAccessArgs & {
@@ -129,6 +142,35 @@ type CreateWorkItemArgs = ServerAccessArgs & AuthenticatedCreateWorkItemInput
 type WorkItemDoc = NonNullable<Awaited<ReturnType<typeof getWorkItemDoc>>>
 type TeamDoc = NonNullable<Awaited<ReturnType<typeof getTeamDoc>>>
 type ProjectDoc = NonNullable<Awaited<ReturnType<typeof getProjectDoc>>>
+
+async function requireCreateWorkItemTeam(
+  ctx: MutationCtx,
+  args: CreateWorkItemArgs
+) {
+  if (args.visibility !== "private") {
+    const team = await requireEditableTeamDoc(
+      ctx,
+      args.teamId,
+      args.currentUserId
+    )
+    assertTeamSupportsWorkItems(normalizeTeam(team))
+    return team
+  }
+
+  const team = await getTeamDoc(ctx, args.teamId)
+
+  if (!team) {
+    throw new Error("Team not found")
+  }
+
+  await requireReadableWorkspaceAccess(
+    ctx,
+    team.workspaceId,
+    args.currentUserId
+  )
+
+  return team
+}
 
 function assertExpectedWorkItemVersion(
   existing: WorkItemDoc,
@@ -189,12 +231,27 @@ async function validateWorkItemParentPatch(
   patch: WorkItemPatch,
   itemType: WorkItemType
 ) {
-  await validateWorkItemParent(ctx, {
+  const parent = await validateWorkItemParent(ctx, {
     teamId: existing.teamId,
     itemType,
     parentId: patch.parentId === undefined ? existing.parentId : patch.parentId,
     currentItemId: existing.id,
   })
+
+  if (!parent) {
+    return
+  }
+
+  if ((existing.visibility ?? "team") === "private") {
+    if (
+      (parent.visibility ?? "team") !== "private" ||
+      parent.creatorId !== existing.creatorId
+    ) {
+      throw new Error("Private task parent must be one of your private tasks")
+    }
+  } else if ((parent.visibility ?? "team") === "private") {
+    throw new Error("Parent item not found")
+  }
 }
 
 async function listTeamWorkItemsForUpdate(ctx: MutationCtx, teamId: string) {
@@ -317,7 +374,7 @@ function assertCascadeProjectTemplateAllowsHierarchy(input: {
 async function assertProjectLinkPatchAllowed(
   ctx: MutationCtx,
   input: {
-    team: TeamDoc
+    team: TeamDoc | null
     teamItems: WorkItemDoc[]
     existing: WorkItemDoc
     normalizedExistingType: WorkItemType
@@ -336,6 +393,10 @@ async function assertProjectLinkPatchAllowed(
 
   if (!project) {
     return
+  }
+
+  if (!input.team) {
+    throw new Error("Team not found")
   }
 
   assertProjectLinkBelongsToTeam(input.team, project)
@@ -477,16 +538,25 @@ async function loadWorkItemUpdateTarget(
 
   await requireEditableWorkItemAccess(ctx, existing, args.currentUserId)
   const team = await getTeamDoc(ctx, existing.teamId)
+  const isPrivate = (existing.visibility ?? "team") === "private"
 
-  if (!team) {
+  if (!team && !isPrivate) {
     throw new Error("Team not found")
   }
 
   return {
     existing,
     team,
-    normalizedExperience: normalizeTeam(team).settings.experience,
-    normalizedExistingType: getNormalizedWorkItemType(existing, team),
+    normalizedExperience: team
+      ? normalizeTeam(team).settings.experience
+      : ("project-management" as const),
+    normalizedExistingType: team
+      ? getNormalizedWorkItemType(existing, team)
+      : normalizeStoredWorkItemType(
+          existing.type as StoredWorkItemType,
+          "project-management",
+          { parentId: existing.parentId }
+        ),
     nextTitle: getNextWorkItemTitle(existing, args.patch),
   }
 }
@@ -543,15 +613,21 @@ async function assertWorkItemLabelPatchAllowed(
   ctx: MutationCtx,
   currentUserId: string,
   existing: WorkItemDoc,
-  team: TeamDoc,
+  team: TeamDoc | null,
   patch: WorkItemPatch
 ) {
   if (patch.labelIds !== undefined) {
+    const workspaceId = team?.workspaceId ?? existing.workspaceId
+
+    if (!workspaceId) {
+      throw new Error("Workspace not found")
+    }
+
     await assertWorkItemLabelIds(ctx, {
       currentUserId,
       labelIds: patch.labelIds,
       visibility: existing.visibility,
-      workspaceId: team.workspaceId,
+      workspaceId,
     })
   }
 }
@@ -566,28 +642,23 @@ function buildPersistedWorkItemPatch(
   }
 ) {
   const persistedPatch = { ...patch }
+  const isPrivate = (input.existing.visibility ?? "team") === "private"
 
   delete persistedPatch.description
   delete persistedPatch.expectedUpdatedAt
-  if ((input.existing.visibility ?? "team") === "private") {
+  if (isPrivate) {
     delete persistedPatch.assigneeId
     delete persistedPatch.assigneeIds
     delete persistedPatch.primaryProjectId
   }
 
-  const assigneeIds =
-    (input.existing.visibility ?? "team") === "private"
-      ? null
-      : getPatchAssigneeIds(patch)
+  const assigneeIds = isPrivate ? [] : getPatchAssigneeIds(patch)
 
   return {
     ...persistedPatch,
-    ...(assigneeIds ? getWorkItemAssigneeFields(assigneeIds) : {}),
+    ...(assigneeIds !== null ? getWorkItemAssigneeFields(assigneeIds) : {}),
     title: input.nextTitle,
-    primaryProjectId:
-      (input.existing.visibility ?? "team") === "private"
-        ? null
-        : input.resolvedPrimaryProjectId,
+    primaryProjectId: isPrivate ? null : input.resolvedPrimaryProjectId,
     updatedAt: input.now,
   }
 }
@@ -669,19 +740,26 @@ export async function createStatusChangeNotificationForWorkItemUpdate(
       ? getResolvedWorkItemMutationAssigneeIds(input.args.patch)
       : getWorkItemAssigneeIds(input.existing)
 
+  const recipientIds = [
+    ...new Set([
+      ...resolvedAssigneeIds,
+      ...(input.existing.subscriberIds ?? []),
+    ]),
+  ].filter((recipientId) => recipientId !== input.args.currentUserId)
+
   if (
     !input.args.patch.status ||
     input.args.patch.status === input.existing.status ||
-    resolvedAssigneeIds.length === 0
+    recipientIds.length === 0
   ) {
     return
   }
 
-  for (const resolvedAssigneeId of resolvedAssigneeIds) {
+  for (const recipientId of recipientIds) {
     await ctx.db.insert(
       "notifications",
       createNotification(
-        resolvedAssigneeId,
+        recipientId,
         input.args.currentUserId,
         buildWorkItemStatusChangeNotificationMessage(
           input.actorName,
@@ -695,6 +773,35 @@ export async function createStatusChangeNotificationForWorkItemUpdate(
       )
     )
   }
+}
+
+export async function createStatusChangeActivityForWorkItemUpdate(
+  ctx: MutationCtx,
+  input: {
+    args: UpdateWorkItemArgs
+    existing: WorkItemDoc
+    now: string
+  }
+) {
+  const nextStatus = input.args.patch.status
+
+  if (!nextStatus || nextStatus === input.existing.status) {
+    return null
+  }
+
+  const activity = {
+    id: createId("work_item_activity"),
+    itemId: input.existing.id,
+    actorId: input.args.currentUserId,
+    type: "status-change" as const,
+    fromStatus: input.existing.status,
+    toStatus: nextStatus,
+    createdAt: input.now,
+  }
+
+  await ctx.db.insert("workItemActivities", activity)
+
+  return activity
 }
 
 function getEffectiveWorkItemPatch(
@@ -799,13 +906,19 @@ export async function updateWorkItemHandler(
     })
   }
 
+  await createStatusChangeActivityForWorkItemUpdate(ctx, {
+    args: effectiveArgs,
+    existing,
+    now,
+  })
+
   const assignmentEmails = await createAssignmentNotificationForWorkItemUpdate(
     ctx,
     {
       args: effectiveArgs,
       existing,
       actorName,
-      teamName: team.name,
+      teamName: team?.name ?? "",
       nextTitle,
     }
   )
@@ -814,7 +927,7 @@ export async function updateWorkItemHandler(
     args: effectiveArgs,
     existing,
     actorName,
-    teamName: team.name,
+    teamName: team?.name ?? "",
     nextTitle,
   })
 
@@ -828,6 +941,41 @@ export async function updateWorkItemHandler(
 
   return {
     assignmentEmails,
+  }
+}
+
+export async function setWorkItemSubscriptionHandler(
+  ctx: MutationCtx,
+  args: SetWorkItemSubscriptionArgs
+) {
+  assertServerToken(args.serverToken)
+  const item = await getWorkItemDoc(ctx, args.itemId)
+
+  if (!item) {
+    throw new Error("Work item not found")
+  }
+
+  await requireReadableWorkItemAccess(ctx, item, args.currentUserId)
+
+  if ((item.visibility ?? "team") === "private") {
+    throw new Error("Private tasks do not support subscriptions")
+  }
+
+  const subscriberIds = new Set(item.subscriberIds ?? [])
+
+  if (args.subscribed) {
+    subscriberIds.add(args.currentUserId)
+  } else {
+    subscriberIds.delete(args.currentUserId)
+  }
+
+  await ctx.db.patch(item._id, {
+    subscriberIds: [...subscriberIds],
+    updatedAt: getNow(),
+  })
+
+  return {
+    subscribed: args.subscribed,
   }
 }
 
@@ -1040,6 +1188,7 @@ async function listWorkItemDeleteRecords(
     workItemAttachments,
     documentAttachments,
     notifications,
+    workItemActivities,
     workspaceDocuments,
     teamDocuments,
   ] = await Promise.all([
@@ -1069,6 +1218,7 @@ async function listWorkItemDeleteRecords(
         entityId,
       })),
     ]),
+    listWorkItemActivitiesByWorkItems(ctx, cascade.deletedItemIds),
     listWorkspaceDocuments(ctx, team.workspaceId),
     listTeamDocuments(ctx, team.id),
   ])
@@ -1085,6 +1235,7 @@ async function listWorkItemDeleteRecords(
       ).values(),
     ],
     notifications,
+    workItemActivities,
   }
 }
 
@@ -1103,6 +1254,10 @@ async function deleteWorkItemRelatedRecords(
 
   for (const notification of records.notifications) {
     await ctx.db.delete(notification._id)
+  }
+
+  for (const activity of records.workItemActivities) {
+    await ctx.db.delete(activity._id)
   }
 }
 
@@ -1220,14 +1375,14 @@ export async function shiftTimelineItemHandler(
 
   await ctx.db.patch(item._id, {
     startDate: args.nextStartDate,
-    dueDate: item.dueDate
-      ? shiftCalendarDate(item.dueDate, delta)
-      : item.dueDate,
-    targetDate: item.targetDate
-      ? shiftCalendarDate(item.targetDate, delta)
-      : item.targetDate,
+    dueDate: shiftOptionalCalendarDate(item.dueDate, delta),
+    targetDate: shiftOptionalCalendarDate(item.targetDate, delta),
     updatedAt: getNow(),
   })
+}
+
+function shiftOptionalCalendarDate(date: string | null | undefined, delta: number) {
+  return date ? shiftCalendarDate(date, delta) : date
 }
 
 function assertCreateWorkItemSchedule(args: CreateWorkItemArgs) {
@@ -1296,11 +1451,28 @@ async function resolveCreateWorkItemParent(
   ctx: MutationCtx,
   args: CreateWorkItemArgs
 ) {
-  return validateWorkItemParent(ctx, {
+  const parent = await validateWorkItemParent(ctx, {
     teamId: args.teamId,
     itemType: args.type,
     parentId: args.parentId ?? null,
   })
+
+  if (!parent) {
+    return parent
+  }
+
+  if (args.visibility === "private") {
+    if (
+      (parent.visibility ?? "team") !== "private" ||
+      parent.creatorId !== args.currentUserId
+    ) {
+      throw new Error("Private task parent must be one of your private tasks")
+    }
+  } else if ((parent.visibility ?? "team") === "private") {
+    throw new Error("Parent item not found")
+  }
+
+  return parent
 }
 
 function getCreateWorkItemProjectId({
@@ -1391,26 +1563,31 @@ async function getCreateWorkItemNumbering(
   team: TeamDoc,
   args: CreateWorkItemArgs
 ) {
+  const isPrivate = args.visibility === "private"
+
+  if (isPrivate) {
+    const privateItems = await listPrivateWorkItemsByCreator(
+      ctx,
+      args.currentUserId
+    )
+
+    return {
+      prefix: PRIVATE_WORK_ITEM_KEY_PREFIX,
+      nextNumber: privateItems.length + 1,
+    }
+  }
+
   const teamItems = await ctx.db
     .query("workItems")
     .withIndex("by_team_id", (q) => q.eq("teamId", args.teamId))
     .collect()
-  const isPrivate = args.visibility === "private"
-  const matchingItems = isPrivate
-    ? teamItems.filter(
-        (item) =>
-          (item.visibility ?? "team") === "private" &&
-          item.creatorId === args.currentUserId
-      )
-    : teamItems.filter((item) => (item.visibility ?? "team") !== "private")
+  const matchingItems = teamItems.filter(
+    (item) => (item.visibility ?? "team") !== "private"
+  )
 
   return {
-    prefix: isPrivate
-      ? PRIVATE_WORK_ITEM_KEY_PREFIX
-      : toTeamKeyPrefix(team.name, args.teamId),
-    nextNumber: isPrivate
-      ? matchingItems.length + 1
-      : 1 + matchingItems.length + 100,
+    prefix: toTeamKeyPrefix(team.name, args.teamId),
+    nextNumber: 1 + matchingItems.length + 100,
   }
 }
 
@@ -1433,7 +1610,7 @@ async function insertCreatedWorkItemDescription({
     id: descriptionDocId,
     kind: "item-description",
     workspaceId: team.workspaceId,
-    teamId: args.teamId,
+    teamId: args.visibility === "private" ? null : args.teamId,
     title: `${args.title} description`,
     content: "<p></p>",
     linkedProjectIds: resolvedPrimaryProjectId
@@ -1449,6 +1626,7 @@ async function insertCreatedWorkItemDescription({
 
 function buildCreatedWorkItem({
   args,
+  team,
   parent,
   resolvedPrimaryProjectId,
   descriptionDocId,
@@ -1458,6 +1636,7 @@ function buildCreatedWorkItem({
   defaultScheduleTimeZone,
 }: {
   args: CreateWorkItemArgs
+  team: TeamDoc
   parent: Awaited<ReturnType<typeof validateWorkItemParent>>
   resolvedPrimaryProjectId: string | null
   descriptionDocId: string
@@ -1470,6 +1649,7 @@ function buildCreatedWorkItem({
     id: args.id ?? createId("item"),
     key: formatWorkItemKey(prefix, nextNumber),
     teamId: args.teamId,
+    workspaceId: team.workspaceId,
     type: args.type,
     title: args.title,
     descriptionDocId,
@@ -1490,7 +1670,8 @@ function buildCreatedWorkItem({
     startTime: args.startTime ?? null,
     endTime: args.endTime ?? null,
     scheduleTimeZone: args.scheduleTimeZone ?? defaultScheduleTimeZone,
-    subscriberIds: [args.currentUserId],
+    subscriberIds:
+      (args.visibility ?? "team") === "private" ? [] : [args.currentUserId],
     createdAt: now,
     updatedAt: now,
   }
@@ -1553,15 +1734,9 @@ export async function createWorkItemHandler(
   args: CreateWorkItemArgs
 ) {
   assertServerToken(args.serverToken)
-  const team = await requireEditableTeamDoc(
-    ctx,
-    args.teamId,
-    args.currentUserId
-  )
-  const normalizedTeam = normalizeTeam(team)
+  const team = await requireCreateWorkItemTeam(ctx, args)
 
   assertCreateWorkItemSchedule(args)
-  assertTeamSupportsWorkItems(normalizedTeam)
   assertCreateWorkItemVisibility(args)
   await assertCreateWorkItemAssignee(ctx, args)
   await assertCreateWorkItemLabels(ctx, team, args)
@@ -1589,6 +1764,7 @@ export async function createWorkItemHandler(
   })
   const workItem = buildCreatedWorkItem({
     args,
+    team,
     parent,
     resolvedPrimaryProjectId,
     descriptionDocId,

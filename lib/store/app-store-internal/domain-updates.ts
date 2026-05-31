@@ -22,6 +22,7 @@ type RemovalSets = RemovalScope & {
   deletedProjectIds: Set<string>
   deletedMilestoneIds: Set<string>
   deletedWorkItemIds: Set<string>
+  deletedWorkItemActivityIds: Set<string>
   deletedDocumentIds: Set<string>
   deletedLabelIds: Set<string>
   deletedInviteIds: Set<string>
@@ -62,10 +63,10 @@ function resolveWorkspaceMembershipRoleAfterTeamRemoval(input: {
           membership.userId === input.userId &&
           workspaceTeamIds.has(membership.teamId)
       )
-      .reduce<AppData["teamMemberships"][number]["role"] | null>(
-        (currentRole, membership) => mergeRole(currentRole, membership.role),
-        null
-      ) ?? null
+      .reduce<
+        AppData["teamMemberships"][number]["role"] | null
+      >((currentRole, membership) => mergeRole(currentRole, membership.role), null) ??
+    null
 
   return highestTeamRole ?? ("viewer" as const)
 }
@@ -234,7 +235,9 @@ function buildRemovalSets(state: AppData, scope: RemovalScope): RemovalSets {
           return scope.deletedWorkspaceIds.has(view.scopeId)
         }
 
-        return view.scopeType === "team" && scope.deletedTeamIds.has(view.scopeId)
+        return (
+          view.scopeType === "team" && scope.deletedTeamIds.has(view.scopeId)
+        )
       })
       .map((view) => view.id)
   )
@@ -277,12 +280,18 @@ function buildRemovalSets(state: AppData, scope: RemovalScope): RemovalSets {
       })
       .map((notification) => notification.id)
   )
+  const deletedWorkItemActivityIds = new Set(
+    state.workItemActivities
+      .filter((activity) => deletedWorkItemIds.has(activity.itemId))
+      .map((activity) => activity.id)
+  )
 
   return {
     ...scope,
     deletedProjectIds,
     deletedMilestoneIds,
     deletedWorkItemIds,
+    deletedWorkItemActivityIds,
     deletedDocumentIds,
     deletedLabelIds,
     deletedInviteIds,
@@ -316,7 +325,9 @@ function buildNextStateAfterRemoval(
     ),
     deletedTeamIds: removal.deletedTeamIds,
   })
-  const teams = state.teams.filter((team) => !removal.deletedTeamIds.has(team.id))
+  const teams = state.teams.filter(
+    (team) => !removal.deletedTeamIds.has(team.id)
+  )
   const teamMemberships = state.teamMemberships.filter(
     (membership) => !removal.deletedTeamIds.has(membership.teamId)
   )
@@ -335,7 +346,8 @@ function buildNextStateAfterRemoval(
     .map((item) => ({
       ...item,
       primaryProjectId:
-        item.primaryProjectId && removal.deletedProjectIds.has(item.primaryProjectId)
+        item.primaryProjectId &&
+        removal.deletedProjectIds.has(item.primaryProjectId)
           ? null
           : item.primaryProjectId,
       linkedProjectIds: filterDeletedIds(
@@ -380,7 +392,10 @@ function buildNextStateAfterRemoval(
           removal.deletedMilestoneIds
         ),
         teamIds: filterDeletedIds(view.filters.teamIds, removal.deletedTeamIds),
-        labelIds: filterDeletedIds(view.filters.labelIds, removal.deletedLabelIds),
+        labelIds: filterDeletedIds(
+          view.filters.labelIds,
+          removal.deletedLabelIds
+        ),
       },
     }))
   const comments = state.comments.filter((comment) => {
@@ -403,6 +418,9 @@ function buildNextStateAfterRemoval(
   })
   const notifications = state.notifications.filter(
     (notification) => !removal.deletedNotificationIds.has(notification.id)
+  )
+  const workItemActivities = state.workItemActivities.filter(
+    (activity) => !removal.deletedWorkItemActivityIds.has(activity.id)
   )
   const invites = state.invites.filter(
     (invite) => !removal.deletedInviteIds.has(invite.id)
@@ -441,6 +459,7 @@ function buildNextStateAfterRemoval(
     projects,
     milestones,
     workItems,
+    workItemActivities,
     documents,
     views,
     comments,
@@ -508,10 +527,7 @@ export function buildLocalTeamCreateState(input: {
   }
 }
 
-export function getNextStateAfterTeamRemoval(
-  state: AppData,
-  teamId: string
-) {
+export function getNextStateAfterTeamRemoval(state: AppData, teamId: string) {
   return buildNextStateAfterRemoval(
     state,
     buildRemovalSets(state, {
@@ -562,7 +578,7 @@ export function getNextStateAfterProjectRemoval(
 
   const team =
     project.scopeType === "team"
-      ? state.teams.find((entry) => entry.id === project.scopeId) ?? null
+      ? (state.teams.find((entry) => entry.id === project.scopeId) ?? null)
       : null
   const detailRoute =
     project.scopeType === "workspace"

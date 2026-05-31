@@ -183,6 +183,7 @@ function createBootstrapCtx() {
     projects: [],
     milestones: [],
     workItems: [],
+    workItemActivities: [],
     customPropertyDefinitions: [],
     customPropertyValues: [],
     documents: [],

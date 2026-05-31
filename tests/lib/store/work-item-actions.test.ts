@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   createTestAppData,
   createTestProject,
+  createTestTeamMembership,
+  createTestUser,
   createTestWorkItem,
   createTestWorkspace,
 } from "@/tests/lib/fixtures/app-data"
@@ -12,6 +14,7 @@ const syncCreateLabelMock = vi.fn()
 const syncCreateWorkItemMock = vi.fn()
 const syncDeleteWorkItemMock = vi.fn()
 const syncShiftTimelineItemMock = vi.fn()
+const syncSetWorkItemSubscriptionMock = vi.fn()
 const syncUpdateWorkItemMock = vi.fn()
 const toastErrorMock = vi.fn()
 
@@ -27,6 +30,7 @@ vi.mock("@/lib/convex/client", () => ({
   syncCreateWorkItem: syncCreateWorkItemMock,
   syncDeleteWorkItem: syncDeleteWorkItemMock,
   syncShiftTimelineItem: syncShiftTimelineItemMock,
+  syncSetWorkItemSubscription: syncSetWorkItemSubscriptionMock,
   syncUpdateWorkItem: syncUpdateWorkItemMock,
 }))
 
@@ -82,6 +86,7 @@ describe("work item actions", () => {
     syncCreateWorkItemMock.mockReset()
     syncDeleteWorkItemMock.mockReset()
     syncShiftTimelineItemMock.mockReset()
+    syncSetWorkItemSubscriptionMock.mockReset()
     syncUpdateWorkItemMock.mockReset()
     toastErrorMock.mockReset()
     syncCreateWorkItemMock.mockResolvedValue({
@@ -92,6 +97,33 @@ describe("work item actions", () => {
       descriptionUpdatedAt: null,
     })
     syncUpdateWorkItemMock.mockResolvedValue({ ok: true })
+  })
+
+  it("sets work item subscription state explicitly", async () => {
+    const state = createState()
+    state.workItems = state.workItems.map((item) =>
+      item.id === "parent" ? { ...item, subscriberIds: [] } : item
+    )
+    const harness = await createWorkItemActionsHarness(state)
+
+    harness.actions.setWorkItemSubscription("parent", true)
+
+    expect(
+      harness.state.workItems.find((item) => item.id === "parent")
+        ?.subscriberIds
+    ).toContain("user_1")
+    expect(syncSetWorkItemSubscriptionMock).toHaveBeenCalledWith("parent", true)
+
+    harness.actions.setWorkItemSubscription("parent", false)
+
+    expect(
+      harness.state.workItems.find((item) => item.id === "parent")
+        ?.subscriberIds
+    ).not.toContain("user_1")
+    expect(syncSetWorkItemSubscriptionMock).toHaveBeenLastCalledWith(
+      "parent",
+      false
+    )
   })
 
   it("does not cascade parent status changes into child work items", async () => {
@@ -319,11 +351,34 @@ describe("work item actions", () => {
     ])
   })
 
-  it("creates self notifications for assignment and assigned status changes", async () => {
-    const harness = await createWorkItemActionsHarness()
+  it("notifies assigned users for assignment and status changes", async () => {
+    const harness = await createWorkItemActionsHarness(
+      createTestAppData({
+        users: [
+          createTestUser(),
+          createTestUser({
+            id: "user_2",
+            name: "Blake",
+            email: "blake@example.com",
+          }),
+        ],
+        teamMemberships: [
+          createTestTeamMembership(),
+          createTestTeamMembership({
+            userId: "user_2",
+            role: "member",
+          }),
+        ],
+        workItems: [
+          createTestWorkItem("parent", {
+            status: "todo",
+          }),
+        ],
+      })
+    )
 
     harness.actions.updateWorkItem("parent", {
-      assigneeId: "user_1",
+      assigneeId: "user_2",
     })
 
     harness.actions.updateWorkItem("parent", {
@@ -334,14 +389,14 @@ describe("work item actions", () => {
     expect(
       harness.state.notifications.map((notification) => notification.type)
     ).toEqual(["status-change", "assignment"])
-    expect(harness.state.notifications[0]?.userId).toBe("user_1")
-    expect(harness.state.notifications[1]?.userId).toBe("user_1")
+    expect(harness.state.notifications[0]?.userId).toBe("user_2")
+    expect(harness.state.notifications[1]?.userId).toBe("user_2")
     expect(syncUpdateWorkItemMock).toHaveBeenNthCalledWith(
       1,
       "user_1",
       "parent",
       {
-        assigneeId: "user_1",
+        assigneeId: "user_2",
       }
     )
     expect(syncUpdateWorkItemMock).toHaveBeenNthCalledWith(
@@ -360,6 +415,7 @@ describe("work item actions", () => {
     state.workItems = [
       createTestWorkItem("private-task", {
         creatorId: "user_1",
+        type: "task",
         assigneeId: "user_1",
         primaryProjectId: null,
         visibility: "private",
@@ -375,7 +431,8 @@ describe("work item actions", () => {
     })
 
     expect(harness.state.workItems[0]).toMatchObject({
-      assigneeId: "user_1",
+      assigneeId: null,
+      assigneeIds: [],
       primaryProjectId: null,
       status: "done",
     })
@@ -384,12 +441,15 @@ describe("work item actions", () => {
       "user_1",
       "private-task",
       {
+        assigneeId: null,
+        assigneeIds: [],
+        primaryProjectId: null,
         status: "done",
       }
     )
   })
 
-  it("scopes optimistic private work item keys to the selected team", async () => {
+  it("scopes optimistic private work item keys to the current user", async () => {
     const state = createState()
     state.workItems = [
       createTestWorkItem("private-team-item", {
@@ -420,8 +480,42 @@ describe("work item actions", () => {
     expect(createdItemId).toBeTruthy()
     expect(harness.state.workItems[0]).toMatchObject({
       id: createdItemId,
-      key: "PVT-002",
+      key: "PVT-003",
       teamId: "team_1",
+      workspaceId: "workspace_1",
+      visibility: "private",
+    })
+    expect(harness.state.documents[0]).toMatchObject({
+      id: harness.state.workItems[0]?.descriptionDocId,
+      kind: "item-description",
+      teamId: null,
+      workspaceId: "workspace_1",
+    })
+  })
+
+  it("allows private work item creation without editable team access", async () => {
+    const state = createState()
+    state.teamMemberships = [
+      createTestTeamMembership({
+        role: "viewer",
+      }),
+    ]
+    const harness = await createWorkItemActionsHarness(state)
+
+    const createdItemId = harness.actions.createWorkItem({
+      teamId: "team_1",
+      type: "task",
+      title: "Private note",
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+      visibility: "private",
+    })
+
+    expect(createdItemId).toBeTruthy()
+    expect(toastErrorMock).not.toHaveBeenCalled()
+    expect(harness.state.workItems[0]).toMatchObject({
+      id: createdItemId,
       visibility: "private",
     })
   })

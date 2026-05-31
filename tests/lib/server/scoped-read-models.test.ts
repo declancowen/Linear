@@ -164,6 +164,7 @@ describe("authorizeScopedReadModelScopeKeysServer", () => {
       "document-detail:doc_private_1",
       "private-document-index:workspace_1:user_1",
       "private-search-seed:workspace_1:user_1",
+      "workspace-people:workspace_1",
     ])
   })
 
@@ -193,6 +194,7 @@ describe("authorizeScopedReadModelScopeKeysServer", () => {
     expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
       scopeKeys: [
         "workspace-membership:workspace_1",
+        "workspace-people:workspace_1",
         "search-seed:workspace_1",
       ],
     })

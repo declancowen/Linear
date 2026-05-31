@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   getAuthLifecycleError,
+  listPrivateWorkItemsByCreator,
   getWorkspaceEditRole,
   resolveActiveUserByIdentity,
   resolvePreferredWorkspaceId,
@@ -252,5 +253,41 @@ describe("Convex data helpers", () => {
         userId: "member_1",
       })
     ).rejects.toThrow("Workspace not found")
+  })
+
+  it("lists private work items by creator only", async () => {
+    const ctx = createMutableConvexTestCtx({
+      workItems: [
+        {
+          _id: "work_item_doc_1",
+          id: "work_item_1",
+          creatorId: "user_1",
+          teamId: "team_1",
+          visibility: "private",
+        },
+        {
+          _id: "work_item_doc_2",
+          id: "work_item_2",
+          creatorId: "user_1",
+          teamId: "team_2",
+          visibility: "team",
+        },
+        {
+          _id: "work_item_doc_3",
+          id: "work_item_3",
+          creatorId: "user_2",
+          teamId: "team_1",
+          visibility: "private",
+        },
+      ],
+    })
+
+    await expect(
+      listPrivateWorkItemsByCreator(ctx as never, "user_1")
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "work_item_1",
+      }),
+    ])
   })
 })

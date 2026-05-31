@@ -14,6 +14,7 @@ const listUsersByIdsMock = vi.fn()
 const getChannelConversationPathMock = vi.fn()
 const getChatConversationPathMock = vi.fn()
 const queueEmailJobsMock = vi.fn()
+const queueMentionAndCommentEmailJobsMock = vi.fn()
 
 vi.mock("@/convex/app/access", () => ({
   requireEditableTeamAccess: vi.fn(),
@@ -67,6 +68,7 @@ vi.mock("@/convex/app/normalization", () => ({
 
 vi.mock("@/convex/app/email_job_handlers", () => ({
   queueEmailJobs: queueEmailJobsMock,
+  queueMentionAndCommentEmailJobs: queueMentionAndCommentEmailJobsMock,
 }))
 
 function createConversation(overrides: Record<string, unknown> = {}) {
@@ -128,6 +130,7 @@ describe("chat message notifications", () => {
     getChannelConversationPathMock.mockReset()
     getChatConversationPathMock.mockReset()
     queueEmailJobsMock.mockReset()
+    queueMentionAndCommentEmailJobsMock.mockReset()
 
     createIdMock
       .mockReturnValueOnce("chat_message_1")

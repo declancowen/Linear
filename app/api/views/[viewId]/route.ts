@@ -58,6 +58,7 @@ const viewMutationSchema = z.discriminatedUnion("action", [
       "priority",
       "assigneeIds",
       "creatorIds",
+      "subscriberIds",
       "updatedByIds",
       "documentKinds",
       "linkedWorkItemIds",

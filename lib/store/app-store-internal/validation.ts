@@ -5,6 +5,7 @@ import {
   getLabelsForTeamScope,
   getTeamFeatureSettings,
   getTeamSurfaceDisableReason,
+  hasWorkspaceAccess,
   getWorkItemDescendantIds,
 } from "@/lib/domain/selectors"
 import {
@@ -22,6 +23,7 @@ import {
   resolveWorkItemProjectLinkUpdate,
   type WorkItemProjectLinkResolution,
 } from "@/lib/domain/work-item-project-links"
+import { isLabelAssignableToWorkItem } from "@/lib/domain/labels"
 import { getResolvedWorkItemMutationAssigneeIds } from "@/lib/domain/work-item-assignees"
 import { isValidTimeValue, isValidTimeZone } from "@/lib/time-zone"
 import type { CreateProjectInput } from "@/lib/domain/project-inputs"
@@ -149,6 +151,10 @@ function getWorkItemAssigneeValidationMessage(
   state: AppData,
   input: WorkItemValidationInput
 ) {
+  if (input.visibility === "private") {
+    return null
+  }
+
   const teamMemberIds = new Set(getTeamMemberIds(state, input.teamId))
   const assigneeIds = getResolvedWorkItemMutationAssigneeIds(input)
 
@@ -161,17 +167,85 @@ function getWorkItemLabelValidationMessage(
   state: AppData,
   input: WorkItemValidationInput
 ) {
-  if (!("labelIds" in input) || !input.labelIds) {
+  const labelIds = getWorkItemValidationLabelIds(input)
+
+  if (!labelIds) {
     return null
   }
 
-  const availableLabelIds = new Set(
-    getLabelsForTeamScope(state, input.teamId).map((label) => label.id)
-  )
+  const workspaceId = getWorkItemLabelWorkspaceId(state, input.teamId)
 
-  return input.labelIds.some((labelId) => !availableLabelIds.has(labelId))
-    ? "One or more labels are invalid"
-    : null
+  if (!workspaceId) {
+    return "Team not found"
+  }
+
+  if (hasInvalidWorkItemLabels(state, input, workspaceId, labelIds)) {
+    return "One or more labels are invalid"
+  }
+
+  return null
+}
+
+function getWorkItemValidationLabelIds(input: WorkItemValidationInput) {
+  if (!("labelIds" in input)) {
+    return null
+  }
+
+  return input.labelIds ?? null
+}
+
+function getWorkItemLabelWorkspaceId(state: AppData, teamId: string) {
+  return state.teams.find((entry) => entry.id === teamId)?.workspaceId ?? null
+}
+
+function hasInvalidWorkItemLabels(
+  state: AppData,
+  input: WorkItemValidationInput,
+  workspaceId: string,
+  labelIds: string[]
+) {
+  return labelIds.some((labelId) =>
+    isWorkItemLabelInvalid(state, input, workspaceId, labelId)
+  )
+}
+
+function isWorkItemLabelInvalid(
+  state: AppData,
+  input: WorkItemValidationInput,
+  workspaceId: string,
+  labelId: string
+) {
+  const label = state.labels.find((entry) => entry.id === labelId)
+
+  return (
+    !label ||
+    !isLabelAssignableToWorkItem(
+      label,
+      { visibility: input.visibility ?? "team" },
+      workspaceId,
+      state.currentUserId
+    )
+  )
+}
+
+function getPrivateWorkItemValidationMessage(input: WorkItemValidationInput) {
+  if (input.visibility !== "private") {
+    return null
+  }
+
+  if (input.type !== "task" && input.type !== "sub-task") {
+    return "Private tasks can only use task and sub-task types"
+  }
+
+  if (getResolvedWorkItemMutationAssigneeIds(input).length > 0) {
+    return "Private tasks cannot be assigned"
+  }
+
+  if (input.primaryProjectId) {
+    return "Private tasks cannot be linked to projects"
+  }
+
+  return null
 }
 
 function getWorkItemDateValidationMessage(input: WorkItemValidationInput) {
@@ -220,7 +294,18 @@ function getWorkItemParentValidationMessage(
     return "Parent item not found"
   }
 
-  if (parent.teamId !== input.teamId) {
+  if (input.visibility === "private") {
+    if (
+      parent.visibility !== "private" ||
+      parent.creatorId !== state.currentUserId
+    ) {
+      return "Private task parent must be one of your private tasks"
+    }
+  } else if ((parent.visibility ?? "team") === "private") {
+    return "Parent item not found"
+  }
+
+  if (input.visibility !== "private" && parent.teamId !== input.teamId) {
     return "Parent item must belong to the same team"
   }
 
@@ -278,11 +363,19 @@ export function getWorkItemValidationMessage(
     return "Team not found"
   }
 
-  if (!getTeamFeatureSettings(team).issues) {
+  if (
+    input.visibility === "private" &&
+    !hasWorkspaceAccess(state, team.workspaceId, state.currentUserId)
+  ) {
+    return "Workspace not found"
+  }
+
+  if (input.visibility !== "private" && !getTeamFeatureSettings(team).issues) {
     return getWorkSurfaceCopy(team.settings.experience).disabledLabel
   }
 
   const preProjectValidationMessage =
+    getPrivateWorkItemValidationMessage(input) ??
     getWorkItemAssigneeValidationMessage(state, input) ??
     getWorkItemLabelValidationMessage(state, input) ??
     getWorkItemDateValidationMessage(input)
@@ -302,9 +395,12 @@ export function getWorkItemValidationMessage(
     return parentValidationMessage
   }
 
-  const resolvedPrimaryProjectId = parent
-    ? (parent.primaryProjectId ?? null)
-    : (input.primaryProjectId ?? null)
+  const resolvedPrimaryProjectId =
+    input.visibility === "private"
+      ? null
+      : parent
+        ? (parent.primaryProjectId ?? null)
+        : (input.primaryProjectId ?? null)
 
   return getWorkItemProjectValidationMessage(
     state,
@@ -413,6 +509,11 @@ export function getWorkItemCascadeDeletePlan(
       })
       .map((notification) => notification.id)
   )
+  const deletedWorkItemActivityIds = new Set(
+    state.workItemActivities
+      .filter((activity) => deletedItemIds.has(activity.itemId))
+      .map((activity) => activity.id)
+  )
   const nextWorkItems = state.workItems
     .filter((entry) => !deletedItemIds.has(entry.id))
     .map((entry) => {
@@ -455,6 +556,7 @@ export function getWorkItemCascadeDeletePlan(
     deletedCommentIds,
     deletedAttachmentIds,
     deletedNotificationIds,
+    deletedWorkItemActivityIds,
     nextWorkItems,
     nextDocuments,
   }

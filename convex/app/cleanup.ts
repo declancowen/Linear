@@ -36,6 +36,7 @@ import {
   listTeamsByIds,
   listViewsByScopes,
   listViewsByScope,
+  listWorkItemActivitiesByWorkItems,
   listWorkItemsByTeam,
   listWorkspaceMembershipsByUser,
   listWorkspacesOwnedByUser,
@@ -1278,6 +1279,7 @@ async function getUnreferencedUserReferenceSnapshot(ctx: MutationCtx) {
     comments,
     attachments,
     notifications,
+    workItemActivities,
     invites,
     projectUpdates,
     conversations,
@@ -1297,6 +1299,7 @@ async function getUnreferencedUserReferenceSnapshot(ctx: MutationCtx) {
     ctx.db.query("comments").collect(),
     ctx.db.query("attachments").collect(),
     ctx.db.query("notifications").collect(),
+    ctx.db.query("workItemActivities").collect(),
     ctx.db.query("invites").collect(),
     ctx.db.query("projectUpdates").collect(),
     ctx.db.query("conversations").collect(),
@@ -1317,6 +1320,7 @@ async function getUnreferencedUserReferenceSnapshot(ctx: MutationCtx) {
     documents,
     invites,
     notifications,
+    workItemActivities,
     projectUpdates,
     projects,
     teamMemberships,
@@ -1385,6 +1389,8 @@ const USER_REFERENCE_PREDICATES: UserReferencePredicate[] = [
       (notification) =>
         notification.userId === userId || notification.actorId === userId
     ),
+  (snapshot, userId) =>
+    snapshot.workItemActivities.some((activity) => activity.actorId === userId),
   (snapshot, userId) =>
     snapshot.invites.some((invite) => invite.invitedBy === userId),
   (snapshot, userId) =>
@@ -1530,6 +1536,7 @@ export async function cascadeDeleteTeamData(
     teamId: string
     syncWorkspaceChannel?: boolean
     cleanupGlobalState?: boolean
+    includePrivateWorkItems?: boolean
   }
 ) {
   const team = await getTeamDoc(ctx, input.teamId)
@@ -1555,15 +1562,23 @@ export async function cascadeDeleteTeamData(
     scopeId: team.id,
     scopeType: "team",
   })
-  const workItems = await listWorkItemsByTeam(ctx, team.id)
+  const allWorkItems = await listWorkItemsByTeam(ctx, team.id)
+  const workItems = input.includePrivateWorkItems
+    ? allWorkItems
+    : allWorkItems.filter(
+        (workItem) => (workItem.visibility ?? "team") !== "private"
+      )
   const deletedWorkItemIds = new Set(workItems.map((workItem) => workItem.id))
   const deletedDescriptionDocIds = new Set(
     workItems.map((workItem) => workItem.descriptionDocId)
   )
-  const [teamDocuments, descriptionDocuments] = await Promise.all([
+  const [allTeamDocuments, descriptionDocuments] = await Promise.all([
     listTeamDocuments(ctx, team.id),
     listDocumentsByIds(ctx, deletedDescriptionDocIds),
   ])
+  const teamDocuments = input.includePrivateWorkItems
+    ? allTeamDocuments
+    : allTeamDocuments.filter((document) => document.kind !== "item-description")
   const documents = dedupeById([...teamDocuments, ...descriptionDocuments])
   const deletedDocumentIds = new Set(documents.map((document) => document.id))
   const views = await listViewsByScope(ctx, "team", team.id)
@@ -1583,6 +1598,7 @@ export async function cascadeDeleteTeamData(
     documentComments,
     documentPresence,
     invites,
+    workItemActivities,
   ] = await Promise.all([
     listAttachmentsByTargets(ctx, {
       targetType: "workItem",
@@ -1602,6 +1618,7 @@ export async function cascadeDeleteTeamData(
     }),
     listDocumentPresenceByDocuments(ctx, deletedDocumentIds),
     listInvitesByTeam(ctx, team.id),
+    listWorkItemActivitiesByWorkItems(ctx, deletedWorkItemIds),
   ])
   const attachments = [...workItemAttachments, ...documentAttachments]
   const comments = [...workItemComments, ...documentComments]
@@ -1644,6 +1661,7 @@ export async function cascadeDeleteTeamData(
     comments,
     attachments,
     documentPresence,
+    workItemActivities,
     notifications,
     projectUpdates,
     invites,

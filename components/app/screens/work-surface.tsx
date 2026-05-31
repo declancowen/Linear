@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useAppSearchParams } from "@/lib/browser/app-navigation"
 import { useShallow } from "zustand/react/shallow"
-import { Plus } from "@phosphor-icons/react"
+import { ArrowCounterClockwise, Plus } from "@phosphor-icons/react"
 
 import {
   canEditTeam,
@@ -492,6 +492,7 @@ function WorkSurfaceViewbar({
   onToggleViewerDisplayProperty,
   onReorderViewerDisplayProperties,
   onClearViewerDisplayProperties,
+  onResetViewerView,
   onCreateWorkItem,
   calendar,
 }: {
@@ -510,6 +511,7 @@ function WorkSurfaceViewbar({
     displayProps: ViewDefinition["displayProps"]
   ) => void
   onClearViewerDisplayProperties: () => void
+  onResetViewerView: () => void
   onCreateWorkItem: () => void
   calendar: WorkSurfaceCalendarState
 }) {
@@ -552,6 +554,15 @@ function WorkSurfaceViewbar({
         {view.layout === "calendar" ? (
           <WorkSurfaceCalendarSettingsButton calendar={calendar} />
         ) : null}
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
+          onClick={onResetViewerView}
+        >
+          <ArrowCounterClockwise className="size-3.5" />
+          Reset
+        </Button>
         <Button
           size="sm"
           variant="default"
@@ -799,10 +810,12 @@ function WorkSurfaceActiveContent({
 
 function useViewerViewActions({
   activeView,
+  onResetFallbackView,
   onUpdateFallbackView,
   routeKey,
 }: {
   activeView: ViewDefinition | null
+  onResetFallbackView?: (viewId: string) => void
   onUpdateFallbackView?: (
     viewId: string,
     updateView: (view: ViewDefinition) => ViewDefinition
@@ -831,6 +844,19 @@ function useViewerViewActions({
     }
 
     useAppStore.getState().patchViewerViewConfig(routeKey, activeViewId, patch)
+  }
+
+  function resetViewerActiveView() {
+    if (!activeViewId) {
+      return
+    }
+
+    if (onResetFallbackView) {
+      onResetFallbackView(activeViewId)
+      return
+    }
+
+    useAppStore.getState().resetViewerViewConfig(routeKey, activeViewId)
   }
 
   function toggleViewerActiveViewFilterValue(
@@ -976,6 +1002,7 @@ function useViewerViewActions({
     clearViewerActiveDisplayProperties,
     clearViewerActiveViewFilters,
     reorderViewerActiveDisplayProperties,
+    resetViewerActiveView,
     toggleViewerActiveDisplayProperty,
     toggleViewerActiveHiddenValue,
     toggleViewerActiveViewFilterValue,
@@ -1143,8 +1170,25 @@ export function WorkSurface({
     )
   }
 
+  function resetLocalFallbackView(viewId: string) {
+    const sourceView = fallbackViews.find((view) => view.id === viewId)
+
+    if (!sourceView) {
+      return
+    }
+
+    setLocalFallbackViews((currentViews) =>
+      currentViews.map((view) =>
+        view.id === viewId ? cloneFallbackView(sourceView) : view
+      )
+    )
+  }
+
   const viewerViewActions = useViewerViewActions({
     activeView,
+    onResetFallbackView: usingFallbackViews
+      ? resetLocalFallbackView
+      : undefined,
     onUpdateFallbackView: usingFallbackViews
       ? updateLocalFallbackView
       : undefined,
@@ -1216,6 +1260,7 @@ export function WorkSurface({
           onClearViewerDisplayProperties={
             viewerViewActions.clearViewerActiveDisplayProperties
           }
+          onResetViewerView={viewerViewActions.resetViewerActiveView}
           calendar={calendar}
           onCreateWorkItem={handleCreateWorkItem}
         />

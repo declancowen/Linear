@@ -8,6 +8,7 @@ import {
   Kanban,
   MagnifyingGlass,
   Target,
+  UserCircle,
   UsersThree,
   FileText,
 } from "@phosphor-icons/react"
@@ -60,6 +61,10 @@ function resultIcon(
 
   if (result.kind === "team") {
     return teamIcon ? <TeamIconGlyph icon={teamIcon} /> : <UsersThree />
+  }
+
+  if (result.kind === "person") {
+    return <UserCircle />
   }
 
   if (result.kind === "project") {
@@ -146,6 +151,7 @@ export function GlobalSearchDialog({
     () => ({
       navigation: results.filter((result) => result.kind === "navigation"),
       teams: results.filter((result) => result.kind === "team"),
+      people: results.filter((result) => result.kind === "person"),
       projects: results.filter((result) => result.kind === "project"),
       work: results.filter((result) => result.kind === "item"),
       docs: results.filter((result) => result.kind === "document"),
@@ -166,6 +172,7 @@ export function GlobalSearchDialog({
       items: groupedResults.navigation,
     },
     { key: "teams", heading: "Teams", items: groupedResults.teams },
+    { key: "people", heading: "People", items: groupedResults.people },
     { key: "projects", heading: "Projects", items: groupedResults.projects },
     { key: "work", heading: "Work Items", items: groupedResults.work },
     { key: "docs", heading: "Documents", items: groupedResults.docs },
@@ -190,7 +197,7 @@ export function GlobalSearchDialog({
       open={open}
       onOpenChange={onOpenChange}
       title="Global Search"
-      description="Search work items, projects, docs, teams, and navigation."
+      description="Search work items, people, projects, docs, teams, and navigation."
       className="!top-[12vh] !w-[min(52rem,calc(100%-2rem))] !max-w-none overflow-hidden p-0 sm:!top-[14vh]"
     >
       <Command shouldFilter={false} className="!h-[min(32rem,72vh)] p-0">

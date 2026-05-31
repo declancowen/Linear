@@ -164,6 +164,7 @@ import {
   heartbeatWorkItemPresenceHandler,
   persistCollaborationWorkItemHandler,
   shiftTimelineItemHandler,
+  setWorkItemSubscriptionHandler,
   updateWorkItemHandler,
 } from "./app/work_item_handlers"
 import {
@@ -704,6 +705,7 @@ export const updateCurrentUserProfile = mutation({
     preferences: v.object({
       emailMentions: v.boolean(),
       emailAssignments: v.boolean(),
+      emailComments: v.optional(v.boolean()),
       emailDigest: v.boolean(),
       theme: v.optional(themePreferenceValidator),
       timeZone: v.optional(v.string()),
@@ -1027,6 +1029,7 @@ export const toggleViewFilterValue = mutation({
       v.literal("priority"),
       v.literal("assigneeIds"),
       v.literal("creatorIds"),
+      v.literal("subscriberIds"),
       v.literal("updatedByIds"),
       v.literal("documentKinds"),
       v.literal("linkedWorkItemIds"),
@@ -1076,6 +1079,16 @@ export const updateWorkItem = mutation({
     }),
   },
   handler: updateWorkItemHandler,
+})
+
+export const setWorkItemSubscription = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    itemId: v.string(),
+    subscribed: v.boolean(),
+  },
+  handler: setWorkItemSubscriptionHandler,
 })
 
 export const persistCollaborationWorkItem = operationalMutation({

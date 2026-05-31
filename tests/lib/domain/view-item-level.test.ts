@@ -515,6 +515,7 @@ describe("view item levels", () => {
       createTestWorkItem("unrelated", {
         type: "task",
         assigneeId: "user_2",
+        subscriberIds: [],
       }),
     ]
 
@@ -559,7 +560,10 @@ describe("view item levels", () => {
   it("returns the lowest assigned descendants when compressing personal work hierarchies", () => {
     const state = createEmptyState()
     state.currentUserId = "user_1"
-    const epic = createTestWorkItem("epic", { type: "epic" })
+    const epic = createTestWorkItem("epic", {
+      type: "epic",
+      subscriberIds: [],
+    })
     const feature = createTestWorkItem("feature", {
       type: "feature",
       parentId: epic.id,
@@ -594,7 +598,7 @@ describe("view item levels", () => {
     ).toEqual(["story"])
   })
 
-  it("does not let assigned descendant filters pull in filtered-out parent items", () => {
+  it("lifts matching assigned descendants into selected parent containers", () => {
     const state = createEmptyState()
     const epic = createTestWorkItem("epic", {
       type: "epic",
@@ -628,7 +632,80 @@ describe("view item levels", () => {
           childDisplayMode: "assigned-descendants",
         }
       ).map((item) => item.id)
-    ).toEqual([])
+    ).toEqual(["epic"])
+  })
+
+  it("shows selected parent context for subscribed child items", () => {
+    const state = createEmptyState()
+    state.currentUserId = "user_1"
+    const epic = createTestWorkItem("epic", {
+      type: "epic",
+      subscriberIds: [],
+    })
+    const feature = createTestWorkItem("feature", {
+      type: "feature",
+      parentId: epic.id,
+      subscriberIds: [],
+    })
+    const story = createTestWorkItem("story", {
+      type: "story",
+      parentId: feature.id,
+      subscriberIds: ["user_1"],
+    })
+
+    expect(
+      getVisibleItemsForView(
+        state,
+        [epic, feature, story],
+        createView({
+          itemLevel: "epic",
+          filters: {
+            ...createView().filters,
+            subscriberIds: ["user_1"],
+          },
+        }),
+        {
+          matchItems: [story],
+          childDisplayMode: "assigned-descendants",
+        }
+      ).map((item) => item.id)
+    ).toEqual(["epic"])
+  })
+
+  it("shows direct children under subscribed parent items", () => {
+    const state = createEmptyState()
+    state.currentUserId = "user_1"
+    const epic = createTestWorkItem("epic", {
+      type: "epic",
+      subscriberIds: ["user_1"],
+    })
+    const feature = createTestWorkItem("feature", {
+      type: "feature",
+      parentId: epic.id,
+      subscriberIds: [],
+    })
+
+    state.workItems = [epic, feature]
+
+    expect(
+      getDirectChildWorkItemsForDisplay(
+        state,
+        epic,
+        "priority",
+        createView({
+          itemLevel: "epic",
+          showChildItems: true,
+          filters: {
+            ...createView().filters,
+            subscriberIds: ["user_1"],
+          },
+        }),
+        state.workItems,
+        {
+          mode: "assigned-descendants",
+        }
+      ).map((item) => item.id)
+    ).toEqual(["feature"])
   })
 
   it("includes workspace-scoped views when listing workspace views", () => {

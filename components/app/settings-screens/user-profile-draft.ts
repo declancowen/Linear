@@ -12,6 +12,7 @@ type UserProfileDraftSource = {
   email: string
   emailMentions: boolean
   emailAssignments: boolean
+  emailComments: boolean
   emailDigest: boolean
   timeZone: string
 }
@@ -30,6 +31,7 @@ export function getUserProfileDraftSource(
       email: "",
       emailMentions: false,
       emailAssignments: false,
+      emailComments: false,
       emailDigest: false,
       timeZone: getBrowserTimeZone(),
     }
@@ -51,6 +53,7 @@ export function getUserProfileDraftSource(
     email: currentUser.email,
     emailMentions: currentUser.preferences.emailMentions,
     emailAssignments: currentUser.preferences.emailAssignments,
+    emailComments: currentUser.preferences.emailComments ?? true,
     emailDigest: currentUser.preferences.emailDigest,
     timeZone: normalizeTimeZone(
       currentUser.preferences.timeZone,

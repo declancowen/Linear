@@ -231,6 +231,7 @@ export function syncUpdateCurrentUserProfile(
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
+    emailComments?: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
     timeZone?: string
@@ -267,6 +268,7 @@ function buildCurrentUserProfileMutationBody(input: {
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
+    emailComments?: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
     timeZone?: string
@@ -305,6 +307,7 @@ type CurrentUserProfileMutationBody = {
   preferences: {
     emailMentions: boolean
     emailAssignments: boolean
+    emailComments?: boolean
     emailDigest: boolean
     theme: "light" | "dark" | "system"
     timeZone?: string

@@ -397,6 +397,7 @@ export type ViewConfigPatch = {
   showChildItems?: boolean
   showCompleted?: boolean
   showEmptyGroups?: boolean
+  filters?: Partial<ViewDefinition["filters"]>
 }
 
 export function getGroupFieldOptionLabel(field: GroupField) {
@@ -1624,6 +1625,26 @@ type ProjectFilterSectionData = {
   rows: ProjectFilterRowData[]
 }
 
+type ProjectFilterChipState = "active" | "emptyDashed" | "emptyDefault"
+
+const adaptiveProjectFilterChipClasses: Record<ProjectFilterChipState, string> =
+  {
+    active: chipSelected,
+    emptyDashed: chipDashed,
+    emptyDefault: chipDefault,
+  }
+
+function getProjectFilterChipState(
+  activeCount: number,
+  dashedWhenEmpty: boolean
+): ProjectFilterChipState {
+  if (activeCount > 0) {
+    return "active"
+  }
+
+  return dashedWhenEmpty ? "emptyDashed" : "emptyDefault"
+}
+
 function getProjectFilterChipClass({
   activeCount,
   chipTone,
@@ -1633,17 +1654,13 @@ function getProjectFilterChipClass({
   chipTone: ChipTone | "adaptive"
   dashedWhenEmpty: boolean
 }) {
-  if (chipTone === "adaptive") {
-    if (activeCount > 0) {
-      return chipSelected
-    }
+  const chipState = getProjectFilterChipState(activeCount, dashedWhenEmpty)
 
-    return dashedWhenEmpty ? chipDashed : chipDefault
-  }
-
-  return activeCount === 0 && dashedWhenEmpty
-    ? chipDashed
-    : getChipToneClass(chipTone)
+  return chipTone === "adaptive"
+    ? adaptiveProjectFilterChipClasses[chipState]
+    : chipState === "emptyDashed"
+      ? chipDashed
+      : getChipToneClass(chipTone)
 }
 
 function ProjectFilterSectionList({
@@ -2074,61 +2091,118 @@ function ViewSortChipPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(chipBase, "work-view-chip", getChipToneClass(tone))}
-        >
-          <SortAscending className="size-3.5 shrink-0" />
-          <span className="shrink-0">
-            {label ?? ORDERING_LABELS[view.ordering]}
-          </span>
-          {showValue ? (
-            <span className="work-view-chip-value font-semibold">
-              {label ? `· ${ORDERING_LABELS[view.ordering]}` : null}
-            </span>
-          ) : null}
-          <CaretDown className="size-3 shrink-0 opacity-70" />
-        </button>
+        <ViewSortChipButton
+          label={label}
+          ordering={view.ordering}
+          showValue={showValue}
+          tone={tone}
+        />
       </PopoverTrigger>
       <PopoverContent
         align="start"
         className={cn(PROPERTY_POPOVER_CLASS, contentWidthClassName)}
       >
-        <PropertyPopoverList>
-          <PropertyPopoverGroup>Order by</PropertyPopoverGroup>
-          {options.map((option) => {
-            const active = view.ordering === option
-            return (
-              <PropertyPopoverItem
-                key={option}
-                selected={active}
-                onClick={() =>
-                  updateViewConfig(view, onUpdateView, { ordering: option })
-                }
-                trailing={
-                  active ? <Check className="size-3.5 text-accent-fg" /> : null
-                }
-              >
-                {ORDERING_LABELS[option]}
-              </PropertyPopoverItem>
-            )
-          })}
-        </PropertyPopoverList>
-        {showCompletedToggle ? (
-          <div className="flex items-center justify-between border-t border-line-soft px-3 py-2">
-            <span className="text-[11px] text-fg-2">Hide completed</span>
-            <Switch
-              checked={!view.filters.showCompleted}
-              onCheckedChange={(checked) =>
-                updateViewConfig(view, onUpdateView, {
-                  showCompleted: !checked,
-                })
-              }
-            />
-          </div>
-        ) : null}
+        <ViewSortOptionsList
+          options={options}
+          view={view}
+          onUpdateView={onUpdateView}
+        />
+        <ViewSortCompletedToggle
+          show={showCompletedToggle}
+          view={view}
+          onUpdateView={onUpdateView}
+        />
       </PopoverContent>
     </Popover>
+  )
+}
+
+function ViewSortChipButton({
+  label,
+  ordering,
+  showValue,
+  tone,
+}: {
+  label?: string
+  ordering: OrderingField
+  showValue: boolean
+  tone: ChipTone
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(chipBase, "work-view-chip", getChipToneClass(tone))}
+    >
+      <SortAscending className="size-3.5 shrink-0" />
+      <span className="shrink-0">{label ?? ORDERING_LABELS[ordering]}</span>
+      {showValue ? (
+        <span className="work-view-chip-value font-semibold">
+          {label ? `· ${ORDERING_LABELS[ordering]}` : null}
+        </span>
+      ) : null}
+      <CaretDown className="size-3 shrink-0 opacity-70" />
+    </button>
+  )
+}
+
+function ViewSortOptionsList({
+  options,
+  view,
+  onUpdateView,
+}: {
+  options: OrderingField[]
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+}) {
+  return (
+    <PropertyPopoverList>
+      <PropertyPopoverGroup>Order by</PropertyPopoverGroup>
+      {options.map((option) => {
+        const active = view.ordering === option
+        return (
+          <PropertyPopoverItem
+            key={option}
+            selected={active}
+            onClick={() =>
+              updateViewConfig(view, onUpdateView, { ordering: option })
+            }
+            trailing={
+              active ? <Check className="size-3.5 text-accent-fg" /> : null
+            }
+          >
+            {ORDERING_LABELS[option]}
+          </PropertyPopoverItem>
+        )
+      })}
+    </PropertyPopoverList>
+  )
+}
+
+function ViewSortCompletedToggle({
+  show,
+  view,
+  onUpdateView,
+}: {
+  show: boolean
+  view: ViewDefinition
+  onUpdateView?: (patch: ViewConfigPatch) => void
+}) {
+  if (!show) {
+    return null
+  }
+
+  return (
+    <div className="flex items-center justify-between border-t border-line-soft px-3 py-2">
+      <span className="text-[11px] text-fg-2">Hide completed</span>
+      <Switch
+        checked={!view.filters.showCompleted}
+        onCheckedChange={(checked) =>
+          updateViewConfig(view, onUpdateView, {
+            showCompleted: !checked,
+          })
+        }
+      />
+    </div>
   )
 }
 
@@ -2802,7 +2876,102 @@ function SortableDisplayPropertyRow({
   )
 }
 
-const privateTaskLevelOptions = ["task"] satisfies WorkItemType[]
+const privateTaskLevelOptions = ["task", "sub-task"] satisfies WorkItemType[]
+const myItemsParentLevelGroups = [
+  {
+    key: "software-development",
+    label: "Software development",
+    options: ["epic", "feature", "requirement", "story"],
+  },
+  {
+    key: "issue-analysis",
+    label: "Issues",
+    options: ["issue"],
+  },
+  {
+    key: "project-management",
+    label: "Project management",
+    options: ["task"],
+  },
+] satisfies Array<{
+  key: TeamExperienceType
+  label: string
+  options: WorkItemType[]
+}>
+const myItemsParentLevelOptions = myItemsParentLevelGroups.flatMap(
+  (group) => group.options
+) as WorkItemType[]
+
+function isMyItemsParentLevelView(
+  view: ViewDefinition,
+  privateTaskView: boolean
+) {
+  return (
+    !privateTaskView &&
+    view.entityKind === "items" &&
+    view.scopeType === "personal" &&
+    view.route === "/assigned"
+  )
+}
+
+function getMyItemsParentLevelGroupKey(itemType: WorkItemType) {
+  return (
+    myItemsParentLevelGroups.find((group) =>
+      (group.options as readonly WorkItemType[]).includes(itemType)
+    )?.key ?? null
+  )
+}
+
+function getSelectedMyItemsParentLevels(view: ViewDefinition) {
+  const selected = view.filters.itemTypes.filter((itemType) =>
+    myItemsParentLevelOptions.includes(itemType)
+  )
+
+  if (selected.length > 0) {
+    return selected
+  }
+
+  return view.itemLevel && myItemsParentLevelOptions.includes(view.itemLevel)
+    ? [view.itemLevel]
+    : []
+}
+
+function getNextMyItemsParentLevels(
+  selectedLevels: WorkItemType[],
+  itemType: WorkItemType
+) {
+  const groupKey = getMyItemsParentLevelGroupKey(itemType)
+
+  if (!groupKey) {
+    return selectedLevels
+  }
+
+  if (selectedLevels.includes(itemType)) {
+    return selectedLevels.filter((level) => level !== itemType)
+  }
+
+  return [
+    ...selectedLevels.filter(
+      (level) => getMyItemsParentLevelGroupKey(level) !== groupKey
+    ),
+    itemType,
+  ]
+}
+
+function getMyItemsParentLevelLabel(
+  selectedLevels: WorkItemType[],
+  experience: TeamExperienceType | null | undefined
+) {
+  if (selectedLevels.length === 0) {
+    return "All parents"
+  }
+
+  if (selectedLevels.length === 1) {
+    return getDisplayLabelForWorkItemType(selectedLevels[0], experience)
+  }
+
+  return `${selectedLevels.length} parents`
+}
 
 function getBaseItemLevelOptions({
   isPrivateTaskView,
@@ -2873,28 +3042,41 @@ export function LevelChipPopover({
   const isPrivateTaskView = Boolean(
     view.entityKind === "items" && view.filters.visibility?.includes("private")
   )
+  const isMyItemsLevelView = isMyItemsParentLevelView(view, isPrivateTaskView)
   const itemLevelExperience = isPrivateTaskView
     ? "project-management"
     : team?.settings.experience
-  const itemLevelOptions = getLevelChipItemOptions({
-    isPrivateTaskView,
-    team,
-    view,
-  })
+  const itemLevelOptions = isMyItemsLevelView
+    ? myItemsParentLevelOptions
+    : getLevelChipItemOptions({
+        isPrivateTaskView,
+        team,
+        view,
+      })
 
   if (view.entityKind !== "items" || itemLevelOptions.length === 0) {
     return null
   }
 
-  const effectiveItemLevel = view.itemLevel ?? itemLevelOptions[0] ?? null
+  const selectedMyItemsLevels = isMyItemsLevelView
+    ? getSelectedMyItemsParentLevels(view)
+    : []
+  const effectiveItemLevel =
+    selectedMyItemsLevels[0] ?? view.itemLevel ?? itemLevelOptions[0] ?? null
   const childCopy = getChildWorkItemCopy(
     effectiveItemLevel,
     itemLevelExperience
   )
-  const canShowChildItems = Boolean(childCopy?.childType)
-  const currentLabel = effectiveItemLevel
-    ? getDisplayLabelForWorkItemType(effectiveItemLevel, itemLevelExperience)
-    : "Level"
+  const canShowChildItems = isMyItemsLevelView
+    ? selectedMyItemsLevels.some((level) =>
+        getDefaultShowChildItemsForItemLevel(level)
+      )
+    : Boolean(childCopy?.childType)
+  const currentLabel = isMyItemsLevelView
+    ? getMyItemsParentLevelLabel(selectedMyItemsLevels, itemLevelExperience)
+    : effectiveItemLevel
+      ? getDisplayLabelForWorkItemType(effectiveItemLevel, itemLevelExperience)
+      : "Level"
   const handleUpdateView = createViewConfigUpdater(view.id, onUpdateView)
 
   return (
@@ -2911,43 +3093,89 @@ export function LevelChipPopover({
         />
       </PopoverTrigger>
       <PopoverContent align="start" className={PROPERTY_POPOVER_CLASS}>
-        <PropertyPopoverList>
-          <PropertyPopoverGroup>Highest parent</PropertyPopoverGroup>
-          {itemLevelOptions.map((option) => {
-            const active = effectiveItemLevel === option
-            return (
-              <PropertyPopoverItem
-                key={option}
-                selected={active}
-                onClick={() => {
-                  const currentCanShowChildItems =
-                    getDefaultShowChildItemsForItemLevel(effectiveItemLevel)
-                  const nextCanShowChildItems =
-                    getDefaultShowChildItemsForItemLevel(option)
+        {isMyItemsLevelView ? (
+          <PropertyPopoverList>
+            <PropertyPopoverGroup>Highest parent</PropertyPopoverGroup>
+            {myItemsParentLevelGroups.map((group) => (
+              <div key={group.key}>
+                <PropertyPopoverGroup>{group.label}</PropertyPopoverGroup>
+                {group.options.map((option) => {
+                  const active = selectedMyItemsLevels.includes(option)
+                  return (
+                    <PropertyPopoverItem
+                      key={option}
+                      selected={active}
+                      onClick={() => {
+                        const nextLevels = getNextMyItemsParentLevels(
+                          selectedMyItemsLevels,
+                          option
+                        )
 
-                  handleUpdateView({
-                    itemLevel: option,
-                    ...(nextCanShowChildItems
-                      ? currentCanShowChildItems
-                        ? {}
-                        : { showChildItems: true }
-                      : { showChildItems: false }),
-                  })
-                }}
-                trailing={
-                  active ? <Check className="size-3.5 text-accent-fg" /> : null
-                }
-              >
-                {getDisplayLabelForWorkItemType(option, itemLevelExperience)}
-              </PropertyPopoverItem>
-            )
-          })}
-        </PropertyPopoverList>
+                        handleUpdateView({
+                          itemLevel: null,
+                          filters: { itemTypes: nextLevels },
+                          ...(nextLevels.length > 0
+                            ? { showChildItems: true }
+                            : {}),
+                        })
+                      }}
+                      trailing={
+                        active ? (
+                          <Check className="size-3.5 text-accent-fg" />
+                        ) : null
+                      }
+                    >
+                      {getDisplayLabelForWorkItemType(
+                        option,
+                        itemLevelExperience
+                      )}
+                    </PropertyPopoverItem>
+                  )
+                })}
+              </div>
+            ))}
+          </PropertyPopoverList>
+        ) : (
+          <PropertyPopoverList>
+            <PropertyPopoverGroup>Highest parent</PropertyPopoverGroup>
+            {itemLevelOptions.map((option) => {
+              const active = effectiveItemLevel === option
+              return (
+                <PropertyPopoverItem
+                  key={option}
+                  selected={active}
+                  onClick={() => {
+                    const currentCanShowChildItems =
+                      getDefaultShowChildItemsForItemLevel(effectiveItemLevel)
+                    const nextCanShowChildItems =
+                      getDefaultShowChildItemsForItemLevel(option)
+
+                    handleUpdateView({
+                      itemLevel: option,
+                      ...(nextCanShowChildItems
+                        ? currentCanShowChildItems
+                          ? {}
+                          : { showChildItems: true }
+                        : { showChildItems: false }),
+                    })
+                  }}
+                  trailing={
+                    active ? (
+                      <Check className="size-3.5 text-accent-fg" />
+                    ) : null
+                  }
+                >
+                  {getDisplayLabelForWorkItemType(option, itemLevelExperience)}
+                </PropertyPopoverItem>
+              )
+            })}
+          </PropertyPopoverList>
+        )}
         {canShowChildItems ? (
           <div className="flex items-center justify-between gap-3 border-t border-line-soft px-2.5 py-2">
             <div className="min-w-0">
               <div className="text-[12.5px] font-medium text-foreground">
-                Show {childCopy?.childPluralLabel.toLowerCase()}
+                Show child items
               </div>
               <div className="text-[11px] text-fg-3">
                 Nest the next child level beneath each parent.
