@@ -35,11 +35,104 @@
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-05-31 |
-| **Last reviewed** | 2026-05-31 11:06 BST |
-| **Total turns** | 4 |
+| **Last reviewed** | 2026-05-31 11:26 BST |
+| **Total turns** | 5 |
 | **Open findings** | 0 |
-| **Resolved findings** | 2 |
+| **Resolved findings** | 4 |
 | **Accepted findings** | 0 |
+
+## Turn 5 - 2026-05-31 11:26 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | 380ea965 working tree |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the second Codex PR review feedback on PR #45 and fixed the live team-deletion/private-work preservation issue. Team deletion now writes the team workspace onto preserved private work items before the team row is removed, detaches their description documents from the deleted team, and keeps private labels referenced by preserved private work items during workspace label cleanup.
+
+**Outcome:** all clear after deep review and normal re-review; no open findings.
+
+**Risk score:** high - destructive cleanup, private-task continuity, workspace/label ownership, and legacy-data compatibility.
+
+**Change archetypes:** external PR finding, destructive cleanup, privacy/tenancy, compatibility/legacy data, label/reference cleanup, regression hardening.
+
+**Intended change:** resolve the PR review without depending on manually deleted legacy PVT rows, while keeping new private-task design data visible and owned by the workspace after team deletion.
+
+**Intent vs actual:** matches intent. Deleted legacy rows reduce current data exposure, but the cleanup path still handles future restored/imported rows and new private tasks that are preserved when a team is deleted.
+
+**Confidence:** high for the backend cleanup fix. The fix has focused cleanup/bootstrap regression coverage, a full test/build pass, typecheck, lint, diff whitespace, and Fallow changed-file audit.
+
+**Coverage note:** targeted cleanup/bootstrap tests, full Vitest suite, typecheck, lint, build, diff whitespace check, and changed-file Fallow audit all passed.
+
+**Finding triage:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| Codex PR review | Team deletion can preserve legacy private items without workspace backfill | resolved | Data Lifecycle / Compatibility and Legacy Data | Preserved private item must not depend on a soon-deleted team row to resolve workspace | Resolved by patching preserved private item `workspaceId` and detaching its description document before team deletion |
+| Deep local review | Workspace label cleanup can drop labels only referenced by preserved private work items | resolved | Data Lifecycle / Reference Cleanup | Preserved private work item references must remain visible to workspace cleanup after the team is deleted | Resolved by including workspace-scoped private work items in label-reference cleanup and adding a regression test |
+
+**Static/analyzer evidence:** `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` passed with 94 changed files, 0 dead-code issues, 0 complexity findings, and 0 duplication clone groups. Fallow still emits the known `node_modules directory not found` warnings while returning a passing verdict.
+
+**Architecture impact:** strengthened the cleanup/data lifecycle boundary. The destructive team-cleanup owner now preserves private-task workspace identity and document ownership before deleting the team, and label cleanup derives references from workspace-private work items instead of only surviving team membership.
+
+**Deep-review evidence:** Pass A (correctness/safety) found the PR review issue live and found the adjacent private-label cleanup variant before commit. Pass B (maintainability/structure) found the added cleanup helper acceptable because the extra scan is in an infrequent destructive/admin path and keeps the invariant in the cleanup owner. Normal re-review after both fixes found no additional issue.
+
+**Bug classes / invariants checked:** preserved private tasks need a durable workspace, private description docs must not remain team-linked after team deletion, preserved private labels must not be cleaned as unused, unused labels still clean up, and workspace deletion still uses `includePrivateWorkItems: true` to cascade private work with the workspace.
+
+**Branch totality:** current PR branch state and current working-tree delta were re-reviewed, with focus on `convex/app/cleanup.ts`, `convex/app/auth_bootstrap.ts`, label cleanup references, team/workspace deletion callers, private item creation shape, and prior private-task preservation tests.
+
+**Sibling closure:** checked team deletion, workspace deletion, bootstrap private-item workspace resolution, item-description document filtering, workspace label cleanup, private label assignment rules, and `cleanupGlobalState` variants.
+
+**Remediation impact surface:** backend-owned and narrow. The changes affect team deletion cleanup and label-reference cleanup plus focused Convex tests.
+
+**Residual risk / unknowns:** no browser smoke needed for this backend-only turn. Existing full-branch browser smoke gap from broad UI changes remains unchanged.
+
+### Validation
+
+- `pnpm vitest run tests/convex/cleanup.test.ts tests/convex/auth-bootstrap-health.test.ts` - passed, 2 files / 11 tests.
+- `pnpm typecheck` - passed.
+- `git diff --check` - passed.
+- `pnpm lint` - passed.
+- `pnpm exec fallow audit --changed-since origin/main --format json --quiet --explain` - passed.
+- `pnpm test` - passed, 210 files / 1293 tests.
+- `pnpm build` - passed.
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** team deletion handler, workspace deletion handler, cleanup label reference paths, private work item creation, bootstrap private item authorization, private label assignment rules, and cleanup tests.
+- **Prior open findings rechecked:** WI-PVT-002 remains resolved; the new PR feedback is recorded below as WI-PVT-003 and resolved in this turn.
+- **Prior resolved/adjacent areas revalidated:** private task preservation, private description docs, work item activities, bootstrap fail-closed private workspace resolution, and cleanup-global-state label deletion remain valid.
+- **Hotspots or sibling paths revisited:** `cascadeDeleteTeamData`, `preservePrivateWorkItemsForTeamDelete`, `cleanupUnusedLabels`, `listWorkspaceLabelReferences`, `deleteTeamHandler`, `deleteWorkspaceHandler`, and `canCurrentUserSeeBootstrapWorkItem`.
+- **Dependency/adjacent surfaces revalidated:** targeted tests, full test suite, typecheck, lint, build, diff whitespace, and Fallow changed-file audit.
+- **Why this is enough:** the live bug was in the destructive cleanup owner; the fix runs before team deletion and the regression test covers both workspace/document preservation and the adjacent private-label reference variant.
+
+### Challenger pass
+
+- done - assumed preserving private work items still lost adjacent private state and checked documents, activities, notifications, labels, bootstrap visibility, workspace deletion, and include-private cascade variants. The label cleanup issue was found and fixed; no further live issue found.
+
+### Resolved / Carried / New findings
+
+#### WI-PVT-003 [Medium] Team deletion preserves private items without durable workspace backfill - resolved
+
+The PR review correctly identified that preserving private work items while deleting their team could leave legacy private rows without `workspaceId`; after the bootstrap fix, those rows would fail closed and disappear because their only workspace fallback was the deleted team.
+
+**Fix:** team deletion now patches preserved private work items with the team workspace and detaches their description documents from the deleted team before deleting records.
+
+**Resolution evidence:** `convex/app/cleanup.ts`, `tests/convex/cleanup.test.ts`.
+
+#### WI-PVT-004 [Medium] Workspace label cleanup can delete labels used only by preserved private work items - resolved
+
+During deep review of the cleanup fix, workspace label cleanup still discovered work item label references through surviving workspace teams. A private work item preserved from a deleted team could therefore keep a private label ID while the label row was cleaned up as unused.
+
+**Fix:** workspace label cleanup now includes private work items by workspace as label-reference owners and dedupes them with surviving team work items. A regression proves the used private label remains and an unused private label is removed.
+
+**Resolution evidence:** `convex/app/cleanup.ts`, `tests/convex/cleanup.test.ts`.
+
+### Recommendations
+
+1. **Fix first:** none.
+2. **Then address:** push the branch and wait for the automated PR review/checks before starting another review loop.
+3. **Patterns noticed:** destructive cleanup must preserve all references owned by an entity it intentionally keeps, not only the primary row.
 
 ## Turn 4 - 2026-05-31 11:06 BST
 

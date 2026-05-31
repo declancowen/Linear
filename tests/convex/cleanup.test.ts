@@ -43,6 +43,24 @@ function createCascadeDeleteTeamCtx() {
       },
     ],
     invites: [],
+    labels: [
+      {
+        _id: "private_label_doc",
+        id: "private_label",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_1",
+        name: "Private",
+      },
+      {
+        _id: "unused_label_doc",
+        id: "unused_label",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_1",
+        name: "Unused",
+      },
+    ],
     milestones: [],
     notifications: [],
     projectUpdates: [],
@@ -79,6 +97,7 @@ function createCascadeDeleteTeamCtx() {
         visibility: "team",
         linkedDocumentIds: [],
         linkedProjectIds: [],
+        labelIds: [],
         primaryProjectId: null,
         milestoneId: null,
       },
@@ -90,10 +109,18 @@ function createCascadeDeleteTeamCtx() {
         visibility: "private",
         linkedDocumentIds: [],
         linkedProjectIds: [],
+        labelIds: ["private_label"],
         primaryProjectId: null,
         milestoneId: null,
       },
     ],
+    workspaces: [
+      {
+        _id: "workspace_doc",
+        id: "workspace_1",
+      },
+    ],
+    workspaceMemberships: [],
   })
 
   return {
@@ -118,16 +145,35 @@ describe("cleanup handlers", () => {
     expect(ctx.tables.workItems).toEqual([
       expect.objectContaining({
         id: "private_item",
+        workspaceId: "workspace_1",
       }),
     ])
     expect(ctx.tables.documents).toEqual([
       expect.objectContaining({
         id: "private_description",
+        teamId: null,
+        workspaceId: "workspace_1",
       }),
     ])
     expect(ctx.tables.workItemActivities).toEqual([
       expect.objectContaining({
         id: "private_activity",
+      }),
+    ])
+  })
+
+  it("keeps labels referenced by preserved private work items", async () => {
+    const ctx = createCascadeDeleteTeamCtx()
+
+    await cascadeDeleteTeamData(ctx as never, {
+      currentUserId: "user_1",
+      teamId: "team_1",
+      syncWorkspaceChannel: false,
+    })
+
+    expect(ctx.tables.labels).toEqual([
+      expect.objectContaining({
+        id: "private_label",
       }),
     ])
   })

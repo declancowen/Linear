@@ -964,6 +964,19 @@ async function getWorkspaceLabelCleanupScope(
   }
 }
 
+async function listWorkspacePrivateWorkItemLabelReferences(
+  ctx: MutationCtx,
+  workspaceId: string
+) {
+  const workItems = await ctx.db.query("workItems").collect()
+
+  return workItems.filter(
+    (workItem) =>
+      (workItem.visibility ?? "team") === "private" &&
+      workItem.workspaceId === workspaceId
+  )
+}
+
 async function listWorkspaceLabelReferences(
   ctx: MutationCtx,
   workspaceId: string
@@ -974,19 +987,21 @@ async function listWorkspaceLabelReferences(
 }> {
   const { scopedEntities, workspaceTeams, workspaceUserIds } =
     await getWorkspaceLabelCleanupScope(ctx, workspaceId)
-  const [workItemsByTeam, views, personalViews, projects] = await Promise.all([
-    Promise.all(
-      workspaceTeams.map((team) => listWorkItemsByTeam(ctx, team.id))
-    ),
-    listViewsByScopes(ctx, scopedEntities),
-    listPersonalViewsByUsers(ctx, workspaceUserIds),
-    listProjectsByScopes(ctx, scopedEntities),
-  ])
+  const [workItemsByTeam, privateWorkItems, views, personalViews, projects] =
+    await Promise.all([
+      Promise.all(
+        workspaceTeams.map((team) => listWorkItemsByTeam(ctx, team.id))
+      ),
+      listWorkspacePrivateWorkItemLabelReferences(ctx, workspaceId),
+      listViewsByScopes(ctx, scopedEntities),
+      listPersonalViewsByUsers(ctx, workspaceUserIds),
+      listProjectsByScopes(ctx, scopedEntities),
+    ])
 
   return {
     projects,
     relevantViews: [...views, ...personalViews],
-    workItems: workItemsByTeam.flat(),
+    workItems: dedupeById([...workItemsByTeam.flat(), ...privateWorkItems]),
   }
 }
 
@@ -1563,6 +1578,11 @@ export async function cascadeDeleteTeamData(
     scopeType: "team",
   })
   const allWorkItems = await listWorkItemsByTeam(ctx, team.id)
+  const preservedPrivateWorkItems = input.includePrivateWorkItems
+    ? []
+    : allWorkItems.filter(
+        (workItem) => (workItem.visibility ?? "team") === "private"
+      )
   const workItems = input.includePrivateWorkItems
     ? allWorkItems
     : allWorkItems.filter(
@@ -1572,9 +1592,17 @@ export async function cascadeDeleteTeamData(
   const deletedDescriptionDocIds = new Set(
     workItems.map((workItem) => workItem.descriptionDocId)
   )
-  const [allTeamDocuments, descriptionDocuments] = await Promise.all([
+  const preservedPrivateDescriptionDocIds = new Set(
+    preservedPrivateWorkItems.map((workItem) => workItem.descriptionDocId)
+  )
+  const [
+    allTeamDocuments,
+    descriptionDocuments,
+    preservedPrivateDescriptionDocuments,
+  ] = await Promise.all([
     listTeamDocuments(ctx, team.id),
     listDocumentsByIds(ctx, deletedDescriptionDocIds),
+    listDocumentsByIds(ctx, preservedPrivateDescriptionDocIds),
   ])
   const teamDocuments = input.includePrivateWorkItems
     ? allTeamDocuments
@@ -1652,6 +1680,11 @@ export async function cascadeDeleteTeamData(
     ctx,
     attachments.map((attachment) => attachment.storageId as string)
   )
+  await preservePrivateWorkItemsForTeamDelete(ctx, {
+    descriptionDocuments: preservedPrivateDescriptionDocuments,
+    teamWorkspaceId: team.workspaceId,
+    workItems: preservedPrivateWorkItems,
+  })
   await deleteDocGroups(
     ctx,
     channelPostComments,
@@ -1717,5 +1750,34 @@ export async function cascadeDeleteTeamData(
     membershipUserIds,
     deletedLabelIds,
     deletedUserIds,
+  }
+}
+
+async function preservePrivateWorkItemsForTeamDelete(
+  ctx: MutationCtx,
+  input: {
+    descriptionDocuments: Awaited<ReturnType<typeof listDocumentsByIds>>
+    teamWorkspaceId: string
+    workItems: Awaited<ReturnType<typeof listWorkItemsByTeam>>
+  }
+) {
+  for (const workItem of input.workItems) {
+    if (workItem.workspaceId !== input.teamWorkspaceId) {
+      await ctx.db.patch(workItem._id, {
+        workspaceId: input.teamWorkspaceId,
+      })
+    }
+  }
+
+  for (const document of input.descriptionDocuments) {
+    if (
+      document.workspaceId !== input.teamWorkspaceId ||
+      document.teamId !== null
+    ) {
+      await ctx.db.patch(document._id, {
+        workspaceId: input.teamWorkspaceId,
+        teamId: null,
+      })
+    }
   }
 }
