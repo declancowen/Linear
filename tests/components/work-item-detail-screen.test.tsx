@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import {
   act,
   fireEvent,
@@ -22,6 +22,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import {
   createTestAppData,
   createTestDocument,
+  createTestProject,
   createTestTeam,
   createTestTeamMembership,
   createTestUser,
@@ -40,6 +41,7 @@ const {
   syncToggleCommentReactionMock,
   syncUpdateWorkItemMock,
   useDocumentCollaborationMock,
+  useScopedReadModelRefreshMock,
 } = vi.hoisted(() => ({
   fetchWorkItemDetailReadModelMock: vi.fn(),
   richTextContentRenderMock: vi.fn(),
@@ -52,6 +54,7 @@ const {
   syncToggleCommentReactionMock: vi.fn(),
   syncUpdateWorkItemMock: vi.fn(),
   useDocumentCollaborationMock: vi.fn(),
+  useScopedReadModelRefreshMock: vi.fn(),
 }))
 
 vi.mock("next/link", async () =>
@@ -82,11 +85,7 @@ vi.mock("@/hooks/use-document-collaboration", () => ({
 }))
 
 vi.mock("@/hooks/use-scoped-read-model-refresh", () => ({
-  useScopedReadModelRefresh: () => ({
-    error: null,
-    hasLoadedOnce: true,
-    refreshing: false,
-  }),
+  useScopedReadModelRefresh: useScopedReadModelRefreshMock,
 }))
 
 vi.mock("@/components/app/rich-text-editor", () => ({
@@ -97,6 +96,7 @@ vi.mock("@/components/app/rich-text-editor", () => ({
     onChange,
     placeholder,
     onSubmitShortcut,
+    referenceCandidates,
     submitOnEnter,
   }: {
     content: string | Record<string, unknown>
@@ -105,6 +105,7 @@ vi.mock("@/components/app/rich-text-editor", () => ({
     onChange: (value: string) => void
     placeholder?: string
     onSubmitShortcut?: () => void
+    referenceCandidates?: unknown[]
     submitOnEnter?: boolean
   }) => {
     richTextEditorRenderMock({
@@ -112,6 +113,7 @@ vi.mock("@/components/app/rich-text-editor", () => ({
       content,
       editable,
       placeholder,
+      referenceCandidates,
     })
 
     return (
@@ -232,7 +234,9 @@ vi.mock("@/components/app/screens/shared", () => ({
     </button>
   ),
   LabelColorDot: () => <span data-testid="label-color-dot" />,
+  getDocumentPreview: () => "",
   StatusIcon: () => null,
+  WorkItemTypeIcon: () => <span data-testid="work-item-type-icon" />,
   useWorkItemLabelEditorState: ({
     item,
     labels,
@@ -284,11 +288,39 @@ vi.mock("@/components/ui/sidebar", async () =>
   ).createSidebarTriggerStubModule()
 )
 
-vi.mock("@/components/ui/collapsible-right-sidebar", () => ({
-  CollapsibleRightSidebar: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-}))
+vi.mock("@/components/ui/collapsible-right-sidebar", async () => {
+  const React = await import("react")
+
+  return {
+    CollapsibleRightSidebar: React.forwardRef<
+      HTMLElement,
+      ComponentProps<"aside"> & {
+        containerClassName?: string
+        open?: boolean
+        width?: string
+      }
+    >(function CollapsibleRightSidebarMock(
+      {
+        children,
+        containerClassName: _containerClassName,
+        open: _open,
+        width: _width,
+        ...props
+      },
+      ref
+    ) {
+      void _containerClassName
+      void _open
+      void _width
+
+      return (
+        <aside ref={ref} {...props}>
+          {children}
+        </aside>
+      )
+    }),
+  }
+})
 
 vi.mock("@/components/ui/confirm-dialog", async () =>
   (
@@ -626,11 +658,38 @@ describe("work item detail screen", () => {
       lifecycle: "legacy",
       viewers: [],
     })
+    useScopedReadModelRefreshMock.mockReset()
+    useScopedReadModelRefreshMock.mockReturnValue({
+      error: null,
+      hasLoadedOnce: true,
+      refreshing: false,
+    })
     seedState()
   })
 
   afterEach(() => {
     useAppStore.setState(createEmptyState())
+  })
+
+  it("keeps the work item detail read model subscribed while description collaboration is attached", () => {
+    useDocumentCollaborationMock.mockReturnValue({
+      bootstrapContent: null,
+      editorCollaboration: {},
+      collaboration: {},
+      flush: vi.fn(),
+      isAwaitingCollaboration: false,
+      lifecycle: "attached",
+      viewers: [],
+    })
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    expect(useScopedReadModelRefreshMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: true,
+        scopeKeys: ["work-item-detail:item_1"],
+      })
+    )
   })
 
   it("shows the parent item in the top breadcrumb for child items", () => {
@@ -655,6 +714,31 @@ describe("work item detail screen", () => {
       "aria-current",
       "page"
     )
+  })
+
+  it("links private task breadcrumbs back to the private tasks view", () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        workItems: state.workItems.map((item) =>
+          item.id === "item_1"
+            ? {
+                ...item,
+                visibility: "private",
+                creatorId: state.currentUserId,
+              }
+            : item
+        ),
+      }))
+    })
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    const breadcrumb = screen.getByLabelText("Work item breadcrumb")
+
+    expect(
+      within(breadcrumb).getByRole("link", { name: "Private tasks" })
+    ).toHaveAttribute("href", "/assigned?view=view_assigned_private_tasks")
   })
 
   it("shows a stale draft notice and reloads the latest main-section content", async () => {
@@ -791,6 +875,108 @@ describe("work item detail screen", () => {
         content: "<p>Initial description</p>",
       })
     )
+  })
+
+  it("passes access-filtered reference candidates to description and comment editors", async () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      teams: [
+        ...state.teams,
+        createTestTeam({
+          id: "team_2",
+          slug: "design",
+          name: "Design",
+        }),
+      ],
+      documents: [
+        ...state.documents,
+        createTestDocument({
+          id: "document_reference",
+          kind: "team-document",
+          teamId: "team_1",
+          title: "Reference doc",
+        }),
+        createTestDocument({
+          id: "document_private",
+          kind: "private-document",
+          teamId: null,
+          title: "Private doc",
+        }),
+        createTestDocument({
+          id: "document_hidden",
+          kind: "team-document",
+          teamId: "team_2",
+          title: "Hidden doc",
+        }),
+      ],
+      workItems: [
+        ...state.workItems,
+        createTestWorkItem("item_3", {
+          key: "PLA-3",
+          title: "Visible task",
+        }),
+        createTestWorkItem("item_hidden", {
+          key: "DES-1",
+          teamId: "team_2",
+          title: "Hidden task",
+        }),
+        createTestWorkItem("item_private", {
+          key: "PRI-1",
+          teamId: null,
+          workspaceId: "workspace_1",
+          visibility: "private",
+          title: "Private task",
+        }),
+      ],
+    }))
+
+    renderWorkItemDetail()
+
+    await waitFor(() => {
+      expect(richTextEditorRenderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          placeholder: "Leave a comment or mention a teammate with @handle…",
+        })
+      )
+    })
+
+    const commentCall = richTextEditorRenderMock.mock.calls.find(
+      ([props]) =>
+        props.placeholder ===
+        "Leave a comment or mention a teammate with @handle…"
+    )?.[0]
+
+    expect(
+      commentCall?.referenceCandidates.map(
+        (candidate: { type: string; id: string }) =>
+          `${candidate.type}:${candidate.id}`
+      )
+    ).toEqual(["workItem:item_2", "workItem:item_1", "workItem:item_3"])
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+
+    await waitFor(() => {
+      expect(richTextEditorRenderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          placeholder: "Add a description…",
+        })
+      )
+    })
+
+    const descriptionCall = richTextEditorRenderMock.mock.calls.find(
+      ([props]) => props.placeholder === "Add a description…"
+    )?.[0]
+
+    expect(
+      descriptionCall?.referenceCandidates.map(
+        (candidate: { type: string; id: string }) =>
+          `${candidate.type}:${candidate.id}`
+      )
+    ).toEqual([
+      "document:document_reference",
+      "workItem:item_2",
+      "workItem:item_3",
+    ])
   })
 
   it("surfaces when other people are editing the same item", async () => {
@@ -1103,6 +1289,60 @@ describe("work item detail screen", () => {
     )
   })
 
+  it("uses persisted assignee activity time instead of the mutable item update time", async () => {
+    const now = Date.now()
+    const assignedAt = new Date(now - 8 * 60 * 60 * 1000).toISOString()
+    const commentedAt = new Date(now - 3 * 60 * 1000).toISOString()
+    const itemUpdatedAt = new Date(now - 2 * 60 * 1000).toISOString()
+    const data = createWorkItemDetailTestData({
+      comments: [
+        {
+          id: "comment_1",
+          targetType: "workItem",
+          targetId: "item_1",
+          parentCommentId: null,
+          content: "<p>Following up</p>",
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: "user_1",
+          createdAt: commentedAt,
+          editedAt: null,
+        },
+      ],
+      workItems: [
+        createTestWorkItem("item_1", {
+          key: "PLA-1",
+          title: "Plan launch",
+          descriptionDocId: "document_1",
+          assigneeId: "user_2",
+          assigneeIds: ["user_2"],
+          subscriberIds: [],
+          updatedAt: itemUpdatedAt,
+        }),
+      ],
+      workItemActivities: [
+        {
+          id: "activity_assignee",
+          itemId: "item_1",
+          actorId: "user_1",
+          type: "assignee-change",
+          fromAssigneeIds: [],
+          toAssigneeIds: ["user_2"],
+          createdAt: assignedAt,
+        },
+      ],
+    })
+
+    useAppStore.setState(data)
+    renderWorkItemDetail("item_1")
+
+    const assigneeBody = await screen.findByText("was assigned to this item")
+    const assigneeEvent = assigneeBody.closest("div")
+
+    expect(assigneeEvent).toHaveTextContent(/8 hours ago/)
+    expect(assigneeEvent).not.toHaveTextContent(/2 minutes ago/)
+  })
+
   it.each([
     ["Start", "startTime"],
     ["Due", "endTime"],
@@ -1208,9 +1448,7 @@ describe("work item detail screen", () => {
       screen.queryByRole("button", { name: "Manage labels" })
     ).not.toBeInTheDocument()
     expect(screen.getAllByText("Activity").length).toBeGreaterThan(0)
-    expect(
-      screen.queryByLabelText(/Leave a comment/i)
-    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Leave a comment/i)).not.toBeInTheDocument()
   })
 
   it("omits relations and activity from floating item detail popovers", () => {
@@ -1228,6 +1466,138 @@ describe("work item detail screen", () => {
     expect(screen.getByText("Plan launch")).toBeInTheDocument()
     expect(screen.queryByText("Relations")).not.toBeInTheDocument()
     expect(screen.queryByText("Activity")).not.toBeInTheDocument()
+  })
+
+  it("keeps projects in properties and out of relations", async () => {
+    const baseData = createWorkItemDetailTestData()
+    const primaryProject = createTestProject({
+      id: "project_primary",
+      name: "Primary roadmap",
+    })
+    const referenceProject = createTestProject({
+      id: "project_reference",
+      name: "Reference project",
+    })
+    const referenceDocument = createTestDocument({
+      id: "document_reference",
+      kind: "team-document",
+      title: "Reference doc",
+      linkedWorkItemIds: ["item_1"],
+    })
+    const referenceItem = createTestWorkItem("item_reference", {
+      key: "PLA-99",
+      title: "Reference item",
+    })
+    const currentItem = {
+      ...baseData.workItems[0]!,
+      primaryProjectId: primaryProject.id,
+      linkedProjectIds: [primaryProject.id, referenceProject.id],
+      linkedDocumentIds: [referenceDocument.id],
+      linkedWorkItemIds: [referenceItem.id],
+    }
+    const data = {
+      ...baseData,
+      projects: [primaryProject, referenceProject],
+      documents: [...baseData.documents, referenceDocument],
+      workItems: [
+        ...baseData.workItems.map((item) =>
+          item.id === currentItem.id ? currentItem : item
+        ),
+        referenceItem,
+      ],
+    }
+
+    render(
+      <WorkItemDetailSidebarSurface
+        data={data}
+        currentItem={currentItem}
+        editable
+      />
+    )
+
+    expect(screen.getByRole("button", { name: "Project" })).toBeInTheDocument()
+    expect(screen.getByText("Primary roadmap")).toBeInTheDocument()
+
+    const relationsTitle = await screen.findByText("Relations")
+    const relations = relationsTitle.closest("section")
+
+    expect(relations).not.toBeNull()
+
+    const relationQueries = within(relations!)
+
+    expect(
+      relationQueries.queryByText("Primary roadmap")
+    ).not.toBeInTheDocument()
+    expect(
+      relationQueries.queryByText("Reference project")
+    ).not.toBeInTheDocument()
+    expect(
+      relationQueries.queryByText("Linked project")
+    ).not.toBeInTheDocument()
+    expect(relationQueries.getByText("Reference doc")).toBeInTheDocument()
+    expect(relationQueries.getByText("Reference item")).toBeInTheDocument()
+  })
+
+  it("does not render relations when the only project is the primary property", async () => {
+    const baseData = createWorkItemDetailTestData()
+    const primaryProject = createTestProject({
+      id: "project_primary",
+      name: "Primary roadmap",
+    })
+    const currentItem = {
+      ...baseData.workItems[0]!,
+      primaryProjectId: primaryProject.id,
+      linkedProjectIds: [primaryProject.id],
+    }
+    const data = {
+      ...baseData,
+      projects: [primaryProject],
+      workItems: baseData.workItems.map((item) =>
+        item.id === currentItem.id ? currentItem : item
+      ),
+    }
+
+    render(
+      <WorkItemDetailSidebarSurface
+        data={data}
+        currentItem={currentItem}
+        editable
+      />
+    )
+
+    expect(screen.getByRole("button", { name: "Project" })).toBeInTheDocument()
+    expect(screen.getByText("Primary roadmap")).toBeInTheDocument()
+
+    await waitFor(() =>
+      expect(screen.getByText("Activity")).toBeInTheDocument()
+    )
+
+    expect(screen.queryByText("Relations")).not.toBeInTheDocument()
+  })
+
+  it("contains sidebar property popovers inside the work item surface", async () => {
+    const { data, item } = getSeededWorkItemDetailSidebarFixture()
+    const { container } = render(
+      <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
+    )
+    const surface = container.querySelector("[data-work-item-surface='true']")
+
+    expect(surface).toBeInstanceOf(HTMLElement)
+
+    fireEvent.click(
+      within(surface as HTMLElement).getByRole("button", {
+        name: "Status",
+      })
+    )
+
+    await waitFor(() => {
+      const popover = (surface as HTMLElement).querySelector(
+        "[data-slot='popover-content']"
+      )
+
+      expect(popover).toBeInstanceOf(HTMLElement)
+      expect(surface).toContainElement(popover as HTMLElement)
+    })
   })
 
   it("hides empty child-row assignee and project controls", () => {

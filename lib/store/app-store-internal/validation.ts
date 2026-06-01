@@ -423,7 +423,11 @@ function getWorkItemProjectValidationMessage(
     return null
   }
 
-  return getProjectValidationMessageForSelectedId(state, input, primaryProjectId)
+  return getProjectValidationMessageForSelectedId(
+    state,
+    input,
+    primaryProjectId
+  )
 }
 
 function getProjectValidationMessageForSelectedId(
@@ -483,11 +487,7 @@ function getWorkItemWorkspaceAccessValidationMessage(
     return null
   }
 
-  return hasWorkspaceAccess(
-    state,
-    input.workspaceId ?? "",
-    state.currentUserId
-  )
+  return hasWorkspaceAccess(state, input.workspaceId ?? "", state.currentUserId)
     ? null
     : "Workspace not found"
 }
@@ -712,14 +712,21 @@ export function getWorkItemCascadeDeletePlan(
       const nextLinkedDocumentIds = entry.linkedDocumentIds.filter(
         (documentId) => !deletedDescriptionDocIds.has(documentId)
       )
+      const nextLinkedWorkItemIds = (entry.linkedWorkItemIds ?? []).filter(
+        (linkedItemId) => !deletedItemIds.has(linkedItemId)
+      )
 
-      if (nextLinkedDocumentIds.length === entry.linkedDocumentIds.length) {
+      if (
+        nextLinkedDocumentIds.length === entry.linkedDocumentIds.length &&
+        nextLinkedWorkItemIds.length === (entry.linkedWorkItemIds ?? []).length
+      ) {
         return entry
       }
 
       return {
         ...entry,
         linkedDocumentIds: nextLinkedDocumentIds,
+        linkedWorkItemIds: nextLinkedWorkItemIds,
         updatedAt: getNow(),
       }
     })

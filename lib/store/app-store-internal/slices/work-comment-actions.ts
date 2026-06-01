@@ -8,7 +8,10 @@ import {
   syncToggleCommentReaction,
   syncUpdateComment,
 } from "@/lib/convex/client"
-import { hasWorkspaceAccess } from "@/lib/domain/selectors"
+import {
+  getWorkItemCommentRichTextReferenceRelationships,
+  hasWorkspaceAccess,
+} from "@/lib/domain/selectors"
 import {
   collectDocumentCommentFollowerIds,
   collectWorkItemCommentFollowerIds,
@@ -16,6 +19,7 @@ import {
 import { collectCommentDescendantIds } from "@/lib/domain/comment-threads"
 import { commentSchema } from "@/lib/domain/types"
 import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
+import { getPlainTextContent } from "@/lib/utils"
 
 import {
   createId,
@@ -42,6 +46,8 @@ type CommentTargetContext = {
 
 type CommentNotificationContext = {
   audienceUserIds: string[]
+  commentId: string
+  contentPreview: string
   currentUserId: string
   entityTitle: string
   entityType: CommentEntityType
@@ -182,10 +188,30 @@ function createOptimisticComment(
     parentCommentId: input.parentCommentId ?? null,
     content: input.content.trim(),
     mentionUserIds,
+    referencedWorkItemIds: getCommentReferencedWorkItemIds(state, input),
     reactions: [],
     createdBy: state.currentUserId,
     createdAt: now,
   }
+}
+
+function getCommentReferencedWorkItemIds(
+  state: AppStore,
+  input: Pick<AddCommentInput, "content" | "targetId" | "targetType">
+) {
+  if (input.targetType !== "workItem") {
+    return []
+  }
+
+  const item = state.workItems.find((entry) => entry.id === input.targetId)
+
+  return item
+    ? getWorkItemCommentRichTextReferenceRelationships(
+        state,
+        item,
+        input.content
+      ).workItemIds
+    : []
 }
 
 function addMentionNotifications(
@@ -209,7 +235,11 @@ function addMentionNotifications(
         `${actorName} mentioned you in ${context.entityTitle}`,
         context.entityType,
         context.targetId,
-        "mention"
+        "mention",
+        {
+          contentPreview: context.contentPreview,
+          targetCommentId: context.commentId,
+        }
       )
     )
     notifiedUserIds.add(mentionedUserId)
@@ -243,7 +273,11 @@ function addFollowerNotifications(
         message,
         context.entityType,
         context.targetId,
-        "comment"
+        "comment",
+        {
+          contentPreview: context.contentPreview,
+          targetCommentId: context.commentId,
+        }
       )
     )
     notifiedUserIds.add(followerId)
@@ -253,6 +287,7 @@ function addFollowerNotifications(
 function createCommentNotifications(
   state: AppStore,
   input: AddCommentInput,
+  commentId: string,
   target: CommentTargetContext,
   audienceUserIds: string[],
   mentionUserIds: string[]
@@ -261,6 +296,8 @@ function createCommentNotifications(
     createNotificationDraft(state)
   const context = {
     audienceUserIds,
+    commentId,
+    contentPreview: getPlainTextContent(input.content),
     currentUserId: state.currentUserId,
     entityTitle: target.entityTitle,
     entityType: target.entityType,
@@ -391,7 +428,10 @@ function getMutableOwnComment(
   return comment
 }
 
-function isPrivateWorkItemCommentInput(state: AppStore, input: AddCommentInput) {
+function isPrivateWorkItemCommentInput(
+  state: AppStore,
+  input: AddCommentInput
+) {
   return (
     input.targetType === "workItem" &&
     state.workItems.some(
@@ -442,6 +482,12 @@ function updateCommentInState(
               state.users,
               audienceUserIds
             ),
+            referencedWorkItemIds: getCommentReferencedWorkItemIds(state, {
+              content: input.content,
+              targetId: comment.targetId,
+              targetType: comment.targetType,
+            }),
+            editedAt: now,
           }
         : entry
     ),
@@ -504,6 +550,7 @@ function addCommentToState(
   const notifications = createCommentNotifications(
     state,
     input,
+    commentId,
     target,
     audienceUserIds,
     mentionUserIds

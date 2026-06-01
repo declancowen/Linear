@@ -86,6 +86,7 @@ import {
   createChannelHandler,
   createChannelPostHandler,
   createWorkspaceChatHandler,
+  deleteChatMessageHandler,
   deleteChannelPostCommentHandler,
   deleteChannelPostHandler,
   ensureTeamChatHandler,
@@ -97,10 +98,13 @@ import {
   setConversationRoomHandler,
   startChatCallHandler,
   toggleChatMessageReactionHandler,
+  toggleChannelPostCommentReactionHandler,
   toggleChannelPostReactionHandler,
+  updateChatMessageHandler,
   updateChannelPostCommentHandler,
   updateChannelPostHandler,
 } from "./app/collaboration_handlers"
+import { updateChatReadStateHandler } from "./app/chat_read_states"
 import {
   clearDocumentPresenceHandler,
   createAttachmentHandler,
@@ -614,6 +618,16 @@ export const toggleNotificationRead = mutation({
     notificationId: v.string(),
   },
   handler: toggleNotificationReadHandler,
+})
+
+export const updateChatReadState = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    conversationId: v.string(),
+    action: v.union(v.literal("read"), v.literal("unread")),
+  },
+  handler: updateChatReadStateHandler,
 })
 
 export const archiveNotification = mutation({
@@ -1598,6 +1612,25 @@ export const sendChatMessage = mutation({
   handler: sendChatMessageHandler,
 })
 
+export const updateChatMessage = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    messageId: v.string(),
+    content: v.string(),
+  },
+  handler: updateChatMessageHandler,
+})
+
+export const deleteChatMessage = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    messageId: v.string(),
+  },
+  handler: deleteChatMessageHandler,
+})
+
 export const toggleChatMessageReaction = mutation({
   args: {
     ...serverAccessArgs,
@@ -1682,4 +1715,15 @@ export const toggleChannelPostReaction = mutation({
     emoji: v.string(),
   },
   handler: toggleChannelPostReactionHandler,
+})
+
+export const toggleChannelPostCommentReaction = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    postId: v.string(),
+    commentId: v.string(),
+    emoji: v.string(),
+  },
+  handler: toggleChannelPostCommentReactionHandler,
 })

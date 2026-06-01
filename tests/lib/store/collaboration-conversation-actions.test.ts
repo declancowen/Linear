@@ -15,10 +15,13 @@ import {
 
 const syncCreateChannelMock = vi.fn()
 const syncCreateWorkspaceChatMock = vi.fn()
+const syncDeleteChatMessageMock = vi.fn()
 const syncEnsureTeamChatMock = vi.fn()
 const syncSendChatMessageMock = vi.fn()
 const syncStartConversationCallMock = vi.fn()
 const syncToggleChatMessageReactionMock = vi.fn()
+const syncUpdateChatMessageMock = vi.fn()
+const syncUpdateChatReadStateMock = vi.fn()
 const toastErrorMock = vi.fn()
 const toastSuccessMock = vi.fn()
 
@@ -32,10 +35,13 @@ vi.mock("sonner", () => ({
 vi.mock("@/lib/convex/client", () => ({
   syncCreateChannel: syncCreateChannelMock,
   syncCreateWorkspaceChat: syncCreateWorkspaceChatMock,
+  syncDeleteChatMessage: syncDeleteChatMessageMock,
   syncEnsureTeamChat: syncEnsureTeamChatMock,
   syncSendChatMessage: syncSendChatMessageMock,
   syncStartConversationCall: syncStartConversationCallMock,
   syncToggleChatMessageReaction: syncToggleChatMessageReactionMock,
+  syncUpdateChatMessage: syncUpdateChatMessageMock,
+  syncUpdateChatReadState: syncUpdateChatReadStateMock,
 }))
 
 function createConversationTestState(): AppData {
@@ -142,10 +148,14 @@ describe("collaboration conversation actions", () => {
     vi.resetModules()
     syncCreateChannelMock.mockReset()
     syncCreateWorkspaceChatMock.mockReset()
+    syncDeleteChatMessageMock.mockReset()
     syncEnsureTeamChatMock.mockReset()
     syncSendChatMessageMock.mockReset()
     syncStartConversationCallMock.mockReset()
     syncToggleChatMessageReactionMock.mockReset()
+    syncUpdateChatMessageMock.mockReset()
+    syncUpdateChatReadStateMock.mockReset()
+    syncUpdateChatReadStateMock.mockResolvedValue(null)
     toastErrorMock.mockReset()
     toastSuccessMock.mockReset()
   })
@@ -201,7 +211,117 @@ describe("collaboration conversation actions", () => {
     await expect(backgroundTasks[0]).resolves.toBeNull()
   })
 
-  it("adds optimistic generic message notifications for other participants", async () => {
+  it("updates owned chat messages optimistically before syncing", async () => {
+    syncUpdateChatMessageMock.mockResolvedValueOnce(null)
+
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
+    state.chatMessages = [
+      {
+        id: "message_1",
+        conversationId: "conversation_1",
+        kind: "text",
+        content: "<p>Original</p>",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_1",
+        createdAt: "2026-04-21T10:01:00.000Z",
+      },
+    ]
+
+    slice.updateChatMessage("message_1", {
+      content: "<p>Edited<br><br></p>",
+    })
+
+    expect(state.chatMessages[0]).toMatchObject({
+      content: "<p>Edited</p>",
+      editedAt: expect.any(String),
+    })
+    expect(syncUpdateChatMessageMock).toHaveBeenCalledWith(
+      "message_1",
+      "<p>Edited</p>"
+    )
+    await expect(backgroundTasks[0]).resolves.toBeNull()
+  })
+
+  it("marks owned chat messages deleted locally before syncing", async () => {
+    syncDeleteChatMessageMock.mockResolvedValueOnce(null)
+
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
+    state.chatMessages = [
+      {
+        id: "message_1",
+        conversationId: "conversation_1",
+        kind: "text",
+        content: "<p>Original</p>",
+        mentionUserIds: ["user_2"],
+        reactions: [
+          {
+            emoji: "👍",
+            userIds: ["user_2"],
+          },
+        ],
+        createdBy: "user_1",
+        createdAt: "2026-04-21T10:01:00.000Z",
+      },
+    ]
+
+    slice.deleteChatMessage("message_1")
+
+    expect(state.chatMessages[0]).toMatchObject({
+      content: "",
+      mentionUserIds: [],
+      reactions: [],
+      editedAt: null,
+      deletedAt: expect.any(String),
+    })
+    expect(syncDeleteChatMessageMock).toHaveBeenCalledWith("message_1")
+    await expect(backgroundTasks[0]).resolves.toBeNull()
+  })
+
+  it("does not optimistically mutate chat messages for read-only roles", async () => {
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
+    state.teamMemberships = state.teamMemberships.map((membership) =>
+      membership.userId === "user_1"
+        ? {
+            ...membership,
+            role: "viewer",
+          }
+        : membership
+    )
+    state.chatMessages = [
+      {
+        id: "message_1",
+        conversationId: "conversation_1",
+        kind: "text",
+        content: "<p>Original</p>",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_1",
+        createdAt: "2026-04-21T10:01:00.000Z",
+      },
+    ]
+
+    slice.updateChatMessage("message_1", {
+      content: "<p>Edited</p>",
+    })
+    slice.deleteChatMessage("message_1")
+    slice.toggleChatMessageReaction("message_1", "🔥")
+
+    expect(state.chatMessages[0]?.content).toBe("<p>Original</p>")
+    expect(state.chatMessages[0]?.reactions).toEqual([])
+    expect(state.chatMessages[0]).not.toHaveProperty("deletedAt")
+    expect(state.chatMessages[0]).not.toHaveProperty("editedAt")
+    expect(syncUpdateChatMessageMock).not.toHaveBeenCalled()
+    expect(syncDeleteChatMessageMock).not.toHaveBeenCalled()
+    expect(syncToggleChatMessageReactionMock).not.toHaveBeenCalled()
+    expect(backgroundTasks).toEqual([])
+    expect(toastErrorMock).toHaveBeenCalledWith("Your current role is read-only")
+  })
+
+  it("marks the sent chat read without creating a generic inbox notification", async () => {
     syncSendChatMessageMock.mockResolvedValueOnce(null)
 
     const { backgroundTasks, slice, state } =
@@ -212,18 +332,15 @@ describe("collaboration conversation actions", () => {
       content: "<p>Hello</p>",
     })
 
-    expect(state.notifications).toEqual([
+    expect(state.notifications).toEqual([])
+    expect(state.chatReadStates).toEqual([
       expect.objectContaining({
-        userId: "user_2",
-        actorId: "user_1",
-        entityType: "chat",
-        entityId: "conversation_1",
-        type: "message",
+        userId: "user_1",
+        conversationId: "conversation_1",
+        readAt: expect.any(String),
+        unreadAt: null,
       }),
     ])
-    expect(
-      state.notifications.map((notification) => notification.userId)
-    ).not.toContain("user_1")
     await expect(backgroundTasks[0]).resolves.toBeNull()
   })
 
@@ -349,6 +466,9 @@ describe("collaboration conversation actions", () => {
     ).toBe(false)
     expect(state.conversations[0]?.id).toBe("conversation_server")
     expect(state.chatMessages[0]?.conversationId).toBe("conversation_server")
+    expect(state.chatReadStates[0]?.conversationId).toBe(
+      "conversation_server"
+    )
     expect(
       state.notifications.every(
         (notification) =>
@@ -356,6 +476,34 @@ describe("collaboration conversation actions", () => {
           notification.entityId === "conversation_server"
       )
     ).toBe(true)
+  })
+
+  it("marks a chat unread without clearing the last read timestamp", async () => {
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
+    state.chatReadStates = [
+      {
+        id: "chat_read_state_user_1_conversation_1",
+        userId: "user_1",
+        conversationId: "conversation_1",
+        readAt: "2026-04-21T10:02:00.000Z",
+        unreadAt: null,
+        createdAt: "2026-04-21T10:02:00.000Z",
+        updatedAt: "2026-04-21T10:02:00.000Z",
+      },
+    ]
+
+    slice.markChatUnread("conversation_1")
+
+    expect(state.chatReadStates[0]).toMatchObject({
+      readAt: "2026-04-21T10:02:00.000Z",
+      unreadAt: expect.any(String),
+    })
+    expect(syncUpdateChatReadStateMock).toHaveBeenCalledWith(
+      "conversation_1",
+      "unread"
+    )
+    await expect(backgroundTasks[0]).resolves.toBeNull()
   })
 
   it("stores structured call activity when a conversation call starts", async () => {

@@ -12,6 +12,7 @@ import {
 } from "@phosphor-icons/react"
 
 import { PhosphorIconPicker } from "@/components/app/phosphor-icon-picker"
+import { useWorkItemSurfacePortalContainer } from "@/components/app/screens/work-item-surface-portal-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -378,6 +379,7 @@ function CustomPropertyChoiceControl({
   editable,
   variant,
 }: CustomPropertyRendererProps) {
+  const portalContainer = useWorkItemSurfacePortalContainer()
   const selectedIds = getChoiceSelectedIds(definition, currentValue)
   const selectedOptions = definition.options.filter((option) =>
     selectedIds.includes(option.id)
@@ -404,6 +406,7 @@ function CustomPropertyChoiceControl({
       </PopoverTrigger>
       <PopoverContent
         align="start"
+        portalContainer={portalContainer}
         className={cn(PROPERTY_POPOVER_CLASS, "w-[240px]")}
       >
         <PropertyPopoverList>
@@ -458,6 +461,8 @@ function CustomPropertyPersonControl({
   editable,
   users,
 }: CustomPropertyRendererProps) {
+  const portalContainer = useWorkItemSurfacePortalContainer()
+
   return (
     <Select
       value={typeof currentValue === "string" ? currentValue : "none"}
@@ -469,7 +474,7 @@ function CustomPropertyPersonControl({
       <SelectTrigger className="h-7 min-w-0 text-[12px]">
         <SelectValue placeholder="Person" />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent portalContainer={portalContainer}>
         <SelectItem value="none">No person</SelectItem>
         {users.map((user) => (
           <SelectItem key={user.id} value={user.id}>

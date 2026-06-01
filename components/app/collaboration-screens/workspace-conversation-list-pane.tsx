@@ -22,11 +22,13 @@ export function WorkspaceConversationListPane({
   latestMessagesByConversationId,
   renderConversationAvatar,
   onCreateChat,
+  onMarkChatRead,
+  onMarkChatUnread,
   onResizeStart,
   onResetWidth,
   onSelectChat,
 }: {
-  chats: Conversation[]
+  chats: Array<Conversation & { readAt?: string | null; unread?: boolean }>
   activeChat: Conversation | null
   conversationListWidth: WorkspaceChatListWidth
   conversationListResizing: boolean
@@ -36,6 +38,8 @@ export function WorkspaceConversationListPane({
   >
   renderConversationAvatar: (conversationId: string) => ReactNode
   onCreateChat: () => void
+  onMarkChatRead: (id: string) => void
+  onMarkChatUnread: (id: string) => void
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onResetWidth: () => void
   onSelectChat: (id: string) => void
@@ -72,6 +76,8 @@ export function WorkspaceConversationListPane({
         conversations={chats}
         selectedId={activeChat?.id ?? null}
         onSelect={onSelectChat}
+        onMarkRead={onMarkChatRead}
+        onMarkUnread={onMarkChatUnread}
         renderLeading={renderConversationAvatar}
         renderPreview={(id) =>
           getConversationPreview(latestMessagesByConversationId.get(id))

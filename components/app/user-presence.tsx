@@ -368,6 +368,7 @@ export function UserHoverCard({
   align = "start",
   side = "top",
   className,
+  portalContainer,
   userId,
   currentUserId,
   workspaceId,
@@ -378,6 +379,7 @@ export function UserHoverCard({
   align?: "start" | "center" | "end"
   side?: "top" | "right" | "bottom" | "left"
   className?: string
+  portalContainer?: HTMLElement | null
   userId?: string | null
   currentUserId?: string | null
   workspaceId?: string | null
@@ -436,6 +438,7 @@ export function UserHoverCard({
       <HoverCardContent
         align={align}
         side={side}
+        portalContainer={portalContainer}
         portalled={portalled}
         className={cn("w-[22rem]", className)}
       >

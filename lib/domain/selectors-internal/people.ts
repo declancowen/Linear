@@ -7,6 +7,7 @@ import type {
   Project,
   Team,
   WorkItem,
+  WorkItemActivity,
 } from "../types"
 import { getWorkspaceUsers, hasWorkspaceAccess } from "./core"
 
@@ -21,6 +22,27 @@ export type PersonActivity =
       type: "workItemCommented"
       itemId: string
       commentId: string
+      title: string
+      createdAt: string
+    }
+  | {
+      type: "workItemStatusChanged"
+      activityId: string
+      itemId: string
+      title: string
+      createdAt: string
+    }
+  | {
+      type: "workItemLabelsChanged"
+      activityId: string
+      itemId: string
+      title: string
+      createdAt: string
+    }
+  | {
+      type: "workItemAssigneesChanged"
+      activityId: string
+      itemId: string
       title: string
       createdAt: string
     }
@@ -304,6 +326,40 @@ function getCommentActivities(
     .filter((activity): activity is PersonActivity => Boolean(activity))
 }
 
+function getWorkItemChangeActivityType(activity: WorkItemActivity) {
+  switch (activity.type) {
+    case "status-change":
+      return "workItemStatusChanged" as const
+    case "label-change":
+      return "workItemLabelsChanged" as const
+    case "assignee-change":
+      return "workItemAssigneesChanged" as const
+  }
+}
+
+function getWorkItemChangeActivities(
+  data: AppData,
+  workspaceId: string,
+  userId: string
+): PersonActivity[] {
+  return data.workItemActivities
+    .filter((activity) => activity.actorId === userId)
+    .map((activity): PersonActivity | null => {
+      const item = getWorkItemInWorkspace(data, activity.itemId, workspaceId)
+
+      return item
+        ? {
+            type: getWorkItemChangeActivityType(activity),
+            activityId: activity.id,
+            itemId: item.id,
+            title: getDisplayName(item.title, "Untitled work item"),
+            createdAt: activity.createdAt,
+          }
+        : null
+    })
+    .filter((activity): activity is PersonActivity => Boolean(activity))
+}
+
 function getChannelPostCreatedActivities(
   data: AppData,
   workspaceId: string,
@@ -382,6 +438,7 @@ export function getWorkspacePersonActivity(
   return [
     ...getWorkItemCreatedActivities(data, workspaceId, userId),
     ...getCommentActivities(data, workspaceId, userId),
+    ...getWorkItemChangeActivities(data, workspaceId, userId),
     ...getChannelPostCreatedActivities(data, workspaceId, userId),
     ...getChannelPostCommentActivities(data, workspaceId, userId),
     ...getProjectUpdatePostedActivities(data, workspaceId, userId),

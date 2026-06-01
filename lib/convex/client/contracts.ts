@@ -103,6 +103,7 @@ function isSnapshotRecord(value: unknown): value is AppSnapshot {
       "conversations",
       "calls",
       "chatMessages",
+      "chatReadStates",
       "channelPosts",
       "channelPostComments",
     ])

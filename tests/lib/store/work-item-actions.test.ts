@@ -410,6 +410,54 @@ describe("work item actions", () => {
     expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(2)
   })
 
+  it("records optimistic assignee change activity with the assignment timestamp", async () => {
+    const harness = await createWorkItemActionsHarness(
+      createTestAppData({
+        users: [
+          createTestUser(),
+          createTestUser({
+            id: "user_2",
+          }),
+        ],
+        teamMemberships: [
+          createTestTeamMembership(),
+          createTestTeamMembership({
+            userId: "user_2",
+            role: "member",
+          }),
+        ],
+        workItems: [
+          createTestWorkItem("parent", {
+            status: "todo",
+          }),
+        ],
+      })
+    )
+
+    harness.actions.updateWorkItem("parent", {
+      assigneeIds: ["user_2"],
+    })
+
+    expect(harness.state.workItemActivities).toEqual([
+      expect.objectContaining({
+        itemId: "parent",
+        actorId: "user_1",
+        type: "assignee-change",
+        fromAssigneeIds: [],
+        toAssigneeIds: ["user_2"],
+      }),
+    ])
+    expect(harness.state.workItemActivities[0]?.createdAt).toBe(
+      harness.state.workItems.find((item) => item.id === "parent")?.updatedAt
+    )
+
+    harness.actions.updateWorkItem("parent", {
+      assigneeIds: ["user_2"],
+    })
+
+    expect(harness.state.workItemActivities).toHaveLength(1)
+  })
+
   it("suppresses private work item assignee and project updates", async () => {
     const state = createState()
     state.workItems = [
@@ -439,6 +487,7 @@ describe("work item actions", () => {
       status: "done",
     })
     expect(harness.state.notifications).toHaveLength(0)
+    expect(harness.state.workItemActivities).toHaveLength(0)
     expect(syncUpdateWorkItemMock).toHaveBeenCalledWith(
       "user_1",
       "private-task",

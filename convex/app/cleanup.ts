@@ -763,10 +763,15 @@ function getDocumentLinkCleanupPatch(
     document.linkedWorkItemIds,
     deletedIds.deletedWorkItemIds
   )
+  const nextLinkedDocumentIds = filterRemovedIds(
+    document.linkedDocumentIds ?? [],
+    deletedIds.deletedDocumentIds
+  )
 
   if (
     nextLinkedProjectIds.length === document.linkedProjectIds.length &&
-    nextLinkedWorkItemIds.length === document.linkedWorkItemIds.length
+    nextLinkedWorkItemIds.length === document.linkedWorkItemIds.length &&
+    nextLinkedDocumentIds.length === (document.linkedDocumentIds ?? []).length
   ) {
     return null
   }
@@ -774,6 +779,7 @@ function getDocumentLinkCleanupPatch(
   return {
     linkedProjectIds: nextLinkedProjectIds,
     linkedWorkItemIds: nextLinkedWorkItemIds,
+    linkedDocumentIds: nextLinkedDocumentIds,
   }
 }
 
@@ -816,6 +822,10 @@ function getWorkItemLinkCleanupPatch(
     workItem.linkedProjectIds,
     deletedIds.deletedProjectIds
   )
+  const nextLinkedWorkItemIds = filterRemovedIds(
+    workItem.linkedWorkItemIds ?? [],
+    deletedIds.deletedWorkItemIds
+  )
   const nextPrimaryProjectId = getWorkItemProjectLinkAfterDelete(
     workItem.primaryProjectId,
     deletedIds.deletedProjectIds
@@ -829,6 +839,7 @@ function getWorkItemLinkCleanupPatch(
     !workItemLinkCleanupPatchChanged(workItem, {
       linkedDocumentIds: nextLinkedDocumentIds,
       linkedProjectIds: nextLinkedProjectIds,
+      linkedWorkItemIds: nextLinkedWorkItemIds,
       primaryProjectId: nextPrimaryProjectId,
       milestoneId: nextMilestoneId,
     })
@@ -839,6 +850,7 @@ function getWorkItemLinkCleanupPatch(
   return {
     linkedDocumentIds: nextLinkedDocumentIds,
     linkedProjectIds: nextLinkedProjectIds,
+    linkedWorkItemIds: nextLinkedWorkItemIds,
     primaryProjectId: nextPrimaryProjectId,
     milestoneId: nextMilestoneId,
   }
@@ -865,6 +877,7 @@ function workItemLinkCleanupPatchChanged(
   patch: {
     linkedDocumentIds: string[]
     linkedProjectIds: string[]
+    linkedWorkItemIds: string[]
     primaryProjectId: string | null
     milestoneId: string | null
   }
@@ -872,6 +885,8 @@ function workItemLinkCleanupPatchChanged(
   return (
     patch.linkedDocumentIds.length !== workItem.linkedDocumentIds.length ||
     patch.linkedProjectIds.length !== workItem.linkedProjectIds.length ||
+    patch.linkedWorkItemIds.length !==
+      (workItem.linkedWorkItemIds ?? []).length ||
     patch.primaryProjectId !== workItem.primaryProjectId ||
     patch.milestoneId !== workItem.milestoneId
   )

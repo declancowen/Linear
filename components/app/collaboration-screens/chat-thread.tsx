@@ -31,6 +31,8 @@ import { useAppStore } from "@/lib/store/app-store"
 import { useChatPresence } from "@/hooks/use-chat-presence"
 import { cn, getPlainTextContent } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
+import { createQuotedRichText } from "@/components/app/message-quote"
+import { MessageHoverActionBar } from "@/components/app/message-hover-action-bar"
 import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
@@ -49,6 +51,7 @@ import {
   parseCallInviteMessage,
 } from "@/components/app/collaboration-screens/utils"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
 function getLiveComposerContent(
   editorInstanceRef: RefObject<Editor | null>,
@@ -77,6 +80,9 @@ function ChatComposer({
   currentUserId,
   editable = true,
   disabledReason,
+  draftContent,
+  editing,
+  onCancelEdit,
   onTypingChange,
 }: {
   placeholder?: string
@@ -85,10 +91,15 @@ function ChatComposer({
   currentUserId: string
   editable?: boolean
   disabledReason?: string | null
+  draftContent?: string
+  editing?: boolean
+  onCancelEdit?: () => void
   onTypingChange?: (typing: boolean) => void
 }) {
   const EMPTY_COMPOSER_CONTENT = "<p></p>"
-  const [content, setContent] = useState(EMPTY_COMPOSER_CONTENT)
+  const [content, setContent] = useState(
+    () => draftContent ?? EMPTY_COMPOSER_CONTENT
+  )
   const [composerKey, setComposerKey] = useState(0)
   const editorInstanceRef = useRef<Editor | null>(null)
   const typingTimeoutRef = useRef<number | null>(null)
@@ -110,6 +121,12 @@ function ChatComposer({
     clearTypingTimeout(typingTimeoutRef)
     onTypingChange?.(false)
     onSend(liveContent)
+    setContent(EMPTY_COMPOSER_CONTENT)
+    setComposerKey((current) => current + 1)
+  }
+
+  const handleCancelEdit = () => {
+    onCancelEdit?.()
     setContent(EMPTY_COMPOSER_CONTENT)
     setComposerKey((current) => current + 1)
   }
@@ -199,6 +216,17 @@ function ChatComposer({
           <kbd className="mr-1 inline-flex h-[18px] items-center rounded-[4px] border border-line bg-surface-2 px-1 font-sans text-[10.5px] font-medium text-fg-3">
             ⏎
           </kbd>
+          {editing ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={handleCancelEdit}
+              className="h-7 rounded-md px-2.5 text-[12px]"
+            >
+              Cancel
+            </Button>
+          ) : null}
           <Button
             type="button"
             size="sm"
@@ -207,7 +235,7 @@ function ChatComposer({
             className="h-7 gap-1.5 rounded-md px-2.5 text-[12px]"
           >
             <ArrowUp className="size-3" weight="bold" />
-            Send
+            {editing ? "Save" : "Send"}
           </Button>
         </div>
       </div>
@@ -413,6 +441,9 @@ function ChatMessageHeader({
       <span className="text-[11.5px] text-fg-3">
         {formatTimestamp(message.createdAt)}
       </span>
+      {message.editedAt && !message.deletedAt ? (
+        <span className="text-[11.5px] text-fg-4">edited</span>
+      ) : null}
     </div>
   )
 }
@@ -420,10 +451,22 @@ function ChatMessageHeader({
 function ChatMessageBody({
   callJoinHref,
   content,
+  deletedAt,
+  isCurrentUser,
 }: {
   callJoinHref: string | null
   content: string
+  deletedAt?: string | null
+  isCurrentUser: boolean
 }) {
+  if (deletedAt) {
+    return isCurrentUser ? (
+      <p className="mt-0.5 text-[13px] text-fg-4 italic">
+        You deleted a message
+      </p>
+    ) : null
+  }
+
   if (callJoinHref) {
     return (
       <div className="mt-0.5 flex flex-col items-start gap-2 text-[13.5px] leading-[1.55] [overflow-wrap:anywhere] text-foreground">
@@ -447,11 +490,13 @@ function ChatMessageBody({
 }
 
 function ChatMessageReactionButton({
+  canReact,
   currentUserId,
   messageId,
   reaction,
   usersById,
 }: {
+  canReact: boolean
   currentUserId: string
   messageId: string
   reaction: ChatMessageReaction
@@ -463,6 +508,7 @@ function ChatMessageReactionButton({
     <ReactionUsersHoverCard userIds={reaction.userIds} usersById={usersById}>
       <button
         type="button"
+        disabled={!canReact}
         onClick={() =>
           useAppStore
             .getState()
@@ -472,7 +518,8 @@ function ChatMessageReactionButton({
           "flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
           active
             ? "border-primary/40 bg-primary/10 text-foreground"
-            : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
+            : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground",
+          !canReact && "cursor-default opacity-70 hover:bg-surface hover:text-fg-2"
         )}
       >
         <span>{reaction.emoji}</span>
@@ -483,44 +530,34 @@ function ChatMessageReactionButton({
 }
 
 function ChatMessageReactions({
+  canReact,
   currentUserId,
   message,
   usersById,
 }: {
+  canReact: boolean
   currentUserId: string
   message: ChatThreadMessage
   usersById: Map<string, ChatThreadUser>
 }) {
   const reactions = message.reactions ?? []
 
+  if (message.deletedAt || reactions.length === 0) {
+    return null
+  }
+
   return (
     <div className="mt-2 flex flex-wrap items-center gap-1.5">
       {reactions.map((reaction) => (
         <ChatMessageReactionButton
           key={`${message.id}-${reaction.emoji}`}
+          canReact={canReact}
           currentUserId={currentUserId}
           messageId={message.id}
           reaction={reaction}
           usersById={usersById}
         />
       ))}
-      <EmojiPickerPopover
-        align="start"
-        side="top"
-        onEmojiSelect={(emoji) => {
-          useAppStore.getState().toggleChatMessageReaction(message.id, emoji)
-        }}
-        trigger={
-          <button
-            type="button"
-            aria-label="React"
-            className="flex h-6 items-center gap-1.5 rounded-full border border-dashed border-line bg-surface px-2 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-          >
-            <Smiley className="size-3.5" />
-            <span>React</span>
-          </button>
-        }
-      />
     </div>
   )
 }
@@ -528,21 +565,37 @@ function ChatMessageReactions({
 function ChatMessageRow({
   author,
   authorView,
+  canCurrentUserWrite,
   currentUserId,
   index,
   message,
+  onDeleteMessage,
+  onEditMessage,
+  onQuoteMessage,
   previousMessage,
   usersById,
 }: {
   author?: ChatThreadUser
   authorView: WorkspaceUserPresenceView
+  canCurrentUserWrite: boolean
   currentUserId: string
   index: number
   message: ChatThreadMessage
+  onDeleteMessage: (message: ChatThreadMessage) => void
+  onEditMessage: (message: ChatThreadMessage) => void
+  onQuoteMessage: (
+    message: ChatThreadMessage,
+    authorName: string | undefined
+  ) => void
   previousMessage?: ChatThreadMessage
   usersById: Map<string, ChatThreadUser>
 }) {
   const isCurrentUser = message.createdBy === currentUserId
+  const canMutateMessage =
+    canCurrentUserWrite &&
+    isCurrentUser &&
+    message.kind === "text" &&
+    !message.deletedAt
   const { callJoinHref, groupedWithPrev, showDayDivider, showTopMargin } =
     getChatMessageRowMeta({
       index,
@@ -557,12 +610,34 @@ function ChatMessageRow({
       ) : null}
       <div
         className={cn(
-          "group/msg grid items-start gap-x-2.5 px-4 transition-colors hover:bg-surface-2",
+          "group/msg relative grid items-start gap-x-2.5 px-4 transition-colors hover:bg-surface-2",
           groupedWithPrev ? "py-0" : "py-0.5",
           showTopMargin && "mt-2"
         )}
         style={{ gridTemplateColumns: "24px 1fr" }}
       >
+        {!message.deletedAt ? (
+          <MessageHoverActionBar
+            canDelete={canMutateMessage}
+            canEdit={canMutateMessage}
+            canQuote={canCurrentUserWrite}
+            canReact={canCurrentUserWrite}
+            className="top-0 right-4 -translate-y-1/2 group-hover/msg:flex focus-within:flex"
+            deleteLabel="Delete message"
+            editLabel="Edit message"
+            onDelete={() => onDeleteMessage(message)}
+            onEdit={() => onEditMessage(message)}
+            onQuote={() =>
+              onQuoteMessage(message, authorView?.name ?? author?.name)
+            }
+            quoteLabel="Quote message"
+            onReact={(emoji) => {
+              useAppStore
+                .getState()
+                .toggleChatMessageReaction(message.id, emoji)
+            }}
+          />
+        ) : null}
         {groupedWithPrev ? (
           <div aria-hidden />
         ) : (
@@ -580,8 +655,11 @@ function ChatMessageRow({
           <ChatMessageBody
             callJoinHref={callJoinHref}
             content={message.content}
+            deletedAt={message.deletedAt}
+            isCurrentUser={isCurrentUser}
           />
           <ChatMessageReactions
+            canReact={canCurrentUserWrite}
             currentUserId={currentUserId}
             message={message}
             usersById={usersById}
@@ -633,36 +711,55 @@ function ChatThreadHeader({
 }
 
 function ChatMessageList({
+  canCurrentUserWrite,
   currentUserId,
   getMembershipState,
   messages,
+  onDeleteMessage,
+  onEditMessage,
+  onQuoteMessage,
   usersById,
 }: {
+  canCurrentUserWrite: boolean
   currentUserId: string
   getMembershipState: (
     userId: string | null | undefined
   ) => WorkspaceMembershipState
   messages: ChatThreadMessage[]
+  onDeleteMessage: (message: ChatThreadMessage) => void
+  onEditMessage: (message: ChatThreadMessage) => void
+  onQuoteMessage: (
+    message: ChatThreadMessage,
+    authorName: string | undefined
+  ) => void
   usersById: Map<string, ChatThreadUser>
 }) {
+  const visibleMessages = messages.filter(
+    (message) => !message.deletedAt || message.createdBy === currentUserId
+  )
+
   return (
     <div className="flex flex-col py-3">
-      {messages.map((message, idx) => {
+      {visibleMessages.map((message, idx) => {
         const author = usersById.get(message.createdBy)
         const authorView = buildWorkspaceUserPresenceView(
           author,
           getMembershipState(author?.id)
         )
-        const previousMessage = messages[idx - 1]
+        const previousMessage = visibleMessages[idx - 1]
 
         return (
           <ChatMessageRow
             key={message.id}
             author={author}
             authorView={authorView}
+            canCurrentUserWrite={canCurrentUserWrite}
             currentUserId={currentUserId}
             index={idx}
             message={message}
+            onDeleteMessage={onDeleteMessage}
+            onEditMessage={onEditMessage}
+            onQuoteMessage={onQuoteMessage}
             previousMessage={previousMessage}
             usersById={usersById}
           />
@@ -673,12 +770,16 @@ function ChatMessageList({
 }
 
 function ChatMessagesPane({
+  canCurrentUserWrite,
   currentUserId,
   emptyStateDescription,
   getMembershipState,
   loaded,
   messages,
   messagesEndRef,
+  onDeleteMessage,
+  onEditMessage,
+  onQuoteMessage,
   scrollRef,
   showWelcomeIntro,
   title,
@@ -686,6 +787,7 @@ function ChatMessagesPane({
   welcomeParticipant,
   welcomeParticipantView,
 }: {
+  canCurrentUserWrite: boolean
   currentUserId: string
   emptyStateDescription: string
   getMembershipState: (
@@ -694,6 +796,12 @@ function ChatMessagesPane({
   loaded: boolean
   messages: ChatThreadMessage[]
   messagesEndRef: RefObject<HTMLDivElement | null>
+  onDeleteMessage: (message: ChatThreadMessage) => void
+  onEditMessage: (message: ChatThreadMessage) => void
+  onQuoteMessage: (
+    message: ChatThreadMessage,
+    authorName: string | undefined
+  ) => void
   scrollRef: RefObject<HTMLDivElement | null>
   showWelcomeIntro: boolean
   title: string
@@ -732,9 +840,13 @@ function ChatMessagesPane({
           ) : null}
           <div className="mt-auto" />
           <ChatMessageList
+            canCurrentUserWrite={canCurrentUserWrite}
             currentUserId={currentUserId}
             getMembershipState={getMembershipState}
             messages={messages}
+            onDeleteMessage={onDeleteMessage}
+            onEditMessage={onEditMessage}
+            onQuoteMessage={onQuoteMessage}
             usersById={usersById}
           />
           <div ref={messagesEndRef} aria-hidden className="h-px shrink-0" />
@@ -787,9 +899,14 @@ function ChatComposerPanel({
   composerEditable,
   conversationId,
   currentUserId,
+  draftContent,
+  draftKey,
+  editingMessageId,
   hideComposer,
   messageableMembers,
   messagesLength,
+  onCancelEdit,
+  onSaveEdit,
   onTypingChange,
   title,
   typingUsersCount,
@@ -798,14 +915,19 @@ function ChatComposerPanel({
   composerEditable: boolean
   conversationId: string
   currentUserId: string
+  draftContent?: string
+  draftKey?: number
+  editingMessageId: string | null
   hideComposer: boolean
   messageableMembers: ChatThreadMember[]
   messagesLength: number
+  onCancelEdit: () => void
+  onSaveEdit: (messageId: string, content: string) => void
   onTypingChange: (typing: boolean) => void
   title: string
   typingUsersCount: number
 }) {
-  if (hideComposer) {
+  if (hideComposer && !editingMessageId) {
     if (messagesLength === 0 || !composerDisabledReason) {
       return null
     }
@@ -830,13 +952,22 @@ function ChatComposerPanel({
       )}
     >
       <ChatComposer
-        placeholder={`Message ${title}…`}
+        key={draftKey}
+        placeholder={editingMessageId ? "Edit message…" : `Message ${title}…`}
         mentionCandidates={messageableMembers}
         currentUserId={currentUserId}
         editable={composerEditable}
         disabledReason={composerDisabledReason}
+        draftContent={draftContent}
+        editing={Boolean(editingMessageId)}
+        onCancelEdit={onCancelEdit}
         onTypingChange={onTypingChange}
         onSend={(content) => {
+          if (editingMessageId) {
+            onSaveEdit(editingMessageId, content)
+            return
+          }
+
           useAppStore.getState().sendChatMessage({ conversationId, content })
         }}
       />
@@ -1264,6 +1395,17 @@ export function ChatThread({
     () => new Map(users.map((user) => [user.id, user])),
     [users]
   )
+  const [composerDraft, setComposerDraft] = useState<{
+    content: string
+    key: number
+  }>({
+    content: "<p></p>",
+    key: 0,
+  })
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [deleteMessage, setDeleteMessage] = useState<ChatThreadMessage | null>(
+    null
+  )
   const { participants: chatPresenceParticipants, setTyping } = useChatPresence(
     {
       conversationId,
@@ -1325,6 +1467,67 @@ export function ChatThread({
   const latestMessageId = messages[messages.length - 1]?.id ?? null
   const { messagesEndRef, scrollRef } =
     useChatMessagesAutoScroll(latestMessageId)
+
+  useEffect(() => {
+    if (!loaded) {
+      return
+    }
+
+    useAppStore.getState().markChatRead(conversationId)
+  }, [conversationId, latestMessageId, loaded])
+
+  const seedComposer = (content: string) => {
+    setComposerDraft((current) => ({
+      content,
+      key: current.key + 1,
+    }))
+  }
+  const handleQuoteMessage = (
+    message: ChatThreadMessage,
+    authorName: string | undefined
+  ) => {
+    setEditingMessageId(null)
+    seedComposer(createQuotedRichText(message.content, authorName))
+  }
+  const handleEditMessage = (message: ChatThreadMessage) => {
+    if (
+      !canCurrentUserSend ||
+      message.createdBy !== currentUserId ||
+      message.deletedAt
+    ) {
+      return
+    }
+
+    setEditingMessageId(message.id)
+    seedComposer(message.content)
+  }
+  const handleCancelEdit = () => {
+    setEditingMessageId(null)
+    seedComposer("<p></p>")
+  }
+  const handleSaveEdit = (messageId: string, content: string) => {
+    if (!canCurrentUserSend) {
+      handleCancelEdit()
+      return
+    }
+
+    useAppStore.getState().updateChatMessage(messageId, {
+      content,
+    })
+    setEditingMessageId(null)
+    seedComposer("<p></p>")
+  }
+  const handleConfirmDeleteMessage = () => {
+    if (!deleteMessage) {
+      return
+    }
+
+    useAppStore.getState().deleteChatMessage(deleteMessage.id)
+    if (editingMessageId === deleteMessage.id) {
+      handleCancelEdit()
+    }
+    setDeleteMessage(null)
+  }
   const getWorkspaceMembershipState = (userId: string | null | undefined) =>
     resolveWorkspaceMembershipState({
       currentWorkspaceId,
@@ -1352,12 +1555,16 @@ export function ChatThread({
       ) : null}
 
       <ChatMessagesPane
+        canCurrentUserWrite={canCurrentUserSend}
         currentUserId={currentUserId}
         emptyStateDescription={emptyStateDescription}
         getMembershipState={getWorkspaceMembershipState}
         loaded={loaded}
         messages={messages}
         messagesEndRef={messagesEndRef}
+        onDeleteMessage={setDeleteMessage}
+        onEditMessage={handleEditMessage}
+        onQuoteMessage={handleQuoteMessage}
         scrollRef={scrollRef}
         showWelcomeIntro={Boolean(showWelcomeIntro)}
         title={title}
@@ -1376,12 +1583,30 @@ export function ChatThread({
         composerEditable={composerEditable}
         conversationId={conversationId}
         currentUserId={currentUserId}
+        draftContent={composerDraft.content}
+        draftKey={composerDraft.key}
+        editingMessageId={editingMessageId}
         hideComposer={hideComposer}
         messageableMembers={messageableMembers}
         messagesLength={messages.length}
+        onCancelEdit={handleCancelEdit}
+        onSaveEdit={handleSaveEdit}
         onTypingChange={setTyping}
         title={title}
         typingUsersCount={typingUsers.length}
+      />
+      <ConfirmDialog
+        open={Boolean(deleteMessage)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteMessage(null)
+          }
+        }}
+        title="Delete message"
+        description="This message will be removed for everyone else and shown as deleted for you."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={handleConfirmDeleteMessage}
       />
     </div>
   )

@@ -7,6 +7,7 @@ import {
   Code,
   FileArrowUp,
   ImageSquare,
+  LinkSimple,
   Lightning,
   ListBullets,
   ListChecks,
@@ -26,9 +27,11 @@ import {
   Command,
   CommandEmpty,
   CommandGroup,
+  CommandInput,
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+import type { RichTextEntityReferenceCandidate } from "@/lib/content/rich-text-references"
 import { getMentionDisplayLabel } from "@/lib/domain/input-constraints"
 import type { UserProfile } from "@/lib/domain/types"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
@@ -46,6 +49,7 @@ export type MentionCandidate = Pick<
   UserProfile,
   "id" | "name" | "handle" | "avatarImageUrl" | "avatarUrl" | "title"
 >
+export type ReferenceCandidate = RichTextEntityReferenceCandidate
 
 type SlashCommand = {
   id: string
@@ -164,6 +168,32 @@ export function insertMention(
     .run()
 }
 
+export function insertReference(
+  editor: Editor,
+  range: { from: number; to: number },
+  candidate: ReferenceCandidate
+) {
+  editor
+    .chain()
+    .focus()
+    .insertContentAt(range, [
+      {
+        type: "entityReference",
+        attrs: {
+          referenceType: candidate.type,
+          referenceId: candidate.id,
+          label: candidate.label,
+          href: candidate.href,
+        },
+      },
+      {
+        type: "text",
+        text: " ",
+      },
+    ])
+    .run()
+}
+
 export function buildSlashState(
   editor: Editor,
   container: HTMLDivElement | null
@@ -181,6 +211,45 @@ export function buildSlashState(
       menuAnchor: slashStart + 1,
       query: match[1]?.trim().toLowerCase() ?? "",
     })
+  })
+}
+
+export function buildReferenceState(
+  editor: Editor,
+  container: HTMLDivElement | null
+): MenuState | null {
+  return buildTextblockMatchMenuState(
+    editor,
+    container,
+    /(^|\s)#([a-z0-9_-]*)$/i,
+    (currentTextblock, match) => {
+      const query = match[2] ?? ""
+      const referenceText = `#${query}`
+      const referenceStart = currentTextblock.from - referenceText.length
+
+      return buildAnchoredMenuState({
+        container,
+        editor,
+        from: referenceStart,
+        menuAnchor: referenceStart + 1,
+        query: query.trim().toLowerCase(),
+      })
+    }
+  )
+}
+
+export function buildReferencePickerState(
+  editor: Editor,
+  container: HTMLDivElement | null
+): MenuState {
+  const from = editor.state.selection.from
+
+  return buildAnchoredMenuState({
+    container,
+    editor,
+    from,
+    menuAnchor: from,
+    query: "",
   })
 }
 
@@ -209,17 +278,45 @@ export function buildMentionState(
 }
 
 function getSlashCommands({
+  enableReferences,
   enableUploads,
   promptEmojiPicker,
   promptAttachmentUpload,
   promptImageUpload,
+  promptReferencePicker,
 }: {
+  enableReferences: boolean
   enableUploads: boolean
   promptEmojiPicker: (editor: Editor) => void
   promptAttachmentUpload: (editor: Editor) => void
   promptImageUpload: (editor: Editor) => void
+  promptReferencePicker: (editor: Editor) => void
 }): SlashCommand[] {
+  const referenceCommands: SlashCommand[] = enableReferences
+    ? [
+        {
+          id: "reference",
+          label: "Reference",
+          description: "Link work, docs, projects, or views",
+          keywords: [
+            "link",
+            "reference",
+            "mention",
+            "work item",
+            "document",
+            "project",
+            "view",
+          ],
+          icon: <LinkSimple className="size-4" />,
+          run: (currentEditor) => {
+            promptReferencePicker(currentEditor)
+          },
+        },
+      ]
+    : []
+
   const commands: SlashCommand[] = [
+    ...referenceCommands,
     {
       id: "paragraph",
       label: "Paragraph",
@@ -396,10 +493,12 @@ function getSlashCommands({
 export function filterSlashCommands(
   query: string,
   options: {
+    enableReferences: boolean
     enableUploads: boolean
     promptEmojiPicker: (editor: Editor) => void
     promptAttachmentUpload: (editor: Editor) => void
     promptImageUpload: (editor: Editor) => void
+    promptReferencePicker: (editor: Editor) => void
   }
 ) {
   return getSlashCommands(options).filter((command) => {
@@ -445,8 +544,52 @@ export function filterMentionCandidates(
     .slice(0, 8)
 }
 
+export function filterReferenceCandidates(
+  query: string,
+  candidates: ReferenceCandidate[]
+) {
+  const normalizedQuery = query.trim().toLowerCase()
+
+  return [...candidates]
+    .filter((candidate) => {
+      if (!normalizedQuery) {
+        return true
+      }
+
+      return [
+        candidate.id,
+        candidate.label,
+        candidate.subtitle ?? "",
+        candidate.type,
+        ...(candidate.keywords ?? []),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery)
+    })
+    .sort((left, right) => {
+      const leftLabelStarts = left.label
+        .toLowerCase()
+        .startsWith(normalizedQuery)
+      const rightLabelStarts = right.label
+        .toLowerCase()
+        .startsWith(normalizedQuery)
+
+      if (leftLabelStarts !== rightLabelStarts) {
+        return leftLabelStarts ? -1 : 1
+      }
+
+      return (
+        left.type.localeCompare(right.type) ||
+        left.label.localeCompare(right.label)
+      )
+    })
+    .slice(0, 8)
+}
+
 const SLASH_MENU_WIDTH = 288
 const MENTION_MENU_WIDTH = 256
+const REFERENCE_MENU_WIDTH = 288
 
 function getMenuLeft(
   state: MenuState,
@@ -633,6 +776,116 @@ export function MentionMenu({
                   <div className="truncate text-sm">{candidate.name}</div>
                   <div className="truncate text-xs text-muted-foreground">
                     {candidate.title || "No title"}
+                  </div>
+                </div>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </CommandList>
+      </Command>
+    </div>
+  )
+}
+
+function getReferenceKindLabel(candidate: ReferenceCandidate) {
+  switch (candidate.type) {
+    case "document":
+      return "Document"
+    case "project":
+      return "Project"
+    case "view":
+      return "View"
+    case "workItem":
+      return "Work item"
+  }
+}
+
+function getReferenceIcon(candidate: ReferenceCandidate) {
+  switch (candidate.type) {
+    case "document":
+      return <FileArrowUp className="size-4" />
+    case "project":
+      return <TableIcon className="size-4" />
+    case "view":
+      return <ListBullets className="size-4" />
+    case "workItem":
+      return <CheckSquare className="size-4" />
+  }
+}
+
+export function ReferenceMenu({
+  activeIndex,
+  candidates,
+  containerWidth,
+  editor,
+  state,
+  onComplete,
+  onQueryChange,
+  onSelectCandidate,
+}: {
+  activeIndex: number
+  candidates: ReferenceCandidate[]
+  containerWidth: number
+  editor: Editor
+  state: MenuState
+  onComplete: () => void
+  onQueryChange: (query: string) => void
+  onSelectCandidate?: (candidate: ReferenceCandidate) => void
+}) {
+  const itemRefs = useActiveItemScroll(activeIndex, candidates.length)
+
+  return (
+    <div
+      className="absolute z-50 w-72 max-w-[calc(100%-1rem)]"
+      style={{
+        left: getMenuLeft(state, containerWidth, REFERENCE_MENU_WIDTH),
+        top: state.top,
+      }}
+    >
+      <Command
+        className="overflow-hidden rounded-lg border border-line bg-background shadow-xl"
+        shouldFilter={false}
+        value={
+          candidates[activeIndex]
+            ? `${candidates[activeIndex].type}:${candidates[activeIndex].id}`
+            : undefined
+        }
+      >
+        <CommandInput
+          autoFocus
+          placeholder="Search references..."
+          value={state.query}
+          onValueChange={onQueryChange}
+        />
+        <CommandList className="max-h-[min(20rem,50vh)]">
+          <CommandEmpty>
+            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+              No matching references
+            </div>
+          </CommandEmpty>
+          <CommandGroup>
+            {candidates.map((candidate, index) => (
+              <CommandItem
+                key={`${candidate.type}:${candidate.id}`}
+                ref={(node) => assignMenuItemRef(itemRefs, index, node)}
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-2 py-1.5",
+                  index === activeIndex && "bg-accent"
+                )}
+                value={`${candidate.type}:${candidate.id}`}
+                onSelect={() => {
+                  insertReference(editor, state, candidate)
+                  onSelectCandidate?.(candidate)
+                  onComplete()
+                }}
+              >
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+                  {getReferenceIcon(candidate)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm">{candidate.label}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {candidate.subtitle ?? getReferenceKindLabel(candidate)}
                   </div>
                 </div>
               </CommandItem>

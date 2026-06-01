@@ -37,6 +37,10 @@ import {
   clearDocumentPresenceForActor,
   upsertDocumentPresenceForActor,
 } from "./presence_helpers"
+import {
+  resolveDocumentRichTextReferenceRelationships,
+  resolveWorkItemDescriptionRichTextReferenceRelationships,
+} from "./rich_text_reference_relationships"
 import { getAttachmentDoc } from "./data"
 import { createId, getNow as now } from "./core"
 import { getTeamDoc } from "./data"
@@ -324,6 +328,14 @@ export async function updateDocumentContentHandler(
   const document = await requireEditableDocumentForUpdate(ctx, args)
 
   const updatedAt = getNow()
+  const relationships = await resolveDocumentRichTextReferenceRelationships(
+    ctx,
+    {
+      content: args.content,
+      currentUserId: args.currentUserId,
+      document,
+    }
+  )
 
   await ctx.db.patch(document._id, {
     content: args.content,
@@ -331,6 +343,10 @@ export async function updateDocumentContentHandler(
       args.content,
       document.notifiedMentionCounts
     ),
+    linkedProjectIds: relationships.projectIds,
+    linkedWorkItemIds: relationships.workItemIds,
+    linkedDocumentIds: relationships.documentIds,
+    linkedViewIds: relationships.viewIds,
     updatedAt,
     updatedBy: args.currentUserId,
   })
@@ -353,6 +369,14 @@ export async function updateDocumentHandler(
   const document = await requireEditableDocumentForUpdate(ctx, args)
 
   const updatedAt = getNow()
+  const relationships =
+    args.content !== undefined
+      ? await resolveDocumentRichTextReferenceRelationships(ctx, {
+          content: args.content,
+          currentUserId: args.currentUserId,
+          document,
+        })
+      : null
 
   await ctx.db.patch(document._id, {
     ...(args.title !== undefined ? { title: args.title } : {}),
@@ -363,6 +387,10 @@ export async function updateDocumentHandler(
             args.content,
             document.notifiedMentionCounts
           ),
+          linkedProjectIds: relationships?.projectIds ?? [],
+          linkedWorkItemIds: relationships?.workItemIds ?? [],
+          linkedDocumentIds: relationships?.documentIds ?? [],
+          linkedViewIds: relationships?.viewIds ?? [],
         }
       : {}),
     updatedAt,
@@ -1010,6 +1038,12 @@ export async function updateItemDescriptionHandler(
   )
 
   const updatedAt = getNow()
+  const relationships =
+    await resolveWorkItemDescriptionRichTextReferenceRelationships(ctx, {
+      content: args.content,
+      currentUserId: args.currentUserId,
+      item,
+    })
 
   await ctx.db.patch(descriptionDocument._id, {
     content: args.content,
@@ -1022,6 +1056,8 @@ export async function updateItemDescriptionHandler(
   })
 
   await ctx.db.patch(item._id, {
+    linkedDocumentIds: relationships.documentIds,
+    linkedWorkItemIds: relationships.workItemIds,
     updatedAt,
   })
 

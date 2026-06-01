@@ -172,6 +172,7 @@ function createPeopleTestData(): AppData {
     postId: channelPost.id,
     content: "Looks good",
     mentionUserIds: [],
+    reactions: [],
     createdBy: maya.id,
     createdAt: "2026-04-18T10:45:00.000Z",
   }
@@ -234,6 +235,35 @@ function createPeopleTestData(): AppData {
     ],
     users: [currentUser, maya, sam, deletedUser],
     workItems: [workItem, hiddenPrivateItem],
+    workItemActivities: [
+      {
+        id: "activity_status",
+        itemId: workItem.id,
+        actorId: maya.id,
+        type: "status-change",
+        fromStatus: "todo",
+        toStatus: "done",
+        createdAt: "2026-04-18T10:05:00.000Z",
+      },
+      {
+        id: "activity_labels",
+        itemId: workItem.id,
+        actorId: maya.id,
+        type: "label-change",
+        fromLabelIds: [],
+        toLabelIds: ["label_1"],
+        createdAt: "2026-04-18T10:15:00.000Z",
+      },
+      {
+        id: "activity_private",
+        itemId: hiddenPrivateItem.id,
+        actorId: maya.id,
+        type: "status-change",
+        fromStatus: "todo",
+        toStatus: "done",
+        createdAt: "2026-04-18T10:25:00.000Z",
+      },
+    ],
     documents: [document],
     comments: [
       createComment({
@@ -274,9 +304,12 @@ describe("people workspace screens", () => {
     render(<PeopleScreen />)
 
     expect(screen.getByRole("heading", { name: "People" })).toBeInTheDocument()
-    expect(screen.getByTestId("people-grid")).toHaveClass(
-      "grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))]"
+    const grid = screen.getByTestId("people-grid")
+
+    expect(grid).toHaveClass(
+      "grid-cols-[repeat(auto-fill,minmax(320px,1fr))]"
     )
+    expect(grid.className).not.toContain("auto-fit")
     expect(screen.getByText("Maya Singh")).toBeInTheDocument()
     expect(screen.getAllByText("Product Designer").length).toBeGreaterThan(0)
     expect(screen.getByText("Sam Lee")).toBeInTheDocument()
@@ -302,6 +335,8 @@ describe("people workspace screens", () => {
     expect(screen.getAllByText("Product Designer").length).toBeGreaterThan(0)
     expect(screen.getByText("Teams: Platform")).toBeInTheDocument()
     expect(screen.getByText("Created work item")).toBeInTheDocument()
+    expect(screen.getByText("Changed work item status")).toBeInTheDocument()
+    expect(screen.getByText("Updated work item labels")).toBeInTheDocument()
     expect(screen.getByText("Commented on work item")).toBeInTheDocument()
     expect(screen.getByText("Commented on document")).toBeInTheDocument()
     expect(screen.getByText("Created channel post")).toBeInTheDocument()

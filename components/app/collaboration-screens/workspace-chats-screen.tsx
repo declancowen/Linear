@@ -19,6 +19,10 @@ import {
   getCurrentWorkspace,
   getWorkspaceChats,
 } from "@/lib/domain/selectors"
+import {
+  getChatConversationReadAt,
+  isChatConversationUnread,
+} from "@/lib/domain/chat-read-state"
 import type {
   AppData,
   Conversation,
@@ -65,6 +69,10 @@ import {
 } from "@/components/ui/sheet"
 
 type WorkspaceChatListWidth = number | null
+type WorkspaceChatListEntry = Conversation & {
+  readAt?: string | null
+  unread?: boolean
+}
 
 function getActiveWorkspaceChatId(
   selectedChatId: string | null,
@@ -263,13 +271,15 @@ function WorkspaceChatsContent({
   sidebarOpen,
   renderConversationAvatar,
   onCreateChat,
+  onMarkChatRead,
+  onMarkChatUnread,
   onResizeStart,
   onResetWidth,
   onSelectChat,
   splitRef,
 }: {
   hasLoadedConversationList: boolean
-  chats: Conversation[]
+  chats: WorkspaceChatListEntry[]
   activeChat: Conversation | null
   conversationListWidth: WorkspaceChatListWidth
   conversationListResizing: boolean
@@ -280,6 +290,8 @@ function WorkspaceChatsContent({
   sidebarOpen: boolean
   renderConversationAvatar: (conversationId: string) => ReactNode
   onCreateChat: () => void
+  onMarkChatRead: (id: string) => void
+  onMarkChatUnread: (id: string) => void
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onResetWidth: () => void
   onSelectChat: (id: string) => void
@@ -322,6 +334,8 @@ function WorkspaceChatsContent({
         latestMessagesByConversationId={latestMessagesByConversationId}
         renderConversationAvatar={renderConversationAvatar}
         onCreateChat={onCreateChat}
+        onMarkChatRead={onMarkChatRead}
+        onMarkChatUnread={onMarkChatUnread}
         onResizeStart={onResizeStart}
         onResetWidth={onResetWidth}
         onSelectChat={onSelectChat}
@@ -408,6 +422,12 @@ export function WorkspaceChatsScreen() {
     )
   )
   const chatMessages = useAppStore((state) => state.chatMessages)
+  const { chatReadStates, notifications } = useAppStore(
+    useShallow((state) => ({
+      chatReadStates: state.chatReadStates,
+      notifications: state.notifications,
+    }))
+  )
   const users = useAppStore((state) => state.users)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -587,6 +607,23 @@ export function WorkspaceChatsScreen() {
     () => getLatestMessagesByConversationId(chats, chatMessages),
     [chatMessages, chats]
   )
+  const chatsWithReadState = useMemo(
+    () =>
+      chats.map((chat) => ({
+        ...chat,
+        readAt: getChatConversationReadAt(
+          { chatReadStates },
+          currentUserId,
+          chat.id
+        ),
+        unread: isChatConversationUnread(
+          { chatReadStates, notifications },
+          currentUserId,
+          chat.id
+        ),
+      })),
+    [chatReadStates, chats, currentUserId, notifications]
+  )
   const otherParticipantIds = activeChat
     ? activeChat.participantIds.filter((userId) => userId !== currentUserId)
     : []
@@ -632,7 +669,7 @@ export function WorkspaceChatsScreen() {
       />
       <WorkspaceChatsContent
         hasLoadedConversationList={hasLoadedConversationList}
-        chats={chats}
+        chats={chatsWithReadState}
         activeChat={activeChat}
         conversationListWidth={conversationListWidth}
         conversationListResizing={conversationListResizing}
@@ -656,6 +693,8 @@ export function WorkspaceChatsScreen() {
           />
         )}
         onCreateChat={() => setDialogOpen(true)}
+        onMarkChatRead={(id) => useAppStore.getState().markChatRead(id)}
+        onMarkChatUnread={(id) => useAppStore.getState().markChatUnread(id)}
         onResizeStart={handleConversationListResizeStart}
         onResetWidth={() => setConversationListWidth(null)}
         onSelectChat={(id) =>

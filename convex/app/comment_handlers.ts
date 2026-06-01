@@ -32,6 +32,7 @@ import {
 } from "./access"
 import { getTeamMemberIds } from "./conversations"
 import { queueMentionAndCommentEmailJobs } from "./email_job_handlers"
+import { resolveWorkItemCommentReferenceIds } from "./rich_text_reference_relationships"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -112,8 +113,9 @@ async function resolveWorkItemCommentTarget(
     throw new Error("Comments are not available on private tasks")
   }
 
-  const teamMemberIds =
-    item.teamId ? await getTeamMemberIds(ctx, item.teamId) : []
+  const teamMemberIds = item.teamId
+    ? await getTeamMemberIds(ctx, item.teamId)
+    : []
 
   await ctx.db.patch(item._id, {
     updatedAt: getNow(),
@@ -217,10 +219,21 @@ async function requireWorkItemForDescriptionDocument(
   return item
 }
 
+async function requireWorkItemCommentTarget(ctx: MutationCtx, itemId: string) {
+  const item = await getWorkItemDoc(ctx, itemId)
+
+  if (!item) {
+    throw new Error("Work item not found")
+  }
+
+  return item
+}
+
 async function insertComment(
   ctx: MutationCtx,
   args: AddCommentArgs,
-  mentionUserIds: string[]
+  mentionUserIds: string[],
+  referencedWorkItemIds: string[]
 ) {
   const commentId = args.commentId?.trim() || createId("comment")
 
@@ -235,6 +248,7 @@ async function insertComment(
     parentCommentId: args.parentCommentId ?? null,
     content: args.content.trim(),
     mentionUserIds,
+    referencedWorkItemIds,
     reactions: [],
     createdBy: args.currentUserId,
     createdAt: getNow(),
@@ -263,6 +277,7 @@ async function notifyMentionedCommentUsers({
   ctx,
   args,
   actorName,
+  commentId,
   entityTitle,
   entityType,
   mentionUserIds,
@@ -271,20 +286,25 @@ async function notifyMentionedCommentUsers({
   ctx: MutationCtx
   args: AddCommentArgs
   actorName: string
+  commentId: string
   entityTitle: string
   entityType: CommentEntityType
   mentionUserIds: string[]
   usersById: Map<string, MentionAudienceUser>
 }) {
+  const commentText = getPlainTextContent(args.content)
+
   return insertMentionNotifications({
     actorId: args.currentUserId,
     actorName,
-    commentText: getPlainTextContent(args.content),
+    commentText,
+    contentPreview: commentText,
     ctx,
     entityId: args.targetId,
     entityTitle,
     entityType,
     mentionUserIds,
+    targetCommentId: commentId,
     usersById,
   })
 }
@@ -326,6 +346,7 @@ async function notifyCommentFollowers({
   ctx,
   args,
   audienceUserIds,
+  commentId,
   commentText,
   entityTitle,
   entityType,
@@ -337,6 +358,7 @@ async function notifyCommentFollowers({
   ctx: MutationCtx
   args: AddCommentArgs
   audienceUserIds: Set<string>
+  commentId: string
   commentText: string
   entityTitle: string
   entityType: CommentEntityType
@@ -370,7 +392,11 @@ async function notifyCommentFollowers({
       followerMessage,
       entityType,
       args.targetId,
-      "comment"
+      "comment",
+      {
+        contentPreview: commentText,
+        targetCommentId: commentId,
+      }
     )
 
     await ctx.db.insert("notifications", notification)
@@ -426,13 +452,27 @@ export async function addCommentHandler(
     audience.users,
     audience.audienceUserIds
   )
+  const referencedWorkItemIds =
+    args.targetType === "workItem"
+      ? await resolveWorkItemCommentReferenceIds(ctx, {
+          content: args.content,
+          currentUserId: args.currentUserId,
+          item: await requireWorkItemCommentTarget(ctx, args.targetId),
+        })
+      : []
 
-  const commentId = await insertComment(ctx, args, mentionUserIds)
+  const commentId = await insertComment(
+    ctx,
+    args,
+    mentionUserIds,
+    referencedWorkItemIds
+  )
 
   const { mentionEmails, notifiedUserIds } = await notifyMentionedCommentUsers({
     ctx,
     args,
     actorName: audience.actorName,
+    commentId,
     entityTitle: targetContext.entityTitle,
     entityType: targetContext.entityType,
     mentionUserIds,
@@ -444,6 +484,7 @@ export async function addCommentHandler(
     args,
     actorName: audience.actorName,
     audienceUserIds: new Set(audience.audienceUserIds),
+    commentId,
     commentText: getPlainTextContent(args.content),
     entityTitle: targetContext.entityTitle,
     entityType: targetContext.entityType,
@@ -462,6 +503,7 @@ export async function addCommentHandler(
     commentId,
     mentionEmails,
     commentEmails,
+    notificationUserIds: [...notifiedUserIds],
   }
 }
 
@@ -507,6 +549,8 @@ export async function toggleCommentReactionHandler(
   return {
     commentId: comment.id,
     ok: true,
+    targetType: comment.targetType,
+    targetId: comment.targetId,
   }
 }
 
@@ -546,10 +590,20 @@ export async function updateCommentHandler(
     audience.users,
     audience.audienceUserIds
   )
+  const referencedWorkItemIds =
+    comment.targetType === "workItem"
+      ? await resolveWorkItemCommentReferenceIds(ctx, {
+          content: args.content,
+          currentUserId: args.currentUserId,
+          item: await requireWorkItemCommentTarget(ctx, comment.targetId),
+        })
+      : []
 
   await ctx.db.patch(comment._id, {
     content: args.content.trim(),
     mentionUserIds,
+    referencedWorkItemIds,
+    editedAt: getNow(),
   })
 
   return {

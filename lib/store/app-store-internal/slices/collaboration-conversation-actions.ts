@@ -5,13 +5,18 @@ import { toast } from "sonner"
 import {
   syncCreateChannel,
   syncCreateWorkspaceChat,
+  syncDeleteChatMessage,
   syncEnsureTeamChat,
   syncSendChatMessage,
   syncStartConversationCall,
   syncToggleChatMessageReaction,
+  syncUpdateChatMessage,
+  syncUpdateChatReadState,
 } from "@/lib/convex/client"
 import { prepareRichTextMessageForStorage } from "@/lib/content/rich-text-security"
 import { RouteMutationError } from "@/lib/convex/client/shared"
+import { createChatReadStateId } from "@/lib/domain/chat-read-state"
+import { isChatMessageNotification } from "@/lib/domain/notification-visibility"
 import {
   channelSchema,
   chatMessageSchema,
@@ -115,6 +120,18 @@ function remapConversationIdInState(
             conversationId: canonicalConversationId,
           }
         : message
+    ),
+    chatReadStates: state.chatReadStates.map((readState) =>
+      readState.conversationId === optimisticConversationId
+        ? {
+            ...readState,
+            id: createChatReadStateId(
+              readState.userId,
+              canonicalConversationId
+            ),
+            conversationId: canonicalConversationId,
+          }
+        : readState
     ),
     notifications: state.notifications.map((notification) =>
       notification.entityType === "chat" &&
@@ -222,18 +239,23 @@ function createSyncedChatMessageTask({
   })
 }
 
-function canSendOptimisticChatMessage(
+function canWriteOptimisticChatConversation(
   state: AppStore,
-  conversation: ChatConversationRecord
+  conversation: ChatConversationRecord,
+  { showToast = true }: { showToast?: boolean } = {}
 ) {
   if (conversation.scopeType === "workspace") {
     if (!conversation.participantIds.includes(state.currentUserId)) {
-      toast.error("You do not have access to this chat")
+      if (showToast) {
+        toast.error("You do not have access to this chat")
+      }
       return false
     }
 
     if (!canEditWorkspaceDocuments(state, conversation.scopeId)) {
-      toast.error("Your current role is read-only")
+      if (showToast) {
+        toast.error("Your current role is read-only")
+      }
       return false
     }
 
@@ -242,11 +264,20 @@ function canSendOptimisticChatMessage(
 
   const role = effectiveRole(state, conversation.scopeId)
   if (role === "viewer" || role === "guest" || !role) {
-    toast.error("Your current role is read-only")
+    if (showToast) {
+      toast.error("Your current role is read-only")
+    }
     return false
   }
 
   return true
+}
+
+function canSendOptimisticChatMessage(
+  state: AppStore,
+  conversation: ChatConversationRecord
+) {
+  return canWriteOptimisticChatConversation(state, conversation)
 }
 
 function applyStartedConversationCallState(
@@ -291,32 +322,7 @@ function canReactOptimisticChatMessage(
   state: AppStore,
   conversation: ChatConversationRecord
 ) {
-  if (conversation.scopeType === "workspace") {
-    if (!conversation.participantIds.includes(state.currentUserId)) {
-      toast.error("You do not have access to this chat")
-      return false
-    }
-
-    if (
-      !getWorkspaceMemberIds(state, conversation.scopeId).includes(
-        state.currentUserId
-      )
-    ) {
-      toast.error("You do not have access to this workspace")
-      return false
-    }
-
-    return true
-  }
-
-  if (
-    !getTeamMemberIds(state, conversation.scopeId).includes(state.currentUserId)
-  ) {
-    toast.error("You do not have access to this team")
-    return false
-  }
-
-  return true
+  return canWriteOptimisticChatConversation(state, conversation)
 }
 
 function createLocalChatReactionToggle({
@@ -410,6 +416,98 @@ function assertOptimisticChatAudience(
   return false
 }
 
+function upsertLocalChatReadState({
+  action,
+  chatReadStates,
+  conversationId,
+  now,
+  userId,
+}: {
+  action: "read" | "unread"
+  chatReadStates: AppStore["chatReadStates"]
+  conversationId: string
+  now: string
+  userId: string
+}) {
+  const existing = chatReadStates.find(
+    (state) => state.userId === userId && state.conversationId === conversationId
+  )
+
+  if (existing) {
+    return chatReadStates.map((state) =>
+      state.id === existing.id
+        ? {
+            ...state,
+            readAt: action === "read" ? now : state.readAt,
+            unreadAt: action === "read" ? null : now,
+            updatedAt: now,
+          }
+        : state
+    )
+  }
+
+  return [
+    ...chatReadStates,
+    {
+      id: createChatReadStateId(userId, conversationId),
+      userId,
+      conversationId,
+      readAt: action === "read" ? now : null,
+      unreadAt: action === "read" ? null : now,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]
+}
+
+function markLegacyChatMessageNotificationsRead(
+  notifications: AppStore["notifications"],
+  input: {
+    conversationId: string
+    now: string
+    userId: string
+  }
+) {
+  return notifications.map((notification) =>
+    notification.userId === input.userId &&
+    notification.entityId === input.conversationId &&
+    isChatMessageNotification(notification) &&
+    notification.readAt == null
+      ? {
+          ...notification,
+          readAt: input.now,
+        }
+      : notification
+  )
+}
+
+function applyLocalChatReadState(
+  state: AppStore,
+  conversationId: string,
+  action: "read" | "unread",
+  now = getNow()
+): Pick<AppStore, "chatReadStates" | "notifications"> {
+  const chatReadStates = upsertLocalChatReadState({
+    action,
+    chatReadStates: state.chatReadStates,
+    conversationId,
+    now,
+    userId: state.currentUserId,
+  })
+
+  return {
+    chatReadStates,
+    notifications:
+      action === "read"
+        ? markLegacyChatMessageNotificationsRead(state.notifications, {
+            conversationId,
+            now,
+            userId: state.currentUserId,
+          })
+        : state.notifications,
+  }
+}
+
 function addOptimisticMentionNotifications({
   actorName,
   conversation,
@@ -448,48 +546,9 @@ function addOptimisticMentionNotifications({
   }
 }
 
-function addOptimisticAudienceNotifications({
-  actorName,
-  audienceUserIds,
-  conversation,
-  currentUserId,
-  notifications,
-  notifiedUserIds,
-}: {
-  actorName: string
-  audienceUserIds: string[]
-  conversation: ChatConversationRecord
-  currentUserId: string
-  notifications: AppStore["notifications"]
-  notifiedUserIds: Set<string>
-}) {
-  for (const audienceUserId of audienceUserIds) {
-    if (
-      audienceUserId === currentUserId ||
-      notifiedUserIds.has(audienceUserId)
-    ) {
-      continue
-    }
-
-    notifications.unshift(
-      createNotification(
-        audienceUserId,
-        currentUserId,
-        `${actorName} sent you a message in ${conversation.title || "a chat"}`,
-        "chat",
-        conversation.id,
-        "message"
-      )
-    )
-
-    notifiedUserIds.add(audienceUserId)
-  }
-}
-
 function createOptimisticChatNotifications(
   state: AppStore,
   conversation: ChatConversationRecord,
-  audienceUserIds: string[],
   mentionUserIds: string[]
 ) {
   const { actorName, notifications, notifiedUserIds } =
@@ -500,14 +559,6 @@ function createOptimisticChatNotifications(
     conversation,
     currentUserId: state.currentUserId,
     mentionUserIds,
-    notifications,
-    notifiedUserIds,
-  })
-  addOptimisticAudienceNotifications({
-    actorName,
-    audienceUserIds,
-    conversation,
-    currentUserId: state.currentUserId,
     notifications,
     notifiedUserIds,
   })
@@ -542,12 +593,21 @@ function addOptimisticChatMessageToState(
   const notifications = createOptimisticChatNotifications(
     state,
     conversation,
-    audienceUserIds,
     mentionUserIds
+  )
+  const readStatePatch = applyLocalChatReadState(
+    {
+      ...state,
+      notifications,
+    },
+    conversation.id,
+    "read",
+    now
   )
 
   return {
-    notifications,
+    notifications: readStatePatch.notifications,
+    chatReadStates: readStatePatch.chatReadStates,
     chatMessages: [
       ...state.chatMessages,
       {
@@ -938,6 +998,10 @@ export function createCollaborationConversationActions({
   | "createChannel"
   | "startConversationCall"
   | "sendChatMessage"
+  | "updateChatMessage"
+  | "deleteChatMessage"
+  | "markChatRead"
+  | "markChatUnread"
   | "toggleChatMessageReaction"
 > {
   return {
@@ -1184,6 +1248,200 @@ export function createCollaborationConversationActions({
 
       runtime.syncInBackground(sendTask, "Failed to send message")
     },
+    updateChatMessage(messageId, input) {
+      const state = get()
+      const message = state.chatMessages.find((entry) => entry.id === messageId)
+      const conversation = getChatConversationForMessage(state, messageId)
+
+      if (
+        !message ||
+        message.createdBy !== state.currentUserId ||
+        message.deletedAt ||
+        !conversation ||
+        !canWriteOptimisticChatConversation(state, conversation)
+      ) {
+        return
+      }
+
+      const parsed = chatMessageSchema
+        .pick({ content: true })
+        .safeParse({ content: input.content })
+      if (!parsed.success) {
+        return
+      }
+
+      const preparedContent = prepareRichTextMessageForStorage(
+        parsed.data.content,
+        {
+          minPlainTextCharacters: 1,
+        }
+      )
+
+      if (!preparedContent.isMeaningful) {
+        toast.error("Message content must include at least 1 character")
+        return
+      }
+
+      const now = getNow()
+
+      set((state) => {
+        const currentMessage = state.chatMessages.find(
+          (entry) => entry.id === messageId
+        )
+        const conversation = currentMessage
+          ? getChatConversationForSend(state, currentMessage.conversationId)
+          : null
+
+        if (
+          !currentMessage ||
+          currentMessage.createdBy !== state.currentUserId ||
+          currentMessage.deletedAt ||
+          !conversation ||
+          !canWriteOptimisticChatConversation(state, conversation, {
+            showToast: false,
+          })
+        ) {
+          return state
+        }
+
+        const audienceUserIds = getConversationAudienceUserIds(
+          state,
+          conversation
+        )
+
+        return {
+          ...state,
+          chatMessages: state.chatMessages.map((entry) =>
+            entry.id === messageId
+              ? {
+                  ...entry,
+                  content: preparedContent.sanitized,
+                  mentionUserIds: createMentionIds(
+                    preparedContent.sanitized,
+                    state.users,
+                    audienceUserIds
+                  ),
+                  editedAt: now,
+                }
+              : entry
+          ),
+          conversations: state.conversations.map((entry) =>
+            entry.id === conversation.id
+              ? {
+                  ...entry,
+                  updatedAt: now,
+                }
+              : entry
+          ),
+        }
+      })
+
+      const pendingMessageSync = pendingChatMessageSyncs.get(messageId)
+      const updateTask = pendingMessageSync
+        ? pendingMessageSync.then(
+            () => syncUpdateChatMessage(messageId, preparedContent.sanitized),
+            () => null
+          )
+        : syncUpdateChatMessage(messageId, preparedContent.sanitized)
+
+      runtime.syncInBackground(updateTask, "Failed to update message")
+    },
+    deleteChatMessage(messageId) {
+      const state = get()
+      const message = state.chatMessages.find((entry) => entry.id === messageId)
+      const conversation = getChatConversationForMessage(state, messageId)
+
+      if (
+        !message ||
+        message.createdBy !== state.currentUserId ||
+        message.deletedAt ||
+        !conversation ||
+        !canWriteOptimisticChatConversation(state, conversation)
+      ) {
+        return
+      }
+
+      const now = getNow()
+
+      set((state) => {
+        const currentMessage = state.chatMessages.find(
+          (entry) => entry.id === messageId
+        )
+        const conversation = currentMessage
+          ? getChatConversationForSend(state, currentMessage.conversationId)
+          : null
+
+        if (
+          !currentMessage ||
+          currentMessage.createdBy !== state.currentUserId ||
+          currentMessage.deletedAt ||
+          !conversation ||
+          !canWriteOptimisticChatConversation(state, conversation, {
+            showToast: false,
+          })
+        ) {
+          return state
+        }
+
+        return {
+          ...state,
+          chatMessages: state.chatMessages.map((entry) =>
+            entry.id === messageId
+              ? {
+                  ...entry,
+                  content: "",
+                  mentionUserIds: [],
+                  reactions: [],
+                  editedAt: null,
+                  deletedAt: now,
+                }
+              : entry
+          ),
+          conversations: state.conversations.map((entry) =>
+            entry.id === message.conversationId
+              ? {
+                  ...entry,
+                  updatedAt: now,
+                }
+              : entry
+          ),
+        }
+      })
+
+      const pendingMessageSync = pendingChatMessageSyncs.get(messageId)
+      const deleteTask = pendingMessageSync
+        ? pendingMessageSync.then(
+            () => syncDeleteChatMessage(messageId),
+            () => null
+          )
+        : syncDeleteChatMessage(messageId)
+
+      runtime.syncInBackground(deleteTask, "Failed to delete message")
+    },
+    markChatRead(conversationId) {
+      set((state) => applyLocalChatReadState(state, conversationId, "read"))
+
+      runtime.syncInBackground(
+        syncUpdateChatReadState(conversationId, "read"),
+        "Failed to update chat read state",
+        {
+          refreshStrategy: "none",
+          showToast: false,
+        }
+      )
+    },
+    markChatUnread(conversationId) {
+      set((state) => applyLocalChatReadState(state, conversationId, "unread"))
+
+      runtime.syncInBackground(
+        syncUpdateChatReadState(conversationId, "unread"),
+        "Failed to update chat read state",
+        {
+          refreshStrategy: "none",
+          showToast: false,
+        }
+      )
+    },
     toggleChatMessageReaction(messageId, emoji) {
       const nextEmoji = emoji.trim()
 
@@ -1192,6 +1450,12 @@ export function createCollaborationConversationActions({
       }
 
       const state = get()
+      const message = state.chatMessages.find((entry) => entry.id === messageId)
+
+      if (message?.deletedAt) {
+        return
+      }
+
       const conversation = getChatConversationForMessage(state, messageId)
 
       if (!conversation) {

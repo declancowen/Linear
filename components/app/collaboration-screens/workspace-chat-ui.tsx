@@ -7,7 +7,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react"
-import { X } from "@phosphor-icons/react"
+import { CheckCircle, Circle, X } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 import {
   conversationTitleConstraints,
@@ -35,6 +35,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 export const WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY =
   "workspace-chat-list-width:v2"
@@ -74,17 +79,23 @@ export function ConversationList({
   conversations,
   selectedId,
   onSelect,
+  onMarkRead,
+  onMarkUnread,
   renderLeading,
   renderPreview,
   className,
 }: {
   conversations: Array<{
     id: string
+    readAt?: string | null
     title: string
+    unread?: boolean
     updatedAt: string
   }>
   selectedId: string | null
   onSelect: (id: string) => void
+  onMarkRead?: (id: string) => void
+  onMarkUnread?: (id: string) => void
   renderLeading?: (id: string) => ReactNode
   renderPreview: (id: string) => string
   className?: string
@@ -100,49 +111,117 @@ export function ConversationList({
         <div className="flex flex-col px-1 py-1">
           {conversations.map((conversation) => {
             const leading = renderLeading?.(conversation.id)
+            const unread = conversation.unread ?? false
+            const actionLabel = unread
+              ? "Mark chat as read"
+              : "Mark chat as unread"
+            const canToggleReadState =
+              onMarkRead !== undefined && onMarkUnread !== undefined
 
             return (
-              <button
+              <div
                 key={conversation.id}
-                className={cn(
-                  "block w-full max-w-full overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors",
-                  selectedId === conversation.id
-                    ? "bg-accent"
-                    : "hover:bg-accent/50"
-                )}
-                onClick={() => onSelect(conversation.id)}
+                className="group/chat-row relative"
               >
-                <div
+                <button
+                  type="button"
                   className={cn(
-                    "grid w-full items-center gap-x-3",
-                    leading
-                      ? "grid-cols-[auto_minmax(0,1fr)]"
-                      : "grid-cols-[minmax(0,1fr)]"
+                    "relative block w-full max-w-full overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors",
+                    canToggleReadState && "pr-9",
+                    selectedId === conversation.id
+                      ? "bg-accent"
+                      : unread
+                        ? "bg-primary/5 hover:bg-accent/60"
+                        : "hover:bg-accent/50"
                   )}
+                  onClick={() => onSelect(conversation.id)}
                 >
-                  {leading ? (
-                    <div className="row-span-2 shrink-0">{leading}</div>
+                  {unread ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-1/2 left-1.5 size-1.5 -translate-y-1/2 rounded-full bg-primary"
+                    />
                   ) : null}
-                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-2">
+                  <div
+                    className={cn(
+                      "grid w-full items-center gap-x-3",
+                      unread && "pl-1",
+                      leading
+                        ? "grid-cols-[auto_minmax(0,1fr)]"
+                        : "grid-cols-[minmax(0,1fr)]"
+                    )}
+                  >
+                    {leading ? (
+                      <div className="row-span-2 shrink-0">{leading}</div>
+                    ) : null}
+                    <div
+                      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-2"
+                    >
+                      <div
+                        className={cn(
+                          "truncate text-[13px] leading-5",
+                          selectedId === conversation.id || unread
+                            ? "font-semibold"
+                            : "font-medium"
+                        )}
+                      >
+                        {conversation.title}
+                      </div>
+                      <div className="flex max-w-[7.75rem] shrink-0 items-center gap-1 overflow-hidden text-[10px] text-muted-foreground">
+                        <span className="shrink-0 tabular-nums">
+                          {formatShortDate(conversation.updatedAt)}
+                        </span>
+                        {conversation.readAt ? (
+                          <>
+                            <span className="shrink-0 text-muted-foreground/70">
+                              ·
+                            </span>
+                            <span className="truncate">
+                              Read {formatShortDate(conversation.readAt)}
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
                     <div
                       className={cn(
-                        "truncate text-[13px] leading-5",
-                        selectedId === conversation.id
-                          ? "font-semibold"
-                          : "font-medium"
+                        "mt-0.5 min-w-0 truncate text-[11px]",
+                        unread ? "text-foreground/80" : "text-muted-foreground"
                       )}
                     >
-                      {conversation.title}
+                      {renderPreview(conversation.id)}
                     </div>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {formatShortDate(conversation.updatedAt)}
-                    </span>
                   </div>
-                  <div className="mt-0.5 min-w-0 truncate text-[11px] text-muted-foreground">
-                    {renderPreview(conversation.id)}
-                  </div>
-                </div>
-              </button>
+                </button>
+                {canToggleReadState ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={actionLabel}
+                        className="absolute top-2 right-2 inline-grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 transition hover:bg-surface-3 hover:text-foreground focus-visible:opacity-100 group-focus-within/chat-row:opacity-100 group-hover/chat-row:opacity-100"
+                        onClick={(event) => {
+                          event.stopPropagation()
+
+                          if (unread) {
+                            onMarkRead(conversation.id)
+                            return
+                          }
+
+                          onMarkUnread(conversation.id)
+                        }}
+                      >
+                        {unread ? (
+                          <CheckCircle className="size-3.5" />
+                        ) : (
+                          <Circle className="size-3.5" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent sideOffset={6}>{actionLabel}</TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </div>
             )
           })}
         </div>

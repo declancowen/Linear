@@ -92,6 +92,7 @@ function createState() {
         title: "Spec",
         content: "<h1>Spec</h1>",
         linkedProjectIds: [],
+        linkedDocumentIds: [],
         linkedWorkItemIds: [],
         createdBy: "user_1",
         updatedBy: "user_1",
@@ -115,6 +116,7 @@ function createState() {
         primaryProjectId: null,
         linkedProjectIds: [],
         linkedDocumentIds: ["document_1"],
+        linkedWorkItemIds: [],
         labelIds: [],
         milestoneId: null,
         startDate: null,
@@ -201,6 +203,10 @@ function getQueuedRichTextSyncTask(
   queueRichTextSyncMock: ReturnType<typeof vi.fn>
 ) {
   return queueRichTextSyncMock.mock.calls[0]?.[1] as ActiveSyncTask | undefined
+}
+
+function referenceAnchor(type: string, id: string) {
+  return `<a data-type="entity-reference" data-reference-type="${type}" data-reference-id="${id}" href="#">${id}</a>`
 }
 
 describe("work document actions", () => {
@@ -576,6 +582,76 @@ describe("work document actions", () => {
     })
   })
 
+  it("updates document reference relationships from saved inline references", async () => {
+    syncUpdateDocumentContentMock.mockResolvedValue({
+      ok: true,
+      updatedAt: "2026-04-17T10:05:00.000Z",
+    })
+    const state = {
+      ...createState(),
+      projects: [
+        {
+          id: "project_1",
+          scopeType: "workspace" as const,
+          scopeId: "workspace_1",
+          templateType: "software-delivery" as const,
+          name: "Roadmap",
+          summary: "",
+          description: "",
+          leadId: "user_1",
+          memberIds: [],
+          health: "on-track" as const,
+          priority: "medium" as const,
+          status: "in-progress" as const,
+          startDate: null,
+          targetDate: null,
+          createdAt: "2026-04-17T10:00:00.000Z",
+          updatedAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
+      documents: [
+        ...createState().documents,
+        {
+          ...createState().documents[0]!,
+          id: "document_2",
+          title: "Reference doc",
+          linkedWorkItemIds: [],
+        },
+      ],
+    }
+    const harness = await createWorkDocumentActionsHarness(state)
+
+    harness.actions.updateDocumentContent(
+      "document_1",
+      [
+        referenceAnchor("workItem", "item_1"),
+        referenceAnchor("document", "document_2"),
+        referenceAnchor("project", "project_1"),
+      ].join("")
+    )
+
+    const draftDocument = harness.state.documents.find(
+      (document) => document.id === "document_1"
+    )
+
+    expect(draftDocument).toMatchObject({
+      linkedProjectIds: [],
+      linkedWorkItemIds: [],
+    })
+    expect(draftDocument?.linkedDocumentIds ?? []).toEqual([])
+
+    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
+    await queuedTask?.(ACTIVE_SYNC_CONTEXT)
+
+    expect(
+      harness.state.documents.find((document) => document.id === "document_1")
+    ).toMatchObject({
+      linkedDocumentIds: ["document_2"],
+      linkedProjectIds: ["project_1"],
+      linkedWorkItemIds: ["item_1"],
+    })
+  })
+
   it("sends the last known server version for item-description syncs", async () => {
     syncUpdateItemDescriptionMock.mockResolvedValue({
       ok: true,
@@ -621,6 +697,67 @@ describe("work document actions", () => {
     expect(
       harness.state.workItems.find((item) => item.id === "item_1")
     ).toMatchObject({ updatedAt: "2026-04-17T10:06:00.000Z" })
+  })
+
+  it("updates work item description reference relationships from saved content", async () => {
+    syncUpdateItemDescriptionMock.mockResolvedValue({
+      ok: true,
+      updatedAt: "2026-04-17T10:06:00.000Z",
+    })
+    waitForPendingWorkItemCreationMock.mockReturnValue(null)
+    const baseState = createState()
+    const state = {
+      ...baseState,
+      documents: [
+        ...baseState.documents,
+        {
+          ...baseState.documents[0]!,
+          id: "document_2",
+          kind: "team-document" as const,
+          title: "Reference doc",
+          content: "<h1>Reference doc</h1>",
+          linkedWorkItemIds: [],
+        },
+      ],
+      workItems: [
+        ...baseState.workItems,
+        {
+          ...baseState.workItems[0]!,
+          id: "item_2",
+          key: "PLA-2",
+          title: "Referenced item",
+          descriptionDocId: "document_2",
+          linkedDocumentIds: [],
+        },
+      ],
+    }
+    const harness = await createWorkDocumentActionsHarness(state)
+
+    harness.actions.updateItemDescription(
+      "item_1",
+      [
+        referenceAnchor("document", "document_2"),
+        referenceAnchor("workItem", "item_2"),
+        referenceAnchor("workItem", "item_1"),
+      ].join("")
+    )
+
+    const draftItem = harness.state.workItems.find(
+      (item) => item.id === "item_1"
+    )
+
+    expect(draftItem?.linkedDocumentIds).toEqual(["document_1"])
+    expect(draftItem?.linkedWorkItemIds ?? []).toEqual([])
+
+    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
+    await queuedTask?.(ACTIVE_SYNC_CONTEXT)
+
+    expect(
+      harness.state.workItems.find((item) => item.id === "item_1")
+    ).toMatchObject({
+      linkedDocumentIds: ["document_2"],
+      linkedWorkItemIds: ["item_2"],
+    })
   })
 
   it("skips a queued document sync once collaboration protects the document", async () => {

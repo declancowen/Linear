@@ -368,6 +368,10 @@ function buildNextStateAfterRemoval(
         item.linkedDocumentIds,
         removal.deletedDocumentIds
       ),
+      linkedWorkItemIds: filterDeletedIds(
+        item.linkedWorkItemIds ?? [],
+        removal.deletedWorkItemIds
+      ),
       labelIds: filterDeletedIds(item.labelIds, removal.deletedLabelIds),
       milestoneId:
         item.milestoneId && removal.deletedMilestoneIds.has(item.milestoneId)
@@ -385,6 +389,14 @@ function buildNextStateAfterRemoval(
       linkedWorkItemIds: filterDeletedIds(
         document.linkedWorkItemIds,
         removal.deletedWorkItemIds
+      ),
+      linkedDocumentIds: filterDeletedIds(
+        document.linkedDocumentIds ?? [],
+        removal.deletedDocumentIds
+      ),
+      linkedViewIds: filterDeletedIds(
+        document.linkedViewIds ?? [],
+        removal.deletedViewIds
       ),
     }))
   const views = state.views
@@ -447,6 +459,10 @@ function buildNextStateAfterRemoval(
   const chatMessages = state.chatMessages.filter(
     (message) => !removal.deletedConversationIds.has(message.conversationId)
   )
+  const chatReadStates = state.chatReadStates.filter(
+    (readState) =>
+      !removal.deletedConversationIds.has(readState.conversationId)
+  )
   const channelPosts = state.channelPosts.filter(
     (post) => !removal.deletedChannelPostIds.has(post.id)
   )
@@ -479,6 +495,7 @@ function buildNextStateAfterRemoval(
     projectUpdates,
     conversations,
     calls,
+    chatReadStates,
     chatMessages,
     channelPosts,
     channelPostComments,

@@ -97,7 +97,11 @@ const notificationTypeLiterals = [
   v.literal("status-change"),
 ] as const
 
-const workItemActivityTypeLiterals = [v.literal("status-change")] as const
+const workItemActivityTypeLiterals = [
+  v.literal("status-change"),
+  v.literal("label-change"),
+  v.literal("assignee-change"),
+] as const
 
 const emailJobKindLiterals = [
   v.literal("mention"),
@@ -534,6 +538,7 @@ export const workItemFields = {
   primaryProjectId: nullableString,
   linkedProjectIds: v.array(v.string()),
   linkedDocumentIds: v.array(v.string()),
+  linkedWorkItemIds: v.optional(v.array(v.string())),
   labelIds: v.array(v.string()),
   visibility: v.optional(workItemVisibilityValidator),
   milestoneId: nullableString,
@@ -608,6 +613,8 @@ export const documentFields = {
   notifiedMentionCounts: v.optional(v.record(v.string(), v.number())),
   linkedProjectIds: v.array(v.string()),
   linkedWorkItemIds: v.array(v.string()),
+  linkedDocumentIds: v.optional(v.array(v.string())),
+  linkedViewIds: v.optional(v.array(v.string())),
   createdBy: v.string(),
   updatedBy: v.string(),
   createdAt: v.string(),
@@ -671,9 +678,11 @@ export const commentFields = {
   parentCommentId: nullableString,
   content: v.string(),
   mentionUserIds: v.optional(v.array(v.string())),
+  referencedWorkItemIds: v.optional(v.array(v.string())),
   reactions: reactionListValidator,
   createdBy: v.string(),
   createdAt: v.string(),
+  editedAt: v.optional(nullableString),
 }
 
 export const attachmentFields = {
@@ -697,6 +706,8 @@ export const notificationFields = {
   entityId: v.string(),
   actorId: v.string(),
   message: v.string(),
+  contentPreview: v.optional(nullableString),
+  targetCommentId: v.optional(nullableString),
   readAt: nullableString,
   archivedAt: v.optional(nullableString),
   emailedAt: nullableString,
@@ -710,8 +721,12 @@ export const workItemActivityFields = {
   itemId: v.string(),
   actorId: v.string(),
   type: workItemActivityTypeValidator,
-  fromStatus: workStatusValidator,
-  toStatus: workStatusValidator,
+  fromStatus: v.optional(workStatusValidator),
+  toStatus: v.optional(workStatusValidator),
+  fromLabelIds: v.optional(v.array(v.string())),
+  toLabelIds: v.optional(v.array(v.string())),
+  fromAssigneeIds: v.optional(v.array(v.string())),
+  toAssigneeIds: v.optional(v.array(v.string())),
   createdAt: v.string(),
 }
 
@@ -783,6 +798,18 @@ export const chatMessageFields = {
   reactions: reactionListValidator,
   createdBy: v.string(),
   createdAt: v.string(),
+  editedAt: v.optional(nullableString),
+  deletedAt: v.optional(nullableString),
+}
+
+export const chatReadStateFields = {
+  id: v.string(),
+  userId: v.string(),
+  conversationId: v.string(),
+  readAt: nullableString,
+  unreadAt: nullableString,
+  createdAt: v.string(),
+  updatedAt: v.string(),
 }
 
 export const callFields = {
@@ -819,6 +846,7 @@ export const channelPostFields = {
   createdBy: v.string(),
   createdAt: v.string(),
   updatedAt: v.string(),
+  editedAt: v.optional(nullableString),
 }
 
 export const channelPostCommentFields = {
@@ -826,6 +854,8 @@ export const channelPostCommentFields = {
   postId: v.string(),
   content: v.string(),
   mentionUserIds: v.optional(v.array(v.string())),
+  reactions: v.optional(v.array(channelPostReactionValidator)),
   createdBy: v.string(),
   createdAt: v.string(),
+  editedAt: v.optional(nullableString),
 }

@@ -1341,8 +1341,7 @@ function getLabelsForTeam({
     return []
   }
 
-  const resolvedWorkspaceId =
-    team?.workspaceId ?? workspaceId
+  const resolvedWorkspaceId = team?.workspaceId ?? workspaceId
 
   if (!resolvedWorkspaceId) {
     return []
@@ -1554,9 +1553,7 @@ function getSecondaryContextLabel(
   selectedParentItem: WorkItem | null,
   selectedProject: Project | null
 ) {
-  return selectedParentItem
-    ? `${selectedParentItem.key} · child`
-    : (selectedProject?.name ?? null)
+  return selectedParentItem ? null : (selectedProject?.name ?? null)
 }
 
 function getTitlePlaceholder({
@@ -2105,54 +2102,105 @@ export function CreateWorkItemDialog({
   )
   const [newLabelName, setNewLabelName] = useState("")
   const [creatingLabel, setCreatingLabel] = useState(false)
-  const selectedProject = getSelectedProject(projectId, teamProjects)
-  const effectiveAssigneeIds = getEffectiveAssigneeIds(assigneeIds, teamMembers)
-  const selectedAssignees = getSelectedAssignees(
-    effectiveAssigneeIds,
-    teamMembers
+  const selectedProject = useMemo(
+    () => getSelectedProject(projectId, teamProjects),
+    [projectId, teamProjects]
   )
-  const workCopy = getWorkCopyForTeam(team)
-  const teamStatuses = getStatusOrderForTeam(team)
-  const activeTemplateType = getActiveTemplateType(selectedProject, team)
-  const availableItemTypes = privateTaskMode
-    ? PRIVATE_TASK_ITEM_TYPES
-    : getAllowedWorkItemTypesForTemplate(activeTemplateType)
-  const selectedType = getSelectedWorkItemType(availableItemTypes, type)
+  const effectiveAssigneeIds = useMemo(
+    () => getEffectiveAssigneeIds(assigneeIds, teamMembers),
+    [assigneeIds, teamMembers]
+  )
+  const selectedAssignees = useMemo(
+    () => getSelectedAssignees(effectiveAssigneeIds, teamMembers),
+    [effectiveAssigneeIds, teamMembers]
+  )
+  const workCopy = useMemo(() => getWorkCopyForTeam(team), [team])
+  const teamStatuses = useMemo(() => getStatusOrderForTeam(team), [team])
+  const activeTemplateType = useMemo(
+    () => getActiveTemplateType(selectedProject, team),
+    [selectedProject, team]
+  )
+  const availableItemTypes = useMemo(
+    () =>
+      privateTaskMode
+        ? PRIVATE_TASK_ITEM_TYPES
+        : getAllowedWorkItemTypesForTemplate(activeTemplateType),
+    [activeTemplateType, privateTaskMode]
+  )
+  const selectedType = useMemo(
+    () => getSelectedWorkItemType(availableItemTypes, type),
+    [availableItemTypes, type]
+  )
   const scopedProjectId = projectId === "none" ? null : projectId
-  const parentOptions = getParentOptionsForCreate({
-    currentUserId,
-    privateTaskMode,
-    selectedWorkspaceId,
-    workItems,
-    selectedTeamId,
-    selectedType,
-    scopedProjectId,
-    selectedParentId,
-  })
-  const selectedParentItem = getSelectedParentItem(
-    selectedParentId,
-    parentOptions
+  const parentOptions = useMemo(
+    () =>
+      getParentOptionsForCreate({
+        currentUserId,
+        privateTaskMode,
+        selectedWorkspaceId,
+        workItems,
+        selectedTeamId,
+        selectedType,
+        scopedProjectId,
+        selectedParentId,
+      }),
+    [
+      currentUserId,
+      privateTaskMode,
+      scopedProjectId,
+      selectedParentId,
+      selectedTeamId,
+      selectedType,
+      selectedWorkspaceId,
+      workItems,
+    ]
   )
-  const effectiveProjectId = getEffectiveProjectId({
-    hasExplicitProjectDefault,
-    projectId,
-    selectedParentItem,
-  })
-  const displayedProject = getSelectedProject(effectiveProjectId, teamProjects)
-  const selectedLabels = getSelectedLabels(availableLabels, selectedLabelIds)
-  const selectedTypeLabel = getSelectedTypeLabel({
-    selectedType,
-    team,
-    workCopy,
-  })
-  const secondaryContextLabel = privateTaskMode
-    ? getSecondaryContextLabel(selectedParentItem, null)
-    : getSecondaryContextLabel(selectedParentItem, displayedProject)
-  const titlePlaceholder = getTitlePlaceholder({
-    selectedType,
-    selectedTypeLabel,
-    workCopy,
-  })
+  const selectedParentItem = useMemo(
+    () => getSelectedParentItem(selectedParentId, parentOptions),
+    [parentOptions, selectedParentId]
+  )
+  const effectiveProjectId = useMemo(
+    () =>
+      getEffectiveProjectId({
+        hasExplicitProjectDefault,
+        projectId,
+        selectedParentItem,
+      }),
+    [hasExplicitProjectDefault, projectId, selectedParentItem]
+  )
+  const displayedProject = useMemo(
+    () => getSelectedProject(effectiveProjectId, teamProjects),
+    [effectiveProjectId, teamProjects]
+  )
+  const selectedLabels = useMemo(
+    () => getSelectedLabels(availableLabels, selectedLabelIds),
+    [availableLabels, selectedLabelIds]
+  )
+  const selectedTypeLabel = useMemo(
+    () =>
+      getSelectedTypeLabel({
+        selectedType,
+        team,
+        workCopy,
+      }),
+    [selectedType, team, workCopy]
+  )
+  const secondaryContextLabel = useMemo(
+    () =>
+      privateTaskMode
+        ? getSecondaryContextLabel(selectedParentItem, null)
+        : getSecondaryContextLabel(selectedParentItem, displayedProject),
+    [displayedProject, privateTaskMode, selectedParentItem]
+  )
+  const titlePlaceholder = useMemo(
+    () =>
+      getTitlePlaceholder({
+        selectedType,
+        selectedTypeLabel,
+        workCopy,
+      }),
+    [selectedType, selectedTypeLabel, workCopy]
+  )
   const titleLimitState = getTextInputLimitState(
     title,
     workItemTitleConstraints

@@ -695,10 +695,15 @@ describe("view item levels", () => {
     const feature = createTestWorkItem("feature", {
       type: "feature",
       parentId: epic.id,
+      subscriberIds: ["user_1"],
+    })
+    const hiddenFeature = createTestWorkItem("hidden-feature", {
+      type: "feature",
+      parentId: epic.id,
       subscriberIds: [],
     })
 
-    state.workItems = [epic, feature]
+    state.workItems = [epic, feature, hiddenFeature]
 
     expect(
       getDirectChildWorkItemsForDisplay(
@@ -719,6 +724,48 @@ describe("view item levels", () => {
         }
       ).map((item) => item.id)
     ).toEqual(["feature"])
+  })
+
+  it("applies active filters to direct children under assigned-descendant parent anchors", () => {
+    const state = createEmptyState()
+    state.currentUserId = "user_1"
+    const epic = createTestWorkItem("epic", {
+      type: "epic",
+      subscriberIds: ["user_1"],
+      status: "in-progress",
+    })
+    const openFeature = createTestWorkItem("open-feature", {
+      type: "feature",
+      parentId: epic.id,
+      status: "in-progress",
+    })
+    const doneFeature = createTestWorkItem("done-feature", {
+      type: "feature",
+      parentId: epic.id,
+      status: "done",
+    })
+
+    state.workItems = [epic, openFeature, doneFeature]
+
+    expect(
+      getDirectChildWorkItemsForDisplay(
+        state,
+        epic,
+        "priority",
+        createView({
+          itemLevel: "epic",
+          showChildItems: true,
+          filters: {
+            ...createView().filters,
+            status: ["todo", "in-progress"],
+          },
+        }),
+        state.workItems,
+        {
+          mode: "assigned-descendants",
+        }
+      ).map((item) => item.id)
+    ).toEqual(["open-feature"])
   })
 
   it("includes workspace-scoped views when listing workspace views", () => {

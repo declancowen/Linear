@@ -26,6 +26,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { UserAvatar } from "@/components/app/user-presence"
+import {
+  appendNotificationHash,
+  getNotificationContentPreview,
+  getNotificationTargetHash,
+} from "@/components/app/notification-routing"
 import { cn } from "@/lib/utils"
 
 import {
@@ -518,23 +523,35 @@ const PRIMARY_ACTION_BUILDERS: Partial<
 > = {
   workItem: ({ notification }) => ({
     kind: "link",
-    label: "Open work item",
-    href: `/items/${notification.entityId}`,
+    label: getNotificationTargetHash(notification)
+      ? "Open comment"
+      : "Open work item",
+    href: appendNotificationHash(
+      `/items/${notification.entityId}`,
+      getNotificationTargetHash(notification)
+    ),
   }),
   document: ({ notification }) => ({
     kind: "link",
-    label: "Open document",
-    href: `/docs/${notification.entityId}`,
+    label: getNotificationTargetHash(notification)
+      ? "Open comment"
+      : "Open document",
+    href: appendNotificationHash(
+      `/docs/${notification.entityId}`,
+      getNotificationTargetHash(notification)
+    ),
   }),
   project: ({ activeProjectHref }) =>
     activeProjectHref
       ? { kind: "link", label: "Open project", href: activeProjectHref }
       : null,
-  channelPost: ({ activeChannelPostHref }) =>
+  channelPost: ({ activeChannelPostHref, notification }) =>
     activeChannelPostHref
       ? {
           kind: "link",
-          label: "Open channel post",
+          label: getNotificationTargetHash(notification)
+            ? "Open comment"
+            : "Open channel post",
           href: activeChannelPostHref,
         }
       : null,
@@ -551,6 +568,33 @@ const PRIMARY_ACTION_BUILDERS: Partial<
           onClick: onAcceptInvite,
         }
       : null,
+}
+
+function InboxNotificationContentPreview({
+  notification,
+}: {
+  notification: Notification
+}) {
+  const contentPreview = getNotificationContentPreview(notification)
+
+  if (!contentPreview) {
+    return null
+  }
+
+  const label = getNotificationTargetHash(notification) ? "Comment" : "Preview"
+
+  return (
+    <CardContent>
+      <div className="rounded-md border border-line-soft bg-background px-3 py-2.5">
+        <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+          {label}
+        </div>
+        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">
+          {contentPreview}
+        </p>
+      </div>
+    </CardContent>
+  )
 }
 
 function getPrimaryActionDescriptor(input: PrimaryActionInput) {
@@ -741,6 +785,7 @@ function InboxDetailBody({
             {notification.message}
           </p>
         </CardContent>
+        <InboxNotificationContentPreview notification={notification} />
         {primaryAction ? (
           <CardContent>
             <InboxPrimaryAction action={primaryAction} />

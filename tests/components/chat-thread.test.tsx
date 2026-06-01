@@ -6,6 +6,7 @@ import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
 import { getChatWelcomeIntroDisplay } from "@/components/app/collaboration-screens/chat-welcome-display"
 import { useAppStore } from "@/lib/store/app-store"
 import {
+  createTestWorkspaceMembership,
   createTestUser,
   createTestWorkspaceShellData,
 } from "@/tests/lib/fixtures/app-data"
@@ -14,20 +15,28 @@ const useChatPresenceMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@/components/app/rich-text-editor", () => ({
   RichTextEditor: ({
+    content,
     placeholder,
     onChange,
   }: {
+    content?: string
     placeholder?: string
     onChange?: (value: string) => void
-  }) => (
-    <input
-      data-testid="mock-rich-text-editor"
-      aria-label={placeholder}
-      onChange={(event) =>
-        onChange?.(`<p>${(event.target as HTMLInputElement).value}</p>`)
-      }
-    />
-  ),
+  }) => {
+    const plainContent =
+      typeof content === "string" ? content.replace(/<[^>]+>/g, "").trim() : ""
+
+    return (
+      <input
+        data-testid="mock-rich-text-editor"
+        aria-label={placeholder}
+        defaultValue={plainContent}
+        onChange={(event) =>
+          onChange?.(`<p>${(event.target as HTMLInputElement).value}</p>`)
+        }
+      />
+    )
+  },
 }))
 
 vi.mock("@/components/app/emoji-picker-popover", () => ({
@@ -92,6 +101,7 @@ const zoeUser = createTestUser({
 })
 
 const toggleChatMessageReactionMock = vi.fn()
+const updateChatMessageMock = vi.fn()
 
 function createReactionMessage() {
   return {
@@ -125,6 +135,7 @@ function renderDirectChatThread() {
 
 beforeEach(() => {
   toggleChatMessageReactionMock.mockReset()
+  updateChatMessageMock.mockReset()
   useChatPresenceMock.mockReset()
   useChatPresenceMock.mockReturnValue({
     participants: [],
@@ -155,6 +166,7 @@ beforeEach(() => {
     ],
     chatMessages: [],
     toggleChatMessageReaction: toggleChatMessageReactionMock,
+    updateChatMessage: updateChatMessageMock,
   })
 })
 
@@ -237,26 +249,76 @@ describe("ChatThread", () => {
 
     renderDirectChatThread()
 
-    fireEvent.click(screen.getByText("👍").closest("button") as HTMLButtonElement)
+    fireEvent.click(screen.getByRole("button", { name: /👍\s*1/ }))
 
-    expect(toggleChatMessageReactionMock).toHaveBeenCalledWith("message_1", "👍")
+    expect(toggleChatMessageReactionMock).toHaveBeenCalledWith(
+      "message_1",
+      "👍"
+    )
   })
 
-  it("renders the react trigger after active reaction pills", () => {
+  it("disables chat message actions when the current role is read-only", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      workspaces: state.workspaces.map((workspace) => ({
+        ...workspace,
+        createdBy: formerUser.id,
+      })),
+      workspaceMemberships: [
+        createTestWorkspaceMembership({
+          workspaceId: "workspace_1",
+          userId: currentUser.id,
+          role: "viewer",
+        }),
+        createTestWorkspaceMembership({
+          workspaceId: "workspace_1",
+          userId: formerUser.id,
+          role: "member",
+        }),
+      ],
+      chatMessages: [
+        {
+          id: "message_current",
+          conversationId: "conversation_1",
+          kind: "text",
+          content: "<p>Hello</p>",
+          callId: null,
+          mentionUserIds: [],
+          reactions: [
+            {
+              emoji: "👍",
+              userIds: [formerUser.id],
+            },
+          ],
+          createdBy: currentUser.id,
+          createdAt: "2026-04-15T12:00:00.000Z",
+        },
+      ],
+    }))
+
+    renderDirectChatThread()
+
+    expect(screen.getByRole("button", { name: /👍\s*1/ })).toBeDisabled()
+    expect(screen.queryByLabelText("Edit message")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Delete message")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Quote message")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("More reactions")).not.toBeInTheDocument()
+  })
+
+  it("keeps the reaction picker out of the active reaction row", () => {
     useAppStore.setState({
       chatMessages: [createReactionMessage()],
     })
 
     renderDirectChatThread()
 
-    const reactionButton = screen.getByText("👍").closest(
-      "button"
-    ) as HTMLButtonElement
-    const reactButton = screen.getByLabelText("React")
+    const reactionButton = screen.getByRole("button", { name: /👍\s*1/ })
     const actionsRow = reactionButton.parentElement
 
     expect(actionsRow).toBeTruthy()
-    expect(actionsRow?.lastElementChild).toBe(reactButton)
+    expect(actionsRow?.children).toHaveLength(1)
+    expect(screen.queryByLabelText("React")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("More reactions")).toBeInTheDocument()
   })
 
   it("renders a typing indicator for remote chat participants", () => {
@@ -475,6 +537,105 @@ describe("ChatThread", () => {
     })
 
     expect(setTypingMock).toHaveBeenCalledWith(true)
+  })
+
+  it("clears the composer after saving an edited chat message", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      workspaceMemberships: [
+        {
+          workspaceId: "workspace_1",
+          userId: currentUser.id,
+          role: "member",
+        },
+        {
+          workspaceId: "workspace_1",
+          userId: formerUser.id,
+          role: "member",
+        },
+      ],
+      chatMessages: [
+        {
+          id: "message_1",
+          conversationId: "conversation_1",
+          kind: "text",
+          content: "<p>Original</p>",
+          callId: null,
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: currentUser.id,
+          createdAt: "2026-04-15T12:00:00.000Z",
+        },
+      ],
+    }))
+
+    renderDirectChatThread()
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit message" }))
+
+    const editor = screen.getByTestId(
+      "mock-rich-text-editor"
+    ) as HTMLInputElement
+
+    expect(editor.value).toBe("Original")
+
+    fireEvent.change(editor, {
+      target: {
+        value: "Edited",
+      },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    expect(updateChatMessageMock).toHaveBeenCalledWith("message_1", {
+      content: "<p>Edited</p>",
+    })
+    expect(
+      screen.getByTestId("mock-rich-text-editor") as HTMLInputElement
+    ).toHaveValue("")
+  })
+
+  it("removes deleted chat messages for other participants", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      chatMessages: [
+        {
+          id: "message_deleted_other",
+          conversationId: "conversation_1",
+          kind: "text",
+          content: "",
+          callId: null,
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: formerUser.id,
+          createdAt: "2026-04-15T12:00:00.000Z",
+          deletedAt: "2026-04-15T12:01:00.000Z",
+        },
+        {
+          id: "message_deleted_current",
+          conversationId: "conversation_1",
+          kind: "text",
+          content: "",
+          callId: null,
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: currentUser.id,
+          createdAt: "2026-04-15T12:02:00.000Z",
+          deletedAt: "2026-04-15T12:03:00.000Z",
+        },
+      ],
+    }))
+
+    const { container } = render(
+      <ChatThread
+        conversationId="conversation_1"
+        title="Declan Cowen"
+        description=""
+        members={[currentUser, formerUser]}
+      />
+    )
+
+    expect(screen.getByText("You deleted a message")).toBeInTheDocument()
+    expect(container.querySelectorAll('[class*="group/msg"]')).toHaveLength(1)
   })
 
   it("scrolls the newest message fully into view when a message is added", () => {

@@ -29,6 +29,7 @@ import {
   listCallsByConversations,
   listChannelPostCommentsByPosts,
   listChannelPostsByConversations,
+  listChatReadStatesByUser,
   listChatMessagesByConversations,
   listCommentsByTargets,
   listConversationsByScopes,
@@ -1288,7 +1289,9 @@ function getBootstrapWorkItemWorkspaceId(
     return workItem.workspaceId ?? null
   }
 
-  return workItem.workspaceId ?? teamsById.get(workItem.teamId ?? "")?.workspaceId
+  return (
+    workItem.workspaceId ?? teamsById.get(workItem.teamId ?? "")?.workspaceId
+  )
 }
 
 function canCurrentUserSeeBootstrapWorkItem(
@@ -1406,7 +1409,12 @@ async function loadBootstrapConversationSnapshot(
   )
   const visibleChatMessages = (
     await listChatMessagesByConversations(ctx, visibleConversationIds)
-  ).map(normalizeBootstrapChatMessage)
+  )
+    .filter(
+      (message) =>
+        !message.deletedAt || message.createdBy === input.currentUserId
+    )
+    .map(normalizeBootstrapChatMessage)
   const visibleChannelPosts = (
     await listChannelPostsByConversations(ctx, visibleConversationIds)
   ).map((post) => ({
@@ -1421,6 +1429,7 @@ async function loadBootstrapConversationSnapshot(
   ).map((comment) => ({
     ...comment,
     mentionUserIds: comment.mentionUserIds ?? [],
+    reactions: comment.reactions ?? [],
   }))
 
   return {
@@ -1601,12 +1610,18 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     visibleChannelPostComments,
     visibleChannelPosts,
     visibleChatMessages,
+    visibleConversationIds,
     visibleConversations,
   } = await loadBootstrapConversationSnapshot(ctx, {
     accessibleTeamIdList,
     accessibleWorkspaceIdList,
     currentUserId,
   })
+  const visibleChatReadStates = currentUserId
+    ? (await listChatReadStatesByUser(ctx, currentUserId)).filter((state) =>
+        visibleConversationIds.has(state.conversationId)
+      )
+    : []
   const returnedCustomPropertyDefinitions =
     visibleCustomPropertyDefinitions.filter(
       (definition) =>
@@ -1681,6 +1696,7 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     projectUpdates: visibleProjectUpdates,
     conversations: visibleConversations.map(normalizeBootstrapConversation),
     calls: visibleCalls.map(normalizeBootstrapCall),
+    chatReadStates: visibleChatReadStates,
     chatMessages: visibleChatMessages,
     channelPosts: visibleChannelPosts,
     channelPostComments: visibleChannelPostComments,

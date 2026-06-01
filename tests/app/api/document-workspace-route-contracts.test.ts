@@ -33,6 +33,8 @@ const resolveDocumentReadModelScopeKeysServerMock = vi.fn()
 const resolveWorkItemReadModelScopeKeysServerMock = vi.fn()
 const bumpDocumentIndexReadModelScopesServerMock = vi.fn()
 const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
+const bumpCommentTargetReadModelScopesServerMock = vi.fn()
+const bumpNotificationInboxReadModelScopesServerMock = vi.fn()
 const notifyCollaborationDocumentChangedServerMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () => ({
@@ -107,6 +109,10 @@ vi.mock("@/lib/server/scoped-read-models", () => ({
     bumpWorkspaceMembershipReadModelScopesServerMock,
   resolveWorkItemReadModelScopeKeysServer:
     resolveWorkItemReadModelScopeKeysServerMock,
+  bumpCommentTargetReadModelScopesServer:
+    bumpCommentTargetReadModelScopesServerMock,
+  bumpNotificationInboxReadModelScopesServer:
+    bumpNotificationInboxReadModelScopesServerMock,
 }))
 
 vi.mock("@/lib/server/collaboration-refresh", () => ({
@@ -169,6 +175,8 @@ describe("document and workspace route contracts", () => {
     resolveWorkItemReadModelScopeKeysServerMock.mockReset()
     bumpDocumentIndexReadModelScopesServerMock.mockReset()
     bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
+    bumpCommentTargetReadModelScopesServerMock.mockReset()
+    bumpNotificationInboxReadModelScopesServerMock.mockReset()
     notifyCollaborationDocumentChangedServerMock.mockReset()
 
     requireSessionMock.mockResolvedValue({
@@ -210,9 +218,52 @@ describe("document and workspace route contracts", () => {
     bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(
       undefined
     )
+    bumpCommentTargetReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpNotificationInboxReadModelScopesServerMock.mockResolvedValue(undefined)
     notifyCollaborationDocumentChangedServerMock.mockResolvedValue({
       ok: true,
     })
+  })
+
+  it("bumps comment target and recipient inbox read models after comment creation", async () => {
+    const { POST } = await import("@/app/api/comments/route")
+
+    addCommentServerMock.mockResolvedValue({
+      commentId: "comment_1",
+      notificationUserIds: ["user_2", "user_3"],
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/comments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          targetType: "workItem",
+          targetId: "item_1",
+          content: "Hello world",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      commentId: "comment_1",
+    })
+    expect(bumpCommentTargetReadModelScopesServerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org_1",
+      }),
+      {
+        targetType: "workItem",
+        targetId: "item_1",
+      }
+    )
+    expect(bumpNotificationInboxReadModelScopesServerMock).toHaveBeenCalledWith(
+      ["user_2", "user_3"]
+    )
   })
 
   it("maps comment creation domain failures to typed error responses", async () => {
@@ -279,6 +330,46 @@ describe("document and workspace route contracts", () => {
       message: "Comment not found",
       code: "COMMENT_NOT_FOUND",
     })
+  })
+
+  it("bumps the comment target read model after comment reaction updates", async () => {
+    const { POST } =
+      await import("@/app/api/comments/[commentId]/reactions/route")
+
+    toggleCommentReactionServerMock.mockResolvedValue({
+      ok: true,
+      commentId: "comment_1",
+      targetType: "workItem",
+      targetId: "item_1",
+    })
+
+    const response = await POST(
+      new Request("http://localhost/api/comments/comment_1/reactions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          emoji: "up",
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          commentId: "comment_1",
+        }),
+      }
+    )
+
+    expect(response.status).toBe(200)
+    expect(bumpCommentTargetReadModelScopesServerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org_1",
+      }),
+      {
+        targetType: "workItem",
+        targetId: "item_1",
+      }
+    )
   })
 
   it("maps document update domain failures to typed error responses", async () => {

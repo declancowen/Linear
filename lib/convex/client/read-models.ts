@@ -36,6 +36,7 @@ type ScopedArrayDomainKey = keyof Pick<
   | "conversations"
   | "calls"
   | "chatMessages"
+  | "chatReadStates"
   | "channelPosts"
   | "channelPostComments"
 >
@@ -129,6 +130,7 @@ const EMPTY_SCOPED_ARRAY_DOMAINS_BY_REPLACE_KIND = {
     "users",
     "conversations",
     "chatMessages",
+    "chatReadStates",
   ],
   "conversation-thread": [
     "workspaces",
@@ -139,6 +141,7 @@ const EMPTY_SCOPED_ARRAY_DOMAINS_BY_REPLACE_KIND = {
     "conversations",
     "calls",
     "chatMessages",
+    "chatReadStates",
   ],
   "channel-feed": [
     "workspaces",

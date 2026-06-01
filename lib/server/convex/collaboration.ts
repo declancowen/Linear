@@ -69,6 +69,24 @@ const SEND_CHAT_MESSAGE_ERROR_MAPPINGS = [
   },
 ] as const
 
+const UPDATE_CHAT_READ_STATE_ERROR_MAPPINGS = [
+  {
+    match: "Conversation not found",
+    status: 404,
+    code: "CHAT_CONVERSATION_NOT_FOUND",
+  },
+  {
+    match: isCollaborationAccessDeniedMessage,
+    status: 403,
+    code: "CHAT_ACCESS_DENIED",
+  },
+  {
+    match: "Read state can only be updated for chats",
+    status: 400,
+    code: "CHAT_READ_STATE_INVALID_CONVERSATION_KIND",
+  },
+] as const
+
 const TOGGLE_CHAT_MESSAGE_REACTION_ERROR_MAPPINGS = [
   {
     match: "Message not found",
@@ -84,6 +102,52 @@ const TOGGLE_CHAT_MESSAGE_REACTION_ERROR_MAPPINGS = [
     match: "Your current role is read-only",
     status: 403,
     code: "CHAT_READ_ONLY",
+  },
+] as const
+
+const UPDATE_CHAT_MESSAGE_ERROR_MAPPINGS = [
+  {
+    match: "Message not found",
+    status: 404,
+    code: "CHAT_MESSAGE_NOT_FOUND",
+  },
+  {
+    match: isCollaborationAccessDeniedMessage,
+    status: 403,
+    code: "CHAT_ACCESS_DENIED",
+  },
+  {
+    match: "Your current role is read-only",
+    status: 403,
+    code: "CHAT_READ_ONLY",
+  },
+  {
+    match: "You can only edit your own messages",
+    status: 403,
+    code: "CHAT_MESSAGE_EDIT_FORBIDDEN",
+  },
+] as const
+
+const DELETE_CHAT_MESSAGE_ERROR_MAPPINGS = [
+  {
+    match: "Message not found",
+    status: 404,
+    code: "CHAT_MESSAGE_NOT_FOUND",
+  },
+  {
+    match: isCollaborationAccessDeniedMessage,
+    status: 403,
+    code: "CHAT_ACCESS_DENIED",
+  },
+  {
+    match: "Your current role is read-only",
+    status: 403,
+    code: "CHAT_READ_ONLY",
+  },
+  {
+    match: "You can only delete your own messages",
+    status: 403,
+    code: "CHAT_MESSAGE_DELETE_FORBIDDEN",
   },
 ] as const
 
@@ -322,6 +386,24 @@ const TOGGLE_CHANNEL_POST_REACTION_ERROR_MAPPINGS = [
   },
 ] as const
 
+const TOGGLE_CHANNEL_POST_COMMENT_REACTION_ERROR_MAPPINGS = [
+  {
+    match: "Comment not found",
+    status: 404,
+    code: "CHANNEL_POST_COMMENT_NOT_FOUND",
+  },
+  {
+    match: isCollaborationAccessDeniedMessage,
+    status: 403,
+    code: "CHANNEL_ACCESS_DENIED",
+  },
+  {
+    match: "Your current role is read-only",
+    status: 403,
+    code: "CHANNEL_READ_ONLY",
+  },
+] as const
+
 const SET_CONVERSATION_ROOM_ERROR_MAPPINGS = [
   {
     match: "Conversation not found",
@@ -534,6 +616,25 @@ export async function sendChatMessageServer(input: {
   }
 }
 
+export async function updateChatReadStateServer(input: {
+  currentUserId: string
+  conversationId: string
+  action: "read" | "unread"
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateChatReadState,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [
+        ...UPDATE_CHAT_READ_STATE_ERROR_MAPPINGS,
+      ]) ?? error
+    )
+  }
+}
+
 export async function toggleChatMessageReactionServer(input: {
   currentUserId: string
   messageId: string
@@ -549,6 +650,58 @@ export async function toggleChatMessageReactionServer(input: {
       coerceApplicationError(error, [
         ...TOGGLE_CHAT_MESSAGE_REACTION_ERROR_MAPPINGS,
       ]) ?? error
+    )
+  }
+}
+
+export async function updateChatMessageServer(input: {
+  currentUserId: string
+  messageId: string
+  content: string
+}) {
+  const preparedContent = prepareRichTextMessageForStorage(input.content, {
+    minPlainTextCharacters: 1,
+  })
+
+  if (!preparedContent.isMeaningful) {
+    throw new ApplicationError(
+      "Message content must include at least 1 character",
+      400,
+      {
+        code: "CHAT_MESSAGE_CONTENT_REQUIRED",
+      }
+    )
+  }
+
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateChatMessage,
+      withServerToken({
+        ...input,
+        content: preparedContent.sanitized,
+      })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...UPDATE_CHAT_MESSAGE_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
+export async function deleteChatMessageServer(input: {
+  currentUserId: string
+  messageId: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.deleteChatMessage,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...DELETE_CHAT_MESSAGE_ERROR_MAPPINGS]) ??
+      error
     )
   }
 }
@@ -732,6 +885,26 @@ export async function toggleChannelPostReactionServer(input: {
     throw (
       coerceApplicationError(error, [
         ...TOGGLE_CHANNEL_POST_REACTION_ERROR_MAPPINGS,
+      ]) ?? error
+    )
+  }
+}
+
+export async function toggleChannelPostCommentReactionServer(input: {
+  currentUserId: string
+  postId: string
+  commentId: string
+  emoji: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.toggleChannelPostCommentReaction,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [
+        ...TOGGLE_CHANNEL_POST_COMMENT_REACTION_ERROR_MAPPINGS,
       ]) ?? error
     )
   }

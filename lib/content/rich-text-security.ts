@@ -1,5 +1,6 @@
 import { parseHTML } from "linkedom"
 
+import { isRichTextEntityReferenceType } from "@/lib/content/rich-text-references"
 import { getPlainTextContent } from "@/lib/utils"
 
 const TEXT_ALIGN_STYLE_VALUES = [/^left$/, /^center$/, /^right$/, /^justify$/]
@@ -57,7 +58,16 @@ const RICH_TEXT_VOID_TAGS = new Set(["br", "hr", "img", "input"])
 const RICH_TEXT_BOOLEAN_ATTRIBUTES = new Set(["checked", "disabled"])
 
 const RICH_TEXT_ALLOWED_ATTRIBUTES: Record<string, readonly string[]> = {
-  a: ["href", "target", "rel"],
+  a: [
+    "href",
+    "target",
+    "rel",
+    "class",
+    "data-type",
+    "data-reference-type",
+    "data-reference-id",
+    "data-label",
+  ],
   col: ["style"],
   div: ["data-type"],
   h1: ["style"],
@@ -75,6 +85,13 @@ const RICH_TEXT_ALLOWED_ATTRIBUTES: Record<string, readonly string[]> = {
 }
 
 const RICH_TEXT_ALLOWED_CLASSES: Record<string, readonly string[]> = {
+  a: [
+    "editor-reference",
+    "editor-reference-document",
+    "editor-reference-project",
+    "editor-reference-view",
+    "editor-reference-workItem",
+  ],
   img: ["editor-image"],
   span: ["editor-highlight", "editor-mention"],
 }
@@ -217,6 +234,37 @@ function sanitizeClassAttribute(tagName: string, value: string) {
 function normalizeAnchorAttributes(attributes: Record<string, string>) {
   const href = attributes.href?.trim() ?? null
   const target = attributes.target === "_blank" ? "_blank" : null
+  const className = attributes.class
+    ? sanitizeClassAttribute("a", attributes.class)
+    : null
+  const dataType =
+    attributes["data-type"] === "entity-reference"
+      ? "entity-reference"
+      : null
+  const referenceType = isRichTextEntityReferenceType(
+    attributes["data-reference-type"]
+  )
+    ? attributes["data-reference-type"]
+    : null
+  const referenceId = attributes["data-reference-id"]?.trim() ?? null
+  const referenceLabel = attributes["data-label"]?.trim() ?? null
+  const entityReferenceAttributes =
+    dataType && referenceType && referenceId
+      ? {
+          "data-type": dataType,
+          "data-reference-type": referenceType,
+          "data-reference-id": referenceId,
+          ...(referenceLabel ? { "data-label": referenceLabel } : {}),
+        }
+      : null
+  const safeHref =
+    href && isSafeUrlAttribute("a", "href", href)
+      ? entityReferenceAttributes &&
+        !href.startsWith("/") &&
+        !href.startsWith("#")
+        ? null
+        : href
+      : null
   const relValues = new Set(
     attributes.rel
       ?.split(/\s+/u)
@@ -230,9 +278,11 @@ function normalizeAnchorAttributes(attributes: Record<string, string>) {
   }
 
   return {
-    ...(href && isSafeUrlAttribute("a", "href", href) ? { href } : {}),
+    ...(safeHref ? { href: safeHref } : {}),
     ...(target ? { target } : {}),
     ...(relValues.size > 0 ? { rel: [...relValues].sort().join(" ") } : {}),
+    ...(className ? { class: className } : {}),
+    ...(entityReferenceAttributes ?? {}),
   }
 }
 
@@ -270,7 +320,7 @@ function sanitizeElementAttributes(element: Element, tagName: string) {
   const attributes = getAttributeMap(element)
   const attributeNames =
     tagName === "a"
-      ? (["href", "target", "rel"] as const)
+      ? RICH_TEXT_ALLOWED_ATTRIBUTES.a
       : (RICH_TEXT_ALLOWED_ATTRIBUTES[tagName] ?? [])
 
   return attributeNames

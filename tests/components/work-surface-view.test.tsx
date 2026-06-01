@@ -2621,6 +2621,60 @@ describe("ListView", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("applies active filters to board child disclosure rows", () => {
+    const data = createProgressData()
+    const parentItems = data.workItems.filter((item) => item.parentId === null)
+    const view = createView("board", [], {
+      showChildItems: true,
+      filters: {
+        ...createDefaultViewFilters(),
+        status: ["todo", "in-progress"],
+      },
+    })
+
+    render(
+      <BoardView
+        data={data}
+        items={parentItems}
+        scopedItems={data.workItems}
+        view={view}
+        editable={false}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "1 feature" }))
+
+    expect(screen.getByText("Child open")).toBeInTheDocument()
+    expect(screen.queryByText("Child done")).not.toBeInTheDocument()
+  })
+
+  it("applies active filters to list child disclosure rows", () => {
+    const data = createProgressData()
+    const parentItems = data.workItems.filter((item) => item.parentId === null)
+    const view = createView("list", [], {
+      showChildItems: true,
+      filters: {
+        ...createDefaultViewFilters(),
+        status: ["todo", "in-progress"],
+      },
+    })
+
+    render(
+      <ListView
+        data={data}
+        items={parentItems}
+        scopedItems={data.workItems}
+        view={view}
+        editable={false}
+      />
+    )
+
+    fireEvent.click(screen.getByLabelText("Expand sub-issues"))
+
+    expect(screen.getByText("Child open")).toBeInTheDocument()
+    expect(screen.queryByText("Child done")).not.toBeInTheDocument()
+  })
+
   it("renders list-row properties in the same order as visible properties", () => {
     const data = createOrderedPropertyData()
 
@@ -2645,6 +2699,39 @@ describe("ListView", () => {
       roadmap.compareDocumentPosition(dueDate) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
+  })
+
+  it("renders multiple list-row assignees as avatars without visible count text", () => {
+    const alex = {
+      id: "user_1",
+      name: "Alex",
+    } as AppData["users"][number]
+    const morgan = {
+      id: "user_2",
+      name: "Morgan",
+    } as AppData["users"][number]
+    const item = createWorkItem({
+      assigneeId: alex.id,
+      assigneeIds: [alex.id, morgan.id],
+    })
+    const data = {
+      ...createData(),
+      users: [alex, morgan],
+      workItems: [item],
+    }
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["assignee"])}
+        editable={false}
+      />
+    )
+
+    expect(screen.getAllByText("Assignee")).toHaveLength(2)
+    expect(screen.queryByText("2 assignees")).not.toBeInTheDocument()
+    expect(screen.queryByText("Alex")).not.toBeInTheDocument()
   })
 
   it("renders parent as a selectable work item property", () => {

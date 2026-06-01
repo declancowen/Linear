@@ -22,6 +22,7 @@ import {
   LabelColorDot,
   useWorkItemLabelEditorState,
 } from "@/components/app/screens/shared"
+import { useWorkItemSurfacePortalContainer } from "@/components/app/screens/work-item-surface-portal-context"
 
 export function DetailSidebarLabelsRow({
   item,
@@ -34,6 +35,7 @@ export function DetailSidebarLabelsRow({
   labels: AppData["labels"]
   editable: boolean
 }) {
+  const portalContainer = useWorkItemSurfacePortalContainer()
   const {
     availableLabels = labels,
     handleCreateLabel,
@@ -94,6 +96,7 @@ export function DetailSidebarLabelsRow({
           </PopoverTrigger>
           <PopoverContent
             align="end"
+            portalContainer={portalContainer}
             className="w-72 rounded-lg border border-line bg-surface p-3 shadow-lg"
           >
             <div className="flex flex-col gap-3">

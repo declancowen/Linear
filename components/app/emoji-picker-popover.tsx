@@ -27,6 +27,7 @@ type EmojiPickerPopoverProps = {
   size?: keyof typeof BASE_PICKER_DIMENSIONS
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  portalContainer?: HTMLElement | null
 }
 
 export function insertEmojiIntoTextarea({
@@ -67,6 +68,7 @@ export function EmojiPickerPopover({
   size = "composer",
   open,
   onOpenChange,
+  portalContainer,
 }: EmojiPickerPopoverProps) {
   const [internalOpen, setInternalOpen] = useState(false)
   const isControlled = open !== undefined
@@ -98,6 +100,7 @@ export function EmojiPickerPopover({
       <PopoverContent
         align={align}
         collisionPadding={12}
+        portalContainer={portalContainer}
         side={side}
         sideOffset={8}
         className="w-auto border-0 bg-transparent p-0 shadow-none ring-0"

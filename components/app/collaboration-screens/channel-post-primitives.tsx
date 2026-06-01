@@ -2,10 +2,12 @@
 
 import { useRef, useState } from "react"
 import type { Editor } from "@tiptap/react"
-import { NotePencil, Smiley, Trash } from "@phosphor-icons/react"
+import { Smiley } from "@phosphor-icons/react"
 
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import { MessageHoverActionBar } from "@/components/app/message-hover-action-bar"
+import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
 import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
@@ -28,12 +30,14 @@ export function ForumPostAuthorLine({
   author,
   createdAt,
   currentUserId,
+  editedAt,
   workspaceId,
   size = "post",
 }: {
   author: ForumUser | undefined
   createdAt: string
   currentUserId: string
+  editedAt?: string | null
   workspaceId: string | null
   size?: "post" | "comment"
 }) {
@@ -62,6 +66,16 @@ export function ForumPostAuthorLine({
       >
         {formatTimestamp(createdAt)}
       </span>
+      {editedAt ? (
+        <span
+          className={cn(
+            "text-fg-4",
+            size === "post" ? "shrink-0 text-[11.5px]" : "text-[11px]"
+          )}
+        >
+          edited
+        </span>
+      ) : null}
     </div>
   )
 }
@@ -73,6 +87,8 @@ export function ForumPostCommentItem({
   currentUserId,
   onDelete,
   onEdit,
+  onQuote,
+  onReact,
   mentionCandidates,
   usersById,
   workspaceId,
@@ -83,11 +99,14 @@ export function ForumPostCommentItem({
   currentUserId: string
   onDelete?: (commentId: string) => void
   onEdit?: (commentId: string, content: string) => void
+  onQuote?: () => void
+  onReact?: (commentId: string, emoji: string) => void
   mentionCandidates: ForumUser[]
   usersById: UsersById
   workspaceId: string | null
 }) {
   const commentAuthor = usersById.get(comment.createdBy)
+  const reactions = comment.reactions ?? []
   const [editOpen, setEditOpen] = useState(false)
   const [editContent, setEditContent] = useState(comment.content)
   const editEditorRef = useRef<Editor | null>(null)
@@ -110,9 +129,27 @@ export function ForumPostCommentItem({
 
   return (
     <div
-      className="group/comment grid items-start gap-x-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-2"
-      style={{ gridTemplateColumns: "24px minmax(0,1fr) auto" }}
+      id={comment.id}
+      className="group/comment relative grid scroll-mt-6 items-start gap-x-2 rounded-md px-1.5 py-1 pr-10 transition-colors hover:bg-surface-2 target:ring-2 target:ring-ring/45"
+      style={{ gridTemplateColumns: "24px minmax(0,1fr)" }}
     >
+      <MessageHoverActionBar
+        canDelete={canDelete}
+        canEdit={canEdit}
+        canQuote={Boolean(onQuote)}
+        canReact={Boolean(onReact)}
+        className="top-0 right-1 -translate-y-1/2 group-hover/comment:flex focus-within:flex"
+        deleteLabel="Delete comment"
+        editLabel="Edit comment"
+        onDelete={() => onDelete?.(comment.id)}
+        onEdit={() => {
+          setEditContent(comment.content)
+          setEditOpen(true)
+        }}
+        onQuote={onQuote}
+        quoteLabel="Quote comment"
+        onReact={(emoji) => onReact?.(comment.id, emoji)}
+      />
       <div className="mt-[2px]">
         <UserAvatar
           name={commentAuthor?.name}
@@ -127,6 +164,7 @@ export function ForumPostCommentItem({
           author={commentAuthor}
           createdAt={comment.createdAt}
           currentUserId={currentUserId}
+          editedAt={comment.editedAt}
           workspaceId={workspaceId}
           size="comment"
         />
@@ -209,34 +247,36 @@ export function ForumPostCommentItem({
             className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
           />
         )}
+        {reactions.length > 0 ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            {reactions.map((reaction) => {
+              const active = reaction.userIds.includes(currentUserId)
+
+              return (
+                <ReactionUsersHoverCard
+                  key={`${comment.id}-${reaction.emoji}`}
+                  userIds={reaction.userIds}
+                  usersById={usersById}
+                >
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex h-5 items-center gap-1 rounded-full border px-1.5 text-[11px] tabular-nums transition-colors",
+                      active
+                        ? "border-primary/40 bg-primary/10 text-foreground"
+                        : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground"
+                    )}
+                    onClick={() => onReact?.(comment.id, reaction.emoji)}
+                  >
+                    <span>{reaction.emoji}</span>
+                    <span>{reaction.userIds.length}</span>
+                  </button>
+                </ReactionUsersHoverCard>
+              )
+            })}
+          </div>
+        ) : null}
       </div>
-      {canEdit || canDelete ? (
-        <div className="mt-0.5 flex items-center gap-0.5 opacity-0 transition group-hover/comment:opacity-100 focus-within:opacity-100">
-          {canEdit ? (
-            <button
-              type="button"
-              aria-label="Edit comment"
-              className="grid size-6 place-items-center rounded-md text-fg-3 transition hover:bg-surface-3 hover:text-foreground"
-              onClick={() => {
-                setEditContent(comment.content)
-                setEditOpen(true)
-              }}
-            >
-              <NotePencil className="size-3.5" />
-            </button>
-          ) : null}
-          {canDelete ? (
-            <button
-              type="button"
-              aria-label="Delete comment"
-              className="grid size-6 place-items-center rounded-md text-fg-3 transition hover:bg-surface-3 hover:text-foreground"
-              onClick={() => onDelete?.(comment.id)}
-            >
-              <Trash className="size-3.5" />
-            </button>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   )
 }

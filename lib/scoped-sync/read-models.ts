@@ -26,6 +26,7 @@ import {
 } from "@/lib/domain/labels"
 import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 import { isWorkspaceMembershipInvite } from "@/lib/scoped-sync/invite-selection"
+import { shouldShowNotificationInInbox } from "@/lib/domain/notification-visibility"
 
 import {
   createChannelFeedScopeKey,
@@ -752,6 +753,12 @@ function collectChannelPostCommentUserIds(comments: ChannelPostComment[]) {
     for (const mentionUserId of comment.mentionUserIds ?? []) {
       userIds.add(mentionUserId)
     }
+
+    for (const reaction of comment.reactions ?? []) {
+      for (const reactionUserId of reaction.userIds) {
+        userIds.add(reactionUserId)
+      }
+    }
   }
 
   return userIds
@@ -821,9 +828,31 @@ function selectChatMessagesForConversations(
 ) {
   const conversationIdSet = new Set(conversationIds)
 
-  return snapshot.chatMessages.filter((message) =>
-    conversationIdSet.has(message.conversationId)
+  return snapshot.chatMessages.filter(
+    (message) =>
+      conversationIdSet.has(message.conversationId) &&
+      isChatMessageVisibleToCurrentUser(snapshot, message)
   )
+}
+
+function selectChatReadStatesForConversations(
+  snapshot: AppSnapshot,
+  userId: string,
+  conversationIds: Iterable<string>
+) {
+  const conversationIdSet = new Set(conversationIds)
+
+  return snapshot.chatReadStates.filter(
+    (state) =>
+      state.userId === userId && conversationIdSet.has(state.conversationId)
+  )
+}
+
+function isChatMessageVisibleToCurrentUser(
+  snapshot: AppSnapshot,
+  message: ChatMessage
+) {
+  return !message.deletedAt || message.createdBy === snapshot.currentUserId
 }
 
 function selectChannelPostCommentsForPosts(
@@ -1080,6 +1109,9 @@ export function selectWorkItemDetailReadModel(
   const linkedDocumentIds = new Set<string>([
     item.descriptionDocId,
     ...item.linkedDocumentIds,
+    ...snapshot.documents
+      .filter((document) => document.linkedWorkItemIds.includes(item.id))
+      .map((document) => document.id),
   ])
   const documents = snapshot.documents
     .filter((document) => linkedDocumentIds.has(document.id))
@@ -1120,10 +1152,7 @@ export function selectWorkItemDetailReadModel(
     )
   })
   const milestones = selectMilestonesForProjects(snapshot, projects)
-  const labels = selectLabelsForWorkspaceIds(
-    snapshot,
-    detailWorkspaceIds
-  )
+  const labels = selectLabelsForWorkspaceIds(snapshot, detailWorkspaceIds)
   const teamMemberships = snapshot.teamMemberships.filter(
     (membership) => item.teamId !== null && membership.teamId === item.teamId
   )
@@ -1696,7 +1725,9 @@ export function selectNotificationInboxReadModel(
   userId: string
 ): ScopedReadModelPatch {
   const notifications = snapshot.notifications.filter(
-    (notification) => notification.userId === userId
+    (notification) =>
+      notification.userId === userId &&
+      shouldShowNotificationInInbox(notification)
   )
   const invites = snapshot.invites.filter((invite) =>
     notifications.some(
@@ -1831,6 +1862,11 @@ export function selectConversationListReadModel(
       snapshot,
       chatConversationIds
     ),
+    chatReadStates: selectChatReadStatesForConversations(
+      snapshot,
+      userId,
+      chatConversationIds
+    ),
   }
 }
 
@@ -1933,7 +1969,9 @@ export function selectConversationThreadReadModel(
   }
 
   const messages = snapshot.chatMessages.filter(
-    (message) => message.conversationId === conversationId
+    (message) =>
+      message.conversationId === conversationId &&
+      isChatMessageVisibleToCurrentUser(snapshot, message)
   )
   const calls = snapshot.calls.filter(
     (call) => call.conversationId === conversationId
@@ -1950,6 +1988,11 @@ export function selectConversationThreadReadModel(
     extra: {
       calls,
       chatMessages: messages,
+      chatReadStates: selectChatReadStatesForConversations(
+        snapshot,
+        snapshot.currentUserId,
+        [conversationId]
+      ),
     },
   })
 }

@@ -15,6 +15,7 @@ import {
 } from "@phosphor-icons/react"
 
 import { ProjectIconGlyph } from "@/components/app/entity-icons"
+import { useWorkItemSurfacePortalContainer } from "@/components/app/screens/work-item-surface-portal-context"
 import { WorkItemAssigneeAvatar } from "@/components/app/screens/work-item-ui"
 import {
   Popover,
@@ -142,6 +143,30 @@ function getTriggerClassName(
   )
 }
 
+function getAssigneeTriggerClassName(
+  variant: InlinePropertyControlVariant,
+  empty: boolean
+) {
+  if (empty) {
+    return getTriggerClassName(variant, true)
+  }
+
+  return cn(
+    "inline-flex max-w-full items-center justify-center rounded-full px-0 py-0 text-[11px] text-fg-2 transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
+    variant === "surface" ? "h-5" : "h-6"
+  )
+}
+
+function getAssigneeTriggerLabel(currentAssignees: UserProfile[]) {
+  if (currentAssignees.length === 0) {
+    return "Assignee"
+  }
+
+  return `Assignees: ${currentAssignees
+    .map((assignee) => assignee.name)
+    .join(", ")}`
+}
+
 const TriggerButton = forwardRef<
   HTMLButtonElement,
   ButtonHTMLAttributes<HTMLButtonElement>
@@ -171,14 +196,16 @@ const TriggerButton = forwardRef<
 })
 
 function StaticChip({
+  ariaLabel,
   children,
   className,
 }: {
+  ariaLabel?: string
   children: ReactNode
   className?: string
 }) {
   return (
-    <span data-no-drag="true" className={className}>
+    <span aria-label={ariaLabel} data-no-drag="true" className={className}>
       {children}
     </span>
   )
@@ -202,6 +229,7 @@ function InlinePropertyPopover({
   contentClassName = PROPERTY_POPOVER_CLASS,
   onOpenChange,
   open,
+  triggerAriaLabel,
   triggerClassName,
   triggerContents,
 }: {
@@ -210,18 +238,25 @@ function InlinePropertyPopover({
   contentClassName?: string
   onOpenChange: (open: boolean) => void
   open: boolean
+  triggerAriaLabel?: string
   triggerClassName: string
   triggerContents: ReactNode
 }) {
+  const portalContainer = useWorkItemSurfacePortalContainer()
+
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <TriggerButton className={triggerClassName}>
+        <TriggerButton
+          aria-label={triggerAriaLabel}
+          className={triggerClassName}
+        >
           {triggerContents}
         </TriggerButton>
       </PopoverTrigger>
       <PopoverContent
         align="start"
+        portalContainer={portalContainer}
         className={contentClassName}
         data-no-drag="true"
         onPointerDown={stopInteractivePropagation}
@@ -396,26 +431,20 @@ function InlineAssigneePropertyControl({
     return null
   }
 
-  const triggerClassName = getTriggerClassName(variant, empty)
+  const triggerClassName = getAssigneeTriggerClassName(variant, empty)
+  const triggerLabel = getAssigneeTriggerLabel(currentAssignees)
   const triggerContents =
     currentAssignees.length > 0 ? (
-      <>
-        <span className="flex -space-x-1">
-          {currentAssignees.slice(0, 3).map((assignee) => (
-            <WorkItemAssigneeAvatar
-              key={assignee.id}
-              user={assignee}
-              size="xs"
-              className="border border-surface data-[size=sm]:size-4"
-            />
-          ))}
-        </span>
-        <span className="max-w-[96px] truncate">
-          {currentAssignees.length === 1
-            ? currentAssignees[0]?.name
-            : `${currentAssignees.length} assignees`}
-        </span>
-      </>
+      <span className="flex -space-x-1">
+        {currentAssignees.slice(0, 3).map((assignee) => (
+          <WorkItemAssigneeAvatar
+            key={assignee.id}
+            user={assignee}
+            size="xs"
+            className="border border-surface data-[size=sm]:size-4"
+          />
+        ))}
+      </span>
     ) : (
       <>
         <User className="size-3.5 shrink-0" />
@@ -425,7 +454,9 @@ function InlineAssigneePropertyControl({
 
   if (!editable) {
     return (
-      <StaticChip className={triggerClassName}>{triggerContents}</StaticChip>
+      <StaticChip ariaLabel={triggerLabel} className={triggerClassName}>
+        {triggerContents}
+      </StaticChip>
     )
   }
 
@@ -437,6 +468,7 @@ function InlineAssigneePropertyControl({
     <InlinePropertyPopover
       open={open}
       onOpenChange={createResettingOpenChange(setOpen, () => setQuery(""))}
+      triggerAriaLabel={triggerLabel}
       triggerClassName={triggerClassName}
       triggerContents={triggerContents}
     >

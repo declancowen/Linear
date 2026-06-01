@@ -31,6 +31,7 @@ function HoverCardTrigger({
 type HoverCardContentProps = React.ComponentProps<
   typeof HoverCardPrimitive.Content
 > & {
+  portalContainer?: HTMLElement | null
   portalled?: boolean
 }
 
@@ -38,6 +39,7 @@ function HoverCardContent({
   className,
   align = "center",
   collisionPadding = 16,
+  portalContainer,
   portalled = true,
   sideOffset = 10,
   ...props
@@ -57,7 +59,9 @@ function HoverCardContent({
   )
 
   return portalled ? (
-    <HoverCardPrimitive.Portal>{content}</HoverCardPrimitive.Portal>
+    <HoverCardPrimitive.Portal container={portalContainer ?? undefined}>
+      {content}
+    </HoverCardPrimitive.Portal>
   ) : (
     content
   )

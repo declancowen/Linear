@@ -34,6 +34,7 @@ import {
   workItemSchema,
 } from "@/lib/domain/types"
 import {
+  haveSameWorkItemAssigneeIds,
   getResolvedWorkItemMutationAssigneeIds,
   getWorkItemAssigneeFields,
   getWorkItemAssigneeIds,
@@ -64,6 +65,7 @@ type LocalWorkItemPatch = Omit<UpdateWorkItemPatch, "expectedUpdatedAt">
 type WorkItem = AppStore["workItems"][number]
 type WorkItemDocument = AppStore["documents"][number]
 type WorkItemNotification = AppStore["notifications"][number]
+type WorkItemActivity = AppStore["workItemActivities"][number]
 type CreateWorkItemDates = {
   dueDate: string
   endTime: string | null
@@ -406,6 +408,35 @@ function buildCreateWorkItemNotifications(
   ]
 }
 
+function buildCreateWorkItemAssigneeActivity(
+  state: AppStore,
+  input: {
+    parsedInput: CreateWorkItemInput
+    workItem: WorkItem
+  }
+): WorkItemActivity[] {
+  const toAssigneeIds =
+    input.parsedInput.visibility === "private"
+      ? []
+      : getResolvedWorkItemMutationAssigneeIds(input.parsedInput)
+
+  if (toAssigneeIds.length === 0) {
+    return []
+  }
+
+  return [
+    {
+      id: createId("work_item_activity"),
+      itemId: input.workItem.id,
+      actorId: state.currentUserId,
+      type: "assignee-change" as const,
+      fromAssigneeIds: [],
+      toAssigneeIds,
+      createdAt: input.workItem.createdAt,
+    },
+  ]
+}
+
 function buildOptimisticWorkItemCreationState(
   state: AppStore,
   input: {
@@ -447,6 +478,13 @@ function buildOptimisticWorkItemCreationState(
         scope,
         workItemId: workItem.id,
       }),
+      workItemActivities: [
+        ...state.workItemActivities,
+        ...buildCreateWorkItemAssigneeActivity(state, {
+          parsedInput: input.parsedInput,
+          workItem,
+        }),
+      ],
       workItems: [workItem, ...state.workItems],
     },
   }
@@ -918,6 +956,40 @@ function buildOptimisticWorkItemUpdateNotifications(
   return nextNotifications
 }
 
+function buildOptimisticAssigneeChangeActivity(input: {
+  currentItem: WorkItem
+  currentUserId: string
+  localPatch: LocalWorkItemPatch
+  now: string
+}): WorkItemActivity | null {
+  if (
+    isPrivateWorkItem(input.currentItem) ||
+    (input.localPatch.assigneeIds === undefined &&
+      input.localPatch.assigneeId === undefined)
+  ) {
+    return null
+  }
+
+  const fromAssigneeIds = getWorkItemAssigneeIds(input.currentItem)
+  const toAssigneeIds = getResolvedWorkItemMutationAssigneeIds(
+    input.localPatch
+  )
+
+  if (haveSameWorkItemAssigneeIds(fromAssigneeIds, toAssigneeIds)) {
+    return null
+  }
+
+  return {
+    id: createId("work_item_activity"),
+    itemId: input.currentItem.id,
+    actorId: input.currentUserId,
+    type: "assignee-change",
+    fromAssigneeIds,
+    toAssigneeIds,
+    createdAt: input.now,
+  }
+}
+
 function applyOptimisticWorkItemUpdate(
   currentState: AppStore,
   input: {
@@ -982,11 +1054,20 @@ function applyOptimisticWorkItemUpdate(
       now,
     }
   )
+  const assigneeActivity = buildOptimisticAssigneeChangeActivity({
+    currentItem,
+    currentUserId: currentState.currentUserId,
+    localPatch: input.localPatch,
+    now,
+  })
 
   return {
     ...currentState,
     documents: finalDocuments,
     workItems: nextItems,
+    workItemActivities: assigneeActivity
+      ? [...currentState.workItemActivities, assigneeActivity]
+      : currentState.workItemActivities,
     notifications: buildOptimisticWorkItemUpdateNotifications(currentState, {
       currentItem,
       localPatch: input.localPatch,

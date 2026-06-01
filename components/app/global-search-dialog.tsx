@@ -39,6 +39,9 @@ import {
 import { Button } from "@/components/ui/button"
 import { ShortcutKeys } from "@/components/app/shortcut-keys"
 
+const SEARCH_RESULT_ICON_CLASS =
+  "flex h-5 shrink-0 items-center text-muted-foreground"
+
 function ShortcutHint({ keys, label }: { keys: string[]; label: string }) {
   return (
     <div className="flex items-center gap-2 text-muted-foreground">
@@ -216,7 +219,11 @@ export function GlobalSearchDialog({
                   className="items-start"
                   onSelect={() => handleCreateActionSelect(action)}
                 >
-                  <span className="mt-0.5 self-start text-muted-foreground">
+                  <span
+                    aria-hidden
+                    className={SEARCH_RESULT_ICON_CLASS}
+                    data-testid="global-search-result-icon"
+                  >
                     {"icon" in action && action.icon ? (
                       <TeamIconGlyph icon={action.icon} />
                     ) : (
@@ -259,7 +266,11 @@ export function GlobalSearchDialog({
                     className="items-start"
                     onSelect={() => handleSelect(result.href)}
                   >
-                    <span className="mt-0.5 shrink-0 self-start text-muted-foreground">
+                    <span
+                      aria-hidden
+                      className={SEARCH_RESULT_ICON_CLASS}
+                      data-testid="global-search-result-icon"
+                    >
                       {resultIcon(result, team?.icon)}
                     </span>
                     <div className="flex flex-col gap-0.5">
@@ -292,7 +303,11 @@ export function GlobalSearchDialog({
                         className="items-start"
                         onSelect={() => handleSelect(result.href)}
                       >
-                        <span className="mt-0.5 shrink-0 self-start text-muted-foreground">
+                        <span
+                          aria-hidden
+                          className={SEARCH_RESULT_ICON_CLASS}
+                          data-testid="global-search-result-icon"
+                        >
                           {resultIcon(result, team?.icon)}
                         </span>
                         <div className="flex flex-col gap-0.5">
