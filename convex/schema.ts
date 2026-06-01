@@ -8,6 +8,7 @@ import {
   channelPostCommentFields,
   channelPostFields,
   chatMessageFields,
+  chatReadStateFields,
   commentFields,
   customPropertyDefinitionFields,
   customPropertyValueFields,
@@ -162,6 +163,11 @@ export default defineSchema({
   chatMessages: defineTable(chatMessageFields)
     .index("by_domain_id", ["id"])
     .index("by_conversation", ["conversationId"]),
+  chatReadStates: defineTable(chatReadStateFields)
+    .index("by_domain_id", ["id"])
+    .index("by_user", ["userId"])
+    .index("by_conversation", ["conversationId"])
+    .index("by_user_conversation", ["userId", "conversationId"]),
   channelPosts: defineTable(channelPostFields)
     .index("by_domain_id", ["id"])
     .index("by_conversation", ["conversationId"]),

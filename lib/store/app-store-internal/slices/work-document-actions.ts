@@ -14,7 +14,11 @@ import {
   syncUpdateItemDescription,
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
-import { hasWorkspaceAccess } from "@/lib/domain/selectors"
+import {
+  getDocumentRichTextReferenceRelationships,
+  getWorkItemDescriptionRichTextReferenceRelationships,
+  hasWorkspaceAccess,
+} from "@/lib/domain/selectors"
 import { documentSchema } from "@/lib/domain/types"
 import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 
@@ -191,32 +195,48 @@ function applyOptimisticWorkItemMainSectionUpdate({
   target: Extract<SaveWorkItemMainSectionTarget, { ok: true }>
   updatedAt: string
 }) {
-  set((current) => ({
-    documents: current.documents.map((document) =>
-      document.id === target.item.descriptionDocId
-        ? {
-            ...document,
-            ...(changes.descriptionChanged
-              ? { content: input.description }
-              : {}),
-            ...(changes.titleChanged
-              ? { title: `${normalizedTitle} description` }
-              : {}),
-            updatedAt,
-            updatedBy: current.currentUserId,
-          }
-        : document
-    ),
-    workItems: current.workItems.map((entry) =>
-      entry.id === target.item.id
-        ? {
-            ...entry,
-            title: normalizedTitle,
-            updatedAt,
-          }
-        : entry
-    ),
-  }))
+  set((current) => {
+    const relationships = changes.descriptionChanged
+      ? getWorkItemDescriptionRichTextReferenceRelationships(
+          current,
+          target.item,
+          input.description
+        )
+      : null
+
+    return {
+      documents: current.documents.map((document) =>
+        document.id === target.item.descriptionDocId
+          ? {
+              ...document,
+              ...(changes.descriptionChanged
+                ? { content: input.description }
+                : {}),
+              ...(changes.titleChanged
+                ? { title: `${normalizedTitle} description` }
+                : {}),
+              updatedAt,
+              updatedBy: current.currentUserId,
+            }
+          : document
+      ),
+      workItems: current.workItems.map((entry) =>
+        entry.id === target.item.id
+          ? {
+              ...entry,
+              title: normalizedTitle,
+              ...(relationships
+                ? {
+                    linkedDocumentIds: relationships.documentIds,
+                    linkedWorkItemIds: relationships.workItemIds,
+                  }
+                : {}),
+              updatedAt,
+            }
+          : entry
+      ),
+    }
+  })
 }
 
 function restoreWorkItemMainSectionSnapshot({
@@ -477,7 +497,8 @@ export function createWorkDocumentActions({
     documents: AppStore["documents"],
     documentId: string,
     updatedAt: string,
-    currentUserId: string
+    currentUserId: string,
+    relationships?: ReturnType<typeof getDocumentRichTextReferenceRelationships>
   ) {
     return documents.map((document) =>
       document.id === documentId
@@ -485,6 +506,14 @@ export function createWorkDocumentActions({
             ...document,
             updatedAt,
             updatedBy: currentUserId,
+            ...(relationships
+              ? {
+                  linkedProjectIds: relationships.projectIds,
+                  linkedWorkItemIds: relationships.workItemIds,
+                  linkedDocumentIds: relationships.documentIds,
+                  linkedViewIds: relationships.viewIds,
+                }
+              : {}),
           }
         : document
     )
@@ -493,14 +522,16 @@ export function createWorkDocumentActions({
   function markDocumentPersisted(
     documentId: string,
     updatedAt: string,
-    currentUserId: string
+    currentUserId: string,
+    relationships?: ReturnType<typeof getDocumentRichTextReferenceRelationships>
   ) {
     set((state) => ({
       documents: updatePersistedDocumentMetadata(
         state.documents,
         documentId,
         updatedAt,
-        currentUserId
+        currentUserId,
+        relationships
       ),
     }))
   }
@@ -509,7 +540,10 @@ export function createWorkDocumentActions({
     itemId: string,
     documentId: string,
     updatedAt: string,
-    currentUserId: string
+    currentUserId: string,
+    relationships?: ReturnType<
+      typeof getWorkItemDescriptionRichTextReferenceRelationships
+    >
   ) {
     set((state) => ({
       documents: updatePersistedDocumentMetadata(
@@ -523,6 +557,12 @@ export function createWorkDocumentActions({
           ? {
               ...entry,
               updatedAt,
+              ...(relationships
+                ? {
+                    linkedDocumentIds: relationships.documentIds,
+                    linkedWorkItemIds: relationships.workItemIds,
+                  }
+                : {}),
             }
           : entry
       ),
@@ -556,7 +596,10 @@ export function createWorkDocumentActions({
     syncDocument: (
       state: ReturnType<typeof get>,
       document: ReturnType<typeof get>["documents"][number]
-    ) => Promise<{ updatedAt: string }>
+    ) => Promise<{ updatedAt: string }>,
+    options?: {
+      deriveRelationships?: boolean
+    }
   ) {
     if (get().protectedDocumentIds.includes(documentId)) {
       return
@@ -578,6 +621,14 @@ export function createWorkDocumentActions({
           return null
         }
 
+        const relationships = options?.deriveRelationships
+          ? getDocumentRichTextReferenceRelationships(
+              state,
+              document,
+              document.content
+            )
+          : undefined
+
         return syncDocument(state, document).then((result) => {
           if (!syncContext.isCurrent()) {
             return
@@ -586,7 +637,8 @@ export function createWorkDocumentActions({
           markDocumentPersisted(
             documentId,
             result.updatedAt,
-            state.currentUserId
+            state.currentUserId,
+            relationships
           )
         })
       },
@@ -599,24 +651,29 @@ export function createWorkDocumentActions({
 
   return {
     updateDocumentContent(documentId, content) {
-      set((state) => ({
-        documents: state.documents.map((document) =>
-          document.id === documentId
-            ? {
-                ...document,
-                content,
-              }
-            : document
-        ),
-      }))
+      set((state) => {
+        return {
+          documents: state.documents.map((entry) =>
+            entry.id === documentId
+              ? {
+                  ...entry,
+                  content,
+                }
+              : entry
+          ),
+        }
+      })
 
-      queueDocumentMetadataSync(documentId, (state, document) =>
-        syncUpdateDocumentContent(
-          state.currentUserId,
-          documentId,
-          document.content,
-          document.updatedAt
-        )
+      queueDocumentMetadataSync(
+        documentId,
+        (state, document) =>
+          syncUpdateDocumentContent(
+            state.currentUserId,
+            documentId,
+            document.content,
+            document.updatedAt
+          ),
+        { deriveRelationships: true }
       )
     },
     cancelDocumentSync(documentId) {
@@ -780,6 +837,13 @@ export function createWorkDocumentActions({
             return null
           }
 
+          const relationships =
+            getWorkItemDescriptionRichTextReferenceRelationships(
+              state,
+              item,
+              descriptionDocument.content
+            )
+
           return syncUpdateItemDescription(
             state.currentUserId,
             itemId,
@@ -794,7 +858,8 @@ export function createWorkDocumentActions({
               itemId,
               descriptionDocument.id,
               result.updatedAt,
-              state.currentUserId
+              state.currentUserId,
+              relationships
             )
           })
         },

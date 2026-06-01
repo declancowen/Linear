@@ -195,6 +195,7 @@ function createBootstrapCtx() {
     conversations: [],
     calls: [],
     chatMessages: [],
+    chatReadStates: [],
     channelPosts: [],
     channelPostComments: [],
   })

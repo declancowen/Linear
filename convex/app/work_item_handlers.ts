@@ -16,6 +16,7 @@ import {
   PRIVATE_WORK_ITEM_KEY_PREFIX,
 } from "../../lib/domain/work-item-key"
 import {
+  haveSameWorkItemAssigneeIds,
   getResolvedWorkItemMutationAssigneeIds,
   getWorkItemAssigneeFields,
   getWorkItemAssigneeIds,
@@ -59,6 +60,7 @@ import {
   clearDocumentPresenceForActor,
   upsertDocumentPresenceForActor,
 } from "./presence_helpers"
+import { resolveWorkItemDescriptionRichTextReferenceRelationships } from "./rich_text_reference_relationships"
 import {
   assertScheduleDate,
   assertScheduleTime,
@@ -462,6 +464,15 @@ export async function patchWorkItemDescriptionDocument(
     return
   }
 
+  const relationships =
+    input.nextDescription !== undefined
+      ? await resolveWorkItemDescriptionRichTextReferenceRelationships(ctx, {
+          content: input.nextDescription,
+          currentUserId: input.currentUserId,
+          item: input.existing,
+        })
+      : null
+
   await ctx.db.patch(descriptionDocument._id, {
     ...(input.nextDescription !== undefined
       ? {
@@ -476,6 +487,14 @@ export async function patchWorkItemDescriptionDocument(
     updatedAt: input.now,
     updatedBy: input.currentUserId,
   })
+
+  if (relationships) {
+    await ctx.db.patch(input.existing._id, {
+      linkedDocumentIds: relationships.documentIds,
+      linkedWorkItemIds: relationships.workItemIds,
+      updatedAt: input.now,
+    })
+  }
 }
 
 async function cascadeProjectLinkToWorkItemHierarchy(
@@ -850,6 +869,95 @@ export async function createStatusChangeActivityForWorkItemUpdate(
   return activity
 }
 
+function normalizeActivityLabelIds(labelIds: readonly string[] | undefined) {
+  return [...new Set(labelIds ?? [])].sort()
+}
+
+function haveSameActivityLabelIds(
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined
+) {
+  const normalizedLeft = normalizeActivityLabelIds(left)
+  const normalizedRight = normalizeActivityLabelIds(right)
+
+  return (
+    normalizedLeft.length === normalizedRight.length &&
+    normalizedLeft.every((labelId, index) => labelId === normalizedRight[index])
+  )
+}
+
+export async function createLabelChangeActivityForWorkItemUpdate(
+  ctx: MutationCtx,
+  input: {
+    args: UpdateWorkItemArgs
+    existing: WorkItemDoc
+    now: string
+  }
+) {
+  const nextLabelIds = input.args.patch.labelIds
+
+  if (
+    nextLabelIds === undefined ||
+    haveSameActivityLabelIds(input.existing.labelIds, nextLabelIds)
+  ) {
+    return null
+  }
+
+  const activity = {
+    id: createId("work_item_activity"),
+    itemId: input.existing.id,
+    actorId: input.args.currentUserId,
+    type: "label-change" as const,
+    fromLabelIds: normalizeActivityLabelIds(input.existing.labelIds),
+    toLabelIds: normalizeActivityLabelIds(nextLabelIds),
+    createdAt: input.now,
+  }
+
+  await ctx.db.insert("workItemActivities", activity)
+
+  return activity
+}
+
+export async function createAssigneeChangeActivityForWorkItemUpdate(
+  ctx: MutationCtx,
+  input: {
+    args: UpdateWorkItemArgs
+    existing: WorkItemDoc
+    now: string
+  }
+) {
+  if (
+    (input.existing.visibility ?? "team") === "private" ||
+    (input.args.patch.assigneeIds === undefined &&
+      input.args.patch.assigneeId === undefined)
+  ) {
+    return null
+  }
+
+  const fromAssigneeIds = getWorkItemAssigneeIds(input.existing)
+  const toAssigneeIds = getResolvedWorkItemMutationAssigneeIds(
+    input.args.patch
+  )
+
+  if (haveSameWorkItemAssigneeIds(fromAssigneeIds, toAssigneeIds)) {
+    return null
+  }
+
+  const activity = {
+    id: createId("work_item_activity"),
+    itemId: input.existing.id,
+    actorId: input.args.currentUserId,
+    type: "assignee-change" as const,
+    fromAssigneeIds,
+    toAssigneeIds,
+    createdAt: input.now,
+  }
+
+  await ctx.db.insert("workItemActivities", activity)
+
+  return activity
+}
+
 function getEffectiveWorkItemPatch(
   existing: WorkItemDoc,
   patch: WorkItemPatch
@@ -953,6 +1061,16 @@ export async function updateWorkItemHandler(
   }
 
   await createStatusChangeActivityForWorkItemUpdate(ctx, {
+    args: effectiveArgs,
+    existing,
+    now,
+  })
+  await createLabelChangeActivityForWorkItemUpdate(ctx, {
+    args: effectiveArgs,
+    existing,
+    now,
+  })
+  await createAssigneeChangeActivityForWorkItemUpdate(ctx, {
     args: effectiveArgs,
     existing,
     now,
@@ -1093,6 +1211,15 @@ async function patchCollaborationDescriptionDocument(
     return
   }
 
+  const relationships =
+    args.patch.description !== undefined
+      ? await resolveWorkItemDescriptionRichTextReferenceRelationships(ctx, {
+          content: args.patch.description,
+          currentUserId: args.currentUserId,
+          item: existing,
+        })
+      : null
+
   await ctx.db.patch(descriptionDocument._id, {
     ...(args.patch.description !== undefined
       ? {
@@ -1107,6 +1234,14 @@ async function patchCollaborationDescriptionDocument(
     updatedAt,
     updatedBy: args.currentUserId,
   })
+
+  if (relationships) {
+    await ctx.db.patch(existing._id, {
+      linkedDocumentIds: relationships.documentIds,
+      linkedWorkItemIds: relationships.workItemIds,
+      updatedAt,
+    })
+  }
 }
 
 function hasCollaborationMainSectionPatch(
@@ -1366,13 +1501,20 @@ async function unlinkDeletedDescriptionDocumentsFromWorkItems(
     const nextLinkedDocumentIds = workItem.linkedDocumentIds.filter(
       (documentId) => !cascade.deletedDescriptionDocIds.has(documentId)
     )
+    const nextLinkedWorkItemIds = (workItem.linkedWorkItemIds ?? []).filter(
+      (linkedItemId) => !cascade.deletedItemIds.has(linkedItemId)
+    )
 
-    if (nextLinkedDocumentIds.length === workItem.linkedDocumentIds.length) {
+    if (
+      nextLinkedDocumentIds.length === workItem.linkedDocumentIds.length &&
+      nextLinkedWorkItemIds.length === (workItem.linkedWorkItemIds ?? []).length
+    ) {
       continue
     }
 
     await ctx.db.patch(workItem._id, {
       linkedDocumentIds: nextLinkedDocumentIds,
+      linkedWorkItemIds: nextLinkedWorkItemIds,
       updatedAt: getNow(),
     })
   }
@@ -1764,7 +1906,10 @@ function buildCreatedWorkItem({
   now: string
   defaultScheduleTimeZone: string | null
 }) {
-  const visibility = getNullishCreateInputValue(args.visibility, "team" as const)
+  const visibility = getNullishCreateInputValue(
+    args.visibility,
+    "team" as const
+  )
   const scopeFields = getCreatedWorkItemScopeFields(args, visibility)
   const scheduleFields = getCreatedWorkItemScheduleFields(
     args,
@@ -1797,7 +1942,10 @@ function buildCreatedWorkItem({
   }
 }
 
-function getNullishCreateInputValue<T>(value: T | null | undefined, fallback: T) {
+function getNullishCreateInputValue<T>(
+  value: T | null | undefined,
+  fallback: T
+) {
   return value ?? fallback
 }
 
@@ -1896,6 +2044,35 @@ async function notifyCreatedWorkItemAssignee({
   return assignmentEmails
 }
 
+async function createAssigneeChangeActivityForCreatedWorkItem(
+  ctx: MutationCtx,
+  input: {
+    args: CreateWorkItemArgs
+    workItem: ReturnType<typeof buildCreatedWorkItem>
+    now: string
+  }
+) {
+  const toAssigneeIds = getCreateWorkItemAssigneeIds(input.args)
+
+  if (toAssigneeIds.length === 0) {
+    return null
+  }
+
+  const activity = {
+    id: createId("work_item_activity"),
+    itemId: input.workItem.id,
+    actorId: input.args.currentUserId,
+    type: "assignee-change" as const,
+    fromAssigneeIds: [],
+    toAssigneeIds,
+    createdAt: input.now,
+  }
+
+  await ctx.db.insert("workItemActivities", activity)
+
+  return activity
+}
+
 export async function createWorkItemHandler(
   ctx: MutationCtx,
   args: CreateWorkItemArgs
@@ -1942,6 +2119,11 @@ export async function createWorkItemHandler(
   })
 
   await ctx.db.insert("workItems", workItem)
+  await createAssigneeChangeActivityForCreatedWorkItem(ctx, {
+    args,
+    workItem,
+    now,
+  })
 
   const assignmentEmails = await notifyCreatedWorkItemAssignee({
     ctx,

@@ -37,10 +37,16 @@ import { toast } from "sonner"
 import { useShallow } from "zustand/react/shallow"
 
 import {
+  fetchConversationListReadModel,
   fetchNotificationInboxReadModel,
   fetchWorkspaceMembershipReadModel,
   selectCurrentWorkspaceReadModel,
 } from "@/lib/convex/client/read-models"
+import {
+  getUnreadWorkspaceChatCount,
+  isTeamChatUnread,
+} from "@/lib/domain/chat-read-state"
+import { shouldShowNotificationInInbox } from "@/lib/domain/notification-visibility"
 import {
   canAdminWorkspace,
   getAccessibleTeams,
@@ -100,6 +106,7 @@ import {
 } from "@/lib/scoped-sync/scope-keys"
 import {
   type ScopedReadModelReplaceInstruction,
+  getConversationListScopeKeys,
   getNotificationInboxScopeKeys,
 } from "@/lib/scoped-sync/read-models"
 import { type AppStore, useAppStore } from "@/lib/store/app-store"
@@ -108,6 +115,7 @@ import { TeamIconGlyph } from "@/components/app/entity-icons"
 import { GlobalSearchDialog } from "@/components/app/global-search-dialog"
 import {
   appendPendingNotificationToastIds,
+  getNotificationContentPreview,
   getNotificationHref,
   initializePendingNotificationToastIds,
   isViewingNotificationTarget,
@@ -266,6 +274,7 @@ function isUnreadNotificationForCurrentUser(
 ) {
   return (
     notification.userId === currentUserId &&
+    shouldShowNotificationInInbox(notification) &&
     notification.readAt === null &&
     notification.archivedAt == null
   )
@@ -301,6 +310,26 @@ function selectPendingInviteCount(state: AppStore) {
         isPendingInviteForEmail(invite, user.email)
       ).length
     : 0
+}
+
+function selectUnreadWorkspaceChatCount(state: AppStore) {
+  return state.currentWorkspaceId
+    ? getUnreadWorkspaceChatCount(state, state.currentWorkspaceId)
+    : 0
+}
+
+function selectUnreadTeamChatIds(state: AppStore) {
+  if (!state.currentWorkspaceId) {
+    return []
+  }
+
+  return state.teams
+    .filter(
+      (team) =>
+        team.workspaceId === state.currentWorkspaceId &&
+        isTeamChatUnread(state, team.id)
+    )
+    .map((team) => team.id)
 }
 
 function selectCurrentWorkspaceTeamMemberships(state: AppStore) {
@@ -551,7 +580,7 @@ function useShellNotificationToasts(input: {
     )
     void showDesktopNotification({
       title: "New notification",
-      body: nextNotification.message,
+      body: getDesktopNotificationBody(nextNotification),
       path: href,
       silent: false,
     })
@@ -571,6 +600,14 @@ function useShellNotificationToasts(input: {
     router,
     searchParams,
   ])
+}
+
+function getDesktopNotificationBody(notification: Notification) {
+  const contentPreview = getNotificationContentPreview(notification)
+
+  return contentPreview
+    ? `${notification.message}\n${contentPreview}`
+    : notification.message
 }
 
 function getShellCreateActions(input: {
@@ -797,6 +834,15 @@ function useShellReadModels(input: {
       fetchWorkspaceMembershipReadModel(input.currentWorkspaceId ?? ""),
   })
 
+  useScopedReadModelRefresh({
+    enabled: Boolean(input.currentUserId),
+    scopeKeys: input.currentUserId
+      ? getConversationListScopeKeys(input.currentUserId)
+      : [],
+    fetchLatest: async () =>
+      fetchConversationListReadModel(input.currentUserId ?? ""),
+  })
+
   return useScopedReadModelRefresh({
     enabled: Boolean(input.currentUserId),
     scopeKeys: input.currentUserId
@@ -809,6 +855,8 @@ function useShellReadModels(input: {
 
 function useShellStoreContext() {
   const unread = useAppStore(selectUnreadNotificationCount)
+  const unreadChats = useAppStore(selectUnreadWorkspaceChatCount)
+  const unreadTeamChatIds = useAppStore(useShallow(selectUnreadTeamChatIds))
   const notificationToastCandidates = useAppStore(
     useShallow(selectNotificationToastCandidates)
   )
@@ -878,6 +926,8 @@ function useShellStoreContext() {
     switchableWorkspaces,
     teams,
     unread,
+    unreadChats,
+    unreadTeamChatIds,
   }
 }
 
@@ -1239,6 +1289,8 @@ function NotificationToastContent({
   onDismiss: () => void
   onOpen: () => void
 }) {
+  const contentPreview = getNotificationContentPreview(notification)
+
   return (
     <div
       role="button"
@@ -1264,6 +1316,11 @@ function NotificationToastContent({
         <span className="line-clamp-2 block text-[12px] leading-4 text-fg-3">
           {notification.message}
         </span>
+        {contentPreview ? (
+          <span className="line-clamp-2 mt-1 block text-[12px] leading-4 text-fg-3">
+            {contentPreview}
+          </span>
+        ) : null}
       </span>
       <button
         type="button"
@@ -1736,9 +1793,11 @@ function ShellWorkspaceMenu({
 function ShellPrimaryNavigation({
   pathname,
   unread,
+  unreadChats,
 }: {
   pathname: string
   unread: number
+  unreadChats: number
 }) {
   return (
     <SidebarGroup className="pt-1">
@@ -1756,6 +1815,7 @@ function ShellPrimaryNavigation({
             icon={<ChatCircleDots />}
             label="Chats"
             active={pathname.startsWith("/chats")}
+            badge={unreadChats > 0 ? String(unreadChats) : undefined}
           />
           <SidebarLink
             href="/calendar"
@@ -1926,10 +1986,12 @@ function TeamSidebarActionsMenu({
 function TeamSidebarSubLinks({
   team,
   pathname,
+  unreadChat,
   workSurfaceLabel,
 }: {
   team: Team
   pathname: string
+  unreadChat: boolean
   workSurfaceLabel: string
 }) {
   const features = getTeamFeatureSettings(team)
@@ -1946,6 +2008,12 @@ function TeamSidebarSubLinks({
             <AppLink href={`/team/${team.slug}/chat`}>
               <ChatCircleDots className="size-4" />
               <span>Chat</span>
+              {unreadChat ? (
+                <span
+                  aria-label="Unread chat"
+                  className="ml-auto size-1.5 shrink-0 rounded-full bg-primary"
+                />
+              ) : null}
             </AppLink>
           </SidebarMenuSubButton>
         </SidebarMenuSubItem>
@@ -2029,6 +2097,7 @@ function TeamSidebarItem({
   teamRole,
   expanded,
   pathname,
+  unreadChat,
   onToggle,
   onOpenTeamInviteDialog,
   onSetTeamPendingLeave,
@@ -2037,6 +2106,7 @@ function TeamSidebarItem({
   teamRole: TeamMembership["role"] | null
   expanded: boolean
   pathname: string
+  unreadChat: boolean
   onToggle: () => void
   onOpenTeamInviteDialog: (teamId: string) => void
   onSetTeamPendingLeave: (team: {
@@ -2091,6 +2161,7 @@ function TeamSidebarItem({
         <TeamSidebarSubLinks
           team={team}
           pathname={pathname}
+          unreadChat={unreadChat}
           workSurfaceLabel={workSurfaceLabel}
         />
       ) : null}
@@ -2104,6 +2175,7 @@ function ShellTeamsSection({
   currentMemberships,
   expandedTeams,
   pathname,
+  unreadTeamChatIds,
   canCreateTeam,
   onToggleSection,
   onToggleTeam,
@@ -2115,6 +2187,7 @@ function ShellTeamsSection({
   currentMemberships: TeamMembership[]
   expandedTeams: Set<string>
   pathname: string
+  unreadTeamChatIds: Set<string>
   canCreateTeam: boolean
   onToggleSection: () => void
   onToggleTeam: (teamId: string) => void
@@ -2176,6 +2249,7 @@ function ShellTeamsSection({
                   teamRole={teamRole}
                   expanded={expandedTeams.has(team.id)}
                   pathname={pathname}
+                  unreadChat={unreadTeamChatIds.has(team.id)}
                   onToggle={() => onToggleTeam(team.id)}
                   onOpenTeamInviteDialog={onOpenTeamInviteDialog}
                   onSetTeamPendingLeave={onSetTeamPendingLeave}
@@ -2386,6 +2460,8 @@ function AppShellLayout({
   teamsSectionOpen,
   toggleTeam,
   unread,
+  unreadChats,
+  unreadTeamChatIds,
   workspacePendingLeave,
   workspaceSectionOpen,
 }: AppShellLayoutProps) {
@@ -2435,7 +2511,11 @@ function AppShellLayout({
           onSwitchWorkspace={handleSwitchWorkspace}
         />
         <SidebarContent>
-          <ShellPrimaryNavigation pathname={pathname} unread={unread} />
+          <ShellPrimaryNavigation
+            pathname={pathname}
+            unread={unread}
+            unreadChats={unreadChats}
+          />
           <SidebarSeparator />
           <ShellWorkspaceSection
             open={workspaceSectionOpen}
@@ -2449,6 +2529,7 @@ function AppShellLayout({
             currentMemberships={currentMemberships}
             expandedTeams={expandedTeams}
             pathname={pathname}
+            unreadTeamChatIds={new Set(unreadTeamChatIds)}
             canCreateTeam={canCreateTeam}
             onToggleSection={() => setTeamsSectionOpen((current) => !current)}
             onToggleTeam={toggleTeam}

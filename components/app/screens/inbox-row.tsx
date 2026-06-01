@@ -12,6 +12,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { getNotificationContentPreview } from "@/components/app/notification-routing"
 import type { Notification } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
 
@@ -32,6 +33,7 @@ export function InboxRow({
   const unread = !notification.readAt
   const actorName = actor?.name ?? "Someone"
   const subtitle = buildInboxNotificationSubtitle(notification, actorName)
+  const contentPreview = getNotificationContentPreview(notification)
   const relativeCreatedAt = getShortRelativeTimestamp(notification.createdAt)
 
   return (
@@ -62,6 +64,7 @@ export function InboxRow({
           actorName={actorName}
           notification={notification}
           relativeCreatedAt={relativeCreatedAt}
+          contentPreview={contentPreview}
           subtitle={subtitle}
           unread={unread}
         />
@@ -76,12 +79,14 @@ export function InboxRow({
 
 function InboxRowContent({
   actorName,
+  contentPreview,
   notification,
   relativeCreatedAt,
   subtitle,
   unread,
 }: {
   actorName: string
+  contentPreview: string
   notification: Notification
   relativeCreatedAt: ReturnType<typeof getShortRelativeTimestamp>
   subtitle: string
@@ -128,6 +133,11 @@ function InboxRowContent({
       >
         {subtitle}
       </span>
+      {contentPreview ? (
+        <span className="truncate text-[12px] leading-5 text-muted-foreground">
+          {contentPreview}
+        </span>
+      ) : null}
     </div>
   )
 }

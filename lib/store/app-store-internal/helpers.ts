@@ -2,10 +2,7 @@
 
 import type { StateStorage } from "zustand/middleware"
 
-import type {
-  AppData,
-  UserStatus,
-} from "@/lib/domain/types"
+import type { AppData, UserStatus } from "@/lib/domain/types"
 import { haveSameIds } from "@/lib/domain/collaboration-utils"
 export {
   createMentionIds,
@@ -67,7 +64,11 @@ export function createNotification(
     | "comment"
     | "message"
     | "invite"
-    | "status-change"
+    | "status-change",
+  metadata: {
+    contentPreview?: string | null
+    targetCommentId?: string | null
+  } = {}
 ) {
   return {
     id: createId("notification"),
@@ -77,6 +78,8 @@ export function createNotification(
     entityType,
     entityId,
     type,
+    contentPreview: metadata.contentPreview?.trim() || null,
+    targetCommentId: metadata.targetCommentId?.trim() || null,
     readAt: null,
     archivedAt: null,
     emailedAt: null,
@@ -158,13 +161,17 @@ export function normalizeChatMessages<
 }
 
 export function normalizeChannelPostComments<
-  T extends { mentionUserIds?: string[] },
+  T extends {
+    mentionUserIds?: string[]
+    reactions?: { emoji: string; userIds: string[] }[]
+  },
 >(channelPostComments: T[] | undefined) {
   const entries = channelPostComments ?? []
 
   return entries.map((comment) => ({
     ...comment,
     mentionUserIds: comment.mentionUserIds ?? [],
+    reactions: comment.reactions ?? [],
   }))
 }
 

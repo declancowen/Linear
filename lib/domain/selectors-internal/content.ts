@@ -14,7 +14,6 @@ type ChannelRouteData = Pick<
 >
 type ConversationRouteData = Pick<AppData, "conversations" | "teams">
 type ConversationRoute = ConversationRouteData["conversations"][number]
-type ChannelPostRoute = ChannelRouteData["channelPosts"][number]
 type TeamSurfaceFeature = "docs" | "chat" | "channels"
 type TeamSurfaceDisableReasonResolver = (
   data: AppData,
@@ -385,14 +384,18 @@ export function getChannelPostComments(data: AppData, postId: string) {
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
 }
 
-export function getChannelPostHref(data: ChannelRouteData, postId: string) {
+export function getChannelPostHref(
+  data: ChannelRouteData,
+  postId: string,
+  hashId?: string | null
+) {
   const post = data.channelPosts.find((entry) => entry.id === postId)
   const conversation = post
     ? getRoutableConversation(data, post.conversationId, "channel")
     : null
 
   return post && conversation
-    ? getChannelConversationHref(data, conversation, post)
+    ? getChannelConversationHref(data, conversation, hashId || post.id)
     : null
 }
 
@@ -420,11 +423,11 @@ function getRoutableConversation(
 function getChannelConversationHref(
   data: ChannelRouteData,
   conversation: ConversationRoute,
-  post: ChannelPostRoute
+  hashId: string
 ) {
   return conversation.scopeType === "workspace"
-    ? `/workspace/channel#${post.id}`
-    : getTeamScopedHref(data, conversation, "channel", post.id)
+    ? `/workspace/channel#${hashId}`
+    : getTeamScopedHref(data, conversation, "channel", hashId)
 }
 
 function getChatConversationHref(

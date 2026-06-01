@@ -1,6 +1,6 @@
 "use client"
 
-import type { ComponentProps } from "react"
+import { forwardRef, type ComponentProps } from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -10,14 +10,13 @@ type CollapsibleRightSidebarProps = ComponentProps<"aside"> & {
   containerClassName?: string
 }
 
-export function CollapsibleRightSidebar({
-  open,
-  width = "19rem",
-  containerClassName,
-  className,
-  children,
-  ...props
-}: CollapsibleRightSidebarProps) {
+export const CollapsibleRightSidebar = forwardRef<
+  HTMLElement,
+  CollapsibleRightSidebarProps
+>(function CollapsibleRightSidebar(
+  { open, width = "19rem", containerClassName, className, children, ...props },
+  ref
+) {
   const sidebarWidth = open ? width : "0rem"
 
   return (
@@ -26,6 +25,7 @@ export function CollapsibleRightSidebar({
       style={{ width: sidebarWidth, flexBasis: sidebarWidth }}
     >
       <aside
+        ref={ref}
         aria-hidden={!open}
         inert={!open ? true : undefined}
         className={cn(
@@ -40,4 +40,4 @@ export function CollapsibleRightSidebar({
       </aside>
     </div>
   )
-}
+})

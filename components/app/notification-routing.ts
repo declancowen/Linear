@@ -75,7 +75,11 @@ function getChannelPostNotificationHref(
   data: NotificationRouteData,
   notification: Notification
 ) {
-  return getChannelPostHref(data, notification.entityId)
+  return getChannelPostHref(
+    data,
+    notification.entityId,
+    getNotificationTargetHash(notification)
+  )
 }
 
 function getChatNotificationHref(
@@ -88,8 +92,16 @@ function getChatNotificationHref(
 const notificationHrefResolvers: Partial<
   Record<Notification["entityType"], NotificationHrefResolver>
 > = {
-  workItem: (_data, notification) => `/items/${notification.entityId}`,
-  document: (_data, notification) => `/docs/${notification.entityId}`,
+  workItem: (_data, notification) =>
+    appendNotificationHash(
+      `/items/${notification.entityId}`,
+      getNotificationTargetHash(notification)
+    ),
+  document: (_data, notification) =>
+    appendNotificationHash(
+      `/docs/${notification.entityId}`,
+      getNotificationTargetHash(notification)
+    ),
   project: getProjectNotificationHref,
   channelPost: getChannelPostNotificationHref,
   chat: getChatNotificationHref,
@@ -104,6 +116,22 @@ export function getNotificationHref(
     notificationHrefResolvers[notification.entityType]?.(data, notification) ??
     null
   )
+}
+
+export function getNotificationContentPreview(notification: Notification) {
+  return notification.contentPreview?.trim() || ""
+}
+
+export function getNotificationTargetHash(notification: Notification) {
+  return notification.targetCommentId?.trim() || null
+}
+
+export function appendNotificationHash(href: string, hash: string | null) {
+  if (!hash) {
+    return href
+  }
+
+  return `${href}#${encodeURIComponent(hash)}`
 }
 
 function getHrefPathname(href: string) {
@@ -175,6 +203,13 @@ export function isViewingNotificationTarget(input: {
 
   if (!href) {
     return false
+  }
+
+  const hrefHash = getHrefHash(href)
+  if (hrefHash) {
+    return (
+      pathname === getHrefPathname(href) && normalizeHash(hash) === hrefHash
+    )
   }
 
   return pathname === getHrefPathname(href)

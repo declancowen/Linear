@@ -63,6 +63,26 @@ describe("rich-text security", () => {
     expect(sanitized).not.toContain("<script")
   })
 
+  it("preserves safe entity reference metadata and strips invalid reference attributes", () => {
+    const sanitized = sanitizeRichTextContent(
+      [
+        '<a class="editor-reference editor-reference-workItem evil" data-type="entity-reference" data-reference-type="workItem" data-reference-id="item_1" data-label="PLA-1" href="/items/item_1" onclick="evil()">PLA-1</a>',
+        '<a class="editor-reference" data-type="entity-reference" data-reference-type="invalid" data-reference-id="item_2" data-label="Bad" href="/items/item_2">Bad</a>',
+        '<a class="editor-reference" data-type="entity-reference" data-reference-type="workItem" data-reference-id="item_3" data-label="External" href="https://example.com">External</a>',
+      ].join("")
+    )
+
+    expect(sanitized).toContain(
+      'class="editor-reference editor-reference-workItem" data-type="entity-reference" data-reference-type="workItem" data-reference-id="item_1" data-label="PLA-1"'
+    )
+    expect(sanitized).not.toContain("evil")
+    expect(sanitized).not.toContain('data-reference-type="invalid"')
+    expect(sanitized).not.toContain('data-reference-id="item_2"')
+    expect(sanitized).not.toContain('data-label="Bad"')
+    expect(sanitized).toContain('data-reference-id="item_3"')
+    expect(sanitized).not.toContain('href="https://example.com"')
+  })
+
   it("trims trailing hard breaks and empty blocks from message content", () => {
     const trailingBreaks = prepareRichTextMessageForStorage(
       "<p>Hello<br><br></p>",

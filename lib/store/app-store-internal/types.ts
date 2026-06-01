@@ -198,6 +198,10 @@ export type SendChatMessageInput = {
   content: string
 }
 
+export type UpdateChatMessageInput = {
+  content: string
+}
+
 export type CreateChannelPostInput = {
   conversationId: string
   title: string
@@ -411,6 +415,10 @@ export type AppStore = AppData & {
   createChannel: (input: CreateChannelInput) => string | null
   startConversationCall: (conversationId: string) => Promise<string | null>
   sendChatMessage: (input: SendChatMessageInput) => void
+  updateChatMessage: (messageId: string, input: UpdateChatMessageInput) => void
+  deleteChatMessage: (messageId: string) => void
+  markChatRead: (conversationId: string) => void
+  markChatUnread: (conversationId: string) => void
   toggleChatMessageReaction: (messageId: string, emoji: string) => void
   createChannelPost: (input: CreateChannelPostInput) => void
   updateChannelPost: (postId: string, input: UpdateChannelPostInput) => void
@@ -423,6 +431,11 @@ export type AppStore = AppData & {
   deleteChannelPost: (postId: string) => void
   deleteChannelPostComment: (postId: string, commentId: string) => void
   toggleChannelPostReaction: (postId: string, emoji: string) => void
+  toggleChannelPostCommentReaction: (
+    postId: string,
+    commentId: string,
+    emoji: string
+  ) => void
   createInvite: (input: CreateInviteInput) => void
   cancelInvite: (inviteId: string) => Promise<boolean>
   joinTeamByCode: (code: string) => Promise<boolean>

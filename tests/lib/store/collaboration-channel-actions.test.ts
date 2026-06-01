@@ -77,6 +77,7 @@ function createChannelState(overrides: Partial<AppData> = {}) {
         postId: "post_1",
         content: "<p>Reply</p>",
         mentionUserIds: [],
+        reactions: [],
         createdBy: "user_1",
         createdAt: TEST_TIMESTAMP,
       },
@@ -216,6 +217,8 @@ describe("collaboration channel notification helpers", () => {
     addChannelFollowerNotifications(notifications as never, {
       actorName: "Alex",
       audienceUserIds: ["user_2", "user_already"],
+      commentId: "comment_1",
+      contentPreview: "Looks good",
       currentUserId: "user_1",
       entityId: "post_1",
       entityTitle: "the roadmap thread",
@@ -231,6 +234,8 @@ describe("collaboration channel notification helpers", () => {
         message: "Alex commented on the roadmap thread",
         type: "comment",
         userId: "user_2",
+        contentPreview: "Looks good",
+        targetCommentId: "comment_1",
       }),
     ])
     expect([...notifiedUserIds].sort()).toEqual(["user_2", "user_already"])
@@ -563,6 +568,7 @@ describe("collaboration channel notification helpers", () => {
           postId: "post_1",
           content: "<p>Reply</p>",
           mentionUserIds: [],
+          reactions: [],
           createdBy: "user_2",
           createdAt: TEST_TIMESTAMP,
         },

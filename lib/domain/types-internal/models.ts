@@ -35,7 +35,6 @@ import type {
   ViewFilters,
   ViewLayout,
   ViewScopeType,
-  WorkItemActivityType,
   WorkItemType,
   WorkItemVisibility,
   WorkStatus,
@@ -197,6 +196,7 @@ export interface WorkItem {
   primaryProjectId: string | null
   linkedProjectIds: string[]
   linkedDocumentIds: string[]
+  linkedWorkItemIds?: string[]
   labelIds: string[]
   visibility?: WorkItemVisibility
   milestoneId: string | null
@@ -211,15 +211,29 @@ export interface WorkItem {
   updatedAt: string
 }
 
-export interface WorkItemActivity {
+type BaseWorkItemActivity = {
   id: string
   itemId: string
   actorId: string
-  type: WorkItemActivityType
-  fromStatus: WorkStatus
-  toStatus: WorkStatus
   createdAt: string
 }
+
+export type WorkItemActivity =
+  | (BaseWorkItemActivity & {
+      type: "status-change"
+      fromStatus: WorkStatus
+      toStatus: WorkStatus
+    })
+  | (BaseWorkItemActivity & {
+      type: "label-change"
+      fromLabelIds: string[]
+      toLabelIds: string[]
+    })
+  | (BaseWorkItemActivity & {
+      type: "assignee-change"
+      fromAssigneeIds: string[]
+      toAssigneeIds: string[]
+    })
 
 export interface Document {
   id: string
@@ -232,6 +246,8 @@ export interface Document {
   notifiedMentionCounts?: Record<string, number>
   linkedProjectIds: string[]
   linkedWorkItemIds: string[]
+  linkedDocumentIds?: string[]
+  linkedViewIds?: string[]
   createdBy: string
   updatedBy: string
   createdAt: string
@@ -339,9 +355,11 @@ export interface Comment {
   parentCommentId: string | null
   content: string
   mentionUserIds: string[]
+  referencedWorkItemIds?: string[]
   reactions: CommentReaction[]
   createdBy: string
   createdAt: string
+  editedAt?: string | null
 }
 
 export interface Attachment {
@@ -366,6 +384,8 @@ export interface Notification {
   entityId: string
   actorId: string
   message: string
+  contentPreview?: string | null
+  targetCommentId?: string | null
   readAt: string | null
   archivedAt: string | null
   emailedAt: string | null
@@ -422,6 +442,18 @@ export interface ChatMessage {
   reactions: CommentReaction[]
   createdBy: string
   createdAt: string
+  editedAt?: string | null
+  deletedAt?: string | null
+}
+
+export interface ChatReadState {
+  id: string
+  userId: string
+  conversationId: string
+  readAt: string | null
+  unreadAt: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface Call {
@@ -460,6 +492,7 @@ export interface ChannelPost {
   createdBy: string
   createdAt: string
   updatedAt: string
+  editedAt?: string | null
 }
 
 export interface ChannelPostComment {
@@ -467,8 +500,10 @@ export interface ChannelPostComment {
   postId: string
   content: string
   mentionUserIds: string[]
+  reactions?: ChannelPostReaction[]
   createdBy: string
   createdAt: string
+  editedAt?: string | null
 }
 
 export type CreateDialogState =
@@ -560,6 +595,7 @@ export interface AppData {
   conversations: Conversation[]
   calls: Call[]
   chatMessages: ChatMessage[]
+  chatReadStates: ChatReadState[]
   channelPosts: ChannelPost[]
   channelPostComments: ChannelPostComment[]
   ui: UiState

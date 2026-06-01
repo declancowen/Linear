@@ -58,6 +58,42 @@ export function syncSendChatMessage(
   )
 }
 
+export function syncUpdateChatMessage(messageId: string, content: string) {
+  return runRouteMutation<{ ok: true }>(`/api/chat-messages/${messageId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      content,
+    }),
+  })
+}
+
+export function syncDeleteChatMessage(messageId: string) {
+  return runRouteMutation<{ ok: true }>(`/api/chat-messages/${messageId}`, {
+    method: "DELETE",
+  })
+}
+
+export function syncUpdateChatReadState(
+  conversationId: string,
+  action: "read" | "unread"
+) {
+  return runRouteMutation<{ ok: true }>(
+    `/api/chats/${conversationId}/read-state`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action,
+      }),
+    }
+  )
+}
+
 export function syncToggleChatMessageReaction(
   messageId: string,
   emoji: string
@@ -190,6 +226,25 @@ export function syncDeleteChannelPostComment(
 export function syncToggleChannelPostReaction(postId: string, emoji: string) {
   return runRouteMutation<{ ok: true }>(
     `/api/channel-posts/${postId}/reactions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        emoji,
+      }),
+    }
+  )
+}
+
+export function syncToggleChannelPostCommentReaction(
+  postId: string,
+  commentId: string,
+  emoji: string
+) {
+  return runRouteMutation<{ ok: true }>(
+    `/api/channel-posts/${postId}/comments/${commentId}/reactions`,
     {
       method: "POST",
       headers: {

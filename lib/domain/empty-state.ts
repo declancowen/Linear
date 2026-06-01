@@ -26,6 +26,7 @@ export function createEmptyState(): AppData {
     conversations: [],
     calls: [],
     chatMessages: [],
+    chatReadStates: [],
     channelPosts: [],
     channelPostComments: [],
     ui: {

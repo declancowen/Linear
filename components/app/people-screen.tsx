@@ -286,7 +286,7 @@ export function PeopleScreen() {
             <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-6 py-6">
               <div
                 data-testid="people-grid"
-                className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))] gap-4"
+                className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4"
               >
                 {people.map((person) => (
                   <PersonCard
@@ -316,6 +316,24 @@ function getActivityPresentation(data: AppData, activity: PersonActivity) {
     case "workItemCommented":
       return {
         label: "Commented on work item",
+        category: "Work",
+        href: `/items/${activity.itemId}`,
+      }
+    case "workItemStatusChanged":
+      return {
+        label: "Changed work item status",
+        category: "Work",
+        href: `/items/${activity.itemId}`,
+      }
+    case "workItemLabelsChanged":
+      return {
+        label: "Updated work item labels",
+        category: "Work",
+        href: `/items/${activity.itemId}`,
+      }
+    case "workItemAssigneesChanged":
+      return {
+        label: "Updated work item assignees",
         category: "Work",
         href: `/items/${activity.itemId}`,
       }
@@ -402,6 +420,10 @@ function getActivityKey(activity: PersonActivity) {
       return `${activity.type}-${activity.itemId}`
     case "workItemCommented":
       return `${activity.type}-${activity.commentId}`
+    case "workItemStatusChanged":
+    case "workItemLabelsChanged":
+    case "workItemAssigneesChanged":
+      return `${activity.type}-${activity.activityId}`
     case "documentCommented":
       return `${activity.type}-${activity.commentId}`
     case "channelPostCreated":

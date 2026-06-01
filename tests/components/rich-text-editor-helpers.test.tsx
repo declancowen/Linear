@@ -29,6 +29,8 @@ import {
 } from "@/components/app/rich-text-editor/marker-comparison"
 import { areArraysEqual } from "@/components/app/rich-text-editor/array-equality"
 import {
+  filterReferenceCandidates,
+  filterSlashCommands,
   MentionMenu,
 } from "@/components/app/rich-text-editor/menus"
 import { assignMenuItemRef } from "@/components/app/rich-text-editor/menu-refs"
@@ -699,6 +701,63 @@ describe("rich text editor helpers", () => {
 
     assignMenuItemRef(itemRefs, 2, null)
     expect(itemRefs.current[2]).toBeNull()
+  })
+
+  it("filters editor reference candidates across labels, metadata, and keywords", () => {
+    expect(
+      filterReferenceCandidates("launch", [
+        {
+          type: "document",
+          id: "doc_1",
+          label: "Planning notes",
+          subtitle: "Workspace document",
+          href: "/docs/doc_1",
+          keywords: ["launch checklist"],
+        },
+        {
+          type: "workItem",
+          id: "item_1",
+          label: "Bug bash",
+          subtitle: "BUG-1",
+          href: "/items/item_1",
+        },
+      ])
+    ).toEqual([
+      expect.objectContaining({
+        type: "document",
+        id: "doc_1",
+      }),
+    ])
+  })
+
+  it("exposes a reference command for the contained editor picker", () => {
+    const promptReferencePicker = vi.fn()
+
+    const commands = filterSlashCommands("ref", {
+      enableReferences: true,
+      enableUploads: false,
+      promptAttachmentUpload: vi.fn(),
+      promptEmojiPicker: vi.fn(),
+      promptImageUpload: vi.fn(),
+      promptReferencePicker,
+    })
+
+    expect(commands).toHaveLength(1)
+    commands[0]?.run({} as never)
+    expect(promptReferencePicker).toHaveBeenCalled()
+  })
+
+  it("hides the reference command when the editor has no reference candidates", () => {
+    const commands = filterSlashCommands("ref", {
+      enableReferences: false,
+      enableUploads: false,
+      promptAttachmentUpload: vi.fn(),
+      promptEmojiPicker: vi.fn(),
+      promptImageUpload: vi.fn(),
+      promptReferencePicker: vi.fn(),
+    })
+
+    expect(commands).toEqual([])
   })
 
   it("renders mention candidates with active item styling", () => {

@@ -179,6 +179,56 @@ describe("Inbox row primitives", () => {
     expect(onDelete).toHaveBeenCalledTimes(1)
   })
 
+  it("shows comment previews and opens targeted work item comments", () => {
+    const actor = createTestUser({
+      id: "user_2",
+      name: "Maya",
+    })
+    const notification = createNotification({
+      contentPreview: "The API needs a retry budget.",
+      targetCommentId: "comment_1",
+    })
+
+    render(
+      <TooltipProvider>
+        <InboxRow
+          active={false}
+          entry={{
+            actor,
+            notification,
+          }}
+          onSelect={vi.fn()}
+          onToggleArchive={vi.fn()}
+        />
+        <InboxDetailPane
+          acceptingInvite={false}
+          activeChannelPostHref={null}
+          activeChatHref={null}
+          activeEntry={{
+            actor,
+            notification,
+          }}
+          activeProjectHref={null}
+          hasPendingActiveInvite={false}
+          visibleNotificationCount={1}
+          onAcceptInvite={vi.fn()}
+          onDelete={vi.fn()}
+          onToggleArchive={vi.fn()}
+          onToggleRead={vi.fn()}
+        />
+      </TooltipProvider>
+    )
+
+    expect(
+      screen.getAllByText("The API needs a retry budget.")
+    ).toHaveLength(2)
+    expect(screen.getByText("Comment")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Open comment" })).toHaveAttribute(
+      "href",
+      "/items/item_1#comment_1"
+    )
+  })
+
   it("renders invite detail actions for read notifications without actors", () => {
     const onAcceptInvite = vi.fn()
     const onToggleRead = vi.fn()

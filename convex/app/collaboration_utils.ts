@@ -22,6 +22,7 @@ type MentionNotificationArgs = {
   actorId: string
   actorName: string
   commentText: string
+  contentPreview?: string | null
   ctx: MutationCtx
   entityId: string
   entityLabel?: string
@@ -30,6 +31,7 @@ type MentionNotificationArgs = {
   entityType: MentionEmail["entityType"]
   mentionUserIds: string[]
   notifiedUserIds?: Set<string>
+  targetCommentId?: string | null
   usersById: ReadonlyMap<string, MentionNotificationRecipient>
 }
 
@@ -79,7 +81,11 @@ export function createNotification(
     | "comment"
     | "message"
     | "invite"
-    | "status-change"
+    | "status-change",
+  metadata: {
+    contentPreview?: string | null
+    targetCommentId?: string | null
+  } = {}
 ) {
   return {
     id: createId("notification"),
@@ -89,6 +95,8 @@ export function createNotification(
     entityType,
     entityId,
     type,
+    contentPreview: metadata.contentPreview?.trim() || null,
+    targetCommentId: metadata.targetCommentId?.trim() || null,
     readAt: null,
     archivedAt: null,
     emailedAt: null,
@@ -118,10 +126,22 @@ export function createDeliveredNotification(
     | "comment"
     | "message"
     | "invite"
-    | "status-change"
+    | "status-change",
+  metadata: {
+    contentPreview?: string | null
+    targetCommentId?: string | null
+  } = {}
 ) {
   return {
-    ...createNotification(userId, actorId, message, entityType, entityId, type),
+    ...createNotification(
+      userId,
+      actorId,
+      message,
+      entityType,
+      entityId,
+      type,
+      metadata
+    ),
     emailedAt: getNow(),
   }
 }
@@ -130,6 +150,7 @@ export async function insertMentionNotifications({
   actorId,
   actorName,
   commentText,
+  contentPreview,
   ctx,
   entityId,
   entityLabel,
@@ -138,6 +159,7 @@ export async function insertMentionNotifications({
   entityType,
   mentionUserIds,
   notifiedUserIds,
+  targetCommentId,
   usersById,
 }: MentionNotificationArgs) {
   const mentionEmails: MentionEmail[] = []
@@ -155,7 +177,11 @@ export async function insertMentionNotifications({
       `${actorName} mentioned you in ${entityTitle}`,
       entityType,
       entityId,
-      "mention"
+      "mention",
+      {
+        contentPreview: contentPreview ?? commentText,
+        targetCommentId,
+      }
     )
 
     await ctx.db.insert("notifications", notification)

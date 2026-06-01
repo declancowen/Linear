@@ -158,6 +158,8 @@ describe("workspace chat display helpers", () => {
     const onResizeStart = vi.fn()
     const onResetWidth = vi.fn()
     const onSelectChat = vi.fn()
+    const onMarkChatRead = vi.fn()
+    const onMarkChatUnread = vi.fn()
 
     render(
       <>
@@ -192,6 +194,8 @@ describe("workspace chat display helpers", () => {
           }
           renderConversationAvatar={() => <span>Avatar</span>}
           onCreateChat={onCreateChat}
+          onMarkChatRead={onMarkChatRead}
+          onMarkChatUnread={onMarkChatUnread}
           onResizeStart={onResizeStart}
           onResetWidth={onResetWidth}
           onSelectChat={onSelectChat}

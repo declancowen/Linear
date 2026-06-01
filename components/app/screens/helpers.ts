@@ -229,6 +229,7 @@ export function selectAppDataSnapshot(state: AppStore): AppData {
     projectUpdates: state.projectUpdates,
     conversations: state.conversations,
     calls: state.calls,
+    chatReadStates: state.chatReadStates,
     chatMessages: state.chatMessages,
     channelPosts: state.channelPosts,
     channelPostComments: state.channelPostComments,

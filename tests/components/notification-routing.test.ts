@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   appendPendingNotificationToastIds,
+  getNotificationHref,
   initializePendingNotificationToastIds,
   isViewingNotificationTarget,
 } from "@/components/app/notification-routing"
@@ -9,7 +10,8 @@ import type { Notification } from "@/lib/domain/types"
 
 function notification(
   entityType: Notification["entityType"],
-  entityId: string
+  entityId: string,
+  overrides: Partial<Notification> = {}
 ): Notification {
   return {
     id: `notification_${entityId}`,
@@ -23,6 +25,7 @@ function notification(
     archivedAt: null,
     emailedAt: null,
     createdAt: "2026-04-29T15:40:00.000Z",
+    ...overrides,
   }
 }
 
@@ -144,6 +147,33 @@ describe("notification routing", () => {
     ).toBe(true)
   })
 
+  it("does not suppress hashed work item notifications from the item route alone", () => {
+    expect(
+      isViewingNotificationTarget({
+        notification: notification("workItem", "item_1", {
+          targetCommentId: "comment_1",
+        }),
+        href: "/items/item_1#comment_1",
+        pathname: "/items/item_1",
+        searchParams: new URLSearchParams(),
+      })
+    ).toBe(false)
+  })
+
+  it("suppresses hashed work item notifications when the comment hash matches", () => {
+    expect(
+      isViewingNotificationTarget({
+        notification: notification("workItem", "item_1", {
+          targetCommentId: "comment_1",
+        }),
+        href: "/items/item_1#comment_1",
+        pathname: "/items/item_1",
+        searchParams: new URLSearchParams(),
+        hash: "#comment_1",
+      })
+    ).toBe(true)
+  })
+
   it("does not suppress channel post notifications from the channel pathname alone", () => {
     expect(
       isViewingNotificationTarget({
@@ -165,5 +195,46 @@ describe("notification routing", () => {
         hash: "#post_target",
       })
     ).toBe(true)
+  })
+
+  it("builds comment-targeted hrefs for work item and channel post notifications", () => {
+    expect(
+      getNotificationHref(
+        {
+          channelPosts: [],
+          conversations: [],
+          projects: [],
+          teams: [],
+        },
+        notification("workItem", "item_1", {
+          targetCommentId: "comment_1",
+        })
+      )
+    ).toBe("/items/item_1#comment_1")
+
+    expect(
+      getNotificationHref(
+        {
+          channelPosts: [
+            {
+              id: "post_1",
+              conversationId: "conversation_1",
+            } as never,
+          ],
+          conversations: [
+            {
+              id: "conversation_1",
+              kind: "channel",
+              scopeType: "workspace",
+            } as never,
+          ],
+          projects: [],
+          teams: [],
+        },
+        notification("channelPost", "post_1", {
+          targetCommentId: "comment_1",
+        })
+      )
+    ).toBe("/workspace/channel#comment_1")
   })
 })

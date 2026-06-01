@@ -905,6 +905,13 @@ describe("create dialogs", () => {
         />
       )
 
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: /Parent project/i })
+        ).toBeDisabled()
+      )
+      expect(screen.queryByText("FEAT-1 · child")).not.toBeInTheDocument()
+
       fireEvent.change(screen.getByPlaceholderText(/title/i), {
         target: { value: "Inherited child" },
       })

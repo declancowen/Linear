@@ -225,7 +225,15 @@ export function getDirectChildWorkItemsForDisplay(
         }))
 
     if (parentIsAnchor) {
-      return getSortableDirectChildWorkItems(item, sourcePool, ordering)
+      return getSortableDirectChildWorkItems(
+        item,
+        sourcePool,
+        ordering,
+        (candidate) =>
+          !filterChildren ||
+          !view ||
+          itemMatchesView(data, candidate, view, { ignoreItemLevel: true })
+      )
     }
 
     const assignedDescendants = sourcePool.filter((candidate) => {

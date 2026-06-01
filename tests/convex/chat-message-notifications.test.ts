@@ -7,9 +7,12 @@ const getConversationAudienceUserIdsMock = vi.fn()
 const requireConversationAccessMock = vi.fn()
 const getCallDocMock = vi.fn()
 const getChannelPostDocMock = vi.fn()
+const getChatReadStateDocMock = vi.fn()
+const getChatMessageDocMock = vi.fn()
 const getConversationDocMock = vi.fn()
 const getTeamMembershipDocMock = vi.fn()
 const getWorkspaceEditRoleMock = vi.fn()
+const listNotificationsByEntityMock = vi.fn()
 const listUsersByIdsMock = vi.fn()
 const getChannelConversationPathMock = vi.fn()
 const getChatConversationPathMock = vi.fn()
@@ -47,13 +50,14 @@ vi.mock("@/convex/app/core", () => ({
 vi.mock("@/convex/app/data", () => ({
   getCallDoc: getCallDocMock,
   getChannelPostDoc: getChannelPostDocMock,
-  getChatMessageDoc: vi.fn(),
+  getChatReadStateDoc: getChatReadStateDocMock,
+  getChatMessageDoc: getChatMessageDocMock,
   getConversationDoc: getConversationDocMock,
   getTeamMembershipDoc: getTeamMembershipDocMock,
   getTeamDoc: vi.fn(),
   getWorkspaceEditRole: getWorkspaceEditRoleMock,
   getWorkspaceDoc: vi.fn(),
-  listNotificationsByEntity: vi.fn(),
+  listNotificationsByEntity: listNotificationsByEntityMock,
   listUsersByIds: listUsersByIdsMock,
 }))
 
@@ -123,9 +127,12 @@ describe("chat message notifications", () => {
     requireConversationAccessMock.mockReset()
     getCallDocMock.mockReset()
     getChannelPostDocMock.mockReset()
+    getChatReadStateDocMock.mockReset()
+    getChatMessageDocMock.mockReset()
     getConversationDocMock.mockReset()
     getTeamMembershipDocMock.mockReset()
     getWorkspaceEditRoleMock.mockReset()
+    listNotificationsByEntityMock.mockReset()
     listUsersByIdsMock.mockReset()
     getChannelConversationPathMock.mockReset()
     getChatConversationPathMock.mockReset()
@@ -138,6 +145,8 @@ describe("chat message notifications", () => {
       .mockReturnValueOnce("notification_2")
     getNowMock.mockReturnValue("2026-04-18T11:00:00.000Z")
     getConversationDocMock.mockResolvedValue(createConversation())
+    getChatReadStateDocMock.mockResolvedValue(null)
+    listNotificationsByEntityMock.mockResolvedValue([])
     requireConversationAccessMock.mockImplementation(
       async (_ctx, conversation) => conversation
     )
@@ -156,7 +165,56 @@ describe("chat message notifications", () => {
     queueEmailJobsMock.mockResolvedValue(undefined)
   })
 
-  it("creates generic message notifications for participants except the sender", async () => {
+  it("requires write access before toggling chat message reactions", async () => {
+    const patchMock = vi.fn()
+    const { toggleChatMessageReactionHandler } = await import(
+      "@/convex/app/collaboration_handlers"
+    )
+
+    getChatMessageDocMock.mockResolvedValue({
+      _id: "message_1_doc",
+      id: "message_1",
+      conversationId: "conversation_1",
+      kind: "text",
+      content: "<p>Hello</p>",
+      mentionUserIds: [],
+      reactions: [],
+      createdBy: "user_2",
+      createdAt: "2026-04-18T10:00:00.000Z",
+      deletedAt: null,
+    })
+
+    await toggleChatMessageReactionHandler(
+      {
+        db: {
+          patch: patchMock,
+        },
+      } as never,
+      {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        messageId: "message_1",
+        emoji: "🔥",
+      }
+    )
+
+    expect(requireConversationAccessMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: "conversation_1" }),
+      "user_1",
+      "write"
+    )
+    expect(patchMock).toHaveBeenCalledWith("message_1_doc", {
+      reactions: [
+        {
+          emoji: "🔥",
+          userIds: ["user_1"],
+        },
+      ],
+    })
+  })
+
+  it("marks chat recipients unread without creating inbox message notifications", async () => {
     const inserts: Array<[string, unknown]> = []
     const patchMock = vi.fn()
     const { sendChatMessageHandler } = await import(
@@ -181,38 +239,38 @@ describe("chat message notifications", () => {
       }
     )
 
+    expect(inserts.filter(([table]) => table === "notifications")).toEqual([])
     expect(
       inserts
-        .filter(([table]) => table === "notifications")
-        .map(([, notification]) => notification)
+        .filter(([table]) => table === "chatReadStates")
+        .map(([, readState]) => readState)
     ).toEqual([
       expect.objectContaining({
+        userId: "user_1",
+        conversationId: "conversation_1",
+        readAt: "2026-04-18T11:00:00.000Z",
+        unreadAt: null,
+      }),
+      expect.objectContaining({
         userId: "user_2",
-        actorId: "user_1",
-        entityType: "chat",
-        entityId: "conversation_1",
-        type: "message",
+        conversationId: "conversation_1",
+        readAt: null,
+        unreadAt: "2026-04-18T11:00:00.000Z",
       }),
       expect.objectContaining({
         userId: "user_3",
-        actorId: "user_1",
-        entityType: "chat",
-        entityId: "conversation_1",
-        type: "message",
+        conversationId: "conversation_1",
+        readAt: null,
+        unreadAt: "2026-04-18T11:00:00.000Z",
       }),
     ])
-    expect(
-      inserts
-        .filter(([table]) => table === "notifications")
-        .map(([, notification]) => (notification as { userId: string }).userId)
-    ).not.toContain("user_1")
     expect(patchMock).toHaveBeenCalledWith("conversation_1_doc", {
       updatedAt: "2026-04-18T11:00:00.000Z",
       lastActivityAt: "2026-04-18T11:00:00.000Z",
     })
   })
 
-  it("prefers mention notifications over duplicate generic message notifications", async () => {
+  it("creates mention notifications without duplicate generic message notifications", async () => {
     const inserts: Array<[string, unknown]> = []
     const { sendChatMessageHandler } = await import(
       "@/convex/app/collaboration_handlers"
@@ -246,9 +304,98 @@ describe("chat message notifications", () => {
         userId: "user_2",
         type: "mention",
       }),
+    ])
+    expect(
+      notifications.filter(
+        (notification) => (notification as { type: string }).type === "message"
+      )
+    ).toEqual([])
+    expect(
+      inserts
+        .filter(([table]) => table === "chatReadStates")
+        .map(([, readState]) => readState)
+    ).toEqual([
+      expect.objectContaining({
+        userId: "user_1",
+        readAt: "2026-04-18T11:00:00.000Z",
+        unreadAt: null,
+      }),
+      expect.objectContaining({
+        userId: "user_2",
+        readAt: null,
+        unreadAt: "2026-04-18T11:00:00.000Z",
+      }),
       expect.objectContaining({
         userId: "user_3",
+        readAt: null,
+        unreadAt: "2026-04-18T11:00:00.000Z",
+      }),
+    ])
+  })
+
+  it("creates channel post notifications for the full channel audience without duplicating mentions", async () => {
+    createIdMock
+      .mockReset()
+      .mockReturnValueOnce("notification_mention")
+      .mockReturnValueOnce("notification_audience")
+    const inserts: Array<[string, unknown]> = []
+    const patchMock = vi.fn()
+    const { createChannelPostHandler } = await import(
+      "@/convex/app/collaboration_handlers"
+    )
+
+    getConversationDocMock.mockResolvedValue(
+      createConversation({
+        kind: "channel",
+        title: "General",
+      })
+    )
+    requireConversationAccessMock.mockImplementation(
+      async (_ctx, conversation) => conversation
+    )
+
+    await createChannelPostHandler(
+      {
+        db: {
+          insert: vi.fn(async (table: string, value: unknown) => {
+            inserts.push([table, value])
+          }),
+          patch: patchMock,
+        },
+      } as never,
+      {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        conversationId: "conversation_1",
+        postId: "post_client",
+        title: "Launch post",
+        content:
+          '<p><span class="editor-mention" data-type="mention" data-id="user_2">@sam</span> hello team</p>',
+      }
+    )
+
+    const notifications = inserts
+      .filter(([table]) => table === "notifications")
+      .map(([, notification]) => notification)
+
+    expect(notifications).toEqual([
+      expect.objectContaining({
+        id: "notification_mention",
+        userId: "user_2",
+        entityType: "channelPost",
+        entityId: "post_client",
+        type: "mention",
+        contentPreview: "@sam hello team",
+      }),
+      expect.objectContaining({
+        id: "notification_audience",
+        userId: "user_3",
+        entityType: "channelPost",
+        entityId: "post_client",
         type: "message",
+        message: "Alex posted Launch post",
+        contentPreview: "@sam hello team",
       }),
     ])
   })
@@ -394,11 +541,15 @@ describe("chat message notifications", () => {
         id: "notification_mention",
         userId: "user_2",
         type: "mention",
+        contentPreview: "@sam hello",
+        targetCommentId: "comment_1",
       }),
       expect.objectContaining({
         id: "notification_follower",
         userId: "user_3",
         type: "comment",
+        contentPreview: "@sam hello",
+        targetCommentId: "comment_1",
       }),
     ])
     expect(patchMock).toHaveBeenCalledWith("post_doc_1", {

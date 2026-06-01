@@ -1257,7 +1257,6 @@ export function BoardView({
                                     view,
                                     scopedItems,
                                     {
-                                      filterChildren: false,
                                       mode: childDisplayMode,
                                     }
                                   )
@@ -1566,7 +1565,6 @@ export function ListView({
                                     view,
                                     scopedItems,
                                     {
-                                      filterChildren: false,
                                       mode: childDisplayMode,
                                     }
                                   )

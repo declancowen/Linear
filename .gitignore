@@ -43,6 +43,7 @@ pnpm-debug.log*
 # local toolchains
 .tools/
 .convex-migration/
+.kiro/
 
 # typescript
 *.tsbuildinfo

@@ -1,14 +1,12 @@
 "use client"
 
-import { useMemo, useRef, useState, type RefObject } from "react"
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
 import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
   ChatCircle,
-  NotePencil,
   PaperPlaneTilt,
   Smiley,
-  Trash,
 } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
@@ -16,6 +14,7 @@ import {
   getChannelPostComments,
   getConversationParticipants,
 } from "@/lib/domain/selectors"
+import { escapeHtml } from "@/lib/html"
 import {
   channelPostCommentContentConstraints,
   channelPostContentConstraints,
@@ -26,6 +25,8 @@ import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import { createQuotedRichText } from "@/components/app/message-quote"
+import { MessageHoverActionBar } from "@/components/app/message-hover-action-bar"
 import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
@@ -48,6 +49,35 @@ type ForumPostComment = AppState["channelPostComments"][number]
 type ForumUser = AppState["users"][number]
 type UsersById = Map<string, ForumUser>
 
+function getCurrentHashTargetId() {
+  if (typeof window === "undefined" || !window.location.hash) {
+    return ""
+  }
+
+  try {
+    return decodeURIComponent(window.location.hash.slice(1))
+  } catch {
+    return window.location.hash.slice(1)
+  }
+}
+
+function useCurrentHashTargetId() {
+  const [hashTargetId, setHashTargetId] = useState("")
+
+  useEffect(() => {
+    const updateHashTargetId = () => setHashTargetId(getCurrentHashTargetId())
+
+    updateHashTargetId()
+    window.addEventListener("hashchange", updateHashTargetId)
+
+    return () => {
+      window.removeEventListener("hashchange", updateHashTargetId)
+    }
+  }, [])
+
+  return hashTargetId
+}
+
 function getChannelMentionCandidates(
   state: AppState,
   channelId: string | null | undefined
@@ -68,63 +98,38 @@ function ForumPostActionBar({
   onEdit,
   postId,
   onDelete,
-  onReply,
+  onQuote,
 }: {
   canEditPost: boolean
   canDeletePost: boolean
   onEdit: () => void
   postId: string
   onDelete: () => void
-  onReply: () => void
+  onQuote: () => void
 }) {
   return (
-    <div className="absolute top-0 right-0 hidden items-center gap-0.5 rounded-md border border-line bg-surface p-0.5 shadow-sm group-hover/post:flex">
-      <EmojiPickerPopover
-        align="end"
-        side="bottom"
-        onEmojiSelect={(emoji) => {
-          useAppStore.getState().toggleChannelPostReaction(postId, emoji)
-        }}
-        trigger={
-          <button
-            type="button"
-            aria-label="React"
-            className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
-          >
-            <Smiley className="size-[14px]" />
-          </button>
-        }
-      />
-      <button
-        type="button"
-        onClick={onReply}
-        className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
-        aria-label="Reply"
-      >
-        <ChatCircle className="size-[14px]" />
-      </button>
-      {canEditPost ? (
-        <button
-          type="button"
-          onClick={onEdit}
-          className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
-          aria-label="Edit post"
-        >
-          <NotePencil className="size-[14px]" />
-        </button>
-      ) : null}
-      {canDeletePost ? (
-        <button
-          type="button"
-          onClick={onDelete}
-          className="inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-destructive/10 hover:text-destructive"
-          aria-label="Delete post"
-        >
-          <Trash className="size-[14px]" />
-        </button>
-      ) : null}
-    </div>
+    <MessageHoverActionBar
+      canDelete={canDeletePost}
+      canEdit={canEditPost}
+      canQuote
+      className="top-0 right-0 -translate-y-1/2 group-hover/post:flex focus-within:flex"
+      deleteLabel="Delete post"
+      editLabel="Edit post"
+      onDelete={onDelete}
+      onEdit={onEdit}
+      onQuote={onQuote}
+      quoteLabel="Quote post"
+      onReact={(emoji) => {
+        useAppStore.getState().toggleChannelPostReaction(postId, emoji)
+      }}
+    />
   )
+}
+
+function getForumPostQuoteContent(post: ForumPostRecord) {
+  return post.title
+    ? `<p>${escapeHtml(post.title)}</p>${post.content}`
+    : post.content
 }
 
 function ForumPostReactions({
@@ -137,6 +142,10 @@ function ForumPostReactions({
   usersById: UsersById
 }) {
   const reactions = post.reactions ?? []
+
+  if (reactions.length === 0) {
+    return null
+  }
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -169,23 +178,6 @@ function ForumPostReactions({
           </ReactionUsersHoverCard>
         )
       })}
-
-      <EmojiPickerPopover
-        align="start"
-        side="top"
-        onEmojiSelect={(emoji) => {
-          useAppStore.getState().toggleChannelPostReaction(post.id, emoji)
-        }}
-        trigger={
-          <button
-            type="button"
-            className="flex h-6 items-center gap-1.5 rounded-full border border-dashed border-line bg-surface px-2 text-[11.5px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-          >
-            <Smiley className="size-3.5" />
-            <span>React</span>
-          </button>
-        }
-      />
     </div>
   )
 }
@@ -196,6 +188,7 @@ function ForumPostCommentList({
   mentionCandidates,
   onDeleteComment,
   onEditComment,
+  onQuoteComment,
   usersById,
   workspaceId,
 }: {
@@ -204,6 +197,7 @@ function ForumPostCommentList({
   mentionCandidates: ForumUser[]
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
+  onQuoteComment: (comment: ForumPostComment) => void
   usersById: UsersById
   workspaceId: string | null
 }) {
@@ -223,6 +217,16 @@ function ForumPostCommentList({
           mentionCandidates={mentionCandidates}
           onDelete={() => onDeleteComment(comment)}
           onEdit={onEditComment}
+          onQuote={() => onQuoteComment(comment)}
+          onReact={(commentId, emoji) => {
+            useAppStore
+              .getState()
+              .toggleChannelPostCommentReaction(
+                comment.postId,
+                commentId,
+                emoji
+              )
+          }}
           usersById={usersById}
           workspaceId={workspaceId}
         />
@@ -356,6 +360,48 @@ function useForumPostCardController(postId: string) {
     () => new Map(users.map((user) => [user.id, user])),
     [users]
   )
+  const hashTargetId = useCurrentHashTargetId()
+
+  useEffect(() => {
+    if (!hashTargetId) {
+      return
+    }
+
+    if (comments.some((comment) => comment.id === hashTargetId)) {
+      const frame = window.requestAnimationFrame(() => {
+        setShowReplies(true)
+      })
+
+      return () => window.cancelAnimationFrame(frame)
+    }
+  }, [comments, hashTargetId])
+
+  useEffect(() => {
+    if (!hashTargetId) {
+      return
+    }
+
+    const targetIsPost = post?.id === hashTargetId
+    const targetIsComment = comments.some(
+      (comment) => comment.id === hashTargetId
+    )
+
+    if (!targetIsPost && !targetIsComment) {
+      return
+    }
+
+    const target = document.getElementById(hashTargetId)
+
+    if (!target) {
+      return
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      target.scrollIntoView({ block: "center" })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [comments, hashTargetId, post?.id, showReplies])
 
   if (!post) return null
   const author = usersById.get(post.createdBy)
@@ -423,6 +469,20 @@ function useForumPostCardController(postId: string) {
       content,
     })
   }
+  const openQuotedReply = (content: string, authorName?: string) => {
+    setShowReplies(true)
+    setReplyOpen(true)
+    setReply(createQuotedRichText(content, authorName))
+  }
+  const handleQuotePost = () => {
+    openQuotedReply(getForumPostQuoteContent(post), author?.name)
+  }
+  const handleQuoteComment = (comment: ForumPostComment) => {
+    openQuotedReply(
+      comment.content,
+      usersById.get(comment.createdBy)?.name ?? "Unknown"
+    )
+  }
   const handleInsertReplyEmoji = (emoji: string) => {
     replyEditorRef.current?.chain().focus().insertContent(emoji).run()
   }
@@ -452,6 +512,8 @@ function useForumPostCardController(postId: string) {
     handleEditComment,
     handleEditPost,
     handleOpenEditPost,
+    handleQuoteComment,
+    handleQuotePost,
     handleInsertReplyEmoji,
     handleReply,
     hiddenCount,
@@ -524,6 +586,7 @@ function EarlierForumPostComments({
   mentionCandidates,
   onDeleteComment,
   onEditComment,
+  onQuoteComment,
   showReplies,
   usersById,
 }: Pick<
@@ -538,6 +601,7 @@ function EarlierForumPostComments({
 > & {
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
+  onQuoteComment: (comment: ForumPostComment) => void
 }) {
   if (!showReplies || hiddenCount <= 0) {
     return null
@@ -551,6 +615,7 @@ function EarlierForumPostComments({
         mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
+        onQuoteComment={onQuoteComment}
         usersById={usersById}
         workspaceId={currentWorkspaceId}
       />
@@ -596,6 +661,7 @@ function ForumPostRepliesSection({
   onInsertEmoji,
   onDeleteComment,
   onEditComment,
+  onQuoteComment,
   onReply,
   onReplyChange,
   onSetReplyOpen,
@@ -618,6 +684,7 @@ function ForumPostRepliesSection({
   onInsertEmoji: (emoji: string) => void
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
+  onQuoteComment: (comment: ForumPostComment) => void
   onReply: () => void
   onReplyChange: (value: string) => void
   onSetReplyOpen: (open: boolean) => void
@@ -647,6 +714,7 @@ function ForumPostRepliesSection({
         mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
+        onQuoteComment={onQuoteComment}
         showReplies={showReplies}
         usersById={usersById}
       />
@@ -657,6 +725,7 @@ function ForumPostRepliesSection({
         mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
+        onQuoteComment={onQuoteComment}
         usersById={usersById}
         workspaceId={currentWorkspaceId}
       />
@@ -703,6 +772,8 @@ function ForumPostCardLayout({
   handleEditComment,
   handleEditPost,
   handleOpenEditPost,
+  handleQuoteComment,
+  handleQuotePost,
   handleInsertReplyEmoji,
   handleReply,
   hiddenCount,
@@ -727,7 +798,7 @@ function ForumPostCardLayout({
   return (
     <div
       id={post.id}
-      className="group/post relative z-0 grid gap-2.5 border-b border-line-soft px-[18px] py-2.5 transition-colors hover:bg-surface-2"
+      className="group/post relative z-0 grid scroll-mt-6 gap-2.5 border-b border-line-soft px-[18px] py-2.5 transition-colors target:ring-2 target:ring-ring/45 hover:bg-surface-2"
       style={{ gridTemplateColumns: "24px 1fr" }}
     >
       <ForumPostAvatar author={author} />
@@ -757,8 +828,10 @@ function ForumPostCardLayout({
         onDelete={() => setDeletePostOpen(true)}
         onDeleteComment={setDeleteComment}
         onEditComment={handleEditComment}
+        onQuoteComment={handleQuoteComment}
         onEditPost={handleEditPost}
         onOpenEditPost={handleOpenEditPost}
+        onQuotePost={handleQuotePost}
         onInsertReplyEmoji={handleInsertReplyEmoji}
         onEditContentChange={setEditContent}
         onEditOpenChange={setEditOpen}
@@ -913,8 +986,10 @@ function ForumPostBody({
   onDelete,
   onDeleteComment,
   onEditComment,
+  onQuoteComment,
   onEditPost,
   onOpenEditPost,
+  onQuotePost,
   onInsertReplyEmoji,
   onEditContentChange,
   onEditOpenChange,
@@ -951,8 +1026,10 @@ function ForumPostBody({
   onDelete: () => void
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
+  onQuoteComment: (comment: ForumPostComment) => void
   onEditPost: () => void
   onOpenEditPost: () => void
+  onQuotePost: () => void
   onInsertReplyEmoji: (emoji: string) => void
   onEditContentChange: (content: string) => void
   onEditOpenChange: (open: boolean) => void
@@ -969,6 +1046,7 @@ function ForumPostBody({
           author={author}
           createdAt={post.createdAt}
           currentUserId={currentUserId}
+          editedAt={post.editedAt}
           workspaceId={currentWorkspaceId}
         />
       </div>
@@ -978,10 +1056,7 @@ function ForumPostBody({
         postId={post.id}
         onDelete={onDelete}
         onEdit={onOpenEditPost}
-        onReply={() => {
-          onShowRepliesChange(true)
-          onReplyOpenChange(true)
-        }}
+        onQuote={onQuotePost}
       />
 
       {editOpen ? (
@@ -1036,6 +1111,7 @@ function ForumPostBody({
         usersById={usersById}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
+        onQuoteComment={onQuoteComment}
         onInsertEmoji={onInsertReplyEmoji}
         onReply={onReply}
         onReplyChange={onReplyChange}

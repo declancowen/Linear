@@ -7,12 +7,14 @@ import {
   syncCreateChannelPost,
   syncDeleteChannelPost,
   syncDeleteChannelPostComment,
+  syncToggleChannelPostCommentReaction,
   syncToggleChannelPostReaction,
   syncUpdateChannelPost,
   syncUpdateChannelPostComment,
 } from "@/lib/convex/client"
 import { prepareRichTextMessageForStorage } from "@/lib/content/rich-text-security"
 import { channelPostCommentSchema, channelPostSchema } from "@/lib/domain/types"
+import { getPlainTextContent } from "@/lib/utils"
 
 import {
   createId,
@@ -343,6 +345,7 @@ function getUpdateChannelPostResult(
               content: input.content.trim(),
               mentionUserIds,
               updatedAt: now,
+              editedAt: now,
             }
           : entry
       ),
@@ -389,6 +392,7 @@ function getUpdateChannelPostCommentResult(
               ...entry,
               content: input.content.trim(),
               mentionUserIds,
+              editedAt: now,
             }
           : entry
       ),
@@ -593,11 +597,13 @@ function addChannelMentionNotifications(
   notifications: NotificationRecord[],
   input: {
     actorName: string
+    contentPreview: string
     currentUserId: string
     entityId: string
     entityTitle: string
     mentionUserIds: string[]
     notifiedUserIds: Set<string>
+    targetCommentId?: string | null
   }
 ) {
   for (const mentionedUserId of input.mentionUserIds) {
@@ -615,11 +621,52 @@ function addChannelMentionNotifications(
         `${input.actorName} mentioned you in ${input.entityTitle}`,
         "channelPost",
         input.entityId,
-        "mention"
+        "mention",
+        {
+          contentPreview: input.contentPreview,
+          targetCommentId: input.targetCommentId,
+        }
       )
     )
 
     input.notifiedUserIds.add(mentionedUserId)
+  }
+}
+
+function addChannelPostAudienceNotifications(
+  notifications: NotificationRecord[],
+  input: {
+    actorName: string
+    audienceUserIds: string[]
+    contentPreview: string
+    currentUserId: string
+    entityId: string
+    entityTitle: string
+    notifiedUserIds: Set<string>
+  }
+) {
+  for (const audienceUserId of input.audienceUserIds) {
+    if (
+      audienceUserId === input.currentUserId ||
+      input.notifiedUserIds.has(audienceUserId)
+    ) {
+      continue
+    }
+
+    notifications.unshift(
+      createNotification(
+        audienceUserId,
+        input.currentUserId,
+        `${input.actorName} posted ${input.entityTitle}`,
+        "channelPost",
+        input.entityId,
+        "message",
+        {
+          contentPreview: input.contentPreview,
+        }
+      )
+    )
+    input.notifiedUserIds.add(audienceUserId)
   }
 }
 
@@ -636,6 +683,8 @@ function buildChannelCommentNotifications(
   state: AppStore,
   input: {
     audienceUserIds: string[]
+    commentId: string
+    content: string
     mentionUserIds: string[]
     post: ChannelPost
   }
@@ -648,16 +697,20 @@ function buildChannelCommentNotifications(
 
   addChannelMentionNotifications(notifications, {
     actorName,
+    contentPreview: getPlainTextContent(input.content),
     currentUserId: state.currentUserId,
     entityId: input.post.id,
     entityTitle,
     mentionUserIds: input.mentionUserIds,
     notifiedUserIds,
+    targetCommentId: input.commentId,
   })
 
   addChannelFollowerNotifications(notifications, {
     actorName,
     audienceUserIds: input.audienceUserIds,
+    commentId: input.commentId,
+    contentPreview: getPlainTextContent(input.content),
     currentUserId: state.currentUserId,
     entityId: input.post.id,
     entityTitle,
@@ -679,21 +732,37 @@ function createOptimisticChannelPostState(
 ) {
   const now = getNow()
   const actor = state.users.find((user) => user.id === state.currentUserId)
+  const audienceUserIds = getConversationAudienceUserIds(
+    state,
+    input.conversation
+  )
   const mentionUserIds = getChannelMentionUserIds(
     state,
     input.content,
-    getConversationAudienceUserIds(state, input.conversation)
+    audienceUserIds
   )
   const notifications = [...state.notifications]
   const entityTitle = input.title.trim() || "a channel post"
+  const notifiedUserIds = new Set<string>()
+  const contentPreview = getPlainTextContent(input.content)
 
   addChannelMentionNotifications(notifications, {
     actorName: actor?.name ?? "Someone",
+    contentPreview,
     currentUserId: state.currentUserId,
     entityId: input.postId,
     entityTitle,
     mentionUserIds,
-    notifiedUserIds: new Set<string>(),
+    notifiedUserIds,
+  })
+  addChannelPostAudienceNotifications(notifications, {
+    actorName: actor?.name ?? "Someone",
+    audienceUserIds,
+    contentPreview,
+    currentUserId: state.currentUserId,
+    entityId: input.postId,
+    entityTitle,
+    notifiedUserIds,
   })
 
   return {
@@ -847,6 +916,7 @@ export function createCollaborationChannelActions({
   | "deleteChannelPost"
   | "deleteChannelPostComment"
   | "toggleChannelPostReaction"
+  | "toggleChannelPostCommentReaction"
 > {
   const pendingChannelPostCreates = new Map<
     string,
@@ -1107,6 +1177,8 @@ export function createCollaborationChannelActions({
         )
         const notifications = buildChannelCommentNotifications(state, {
           audienceUserIds,
+          commentId: optimisticCommentId,
+          content: preparedContent.sanitized,
           mentionUserIds,
           post,
         })
@@ -1120,6 +1192,7 @@ export function createCollaborationChannelActions({
               postId: post.id,
               content: preparedContent.sanitized,
               mentionUserIds,
+              reactions: [],
               createdBy: state.currentUserId,
               createdAt: now,
             },
@@ -1347,6 +1420,53 @@ export function createCollaborationChannelActions({
 
       runtime.syncInBackground(
         syncToggleChannelPostReaction(postId, nextEmoji),
+        "Failed to update reaction"
+      )
+    },
+    toggleChannelPostCommentReaction(postId, commentId, emoji) {
+      const nextEmoji = emoji.trim()
+
+      if (!nextEmoji) {
+        return
+      }
+
+      set((state) => {
+        const comment = state.channelPostComments.find(
+          (entry) => entry.id === commentId && entry.postId === postId
+        )
+        const post = state.channelPosts.find((entry) => entry.id === postId)
+
+        if (!comment || !post) {
+          return state
+        }
+
+        if (
+          !getEditableChannelConversation(state, post.conversationId, {
+            requireWorkspaceEdit: false,
+          })
+        ) {
+          return state
+        }
+
+        return {
+          ...state,
+          channelPostComments: state.channelPostComments.map((entry) =>
+            entry.id === commentId && entry.postId === postId
+              ? {
+                  ...entry,
+                  reactions: toggleReactionUsers(
+                    entry.reactions,
+                    nextEmoji,
+                    state.currentUserId
+                  ),
+                }
+              : entry
+          ),
+        }
+      })
+
+      runtime.syncInBackground(
+        syncToggleChannelPostCommentReaction(postId, commentId, nextEmoji),
         "Failed to update reaction"
       )
     },

@@ -43,6 +43,7 @@ import {
 import {
   getTeam,
   getTeamMembers,
+  getRichTextReferenceCandidates,
   getWorkspaceUsers,
 } from "@/lib/domain/selectors"
 import type { DocumentPresenceViewer } from "@/lib/domain/types"
@@ -473,6 +474,7 @@ function DocumentEditorPane({
   editable,
   editorInstanceRef,
   mentionCandidates,
+  referenceCandidates,
   otherDocumentViewers,
   documentKind,
   onMentionCountsChange,
@@ -495,6 +497,9 @@ function DocumentEditorPane({
   editable: boolean
   editorInstanceRef: MutableRefObject<Editor | null>
   mentionCandidates: ReturnType<typeof getWorkspaceUsers>
+  referenceCandidates: ComponentProps<
+    typeof RichTextEditor
+  >["referenceCandidates"]
   otherDocumentViewers: DocumentPresenceViewer[]
   documentKind: string
   onMentionCountsChange: (
@@ -517,6 +522,7 @@ function DocumentEditorPane({
         >
           <RichTextContent
             content={collaborationPreviewContent}
+            referenceCandidates={referenceCandidates}
             className="text-fg-1 text-base [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-3 [&_h1]:text-3xl [&_h1]:leading-tight [&_h1]:font-bold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
           />
         </FullPageRichTextShell>
@@ -535,6 +541,7 @@ function DocumentEditorPane({
           showStats={false}
           placeholder="Start writing..."
           mentionCandidates={mentionCandidates}
+          referenceCandidates={referenceCandidates}
           onMentionCountsChange={onMentionCountsChange}
           onStatsChange={onStatsChange}
           onChange={onChange}
@@ -729,6 +736,7 @@ function DocumentDetailLoadedView({
   isCollaborationBootstrapping,
   isEditingTitle,
   mentionCandidates,
+  referenceCandidates,
   otherDocumentViewers,
   pendingMentionSummary,
   sendingMentionNotifications,
@@ -772,6 +780,9 @@ function DocumentDetailLoadedView({
   isCollaborationBootstrapping: boolean
   isEditingTitle: boolean
   mentionCandidates: ReturnType<typeof getWorkspaceUsers>
+  referenceCandidates: ComponentProps<
+    typeof RichTextEditor
+  >["referenceCandidates"]
   otherDocumentViewers: DocumentPresenceViewer[]
   pendingMentionSummary: ReturnType<typeof summarizePendingDocumentMentions>
   sendingMentionNotifications: boolean
@@ -830,6 +841,7 @@ function DocumentDetailLoadedView({
           editable={editable}
           editorInstanceRef={editorInstanceRef}
           mentionCandidates={mentionCandidates}
+          referenceCandidates={referenceCandidates}
           otherDocumentViewers={otherDocumentViewers}
           documentKind={document.kind}
           onMentionCountsChange={onMentionCountsChange}
@@ -911,22 +923,20 @@ function useLegacyDocumentPresenceHeartbeat({
   legacyActiveBlockIdRef: MutableRefObject<string | null>
   resolvedDocumentKind: string | null
 }) {
-  const {
-    presenceViewers: documentPresenceViewers,
-    sendLegacyPresenceRef,
-  } = useLegacyPresenceHeartbeat({
-    activeId: currentDocumentId,
-    activeBlockIdRef: legacyActiveBlockIdRef,
-    clearErrorMessage: "Failed to clear document presence",
-    clearPresence: syncClearDocumentPresence,
-    collaborationLifecycle,
-    currentUserId,
-    disabled: resolvedDocumentKind === "item-description",
-    heartbeatErrorMessage: "Failed to sync document presence",
-    heartbeatIntervalMs: DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS,
-    heartbeatPresence: syncHeartbeatDocumentPresence,
-    getSessionId: getDocumentPresenceSessionId,
-  })
+  const { presenceViewers: documentPresenceViewers, sendLegacyPresenceRef } =
+    useLegacyPresenceHeartbeat({
+      activeId: currentDocumentId,
+      activeBlockIdRef: legacyActiveBlockIdRef,
+      clearErrorMessage: "Failed to clear document presence",
+      clearPresence: syncClearDocumentPresence,
+      collaborationLifecycle,
+      currentUserId,
+      disabled: resolvedDocumentKind === "item-description",
+      heartbeatErrorMessage: "Failed to sync document presence",
+      heartbeatIntervalMs: DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS,
+      heartbeatPresence: syncHeartbeatDocumentPresence,
+      getSessionId: getDocumentPresenceSessionId,
+    })
 
   return {
     documentPresenceViewers,
@@ -1109,6 +1119,35 @@ function useDocumentMentionCandidates({
         ? getTeamMembers(state, team.id)
         : getWorkspaceUsers(state, currentWorkspaceId)
     })
+  )
+}
+
+function useDocumentReferenceCandidates(
+  document: AppState["documents"][number] | null
+) {
+  const referenceData = useAppStore(
+    useShallow((state) => ({
+      currentUserId: state.currentUserId,
+      currentWorkspaceId: state.currentWorkspaceId,
+      documents: state.documents,
+      projects: state.projects,
+      teamMemberships: state.teamMemberships,
+      teams: state.teams,
+      views: state.views,
+      workItems: state.workItems,
+      workspaces: state.workspaces,
+    }))
+  )
+
+  return useMemo(
+    () =>
+      document
+        ? getRichTextReferenceCandidates(referenceData as AppState, {
+            type: "document",
+            documentId: document.id,
+          })
+        : [],
+    [document, referenceData]
   )
 }
 
@@ -1551,6 +1590,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     document,
     team,
   })
+  const referenceCandidates = useDocumentReferenceCandidates(document)
   const [mentionQueue, dispatchMentionQueue] = useReducer(
     reduceDocumentMentionQueue,
     createDocumentMentionQueueState({})
@@ -1862,6 +1902,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       isCollaborationBootstrapping={isCollaborationBootstrapping}
       isEditingTitle={isEditingTitle}
       mentionCandidates={mentionCandidates}
+      referenceCandidates={referenceCandidates}
       otherDocumentViewers={otherDocumentViewers}
       pendingMentionSummary={pendingMentionSummary}
       sendingMentionNotifications={sendingMentionNotifications}

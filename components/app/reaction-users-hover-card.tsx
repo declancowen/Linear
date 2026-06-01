@@ -67,6 +67,7 @@ export function ReactionUsersHoverCard({
   align = "center",
   children,
   className,
+  portalContainer,
   side = "top",
   userIds,
   usersById,
@@ -74,6 +75,7 @@ export function ReactionUsersHoverCard({
   align?: "start" | "center" | "end"
   children: ReactElement
   className?: string
+  portalContainer?: HTMLElement | null
   side?: "top" | "right" | "bottom" | "left"
   userIds: string[]
   usersById: ReadonlyMap<string, ReactionUser>
@@ -89,6 +91,7 @@ export function ReactionUsersHoverCard({
       <HoverCardTrigger asChild>{children}</HoverCardTrigger>
       <HoverCardContent
         align={align}
+        portalContainer={portalContainer}
         side={side}
         sideOffset={6}
         className={cn(

@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type MutableRefObject,
   type ReactNode,
 } from "react"
@@ -12,7 +13,12 @@ import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
 import { CaretDown, Circle, FolderSimple, Smiley } from "@phosphor-icons/react"
 
-import { getStatusOrderForTeam, getTeam, getUser } from "@/lib/domain/selectors"
+import {
+  getRichTextReferenceCandidates,
+  getStatusOrderForTeam,
+  getTeam,
+  getUser,
+} from "@/lib/domain/selectors"
 import {
   getRootComments,
   groupCommentsByParentId,
@@ -38,6 +44,8 @@ import { useAppStore } from "@/lib/store/app-store"
 import { UserAvatar } from "@/components/app/user-presence"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import { createQuotedRichText } from "@/components/app/message-quote"
+import { MessageHoverActionBar } from "@/components/app/message-hover-action-bar"
 import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
@@ -47,8 +55,10 @@ import {
   getInlineChildIssueComposerModel,
   getInlineChildTeamProjects,
 } from "@/components/app/screens/inline-child-composer-state"
+import { useWorkItemSurfacePortalContainer } from "@/components/app/screens/work-item-surface-portal-context"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 
@@ -68,6 +78,9 @@ export const WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS =
   "h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
 
 type WorkItemCommentLimitState = ReturnType<typeof getTextInputLimitState>
+type WorkItemReferenceCandidates = ComponentProps<
+  typeof RichTextEditor
+>["referenceCandidates"]
 
 export function WorkItemCommentComposerActions({
   children,
@@ -84,6 +97,8 @@ export function WorkItemCommentComposerActions({
   emojiIconClassName?: string
   limitState: WorkItemCommentLimitState
 }) {
+  const portalContainer = useWorkItemSurfacePortalContainer()
+
   return (
     <>
       <FieldCharacterLimit
@@ -94,6 +109,7 @@ export function WorkItemCommentComposerActions({
       <div className="flex items-center justify-between gap-2">
         <EmojiPickerPopover
           align="start"
+          portalContainer={portalContainer}
           side="top"
           onEmojiSelect={(emoji) =>
             editorRef.current?.chain().focus().insertContent(emoji).run()
@@ -192,6 +208,8 @@ export function CommentReactionButtons({
   inactiveClassName: string
   usersById: ReadonlyMap<string, AppData["users"][number]>
 }) {
+  const portalContainer = useWorkItemSurfacePortalContainer()
+
   return (
     <>
       {comment.reactions.map((reaction) => {
@@ -200,6 +218,7 @@ export function CommentReactionButtons({
         return (
           <ReactionUsersHoverCard
             key={`${comment.id}-${reaction.emoji}`}
+            portalContainer={portalContainer}
             userIds={reaction.userIds}
             usersById={usersById}
           >
@@ -234,9 +253,11 @@ export function CommentReactionButtons({
 function CommentThreadHeader({
   authorName,
   createdAt,
+  editedAt,
 }: {
   authorName: string | undefined
   createdAt: string
+  editedAt?: string | null
 }) {
   return (
     <div className="flex items-center gap-2">
@@ -244,6 +265,9 @@ function CommentThreadHeader({
       <span className="text-xs text-muted-foreground">
         {format(new Date(createdAt), "MMM d, h:mm a")}
       </span>
+      {editedAt ? (
+        <span className="text-xs text-muted-foreground">edited</span>
+      ) : null}
     </div>
   )
 }
@@ -252,15 +276,17 @@ function CommentThreadActions({
   comment,
   currentUserId,
   editable,
-  onReplyToggle,
   usersById,
 }: {
   comment: AppData["comments"][number]
   currentUserId: string
   editable: boolean
-  onReplyToggle: () => void
   usersById: ReadonlyMap<string, AppData["users"][number]>
 }) {
+  if (comment.reactions.length === 0) {
+    return null
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <CommentReactionButtons
@@ -272,33 +298,6 @@ function CommentThreadActions({
         inactiveClassName="hover:bg-accent"
         usersById={usersById}
       />
-      {editable ? (
-        <EmojiPickerPopover
-          align="start"
-          side="top"
-          onEmojiSelect={(emoji) => {
-            useAppStore.getState().toggleCommentReaction(comment.id, emoji)
-          }}
-          trigger={
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <Smiley className="size-3.5" />
-              <span>React</span>
-            </button>
-          }
-        />
-      ) : null}
-      {editable ? (
-        <button
-          type="button"
-          className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-          onClick={onReplyToggle}
-        >
-          Reply
-        </button>
-      ) : null}
     </div>
   )
 }
@@ -306,6 +305,7 @@ function CommentThreadActions({
 function CommentReplyComposer({
   editable,
   mentionCandidates,
+  referenceCandidates,
   replyContent,
   replyEditorRef,
   replyLimitState,
@@ -315,6 +315,7 @@ function CommentReplyComposer({
 }: {
   editable: boolean
   mentionCandidates: AppData["users"]
+  referenceCandidates: WorkItemReferenceCandidates
   replyContent: string
   replyEditorRef: MutableRefObject<Editor | null>
   replyLimitState: ReturnType<typeof getTextInputLimitState>
@@ -337,6 +338,7 @@ function CommentReplyComposer({
           placeholder="Reply to this thread..."
           editorInstanceRef={replyEditorRef}
           mentionCandidates={mentionCandidates}
+          referenceCandidates={referenceCandidates}
           minPlainTextCharacters={commentContentConstraints.min}
           maxPlainTextCharacters={commentContentConstraints.max}
           enforcePlainTextLimit
@@ -376,6 +378,7 @@ function CommentReplyComposer({
 function CommentReplies({
   editable,
   mentionCandidates,
+  referenceCandidates,
   replies,
   repliesByParentId,
   targetId,
@@ -384,6 +387,7 @@ function CommentReplies({
 }: {
   editable: boolean
   mentionCandidates: AppData["users"]
+  referenceCandidates: WorkItemReferenceCandidates
   replies: AppData["comments"]
   repliesByParentId: Record<string, AppData["comments"]>
   targetId: string
@@ -405,6 +409,7 @@ function CommentReplies({
           targetType={targetType}
           targetId={targetId}
           mentionCandidates={mentionCandidates}
+          referenceCandidates={referenceCandidates}
           usersById={usersById}
         />
       ))}
@@ -419,6 +424,7 @@ function CommentThreadItem({
   targetType,
   targetId,
   mentionCandidates,
+  referenceCandidates,
   usersById,
 }: {
   comment: AppData["comments"][number]
@@ -427,6 +433,7 @@ function CommentThreadItem({
   targetType: "workItem" | "document"
   targetId: string
   mentionCandidates: AppData["users"]
+  referenceCandidates: WorkItemReferenceCandidates
   usersById: ReadonlyMap<string, AppData["users"][number]>
 }) {
   const { author, currentUserId } = useAppStore(
@@ -437,8 +444,14 @@ function CommentThreadItem({
   )
   const [replyOpen, setReplyOpen] = useState(false)
   const [replyContent, setReplyContent] = useState("")
+  const [editOpen, setEditOpen] = useState(false)
+  const [editContent, setEditContent] = useState(comment.content)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const replyEditorRef = useRef<Editor | null>(null)
+  const editEditorRef = useRef<Editor | null>(null)
+  const portalContainer = useWorkItemSurfacePortalContainer()
   const replies = repliesByParentId[comment.id] ?? []
+  const canMutateComment = editable && comment.createdBy === currentUserId
   const replyLimitState = getTextInputLimitState(
     replyContent,
     commentContentConstraints,
@@ -446,6 +459,18 @@ function CommentThreadItem({
       plainText: true,
     }
   )
+  const editLimitState = getTextInputLimitState(
+    editContent,
+    commentContentConstraints,
+    {
+      plainText: true,
+    }
+  )
+
+  function openQuotedReply() {
+    setReplyContent(createQuotedRichText(comment.content, author?.name))
+    setReplyOpen(true)
+  }
 
   function handleReply() {
     if (!replyLimitState.canSubmit) {
@@ -462,23 +487,111 @@ function CommentThreadItem({
     setReplyOpen(false)
   }
 
+  function handleSaveEdit() {
+    if (!editLimitState.canSubmit) {
+      return
+    }
+
+    useAppStore.getState().updateComment(comment.id, {
+      content: editContent,
+    })
+    setEditOpen(false)
+  }
+
+  function handleDelete() {
+    useAppStore.getState().deleteComment(comment.id)
+    setDeleteOpen(false)
+  }
+
   return (
-    <div className="flex flex-col gap-3 rounded-xl border bg-card/60 p-4">
+    <div className="group/comment relative flex flex-col gap-3 rounded-xl border bg-card/60 p-4">
+      <MessageHoverActionBar
+        canDelete={canMutateComment}
+        canEdit={canMutateComment}
+        canQuote={editable}
+        canReact={editable}
+        className="top-0 right-3 -translate-y-1/2 group-hover/comment:flex focus-within:flex"
+        deleteLabel="Delete comment"
+        editLabel="Edit comment"
+        onDelete={() => setDeleteOpen(true)}
+        onEdit={() => {
+          setEditContent(comment.content)
+          setEditOpen(true)
+        }}
+        onQuote={openQuotedReply}
+        portalContainer={portalContainer}
+        quoteLabel="Quote comment"
+        onReact={(emoji) => {
+          useAppStore.getState().toggleCommentReaction(comment.id, emoji)
+        }}
+      />
       <CommentThreadHeader
         authorName={author?.name}
         createdAt={comment.createdAt}
+        editedAt={comment.editedAt}
       />
 
-      <RichTextContent
-        content={comment.content}
-        className="text-sm leading-7 text-muted-foreground [&_p]:my-0 [&_p+p]:mt-2"
-      />
+      {editOpen ? (
+        <div className="flex flex-col gap-2 rounded-lg border bg-background/70 p-3">
+          <div className="rounded-md border border-line bg-surface px-3 py-2 transition-colors focus-within:border-fg-3">
+            <RichTextEditor
+              content={editContent}
+              onChange={setEditContent}
+              editable={editable}
+              compact
+              autoFocus
+              allowSlashCommands={false}
+              showToolbar={false}
+              showStats={false}
+              placeholder="Edit comment..."
+              editorInstanceRef={editEditorRef}
+              mentionCandidates={mentionCandidates}
+              referenceCandidates={referenceCandidates}
+              minPlainTextCharacters={commentContentConstraints.min}
+              maxPlainTextCharacters={commentContentConstraints.max}
+              enforcePlainTextLimit
+              onSubmitShortcut={handleSaveEdit}
+              submitOnEnter
+              className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+            />
+          </div>
+          <WorkItemCommentComposerActions
+            editorRef={editEditorRef}
+            limitState={editLimitState}
+          >
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setEditContent(comment.content)
+                  setEditOpen(false)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={!editLimitState.canSubmit}
+                onClick={handleSaveEdit}
+              >
+                Save
+              </Button>
+            </div>
+          </WorkItemCommentComposerActions>
+        </div>
+      ) : (
+        <RichTextContent
+          content={comment.content}
+          referenceCandidates={referenceCandidates}
+          className="text-sm leading-7 text-muted-foreground [&_p]:my-0 [&_p+p]:mt-2"
+        />
+      )}
 
       <CommentThreadActions
         comment={comment}
         currentUserId={currentUserId}
         editable={editable}
-        onReplyToggle={() => setReplyOpen((current) => !current)}
         usersById={usersById}
       />
 
@@ -486,6 +599,7 @@ function CommentThreadItem({
         <CommentReplyComposer
           editable={editable}
           mentionCandidates={mentionCandidates}
+          referenceCandidates={referenceCandidates}
           replyContent={replyContent}
           replyEditorRef={replyEditorRef}
           replyLimitState={replyLimitState}
@@ -501,11 +615,21 @@ function CommentThreadItem({
       <CommentReplies
         editable={editable}
         mentionCandidates={mentionCandidates}
+        referenceCandidates={referenceCandidates}
         replies={replies}
         repliesByParentId={repliesByParentId}
         targetId={targetId}
         targetType={targetType}
         usersById={usersById}
+      />
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete comment"
+        description="This comment and its replies will be permanently removed. This can't be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={handleDelete}
       />
     </div>
   )
@@ -523,19 +647,31 @@ export function CommentsInline({
   const {
     allComments,
     currentUserId,
+    currentWorkspaceId,
     documents,
+    projects,
     teamMemberships,
+    teams,
     users,
+    views,
     workItems,
+    workspaces,
+    workspaceMemberships,
   } = useAppStore(
     useShallow((state) => {
       return {
         allComments: state.comments,
         currentUserId: state.currentUserId,
+        currentWorkspaceId: state.currentWorkspaceId,
         documents: state.documents,
+        projects: state.projects,
         teamMemberships: state.teamMemberships,
+        teams: state.teams,
         users: state.users,
+        views: state.views,
         workItems: state.workItems,
+        workspaces: state.workspaces,
+        workspaceMemberships: state.workspaceMemberships,
       }
     })
   )
@@ -546,13 +682,19 @@ export function CommentsInline({
         : null,
     [targetId, targetType, workItems]
   )
+  const targetDocument = useMemo(
+    () =>
+      targetType === "document"
+        ? (documents.find((document) => document.id === targetId) ?? null)
+        : null,
+    [documents, targetId, targetType]
+  )
   const targetTeamId = useMemo(
     () =>
       targetWorkItem
         ? targetWorkItem.teamId
-        : (documents.find((document) => document.id === targetId)?.teamId ??
-          null),
-    [documents, targetId, targetWorkItem]
+        : (targetDocument?.teamId ?? null),
+    [targetDocument, targetWorkItem]
   )
   const isPrivateWorkItemCommentSurface =
     targetWorkItem?.visibility === "private"
@@ -602,6 +744,49 @@ export function CommentsInline({
     () => new Map(users.map((user) => [user.id, user])),
     [users]
   )
+  const referenceCandidates = useMemo(() => {
+    const referenceData = {
+      currentUserId,
+      currentWorkspaceId,
+      documents,
+      projects,
+      teamMemberships,
+      teams,
+      views,
+      workItems,
+      workspaces,
+      workspaceMemberships,
+    } as AppData
+
+    if (targetWorkItem) {
+      return getRichTextReferenceCandidates(referenceData, {
+        type: "workItemComment",
+        itemId: targetWorkItem.id,
+      })
+    }
+
+    if (targetDocument) {
+      return getRichTextReferenceCandidates(referenceData, {
+        type: "document",
+        documentId: targetDocument.id,
+      })
+    }
+
+    return []
+  }, [
+    currentUserId,
+    currentWorkspaceId,
+    documents,
+    projects,
+    targetDocument,
+    targetWorkItem,
+    teamMemberships,
+    teams,
+    views,
+    workItems,
+    workspaces,
+    workspaceMemberships,
+  ])
   const rootComments = useMemo(() => getRootComments(comments), [comments])
   const repliesByParentId = useMemo(
     () => groupCommentsByParentId(comments),
@@ -630,6 +815,7 @@ export function CommentsInline({
           targetType={targetType}
           targetId={targetId}
           mentionCandidates={mentionCandidates}
+          referenceCandidates={referenceCandidates}
           usersById={usersById}
         />
       ))}
@@ -646,6 +832,7 @@ export function CommentsInline({
             placeholder="Leave a comment or mention a teammate with @handle..."
             editorInstanceRef={commentEditorRef}
             mentionCandidates={mentionCandidates}
+            referenceCandidates={referenceCandidates}
             minPlainTextCharacters={commentContentConstraints.min}
             maxPlainTextCharacters={commentContentConstraints.max}
             enforcePlainTextLimit

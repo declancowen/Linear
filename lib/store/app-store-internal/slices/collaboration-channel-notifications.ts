@@ -10,6 +10,8 @@ export function addChannelFollowerNotifications(
   input: {
     actorName: string
     audienceUserIds: string[]
+    commentId: string
+    contentPreview: string
     currentUserId: string
     entityId: string
     entityTitle: string
@@ -34,7 +36,11 @@ export function addChannelFollowerNotifications(
         `${input.actorName} commented on ${input.entityTitle}`,
         "channelPost",
         input.entityId,
-        "comment"
+        "comment",
+        {
+          contentPreview: input.contentPreview,
+          targetCommentId: input.commentId,
+        }
       )
     )
     input.notifiedUserIds.add(followerId)

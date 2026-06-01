@@ -8,13 +8,16 @@ import {
 const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
 const requireEditableTeamDocMock = vi.fn()
+const requireReadableDocumentAccessMock = vi.fn()
 const requireEditableWorkItemAccessMock = vi.fn()
 const requireReadableWorkItemAccessMock = vi.fn()
 const requireReadableTeamAccessMock = vi.fn()
 const requireReadableWorkspaceAccessMock = vi.fn()
 const getDocumentDocMock = vi.fn()
+const getProjectDocMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const getUserDocMock = vi.fn()
+const getViewDocMock = vi.fn()
 const getWorkItemDocMock = vi.fn()
 const listPrivateWorkItemsByCreatorMock = vi.fn()
 const listWorkItemActivitiesByWorkItemsMock = vi.fn()
@@ -34,6 +37,7 @@ vi.mock("@/convex/app/core", () => ({
 vi.mock("@/convex/app/access", () => ({
   requireEditableTeamAccess: requireEditableTeamAccessMock,
   requireEditableTeamDoc: requireEditableTeamDocMock,
+  requireReadableDocumentAccess: requireReadableDocumentAccessMock,
   requireEditableWorkItemAccess: requireEditableWorkItemAccessMock,
   requireReadableWorkItemAccess: requireReadableWorkItemAccessMock,
   requireReadableTeamAccess: requireReadableTeamAccessMock,
@@ -42,8 +46,10 @@ vi.mock("@/convex/app/access", () => ({
 
 vi.mock("@/convex/app/data", () => ({
   getDocumentDoc: getDocumentDocMock,
+  getProjectDoc: getProjectDocMock,
   getTeamDoc: getTeamDocMock,
   getUserDoc: getUserDocMock,
+  getViewDoc: getViewDocMock,
   getWorkItemDoc: getWorkItemDocMock,
   listPrivateWorkItemsByCreator: listPrivateWorkItemsByCreatorMock,
   listWorkItemActivitiesByWorkItems: listWorkItemActivitiesByWorkItemsMock,
@@ -96,13 +102,16 @@ describe("work item handlers", () => {
     assertServerTokenMock.mockReset()
     requireEditableTeamAccessMock.mockReset()
     requireEditableTeamDocMock.mockReset()
+    requireReadableDocumentAccessMock.mockReset()
     requireEditableWorkItemAccessMock.mockReset()
     requireReadableWorkItemAccessMock.mockReset()
     requireReadableTeamAccessMock.mockReset()
     requireReadableWorkspaceAccessMock.mockReset()
     getDocumentDocMock.mockReset()
+    getProjectDocMock.mockReset()
     getTeamDocMock.mockReset()
     getUserDocMock.mockReset()
+    getViewDocMock.mockReset()
     getWorkItemDocMock.mockReset()
     listPrivateWorkItemsByCreatorMock.mockReset()
     listWorkItemActivitiesByWorkItemsMock.mockReset()
@@ -131,6 +140,7 @@ describe("work item handlers", () => {
       workspaceId: "workspace_1",
       settings: {},
     })
+    requireReadableDocumentAccessMock.mockResolvedValue("member")
     requireEditableWorkItemAccessMock.mockResolvedValue("member")
     requireReadableWorkItemAccessMock.mockResolvedValue("member")
     requireReadableTeamAccessMock.mockResolvedValue("member")
@@ -705,6 +715,11 @@ describe("work item handlers", () => {
       updatedAt: "2026-04-20T22:20:00.000Z",
       updatedBy: "user_1",
     })
+    expect(ctx.db.patch).toHaveBeenNthCalledWith(3, "db_item_1", {
+      linkedDocumentIds: [],
+      linkedWorkItemIds: [],
+      updatedAt: "2026-04-20T22:20:00.000Z",
+    })
     expect(validateWorkItemParentMock).not.toHaveBeenCalled()
   })
 
@@ -743,7 +758,10 @@ describe("work item handlers", () => {
       await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
     const existing = {
+      _id: "db_item_1",
+      id: "item_1",
       descriptionDocId: "doc_1",
+      teamId: "team_1",
     }
 
     await patchWorkItemDescriptionDocument(ctx as never, {
@@ -771,6 +789,11 @@ describe("work item handlers", () => {
       title: "Updated title description",
       updatedAt: "2026-04-20T22:20:00.000Z",
       updatedBy: "user_1",
+    })
+    expect(ctx.db.patch).toHaveBeenCalledWith("db_item_1", {
+      linkedDocumentIds: [],
+      linkedWorkItemIds: [],
+      updatedAt: "2026-04-20T22:20:00.000Z",
     })
   })
 
@@ -1036,6 +1059,139 @@ describe("work item handlers", () => {
           status: "todo",
         } as never,
         now: "2026-04-20T22:20:00.000Z",
+      })
+    ).resolves.toBeNull()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
+  it("records label change activity when labels change", async () => {
+    const { createLabelChangeActivityForWorkItemUpdate } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      createLabelChangeActivityForWorkItemUpdate(ctx as never, {
+        args: {
+          currentUserId: "user_1",
+          patch: {
+            labelIds: ["label_2", "label_1"],
+          },
+        } as never,
+        existing: {
+          id: "item_1",
+          labelIds: ["label_1"],
+        } as never,
+        now: "2026-04-20T22:25:00.000Z",
+      })
+    ).resolves.toMatchObject({
+      itemId: "item_1",
+      actorId: "user_1",
+      type: "label-change",
+      fromLabelIds: ["label_1"],
+      toLabelIds: ["label_1", "label_2"],
+      createdAt: "2026-04-20T22:25:00.000Z",
+    })
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "workItemActivities",
+      expect.objectContaining({
+        itemId: "item_1",
+        type: "label-change",
+        fromLabelIds: ["label_1"],
+        toLabelIds: ["label_1", "label_2"],
+      })
+    )
+
+    ctx.db.insert.mockClear()
+    await expect(
+      createLabelChangeActivityForWorkItemUpdate(ctx as never, {
+        args: {
+          currentUserId: "user_1",
+          patch: {
+            labelIds: ["label_1"],
+          },
+        } as never,
+        existing: {
+          id: "item_1",
+          labelIds: ["label_1"],
+        } as never,
+        now: "2026-04-20T22:25:00.000Z",
+      })
+    ).resolves.toBeNull()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+
+  })
+
+  it("records assignee change activity when assignees change", async () => {
+    const { createAssigneeChangeActivityForWorkItemUpdate } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      createAssigneeChangeActivityForWorkItemUpdate(ctx as never, {
+        args: {
+          currentUserId: "user_1",
+          patch: {
+            assigneeIds: ["user_2", "user_3"],
+          },
+        } as never,
+        existing: {
+          id: "item_1",
+          assigneeId: "user_2",
+          assigneeIds: ["user_2"],
+        } as never,
+        now: "2026-04-20T22:30:00.000Z",
+      })
+    ).resolves.toMatchObject({
+      itemId: "item_1",
+      actorId: "user_1",
+      type: "assignee-change",
+      fromAssigneeIds: ["user_2"],
+      toAssigneeIds: ["user_2", "user_3"],
+      createdAt: "2026-04-20T22:30:00.000Z",
+    })
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "workItemActivities",
+      expect.objectContaining({
+        itemId: "item_1",
+        type: "assignee-change",
+        fromAssigneeIds: ["user_2"],
+        toAssigneeIds: ["user_2", "user_3"],
+      })
+    )
+
+    ctx.db.insert.mockClear()
+    await expect(
+      createAssigneeChangeActivityForWorkItemUpdate(ctx as never, {
+        args: {
+          currentUserId: "user_1",
+          patch: {
+            assigneeIds: ["user_2"],
+          },
+        } as never,
+        existing: {
+          id: "item_1",
+          assigneeId: "user_2",
+          assigneeIds: ["user_2"],
+        } as never,
+        now: "2026-04-20T22:30:00.000Z",
+      })
+    ).resolves.toBeNull()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+
+    await expect(
+      createAssigneeChangeActivityForWorkItemUpdate(ctx as never, {
+        args: {
+          currentUserId: "user_1",
+          patch: {
+            assigneeId: "user_2",
+          },
+        } as never,
+        existing: {
+          id: "item_1",
+          assigneeId: null,
+          visibility: "private",
+        } as never,
+        now: "2026-04-20T22:30:00.000Z",
       })
     ).resolves.toBeNull()
     expect(ctx.db.insert).not.toHaveBeenCalled()

@@ -320,6 +320,7 @@ type ArrayDomainKey =
   | "conversations"
   | "calls"
   | "chatMessages"
+  | "chatReadStates"
   | "channelPosts"
   | "channelPostComments"
 
@@ -376,6 +377,7 @@ type ArrayDomainEntry =
   | AppData["conversations"][number]
   | AppData["calls"][number]
   | AppData["chatMessages"][number]
+  | AppData["chatReadStates"][number]
   | AppData["channelPosts"][number]
   | AppData["channelPostComments"][number]
 
@@ -408,6 +410,7 @@ const domainKeyResolvers: {
   conversations: (value: AppData["conversations"][number]) => value.id,
   calls: (value: AppData["calls"][number]) => value.id,
   chatMessages: (value: AppData["chatMessages"][number]) => value.id,
+  chatReadStates: (value: AppData["chatReadStates"][number]) => value.id,
   channelPosts: (value: AppData["channelPosts"][number]) => value.id,
   channelPostComments: (value: AppData["channelPostComments"][number]) =>
     value.id,
@@ -521,6 +524,7 @@ function applyReplacedDomainData(state: AppStore, data: Partial<AppData>) {
     chatMessages: normalizeChatMessages(
       data.chatMessages ?? state.chatMessages
     ),
+    chatReadStates: data.chatReadStates ?? state.chatReadStates,
     channelPosts: normalizeChannelPosts(
       data.channelPosts ?? state.channelPosts
     ),
@@ -655,6 +659,11 @@ function applyMergedReadModelData(
         data.chatMessages,
         (value) => value.id
       )
+    ),
+    chatReadStates: mergeByKey(
+      prunedState.chatReadStates,
+      data.chatReadStates,
+      (value) => value.id
     ),
     channelPosts: normalizeChannelPosts(
       mergeByKey(

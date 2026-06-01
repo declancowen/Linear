@@ -96,6 +96,7 @@ describe("Forum post display primitives", () => {
             postId: "post_1",
             content: "<p>Looks good.</p>",
             mentionUserIds: [],
+            reactions: [],
             createdBy: author.id,
             createdAt: "2026-04-18T10:30:00.000Z",
           }}
@@ -302,6 +303,7 @@ describe("NewPostComposer", () => {
           postId: "post_1",
           content: "<p>Comment</p>",
           mentionUserIds: [],
+          reactions: [],
           createdBy: "user_1",
           createdAt: "2026-04-18T10:05:00.000Z",
         },

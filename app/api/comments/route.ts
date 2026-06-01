@@ -3,7 +3,10 @@ import { z } from "zod"
 
 import { ApplicationError } from "@/lib/server/application-errors"
 import { commentSchema } from "@/lib/domain/types"
-import { bumpCommentTargetReadModelScopesServer } from "@/lib/server/scoped-read-models"
+import {
+  bumpCommentTargetReadModelScopesServer,
+  bumpNotificationInboxReadModelScopesServer,
+} from "@/lib/server/scoped-read-models"
 import { addCommentServer } from "@/lib/server/convex"
 import { requireAppContext, requireSession } from "@/lib/server/route-auth"
 import { parseJsonBody } from "@/lib/server/route-body"
@@ -50,10 +53,15 @@ export async function POST(request: NextRequest) {
       currentUserId: appContext.ensuredUser.userId,
       ...parsed,
     })
-    await bumpCommentTargetReadModelScopesServer(session, {
-      targetType: parsed.targetType,
-      targetId: parsed.targetId,
-    })
+    await Promise.all([
+      bumpCommentTargetReadModelScopesServer(session, {
+        targetType: parsed.targetType,
+        targetId: parsed.targetId,
+      }),
+      bumpNotificationInboxReadModelScopesServer(
+        result?.notificationUserIds ?? []
+      ),
+    ])
 
     return jsonOk({
       ok: true,

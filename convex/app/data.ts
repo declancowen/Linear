@@ -836,6 +836,26 @@ export async function listChatMessagesByConversations(
   )
 }
 
+export async function getChatReadStateDoc(
+  ctx: AppCtx,
+  userId: string,
+  conversationId: string
+) {
+  return ctx.db
+    .query("chatReadStates")
+    .withIndex("by_user_conversation", (q) =>
+      q.eq("userId", userId).eq("conversationId", conversationId)
+    )
+    .unique()
+}
+
+export async function listChatReadStatesByUser(ctx: AppCtx, userId: string) {
+  return ctx.db
+    .query("chatReadStates")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect()
+}
+
 export async function listChannelPostsByConversation(
   ctx: AppCtx,
   conversationId: string

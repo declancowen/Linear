@@ -6,6 +6,14 @@ import { DocumentDetailScreen } from "@/components/app/screens/document-detail-s
 import { getAnchorInternalNavigationHref } from "@/components/app/screens/document-navigation"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  createTestDocument,
+  createTestProject,
+  createTestTeam,
+  createTestTeamMembership,
+  createTestViewDefinition,
+  createTestWorkItem,
+} from "@/tests/lib/fixtures/app-data"
 
 const {
   applyDocumentCollaborationTitleMock,
@@ -77,6 +85,7 @@ vi.mock("@/components/app/rich-text-editor", () => ({
     editorInstanceRef,
     onChange,
     onMentionCountsChange,
+    referenceCandidates,
   }: {
     content: string | Record<string, unknown>
     collaboration?: unknown
@@ -87,11 +96,13 @@ vi.mock("@/components/app/rich-text-editor", () => ({
       counts: Record<string, number>,
       source: "initial" | "local" | "external"
     ) => void
+    referenceCandidates?: unknown[]
   }) => {
     richTextEditorRenderMock({
       collaboration,
       content,
       editable,
+      referenceCandidates,
     })
 
     if (editorInstanceRef) {
@@ -527,6 +538,114 @@ describe("DocumentDetailScreen", () => {
         },
       ],
     })
+  })
+
+  it("passes access-filtered reference candidates to the contained document editor picker", async () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      teams: [
+        createTestTeam({
+          id: "team_1",
+          slug: "platform",
+          name: "Platform",
+        }),
+        createTestTeam({
+          id: "team_2",
+          slug: "design",
+          name: "Design",
+        }),
+      ],
+      teamMemberships: [
+        createTestTeamMembership({
+          teamId: "team_1",
+          userId: currentUser.id,
+        }),
+      ],
+      documents: [
+        state.documents[0]!,
+        createTestDocument({
+          id: "doc_team",
+          kind: "team-document",
+          teamId: "team_1",
+          title: "Team brief",
+        }),
+        createTestDocument({
+          id: "doc_private",
+          kind: "private-document",
+          teamId: null,
+          title: "Private notes",
+        }),
+        createTestDocument({
+          id: "doc_hidden_team",
+          kind: "team-document",
+          teamId: "team_2",
+          title: "Hidden team notes",
+        }),
+      ],
+      workItems: [
+        createTestWorkItem("item_visible", {
+          key: "PLA-2",
+          title: "Visible task",
+        }),
+        createTestWorkItem("item_hidden", {
+          key: "DES-1",
+          teamId: "team_2",
+          title: "Hidden task",
+        }),
+      ],
+      projects: [
+        createTestProject({
+          id: "project_workspace",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          name: "Workspace roadmap",
+        }),
+        createTestProject({
+          id: "project_hidden",
+          scopeType: "team",
+          scopeId: "team_2",
+          name: "Hidden roadmap",
+        }),
+      ],
+      views: [
+        createTestViewDefinition({
+          id: "view_workspace",
+          name: "Workspace view",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          route: "/workspace/work",
+        }),
+        createTestViewDefinition({
+          id: "view_hidden",
+          name: "Hidden view",
+          scopeType: "team",
+          scopeId: "team_2",
+          route: "/team/design/work",
+        }),
+      ],
+    }))
+
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await waitFor(() => {
+      expect(richTextEditorRenderMock).toHaveBeenCalled()
+    })
+
+    const editorCall = richTextEditorRenderMock.mock.calls.find(
+      ([props]) => Array.isArray(props.referenceCandidates)
+    )?.[0]
+
+    expect(
+      editorCall?.referenceCandidates.map(
+        (candidate: { type: string; id: string }) =>
+          `${candidate.type}:${candidate.id}`
+      )
+    ).toEqual([
+      "document:doc_team",
+      "project:project_workspace",
+      "view:view_workspace",
+      "workItem:item_visible",
+    ])
   })
 
   it("falls back to collaboration title persistence when collaborative title updates cannot update an h1 heading", async () => {

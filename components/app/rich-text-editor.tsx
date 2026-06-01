@@ -37,14 +37,20 @@ import { createRichTextBaseExtensions } from "@/lib/rich-text/extensions"
 import { cn } from "@/lib/utils"
 import {
   filterMentionCandidates,
+  filterReferenceCandidates,
   filterSlashCommands,
   buildMentionState,
+  buildReferencePickerState,
+  buildReferenceState,
   buildSlashState,
   insertMention,
+  insertReference,
   MentionMenu,
+  ReferenceMenu,
   SlashCommandMenu,
   type MentionCandidate,
   type MenuState,
+  type ReferenceCandidate,
 } from "./rich-text-editor/menus"
 import {
   FULL_PAGE_CANVAS_WIDTH_CLASSNAME,
@@ -149,9 +155,11 @@ type RichTextEditorProps = {
   mentionMenuPlacement?: "above" | "below"
   editorInstanceRef?: MutableRefObject<Editor | null>
   onMentionInserted?: (candidate: MentionCandidate) => void
+  onReferenceInserted?: (candidate: ReferenceCandidate) => void
   presenceViewers?: DocumentPresenceViewer[]
   currentPresenceUserId?: string | null
   onActiveBlockChange?: (activeBlockId: string | null) => void
+  referenceCandidates?: ReferenceCandidate[]
   mentionCandidates?: Array<
     Pick<
       UserProfile,
@@ -186,6 +194,7 @@ type CollaborationMarkerMergeInput<TMarker> = {
 }
 
 const EMPTY_MENTION_CANDIDATES: MentionCandidate[] = []
+const EMPTY_REFERENCE_CANDIDATES: ReferenceCandidate[] = []
 const TYPING_IDLE_TIMEOUT_MS = 1500
 const MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS = 2
 const COLLABORATION_CURSOR_LABEL_TOP_THRESHOLD_PX = 28
@@ -937,6 +946,103 @@ function handleMentionMenuKeyDown({
   return false
 }
 
+function handleReferenceMenuKeyDown({
+  container,
+  currentEditor,
+  currentReferenceState,
+  event,
+  onReferenceInsertedRef,
+  previousReferenceQueryRef,
+  referenceCandidates,
+  referenceIndex,
+  setReferenceIndex,
+  setReferenceState,
+}: RichTextKeyboardMenuState & {
+  currentReferenceState: MenuState | null
+  onReferenceInsertedRef: MutableRefObject<
+    RichTextEditorProps["onReferenceInserted"]
+  >
+  previousReferenceQueryRef: MutableRefObject<string | null>
+  referenceCandidates: ReferenceCandidate[]
+  referenceIndex: number
+  setReferenceIndex: Dispatch<SetStateAction<number>>
+  setReferenceState: (state: MenuState | null) => void
+}) {
+  if (!currentReferenceState) {
+    return null
+  }
+
+  const nextCandidates = filterReferenceCandidates(
+    currentReferenceState.query,
+    referenceCandidates
+  )
+  const maxReferenceIndex = Math.max(nextCandidates.length - 1, 0)
+
+  const navigationResult = handleRichTextMenuNavigationKeyDown({
+    event,
+    maxIndex: maxReferenceIndex,
+    onEscape: () => {
+      setReferenceState(null)
+      previousReferenceQueryRef.current = null
+    },
+    onEnter: () =>
+      selectReferenceMenuCandidate({
+        currentEditor,
+        currentReferenceState,
+        event,
+        nextCandidates,
+        onReferenceInsertedRef,
+        referenceIndex,
+        setReferenceIndex,
+        setReferenceState,
+      }),
+    setIndex: setReferenceIndex,
+  })
+
+  if (navigationResult !== null) {
+    return navigationResult
+  }
+
+  const nextReferenceState = buildReferenceState(currentEditor, container)
+  if (!nextReferenceState) {
+    setReferenceState(null)
+    setReferenceIndex(0)
+    previousReferenceQueryRef.current = null
+  }
+
+  return false
+}
+
+function selectReferenceMenuCandidate(input: {
+  currentEditor: Editor
+  currentReferenceState: MenuState
+  event: KeyboardEvent
+  nextCandidates: ReferenceCandidate[]
+  onReferenceInsertedRef: MutableRefObject<
+    RichTextEditorProps["onReferenceInserted"]
+  >
+  referenceIndex: number
+  setReferenceIndex: Dispatch<SetStateAction<number>>
+  setReferenceState: (state: MenuState | null) => void
+}) {
+  const selected =
+    input.nextCandidates[
+      Math.min(input.referenceIndex, input.nextCandidates.length - 1)
+    ] ?? input.nextCandidates[0]
+
+  if (!selected) {
+    return false
+  }
+
+  input.event.preventDefault()
+  insertReference(input.currentEditor, input.currentReferenceState, selected)
+  input.onReferenceInsertedRef.current?.(selected)
+  input.setReferenceState(null)
+  input.setReferenceIndex(0)
+
+  return true
+}
+
 function selectMentionMenuCandidate(input: {
   currentEditor: Editor
   currentMentionState: MenuState
@@ -1012,20 +1118,29 @@ function handleRichTextEditorKeyDown({
   allowSlashCommands,
   container,
   currentEditor,
+  enableReferences,
   event,
   mentionCandidates,
   mentionIndex,
   mentionState,
   onMentionInsertedRef,
+  onReferenceInsertedRef,
   onSubmitShortcut,
   onUploadAttachment,
   previousMentionQueryRef,
+  previousReferenceQueryRef,
   previousSlashQueryRef,
+  referenceCandidates,
+  referenceIndex,
+  referenceState,
   requestAttachmentPicker,
   requestEmojiPicker,
   requestImagePicker,
+  requestReferencePicker,
   setMentionIndex,
   setMentionState,
+  setReferenceIndex,
+  setReferenceState,
   setSlashIndex,
   setSlashState,
   slashIndex,
@@ -1033,24 +1148,35 @@ function handleRichTextEditorKeyDown({
   submitOnEnter,
 }: RichTextKeyboardMenuState & {
   allowSlashCommands: boolean
+  enableReferences: boolean
   mentionCandidates: MentionCandidate[]
   mentionIndex: number
   mentionState: MenuState | null
   onMentionInsertedRef: MutableRefObject<
     RichTextEditorProps["onMentionInserted"]
   >
+  onReferenceInsertedRef: MutableRefObject<
+    RichTextEditorProps["onReferenceInserted"]
+  >
   onSubmitShortcut?: () => void
   onUploadAttachment: RichTextEditorProps["onUploadAttachment"]
   previousMentionQueryRef: MutableRefObject<string | null>
+  previousReferenceQueryRef: MutableRefObject<string | null>
   previousSlashQueryRef: MutableRefObject<string | null>
+  referenceCandidates: ReferenceCandidate[]
+  referenceIndex: number
+  referenceState: MenuState | null
   requestAttachmentPicker: (currentEditor: Editor) => void
   requestEmojiPicker: (
     currentEditor: Editor,
     anchor?: EmojiPickerAnchor | null
   ) => void
   requestImagePicker: (currentEditor: Editor) => void
+  requestReferencePicker: (currentEditor: Editor) => void
   setMentionIndex: Dispatch<SetStateAction<number>>
   setMentionState: (state: MenuState | null) => void
+  setReferenceIndex: Dispatch<SetStateAction<number>>
+  setReferenceState: (state: MenuState | null) => void
   setSlashIndex: Dispatch<SetStateAction<number>>
   setSlashState: (state: MenuState | null) => void
   slashIndex: number
@@ -1068,16 +1194,35 @@ function handleRichTextEditorKeyDown({
     setSlashState,
     slashIndex,
     slashOptions: {
+      enableReferences,
       enableUploads: Boolean(onUploadAttachment),
       promptEmojiPicker: (nextEditor) =>
         requestEmojiPicker(nextEditor, currentSlashState),
       promptAttachmentUpload: requestAttachmentPicker,
       promptImageUpload: requestImagePicker,
+      promptReferencePicker: requestReferencePicker,
     },
   })
 
   if (slashResult !== null) {
     return slashResult
+  }
+
+  const referenceResult = handleReferenceMenuKeyDown({
+    container,
+    currentEditor,
+    currentReferenceState: referenceState,
+    event,
+    onReferenceInsertedRef,
+    previousReferenceQueryRef,
+    referenceCandidates,
+    referenceIndex,
+    setReferenceIndex,
+    setReferenceState,
+  })
+
+  if (referenceResult !== null) {
+    return referenceResult
   }
 
   const mentionResult = handleMentionMenuKeyDown({
@@ -1345,6 +1490,7 @@ function RichTextEditorSurface({
   inlineEmojiPicker,
   mentionMenu,
   onInlineMouseDownCapture,
+  referenceMenu,
   slashMenu,
   toolbar,
 }: {
@@ -1359,6 +1505,7 @@ function RichTextEditorSurface({
   inlineEmojiPicker: ReactNode
   mentionMenu: ReactNode
   onInlineMouseDownCapture: (event: MouseEvent<HTMLDivElement>) => void
+  referenceMenu: ReactNode
   slashMenu: ReactNode
   toolbar: ReactNode
 }) {
@@ -1375,6 +1522,7 @@ function RichTextEditorSurface({
         {collaborationCursorPresence}
         {blockPresence}
         {slashMenu}
+        {referenceMenu}
         {mentionMenu}
         {inlineEmojiPicker}
       </FullPageRichTextShell>
@@ -1393,6 +1541,7 @@ function RichTextEditorSurface({
         {collaborationCursorPresence}
         {blockPresence}
         {slashMenu}
+        {referenceMenu}
         {mentionMenu}
         {inlineEmojiPicker}
       </div>
@@ -1415,6 +1564,7 @@ type RichTextEditorBodyProps = {
   emojiPickerAnchor: EmojiPickerAnchor | null
   emojiPickerOpen: boolean
   filteredMentionCandidates: MentionCandidate[]
+  filteredReferenceCandidates: ReferenceCandidate[]
   filteredSlashCommands: ReturnType<typeof filterSlashCommands>
   fullPage: boolean
   fullPageCanvasWidth: FullPageCanvasWidth
@@ -1425,9 +1575,13 @@ type RichTextEditorBodyProps = {
   mentionMenuPlacement: "above" | "below"
   mentionState: MenuState | null
   onMentionInserted: RichTextEditorProps["onMentionInserted"]
+  onReferenceInserted: RichTextEditorProps["onReferenceInserted"]
   pickerInsertPosition: number | null
   previousMentionQueryRef: MutableRefObject<string | null>
+  previousReferenceQueryRef: MutableRefObject<string | null>
   previousSlashQueryRef: MutableRefObject<string | null>
+  referenceIndex: number
+  referenceState: MenuState | null
   requestAttachmentPicker: (currentEditor: Editor) => void
   requestImagePicker: (currentEditor: Editor) => void
   setEmojiPickerAnchor: Dispatch<SetStateAction<EmojiPickerAnchor | null>>
@@ -1435,6 +1589,8 @@ type RichTextEditorBodyProps = {
   setFullPageCanvasWidth: Dispatch<SetStateAction<FullPageCanvasWidth>>
   setMentionIndex: Dispatch<SetStateAction<number>>
   setMentionState: Dispatch<SetStateAction<MenuState | null>>
+  setReferenceIndex: Dispatch<SetStateAction<number>>
+  setReferenceState: Dispatch<SetStateAction<MenuState | null>>
   setSlashIndex: Dispatch<SetStateAction<number>>
   setSlashState: Dispatch<SetStateAction<MenuState | null>>
   showStats: boolean
@@ -1637,6 +1793,52 @@ function getMentionMenuNode(
   )
 }
 
+function getReferenceMenuNode(
+  input: Pick<
+    RichTextEditorBodyProps,
+    | "containerWidth"
+    | "filteredReferenceCandidates"
+    | "onReferenceInserted"
+    | "previousReferenceQueryRef"
+    | "referenceIndex"
+    | "referenceState"
+    | "setReferenceIndex"
+    | "setReferenceState"
+  > & {
+    activeEditor: Editor
+  }
+) {
+  if (!input.referenceState) {
+    return null
+  }
+
+  return (
+    <ReferenceMenu
+      activeIndex={getActiveMenuIndex(
+        input.filteredReferenceCandidates.length,
+        input.referenceIndex
+      )}
+      candidates={input.filteredReferenceCandidates}
+      containerWidth={input.containerWidth}
+      editor={input.activeEditor}
+      state={input.referenceState}
+      onSelectCandidate={input.onReferenceInserted}
+      onQueryChange={(query) => {
+        input.previousReferenceQueryRef.current = query
+        input.setReferenceIndex(0)
+        input.setReferenceState((current) =>
+          current ? { ...current, query } : current
+        )
+      }}
+      onComplete={() => {
+        input.setReferenceState(null)
+        input.setReferenceIndex(0)
+        input.previousReferenceQueryRef.current = null
+      }}
+    />
+  )
+}
+
 function RichTextEditorBody({
   allowSlashCommands,
   blockPresenceMarkers,
@@ -1651,6 +1853,7 @@ function RichTextEditorBody({
   emojiPickerAnchor,
   emojiPickerOpen,
   filteredMentionCandidates,
+  filteredReferenceCandidates,
   filteredSlashCommands,
   fullPage,
   fullPageCanvasWidth,
@@ -1661,9 +1864,13 @@ function RichTextEditorBody({
   mentionMenuPlacement,
   mentionState,
   onMentionInserted,
+  onReferenceInserted,
   pickerInsertPosition,
   previousMentionQueryRef,
+  previousReferenceQueryRef,
   previousSlashQueryRef,
+  referenceIndex,
+  referenceState,
   requestAttachmentPicker,
   requestImagePicker,
   setEmojiPickerAnchor,
@@ -1671,6 +1878,8 @@ function RichTextEditorBody({
   setFullPageCanvasWidth,
   setMentionIndex,
   setMentionState,
+  setReferenceIndex,
+  setReferenceState,
   setSlashIndex,
   setSlashState,
   showStats,
@@ -1738,6 +1947,17 @@ function RichTextEditorBody({
     setMentionIndex,
     setMentionState,
   })
+  const referenceMenu = getReferenceMenuNode({
+    activeEditor,
+    containerWidth,
+    filteredReferenceCandidates,
+    onReferenceInserted,
+    previousReferenceQueryRef,
+    referenceIndex,
+    referenceState,
+    setReferenceIndex,
+    setReferenceState,
+  })
 
   const blockPresence = (
     <BlockPresenceOverlay
@@ -1773,6 +1993,7 @@ function RichTextEditorBody({
       onInlineMouseDownCapture={createInlineEditorMouseDownCapture(
         activeEditor
       )}
+      referenceMenu={referenceMenu}
       slashMenu={slashMenu}
       toolbar={toolbar}
     />
@@ -2392,16 +2613,21 @@ function useRichTextPickerState() {
 function useRichTextMenuState({
   allowSlashCommands,
   containerRef,
+  enableReferences,
 }: {
   allowSlashCommands: boolean
   containerRef: MutableRefObject<HTMLDivElement | null>
+  enableReferences: boolean
 }) {
   const previousSlashQueryRef = useRef<string | null>(null)
   const previousMentionQueryRef = useRef<string | null>(null)
+  const previousReferenceQueryRef = useRef<string | null>(null)
   const [slashState, setSlashState] = useState<MenuState | null>(null)
   const [mentionState, setMentionState] = useState<MenuState | null>(null)
+  const [referenceState, setReferenceState] = useState<MenuState | null>(null)
   const [slashIndex, setSlashIndex] = useState(0)
   const [mentionIndex, setMentionIndex] = useState(0)
+  const [referenceIndex, setReferenceIndex] = useState(0)
 
   const syncSlashState = useCallback((nextSlashState: MenuState | null) => {
     const nextQuery = nextSlashState?.query ?? null
@@ -2425,6 +2651,34 @@ function useRichTextMenuState({
     }
   }, [])
 
+  const syncReferenceState = useCallback(
+    (nextReferenceState: MenuState | null) => {
+      const nextQuery = nextReferenceState?.query ?? null
+
+      setReferenceState(nextReferenceState)
+
+      if (previousReferenceQueryRef.current !== nextQuery) {
+        previousReferenceQueryRef.current = nextQuery
+        setReferenceIndex(0)
+      }
+    },
+    []
+  )
+
+  const requestReferencePicker = useCallback(
+    (currentEditor: Editor) => {
+      if (!enableReferences) {
+        syncReferenceState(null)
+        return
+      }
+
+      syncReferenceState(
+        buildReferencePickerState(currentEditor, containerRef.current)
+      )
+    },
+    [containerRef, enableReferences, syncReferenceState]
+  )
+
   const syncCommandMenus = useCallback(
     (currentEditor: Editor) => {
       syncSlashState(
@@ -2433,17 +2687,35 @@ function useRichTextMenuState({
           : null
       )
       syncMentionState(buildMentionState(currentEditor, containerRef.current))
+      syncReferenceState(
+        enableReferences
+          ? buildReferenceState(currentEditor, containerRef.current)
+          : null
+      )
     },
-    [allowSlashCommands, containerRef, syncMentionState, syncSlashState]
+    [
+      allowSlashCommands,
+      containerRef,
+      enableReferences,
+      syncMentionState,
+      syncReferenceState,
+      syncSlashState,
+    ]
   )
 
   return {
     mentionIndex,
     mentionState,
     previousMentionQueryRef,
+    previousReferenceQueryRef,
     previousSlashQueryRef,
+    referenceIndex,
+    referenceState,
+    requestReferencePicker,
     setMentionIndex,
     setMentionState,
+    setReferenceIndex,
+    setReferenceState,
     setSlashIndex,
     setSlashState,
     slashIndex,
@@ -2807,6 +3079,7 @@ function handleRichTextEditorBlur(input: {
 
 function useFilteredRichTextSlashCommands(input: {
   allowSlashCommands: boolean
+  enableReferences: boolean
   editor: Editor | null
   onUploadAttachment: RichTextEditorProps["onUploadAttachment"]
   requestAttachmentPicker: (currentEditor: Editor) => void
@@ -2815,15 +3088,18 @@ function useFilteredRichTextSlashCommands(input: {
     anchor?: EmojiPickerAnchor | null
   ) => void
   requestImagePicker: (currentEditor: Editor) => void
+  requestReferencePicker: (currentEditor: Editor) => void
   slashState: MenuState | null
 }) {
   const {
     allowSlashCommands,
+    enableReferences,
     editor,
     onUploadAttachment,
     requestAttachmentPicker,
     requestEmojiPicker,
     requestImagePicker,
+    requestReferencePicker,
     slashState,
   } = input
 
@@ -2833,19 +3109,23 @@ function useFilteredRichTextSlashCommands(input: {
     }
 
     return filterSlashCommands(slashState.query, {
+      enableReferences,
       enableUploads: Boolean(onUploadAttachment),
       promptEmojiPicker: (nextEditor) =>
         requestEmojiPicker(nextEditor, slashState),
       promptAttachmentUpload: requestAttachmentPicker,
       promptImageUpload: requestImagePicker,
+      promptReferencePicker: requestReferencePicker,
     })
   }, [
     allowSlashCommands,
+    enableReferences,
     editor,
     onUploadAttachment,
     requestAttachmentPicker,
     requestEmojiPicker,
     requestImagePicker,
+    requestReferencePicker,
     slashState,
   ])
 }
@@ -2865,6 +3145,23 @@ function useFilteredRichTextMentionCandidates(input: {
       input.mentionCandidates
     )
   }, [input.editor, input.mentionCandidates, input.mentionState])
+}
+
+function useFilteredRichTextReferenceCandidates(input: {
+  editor: Editor | null
+  referenceCandidates: ReferenceCandidate[]
+  referenceState: MenuState | null
+}) {
+  return useMemo(() => {
+    if (!input.referenceState || !input.editor) {
+      return []
+    }
+
+    return filterReferenceCandidates(
+      input.referenceState.query,
+      input.referenceCandidates
+    )
+  }, [input.editor, input.referenceCandidates, input.referenceState])
 }
 
 function getRichTextStatsWords(editor: Editor | null) {
@@ -3000,9 +3297,11 @@ export function RichTextEditor({
   mentionMenuPlacement = "below",
   editorInstanceRef,
   onMentionInserted,
+  onReferenceInserted,
   presenceViewers = [],
   currentPresenceUserId = null,
   onActiveBlockChange,
+  referenceCandidates = EMPTY_REFERENCE_CANDIDATES,
   mentionCandidates = EMPTY_MENTION_CANDIDATES,
 }: RichTextEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -3011,6 +3310,9 @@ export function RichTextEditor({
   const onUploadAttachmentRef = useLatestRef(onUploadAttachment)
   const onMentionCountsChangeRef = useLatestRef(onMentionCountsChange)
   const onMentionInsertedRef = useLatestRef(onMentionInserted)
+  const onReferenceInsertedRef = useLatestRef(onReferenceInserted)
+  const referenceCandidatesRef = useLatestRef(referenceCandidates)
+  const enableReferences = referenceCandidates.length > 0
   const reportActiveBlockId = useRichTextActiveBlockReporter({
     onActiveBlockChange,
   })
@@ -3035,15 +3337,25 @@ export function RichTextEditor({
     mentionIndex,
     mentionState,
     previousMentionQueryRef,
+    previousReferenceQueryRef,
     previousSlashQueryRef,
+    referenceIndex,
+    referenceState,
+    requestReferencePicker,
     setMentionIndex,
     setMentionState,
+    setReferenceIndex,
+    setReferenceState,
     setSlashIndex,
     setSlashState,
     slashIndex,
     slashState,
     syncCommandMenus,
-  } = useRichTextMenuState({ allowSlashCommands, containerRef })
+  } = useRichTextMenuState({
+    allowSlashCommands,
+    containerRef,
+    enableReferences,
+  })
 
   const editorClass = getRichTextEditorClassName({ compact, fullPage })
   const { resolvedEditorContent, sanitizedStringContent } =
@@ -3105,20 +3417,29 @@ export function RichTextEditor({
             allowSlashCommands,
             container: containerRef.current,
             currentEditor,
+            enableReferences,
             event,
             mentionCandidates,
             mentionIndex,
             mentionState,
             onMentionInsertedRef,
+            onReferenceInsertedRef,
             onSubmitShortcut,
             onUploadAttachment,
             previousMentionQueryRef,
+            previousReferenceQueryRef,
             previousSlashQueryRef,
+            referenceCandidates: referenceCandidatesRef.current,
+            referenceIndex,
+            referenceState,
             requestAttachmentPicker,
             requestEmojiPicker,
             requestImagePicker,
+            requestReferencePicker,
             setMentionIndex,
             setMentionState,
+            setReferenceIndex,
+            setReferenceState,
             setSlashIndex,
             setSlashState,
             slashIndex,
@@ -3213,17 +3534,24 @@ export function RichTextEditor({
 
   const filteredSlashCommands = useFilteredRichTextSlashCommands({
     allowSlashCommands,
+    enableReferences,
     editor,
     onUploadAttachment,
     requestAttachmentPicker,
     requestEmojiPicker,
     requestImagePicker,
+    requestReferencePicker,
     slashState,
   })
   const filteredMentionCandidates = useFilteredRichTextMentionCandidates({
     editor,
     mentionCandidates,
     mentionState,
+  })
+  const filteredReferenceCandidates = useFilteredRichTextReferenceCandidates({
+    editor,
+    referenceCandidates,
+    referenceState,
   })
   const {
     canSubmit,
@@ -3286,6 +3614,7 @@ export function RichTextEditor({
     emojiPickerAnchor,
     collaboration,
     filteredMentionCandidates,
+    filteredReferenceCandidates,
     collaborationCursorMarkers,
     filteredSlashCommands,
     collaborationSelectionMarkers,
@@ -3306,6 +3635,12 @@ export function RichTextEditor({
     mentionState,
     setSlashIndex,
     onMentionInserted,
+    onReferenceInserted,
+    previousReferenceQueryRef,
+    referenceIndex,
+    referenceState,
+    setReferenceIndex,
+    setReferenceState,
     setSlashState,
     pickerInsertPosition,
     showStats,

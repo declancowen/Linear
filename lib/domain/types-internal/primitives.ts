@@ -107,7 +107,10 @@ export type NotificationType =
   | "invite"
   | "status-change"
 
-export type WorkItemActivityType = "status-change"
+export type WorkItemActivityType =
+  | "status-change"
+  | "label-change"
+  | "assignee-change"
 
 export type NotificationEntityType =
   | "workItem"

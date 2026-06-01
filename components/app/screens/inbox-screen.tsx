@@ -17,6 +17,8 @@ import {
   getProject,
   getProjectHref,
 } from "@/lib/domain/selectors"
+import { shouldShowNotificationInInbox } from "@/lib/domain/notification-visibility"
+import { getNotificationTargetHash } from "@/components/app/notification-routing"
 import { type Notification } from "@/lib/domain/types"
 import {
   fetchNotificationInboxReadModel,
@@ -120,7 +122,11 @@ function getInboxSplitContainerWidth(
 
 function selectCurrentUserInboxNotifications(state: AppStoreState) {
   return [...state.notifications]
-    .filter((notification) => notification.userId === state.currentUserId)
+    .filter(
+      (notification) =>
+        notification.userId === state.currentUserId &&
+        shouldShowNotificationInInbox(notification)
+    )
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 }
 
@@ -194,7 +200,11 @@ function getInboxActiveChannelPostHref(
   notification: Notification | null
 ) {
   return notification?.entityType === "channelPost"
-    ? getChannelPostHref(state, notification.entityId)
+    ? getChannelPostHref(
+        state,
+        notification.entityId,
+        getNotificationTargetHash(notification)
+      )
     : null
 }
 

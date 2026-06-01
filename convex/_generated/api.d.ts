@@ -13,6 +13,7 @@ import type * as app_access from "../app/access.js";
 import type * as app_assets from "../app/assets.js";
 import type * as app_audit from "../app/audit.js";
 import type * as app_auth_bootstrap from "../app/auth_bootstrap.js";
+import type * as app_chat_read_states from "../app/chat_read_states.js";
 import type * as app_claim_utils from "../app/claim_utils.js";
 import type * as app_cleanup from "../app/cleanup.js";
 import type * as app_collaboration_documents from "../app/collaboration_documents.js";
@@ -35,6 +36,7 @@ import type * as app_notification_handlers from "../app/notification_handlers.js
 import type * as app_notifications from "../app/notifications.js";
 import type * as app_presence_helpers from "../app/presence_helpers.js";
 import type * as app_project_handlers from "../app/project_handlers.js";
+import type * as app_rich_text_reference_relationships from "../app/rich_text_reference_relationships.js";
 import type * as app_scoped_sync from "../app/scoped_sync.js";
 import type * as app_server_users from "../app/server_users.js";
 import type * as app_team_feature_guards from "../app/team_feature_guards.js";
@@ -58,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   "app/assets": typeof app_assets;
   "app/audit": typeof app_audit;
   "app/auth_bootstrap": typeof app_auth_bootstrap;
+  "app/chat_read_states": typeof app_chat_read_states;
   "app/claim_utils": typeof app_claim_utils;
   "app/cleanup": typeof app_cleanup;
   "app/collaboration_documents": typeof app_collaboration_documents;
@@ -80,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   "app/notifications": typeof app_notifications;
   "app/presence_helpers": typeof app_presence_helpers;
   "app/project_handlers": typeof app_project_handlers;
+  "app/rich_text_reference_relationships": typeof app_rich_text_reference_relationships;
   "app/scoped_sync": typeof app_scoped_sync;
   "app/server_users": typeof app_server_users;
   "app/team_feature_guards": typeof app_team_feature_guards;

@@ -10,13 +10,18 @@ const buildMentionEmailJobsMock = vi.fn()
 const assertServerTokenMock = vi.fn()
 const getAttachmentDocMock = vi.fn()
 const getDocumentDocMock = vi.fn()
+const getProjectDocMock = vi.fn()
 const listActiveUsersByIdsMock = vi.fn()
 const requireEditableDocumentAccessMock = vi.fn()
 const requireEditableWorkItemAccessMock = vi.fn()
 const requireReadableDocumentAccessMock = vi.fn()
+const requireReadableTeamAccessMock = vi.fn()
+const requireReadableWorkItemAccessMock = vi.fn()
+const requireReadableWorkspaceAccessMock = vi.fn()
 const getWorkItemByDescriptionDocIdMock = vi.fn()
 const getWorkItemDocMock = vi.fn()
 const getTeamMemberIdsMock = vi.fn()
+const getViewDocMock = vi.fn()
 const getWorkspaceUserIdsMock = vi.fn()
 const queueEmailJobsMock = vi.fn()
 const createNotificationMock = vi.fn()
@@ -42,17 +47,18 @@ vi.mock("@/convex/app/core", () => ({
 vi.mock("@/convex/app/data", () => ({
   getAttachmentDoc: getAttachmentDocMock,
   getDocumentDoc: getDocumentDocMock,
+  getProjectDoc: getProjectDocMock,
   getTeamDoc: vi.fn(),
   getUserDoc: vi.fn(),
+  getViewDoc: getViewDocMock,
   getWorkItemByDescriptionDocId: getWorkItemByDescriptionDocIdMock,
   getWorkItemDoc: getWorkItemDocMock,
   listActiveUsersByIds: listActiveUsersByIdsMock,
 }))
 
 vi.mock("@/convex/app/access", async () => {
-  const { getTestWorkItemAudienceUserIds } = await import(
-    "@/tests/lib/fixtures/convex"
-  )
+  const { getTestWorkItemAudienceUserIds } =
+    await import("@/tests/lib/fixtures/convex")
 
   return {
     getWorkItemAudienceUserIds: vi.fn(getTestWorkItemAudienceUserIds),
@@ -61,6 +67,9 @@ vi.mock("@/convex/app/access", async () => {
     requireEditableWorkItemAccess: requireEditableWorkItemAccessMock,
     requireEditableWorkspaceAccess: vi.fn(),
     requireReadableDocumentAccess: requireReadableDocumentAccessMock,
+    requireReadableTeamAccess: requireReadableTeamAccessMock,
+    requireReadableWorkItemAccess: requireReadableWorkItemAccessMock,
+    requireReadableWorkspaceAccess: requireReadableWorkspaceAccessMock,
     requireWorkspaceAdminAccess: vi.fn(),
   }
 })
@@ -152,13 +161,18 @@ describe("document mention notifications", () => {
     assertServerTokenMock.mockReset()
     getAttachmentDocMock.mockReset()
     getDocumentDocMock.mockReset()
+    getProjectDocMock.mockReset()
     listActiveUsersByIdsMock.mockReset()
     requireEditableDocumentAccessMock.mockReset()
     requireEditableWorkItemAccessMock.mockReset()
     requireReadableDocumentAccessMock.mockReset()
+    requireReadableTeamAccessMock.mockReset()
+    requireReadableWorkItemAccessMock.mockReset()
+    requireReadableWorkspaceAccessMock.mockReset()
     getWorkItemByDescriptionDocIdMock.mockReset()
     getWorkItemDocMock.mockReset()
     getTeamMemberIdsMock.mockReset()
+    getViewDocMock.mockReset()
     getWorkspaceUserIdsMock.mockReset()
     queueEmailJobsMock.mockReset()
     createNotificationMock.mockReset()
@@ -182,6 +196,10 @@ describe("document mention notifications", () => {
     getDocumentDocMock.mockImplementation(async () => documentRecord)
     getWorkspaceUserIdsMock.mockResolvedValue(["user_1", "user_2", "user_3"])
     requireEditableWorkItemAccessMock.mockResolvedValue("member")
+    requireReadableDocumentAccessMock.mockResolvedValue("member")
+    requireReadableTeamAccessMock.mockResolvedValue("member")
+    requireReadableWorkItemAccessMock.mockResolvedValue("member")
+    requireReadableWorkspaceAccessMock.mockResolvedValue("member")
     listActiveUsersByIdsMock.mockResolvedValue([
       {
         id: "user_1",
@@ -387,9 +405,74 @@ describe("document mention notifications", () => {
     expect(ctx.db.patch).toHaveBeenCalledWith("document_1_db", {
       content: "<p>No mentions remain.</p>",
       notifiedMentionCounts: {},
+      linkedProjectIds: [],
+      linkedWorkItemIds: [],
+      linkedDocumentIds: [],
+      linkedViewIds: [],
       updatedAt: "2026-04-17T20:24:45.000Z",
       updatedBy: "user_1",
     })
+  })
+
+  it("persists allowed document inline references as linked relationships", async () => {
+    const { updateDocumentContentHandler } =
+      await import("@/convex/app/document_handlers")
+    const ctx = createCtx()
+    const content = [
+      '<a data-type="entity-reference" data-reference-type="workItem" data-reference-id="item_1" href="/items/item_1">Item</a>',
+      '<a data-type="entity-reference" data-reference-type="document" data-reference-id="document_2" href="/docs/document_2">Doc</a>',
+      '<a data-type="entity-reference" data-reference-type="project" data-reference-id="project_1" href="/projects/project_1">Project</a>',
+      '<a data-type="entity-reference" data-reference-type="view" data-reference-id="view_1" href="/views/view_1">View</a>',
+    ].join("")
+
+    getDocumentDocMock.mockImplementation(async (_ctx, documentId: string) =>
+      documentId === "document_2"
+        ? {
+            _id: "document_2_db",
+            id: "document_2",
+            kind: "team-document",
+            workspaceId: "workspace_1",
+            teamId: "team_1",
+            title: "Reference doc",
+          }
+        : documentRecord
+    )
+    getWorkItemDocMock.mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: "team_1",
+      visibility: "team",
+      title: "Referenced item",
+    })
+    getProjectDocMock.mockResolvedValue({
+      _id: "project_1_db",
+      id: "project_1",
+      scopeType: "workspace",
+      scopeId: "workspace_1",
+    })
+    getViewDocMock.mockResolvedValue({
+      _id: "view_1_db",
+      id: "view_1",
+      scopeType: "workspace",
+      scopeId: "workspace_1",
+    })
+
+    await updateDocumentContentHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      documentId: "document_1",
+      content,
+    })
+
+    expect(ctx.db.patch).toHaveBeenCalledWith(
+      "document_1_db",
+      expect.objectContaining({
+        linkedDocumentIds: ["document_2"],
+        linkedProjectIds: ["project_1"],
+        linkedViewIds: ["view_1"],
+        linkedWorkItemIds: ["item_1"],
+      })
+    )
   })
 
   it("sends work-item self-mentions through notifications and email jobs", async () => {
@@ -523,7 +606,9 @@ describe("document mention notifications", () => {
           },
         ],
       })
-    ).rejects.toThrow("One or more mentioned users are invalid for this work item")
+    ).rejects.toThrow(
+      "One or more mentioned users are invalid for this work item"
+    )
 
     expect(createNotificationMock).not.toHaveBeenCalled()
     expect(queueEmailJobsMock).not.toHaveBeenCalled()
@@ -572,7 +657,9 @@ describe("document mention notifications", () => {
           },
         ],
       })
-    ).rejects.toThrow("One or more mentioned users are invalid for this document")
+    ).rejects.toThrow(
+      "One or more mentioned users are invalid for this document"
+    )
 
     expect(getWorkspaceUserIdsMock).not.toHaveBeenCalled()
     expect(getTeamMemberIdsMock).not.toHaveBeenCalled()
@@ -581,9 +668,8 @@ describe("document mention notifications", () => {
   })
 
   it("uses item-level private access before updating item descriptions", async () => {
-    const { updateItemDescriptionHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { updateItemDescriptionHandler } =
+      await import("@/convex/app/document_handlers")
     const data = await import("@/convex/app/data")
     const ctx = createCtx()
 
@@ -613,9 +699,8 @@ describe("document mention notifications", () => {
   })
 
   it("uses item-level private access before creating work item attachments", async () => {
-    const { createAttachmentHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { createAttachmentHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
 
     await mockPrivateAttachmentTargetAccessDenied()
@@ -638,9 +723,8 @@ describe("document mention notifications", () => {
   })
 
   it("uses item-level private access before issuing work item attachment upload URLs", async () => {
-    const { generateAttachmentUploadUrlHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { generateAttachmentUploadUrlHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
 
     await mockPrivateAttachmentTargetAccessDenied()
@@ -658,9 +742,8 @@ describe("document mention notifications", () => {
   })
 
   it("uses item-level private access before deleting work item attachments", async () => {
-    const { deleteAttachmentHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { deleteAttachmentHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
 
     getAttachmentDocMock.mockResolvedValue({
@@ -686,9 +769,8 @@ describe("document mention notifications", () => {
   })
 
   it("updates document title and content while preserving mention notification caps", async () => {
-    const { updateDocumentHandler } = await import(
-      "@/convex/app/document_handlers"
-    )
+    const { updateDocumentHandler } =
+      await import("@/convex/app/document_handlers")
     const ctx = createCtx()
 
     getDocumentDocMock.mockResolvedValue(documentRecord)

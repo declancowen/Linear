@@ -58,6 +58,10 @@ import {
   queueEmailJobs,
   queueMentionAndCommentEmailJobs,
 } from "./email_job_handlers"
+import {
+  markChatConversationRead,
+  markChatUnreadForUsers,
+} from "./chat_read_states"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -137,6 +141,17 @@ type SendChatMessageArgs = ServerAccessArgs & {
   messageId?: string
 }
 
+type UpdateChatMessageArgs = ServerAccessArgs & {
+  currentUserId: string
+  messageId: string
+  content: string
+}
+
+type DeleteChatMessageArgs = ServerAccessArgs & {
+  currentUserId: string
+  messageId: string
+}
+
 type ToggleChatMessageReactionArgs = ServerAccessArgs & {
   currentUserId: string
   messageId: string
@@ -188,6 +203,13 @@ type DeleteChannelPostCommentArgs = ServerAccessArgs & {
 type ToggleChannelPostReactionArgs = ServerAccessArgs & {
   currentUserId: string
   postId: string
+  emoji: string
+}
+
+type ToggleChannelPostCommentReactionArgs = ServerAccessArgs & {
+  currentUserId: string
+  postId: string
+  commentId: string
   emoji: string
 }
 
@@ -981,7 +1003,10 @@ export async function finalizeCallJoinHandler(
 
 async function resolveWritableChatConversation(
   ctx: MutationCtx,
-  args: SendChatMessageArgs
+  args: {
+    currentUserId: string
+    conversationId: string
+  }
 ): Promise<ChatConversation> {
   const conversation = await requireConversationAccess(
     ctx,
@@ -1000,7 +1025,9 @@ async function resolveWritableChatConversation(
 async function getChatMessageAudience(
   ctx: MutationCtx,
   conversation: ChatConversation,
-  args: SendChatMessageArgs
+  args: {
+    currentUserId: string
+  }
 ): Promise<ChatMessageAudience> {
   const audienceUserIds = await getConversationAudienceUserIds(
     ctx,
@@ -1050,7 +1077,9 @@ function assertExistingChatMessageReusable(
 function assertChatHasOtherParticipants(
   conversation: ChatConversation,
   audienceUserIds: string[],
-  args: SendChatMessageArgs
+  args: {
+    currentUserId: string
+  }
 ) {
   if (audienceUserIds.some((userId) => userId !== args.currentUserId)) {
     return
@@ -1139,43 +1168,6 @@ async function insertChatMentionNotifications({
   }
 }
 
-async function insertChatMessageNotifications({
-  args,
-  audienceUserIds,
-  context,
-  conversation,
-  ctx,
-  notifiedUserIds,
-}: {
-  args: SendChatMessageArgs
-  audienceUserIds: string[]
-  context: ChatNotificationContext
-  conversation: ChatConversation
-  ctx: MutationCtx
-  notifiedUserIds: Set<string>
-}) {
-  for (const audienceUserId of audienceUserIds) {
-    if (
-      audienceUserId === args.currentUserId ||
-      notifiedUserIds.has(audienceUserId)
-    ) {
-      continue
-    }
-
-    const notification = createNotification(
-      audienceUserId,
-      args.currentUserId,
-      `${context.actorName} sent you a message in ${context.entityTitle}`,
-      "chat",
-      conversation.id,
-      "message"
-    )
-
-    await ctx.db.insert("notifications", notification)
-    notifiedUserIds.add(audienceUserId)
-  }
-}
-
 export async function sendChatMessageHandler(
   ctx: MutationCtx,
   args: SendChatMessageArgs
@@ -1221,6 +1213,9 @@ export async function sendChatMessageHandler(
     conversation,
     audience.actorName
   )
+  const unreadUserIds = audience.audienceUserIds.filter(
+    (userId) => userId !== args.currentUserId
+  )
 
   await ctx.db.insert("chatMessages", {
     id: draft.messageId,
@@ -1234,6 +1229,17 @@ export async function sendChatMessageHandler(
     createdAt: now,
   })
 
+  await markChatConversationRead(ctx, {
+    userId: args.currentUserId,
+    conversationId: conversation.id,
+    now,
+  })
+  await markChatUnreadForUsers(ctx, {
+    conversationId: conversation.id,
+    userIds: unreadUserIds,
+    now,
+  })
+
   const mentionDelivery = await insertChatMentionNotifications({
     args,
     context: notificationContext,
@@ -1242,15 +1248,6 @@ export async function sendChatMessageHandler(
     mentionUserIds,
     messageText: draft.messageText,
     usersById: audience.usersById,
-  })
-
-  await insertChatMessageNotifications({
-    args,
-    audienceUserIds: audience.audienceUserIds,
-    context: notificationContext,
-    conversation,
-    ctx,
-    notifiedUserIds: mentionDelivery.notifiedUserIds,
   })
 
   await ctx.db.patch(conversation._id, {
@@ -1283,10 +1280,15 @@ export async function toggleChatMessageReactionHandler(
     throw new Error("Message not found")
   }
 
+  if (message.deletedAt) {
+    throw new Error("Message not found")
+  }
+
   await requireConversationAccess(
     ctx,
     await getConversationDoc(ctx, message.conversationId),
-    args.currentUserId
+    args.currentUserId,
+    "write"
   )
 
   await ctx.db.patch(message._id, {
@@ -1299,6 +1301,110 @@ export async function toggleChatMessageReactionHandler(
 
   return {
     ok: true,
+  }
+}
+
+function assertOwnedChatMessage(
+  message: NonNullable<Awaited<ReturnType<typeof getChatMessageDoc>>>,
+  currentUserId: string,
+  action: "delete" | "edit"
+) {
+  if (message.createdBy === currentUserId) {
+    return
+  }
+
+  throw new Error(
+    action === "edit"
+      ? "You can only edit your own messages"
+      : "You can only delete your own messages"
+  )
+}
+
+export async function updateChatMessageHandler(
+  ctx: MutationCtx,
+  args: UpdateChatMessageArgs
+) {
+  assertServerToken(args.serverToken)
+  const message = await getChatMessageDoc(ctx, args.messageId)
+
+  if (!message || message.deletedAt) {
+    throw new Error("Message not found")
+  }
+
+  assertOwnedChatMessage(message, args.currentUserId, "edit")
+
+  const conversation = await resolveWritableChatConversation(ctx, {
+    currentUserId: args.currentUserId,
+    conversationId: message.conversationId,
+  })
+  const audience = await getChatMessageAudience(ctx, conversation, args)
+  const mentionUserIds = createMentionIds(
+    args.content,
+    audience.users,
+    audience.audienceUserIds
+  )
+  const now = getNow()
+
+  await ctx.db.patch(message._id, {
+    content: args.content.trim(),
+    mentionUserIds,
+    editedAt: now,
+  })
+  await ctx.db.patch(conversation._id, {
+    updatedAt: now,
+  })
+
+  return {
+    ok: true,
+    messageId: message.id,
+    conversationId: conversation.id,
+  }
+}
+
+export async function deleteChatMessageHandler(
+  ctx: MutationCtx,
+  args: DeleteChatMessageArgs
+) {
+  assertServerToken(args.serverToken)
+  const message = await getChatMessageDoc(ctx, args.messageId)
+
+  if (!message) {
+    return {
+      ok: true,
+    }
+  }
+
+  assertOwnedChatMessage(message, args.currentUserId, "delete")
+
+  if (message.deletedAt) {
+    return {
+      ok: true,
+      messageId: message.id,
+      conversationId: message.conversationId,
+    }
+  }
+
+  const conversation = await resolveWritableChatConversation(ctx, {
+    currentUserId: args.currentUserId,
+    conversationId: message.conversationId,
+  })
+  const now = getNow()
+
+  await ctx.db.patch(message._id, {
+    content: "",
+    mentionUserIds: [],
+    reactions: [],
+    editedAt: null,
+    deletedAt: now,
+  })
+  await ctx.db.patch(conversation._id, {
+    updatedAt: now,
+  })
+
+  return {
+    ok: true,
+    messageId: message.id,
+    conversationId: conversation.id,
   }
 }
 
@@ -1330,6 +1436,43 @@ async function assertChannelPostIdAvailable(
   }
 }
 
+async function insertChannelPostAudienceNotifications(
+  ctx: MutationCtx,
+  input: {
+    actorName: string
+    audienceUserIds: string[]
+    contentPreview: string
+    currentUserId: string
+    entityTitle: string
+    notifiedUserIds: Set<string>
+    postId: string
+  }
+) {
+  for (const audienceUserId of input.audienceUserIds) {
+    if (
+      audienceUserId === input.currentUserId ||
+      input.notifiedUserIds.has(audienceUserId)
+    ) {
+      continue
+    }
+
+    const notification = createNotification(
+      audienceUserId,
+      input.currentUserId,
+      `${input.actorName} posted ${input.entityTitle}`,
+      "channelPost",
+      input.postId,
+      "message",
+      {
+        contentPreview: input.contentPreview,
+      }
+    )
+
+    await ctx.db.insert("notifications", notification)
+    input.notifiedUserIds.add(audienceUserId)
+  }
+}
+
 export async function createChannelPostHandler(
   ctx: MutationCtx,
   args: CreateChannelPostArgs
@@ -1352,6 +1495,7 @@ export async function createChannelPostHandler(
   ).filter((userId) => userId !== args.currentUserId)
   const entityTitle = args.title.trim() || "a channel post"
   const entityPath = await getChannelConversationPath(ctx, conversation, postId)
+  const contentPreview = getPlainTextContent(args.content)
 
   await ctx.db.insert("channelPosts", {
     id: postId,
@@ -1365,10 +1509,11 @@ export async function createChannelPostHandler(
     updatedAt: now,
   })
 
-  const { mentionEmails } = await insertMentionNotifications({
+  const { mentionEmails, notifiedUserIds } = await insertMentionNotifications({
     actorId: args.currentUserId,
     actorName: audience.actorName,
-    commentText: getPlainTextContent(args.content),
+    commentText: contentPreview,
+    contentPreview,
     ctx,
     entityId: postId,
     entityLabel: "channel post",
@@ -1377,6 +1522,15 @@ export async function createChannelPostHandler(
     entityType: "channelPost",
     mentionUserIds,
     usersById: audience.usersById,
+  })
+  await insertChannelPostAudienceNotifications(ctx, {
+    actorName: audience.actorName,
+    audienceUserIds: audience.audienceUserIds,
+    contentPreview,
+    currentUserId: args.currentUserId,
+    entityTitle,
+    notifiedUserIds,
+    postId,
   })
 
   await ctx.db.patch(conversation._id, {
@@ -1429,6 +1583,7 @@ export async function updateChannelPostHandler(
     content: args.content.trim(),
     mentionUserIds,
     updatedAt: now,
+    editedAt: now,
   })
 
   await ctx.db.patch(conversation._id, {
@@ -1526,6 +1681,7 @@ async function insertChannelPostComment(
     postId: input.postId,
     content: input.content.trim(),
     mentionUserIds: input.mentionUserIds,
+    reactions: [],
     createdBy: input.currentUserId,
     createdAt: input.now,
   })
@@ -1535,6 +1691,7 @@ async function insertChannelPostMentionNotifications(
   ctx: MutationCtx,
   input: {
     actorName: string
+    commentId: string
     commentText: string
     currentUserId: string
     entityPath: string
@@ -1562,7 +1719,11 @@ async function insertChannelPostMentionNotifications(
       `${input.actorName} mentioned you in ${input.entityTitle}`,
       "channelPost",
       input.postId,
-      "mention"
+      "mention",
+      {
+        contentPreview: input.commentText,
+        targetCommentId: input.commentId,
+      }
     )
 
     await ctx.db.insert("notifications", notification)
@@ -1593,6 +1754,7 @@ async function insertChannelPostFollowerNotifications(
   input: {
     actorName: string
     audienceUserIds: string[]
+    commentId: string
     commentText: string
     currentUserId: string
     entityPath: string
@@ -1625,7 +1787,11 @@ async function insertChannelPostFollowerNotifications(
       `${input.actorName} commented on ${input.entityTitle}`,
       "channelPost",
       input.post.id,
-      "comment"
+      "comment",
+      {
+        contentPreview: input.commentText,
+        targetCommentId: input.commentId,
+      }
     )
 
     await ctx.db.insert("notifications", notification)
@@ -1717,6 +1883,7 @@ export async function addChannelPostCommentHandler(
   })
   const mentionEmails = await insertChannelPostMentionNotifications(ctx, {
     actorName: audience.actorName,
+    commentId,
     commentText,
     currentUserId: args.currentUserId,
     entityPath,
@@ -1729,6 +1896,7 @@ export async function addChannelPostCommentHandler(
   const commentEmails = await insertChannelPostFollowerNotifications(ctx, {
     actorName: audience.actorName,
     audienceUserIds: audience.audienceUserIds,
+    commentId,
     commentText,
     currentUserId: args.currentUserId,
     entityPath,
@@ -1846,6 +2014,7 @@ export async function updateChannelPostCommentHandler(
   await ctx.db.patch(comment._id, {
     content: args.content.trim(),
     mentionUserIds: audience.mentionUserIds,
+    editedAt: now,
   })
   await touchChannelPostCommentThread(ctx, {
     conversation,
@@ -1932,6 +2101,36 @@ export async function toggleChannelPostReactionHandler(
   await ctx.db.patch(post._id, {
     reactions: toggleReactionUsers(
       post.reactions,
+      args.emoji.trim(),
+      args.currentUserId
+    ),
+  })
+
+  return {
+    ok: true,
+  }
+}
+
+export async function toggleChannelPostCommentReactionHandler(
+  ctx: MutationCtx,
+  args: ToggleChannelPostCommentReactionArgs
+) {
+  assertServerToken(args.serverToken)
+  const comment = await getChannelPostCommentDoc(ctx, args.commentId)
+
+  if (!comment || comment.postId !== args.postId) {
+    throw new Error("Comment not found")
+  }
+
+  await requireChannelPostWriteScope(ctx, {
+    channelKindErrorMessage: "Comments can only be added to channels",
+    currentUserId: args.currentUserId,
+    postId: args.postId,
+  })
+
+  await ctx.db.patch(comment._id, {
+    reactions: toggleReactionUsers(
+      comment.reactions ?? [],
       args.emoji.trim(),
       args.currentUserId
     ),
