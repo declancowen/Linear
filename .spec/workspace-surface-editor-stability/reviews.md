@@ -64,6 +64,33 @@ At the end:
   - `architecture-standards` preflight — passed.
   - `diff-review` preflight — passed.
 
+## PR Review Turn: Codex Review 2026-06-02 Follow-Up
+
+- Source: GitHub PR #48 Codex review by `chatgpt-codex-connector`, reviewed commit `08d667e173`.
+- Review-thread import: unresolved, not outdated thread `PRRT_kwDOR_9-1s6GcFkV` on `components/app/screens/work-surface-view.tsx` lines 1247-1251.
+- Linked tasks: 2.1, 2.2, 3.1, 10.1
+- Linked requirements: REQ-BULK-001, REQ-BULK-002, REQ-PERF-002, REQ-REVIEW-001
+- Archetypes: contract, optimistic-state, shared-ui, release-safety
+- Finding CXR-002 [P2]: Keep selection ranges scoped to rendered child rows.
+  - Root cause: visible row selection IDs used `getDirectChildWorkItemsForDisplay` without the active `scopedItems` pool, while board/list child rendering passed `scopedItems`. The selection controller could therefore build ranges from retained app data rather than rendered rows.
+  - Blast radius: multi-select range selection, selected-row context menus, bulk status/property mutations, assigned-items and filtered surfaces, and any retained read-model state where `data.workItems` is broader than the active work surface.
+  - Current reviewer claim: shift-click ranges or selected-row context menus can include hidden/off-scope child IDs and bulk-update them because target items are resolved from retained `data`.
+  - Remediation radius: must fix now.
+  - Proper fix target: work-surface selection ID construction in `components/app/screens/work-surface-view.tsx`; the selection controller remains a generic ordered-visible-ID consumer.
+  - Prevention artifact target: component regression proving shifted selection over visible child rows excludes retained children that are not in the active scoped item pool.
+- Required loop: use architecture-standards, run deep diff-review first after the fix, then normal clean-loop review until clean, validate, push to the PR, then wait for new feedback before making more changes.
+- Resolution: fixed by threading `scopedItems` into `getVisibleWorkSurfaceSelectionIds` and passing it through both board and list selection setup, so expanded child rows use the same source pool for selection IDs that rendering uses.
+- Deep review result: no additional code findings. The architecture boundary remains correct: `useWorkItemSelection` stays a generic ordered-visible-ID controller, while `WorkSurfaceView` owns the rendered-row contract and scoped child resolution.
+- Normal diff-review result: no remaining code findings after validation.
+- Validation:
+  - `pnpm exec vitest run tests/components/work-surface-view.test.tsx -t "keeps list selection ranges scoped to rendered child rows"` — passed, 1 test.
+  - `pnpm exec vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 88 tests.
+  - `pnpm exec eslint components/app/screens/work-surface-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed.
+  - `pnpm typecheck` — passed.
+  - `git diff --check` — passed.
+  - `architecture-standards` preflight — passed.
+  - `diff-review` preflight — passed.
+
 ## Initial Planning Review
 
 - Linked tasks: T-001 through T-010

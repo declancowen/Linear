@@ -2525,6 +2525,60 @@ describe("ListView", () => {
     )
   })
 
+  it("keeps list selection ranges scoped to rendered child rows", () => {
+    const parentItem = createWorkItem({
+      id: "parent_item",
+      key: "TES-1",
+      title: "Parent item",
+      status: "todo",
+      type: "epic",
+    })
+    const visibleChild = createWorkItem({
+      id: "visible_child",
+      key: "TES-2",
+      title: "Visible child",
+      status: "todo",
+      type: "feature",
+      parentId: parentItem.id,
+    })
+    const hiddenRetainedChild = createWorkItem({
+      id: "hidden_child",
+      key: "TES-3",
+      title: "Hidden retained child",
+      status: "todo",
+      type: "feature",
+      parentId: parentItem.id,
+    })
+    const data = {
+      ...createEditableData(),
+      workItems: [parentItem, visibleChild, hiddenRetainedChild],
+    }
+    const scopedItems = [parentItem, visibleChild]
+
+    render(
+      <ListView
+        data={data}
+        items={[parentItem]}
+        scopedItems={scopedItems}
+        view={createView("list", ["status"], {
+          showChildItems: true,
+        })}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByLabelText("Expand sub-issues"))
+    fireEvent.click(screen.getByLabelText("Select TES-1"))
+    fireEvent.click(screen.getByText("Visible child"), { shiftKey: true })
+
+    expect(
+      screen.getByTestId("issue-context-targets-parent_item")
+    ).toHaveTextContent("parent_item,visible_child")
+    expect(
+      screen.getByTestId("issue-context-targets-parent_item")
+    ).not.toHaveTextContent("hidden_child")
+  })
+
   it("does not show bulk selection controls in read-only list rows", () => {
     const data = createData()
 

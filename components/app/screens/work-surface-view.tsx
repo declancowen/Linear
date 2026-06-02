@@ -1213,6 +1213,7 @@ function getVisibleWorkSurfaceSelectionIds({
   data,
   expandedItemIds,
   groups,
+  scopedItems,
   showChildItems,
   view,
 }: {
@@ -1221,6 +1222,7 @@ function getVisibleWorkSurfaceSelectionIds({
   data: AppData
   expandedItemIds: Set<string>
   groups: Array<[string, Map<string, WorkItem[]>]>
+  scopedItems?: WorkItem[]
   showChildItems: boolean
   view: ViewDefinition
 }) {
@@ -1248,7 +1250,7 @@ function getVisibleWorkSurfaceSelectionIds({
           item,
           view.ordering,
           view,
-          undefined,
+          scopedItems,
           {
             mode: childDisplayMode,
           }
@@ -1322,6 +1324,7 @@ export function BoardView({
       data,
       expandedItemIds,
       groups: visibleGroups,
+      scopedItems,
       showChildItems,
       view,
     })
@@ -1634,6 +1637,7 @@ export function ListView({
       data,
       expandedItemIds,
       groups: visibleSelectionGroups,
+      scopedItems,
       showChildItems,
       view,
     })
