@@ -135,6 +135,25 @@ function createCascadeDeleteTeamCtx() {
   }
 }
 
+function createViewFilters() {
+  return {
+    status: [],
+    priority: [],
+    assigneeIds: [],
+    creatorIds: [],
+    leadIds: [],
+    health: [],
+    milestoneIds: [],
+    relationTypes: [],
+    projectIds: [],
+    parentIds: [],
+    labelIds: [],
+    teamIds: [],
+    visibility: [],
+    showCompleted: false,
+  }
+}
+
 describe("cleanup handlers", () => {
   it("keeps private work items when deleting a team", async () => {
     const ctx = createCascadeDeleteTeamCtx()
@@ -182,8 +201,85 @@ describe("cleanup handlers", () => {
     ])
   })
 
-  it("clears deleted entity reference ids from persisted comment metadata", async () => {
+  it("clears deleted team view references when preserving private work items", async () => {
     const ctx = createCascadeDeleteTeamCtx()
+    const privateDescription = ctx.tables.documents.find(
+      (document) => document.id === "private_description"
+    )
+    const privateWorkItem = ctx.tables.workItems.find(
+      (workItem) => workItem.id === "private_item"
+    )
+
+    Object.assign(privateDescription ?? {}, {
+      linkedViewIds: ["team_view", "kept_view"],
+    })
+    Object.assign(privateWorkItem ?? {}, {
+      referencedViewIds: ["team_view", "kept_view"],
+    })
+    ;(ctx.tables.comments as unknown[]).push({
+      _id: "comment_doc",
+      id: "comment_1",
+      targetType: "workItem",
+      targetId: "private_item",
+      parentCommentId: null,
+      content: "<p>References</p>",
+      mentionUserIds: [],
+      referencedViewIds: ["team_view", "kept_view"],
+      reactions: [],
+      createdBy: "user_1",
+      createdAt: "2026-04-17T10:00:00.000Z",
+    })
+    ;(ctx.tables.views as unknown[]).push({
+      _id: "team_view_doc",
+      id: "team_view",
+      scopeType: "team",
+      scopeId: "team_1",
+      filters: createViewFilters(),
+    })
+
+    await cascadeDeleteTeamData(ctx as never, {
+      currentUserId: "user_1",
+      teamId: "team_1",
+      syncWorkspaceChannel: false,
+      cleanupGlobalState: false,
+    })
+
+    expect(
+      ctx.tables.documents.find(
+        (document) => document.id === "private_description"
+      )
+    ).toMatchObject({
+      linkedViewIds: ["kept_view"],
+    })
+    expect(
+      ctx.tables.workItems.find((workItem) => workItem.id === "private_item")
+    ).toMatchObject({
+      referencedViewIds: ["kept_view"],
+    })
+    expect(ctx.tables.comments[0]).toMatchObject({
+      referencedViewIds: ["kept_view"],
+    })
+  })
+
+  it("clears deleted entity reference ids from persisted document, work item, and comment metadata", async () => {
+    const ctx = createCascadeDeleteTeamCtx()
+    const privateDescription = ctx.tables.documents.find(
+      (document) => document.id === "private_description"
+    )
+    const privateWorkItem = ctx.tables.workItems.find(
+      (workItem) => workItem.id === "private_item"
+    )
+
+    Object.assign(privateDescription ?? {}, {
+      linkedProjectIds: ["deleted_project", "kept_project"],
+      linkedWorkItemIds: ["deleted_item", "private_item"],
+      linkedDocumentIds: ["deleted_doc", "team_document"],
+      linkedViewIds: ["deleted_view", "view_1"],
+    })
+    Object.assign(privateWorkItem ?? {}, {
+      referencedProjectIds: ["deleted_project", "kept_project"],
+      referencedViewIds: ["deleted_view", "view_1"],
+    })
     ;(ctx.tables.comments as unknown[]).push({
       _id: "comment_doc",
       id: "comment_1",
@@ -195,7 +291,7 @@ describe("cleanup handlers", () => {
       referencedWorkItemIds: ["deleted_item", "private_item"],
       referencedDocumentIds: ["deleted_doc", "private_description"],
       referencedProjectIds: ["deleted_project", "kept_project"],
-      referencedViewIds: ["view_1"],
+      referencedViewIds: ["deleted_view", "view_1"],
       reactions: [],
       createdBy: "user_1",
       createdAt: "2026-04-17T10:00:00.000Z",
@@ -205,9 +301,26 @@ describe("cleanup handlers", () => {
       currentUserId: "user_1",
       deletedDocumentIds: new Set(["deleted_doc"]),
       deletedProjectIds: new Set(["deleted_project"]),
+      deletedViewIds: new Set(["deleted_view"]),
       deletedWorkItemIds: new Set(["deleted_item"]),
     })
 
+    expect(
+      ctx.tables.workItems.find((workItem) => workItem.id === "private_item")
+    ).toMatchObject({
+      referencedProjectIds: ["kept_project"],
+      referencedViewIds: ["view_1"],
+    })
+    expect(
+      ctx.tables.documents.find(
+        (document) => document.id === "private_description"
+      )
+    ).toMatchObject({
+      linkedProjectIds: ["kept_project"],
+      linkedWorkItemIds: ["private_item"],
+      linkedDocumentIds: ["team_document"],
+      linkedViewIds: ["view_1"],
+    })
     expect(ctx.tables.comments[0]).toMatchObject({
       referencedWorkItemIds: ["private_item"],
       referencedDocumentIds: ["private_description"],

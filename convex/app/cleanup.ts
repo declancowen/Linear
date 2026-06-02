@@ -111,6 +111,7 @@ type DeletedLinkIds = {
   deletedDocumentIds: Set<string>
   deletedMilestoneIds: Set<string>
   deletedProjectIds: Set<string>
+  deletedViewIds: Set<string>
   deletedWorkItemIds: Set<string>
 }
 
@@ -742,11 +743,13 @@ function getDeletedLinkIds(input: {
   deletedWorkItemIds?: Set<string>
   deletedProjectIds?: Set<string>
   deletedMilestoneIds?: Set<string>
+  deletedViewIds?: Set<string>
 }): DeletedLinkIds {
   return {
     deletedDocumentIds: input.deletedDocumentIds ?? new Set<string>(),
     deletedMilestoneIds: input.deletedMilestoneIds ?? new Set<string>(),
     deletedProjectIds: input.deletedProjectIds ?? new Set<string>(),
+    deletedViewIds: input.deletedViewIds ?? new Set<string>(),
     deletedWorkItemIds: input.deletedWorkItemIds ?? new Set<string>(),
   }
 }
@@ -767,11 +770,17 @@ function getDocumentLinkCleanupPatch(
     document.linkedDocumentIds ?? [],
     deletedIds.deletedDocumentIds
   )
+  const nextLinkedViewIds = filterRemovedIds(
+    document.linkedViewIds ?? [],
+    deletedIds.deletedViewIds
+  )
 
   if (
     nextLinkedProjectIds.length === document.linkedProjectIds.length &&
     nextLinkedWorkItemIds.length === document.linkedWorkItemIds.length &&
-    nextLinkedDocumentIds.length === (document.linkedDocumentIds ?? []).length
+    nextLinkedDocumentIds.length ===
+      (document.linkedDocumentIds ?? []).length &&
+    nextLinkedViewIds.length === (document.linkedViewIds ?? []).length
   ) {
     return null
   }
@@ -780,6 +789,7 @@ function getDocumentLinkCleanupPatch(
     linkedProjectIds: nextLinkedProjectIds,
     linkedWorkItemIds: nextLinkedWorkItemIds,
     linkedDocumentIds: nextLinkedDocumentIds,
+    linkedViewIds: nextLinkedViewIds,
   }
 }
 
@@ -830,6 +840,10 @@ function getWorkItemLinkCleanupPatch(
     workItem.referencedProjectIds ?? [],
     deletedIds.deletedProjectIds
   )
+  const nextReferencedViewIds = filterRemovedIds(
+    workItem.referencedViewIds ?? [],
+    deletedIds.deletedViewIds
+  )
   const nextPrimaryProjectId = getWorkItemProjectLinkAfterDelete(
     workItem.primaryProjectId,
     deletedIds.deletedProjectIds
@@ -845,6 +859,7 @@ function getWorkItemLinkCleanupPatch(
       linkedProjectIds: nextLinkedProjectIds,
       linkedWorkItemIds: nextLinkedWorkItemIds,
       referencedProjectIds: nextReferencedProjectIds,
+      referencedViewIds: nextReferencedViewIds,
       primaryProjectId: nextPrimaryProjectId,
       milestoneId: nextMilestoneId,
     })
@@ -857,6 +872,7 @@ function getWorkItemLinkCleanupPatch(
     linkedProjectIds: nextLinkedProjectIds,
     linkedWorkItemIds: nextLinkedWorkItemIds,
     referencedProjectIds: nextReferencedProjectIds,
+    referencedViewIds: nextReferencedViewIds,
     primaryProjectId: nextPrimaryProjectId,
     milestoneId: nextMilestoneId,
   }
@@ -885,6 +901,7 @@ function workItemLinkCleanupPatchChanged(
     linkedProjectIds: string[]
     linkedWorkItemIds: string[]
     referencedProjectIds: string[]
+    referencedViewIds: string[]
     primaryProjectId: string | null
     milestoneId: string | null
   }
@@ -896,6 +913,8 @@ function workItemLinkCleanupPatchChanged(
       (workItem.linkedWorkItemIds ?? []).length ||
     patch.referencedProjectIds.length !==
       (workItem.referencedProjectIds ?? []).length ||
+    patch.referencedViewIds.length !==
+      (workItem.referencedViewIds ?? []).length ||
     patch.primaryProjectId !== workItem.primaryProjectId ||
     patch.milestoneId !== workItem.milestoneId
   )
@@ -942,6 +961,10 @@ function getCommentReferenceCleanupPatch(
     comment.referencedProjectIds ?? [],
     deletedIds.deletedProjectIds
   )
+  const nextReferencedViewIds = filterRemovedIds(
+    comment.referencedViewIds ?? [],
+    deletedIds.deletedViewIds
+  )
 
   if (
     nextReferencedWorkItemIds.length ===
@@ -949,7 +972,8 @@ function getCommentReferenceCleanupPatch(
     nextReferencedDocumentIds.length ===
       (comment.referencedDocumentIds ?? []).length &&
     nextReferencedProjectIds.length ===
-      (comment.referencedProjectIds ?? []).length
+      (comment.referencedProjectIds ?? []).length &&
+    nextReferencedViewIds.length === (comment.referencedViewIds ?? []).length
   ) {
     return null
   }
@@ -958,6 +982,7 @@ function getCommentReferenceCleanupPatch(
     referencedWorkItemIds: nextReferencedWorkItemIds,
     referencedDocumentIds: nextReferencedDocumentIds,
     referencedProjectIds: nextReferencedProjectIds,
+    referencedViewIds: nextReferencedViewIds,
   }
 }
 
@@ -987,6 +1012,7 @@ export async function cleanupRemainingLinksAfterDelete(
     deletedWorkItemIds?: Set<string>
     deletedProjectIds?: Set<string>
     deletedMilestoneIds?: Set<string>
+    deletedViewIds?: Set<string>
   }
 ) {
   const deletedIds = getDeletedLinkIds(input)
@@ -1754,6 +1780,7 @@ export async function cascadeDeleteTeamData(
     deletedWorkItemIds,
     deletedProjectIds,
     deletedMilestoneIds,
+    deletedViewIds: new Set(views.map((view) => view.id)),
   })
   await cleanupViewFiltersForDeletedEntities(ctx, {
     deletedTeamIds: new Set([team.id]),

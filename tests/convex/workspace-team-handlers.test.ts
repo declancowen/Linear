@@ -792,6 +792,12 @@ describe("workspace and team deletion handlers", () => {
     cascadeDeleteTeamDataMock.mockResolvedValue({
       teamId: "team_1",
     })
+    listViewsByScopeMock.mockResolvedValue([
+      {
+        _id: "workspace_view_doc",
+        id: "workspace_view_1",
+      },
+    ])
 
     const result = await deleteWorkspaceHandler(ctx as never, {
       serverToken: "server_token",
@@ -822,6 +828,13 @@ describe("workspace and team deletion handlers", () => {
       cleanupGlobalState: false,
       includePrivateWorkItems: true,
     })
+    expect(cleanupRemainingLinksAfterDeleteMock).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({
+        currentUserId: "user_1",
+        deletedViewIds: new Set(["workspace_view_1"]),
+      })
+    )
     expect(ctx.db.insert).not.toHaveBeenCalled()
     expect(buildAccessChangeEmailJobsMock).toHaveBeenCalledWith({
       origin: "https://app.example.com",

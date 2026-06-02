@@ -630,6 +630,7 @@ export async function deleteProjectHandler(
     currentUserId: args.currentUserId,
     deletedProjectIds,
     deletedMilestoneIds,
+    deletedViewIds: new Set(viewsToDelete.map((view) => view.id)),
   })
   await cleanupViewFiltersForDeletedEntities(ctx, {
     deletedProjectIds,

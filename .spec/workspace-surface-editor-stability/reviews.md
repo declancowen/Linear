@@ -38,6 +38,32 @@ At the end:
 3. Record the final prompt coverage audit.
 4. Commit, push, and create a non-draft PR targeting `main`.
 
+## PR Review Turn: Codex Review 2026-06-02
+
+- Source: GitHub PR #48 Codex review by `chatgpt-codex-connector`, reviewed commit `da313393c8`.
+- Review-thread import: unresolved, not outdated thread `PRRT_kwDOR_9-1s6GbfCU` on `convex/app/cleanup.ts` lines 829-832.
+- Linked tasks: 4.1, 10.1
+- Linked requirements: REQ-REF-002, REQ-REVIEW-001
+- Archetypes: contract, architecture, release-safety, fallback-state
+- Finding CXR-001 [P2]: Clear `referencedViewIds` during deletion cleanup.
+  - Root cause: the final branch added durable rich-text view references but the server cleanup path only cleared `referencedProjectIds` for remaining work items/comments when project/team-owned views are deleted.
+  - Blast radius: project deletion, team deletion, view deletion cleanup, rich-text backlinks/reference relationships on documents, work items, and comments, scoped read-model payloads that include stale server-side relationships.
+  - Current reviewer claim: client-side removal filters deleted view ids, but Convex `cleanupRemainingLinksAfterDelete` leaves server-side stale `referencedViewIds` when associated views are deleted.
+  - Remediation radius: must fix now.
+  - Proper fix target: cleanup owner in `convex/app/cleanup.ts`, not UI/sidebar/read-model presentation. Server cleanup must clear `referencedViewIds` anywhere it already clears durable reference relationships.
+  - Prevention artifact target: Convex cleanup regression proving deleted view ids are removed from work item, document, and comment reference fields.
+- Required loop: use architecture-standards, run deep diff-review first after the fix, then normal clean-loop review until clean, validate, push to the PR, then wait for new feedback before making more changes.
+- Resolution: fixed in the server cleanup owner by adding deleted view IDs to `cleanupRemainingLinksAfterDelete`, clearing document `linkedViewIds`, work item `referencedViewIds`, and comment `referencedViewIds`, and passing deleted view sets from project, team, and workspace delete paths.
+- Deep review result: the architecture pass found one sibling gap beyond the original work-item/comment review text: documents persist view references as `linkedViewIds`, not `referencedViewIds`. That is fixed in the same server cleanup contract. The pass also found one test fixture precision issue and moved stale-link fixtures into the specific regression.
+- Normal diff-review result: no remaining code findings after the deep-review fixes.
+- Validation:
+  - `pnpm exec vitest run tests/convex/cleanup.test.ts tests/convex/project-handlers.test.ts tests/convex/workspace-team-handlers.test.ts` — passed, 3 files / 22 tests.
+  - `pnpm exec eslint convex/app/cleanup.ts convex/app/project_handlers.ts convex/app/workspace_team_handlers.ts tests/convex/cleanup.test.ts tests/convex/project-handlers.test.ts tests/convex/workspace-team-handlers.test.ts --max-warnings 0` — passed.
+  - `pnpm typecheck` — passed.
+  - `git diff --check` — passed.
+  - `architecture-standards` preflight — passed.
+  - `diff-review` preflight — passed.
+
 ## Initial Planning Review
 
 - Linked tasks: T-001 through T-010
