@@ -415,4 +415,4 @@ At the end:
 - Prompt audit: the original prompt and every follow-up through chat read/edited metadata, T-006/T-007 collaboration dependency, broad performance audit scope, repo-audit taxonomy, architecture-standards use, per-slice diff-review loops, and no-browser-smoke instruction are covered.
 - Spec drift: none found in the final total-diff review. Any future normalized reference graph, durable Yjs canonical migration, production observability dashboard, backend batch mutation, or broad component decomposition remains deferred until separate evidence justifies it.
 - Residual risk: manual browser verification is user-owned; Fallow complexity/duplication is advisory branch debt; per-message chat receipt maps may need future compaction for very large chats if measured payload pressure appears.
-- PR: pending creation after commit/push; append PR URL after non-draft PR creation.
+- PR: non-draft PR #48 created against `main`: https://github.com/declancowen/Linear/pull/48

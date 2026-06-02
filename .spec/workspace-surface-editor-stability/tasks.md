@@ -31,9 +31,9 @@ last_updated: 2026-06-02
   - T-008 must pause and update design if existing chat/message persistence cannot represent first-read timestamps without a schema contract change.
 
 ## Execution Status Summary
-- To do: 10.1
+- To do: none
 - In progress: none
-- Completed: 1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1
+- Completed: 1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1, 10.1
 - Deferred: none
 - Blocked: none
 
@@ -214,9 +214,9 @@ last_updated: 2026-06-02
     - Audit archetypes: `performance`, `architecture`, `background-work`, `release-safety`
     - _Requirements: REQ-PERF-001, REQ-DIAG-001, REQ-REVIEW-001_
 
-- [ ] 10. Final validation, total review, and PR
-  - [ ] 10.1 Run final gates, coverage audit, total-diff review loop, and create PR
-    - Status: todo
+- [x] 10. Final validation, total review, and PR
+  - [x] 10.1 Run final gates, coverage audit, total-diff review loop, and create PR
+    - Status: completed
     - Depends on: 1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1
     - Likely areas: full working tree, `.spec/workspace-surface-editor-stability/*`, validation commands, GitHub PR flow
     - Validation: targeted Vitest suites for each slice, broader checks `pnpm lint`, `pnpm typecheck`, focused component/store/read-model/collaboration tests, Fallow/static evidence review where relevant, and code-level diagnostics evidence for representative app surfaces and editor flows
@@ -226,8 +226,8 @@ last_updated: 2026-06-02
     - Pre-implementation context check: read all DES/REQ/task entries, all slice reviews, current diff, validation evidence, and architecture standards
     - Test creation review: final audit verifies tests cover behavior, negative cases, persistence, access, performance, hydration, and rollback-safety
     - Slice review loop: run final total-diff deep diff-review against original prompt, all follow-ups, spec artifacts, architecture-standards, repo-audit taxonomy, live repo evidence, and validation; fix findings; run normal diff-review loops until clean; record final prompt coverage audit; commit; push; create a non-draft PR targeting `main`
-    - Post-implementation review: record final validation, total-diff findings/fixes, PR details, and any residual risk after PR creation
-    - Spec drift check: record final prompt and follow-up coverage audit before commit/PR
+    - Post-implementation review: completed; final validation passed, final total-diff deep/normal review found no remaining release blocker, browser smoke was skipped per user instruction, and non-draft PR #48 was created against `main`
+    - Spec drift check: completed; final prompt and follow-up coverage audit is recorded in `reviews.md`
     - Audit archetypes: `release-safety`, `architecture`, `performance`, `contract`
     - _Requirements: REQ-REVIEW-001_
 
