@@ -113,3 +113,18 @@ export function getWorkItemCommentRichTextReferenceRelationships(
     content
   )
 }
+
+export function getDocumentCommentRichTextReferenceRelationships(
+  data: AppData,
+  document: Document,
+  content: string
+) {
+  return getRichTextReferenceRelationships(
+    data,
+    {
+      type: "document",
+      documentId: document.id,
+    },
+    content
+  )
+}

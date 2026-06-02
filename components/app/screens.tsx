@@ -3578,17 +3578,21 @@ function TeamWorkScreenContent({
 
 export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
   const { team } = useRetainedTeamBySlug(teamSlug)
-  const { hasLoadedOnce } = useScopedReadModelRefresh({
-    enabled: Boolean(team?.id),
-    scopeKeys: getTeamWorkScopeKeys(team),
-    fetchLatest: () => fetchTeamWorkReadModel(team),
-  })
   const views = useAppStore(
     useShallow((state) => selectTeamWorkViews(state, team))
   )
   const items = useAppStore(
     useShallow((state) => selectTeamWorkItems(state, team))
   )
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(team?.id),
+    scopeKeys: getTeamWorkScopeKeys(team),
+    fetchLatest: () => fetchTeamWorkReadModel(team),
+    diagnostics: {
+      retainedData: items.length > 0 || views.length > 0,
+      surface: "team/work-items",
+    },
+  })
 
   return (
     <TeamWorkScreenContent
@@ -3687,17 +3691,21 @@ export function WorkspaceItemsScreen() {
   const workspace = useAppStore(getCurrentWorkspace) ?? null
   const workspaceId = workspace?.id ?? null
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
-  const { hasLoadedOnce } = useScopedReadModelRefresh({
-    enabled: Boolean(workspaceId),
-    scopeKeys: getWorkspaceItemsScopeKeys(workspaceId),
-    fetchLatest: () => fetchWorkspaceItemsReadModel(workspaceId),
-  })
   const views = useAppStore(
     useShallow((state) => selectWorkspaceItemViews(state, workspaceId))
   )
   const items = useAppStore(
     useShallow((state) => selectWorkspaceVisibleItems(state, workspaceId))
   )
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(workspaceId),
+    scopeKeys: getWorkspaceItemsScopeKeys(workspaceId),
+    fetchLatest: () => fetchWorkspaceItemsReadModel(workspaceId),
+    diagnostics: {
+      retainedData: items.length > 0 || views.length > 0,
+      surface: "workspace/work-items",
+    },
+  })
   const workspaceExperience = useAppStore(selectWorkspaceItemsExperience)
 
   return (
@@ -3720,13 +3728,6 @@ export function AssignedScreen() {
     }))
   )
   const team = useAppStore((state) => getTeam(state, activeTeamId))
-  const { hasLoadedOnce } = useScopedReadModelRefresh({
-    enabled: Boolean(currentUserId),
-    scopeKeys: currentUserId
-      ? getWorkIndexScopeKeys("personal", currentUserId)
-      : [],
-    fetchLatest: () => fetchWorkIndexReadModel("personal", currentUserId ?? ""),
-  })
   const assignedViewExperience = useAppStore((state) => {
     return getSharedTeamExperience(
       getAccessibleTeams(state).map(
@@ -3755,6 +3756,17 @@ export function AssignedScreen() {
       })
     )
   )
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(currentUserId),
+    scopeKeys: currentUserId
+      ? getWorkIndexScopeKeys("personal", currentUserId)
+      : [],
+    fetchLatest: () => fetchWorkIndexReadModel("personal", currentUserId ?? ""),
+    diagnostics: {
+      retainedData: items.length > 0 || views.length > 0,
+      surface: "workspace/assigned-items",
+    },
+  })
   const fallbackViews = useMemo(() => {
     if (!currentUserId) {
       return []
@@ -3938,16 +3950,20 @@ export function UserCalendarScreen() {
       currentUserId: state.currentUserId,
     }))
   )
-  const { hasLoadedOnce } = useScopedReadModelRefresh({
-    enabled: Boolean(currentUserId),
-    scopeKeys: getPersonalWorkScopeKeys(currentUserId),
-    fetchLatest: () => fetchPersonalWorkReadModel(currentUserId),
-  })
   const calendarItems = useAppStore(
     useShallow((state) =>
       getVisibleWorkItems(state, { assignedToCurrentUser: true })
     )
   )
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(currentUserId),
+    scopeKeys: getPersonalWorkScopeKeys(currentUserId),
+    fetchLatest: () => fetchPersonalWorkReadModel(currentUserId),
+    diagnostics: {
+      retainedData: calendarItems.length > 0,
+      surface: "workspace/calendar",
+    },
+  })
   const calendarFilterView = useMemo<ViewDefinition>(
     () =>
       createUserCalendarFilterView({
@@ -4023,12 +4039,6 @@ function useProjectsScreenReadModel(input: {
   scopeType: ScopeType
 }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
-  const { hasLoadedOnce } = useScopedReadModelRefresh({
-    enabled: Boolean(input.scopeId),
-    scopeKeys: getProjectIndexScopeKeys(input.scopeType, input.scopeId),
-    fetchLatest: () =>
-      fetchProjectIndexReadModel(input.scopeType, input.scopeId),
-  })
   const projects = useAppStore(
     useShallow((state) =>
       getProjectsForScope(state, input.scopeType, input.scopeId)
@@ -4039,6 +4049,16 @@ function useProjectsScreenReadModel(input: {
       getViewsForScope(state, input.scopeType, input.scopeId, "projects")
     )
   )
+  const { hasLoadedOnce } = useScopedReadModelRefresh({
+    enabled: Boolean(input.scopeId),
+    scopeKeys: getProjectIndexScopeKeys(input.scopeType, input.scopeId),
+    fetchLatest: () =>
+      fetchProjectIndexReadModel(input.scopeType, input.scopeId),
+    diagnostics: {
+      retainedData: projects.length > 0 || projectViews.length > 0,
+      surface: `${input.scopeType}/projects`,
+    },
+  })
 
   return {
     data,
@@ -4316,6 +4336,10 @@ export function ViewsScreen({
     enabled: Boolean(scopeId),
     scopeKeys: getViewCatalogScopeKeys(scopeType, scopeId),
     fetchLatest: () => fetchViewCatalogReadModel(scopeType, scopeId),
+    diagnostics: {
+      retainedData: Boolean(scopeId),
+      surface: `${scopeType}/views`,
+    },
   })
   const views = useAppStore(
     useShallow((state) =>
@@ -4484,6 +4508,10 @@ export function DocsScreen({
     enabled: Boolean(scopeId),
     scopeKeys: getDocumentIndexScopeKeys(scopeType, scopeId, currentUserId),
     fetchLatest: () => fetchDocumentIndexReadModel(scopeType, scopeId),
+    diagnostics: {
+      retainedData: Boolean(scopeId),
+      surface: `${scopeType}/documents`,
+    },
   })
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
   const persistedTeamDocViews = useAppStore(

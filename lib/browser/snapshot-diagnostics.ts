@@ -4,6 +4,8 @@ type SnapshotDiagnosticsState = {
   collaborationFailureCount: number
   collaborationJoinCount: number
   fallbackCount: number
+  firstUsefulRenderCount: number
+  mutationReconciliationCount: number
   reconnectCount: number
   scopedReconnectCount: number
   scopedRefreshCount: number
@@ -26,6 +28,8 @@ function getState() {
       scopedReconnectCount: 0,
       scopedRefreshCount: 0,
       fallbackCount: 0,
+      firstUsefulRenderCount: 0,
+      mutationReconciliationCount: 0,
       collaborationJoinCount: 0,
       collaborationFailureCount: 0,
     }
@@ -133,6 +137,56 @@ export function reportScopedReadModelDiagnostic(input: {
     status: input.status,
     errorMessage: input.errorMessage,
     refreshCount: state.scopedRefreshCount,
+  })
+}
+
+export function reportFirstUsefulRenderDiagnostic(input: {
+  durationMs: number
+  readModelLoaded: boolean
+  refreshing: boolean
+  retainedData: boolean
+  scopeKeys: string[]
+  surface: string
+}) {
+  if (!isEnabled()) {
+    return
+  }
+
+  const state = getState()
+  state.firstUsefulRenderCount += 1
+
+  console.debug("[surface] first useful render", {
+    durationMs: roundDuration(input.durationMs),
+    readModelLoaded: input.readModelLoaded,
+    refreshing: input.refreshing,
+    retainedData: input.retainedData,
+    scopeKeys: input.scopeKeys,
+    surface: input.surface,
+    renderCount: state.firstUsefulRenderCount,
+  })
+}
+
+export function reportMutationReconciliationDiagnostic(input: {
+  durationMs: number
+  label: string
+  refreshStrategy: "none" | "snapshot"
+  status: "success" | "failure" | "ignored"
+  errorMessage?: string
+}) {
+  if (!isEnabled()) {
+    return
+  }
+
+  const state = getState()
+  state.mutationReconciliationCount += 1
+
+  console.debug("[mutation] reconciliation", {
+    durationMs: roundDuration(input.durationMs),
+    errorMessage: input.errorMessage,
+    label: input.label,
+    refreshStrategy: input.refreshStrategy,
+    status: input.status,
+    reconciliationCount: state.mutationReconciliationCount,
   })
 }
 

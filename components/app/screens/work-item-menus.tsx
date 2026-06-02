@@ -14,10 +14,12 @@ import {
   FolderSimple,
   PencilSimple,
   Plus,
+  Tag,
   Trash,
   Check,
 } from "@phosphor-icons/react"
 
+import { PhosphorIconGlyph } from "@/components/app/phosphor-icon-picker"
 import { useAppRouter } from "@/lib/browser/app-navigation"
 import {
   canEditTeam,
@@ -32,15 +34,24 @@ import {
   priorityMeta,
   statusMeta,
   type AppData,
+  type CustomPropertyDefinition,
+  type CustomPropertyValue,
+  type DisplayProperty,
   type Priority,
   type WorkItem,
   type WorkStatus,
+  getCustomPropertyIdFromDisplayReference,
 } from "@/lib/domain/types"
 import {
   getWorkItemAssigneeIds,
   toggleWorkItemAssigneeId,
 } from "@/lib/domain/work-item-assignees"
-import { useAppStore } from "@/lib/store/app-store"
+import {
+  isCustomPropertyDefinitionForWorkItem,
+  isLabelAssignableToWorkItem,
+  sortLabelsByName,
+} from "@/lib/domain/labels"
+import { useAppStore, type AppStore } from "@/lib/store/app-store"
 import { ProjectIconGlyph } from "@/components/app/entity-icons"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
@@ -66,7 +77,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { getTeamProjectOptions } from "./helpers"
-import { PriorityIcon, StatusIcon } from "./shared"
+import { LabelColorDot, PriorityIcon, StatusIcon } from "./shared"
 import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import { WorkItemAssigneeAvatar } from "./work-item-ui"
 
@@ -139,11 +150,13 @@ function WorkItemStatusMenuSection({
   item,
   menu,
   statusOptions,
+  targetItems,
 }: {
   editable: boolean
   item: WorkItem
   menu: WorkItemMenuComponents
   statusOptions: WorkStatus[]
+  targetItems: WorkItem[]
 }) {
   const { MenuItem, MenuSub, MenuSubContent, MenuSubTrigger } = menu
 
@@ -157,9 +170,7 @@ function WorkItemStatusMenuSection({
         {statusOptions.map((status) => (
           <MenuItem
             key={`${item.id}-${status}`}
-            onSelect={() =>
-              useAppStore.getState().updateWorkItem(item.id, { status })
-            }
+            onSelect={() => updateTargetWorkItems(targetItems, { status })}
           >
             <StatusIcon status={status} />
             <span>{statusMeta[status].label}</span>
@@ -174,10 +185,12 @@ function WorkItemPriorityMenuSection({
   editable,
   item,
   menu,
+  targetItems,
 }: {
   editable: boolean
   item: WorkItem
   menu: WorkItemMenuComponents
+  targetItems: WorkItem[]
 }) {
   const { MenuItem, MenuSub, MenuSubContent, MenuSubTrigger } = menu
 
@@ -192,7 +205,7 @@ function WorkItemPriorityMenuSection({
           <MenuItem
             key={`${item.id}-${priority}`}
             onSelect={() =>
-              useAppStore.getState().updateWorkItem(item.id, {
+              updateTargetWorkItems(targetItems, {
                 priority: priority as Priority,
               })
             }
@@ -213,6 +226,7 @@ function WorkItemAssigneeMenuSection({
   editable,
   item,
   menu,
+  targetItems,
 }: {
   assigneeMenuMembers: AppData["users"]
   currentUser: AppData["users"][number] | null
@@ -220,17 +234,40 @@ function WorkItemAssigneeMenuSection({
   editable: boolean
   item: WorkItem
   menu: WorkItemMenuComponents
+  targetItems: WorkItem[]
 }) {
   const { MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger } =
     menu
   const assigneeIds = getWorkItemAssigneeIds(item)
-  const assigneeIdSet = new Set(assigneeIds)
+  const targetAssigneeIdSets = targetItems.map(
+    (target) => new Set(getWorkItemAssigneeIds(target))
+  )
 
-  function updateAssigneeIds(nextAssigneeIds: string[]) {
-    useAppStore.getState().updateWorkItem(item.id, {
+  function updateAssigneeIds(target: WorkItem, nextAssigneeIds: string[]) {
+    useAppStore.getState().updateWorkItem(target.id, {
       assigneeId: nextAssigneeIds[0] ?? null,
       assigneeIds: nextAssigneeIds,
     })
+  }
+
+  function setAllAssigneeIds(nextAssigneeIds: string[]) {
+    for (const target of targetItems) {
+      updateAssigneeIds(target, nextAssigneeIds)
+    }
+  }
+
+  function toggleAssigneeForTargets(userId: string) {
+    const everyTargetHasUser = targetAssigneeIdSets.every((set) =>
+      set.has(userId)
+    )
+
+    for (const target of targetItems) {
+      const nextAssigneeIds = everyTargetHasUser
+        ? getWorkItemAssigneeIds(target).filter((id) => id !== userId)
+        : toggleWorkItemAssigneeId(getWorkItemAssigneeIds(target), userId)
+
+      updateAssigneeIds(target, nextAssigneeIds)
+    }
   }
 
   return (
@@ -240,17 +277,11 @@ function WorkItemAssigneeMenuSection({
         <span>Assignee</span>
       </MenuSubTrigger>
       <MenuSubContent>
-        <MenuItem onSelect={() => updateAssigneeIds([])}>
+        <MenuItem onSelect={() => setAllAssigneeIds([])}>
           <span className="text-fg-3">Unassigned</span>
           {assigneeIds.length === 0 ? <Check className="size-4" /> : null}
         </MenuItem>
-        <MenuItem
-          onSelect={() =>
-            updateAssigneeIds(
-              toggleWorkItemAssigneeId(assigneeIds, currentUserId)
-            )
-          }
-        >
+        <MenuItem onSelect={() => toggleAssigneeForTargets(currentUserId)}>
           {currentUser ? (
             <WorkItemAssigneeAvatar
               user={currentUser}
@@ -258,7 +289,7 @@ function WorkItemAssigneeMenuSection({
             />
           ) : null}
           <span>Assign to me</span>
-          {assigneeIdSet.has(currentUserId) ? (
+          {targetAssigneeIdSets.every((set) => set.has(currentUserId)) ? (
             <Check className="size-4" />
           ) : null}
         </MenuItem>
@@ -266,18 +297,16 @@ function WorkItemAssigneeMenuSection({
         {assigneeMenuMembers.map((member) => (
           <MenuItem
             key={`${item.id}-${member.id}`}
-            onSelect={() =>
-              updateAssigneeIds(
-                toggleWorkItemAssigneeId(assigneeIds, member.id)
-              )
-            }
+            onSelect={() => toggleAssigneeForTargets(member.id)}
           >
             <WorkItemAssigneeAvatar
               user={member}
               className="size-4 data-[size=sm]:size-4"
             />
             <span>{member.name}</span>
-            {assigneeIdSet.has(member.id) ? <Check className="size-4" /> : null}
+            {targetAssigneeIdSets.every((set) => set.has(member.id)) ? (
+              <Check className="size-4" />
+            ) : null}
           </MenuItem>
         ))}
       </MenuSubContent>
@@ -289,7 +318,9 @@ function WorkItemProjectMenuSection({
   editable,
   item,
   menu,
+  requestConfirmedBulkWorkItemUpdate,
   requestConfirmedWorkItemUpdate,
+  targetItems,
   teamProjects,
 }: {
   editable: boolean
@@ -298,10 +329,28 @@ function WorkItemProjectMenuSection({
   requestConfirmedWorkItemUpdate: ReturnType<
     typeof useWorkItemProjectCascadeConfirmation
   >["requestUpdate"]
+  requestConfirmedBulkWorkItemUpdate: ReturnType<
+    typeof useWorkItemProjectCascadeConfirmation
+  >["requestBulkUpdate"]
+  targetItems: WorkItem[]
   teamProjects: AppData["projects"]
 }) {
   const { MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger } =
     menu
+
+  function requestProjectUpdate(primaryProjectId: string | null) {
+    const patch = { primaryProjectId }
+
+    if (targetItems.length <= 1) {
+      requestConfirmedWorkItemUpdate(item.id, patch)
+      return
+    }
+
+    requestConfirmedBulkWorkItemUpdate(
+      targetItems.map((target) => target.id),
+      patch
+    )
+  }
 
   return (
     <MenuSub>
@@ -310,13 +359,7 @@ function WorkItemProjectMenuSection({
         <span>Project</span>
       </MenuSubTrigger>
       <MenuSubContent>
-        <MenuItem
-          onSelect={() =>
-            requestConfirmedWorkItemUpdate(item.id, {
-              primaryProjectId: null,
-            })
-          }
-        >
+        <MenuItem onSelect={() => requestProjectUpdate(null)}>
           <FolderSimple className="size-4 text-fg-3" />
           <span className="text-fg-3">No project</span>
         </MenuItem>
@@ -324,13 +367,12 @@ function WorkItemProjectMenuSection({
         {teamProjects.map((project) => (
           <MenuItem
             key={`${item.id}-${project.id}`}
-            onSelect={() =>
-              requestConfirmedWorkItemUpdate(item.id, {
-                primaryProjectId: project.id,
-              })
-            }
+            onSelect={() => requestProjectUpdate(project.id)}
           >
-            <ProjectIconGlyph project={project} className="size-4 text-fg-3" />
+            <ProjectIconGlyph
+              project={project}
+              className="size-4 text-fg-3"
+            />
             <span>{project.name}</span>
           </MenuItem>
         ))}
@@ -339,15 +381,354 @@ function WorkItemProjectMenuSection({
   )
 }
 
+function getWorkItemWorkspaceId(data: AppData, item: WorkItem) {
+  if (item.visibility === "private") {
+    return item.workspaceId ?? null
+  }
+
+  return item.workspaceId ?? getTeam(data, item.teamId)?.workspaceId ?? null
+}
+
+function canEditWorkItemFromMenu(data: AppData, item: WorkItem) {
+  const team = getTeam(data, item.teamId)
+  const workspaceId = getWorkItemWorkspaceId(data, item)
+
+  if (item.visibility === "private") {
+    return (
+      item.creatorId === data.currentUserId &&
+      Boolean(
+        workspaceId && hasWorkspaceAccess(data, workspaceId, data.currentUserId)
+      )
+    )
+  }
+
+  return canEditTeam(data, team?.id)
+}
+
+function getUniqueTargetItems(item: WorkItem, targetItems?: WorkItem[]) {
+  const entries = targetItems && targetItems.length > 0 ? targetItems : [item]
+  const uniqueItems = new Map(entries.map((entry) => [entry.id, entry]))
+
+  if (!uniqueItems.has(item.id)) {
+    uniqueItems.set(item.id, item)
+  }
+
+  return [...uniqueItems.values()]
+}
+
+function updateTargetWorkItems(
+  targetItems: WorkItem[],
+  patch: Parameters<AppStore["updateWorkItem"]>[1]
+) {
+  for (const target of targetItems) {
+    useAppStore.getState().updateWorkItem(target.id, patch)
+  }
+}
+
+function hasVisibleMenuProperty(
+  displayProps: DisplayProperty[] | undefined,
+  property: DisplayProperty
+) {
+  return !displayProps || displayProps.includes(property)
+}
+
+function getBulkAssignableLabels(data: AppData, targetItems: WorkItem[]) {
+  return sortLabelsByName(
+    data.labels.filter((label) =>
+      targetItems.every((target) => {
+        const workspaceId = getWorkItemWorkspaceId(data, target)
+
+        return workspaceId
+          ? isLabelAssignableToWorkItem(
+              label,
+              target,
+              workspaceId,
+              data.currentUserId
+            )
+          : false
+      })
+    )
+  )
+}
+
+function WorkItemLabelsMenuSection({
+  editable,
+  labels,
+  menu,
+  targetItems,
+}: {
+  editable: boolean
+  labels: AppData["labels"]
+  menu: WorkItemMenuComponents
+  targetItems: WorkItem[]
+}) {
+  const { MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger } =
+    menu
+
+  if (labels.length === 0) {
+    return null
+  }
+
+  function clearLabels() {
+    updateTargetWorkItems(targetItems, { labelIds: [] })
+  }
+
+  function toggleLabel(labelId: string) {
+    const everyTargetHasLabel = targetItems.every((target) =>
+      target.labelIds.includes(labelId)
+    )
+
+    for (const target of targetItems) {
+      const nextLabelIds = everyTargetHasLabel
+        ? target.labelIds.filter((id) => id !== labelId)
+        : Array.from(new Set([...target.labelIds, labelId]))
+
+      useAppStore.getState().updateWorkItem(target.id, {
+        labelIds: nextLabelIds,
+      })
+    }
+  }
+
+  return (
+    <MenuSub>
+      <MenuSubTrigger disabled={!editable}>
+        <Tag className="size-4" />
+        <span>Labels</span>
+      </MenuSubTrigger>
+      <MenuSubContent>
+        <MenuItem onSelect={clearLabels}>
+          <span className="text-fg-3">Clear labels</span>
+        </MenuItem>
+        <MenuSeparator />
+        {labels.map((label) => {
+          const selected = targetItems.every((target) =>
+            target.labelIds.includes(label.id)
+          )
+
+          return (
+            <MenuItem key={label.id} onSelect={() => toggleLabel(label.id)}>
+              <LabelColorDot color={label.color} />
+              <span>{label.name}</span>
+              {selected ? <Check className="size-4" /> : null}
+            </MenuItem>
+          )
+        })}
+      </MenuSubContent>
+    </MenuSub>
+  )
+}
+
+function getCustomPropertyDefinitionForMenu(
+  data: AppData,
+  property: DisplayProperty,
+  targetItems: WorkItem[]
+) {
+  const propertyId = getCustomPropertyIdFromDisplayReference(property)
+
+  if (!propertyId) {
+    return null
+  }
+
+  const definition =
+    data.customPropertyDefinitions.find((entry) => entry.id === propertyId) ??
+    null
+
+  if (
+    !definition ||
+    (definition.type !== "select" && definition.type !== "multiSelect")
+  ) {
+    return null
+  }
+
+  return targetItems.every((target) =>
+    isCustomPropertyDefinitionForWorkItem(
+      definition,
+      target,
+      data.currentUserId
+    )
+  )
+    ? definition
+    : null
+}
+
+function getCustomPropertyValue(
+  data: AppData,
+  item: WorkItem,
+  definition: CustomPropertyDefinition
+) {
+  return data.customPropertyValues.find(
+    (entry) =>
+      entry.workItemId === item.id && entry.propertyId === definition.id
+  )?.value
+}
+
+function getChoiceSelectedIds(
+  definition: CustomPropertyDefinition,
+  value: CustomPropertyValue | undefined
+) {
+  if (definition.type === "multiSelect") {
+    return Array.isArray(value) ? value : []
+  }
+
+  return typeof value === "string" ? [value] : []
+}
+
+function getNextCustomChoiceValue({
+  data,
+  definition,
+  item,
+  optionId,
+  removeFromAll,
+}: {
+  data: AppData
+  definition: CustomPropertyDefinition
+  item: WorkItem
+  optionId: string
+  removeFromAll: boolean
+}): CustomPropertyValue {
+  if (definition.type === "select") {
+    return removeFromAll ? null : optionId
+  }
+
+  const selectedIds = getChoiceSelectedIds(
+    definition,
+    getCustomPropertyValue(data, item, definition)
+  )
+
+  if (removeFromAll) {
+    const nextIds = selectedIds.filter((id) => id !== optionId)
+    return nextIds.length > 0 ? nextIds : null
+  }
+
+  return selectedIds.includes(optionId)
+    ? selectedIds
+    : [...selectedIds, optionId]
+}
+
+function WorkItemCustomPropertyMenuSection({
+  data,
+  definition,
+  editable,
+  menu,
+  targetItems,
+}: {
+  data: AppData
+  definition: CustomPropertyDefinition
+  editable: boolean
+  menu: WorkItemMenuComponents
+  targetItems: WorkItem[]
+}) {
+  const { MenuItem, MenuSub, MenuSubContent, MenuSubTrigger } = menu
+
+  function clearValue() {
+    for (const target of targetItems) {
+      useAppStore
+        .getState()
+        .setCustomPropertyValue(target.id, definition.id, null)
+    }
+  }
+
+  function setChoiceValue(optionId: string) {
+    const everyTargetHasOption = targetItems.every((target) =>
+      getChoiceSelectedIds(
+        definition,
+        getCustomPropertyValue(data, target, definition)
+      ).includes(optionId)
+    )
+
+    for (const target of targetItems) {
+      useAppStore.getState().setCustomPropertyValue(
+        target.id,
+        definition.id,
+        getNextCustomChoiceValue({
+          data,
+          definition,
+          item: target,
+          optionId,
+          removeFromAll: everyTargetHasOption,
+        })
+      )
+    }
+  }
+
+  return (
+    <MenuSub>
+      <MenuSubTrigger disabled={!editable}>
+        <PhosphorIconGlyph icon={definition.icon} className="size-4" />
+        <span>{definition.name}</span>
+      </MenuSubTrigger>
+      <MenuSubContent>
+        <MenuItem onSelect={clearValue}>
+          <span className="text-fg-3">
+            {definition.type === "multiSelect" ? "Clear values" : "No selection"}
+          </span>
+        </MenuItem>
+        {definition.options.map((option) => {
+          const selected = targetItems.every((target) =>
+            getChoiceSelectedIds(
+              definition,
+              getCustomPropertyValue(data, target, definition)
+            ).includes(option.id)
+          )
+
+          return (
+            <MenuItem key={option.id} onSelect={() => setChoiceValue(option.id)}>
+              <span
+                aria-hidden
+                className="size-2 rounded-full"
+                style={{ background: option.color }}
+              />
+              <span>{option.label}</span>
+              {selected ? <Check className="size-4" /> : null}
+            </MenuItem>
+          )
+        })}
+      </MenuSubContent>
+    </MenuSub>
+  )
+}
+
+function getVisibleCustomPropertyDefinitions({
+  data,
+  displayProps,
+  targetItems,
+}: {
+  data: AppData
+  displayProps: DisplayProperty[] | undefined
+  targetItems: WorkItem[]
+}) {
+  return (displayProps ?? [])
+    .map((property) =>
+      getCustomPropertyDefinitionForMenu(data, property, targetItems)
+    )
+    .filter((definition): definition is CustomPropertyDefinition =>
+      Boolean(definition)
+    )
+}
+
+function allTargetsUseSameTeam(targetItems: WorkItem[]) {
+  return new Set(targetItems.map((target) => target.teamId)).size === 1
+}
+
+function allTargetsAllowTeamProperties(targetItems: WorkItem[]) {
+  return targetItems.every(
+    (target) => (target.visibility ?? "team") !== "private"
+  )
+}
+
 function IssueActionMenuContent({
   data,
+  displayProps,
   item,
   kind,
   onEditItem,
   onOpenItem,
+  requestConfirmedBulkWorkItemUpdate,
   requestConfirmedWorkItemUpdate,
+  targetItems: targetItemsInput,
 }: {
   data: AppData
+  displayProps?: DisplayProperty[]
   item: WorkItem
   kind: "dropdown" | "context"
   onEditItem?: (itemId: string) => void
@@ -355,28 +736,31 @@ function IssueActionMenuContent({
   requestConfirmedWorkItemUpdate: ReturnType<
     typeof useWorkItemProjectCascadeConfirmation
   >["requestUpdate"]
+  requestConfirmedBulkWorkItemUpdate: ReturnType<
+    typeof useWorkItemProjectCascadeConfirmation
+  >["requestBulkUpdate"]
+  targetItems?: WorkItem[]
 }) {
   const team = getTeam(data, item.teamId)
-  const workspaceId =
-    item.visibility === "private"
-      ? (item.workspaceId ?? null)
-      : (item.workspaceId ?? team?.workspaceId ?? null)
+  const targetItems = getUniqueTargetItems(item, targetItemsInput)
+  const isBulkMenu = targetItems.length > 1
   const isPrivateItem = item.visibility === "private"
-  const editable = isPrivateItem
-    ? item.creatorId === data.currentUserId &&
-      Boolean(
-        workspaceId && hasWorkspaceAccess(data, workspaceId, data.currentUserId)
-      )
-    : canEditTeam(data, team?.id)
+  const editable = targetItems.every((target) =>
+    canEditWorkItemFromMenu(data, target)
+  )
   const itemLabel = getDisplayLabelForWorkItemType(
     item.type,
     isPrivateItem ? "project-management" : team?.settings.experience
   ).toLowerCase()
-  const teamMembers = isPrivateItem
-    ? []
-    : team
-      ? getTeamMembers(data, team.id)
-      : []
+  const targetItemsShareTeam = allTargetsUseSameTeam(targetItems)
+  const targetItemsAllowTeamProperties =
+    allTargetsAllowTeamProperties(targetItems)
+  const teamMembers =
+    !targetItemsShareTeam || !targetItemsAllowTeamProperties
+      ? []
+      : team
+        ? getTeamMembers(data, team.id)
+        : []
   const currentUser = getUser(data, data.currentUserId) ?? null
   const assigneeMenuMembers = teamMembers.filter(
     (member) => member.id !== data.currentUserId
@@ -387,6 +771,14 @@ function IssueActionMenuContent({
     item.primaryProjectId
   )
   const statusOptions = getStatusOrderForTeam(team)
+  const labelOptions = displayProps?.includes("labels")
+    ? getBulkAssignableLabels(data, targetItems)
+    : []
+  const customPropertyDefinitions = getVisibleCustomPropertyDefinitions({
+    data,
+    displayProps,
+    targetItems,
+  })
   const menu = getWorkItemMenuComponents(kind)
   const { MenuItem, MenuLabel, MenuSeparator } = menu
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -398,9 +790,11 @@ function IssueActionMenuContent({
 
   return (
     <>
-      <MenuLabel>{item.key}</MenuLabel>
+      <MenuLabel>
+        {isBulkMenu ? `${targetItems.length} selected` : item.key}
+      </MenuLabel>
       <MenuSeparator />
-      {kind === "context" ? (
+      {kind === "context" && !isBulkMenu ? (
         <WorkItemContextActions
           itemId={item.id}
           menu={menu}
@@ -408,18 +802,26 @@ function IssueActionMenuContent({
           onOpenItem={onOpenItem}
         />
       ) : null}
-      <WorkItemStatusMenuSection
-        editable={editable}
-        item={item}
-        menu={menu}
-        statusOptions={statusOptions}
-      />
-      <WorkItemPriorityMenuSection
-        editable={editable}
-        item={item}
-        menu={menu}
-      />
-      {isPrivateItem ? null : (
+      {hasVisibleMenuProperty(displayProps, "status") ? (
+        <WorkItemStatusMenuSection
+          editable={editable}
+          item={item}
+          menu={menu}
+          statusOptions={statusOptions}
+          targetItems={targetItems}
+        />
+      ) : null}
+      {hasVisibleMenuProperty(displayProps, "priority") ? (
+        <WorkItemPriorityMenuSection
+          editable={editable}
+          item={item}
+          menu={menu}
+          targetItems={targetItems}
+        />
+      ) : null}
+      {hasVisibleMenuProperty(displayProps, "assignee") &&
+      targetItemsShareTeam &&
+      targetItemsAllowTeamProperties ? (
         <WorkItemAssigneeMenuSection
           assigneeMenuMembers={assigneeMenuMembers}
           currentUser={currentUser}
@@ -427,18 +829,41 @@ function IssueActionMenuContent({
           editable={editable}
           item={item}
           menu={menu}
+          targetItems={targetItems}
         />
-      )}
-      {isPrivateItem ? null : (
+      ) : null}
+      {hasVisibleMenuProperty(displayProps, "project") &&
+      targetItemsShareTeam &&
+      targetItemsAllowTeamProperties ? (
         <WorkItemProjectMenuSection
           editable={editable}
           item={item}
           menu={menu}
+          requestConfirmedBulkWorkItemUpdate={
+            requestConfirmedBulkWorkItemUpdate
+          }
           requestConfirmedWorkItemUpdate={requestConfirmedWorkItemUpdate}
+          targetItems={targetItems}
           teamProjects={teamProjects}
         />
-      )}
-      {editable ? (
+      ) : null}
+      <WorkItemLabelsMenuSection
+        editable={editable}
+        labels={labelOptions}
+        menu={menu}
+        targetItems={targetItems}
+      />
+      {customPropertyDefinitions.map((definition) => (
+        <WorkItemCustomPropertyMenuSection
+          key={definition.id}
+          data={data}
+          definition={definition}
+          editable={editable}
+          menu={menu}
+          targetItems={targetItems}
+        />
+      ))}
+      {editable && !isBulkMenu ? (
         <>
           <MenuSeparator />
           <MenuItem
@@ -468,15 +893,20 @@ function IssueActionMenuContent({
 
 export function IssueActionMenu({
   data,
+  displayProps,
   item,
   triggerClassName,
 }: {
   data: AppData
+  displayProps?: DisplayProperty[]
   item: WorkItem
   triggerClassName?: string
 }) {
-  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
-    useWorkItemProjectCascadeConfirmation()
+  const {
+    requestBulkUpdate: requestConfirmedBulkWorkItemUpdate,
+    requestUpdate: requestConfirmedWorkItemUpdate,
+    confirmationDialog,
+  } = useWorkItemProjectCascadeConfirmation()
 
   return (
     <>
@@ -494,8 +924,12 @@ export function IssueActionMenu({
         <DropdownMenuContent align="start" className="w-56">
           <IssueActionMenuContent
             data={data}
+            displayProps={displayProps}
             item={item}
             kind="dropdown"
+            requestConfirmedBulkWorkItemUpdate={
+              requestConfirmedBulkWorkItemUpdate
+            }
             requestConfirmedWorkItemUpdate={requestConfirmedWorkItemUpdate}
           />
         </DropdownMenuContent>
@@ -507,20 +941,27 @@ export function IssueActionMenu({
 
 export function IssueContextMenu({
   data,
+  displayProps,
   item,
   onEditItem,
   onOpenItem,
+  targetItems,
   children,
 }: {
   data: AppData
+  displayProps?: DisplayProperty[]
   item: WorkItem
   onEditItem?: (itemId: string) => void
   onOpenItem?: (itemId: string) => void
+  targetItems?: WorkItem[]
   children: ReactNode
 }) {
   const router = useAppRouter()
-  const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
-    useWorkItemProjectCascadeConfirmation()
+  const {
+    requestBulkUpdate: requestConfirmedBulkWorkItemUpdate,
+    requestUpdate: requestConfirmedWorkItemUpdate,
+    confirmationDialog,
+  } = useWorkItemProjectCascadeConfirmation()
   const handleOpenItem =
     onOpenItem ?? ((itemId: string) => router.push(`/items/${itemId}`))
 
@@ -531,11 +972,16 @@ export function IssueContextMenu({
         <ContextMenuContent className="w-56">
           <IssueActionMenuContent
             data={data}
+            displayProps={displayProps}
             item={item}
             kind="context"
             onEditItem={onEditItem}
             onOpenItem={handleOpenItem}
+            requestConfirmedBulkWorkItemUpdate={
+              requestConfirmedBulkWorkItemUpdate
+            }
             requestConfirmedWorkItemUpdate={requestConfirmedWorkItemUpdate}
+            targetItems={targetItems}
           />
         </ContextMenuContent>
       </ContextMenu>

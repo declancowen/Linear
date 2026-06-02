@@ -30,16 +30,26 @@ vi.mock("@/components/app/screens/work-item-menus", () => ({
   IssueActionMenu: () => null,
   IssueContextMenu: ({
     children,
+    displayProps,
     item,
     onEditItem,
+    targetItems,
   }: {
     children: ReactNode
+    displayProps?: string[]
     item: { id: string }
     onEditItem?: (itemId: string) => void
+    targetItems?: Array<{ id: string }>
   }) => (
     <>
       {children}
-      <span data-testid={`issue-context-${item.id}`} />
+      <span
+        data-testid={`issue-context-${item.id}`}
+        data-display-props={displayProps?.join(",") ?? ""}
+      />
+      <span data-testid={`issue-context-targets-${item.id}`}>
+        {targetItems?.map((target) => target.id).join(",") ?? item.id}
+      </span>
       {onEditItem ? (
         <button
           type="button"
@@ -481,6 +491,46 @@ function createEditableData(): AppData {
         teamId: "team_1",
         userId: "user_1",
         role: "admin",
+      },
+    ],
+  }
+}
+
+function createCreateDefaultData(): AppData {
+  return {
+    ...createEditableData(),
+    labels: [
+      {
+        id: "label_cx",
+        name: "CX",
+        color: "#34d399",
+        workspaceId: "workspace_1",
+      },
+      {
+        id: "label_ops",
+        name: "Ops",
+        color: "#60a5fa",
+        workspaceId: "workspace_1",
+      },
+    ],
+    projects: [
+      {
+        id: "project_1",
+        scopeType: "team",
+        scopeId: "team_1",
+        templateType: "project-management",
+        name: "Roadmap",
+        summary: "",
+        description: "",
+        status: "backlog",
+        health: "no-update",
+        priority: "medium",
+        leadId: "user_1",
+        memberIds: ["user_1"],
+        targetDate: null,
+        startDate: null,
+        createdAt: "2026-04-20T12:00:00.000Z",
+        updatedAt: "2026-04-20T12:00:00.000Z",
       },
     ],
   }
@@ -2436,6 +2486,60 @@ describe("ListView", () => {
     expect(screen.queryByText("No items")).not.toBeInTheDocument()
   })
 
+  it("passes selected visible list rows into the work item context menu", () => {
+    const firstItem = createWorkItem({
+      id: "item_1",
+      key: "TES-1",
+      title: "First item",
+      status: "todo",
+    })
+    const secondItem = createWorkItem({
+      id: "item_2",
+      key: "TES-2",
+      title: "Second item",
+      status: "todo",
+    })
+    const data = {
+      ...createEditableData(),
+      workItems: [firstItem, secondItem],
+    }
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["status"])}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByLabelText("Select TES-1"))
+    fireEvent.click(screen.getByLabelText("Select TES-2"))
+
+    expect(screen.getByTestId("issue-context-targets-item_1")).toHaveTextContent(
+      "item_1,item_2"
+    )
+    expect(screen.getByTestId("issue-context-item_1")).toHaveAttribute(
+      "data-display-props",
+      "status"
+    )
+  })
+
+  it("does not show bulk selection controls in read-only list rows", () => {
+    const data = createData()
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["status"])}
+        editable={false}
+      />
+    )
+
+    expect(screen.queryByLabelText("Select TES-1")).not.toBeInTheDocument()
+  })
+
   it("keeps add item available for empty unfiltered editable groups", () => {
     const data = {
       ...createEditableData(),
@@ -2465,6 +2569,128 @@ describe("ListView", () => {
           status: "backlog",
         }),
       })
+    )
+  })
+
+  it("prepopulates labels when adding from an empty label-filtered lane", () => {
+    const data = {
+      ...createCreateDefaultData(),
+      workItems: [],
+    }
+    const view = createView("list", [], {
+      filters: {
+        ...createDefaultViewFilters(),
+        labelIds: ["label_cx"],
+      },
+      grouping: "label",
+    })
+
+    render(
+      <ListView
+        data={data}
+        items={[]}
+        view={view}
+        editable
+        createContext={{
+          defaultTeamId: "team_1",
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultValues: expect.objectContaining({
+          labelIds: ["label_cx"],
+        }),
+      })
+    )
+  })
+
+  it("merges group, subgroup, and single-value filter defaults for lane creates", () => {
+    const data = {
+      ...createCreateDefaultData(),
+      workItems: [
+        createWorkItem({
+          id: "item_cx",
+          labelIds: ["label_cx"],
+          status: "in-progress",
+        }),
+      ],
+    }
+    const view = createView("list", [], {
+      filters: {
+        ...createDefaultViewFilters(),
+        projectIds: ["project_1"],
+        teamIds: ["team_1"],
+        itemTypes: ["task"],
+      },
+      grouping: "label",
+      subGrouping: "status",
+    })
+
+    render(<ListView data={data} items={data.workItems} view={view} editable />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultProjectId: "project_1",
+        initialType: "task",
+        defaultValues: expect.objectContaining({
+          labelIds: ["label_cx"],
+          primaryProjectId: "project_1",
+          status: "in-progress",
+        }),
+      })
+    )
+  })
+
+  it("applies safe single-value filters but leaves ambiguous label filters unset", () => {
+    const data = {
+      ...createCreateDefaultData(),
+      workItems: [],
+    }
+    const view = createView("list", [], {
+      filters: {
+        ...createDefaultViewFilters(),
+        status: ["todo"],
+        priority: ["high"],
+        projectIds: ["project_1"],
+        teamIds: ["team_1"],
+        itemTypes: ["task"],
+        labelIds: ["label_cx", "label_ops"],
+      },
+      grouping: "status",
+      hiddenState: {
+        groups: ["backlog", "in-progress", "done", "cancelled", "duplicate"],
+        subgroups: [],
+      },
+    })
+
+    render(<ListView data={data} items={[]} view={view} editable />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    const dialog = vi.mocked(openManagedCreateDialog).mock.calls[0]?.[0]
+
+    expect(dialog).toEqual(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultProjectId: "project_1",
+        initialType: "task",
+        defaultValues: expect.objectContaining({
+          primaryProjectId: "project_1",
+          priority: "high",
+          status: "todo",
+        }),
+      })
+    )
+    expect(dialog?.kind === "workItem" && dialog.defaultValues?.labelIds).toBe(
+      undefined
     )
   })
 

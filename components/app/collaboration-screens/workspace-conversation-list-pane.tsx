@@ -28,7 +28,7 @@ export function WorkspaceConversationListPane({
   onResetWidth,
   onSelectChat,
 }: {
-  chats: Array<Conversation & { readAt?: string | null; unread?: boolean }>
+  chats: Array<Conversation & { unread?: boolean }>
   activeChat: Conversation | null
   conversationListWidth: WorkspaceChatListWidth
   conversationListResizing: boolean

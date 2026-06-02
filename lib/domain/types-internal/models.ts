@@ -197,6 +197,8 @@ export interface WorkItem {
   linkedProjectIds: string[]
   linkedDocumentIds: string[]
   linkedWorkItemIds?: string[]
+  referencedProjectIds?: string[]
+  referencedViewIds?: string[]
   labelIds: string[]
   visibility?: WorkItemVisibility
   milestoneId: string | null
@@ -356,6 +358,9 @@ export interface Comment {
   content: string
   mentionUserIds: string[]
   referencedWorkItemIds?: string[]
+  referencedDocumentIds?: string[]
+  referencedProjectIds?: string[]
+  referencedViewIds?: string[]
   reactions: CommentReaction[]
   createdBy: string
   createdAt: string
@@ -452,6 +457,7 @@ export interface ChatReadState {
   conversationId: string
   readAt: string | null
   unreadAt: string | null
+  messageReadAtById?: Record<string, string>
   createdAt: string
   updatedAt: string
 }
@@ -567,6 +573,7 @@ export interface UiState {
   selectedViewByRoute: Record<string, string>
   viewerViewConfigByRoute: Record<string, ViewerViewConfigOverride>
   viewerDirectoryConfigByRoute: Record<string, ViewerDirectoryConfig>
+  collaborationSidebarOpenBySurface: Record<string, boolean>
   activeCreateDialog: CreateDialogState | null
 }
 

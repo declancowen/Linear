@@ -3301,7 +3301,7 @@ export function RichTextEditor({
   presenceViewers = [],
   currentPresenceUserId = null,
   onActiveBlockChange,
-  referenceCandidates = EMPTY_REFERENCE_CANDIDATES,
+  referenceCandidates: providedReferenceCandidates,
   mentionCandidates = EMPTY_MENTION_CANDIDATES,
 }: RichTextEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -3311,8 +3311,10 @@ export function RichTextEditor({
   const onMentionCountsChangeRef = useLatestRef(onMentionCountsChange)
   const onMentionInsertedRef = useLatestRef(onMentionInserted)
   const onReferenceInsertedRef = useLatestRef(onReferenceInserted)
+  const referenceCandidates =
+    providedReferenceCandidates ?? EMPTY_REFERENCE_CANDIDATES
   const referenceCandidatesRef = useLatestRef(referenceCandidates)
-  const enableReferences = referenceCandidates.length > 0
+  const enableReferences = providedReferenceCandidates !== undefined
   const reportActiveBlockId = useRichTextActiveBlockReporter({
     onActiveBlockChange,
   })

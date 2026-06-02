@@ -832,6 +832,10 @@ function useShellReadModels(input: {
       : [],
     fetchLatest: async () =>
       fetchWorkspaceMembershipReadModel(input.currentWorkspaceId ?? ""),
+    diagnostics: {
+      retainedData: Boolean(input.currentUserId && input.currentWorkspaceId),
+      surface: "app-shell/sidebar/navigation",
+    },
   })
 
   useScopedReadModelRefresh({
@@ -841,6 +845,10 @@ function useShellReadModels(input: {
       : [],
     fetchLatest: async () =>
       fetchConversationListReadModel(input.currentUserId ?? ""),
+    diagnostics: {
+      retainedData: Boolean(input.currentUserId),
+      surface: "app-shell/chat-list",
+    },
   })
 
   return useScopedReadModelRefresh({
@@ -850,6 +858,10 @@ function useShellReadModels(input: {
       : [],
     fetchLatest: async () =>
       fetchNotificationInboxReadModel(input.currentUserId ?? ""),
+    diagnostics: {
+      retainedData: Boolean(input.currentUserId),
+      surface: "app-shell/inbox",
+    },
   })
 }
 
@@ -1317,7 +1329,7 @@ function NotificationToastContent({
           {notification.message}
         </span>
         {contentPreview ? (
-          <span className="line-clamp-2 mt-1 block text-[12px] leading-4 text-fg-3">
+          <span className="mt-1 line-clamp-2 block text-[12px] leading-4 text-fg-3">
             {contentPreview}
           </span>
         ) : null}

@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   createTestAppData,
+  createTestDocument,
+  createTestProject,
+  createTestViewDefinition,
   createTestWorkItem,
 } from "@/tests/lib/fixtures/app-data"
 import { createSliceHarness } from "./slice-harness"
@@ -35,11 +38,43 @@ vi.mock("@/lib/convex/client", () => ({
 
 const TEST_TIMESTAMP = "2026-04-20T12:00:00.000Z"
 
+function referenceAnchor(type: string, id: string) {
+  return `<a data-type="entity-reference" data-reference-type="${type}" data-reference-id="${id}" href="#">${id}</a>`
+}
+
 function createCommentState() {
   return createTestAppData({
     workItems: [
       createTestWorkItem("item_1", {
         updatedAt: TEST_TIMESTAMP,
+      }),
+      createTestWorkItem("item_2", {
+        key: "PLA-2",
+        title: "Referenced item",
+      }),
+    ],
+    documents: [
+      createTestDocument({
+        id: "document_1",
+        kind: "team-document",
+        teamId: "team_1",
+        title: "Referenced document",
+      }),
+    ],
+    projects: [
+      createTestProject({
+        id: "project_1",
+        scopeType: "team",
+        scopeId: "team_1",
+        name: "Referenced project",
+      }),
+    ],
+    views: [
+      createTestViewDefinition({
+        id: "view_1",
+        scopeType: "team",
+        scopeId: "team_1",
+        name: "Referenced view",
       }),
     ],
     users: [
@@ -188,6 +223,36 @@ describe("work comment actions", () => {
       "<p>Updated comment</p>"
     )
     expect(backgroundTasks).toHaveLength(1)
+  })
+
+  it("stores optimistic comment references across allowed entity types", async () => {
+    workCommentTestDoubles.convex.addComment.mockResolvedValue({
+      ok: true,
+      commentId: "comment_client",
+    })
+    const { slice, state } = await createWorkCommentActionsHarness()
+
+    slice.addComment({
+      targetType: "workItem",
+      targetId: "item_1",
+      content: [
+        referenceAnchor("workItem", "item_2"),
+        referenceAnchor("document", "document_1"),
+        referenceAnchor("project", "project_1"),
+        referenceAnchor("view", "view_1"),
+      ].join(""),
+    })
+
+    const comment = state.comments.find(
+      (entry) => entry.createdAt !== TEST_TIMESTAMP
+    )
+
+    expect(comment).toMatchObject({
+      referencedWorkItemIds: ["item_2"],
+      referencedDocumentIds: ["document_1"],
+      referencedProjectIds: ["project_1"],
+      referencedViewIds: ["view_1"],
+    })
   })
 
   it("uses the optimistic id and defers edits while comment creation is pending", async () => {

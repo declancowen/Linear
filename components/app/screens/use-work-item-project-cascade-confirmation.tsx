@@ -6,9 +6,10 @@ import { useAppStore, type AppStore } from "@/lib/store/app-store"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
 type PendingProjectCascadeUpdate = {
-  itemId: string
+  itemIds: string[]
   patch: Parameters<AppStore["updateWorkItem"]>[1]
   cascadeItemCount: number
+  mode: "single" | "bulk"
 }
 
 export function useWorkItemProjectCascadeConfirmation() {
@@ -21,15 +22,39 @@ export function useWorkItemProjectCascadeConfirmation() {
 
       if (result.status === "project-confirmation-required") {
         setPendingUpdate({
-          itemId,
+          itemIds: [itemId],
           patch,
           cascadeItemCount: result.cascadeItemCount,
+          mode: "single",
         })
       }
 
       return result
     },
     []
+  )
+
+  const requestBulkUpdate = useCallback(
+    (itemIds: string[], patch: Parameters<AppStore["updateWorkItem"]>[1]) => {
+      const uniqueItemIds = Array.from(new Set(itemIds))
+
+      if (uniqueItemIds.length === 0) {
+        return
+      }
+
+      if (uniqueItemIds.length === 1) {
+        requestUpdate(uniqueItemIds[0], patch)
+        return
+      }
+
+      setPendingUpdate({
+        itemIds: uniqueItemIds,
+        patch,
+        cascadeItemCount: uniqueItemIds.length,
+        mode: "bulk",
+      })
+    },
+    [requestUpdate]
   )
 
   const handleOpenChange = useCallback((open: boolean) => {
@@ -43,9 +68,11 @@ export function useWorkItemProjectCascadeConfirmation() {
       return
     }
 
-    useAppStore.getState().updateWorkItem(pendingUpdate.itemId, pendingUpdate.patch, {
-      confirmProjectCascade: true,
-    })
+    for (const itemId of pendingUpdate.itemIds) {
+      useAppStore.getState().updateWorkItem(itemId, pendingUpdate.patch, {
+        confirmProjectCascade: true,
+      })
+    }
     setPendingUpdate(null)
   }, [pendingUpdate])
 
@@ -53,15 +80,25 @@ export function useWorkItemProjectCascadeConfirmation() {
     pendingUpdate && pendingUpdate.cascadeItemCount > 1
       ? `${pendingUpdate.cascadeItemCount} items`
       : "this hierarchy"
+  const isBulkUpdate = pendingUpdate?.mode === "bulk"
 
   return {
     requestUpdate,
+    requestBulkUpdate,
     confirmationDialog: (
       <ConfirmDialog
         open={pendingUpdate !== null}
         onOpenChange={handleOpenChange}
-        title="Update project for hierarchy"
-        description={`Changing the project for this item will also update ${affectedItemLabel}.`}
+        title={
+          isBulkUpdate
+            ? "Update project for selected items"
+            : "Update project for hierarchy"
+        }
+        description={
+          isBulkUpdate
+            ? "Changing the project for selected items may also update their child hierarchies."
+            : `Changing the project for this item will also update ${affectedItemLabel}.`
+        }
         confirmLabel="Update"
         variant="default"
         onConfirm={handleConfirm}

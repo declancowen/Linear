@@ -1,9 +1,13 @@
 import type { MutationCtx } from "../_generated/server"
 
-import { createChatReadStateId } from "../../lib/domain/chat-read-state"
+import {
+  createChatReadStateId,
+  mergeChatMessageFirstReadTimestamps,
+} from "../../lib/domain/chat-read-state"
 import {
   getChatReadStateDoc,
   getConversationDoc,
+  listChatMessagesByConversation,
   listNotificationsByEntity,
 } from "./data"
 import { assertServerToken, getNow } from "./core"
@@ -17,11 +21,13 @@ export type UpdateChatReadStateArgs = ServerAccessArgs & {
   currentUserId: string
   conversationId: string
   action: "read" | "unread"
+  messageIds?: string[]
 }
 
 type ChatReadStatePatch = {
   readAt?: string | null
   unreadAt?: string | null
+  messageReadAtById?: Record<string, string>
   updatedAt: string
 }
 
@@ -31,13 +37,12 @@ async function upsertChatReadState(
     userId: string
     conversationId: string
     patch: ChatReadStatePatch
+    existing?: Awaited<ReturnType<typeof getChatReadStateDoc>> | null
   }
 ) {
-  const existing = await getChatReadStateDoc(
-    ctx,
-    input.userId,
-    input.conversationId
-  )
+  const existing =
+    input.existing ??
+    (await getChatReadStateDoc(ctx, input.userId, input.conversationId))
 
   if (existing) {
     await ctx.db.patch(existing._id, input.patch)
@@ -54,6 +59,7 @@ async function upsertChatReadState(
     conversationId: input.conversationId,
     readAt: input.patch.readAt ?? null,
     unreadAt: input.patch.unreadAt ?? null,
+    messageReadAtById: input.patch.messageReadAtById ?? {},
     createdAt,
     updatedAt: input.patch.updatedAt,
   }
@@ -97,14 +103,29 @@ export async function markChatConversationRead(
     userId: string
     conversationId: string
     now: string
+    messageIds?: string[]
   }
 ) {
+  const existing = await getChatReadStateDoc(
+    ctx,
+    input.userId,
+    input.conversationId
+  )
+  const messageReadAtById = input.messageIds?.length
+    ? mergeChatMessageFirstReadTimestamps(
+        existing?.messageReadAtById,
+        input.messageIds,
+        input.now
+      )
+    : undefined
   const readState = await upsertChatReadState(ctx, {
     userId: input.userId,
     conversationId: input.conversationId,
+    existing,
     patch: {
       readAt: input.now,
       unreadAt: null,
+      ...(messageReadAtById ? { messageReadAtById } : {}),
       updatedAt: input.now,
     },
   })
@@ -160,6 +181,36 @@ export async function markChatUnreadForUsers(
   }
 }
 
+async function selectReadableMessageIdsForReceipt(
+  ctx: MutationCtx,
+  input: {
+    conversationId: string
+    currentUserId: string
+    messageIds?: string[]
+  }
+) {
+  if (!input.messageIds?.length) {
+    return undefined
+  }
+
+  const requestedIds = new Set(input.messageIds)
+  const readableMessages = await listChatMessagesByConversation(
+    ctx,
+    input.conversationId
+  )
+  const readableIds = new Set(
+    readableMessages
+      .filter(
+        (message) =>
+          requestedIds.has(message.id) &&
+          (!message.deletedAt || message.createdBy === input.currentUserId)
+      )
+      .map((message) => message.id)
+  )
+
+  return input.messageIds.filter((messageId) => readableIds.has(messageId))
+}
+
 export async function updateChatReadStateHandler(
   ctx: MutationCtx,
   args: UpdateChatReadStateArgs
@@ -176,12 +227,21 @@ export async function updateChatReadStateHandler(
   }
 
   const now = getNow()
+  const messageIds =
+    args.action === "read"
+      ? await selectReadableMessageIdsForReceipt(ctx, {
+          conversationId: conversation.id,
+          currentUserId: args.currentUserId,
+          messageIds: args.messageIds,
+        })
+      : undefined
 
   return args.action === "read"
     ? markChatConversationRead(ctx, {
         userId: args.currentUserId,
         conversationId: conversation.id,
         now,
+        messageIds,
       })
     : markChatConversationUnread(ctx, {
         userId: args.currentUserId,

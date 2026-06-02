@@ -1233,6 +1233,7 @@ export async function sendChatMessageHandler(
     userId: args.currentUserId,
     conversationId: conversation.id,
     now,
+    messageIds: [draft.messageId],
   })
   await markChatUnreadForUsers(ctx, {
     conversationId: conversation.id,

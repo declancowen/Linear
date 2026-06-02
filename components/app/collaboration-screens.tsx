@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { Hash, PaperPlaneTilt } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
@@ -31,6 +31,10 @@ import {
   useConversationListReadModelRefresh,
   useConversationThreadReadModelRefresh,
 } from "@/components/app/collaboration-screens/read-model-refresh"
+import {
+  createCollaborationSidebarSurfaceKey,
+  usePersistedCollaborationSidebarState,
+} from "@/components/app/collaboration-screens/sidebar-state"
 import {
   ChatHeaderActions,
   DetailsSidebarToggle,
@@ -109,18 +113,6 @@ function useChannelMembers(
   )
 }
 
-function useChannelSidebarState() {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-
-  return {
-    mobileSidebarOpen,
-    setMobileSidebarOpen,
-    setSidebarOpen,
-    sidebarOpen,
-  }
-}
-
 function useChannelReadModelRefresh(input: {
   activeChannelId?: string | null
   currentUserId: string | null
@@ -133,6 +125,10 @@ function useChannelReadModelRefresh(input: {
       ? getChannelFeedScopeKeys(input.activeChannelId)
       : [],
     fetchLatest: () => fetchChannelFeedReadModel(input.activeChannelId ?? ""),
+    diagnostics: {
+      retainedData: Boolean(input.activeChannelId),
+      surface: "channel/feed",
+    },
   })
 
   return {
@@ -224,7 +220,9 @@ export function WorkspaceChannelsScreen() {
     setMobileSidebarOpen,
     setSidebarOpen,
     sidebarOpen,
-  } = useChannelSidebarState()
+  } = usePersistedCollaborationSidebarState(
+    createCollaborationSidebarSurfaceKey("workspace-channel", workspace?.id)
+  )
   const { hasLoadedChannelFeed, hasLoadedConversationList } =
     useChannelReadModelRefresh({
       activeChannelId: activeChannel?.id,
@@ -375,8 +373,14 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
       team ? getConversationParticipants(state, conversation) : []
     )
   )
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const {
+    mobileSidebarOpen,
+    setMobileSidebarOpen,
+    setSidebarOpen,
+    sidebarOpen,
+  } = usePersistedCollaborationSidebarState(
+    createCollaborationSidebarSurfaceKey("team-chat", team?.id)
+  )
   const { hasLoadedOnce: hasLoadedConversationList } =
     useConversationListReadModelRefresh(currentUserId)
   const { hasLoadedOnce: hasLoadedConversationThread } =
@@ -659,7 +663,9 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
     setMobileSidebarOpen,
     setSidebarOpen,
     sidebarOpen,
-  } = useChannelSidebarState()
+  } = usePersistedCollaborationSidebarState(
+    createCollaborationSidebarSurfaceKey("team-channel", team?.id)
+  )
   const { hasLoadedChannelFeed, hasLoadedConversationList } =
     useChannelReadModelRefresh({
       activeChannelId: activeChannel?.id,

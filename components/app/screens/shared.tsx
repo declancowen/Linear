@@ -27,7 +27,7 @@ import {
 } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
-import { getLabelsForTeamScope } from "@/lib/domain/selectors"
+import { getLabelsForTeamScope, getTeam } from "@/lib/domain/selectors"
 import { isLabelAssignableToWorkItem } from "@/lib/domain/labels"
 import {
   getTextInputLimitState,
@@ -43,7 +43,9 @@ import {
   type Priority,
   type ViewDefinition,
   type WorkItem,
+  type WorkItemType,
   type WorkStatus,
+  workItemTypes,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
@@ -1377,12 +1379,12 @@ function getParentGroupLabel(parent: WorkItem) {
 }
 
 function getLabelPatch(data: AppData, item: WorkItem | null, value: string) {
-  if (!item) {
-    return {}
-  }
-
   if (value === "No label") {
     return { labelIds: [] }
+  }
+
+  if (!item) {
+    return {}
   }
 
   const label = getLabelPatchPool(data, item).find(
@@ -1396,6 +1398,47 @@ function getLabelPatch(data: AppData, item: WorkItem | null, value: string) {
   return {
     labelIds: [label.id, ...item.labelIds.filter((id) => id !== label.id)],
   }
+}
+
+function getCreateLabelPatch(
+  data: AppData,
+  item: WorkItem | null,
+  value: string,
+  options?: {
+    teamId?: string | null
+  }
+) {
+  if (value === "No label") {
+    return { labelIds: [] }
+  }
+
+  if (item) {
+    const label = getLabelPatchPool(data, item).find(
+      (entry) => entry.name === value
+    )
+
+    return label ? { labelIds: [label.id] } : {}
+  }
+
+  const teamId = options?.teamId ?? null
+  const team = getTeam(data, teamId)
+
+  if (!team) {
+    return {}
+  }
+
+  const label = getLabelsForTeamScope(data, teamId)
+    .filter((entry) =>
+      isLabelAssignableToWorkItem(
+        entry,
+        { visibility: "team" },
+        team.workspaceId,
+        data.currentUserId
+      )
+    )
+    .find((entry) => entry.name === value)
+
+  return label ? { labelIds: [label.id] } : {}
 }
 
 function isNoDirectParentValue(value: string) {
@@ -1634,6 +1677,33 @@ function getDirectParentCreateDefaults({
   }
 }
 
+function getTeamCreateDefaults(data: AppData, value: string) {
+  if (value === "Private tasks") {
+    return {
+      patch: { visibility: "private" as const },
+      initialType: "task" as const,
+    }
+  }
+
+  const team = data.teams.find((entry) => entry.name === value)
+
+  return team
+    ? {
+        patch: {},
+        defaultTeamId: team.id,
+      }
+    : { patch: {} }
+}
+
+function getTypeCreateDefaults(value: string) {
+  return workItemTypes.includes(value as WorkItemType)
+    ? {
+        patch: {},
+        initialType: value as WorkItemType,
+      }
+    : { patch: {} }
+}
+
 export function getCreateDefaultsForField(
   data: AppData,
   item: WorkItem | null,
@@ -1652,6 +1722,7 @@ export function getCreateDefaultsForField(
       | "primaryProjectId"
       | "labelIds"
       | "parentId"
+      | "visibility"
     >
   >
   defaultTeamId?: string | null
@@ -1663,6 +1734,20 @@ export function getCreateDefaultsForField(
 
   if (field === "parent") {
     return getDirectParentCreateDefaults({ data, item, options, value })
+  }
+
+  if (field === "label") {
+    return {
+      patch: getCreateLabelPatch(data, item, value, options),
+    }
+  }
+
+  if (field === "team") {
+    return getTeamCreateDefaults(data, value)
+  }
+
+  if (field === "type" || field === "kind") {
+    return getTypeCreateDefaults(value)
   }
 
   return {

@@ -626,6 +626,7 @@ export const updateChatReadState = mutation({
     currentUserId: v.string(),
     conversationId: v.string(),
     action: v.union(v.literal("read"), v.literal("unread")),
+    messageIds: v.optional(v.array(v.string())),
   },
   handler: updateChatReadStateHandler,
 })

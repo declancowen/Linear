@@ -99,6 +99,7 @@ type SetActiveDocumentCollaborationState = Dispatch<
 type CollaborationRuntime = {
   activeSession: DocumentCollaborationSession | null
   activeRole: CollaborationSessionRole | null
+  canFlushContentOnClose: boolean
   disposeStatus: (() => void) | null
   disposeAwareness: (() => void) | null
   disposeSynced: (() => void) | null
@@ -176,6 +177,7 @@ function createCollaborationRuntime(): CollaborationRuntime {
   return {
     activeSession: null,
     activeRole: null,
+    canFlushContentOnClose: false,
     disposeStatus: null,
     disposeAwareness: null,
     disposeSynced: null,
@@ -221,16 +223,19 @@ function disconnectCollaborationRuntimeSession(
   runtime.activeSession?.disconnect(reason)
   runtime.activeSession = null
   runtime.activeRole = null
+  runtime.canFlushContentOnClose = false
 }
 
 function closeCollaborationRuntimeOnUnmount(runtime: CollaborationRuntime) {
   disposeCollaborationRuntimeSubscriptions(runtime)
   const sessionToClose = runtime.activeSession
   const roleToClose = runtime.activeRole
+  const canFlushContentOnClose = runtime.canFlushContentOnClose
   runtime.activeSession = null
   runtime.activeRole = null
+  runtime.canFlushContentOnClose = false
 
-  if (sessionToClose && roleToClose === "editor") {
+  if (sessionToClose && roleToClose === "editor" && canFlushContentOnClose) {
     void sessionToClose
       .flush({ kind: "teardown-content" })
       .catch((error) => {
@@ -243,6 +248,17 @@ function closeCollaborationRuntimeOnUnmount(runtime: CollaborationRuntime) {
   }
 
   sessionToClose?.disconnect("component-unmount")
+}
+
+function markCollaborationRuntimeContentFlushReady(
+  runtime: CollaborationRuntime,
+  session: DocumentCollaborationSession
+) {
+  if (runtime.activeSession !== session) {
+    return
+  }
+
+  runtime.canFlushContentOnClose = true
 }
 
 function createLocalCollaborationUser({
@@ -409,6 +425,7 @@ function attachCollaborationSessionListeners({
       return
     }
 
+    markCollaborationRuntimeContentFlushReady(runtime, session)
     setSyncedCollaborationState({
       bootstrap,
       bootstrapContent,
@@ -502,6 +519,7 @@ async function openCollaborationAttempt(params: CollaborationAttemptParams) {
     return "cancelled"
   }
 
+  markCollaborationRuntimeContentFlushReady(runtime, session)
   setConnectedCollaborationState({
     bootstrap,
     bootstrapContent,

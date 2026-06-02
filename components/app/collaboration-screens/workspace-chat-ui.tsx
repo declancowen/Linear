@@ -87,7 +87,6 @@ export function ConversationList({
 }: {
   conversations: Array<{
     id: string
-    readAt?: string | null
     title: string
     unread?: boolean
     updatedAt: string
@@ -171,16 +170,6 @@ export function ConversationList({
                         <span className="shrink-0 tabular-nums">
                           {formatShortDate(conversation.updatedAt)}
                         </span>
-                        {conversation.readAt ? (
-                          <>
-                            <span className="shrink-0 text-muted-foreground/70">
-                              ·
-                            </span>
-                            <span className="truncate">
-                              Read {formatShortDate(conversation.readAt)}
-                            </span>
-                          </>
-                        ) : null}
                       </div>
                     </div>
                     <div

@@ -15,7 +15,10 @@ import {
 } from "@/lib/convex/client"
 import { prepareRichTextMessageForStorage } from "@/lib/content/rich-text-security"
 import { RouteMutationError } from "@/lib/convex/client/shared"
-import { createChatReadStateId } from "@/lib/domain/chat-read-state"
+import {
+  createChatReadStateId,
+  mergeChatMessageFirstReadTimestamps,
+} from "@/lib/domain/chat-read-state"
 import { isChatMessageNotification } from "@/lib/domain/notification-visibility"
 import {
   channelSchema,
@@ -420,12 +423,14 @@ function upsertLocalChatReadState({
   action,
   chatReadStates,
   conversationId,
+  messageIds,
   now,
   userId,
 }: {
   action: "read" | "unread"
   chatReadStates: AppStore["chatReadStates"]
   conversationId: string
+  messageIds?: string[]
   now: string
   userId: string
 }) {
@@ -434,12 +439,22 @@ function upsertLocalChatReadState({
   )
 
   if (existing) {
+    const messageReadAtById =
+      action === "read" && messageIds?.length
+        ? mergeChatMessageFirstReadTimestamps(
+            existing.messageReadAtById,
+            messageIds,
+            now
+          )
+        : existing.messageReadAtById
+
     return chatReadStates.map((state) =>
       state.id === existing.id
         ? {
             ...state,
             readAt: action === "read" ? now : state.readAt,
             unreadAt: action === "read" ? null : now,
+            messageReadAtById,
             updatedAt: now,
           }
         : state
@@ -454,6 +469,10 @@ function upsertLocalChatReadState({
       conversationId,
       readAt: action === "read" ? now : null,
       unreadAt: action === "read" ? null : now,
+      messageReadAtById:
+        action === "read"
+          ? mergeChatMessageFirstReadTimestamps(null, messageIds, now)
+          : {},
       createdAt: now,
       updatedAt: now,
     },
@@ -485,12 +504,14 @@ function applyLocalChatReadState(
   state: AppStore,
   conversationId: string,
   action: "read" | "unread",
+  messageIds?: string[],
   now = getNow()
 ): Pick<AppStore, "chatReadStates" | "notifications"> {
   const chatReadStates = upsertLocalChatReadState({
     action,
     chatReadStates: state.chatReadStates,
     conversationId,
+    messageIds,
     now,
     userId: state.currentUserId,
   })
@@ -602,6 +623,7 @@ function addOptimisticChatMessageToState(
     },
     conversation.id,
     "read",
+    [optimisticMessageId],
     now
   )
 
@@ -1418,11 +1440,13 @@ export function createCollaborationConversationActions({
 
       runtime.syncInBackground(deleteTask, "Failed to delete message")
     },
-    markChatRead(conversationId) {
-      set((state) => applyLocalChatReadState(state, conversationId, "read"))
+    markChatRead(conversationId, messageIds) {
+      set((state) =>
+        applyLocalChatReadState(state, conversationId, "read", messageIds)
+      )
 
       runtime.syncInBackground(
-        syncUpdateChatReadState(conversationId, "read"),
+        syncUpdateChatReadState(conversationId, "read", { messageIds }),
         "Failed to update chat read state",
         {
           refreshStrategy: "none",

@@ -282,6 +282,10 @@ export function WorkspaceSearchScreen({
       ? getSearchSeedScopeKeys(currentWorkspaceId, currentUserId)
       : [],
     fetchLatest: () => fetchSearchSeedReadModel(currentWorkspaceId),
+    diagnostics: {
+      retainedData: Boolean(currentWorkspaceId),
+      surface: "workspace/search",
+    },
   })
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const [query, setQuery] = useState(initialQuery)

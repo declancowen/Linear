@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { cascadeDeleteTeamData } from "@/convex/app/cleanup"
+import {
+  cascadeDeleteTeamData,
+  cleanupRemainingLinksAfterDelete,
+} from "@/convex/app/cleanup"
 import { createMutableConvexTestCtx } from "@/tests/lib/convex/test-db"
 
 function createCascadeDeleteTeamCtx() {
@@ -177,5 +180,39 @@ describe("cleanup handlers", () => {
         id: "private_label",
       }),
     ])
+  })
+
+  it("clears deleted entity reference ids from persisted comment metadata", async () => {
+    const ctx = createCascadeDeleteTeamCtx()
+    ;(ctx.tables.comments as unknown[]).push({
+      _id: "comment_doc",
+      id: "comment_1",
+      targetType: "workItem",
+      targetId: "private_item",
+      parentCommentId: null,
+      content: "<p>References</p>",
+      mentionUserIds: [],
+      referencedWorkItemIds: ["deleted_item", "private_item"],
+      referencedDocumentIds: ["deleted_doc", "private_description"],
+      referencedProjectIds: ["deleted_project", "kept_project"],
+      referencedViewIds: ["view_1"],
+      reactions: [],
+      createdBy: "user_1",
+      createdAt: "2026-04-17T10:00:00.000Z",
+    })
+
+    await cleanupRemainingLinksAfterDelete(ctx as never, {
+      currentUserId: "user_1",
+      deletedDocumentIds: new Set(["deleted_doc"]),
+      deletedProjectIds: new Set(["deleted_project"]),
+      deletedWorkItemIds: new Set(["deleted_item"]),
+    })
+
+    expect(ctx.tables.comments[0]).toMatchObject({
+      referencedWorkItemIds: ["private_item"],
+      referencedDocumentIds: ["private_description"],
+      referencedProjectIds: ["kept_project"],
+      referencedViewIds: ["view_1"],
+    })
   })
 })

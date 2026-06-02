@@ -24,12 +24,11 @@ describe("convex auth server wrappers", () => {
 
   it("maps snapshot lookup failures to typed application errors", async () => {
     const {
+      getAuthContextServer,
       getScopedReadModelVersionsServer,
       getSnapshotServer,
       getSnapshotVersionServer,
-    } = await import(
-      "@/lib/server/convex/auth"
-    )
+    } = await import("@/lib/server/convex/auth")
 
     queryMock
       .mockRejectedValueOnce(new Error("Authenticated user not found"))
@@ -41,6 +40,11 @@ describe("convex auth server wrappers", () => {
             version: 3,
           },
         ],
+      })
+      .mockResolvedValueOnce({
+        currentUser: {
+          id: "user_1",
+        },
       })
 
     await expect(
@@ -76,16 +80,25 @@ describe("convex auth server wrappers", () => {
       ],
     })
 
-    expect(mutationMock).toHaveBeenCalled()
+    await expect(
+      getAuthContextServer({
+        workosUserId: "workos_1",
+        email: "alex@example.com",
+      })
+    ).resolves.toEqual({
+      currentUser: {
+        id: "user_1",
+      },
+    })
+
+    expect(mutationMock).not.toHaveBeenCalled()
   })
 
   it("falls back when scoped read model functions are unavailable", async () => {
     const {
       bumpScopedReadModelVersionsServer,
       getScopedReadModelVersionsServer,
-    } = await import(
-      "@/lib/server/convex/auth"
-    )
+    } = await import("@/lib/server/convex/auth")
 
     queryMock.mockRejectedValue(
       new Error(

@@ -5,10 +5,13 @@ import { createToastMockModule } from "@/tests/lib/fixtures/store"
 
 const fetchSnapshotMock = vi.fn()
 const toastErrorMock = vi.fn()
+const reportMutationReconciliationDiagnosticMock = vi.fn()
 
 vi.mock("sonner", () => createToastMockModule({ error: toastErrorMock }))
 
 vi.mock("@/lib/browser/snapshot-diagnostics", () => ({
+  reportMutationReconciliationDiagnostic:
+    reportMutationReconciliationDiagnosticMock,
   reportRealtimeFallbackDiagnostic: vi.fn(),
 }))
 
@@ -20,12 +23,12 @@ describe("store runtime rich-text recovery", () => {
   beforeEach(() => {
     fetchSnapshotMock.mockReset()
     toastErrorMock.mockReset()
+    reportMutationReconciliationDiagnosticMock.mockReset()
   })
 
   async function createRuntimeHarness(state: Record<string, unknown> = {}) {
-    const { createStoreRuntime } = await import(
-      "@/lib/store/app-store-internal/runtime"
-    )
+    const { createStoreRuntime } =
+      await import("@/lib/store/app-store-internal/runtime")
     const replaceDomainDataMock = vi.fn()
     const runtime = createStoreRuntime(
       () =>
@@ -38,11 +41,7 @@ describe("store runtime rich-text recovery", () => {
     return { replaceDomainDataMock, runtime }
   }
 
-  function routeMutationError(
-    message: string,
-    status: number,
-    code: string
-  ) {
+  function routeMutationError(message: string, status: number, code: string) {
     return new RouteMutationError(message, status, { code })
   }
 
@@ -94,7 +93,6 @@ describe("store runtime rich-text recovery", () => {
       "snapshot"
     )
 
-
     await runtime.flushRichTextSync("document:doc_1")
 
     await Promise.resolve()
@@ -129,9 +127,8 @@ describe("store runtime rich-text recovery", () => {
   })
 
   it("ignores stale in-flight rich-text failures after sync invalidation", async () => {
-    const { createStoreRuntime } = await import(
-      "@/lib/store/app-store-internal/runtime"
-    )
+    const { createStoreRuntime } =
+      await import("@/lib/store/app-store-internal/runtime")
 
     const rejectTaskRef: {
       current: ((error: unknown) => void) | null
@@ -177,5 +174,46 @@ describe("store runtime rich-text recovery", () => {
 
     expect(fetchSnapshotMock).not.toHaveBeenCalled()
     expect(toastErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("reports background mutation reconciliation success and failure", async () => {
+    const { runtime } = await createRuntimeHarness()
+
+    runtime.syncInBackground(
+      Promise.resolve({ ok: true }),
+      "Successful mutation",
+      {
+        refreshStrategy: "none",
+      }
+    )
+    await Promise.resolve()
+
+    expect(reportMutationReconciliationDiagnosticMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        label: "Successful mutation",
+        refreshStrategy: "none",
+        status: "success",
+      })
+    )
+
+    runtime.syncInBackground(
+      Promise.reject(new Error("Mutation failed")),
+      "Failed mutation",
+      {
+        refreshStrategy: "none",
+        showToast: false,
+      }
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(reportMutationReconciliationDiagnosticMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorMessage: "Mutation failed",
+        label: "Failed mutation",
+        refreshStrategy: "none",
+        status: "failure",
+      })
+    )
   })
 })

@@ -620,6 +620,7 @@ export async function updateChatReadStateServer(input: {
   currentUserId: string
   conversationId: string
   action: "read" | "unread"
+  messageIds?: string[]
 }) {
   try {
     return await getConvexServerClient().mutation(

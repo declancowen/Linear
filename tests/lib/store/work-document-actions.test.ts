@@ -12,7 +12,7 @@ const syncCreateDocumentMock = vi.fn()
 const syncDeleteAttachmentMock = vi.fn()
 const syncGenerateAttachmentUploadUrlMock = vi.fn()
 const syncRenameDocumentMock = vi.fn()
-const syncUpdateDocumentContentMock = vi.fn()
+const syncUpdateDocumentMock = vi.fn()
 const syncUpdateItemDescriptionMock = vi.fn()
 const syncUpdateWorkItemMock = vi.fn()
 const toastErrorMock = vi.fn()
@@ -33,7 +33,7 @@ vi.mock("@/lib/convex/client", () => ({
   syncDeleteDocument: vi.fn(),
   syncGenerateAttachmentUploadUrl: syncGenerateAttachmentUploadUrlMock,
   syncRenameDocument: syncRenameDocumentMock,
-  syncUpdateDocumentContent: syncUpdateDocumentContentMock,
+  syncUpdateDocument: syncUpdateDocumentMock,
   syncUpdateWorkItem: syncUpdateWorkItemMock,
   syncUpdateItemDescription: syncUpdateItemDescriptionMock,
 }))
@@ -57,6 +57,7 @@ function createState() {
     currentUserId: "user_1",
     currentWorkspaceId: "workspace_1",
     protectedDocumentIds: [],
+    pendingDocumentContentSyncs: {} as Record<string, string>,
     teams: [
       {
         id: "team_1",
@@ -205,6 +206,14 @@ function getQueuedRichTextSyncTask(
   return queueRichTextSyncMock.mock.calls[0]?.[1] as ActiveSyncTask | undefined
 }
 
+function getLatestQueuedRichTextSyncTask(
+  queueRichTextSyncMock: ReturnType<typeof vi.fn>
+) {
+  return queueRichTextSyncMock.mock.calls.at(-1)?.[1] as
+    | ActiveSyncTask
+    | undefined
+}
+
 function referenceAnchor(type: string, id: string) {
   return `<a data-type="entity-reference" data-reference-type="${type}" data-reference-id="${id}" href="#">${id}</a>`
 }
@@ -216,7 +225,7 @@ describe("work document actions", () => {
     syncDeleteAttachmentMock.mockReset()
     syncGenerateAttachmentUploadUrlMock.mockReset()
     syncRenameDocumentMock.mockReset()
-    syncUpdateDocumentContentMock.mockReset()
+    syncUpdateDocumentMock.mockReset()
     syncUpdateItemDescriptionMock.mockReset()
     syncUpdateWorkItemMock.mockReset()
     waitForPendingWorkItemCreationMock.mockReset()
@@ -541,8 +550,8 @@ describe("work document actions", () => {
     )
   })
 
-  it("sends the last known server version for document body syncs", async () => {
-    syncUpdateDocumentContentMock.mockResolvedValue({
+  it("sends the current title, body, and last known server version for document body syncs", async () => {
+    syncUpdateDocumentMock.mockResolvedValue({
       ok: true,
       updatedAt: "2026-04-17T10:05:00.000Z",
     })
@@ -561,6 +570,9 @@ describe("work document actions", () => {
       updatedAt: "2026-04-17T10:00:00.000Z",
       updatedBy: "user_1",
     })
+    expect(harness.state.pendingDocumentContentSyncs.document_1).toMatch(
+      /^document-content-sync_/
+    )
 
     const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
 
@@ -568,22 +580,47 @@ describe("work document actions", () => {
 
     await queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
-    expect(syncUpdateDocumentContentMock).toHaveBeenCalledWith(
-      "user_1",
-      "document_1",
-      "<h1>Launch plan</h1><p>Updated details</p>",
-      "2026-04-17T10:00:00.000Z"
-    )
+    expect(syncUpdateDocumentMock).toHaveBeenCalledWith("document_1", {
+      title: "Spec",
+      content: "<h1>Launch plan</h1><p>Updated details</p>",
+      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+    })
     expect(
       harness.state.documents.find((document) => document.id === "document_1")
     ).toMatchObject({
       updatedAt: "2026-04-17T10:05:00.000Z",
       updatedBy: "user_1",
     })
+    expect(harness.state.pendingDocumentContentSyncs.document_1).toBeUndefined()
+  })
+
+  it("keeps pending document body protection when a body sync fails", async () => {
+    syncUpdateDocumentMock.mockRejectedValue(new Error("server offline"))
+    const harness = await createWorkDocumentActionsHarness()
+
+    harness.actions.updateDocumentContent(
+      "document_1",
+      "<h1>Launch plan</h1><p>Unsynced draft</p>"
+    )
+
+    const pendingContentToken =
+      harness.state.pendingDocumentContentSyncs.document_1
+    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
+
+    expect(pendingContentToken).toMatch(/^document-content-sync_/)
+    expect(queuedTask).toBeTypeOf("function")
+
+    await expect(queuedTask?.(ACTIVE_SYNC_CONTEXT)).rejects.toThrow(
+      "server offline"
+    )
+
+    expect(harness.state.pendingDocumentContentSyncs.document_1).toBe(
+      pendingContentToken
+    )
   })
 
   it("updates document reference relationships from saved inline references", async () => {
-    syncUpdateDocumentContentMock.mockResolvedValue({
+    syncUpdateDocumentMock.mockResolvedValue({
       ok: true,
       updatedAt: "2026-04-17T10:05:00.000Z",
     })
@@ -643,6 +680,15 @@ describe("work document actions", () => {
     const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
     await queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
+    expect(syncUpdateDocumentMock).toHaveBeenCalledWith("document_1", {
+      title: "Spec",
+      content: [
+        referenceAnchor("workItem", "item_1"),
+        referenceAnchor("document", "document_2"),
+        referenceAnchor("project", "project_1"),
+      ].join(""),
+      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+    })
     expect(
       harness.state.documents.find((document) => document.id === "document_1")
     ).toMatchObject({
@@ -730,6 +776,73 @@ describe("work document actions", () => {
           linkedDocumentIds: [],
         },
       ],
+      projects: [
+        {
+          id: "project_1",
+          name: "Reference project",
+          scopeType: "team" as const,
+          scopeId: "team_1",
+          templateType: "software-delivery" as const,
+          summary: "",
+          leadId: "user_1",
+          memberIds: [],
+          health: "on-track" as const,
+          priority: "medium" as const,
+          status: "in-progress" as const,
+          startDate: null,
+          targetDate: null,
+          description: "",
+          createdAt: "2026-04-17T10:00:00.000Z",
+          updatedAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
+      views: [
+        {
+          id: "view_1",
+          name: "Reference view",
+          description: "",
+          scopeType: "team" as const,
+          scopeId: "team_1",
+          entityKind: "items" as const,
+          itemLevel: "task" as const,
+          showChildItems: true,
+          layout: "list" as const,
+          filters: {
+            status: [],
+            priority: [],
+            assigneeIds: [],
+            creatorIds: [],
+            subscriberIds: [],
+            updatedByIds: [],
+            documentKinds: [],
+            linkedWorkItemIds: [],
+            leadIds: [],
+            health: [],
+            milestoneIds: [],
+            relationTypes: [],
+            projectIds: [],
+            parentIds: [],
+            itemTypes: [],
+            labelIds: [],
+            teamIds: [],
+            visibility: [],
+            showCompleted: true,
+            showEmptyGroups: true,
+          },
+          grouping: "status" as const,
+          subGrouping: null,
+          ordering: "priority" as const,
+          displayProps: [],
+          hiddenState: {
+            groups: [],
+            subgroups: [],
+          },
+          isShared: false,
+          route: "/team/platform/work",
+          createdAt: "2026-04-17T10:00:00.000Z",
+          updatedAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
     }
     const harness = await createWorkDocumentActionsHarness(state)
 
@@ -739,6 +852,8 @@ describe("work document actions", () => {
         referenceAnchor("document", "document_2"),
         referenceAnchor("workItem", "item_2"),
         referenceAnchor("workItem", "item_1"),
+        referenceAnchor("project", "project_1"),
+        referenceAnchor("view", "view_1"),
       ].join("")
     )
 
@@ -757,6 +872,9 @@ describe("work document actions", () => {
     ).toMatchObject({
       linkedDocumentIds: ["document_2"],
       linkedWorkItemIds: ["item_2"],
+      linkedProjectIds: [],
+      referencedProjectIds: ["project_1"],
+      referencedViewIds: ["view_1"],
     })
   })
 
@@ -779,7 +897,8 @@ describe("work document actions", () => {
 
     await queuedTask?.(ACTIVE_SYNC_CONTEXT)
 
-    expect(syncUpdateDocumentContentMock).not.toHaveBeenCalled()
+    expect(syncUpdateDocumentMock).not.toHaveBeenCalled()
+    expect(harness.state.pendingDocumentContentSyncs.document_1).toBeUndefined()
   })
 
   it("applies collaboration title metadata locally without queueing a legacy sync", async () => {
@@ -853,6 +972,93 @@ describe("work document actions", () => {
       "document_1",
       "Renamed metadata only"
     )
+  })
+
+  it("uses a combined document update when a rename races a pending body sync", async () => {
+    syncUpdateDocumentMock.mockResolvedValue({
+      ok: true,
+      updatedAt: "2026-04-17T10:08:00.000Z",
+    })
+    const harness = await createWorkDocumentActionsHarness()
+
+    harness.actions.updateDocumentContent("document_1", "<p>Body draft</p>")
+    harness.actions.renameDocument("document_1", "Renamed body draft")
+
+    expect(harness.queueRichTextSyncMock).toHaveBeenCalledTimes(2)
+    expect(
+      harness.state.documents.find((document) => document.id === "document_1")
+    ).toMatchObject({
+      title: "Renamed body draft",
+      content: "<p>Body draft</p>",
+    })
+
+    const queuedTask = getLatestQueuedRichTextSyncTask(
+      harness.queueRichTextSyncMock
+    )
+
+    expect(queuedTask).toBeTypeOf("function")
+
+    await queuedTask?.(ACTIVE_SYNC_CONTEXT)
+
+    expect(syncRenameDocumentMock).not.toHaveBeenCalled()
+    expect(syncUpdateDocumentMock).toHaveBeenCalledWith("document_1", {
+      title: "Renamed body draft",
+      content: "<p>Body draft</p>",
+      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+    })
+    expect(harness.state.pendingDocumentContentSyncs.document_1).toBeUndefined()
+    expect(
+      harness.state.documents.find((document) => document.id === "document_1")
+    ).toMatchObject({
+      updatedAt: "2026-04-17T10:08:00.000Z",
+      updatedBy: "user_1",
+    })
+  })
+
+  it("keeps pending body protection when an older queued sync completes after a rename", async () => {
+    syncUpdateDocumentMock.mockResolvedValue({
+      ok: true,
+      updatedAt: "2026-04-17T10:08:00.000Z",
+    })
+    const harness = await createWorkDocumentActionsHarness()
+
+    harness.actions.updateDocumentContent("document_1", "<p>Body draft</p>")
+
+    const firstQueuedTask = getQueuedRichTextSyncTask(
+      harness.queueRichTextSyncMock
+    )
+    const firstPendingToken =
+      harness.state.pendingDocumentContentSyncs.document_1
+
+    expect(firstQueuedTask).toBeTypeOf("function")
+    expect(firstPendingToken).toMatch(/^document-content-sync_/)
+
+    harness.actions.renameDocument("document_1", "Renamed body draft")
+
+    const rotatedPendingToken =
+      harness.state.pendingDocumentContentSyncs.document_1
+
+    expect(rotatedPendingToken).toMatch(/^document-content-sync_/)
+    expect(rotatedPendingToken).not.toBe(firstPendingToken)
+
+    await firstQueuedTask?.(ACTIVE_SYNC_CONTEXT)
+
+    expect(harness.state.pendingDocumentContentSyncs.document_1).toBe(
+      rotatedPendingToken
+    )
+
+    const latestQueuedTask = getLatestQueuedRichTextSyncTask(
+      harness.queueRichTextSyncMock
+    )
+
+    await latestQueuedTask?.(ACTIVE_SYNC_CONTEXT)
+
+    expect(syncUpdateDocumentMock).toHaveBeenCalledWith("document_1", {
+      title: "Renamed body draft",
+      content: "<p>Body draft</p>",
+      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+    })
+    expect(harness.state.pendingDocumentContentSyncs.document_1).toBeUndefined()
   })
 
   it("skips a queued item-description sync once collaboration protects the description document", async () => {

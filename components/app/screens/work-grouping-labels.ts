@@ -26,7 +26,9 @@ const parentTypeByChildType: Partial<Record<WorkItemType, WorkItemType>> = {
 
 function isPrivateTaskView(view: WorkGroupingLabelView | null | undefined) {
   return (
-    view?.entityKind === "items" && view.filters.visibility?.includes("private")
+    view?.entityKind === "items" &&
+    view.filters.visibility?.length === 1 &&
+    view.filters.visibility[0] === "private"
   )
 }
 

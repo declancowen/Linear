@@ -167,6 +167,12 @@ import { CollaborationSyncDialog } from "./collaboration-sync-dialog"
 import { DocumentPresenceAvatarGroup } from "./document-ui"
 import { useLegacyPresenceHeartbeat } from "./legacy-presence-heartbeat"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
+import { IssueContextMenu } from "./work-item-menus"
+import {
+  useWorkItemSelection,
+  WorkItemSelectionCheckbox,
+  type WorkItemSelectionController,
+} from "./work-item-selection"
 import {
   getEligibleParentWorkItems,
   createEmptyViewFilters,
@@ -850,23 +856,40 @@ function DetailChildWorkItemRow({
   data,
   displayProps,
   item,
+  selection,
   variant = "main",
 }: {
   data: AppData
   displayProps?: ViewDefinition["displayProps"]
   item: WorkItem
+  selection?: WorkItemSelectionController
   variant?: "main" | "sidebar"
 }) {
   const childDone = item.status === "done"
   const selectedDisplayProps = getDetailChildDisplayProps(displayProps, variant)
+  const selected = selection?.isSelected(item.id) ?? false
+  const targetItems = selection
+    ?.getContextItemIds(item.id)
+    .map((itemId) => getWorkItem(data, itemId))
+    .filter((entry): entry is WorkItem => entry !== null) ?? [item]
 
-  return (
+  const row = (
     <div
       className={cn(
         "flex flex-wrap items-center gap-2 rounded-md py-1.5 transition-colors hover:bg-surface-2",
-        variant === "sidebar" ? "gap-y-1.5 px-2" : "gap-y-2 px-4"
+        variant === "sidebar" ? "gap-y-1.5 px-2" : "gap-y-2 px-4",
+        selected && "bg-accent-bg/45"
       )}
+      onClickCapture={(event) => selection?.handleModifiedClick(item.id, event)}
+      onContextMenu={() => selection?.handleContextMenu(item.id)}
     >
+      {selection ? (
+        <WorkItemSelectionCheckbox
+          checked={selected}
+          label={`Select ${item.key}`}
+          onChange={(event) => selection.handleCheckboxChange(item.id, event)}
+        />
+      ) : null}
       <WorkItemHoverCard
         data={data}
         item={item}
@@ -893,6 +916,17 @@ function DetailChildWorkItemRow({
         selectedDisplayProps={selectedDisplayProps}
       />
     </div>
+  )
+
+  return (
+    <IssueContextMenu
+      data={data}
+      displayProps={selectedDisplayProps}
+      item={item}
+      targetItems={targetItems}
+    >
+      {row}
+    </IssueContextMenu>
   )
 }
 
@@ -2945,7 +2979,6 @@ function WorkItemSidebarAddPropertyRow({
   )
 }
 
-type DetailTextLimitState = ReturnType<typeof getTextInputLimitState>
 type DetailChildProgress = ReturnType<typeof getWorkItemChildProgress>
 type DetailChildCopy = ReturnType<typeof getChildWorkItemCopy>
 type DetailWorkCopy = ReturnType<typeof getWorkSurfaceCopy>
@@ -3696,6 +3729,13 @@ async function persistWorkItemMainSection({
       return false
     }
 
+    useAppStore
+      .getState()
+      .applyItemDescriptionCollaborationContent(
+        currentItem.id,
+        mainDraftDescription
+      )
+
     return true
   }
 
@@ -3806,27 +3846,23 @@ function getPendingMainMentionEntries({
 
 function getMainSectionDraftState({
   currentItem,
-  descriptionContent,
   isCollaborationAttached,
   isMainEditing,
-  mainDraftDescription,
-  mainDraftTitle,
+  mainDraftDescriptionDirty,
+  mainDraftTitleDirty,
   mainDraftUpdatedAt,
 }: {
   currentItem: WorkItem | undefined
-  descriptionContent: string
   isCollaborationAttached: boolean
   isMainEditing: boolean
-  mainDraftDescription: string
-  mainDraftTitle: string
+  mainDraftDescriptionDirty: boolean
+  mainDraftTitleDirty: boolean
   mainDraftUpdatedAt: string | null
 }) {
-  const normalizedTitle = mainDraftTitle.trim()
   const titleDirty = Boolean(
-    currentItem && isMainEditing && normalizedTitle !== currentItem.title
+    currentItem && isMainEditing && mainDraftTitleDirty
   )
-  const descriptionDirty =
-    isMainEditing && mainDraftDescription !== descriptionContent
+  const descriptionDirty = isMainEditing && mainDraftDescriptionDirty
   const stale = Boolean(
     currentItem &&
     !isCollaborationAttached &&
@@ -3838,7 +3874,6 @@ function getMainSectionDraftState({
   return {
     descriptionDirty,
     dirty: titleDirty || descriptionDirty,
-    normalizedTitle,
     stale,
     titleDirty,
   }
@@ -3870,7 +3905,7 @@ function getCanSaveMainSection({
   }
 
   if (isCollaborationAttached) {
-    return isMainEditing && !savingMainSection
+    return isMainEditing && mainTitleCanSubmit && !savingMainSection
   }
 
   return (
@@ -3906,12 +3941,21 @@ function useWorkItemMainSectionController({
     null
   )
   const [mainDraftTitle, setMainDraftTitle] = useState("")
+  const [mainDraftTitleDirty, setMainDraftTitleDirty] = useState(false)
+  const [mainTitleCanSubmit, setMainTitleCanSubmit] = useState(true)
   const [mainDraftDescription, setMainDraftDescription] = useState("")
+  const [mainDraftDescriptionDirty, setMainDraftDescriptionDirty] =
+    useState(false)
   const [
     mainPendingMentionRetryEntriesByItemId,
     setMainPendingMentionRetryEntriesByItemId,
   ] = useState<DetailMainMentionRetryEntries>({})
   const [savingMainSection, setSavingMainSection] = useState(false)
+  const mainDraftTitleRef = useRef("")
+  const mainDraftTitleDirtyRef = useRef(false)
+  const mainTitleCanSubmitRef = useRef(true)
+  const mainDraftDescriptionRef = useRef("")
+  const mainDraftDescriptionDirtyRef = useRef(false)
 
   const isMainEditing = getIsMainSectionEditing({
     currentItem,
@@ -3921,17 +3965,12 @@ function useWorkItemMainSectionController({
   const pendingMainMentionRetryCount = currentItem
     ? (mainPendingMentionRetryEntriesByItemId[currentItem.id]?.length ?? 0)
     : 0
-  const mainTitleLimitState = getTextInputLimitState(
-    mainDraftTitle,
-    workItemTitleConstraints
-  )
   const draftState = getMainSectionDraftState({
     currentItem,
-    descriptionContent,
     isCollaborationAttached,
     isMainEditing,
-    mainDraftDescription,
-    mainDraftTitle,
+    mainDraftDescriptionDirty,
+    mainDraftTitleDirty,
     mainDraftUpdatedAt,
   })
   const canSaveMainSection = getCanSaveMainSection({
@@ -3941,10 +3980,46 @@ function useWorkItemMainSectionController({
     isCollaborationAttached,
     isMainEditing,
     mainDraftStale: draftState.stale,
-    mainTitleCanSubmit: mainTitleLimitState.canSubmit,
+    mainTitleCanSubmit,
     pendingMentionCount: pendingMainMentionRetryCount,
     savingMainSection,
   })
+
+  const resetMainTitleDraft = useCallback((title: string) => {
+    const limitState = getTextInputLimitState(title, workItemTitleConstraints)
+
+    mainDraftTitleRef.current = title
+    mainDraftTitleDirtyRef.current = false
+    mainTitleCanSubmitRef.current = limitState.canSubmit
+    setMainDraftTitle(title)
+    setMainDraftTitleDirty(false)
+    setMainTitleCanSubmit(limitState.canSubmit)
+  }, [])
+
+  const handleTitleDraftChange = useCallback(
+    (title: string) => {
+      mainDraftTitleRef.current = title
+      const nextDirty = Boolean(
+        currentItem && isMainEditing && title.trim() !== currentItem.title
+      )
+      const nextCanSubmit = getTextInputLimitState(
+        title,
+        workItemTitleConstraints
+      ).canSubmit
+
+      if (nextDirty !== mainDraftTitleDirtyRef.current) {
+        mainDraftTitleDirtyRef.current = nextDirty
+        setMainDraftTitleDirty(nextDirty)
+        setMainDraftTitle(title)
+      }
+
+      if (nextCanSubmit !== mainTitleCanSubmitRef.current) {
+        mainTitleCanSubmitRef.current = nextCanSubmit
+        setMainTitleCanSubmit(nextCanSubmit)
+      }
+    },
+    [currentItem, isMainEditing]
+  )
 
   function handleStartMainEdit() {
     if (!currentItem || !editable || isCollaborationBootstrapping) {
@@ -3953,16 +4028,38 @@ function useWorkItemMainSectionController({
 
     setMainDraftItemId(currentItem.id)
     setMainDraftUpdatedAt(currentItem.updatedAt)
-    setMainDraftTitle(currentItem.title)
+    resetMainTitleDraft(currentItem.title)
+    mainDraftDescriptionRef.current = descriptionContent
+    mainDraftDescriptionDirtyRef.current = false
     setMainDraftDescription(descriptionContent)
+    setMainDraftDescriptionDirty(false)
     setMainEditing(true)
   }
 
   function handleCancelMainEdit() {
+    const nextDescription =
+      currentItem && isCollaborationAttached
+        ? mainDraftDescriptionRef.current
+        : currentItem
+          ? descriptionContent
+          : ""
+
+    if (currentItem && isCollaborationAttached) {
+      useAppStore
+        .getState()
+        .applyItemDescriptionCollaborationContent(
+          currentItem.id,
+          nextDescription
+        )
+    }
+
     setMainDraftItemId(null)
     setMainDraftUpdatedAt(null)
-    setMainDraftTitle(currentItem?.title ?? "")
-    setMainDraftDescription(currentItem ? descriptionContent : "")
+    resetMainTitleDraft(currentItem?.title ?? "")
+    mainDraftDescriptionRef.current = nextDescription
+    mainDraftDescriptionDirtyRef.current = false
+    setMainDraftDescription(nextDescription)
+    setMainDraftDescriptionDirty(false)
     setMainEditing(false)
   }
 
@@ -3972,18 +4069,24 @@ function useWorkItemMainSectionController({
     }
 
     setMainDraftUpdatedAt(currentItem.updatedAt)
-    setMainDraftTitle(currentItem.title)
+    resetMainTitleDraft(currentItem.title)
+    mainDraftDescriptionRef.current = descriptionContent
+    mainDraftDescriptionDirtyRef.current = false
     setMainDraftDescription(descriptionContent)
+    setMainDraftDescriptionDirty(false)
   }
 
   function handleDescriptionChange(content: string) {
-    setMainDraftDescription(content)
+    mainDraftDescriptionRef.current = content
+    const nextDirty = content !== descriptionContent
 
-    if (currentItem && isCollaborationAttached) {
-      useAppStore
-        .getState()
-        .applyItemDescriptionCollaborationContent(currentItem.id, content)
+    if (nextDirty === mainDraftDescriptionDirtyRef.current) {
+      return
     }
+
+    mainDraftDescriptionDirtyRef.current = nextDirty
+    setMainDraftDescriptionDirty(nextDirty)
+    setMainDraftDescription(content)
   }
 
   async function handleSaveMainEdit() {
@@ -3993,11 +4096,15 @@ function useWorkItemMainSectionController({
 
     setSavingMainSection(true)
     const savedItemId = currentItem.id
+    const latestMainDraftTitle = mainDraftTitleRef.current
+    const normalizedMainDraftTitle = latestMainDraftTitle.trim()
+    const latestMainTitleDirty = normalizedMainDraftTitle !== currentItem.title
+    const latestMainDraftDescription = mainDraftDescriptionRef.current
     const pendingMentionEntries = getPendingMainMentionEntries({
       currentItem,
       descriptionContent,
       isMainEditing,
-      mainDraftDescription,
+      mainDraftDescription: latestMainDraftDescription,
       pendingMentionRetryEntriesByItemId:
         mainPendingMentionRetryEntriesByItemId,
     })
@@ -4005,10 +4112,10 @@ function useWorkItemMainSectionController({
       currentItem,
       flushCollaboration,
       isCollaborationAttached,
-      mainDraftDescription,
+      mainDraftDescription: latestMainDraftDescription,
       mainDraftUpdatedAt,
-      mainTitleDirty: draftState.titleDirty,
-      normalizedMainDraftTitle: draftState.normalizedTitle,
+      mainTitleDirty: latestMainTitleDirty,
+      normalizedMainDraftTitle,
     })
 
     if (!saved) {
@@ -4018,6 +4125,12 @@ function useWorkItemMainSectionController({
 
     setMainDraftItemId(null)
     setMainDraftUpdatedAt(null)
+    mainDraftTitleDirtyRef.current = false
+    setMainDraftTitleDirty(false)
+    setMainDraftTitle(normalizedMainDraftTitle)
+    mainDraftDescriptionDirtyRef.current = false
+    setMainDraftDescriptionDirty(false)
+    setMainDraftDescription(latestMainDraftDescription)
     setMainEditing(false)
 
     await deliverWorkItemMainMentionNotifications({
@@ -4040,9 +4153,8 @@ function useWorkItemMainSectionController({
     mainDraftDescription,
     mainDraftStale: draftState.stale,
     mainDraftTitle,
-    mainTitleLimitState,
     savingMainSection,
-    setMainDraftTitle,
+    setMainDraftTitle: handleTitleDraftChange,
   }
 }
 
@@ -4355,19 +4467,60 @@ function WorkItemParentPill({
   )
 }
 
+function WorkItemMainTitleInput({
+  initialTitle,
+  itemTypeLabel,
+  onTitleChange,
+}: {
+  initialTitle: string
+  itemTypeLabel: string
+  onTitleChange: (title: string) => void
+}) {
+  const [draftTitle, setDraftTitle] = useState(initialTitle)
+  const titleLimitState = getTextInputLimitState(
+    draftTitle,
+    workItemTitleConstraints
+  )
+
+  useEffect(() => {
+    setDraftTitle(initialTitle)
+  }, [initialTitle])
+
+  return (
+    <div>
+      <Input
+        value={draftTitle}
+        onChange={(event) => {
+          const nextTitle = event.target.value
+
+          setDraftTitle(nextTitle)
+          onTitleChange(nextTitle)
+        }}
+        placeholder={`${itemTypeLabel} title`}
+        maxLength={workItemTitleConstraints.max}
+        className="h-auto border-none bg-transparent px-0 py-0 text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] shadow-none focus-visible:ring-0 dark:bg-transparent"
+        autoFocus
+      />
+      <FieldCharacterLimit
+        state={titleLimitState}
+        limit={workItemTitleConstraints.max}
+        className="mt-1"
+      />
+    </div>
+  )
+}
+
 function WorkItemMainHeader({
   currentItem,
   team,
   isMainEditing,
   mainDraftTitle,
-  mainTitleLimitState,
   onMainDraftTitleChange,
 }: {
   currentItem: WorkItem
   team: Team | null
   isMainEditing: boolean
   mainDraftTitle: string
-  mainTitleLimitState: DetailTextLimitState
   onMainDraftTitleChange: (title: string) => void
 }) {
   const itemTypeLabel = getDisplayLabelForWorkItemType(
@@ -4405,21 +4558,11 @@ function WorkItemMainHeader({
         ) : null}
       </div>
       {isMainEditing ? (
-        <div>
-          <Input
-            value={mainDraftTitle}
-            onChange={(event) => onMainDraftTitleChange(event.target.value)}
-            placeholder={`${itemTypeLabel} title`}
-            maxLength={workItemTitleConstraints.max}
-            className="h-auto border-none bg-transparent px-0 py-0 text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] shadow-none focus-visible:ring-0 dark:bg-transparent"
-            autoFocus
-          />
-          <FieldCharacterLimit
-            state={mainTitleLimitState}
-            limit={workItemTitleConstraints.max}
-            className="mt-1"
-          />
-        </div>
+        <WorkItemMainTitleInput
+          initialTitle={mainDraftTitle}
+          itemTypeLabel={itemTypeLabel}
+          onTitleChange={onMainDraftTitleChange}
+        />
       ) : (
         <h1 className="text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] text-foreground">
           {currentItem.title}
@@ -4805,19 +4948,25 @@ function WorkItemChildRows({
   data,
   childItems,
   displayProps,
+  editable,
   view,
 }: {
   data: AppData
   childItems: WorkItem[]
   displayProps: ViewDefinition["displayProps"]
+  editable: boolean
   view: ViewDefinition
 }) {
-  if (childItems.length === 0) {
-    return null
-  }
   const visibleChildItems = childItems.filter((child) =>
     workItemMatchesView(data, child, view)
   )
+  const selection = useWorkItemSelection(
+    visibleChildItems.map((child) => child.id)
+  )
+
+  if (childItems.length === 0) {
+    return null
+  }
 
   if (visibleChildItems.length === 0) {
     return (
@@ -4851,6 +5000,7 @@ function WorkItemChildRows({
                     data={data}
                     item={child}
                     displayProps={displayProps}
+                    selection={editable ? selection : undefined}
                     variant="main"
                   />
                 </li>
@@ -5066,6 +5216,7 @@ function WorkItemChildItemsSection({
             data={data}
             childItems={childItems}
             displayProps={subitemView.displayProps}
+            editable={editable}
             view={subitemView}
           />
           <WorkItemChildComposerSlot
@@ -5092,7 +5243,6 @@ function WorkItemMainArticle({
   parentItem,
   isMainEditing,
   mainDraftTitle,
-  mainTitleLimitState,
   mainDraftStale,
   descriptionContent,
   showDescriptionBootPreview,
@@ -5131,7 +5281,6 @@ function WorkItemMainArticle({
   parentItem: WorkItem | null
   isMainEditing: boolean
   mainDraftTitle: string
-  mainTitleLimitState: DetailTextLimitState
   mainDraftStale: boolean
   descriptionContent: string
   showDescriptionBootPreview: boolean
@@ -5173,7 +5322,6 @@ function WorkItemMainArticle({
           team={team}
           isMainEditing={isMainEditing}
           mainDraftTitle={mainDraftTitle}
-          mainTitleLimitState={mainTitleLimitState}
           onMainDraftTitleChange={onMainDraftTitleChange}
         />
 
@@ -5535,6 +5683,7 @@ function WorkItemSidebarSubtasks({
   onCloseComposer: () => void
 }) {
   const subitemView = getWorkDetailSubitemView(data, currentItem)
+  const selection = useWorkItemSelection(childItems.map((child) => child.id))
 
   if (childItems.length === 0 && !canCreateChildItem) {
     return null
@@ -5573,6 +5722,7 @@ function WorkItemSidebarSubtasks({
             data={data}
             item={child}
             displayProps={subitemView.displayProps}
+            selection={editable ? selection : undefined}
             variant="sidebar"
           />
         ))}
@@ -6106,6 +6256,10 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       enabled: Boolean(itemId),
       scopeKeys: [createWorkItemDetailScopeKey(itemId)],
       fetchLatest: () => fetchWorkItemDetailReadModel(itemId),
+      diagnostics: {
+        retainedData: Boolean(item),
+        surface: "work-item/detail",
+      },
       notFoundResult: createMissingScopedReadModelResult([
         {
           kind: "work-item-detail",
@@ -6229,6 +6383,25 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const otherDescriptionViewers = activeDescriptionViewers.filter(
     (viewer) => viewer.userId !== currentUserId
   )
+  const detailSidebarTitle =
+    item &&
+    mainSection.isMainEditing &&
+    mainSection.mainDraftTitle.trim().length > 0
+      ? mainSection.mainDraftTitle
+      : (item?.title ?? "")
+  const detailModel = useMemo(
+    () =>
+      item
+        ? getWorkItemDetailModel({
+            currentItem: item,
+            data,
+            editable,
+            sidebarTitle: detailSidebarTitle,
+            team,
+          })
+        : null,
+    [data, detailSidebarTitle, editable, item, team]
+  )
 
   if (!item) {
     return getMissingWorkItemDetailContent({
@@ -6238,13 +6411,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   }
 
   const currentItem = item
-  const detailModel = getWorkItemDetailModel({
-    currentItem,
-    data,
-    editable,
-    mainSection,
-    team,
-  })
+  if (!detailModel) {
+    return null
+  }
   const {
     canSaveMainSection,
     handleCancelMainEdit,
@@ -6255,7 +6424,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     isMainEditing,
     mainDraftStale,
     mainDraftTitle,
-    mainTitleLimitState,
     savingMainSection,
     setMainDraftTitle,
   } = mainSection
@@ -6313,7 +6481,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     currentUserId,
     mainDraftTitle,
     isCollaborationAttached,
-    mainTitleLimitState,
     editorCollaboration,
     mainDraftStale,
     collaboration,

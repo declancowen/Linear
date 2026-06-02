@@ -593,6 +593,55 @@ describe("useDocumentCollaboration", () => {
     })
   })
 
+  it("does not use teardown-content flush when unmounted before attach completes", async () => {
+    const session = createSession()
+
+    session.connect = vi.fn(
+      () =>
+        new Promise<void>(() => {
+          // Keep the collaboration session in the bootstrapping state.
+        })
+    )
+
+    mockOpenSession(session)
+    const { result, unmount } = await renderCollaborationHook()
+
+    await expectBootstrappingCollaboration(result, {
+      expectBootstrapContent: true,
+    })
+
+    unmount()
+
+    await waitFor(() => {
+      expect(session.disconnect).toHaveBeenCalledWith("component-unmount")
+    })
+    expect(session.flush).not.toHaveBeenCalled()
+  })
+
+  it("does not use teardown-content flush on pagehide before attach completes", async () => {
+    const session = createSession()
+
+    session.connect = vi.fn(
+      () =>
+        new Promise<void>(() => {
+          // Keep the collaboration session in the bootstrapping state.
+        })
+    )
+
+    mockOpenSession(session)
+    const { result } = await renderCollaborationHook()
+
+    await expectBootstrappingCollaboration(result, {
+      expectBootstrapContent: true,
+    })
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"))
+    })
+
+    expect(session.flush).not.toHaveBeenCalled()
+  })
+
   it("uses teardown-content flush when the attached editor session unmounts", async () => {
     const session = createSession()
 

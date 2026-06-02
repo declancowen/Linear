@@ -192,14 +192,6 @@ export function getRichTextReferenceCandidates(
   )
   const workItems = getWorkItemReferenceCandidates(data, workspaceId, context)
 
-  if (context.type === "workItemComment") {
-    return sortReferenceCandidates(workItems)
-  }
-
-  if (context.type !== "document") {
-    return sortReferenceCandidates([...documents, ...workItems])
-  }
-
   return sortReferenceCandidates([
     ...documents,
     ...workItems,

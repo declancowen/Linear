@@ -35,6 +35,7 @@ export function createEmptyState(): AppData {
       selectedViewByRoute: {},
       viewerViewConfigByRoute: {},
       viewerDirectoryConfigByRoute: {},
+      collaborationSidebarOpenBySurface: {},
       activeCreateDialog: null,
     },
   }

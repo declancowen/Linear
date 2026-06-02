@@ -79,6 +79,50 @@ vi.mock("@/components/app/screens/work-surface-view", () => ({
       <div>board-content</div>
     </div>
   ),
+  getWorkSurfaceCreateDefaultsFromView: ({
+    createContext,
+    view,
+  }: {
+    createContext?: {
+      defaultProjectId?: string | null
+      defaultTeamId?: string | null
+      defaultVisibility?: "private" | "team"
+    }
+    view: ViewDefinition
+  }) => {
+    const labelId =
+      view.filters.labelIds.length === 1 ? view.filters.labelIds[0] : undefined
+    const projectId =
+      view.filters.projectIds.length === 1
+        ? view.filters.projectIds[0]
+        : createContext?.defaultProjectId
+    const teamId =
+      view.filters.teamIds.length === 1
+        ? view.filters.teamIds[0]
+        : createContext?.defaultTeamId
+    const itemType =
+      view.filters.itemTypes.length === 1 ? view.filters.itemTypes[0] : null
+    const visibility =
+      view.filters.visibility?.length === 1
+        ? view.filters.visibility[0]
+        : createContext?.defaultVisibility
+
+    return {
+      defaultProjectId: visibility === "private" ? null : projectId,
+      defaultTeamId: teamId,
+      initialType: itemType ?? (visibility === "private" ? "task" : null),
+      defaultValues: {
+        ...(view.filters.status.length === 1
+          ? { status: view.filters.status[0] }
+          : {}),
+        ...(projectId && visibility !== "private"
+          ? { primaryProjectId: projectId }
+          : {}),
+        ...(labelId && visibility !== "private" ? { labelIds: [labelId] } : {}),
+        ...(visibility ? { visibility } : {}),
+      },
+    }
+  },
   ListView: ({
     view,
   }: {
@@ -99,6 +143,7 @@ vi.mock("@phosphor-icons/react", () => ({
 }))
 
 import { WorkSurface } from "@/components/app/screens/work-surface"
+import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   createDefaultViewFilters,
@@ -284,6 +329,100 @@ describe("WorkSurface", () => {
 
     expect(screen.getByRole("button", { name: "All work" })).toBeInTheDocument()
     expect(screen.getByText("group:status/sub:none")).toBeInTheDocument()
+  })
+
+  it("opens top-level creates with single-value active view defaults", () => {
+    const view = createView({
+      filters: {
+        ...createDefaultViewFilters(),
+        status: ["todo"],
+        projectIds: ["project_1"],
+        teamIds: ["team_1"],
+        itemTypes: ["task"],
+        labelIds: ["label_cx"],
+      },
+      grouping: "status",
+      subGrouping: null,
+    })
+
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      views: [view],
+    })
+
+    render(
+      <WorkSurface
+        title="Work"
+        routeKey="/team/platform/work"
+        views={[view]}
+        items={[]}
+        team={createTeam()}
+        emptyLabel="No work"
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "New" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultProjectId: "project_1",
+        defaultTeamId: "team_1",
+        initialType: "task",
+        defaultValues: expect.objectContaining({
+          labelIds: ["label_cx"],
+          primaryProjectId: "project_1",
+          status: "todo",
+        }),
+      })
+    )
+  })
+
+  it("does not treat ambiguous visibility filters as private create defaults", () => {
+    const view = createView({
+      filters: {
+        ...createDefaultViewFilters(),
+        projectIds: ["project_1"],
+        teamIds: ["team_1"],
+        labelIds: ["label_cx"],
+        visibility: ["team", "private"],
+      },
+      grouping: "status",
+      subGrouping: null,
+    })
+
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      views: [view],
+    })
+
+    render(
+      <WorkSurface
+        title="Work"
+        routeKey="/team/platform/work"
+        views={[view]}
+        items={[]}
+        team={createTeam()}
+        emptyLabel="No work"
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "New" }))
+
+    const dialog = vi.mocked(openManagedCreateDialog).mock.calls[0]?.[0]
+
+    expect(dialog).toEqual(
+      expect.objectContaining({
+        defaultProjectId: "project_1",
+        defaultTeamId: "team_1",
+        defaultValues: expect.objectContaining({
+          labelIds: ["label_cx"],
+          primaryProjectId: "project_1",
+        }),
+      })
+    )
+    expect(dialog?.kind === "workItem" && dialog.defaultValues?.visibility).toBe(
+      undefined
+    )
   })
 
   it("renders fallback views when no saved views exist", () => {

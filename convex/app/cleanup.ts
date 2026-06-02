@@ -826,6 +826,10 @@ function getWorkItemLinkCleanupPatch(
     workItem.linkedWorkItemIds ?? [],
     deletedIds.deletedWorkItemIds
   )
+  const nextReferencedProjectIds = filterRemovedIds(
+    workItem.referencedProjectIds ?? [],
+    deletedIds.deletedProjectIds
+  )
   const nextPrimaryProjectId = getWorkItemProjectLinkAfterDelete(
     workItem.primaryProjectId,
     deletedIds.deletedProjectIds
@@ -840,6 +844,7 @@ function getWorkItemLinkCleanupPatch(
       linkedDocumentIds: nextLinkedDocumentIds,
       linkedProjectIds: nextLinkedProjectIds,
       linkedWorkItemIds: nextLinkedWorkItemIds,
+      referencedProjectIds: nextReferencedProjectIds,
       primaryProjectId: nextPrimaryProjectId,
       milestoneId: nextMilestoneId,
     })
@@ -851,6 +856,7 @@ function getWorkItemLinkCleanupPatch(
     linkedDocumentIds: nextLinkedDocumentIds,
     linkedProjectIds: nextLinkedProjectIds,
     linkedWorkItemIds: nextLinkedWorkItemIds,
+    referencedProjectIds: nextReferencedProjectIds,
     primaryProjectId: nextPrimaryProjectId,
     milestoneId: nextMilestoneId,
   }
@@ -878,6 +884,7 @@ function workItemLinkCleanupPatchChanged(
     linkedDocumentIds: string[]
     linkedProjectIds: string[]
     linkedWorkItemIds: string[]
+    referencedProjectIds: string[]
     primaryProjectId: string | null
     milestoneId: string | null
   }
@@ -887,6 +894,8 @@ function workItemLinkCleanupPatchChanged(
     patch.linkedProjectIds.length !== workItem.linkedProjectIds.length ||
     patch.linkedWorkItemIds.length !==
       (workItem.linkedWorkItemIds ?? []).length ||
+    patch.referencedProjectIds.length !==
+      (workItem.referencedProjectIds ?? []).length ||
     patch.primaryProjectId !== workItem.primaryProjectId ||
     patch.milestoneId !== workItem.milestoneId
   )
@@ -917,6 +926,59 @@ async function cleanupWorkItemLinksAfterDelete(
   }
 }
 
+function getCommentReferenceCleanupPatch(
+  comment: Doc<"comments">,
+  deletedIds: DeletedLinkIds
+) {
+  const nextReferencedWorkItemIds = filterRemovedIds(
+    comment.referencedWorkItemIds ?? [],
+    deletedIds.deletedWorkItemIds
+  )
+  const nextReferencedDocumentIds = filterRemovedIds(
+    comment.referencedDocumentIds ?? [],
+    deletedIds.deletedDocumentIds
+  )
+  const nextReferencedProjectIds = filterRemovedIds(
+    comment.referencedProjectIds ?? [],
+    deletedIds.deletedProjectIds
+  )
+
+  if (
+    nextReferencedWorkItemIds.length ===
+      (comment.referencedWorkItemIds ?? []).length &&
+    nextReferencedDocumentIds.length ===
+      (comment.referencedDocumentIds ?? []).length &&
+    nextReferencedProjectIds.length ===
+      (comment.referencedProjectIds ?? []).length
+  ) {
+    return null
+  }
+
+  return {
+    referencedWorkItemIds: nextReferencedWorkItemIds,
+    referencedDocumentIds: nextReferencedDocumentIds,
+    referencedProjectIds: nextReferencedProjectIds,
+  }
+}
+
+async function cleanupCommentReferenceLinksAfterDelete(
+  ctx: MutationCtx,
+  input: {
+    comments: Doc<"comments">[]
+    deletedIds: DeletedLinkIds
+  }
+) {
+  for (const comment of input.comments) {
+    const patch = getCommentReferenceCleanupPatch(comment, input.deletedIds)
+
+    if (!patch) {
+      continue
+    }
+
+    await ctx.db.patch(comment._id, patch)
+  }
+}
+
 export async function cleanupRemainingLinksAfterDelete(
   ctx: MutationCtx,
   input: {
@@ -928,11 +990,16 @@ export async function cleanupRemainingLinksAfterDelete(
   }
 ) {
   const deletedIds = getDeletedLinkIds(input)
-  const [documents, workItems] = await Promise.all([
+  const [comments, documents, workItems] = await Promise.all([
+    ctx.db.query("comments").collect(),
     ctx.db.query("documents").collect(),
     ctx.db.query("workItems").collect(),
   ])
 
+  await cleanupCommentReferenceLinksAfterDelete(ctx, {
+    comments,
+    deletedIds,
+  })
   await cleanupDocumentLinksAfterDelete(ctx, {
     currentUserId: input.currentUserId,
     deletedIds,

@@ -32,7 +32,11 @@ import {
 } from "./access"
 import { getTeamMemberIds } from "./conversations"
 import { queueMentionAndCommentEmailJobs } from "./email_job_handlers"
-import { resolveWorkItemCommentReferenceIds } from "./rich_text_reference_relationships"
+import {
+  resolveDocumentCommentReferenceRelationships,
+  resolveWorkItemCommentReferenceRelationships,
+  type RichTextReferenceRelationshipIds,
+} from "./rich_text_reference_relationships"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -75,6 +79,7 @@ type AddCommentTargetContext = {
 }
 
 type CommentDoc = NonNullable<Awaited<ReturnType<typeof getCommentDoc>>>
+
 export function assertParentCommentTarget(
   parentComment: Awaited<ReturnType<typeof getCommentDoc>> | null,
   args: AddCommentArgs
@@ -229,11 +234,48 @@ async function requireWorkItemCommentTarget(ctx: MutationCtx, itemId: string) {
   return item
 }
 
+async function requireDocumentCommentTarget(
+  ctx: MutationCtx,
+  documentId: string
+) {
+  const document = await getDocumentDoc(ctx, documentId)
+
+  if (!document) {
+    throw new Error("Document not found")
+  }
+
+  return document
+}
+
+async function resolveCommentReferenceRelationships(
+  ctx: MutationCtx,
+  input: {
+    content: string
+    currentUserId: string
+    targetId: string
+    targetType: "workItem" | "document"
+  }
+) {
+  if (input.targetType === "workItem") {
+    return resolveWorkItemCommentReferenceRelationships(ctx, {
+      content: input.content,
+      currentUserId: input.currentUserId,
+      item: await requireWorkItemCommentTarget(ctx, input.targetId),
+    })
+  }
+
+  return resolveDocumentCommentReferenceRelationships(ctx, {
+    content: input.content,
+    currentUserId: input.currentUserId,
+    document: await requireDocumentCommentTarget(ctx, input.targetId),
+  })
+}
+
 async function insertComment(
   ctx: MutationCtx,
   args: AddCommentArgs,
   mentionUserIds: string[],
-  referencedWorkItemIds: string[]
+  referenceRelationships: RichTextReferenceRelationshipIds
 ) {
   const commentId = args.commentId?.trim() || createId("comment")
 
@@ -248,7 +290,10 @@ async function insertComment(
     parentCommentId: args.parentCommentId ?? null,
     content: args.content.trim(),
     mentionUserIds,
-    referencedWorkItemIds,
+    referencedWorkItemIds: referenceRelationships.workItemIds,
+    referencedDocumentIds: referenceRelationships.documentIds,
+    referencedProjectIds: referenceRelationships.projectIds,
+    referencedViewIds: referenceRelationships.viewIds,
     reactions: [],
     createdBy: args.currentUserId,
     createdAt: getNow(),
@@ -452,20 +497,18 @@ export async function addCommentHandler(
     audience.users,
     audience.audienceUserIds
   )
-  const referencedWorkItemIds =
-    args.targetType === "workItem"
-      ? await resolveWorkItemCommentReferenceIds(ctx, {
-          content: args.content,
-          currentUserId: args.currentUserId,
-          item: await requireWorkItemCommentTarget(ctx, args.targetId),
-        })
-      : []
+  const referenceRelationships = await resolveCommentReferenceRelationships(ctx, {
+    content: args.content,
+    currentUserId: args.currentUserId,
+    targetId: args.targetId,
+    targetType: args.targetType,
+  })
 
   const commentId = await insertComment(
     ctx,
     args,
     mentionUserIds,
-    referencedWorkItemIds
+    referenceRelationships
   )
 
   const { mentionEmails, notifiedUserIds } = await notifyMentionedCommentUsers({
@@ -590,19 +633,20 @@ export async function updateCommentHandler(
     audience.users,
     audience.audienceUserIds
   )
-  const referencedWorkItemIds =
-    comment.targetType === "workItem"
-      ? await resolveWorkItemCommentReferenceIds(ctx, {
-          content: args.content,
-          currentUserId: args.currentUserId,
-          item: await requireWorkItemCommentTarget(ctx, comment.targetId),
-        })
-      : []
+  const referenceRelationships = await resolveCommentReferenceRelationships(ctx, {
+    content: args.content,
+    currentUserId: args.currentUserId,
+    targetId: comment.targetId,
+    targetType: comment.targetType,
+  })
 
   await ctx.db.patch(comment._id, {
     content: args.content.trim(),
     mentionUserIds,
-    referencedWorkItemIds,
+    referencedWorkItemIds: referenceRelationships.workItemIds,
+    referencedDocumentIds: referenceRelationships.documentIds,
+    referencedProjectIds: referenceRelationships.projectIds,
+    referencedViewIds: referenceRelationships.viewIds,
     editedAt: getNow(),
   })
 

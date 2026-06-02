@@ -32,6 +32,8 @@ import {
   filterReferenceCandidates,
   filterSlashCommands,
   MentionMenu,
+  ReferenceMenu,
+  SlashCommandMenu,
 } from "@/components/app/rich-text-editor/menus"
 import { assignMenuItemRef } from "@/components/app/rich-text-editor/menu-refs"
 
@@ -758,6 +760,99 @@ describe("rich text editor helpers", () => {
     })
 
     expect(commands).toEqual([])
+  })
+
+  it("renders a wider slash command menu for readable command descriptions", () => {
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    })
+
+    try {
+      const commands = filterSlashCommands("", {
+        enableReferences: true,
+        enableUploads: false,
+        promptAttachmentUpload: vi.fn(),
+        promptEmojiPicker: vi.fn(),
+        promptImageUpload: vi.fn(),
+        promptReferencePicker: vi.fn(),
+      })
+
+      const { container } = render(
+        <SlashCommandMenu
+          activeIndex={0}
+          commands={commands}
+          containerWidth={720}
+          editor={{} as never}
+          state={{
+            bottom: 40,
+            from: 1,
+            left: 12,
+            query: "",
+            to: 1,
+            top: 80,
+          }}
+          onComplete={vi.fn()}
+        />
+      )
+
+      expect(container.firstElementChild).toHaveClass("w-[22.5rem]")
+      expect(
+        screen.getByText("Link work, docs, projects, or views")
+      ).toBeInTheDocument()
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      })
+    }
+  })
+
+  it("renders the reference picker with the wide command shell", () => {
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    })
+
+    try {
+      const { container } = render(
+        <ReferenceMenu
+          activeIndex={0}
+          candidates={[
+            {
+              type: "project",
+              id: "project_1",
+              label: "Customer experience roadmap",
+              subtitle: "Workspace project",
+              href: "/projects/project_1",
+            },
+          ]}
+          containerWidth={720}
+          editor={{} as never}
+          state={{
+            bottom: 40,
+            from: 1,
+            left: 12,
+            query: "",
+            to: 1,
+            top: 80,
+          }}
+          onComplete={vi.fn()}
+          onQueryChange={vi.fn()}
+        />
+      )
+
+      expect(container.firstElementChild).toHaveClass("w-[32.5rem]")
+      expect(screen.getByText("Customer experience roadmap")).toBeInTheDocument()
+      expect(screen.getByText("Workspace project")).toBeInTheDocument()
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      })
+    }
   })
 
   it("renders mention candidates with active item styling", () => {
