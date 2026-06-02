@@ -30,16 +30,26 @@ vi.mock("@/components/app/screens/work-item-menus", () => ({
   IssueActionMenu: () => null,
   IssueContextMenu: ({
     children,
+    displayProps,
     item,
     onEditItem,
+    targetItems,
   }: {
     children: ReactNode
+    displayProps?: string[]
     item: { id: string }
     onEditItem?: (itemId: string) => void
+    targetItems?: Array<{ id: string }>
   }) => (
     <>
       {children}
-      <span data-testid={`issue-context-${item.id}`} />
+      <span
+        data-testid={`issue-context-${item.id}`}
+        data-display-props={displayProps?.join(",") ?? ""}
+      />
+      <span data-testid={`issue-context-targets-${item.id}`}>
+        {targetItems?.map((target) => target.id).join(",") ?? item.id}
+      </span>
       {onEditItem ? (
         <button
           type="button"
@@ -481,6 +491,78 @@ function createEditableData(): AppData {
         teamId: "team_1",
         userId: "user_1",
         role: "admin",
+      },
+    ],
+  }
+}
+
+function createCollapsedChildSelectionData() {
+  const firstParent = createWorkItem({
+    id: "first_parent",
+    key: "TES-1",
+    title: "First parent",
+    status: "todo",
+    type: "epic",
+  })
+  const hiddenCollapsedChild = createWorkItem({
+    id: "hidden_collapsed_child",
+    key: "TES-2",
+    title: "Hidden collapsed child",
+    status: "todo",
+    type: "feature",
+    parentId: firstParent.id,
+  })
+  const secondParent = createWorkItem({
+    id: "second_parent",
+    key: "TES-3",
+    title: "Second parent",
+    status: "todo",
+    type: "epic",
+  })
+
+  return {
+    data: {
+      ...createEditableData(),
+      workItems: [firstParent, hiddenCollapsedChild, secondParent],
+    },
+  }
+}
+
+function createCreateDefaultData(): AppData {
+  return {
+    ...createEditableData(),
+    labels: [
+      {
+        id: "label_cx",
+        name: "CX",
+        color: "#34d399",
+        workspaceId: "workspace_1",
+      },
+      {
+        id: "label_ops",
+        name: "Ops",
+        color: "#60a5fa",
+        workspaceId: "workspace_1",
+      },
+    ],
+    projects: [
+      {
+        id: "project_1",
+        scopeType: "team",
+        scopeId: "team_1",
+        templateType: "project-management",
+        name: "Roadmap",
+        summary: "",
+        description: "",
+        status: "backlog",
+        health: "no-update",
+        priority: "medium",
+        leadId: "user_1",
+        memberIds: ["user_1"],
+        targetDate: null,
+        startDate: null,
+        createdAt: "2026-04-20T12:00:00.000Z",
+        updatedAt: "2026-04-20T12:00:00.000Z",
       },
     ],
   }
@@ -2413,6 +2495,39 @@ describe("TimelineView primitives", () => {
   })
 })
 
+describe("BoardView", () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("excludes collapsed child cards from board selection ranges", () => {
+    const { data } = createCollapsedChildSelectionData()
+
+    render(
+      <BoardView
+        data={data}
+        items={data.workItems}
+        view={createView("board", ["status"], {
+          showChildItems: true,
+        })}
+        editable
+      />
+    )
+
+    expect(screen.queryByText("Hidden collapsed child")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText("Select TES-1"))
+    fireEvent.click(screen.getByText("Second parent"), { shiftKey: true })
+
+    expect(
+      screen.getByTestId("issue-context-targets-first_parent")
+    ).toHaveTextContent("first_parent,second_parent")
+    expect(
+      screen.getByTestId("issue-context-targets-first_parent")
+    ).not.toHaveTextContent("hidden_collapsed_child")
+  })
+})
+
 describe("ListView", () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -2434,6 +2549,141 @@ describe("ListView", () => {
       screen.queryByRole("button", { name: /backlog/i })
     ).not.toBeInTheDocument()
     expect(screen.queryByText("No items")).not.toBeInTheDocument()
+  })
+
+  it("passes selected visible list rows into the work item context menu", () => {
+    const firstItem = createWorkItem({
+      id: "item_1",
+      key: "TES-1",
+      title: "First item",
+      status: "todo",
+    })
+    const secondItem = createWorkItem({
+      id: "item_2",
+      key: "TES-2",
+      title: "Second item",
+      status: "todo",
+    })
+    const data = {
+      ...createEditableData(),
+      workItems: [firstItem, secondItem],
+    }
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["status"])}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByLabelText("Select TES-1"))
+    fireEvent.click(screen.getByLabelText("Select TES-2"))
+
+    expect(screen.getByTestId("issue-context-targets-item_1")).toHaveTextContent(
+      "item_1,item_2"
+    )
+    expect(screen.getByTestId("issue-context-item_1")).toHaveAttribute(
+      "data-display-props",
+      "status"
+    )
+  })
+
+  it("keeps list selection ranges scoped to rendered child rows", () => {
+    const parentItem = createWorkItem({
+      id: "parent_item",
+      key: "TES-1",
+      title: "Parent item",
+      status: "todo",
+      type: "epic",
+    })
+    const visibleChild = createWorkItem({
+      id: "visible_child",
+      key: "TES-2",
+      title: "Visible child",
+      status: "todo",
+      type: "feature",
+      parentId: parentItem.id,
+    })
+    const hiddenRetainedChild = createWorkItem({
+      id: "hidden_child",
+      key: "TES-3",
+      title: "Hidden retained child",
+      status: "todo",
+      type: "feature",
+      parentId: parentItem.id,
+    })
+    const data = {
+      ...createEditableData(),
+      workItems: [parentItem, visibleChild, hiddenRetainedChild],
+    }
+    const scopedItems = [parentItem, visibleChild]
+
+    render(
+      <ListView
+        data={data}
+        items={[parentItem]}
+        scopedItems={scopedItems}
+        view={createView("list", ["status"], {
+          showChildItems: true,
+        })}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByLabelText("Expand sub-issues"))
+    fireEvent.click(screen.getByLabelText("Select TES-1"))
+    fireEvent.click(screen.getByText("Visible child"), { shiftKey: true })
+
+    expect(
+      screen.getByTestId("issue-context-targets-parent_item")
+    ).toHaveTextContent("parent_item,visible_child")
+    expect(
+      screen.getByTestId("issue-context-targets-parent_item")
+    ).not.toHaveTextContent("hidden_child")
+  })
+
+  it("excludes collapsed child rows from list selection ranges", () => {
+    const { data } = createCollapsedChildSelectionData()
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["status"], {
+          showChildItems: true,
+        })}
+        editable
+      />
+    )
+
+    expect(screen.queryByText("Hidden collapsed child")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText("Select TES-1"))
+    fireEvent.click(screen.getByText("Second parent"), { shiftKey: true })
+
+    expect(
+      screen.getByTestId("issue-context-targets-first_parent")
+    ).toHaveTextContent("first_parent,second_parent")
+    expect(
+      screen.getByTestId("issue-context-targets-first_parent")
+    ).not.toHaveTextContent("hidden_collapsed_child")
+  })
+
+  it("does not show bulk selection controls in read-only list rows", () => {
+    const data = createData()
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["status"])}
+        editable={false}
+      />
+    )
+
+    expect(screen.queryByLabelText("Select TES-1")).not.toBeInTheDocument()
   })
 
   it("keeps add item available for empty unfiltered editable groups", () => {
@@ -2465,6 +2715,128 @@ describe("ListView", () => {
           status: "backlog",
         }),
       })
+    )
+  })
+
+  it("prepopulates labels when adding from an empty label-filtered lane", () => {
+    const data = {
+      ...createCreateDefaultData(),
+      workItems: [],
+    }
+    const view = createView("list", [], {
+      filters: {
+        ...createDefaultViewFilters(),
+        labelIds: ["label_cx"],
+      },
+      grouping: "label",
+    })
+
+    render(
+      <ListView
+        data={data}
+        items={[]}
+        view={view}
+        editable
+        createContext={{
+          defaultTeamId: "team_1",
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultValues: expect.objectContaining({
+          labelIds: ["label_cx"],
+        }),
+      })
+    )
+  })
+
+  it("merges group, subgroup, and single-value filter defaults for lane creates", () => {
+    const data = {
+      ...createCreateDefaultData(),
+      workItems: [
+        createWorkItem({
+          id: "item_cx",
+          labelIds: ["label_cx"],
+          status: "in-progress",
+        }),
+      ],
+    }
+    const view = createView("list", [], {
+      filters: {
+        ...createDefaultViewFilters(),
+        projectIds: ["project_1"],
+        teamIds: ["team_1"],
+        itemTypes: ["task"],
+      },
+      grouping: "label",
+      subGrouping: "status",
+    })
+
+    render(<ListView data={data} items={data.workItems} view={view} editable />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultProjectId: "project_1",
+        initialType: "task",
+        defaultValues: expect.objectContaining({
+          labelIds: ["label_cx"],
+          primaryProjectId: "project_1",
+          status: "in-progress",
+        }),
+      })
+    )
+  })
+
+  it("applies safe single-value filters but leaves ambiguous label filters unset", () => {
+    const data = {
+      ...createCreateDefaultData(),
+      workItems: [],
+    }
+    const view = createView("list", [], {
+      filters: {
+        ...createDefaultViewFilters(),
+        status: ["todo"],
+        priority: ["high"],
+        projectIds: ["project_1"],
+        teamIds: ["team_1"],
+        itemTypes: ["task"],
+        labelIds: ["label_cx", "label_ops"],
+      },
+      grouping: "status",
+      hiddenState: {
+        groups: ["backlog", "in-progress", "done", "cancelled", "duplicate"],
+        subgroups: [],
+      },
+    })
+
+    render(<ListView data={data} items={[]} view={view} editable />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    const dialog = vi.mocked(openManagedCreateDialog).mock.calls[0]?.[0]
+
+    expect(dialog).toEqual(
+      expect.objectContaining({
+        defaultTeamId: "team_1",
+        defaultProjectId: "project_1",
+        initialType: "task",
+        defaultValues: expect.objectContaining({
+          primaryProjectId: "project_1",
+          priority: "high",
+          status: "todo",
+        }),
+      })
+    )
+    expect(dialog?.kind === "workItem" && dialog.defaultValues?.labelIds).toBe(
+      undefined
     )
   })
 

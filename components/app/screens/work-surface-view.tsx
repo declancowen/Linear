@@ -50,11 +50,14 @@ import {
   type AppData,
   type BuiltinDisplayProperty,
   type DisplayProperty,
+  type Priority,
   type TeamExperienceType,
   type ViewDefinition,
   type WorkItem,
+  type WorkItemType,
   type WorkItemVisibility,
   getCustomPropertyIdFromDisplayReference,
+  workStatuses,
 } from "@/lib/domain/types"
 import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
 import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
@@ -68,6 +71,11 @@ import {
   stopMenuEvent,
   stopDragPropagation,
 } from "./work-item-menus"
+import {
+  useWorkItemSelection,
+  WorkItemSelectionCheckbox,
+  type WorkItemSelectionController,
+} from "./work-item-selection"
 import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
 import { getCreateDefaultsForField, LabelColorDot } from "./shared"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
@@ -292,6 +300,18 @@ function getParentGroupItem({
 }
 
 type CreateDefaultsForFieldResult = ReturnType<typeof getCreateDefaultsForField>
+type WorkSurfaceCreateDefaultPatch = Partial<
+  Pick<
+    WorkItem,
+    | "status"
+    | "priority"
+    | "assigneeId"
+    | "primaryProjectId"
+    | "labelIds"
+    | "parentId"
+    | "visibility"
+  >
+>
 
 function getSubgroupCreateDefaults({
   data,
@@ -320,12 +340,88 @@ function getSubgroupCreateDefaults({
 }
 
 function mergeCreateDefaultPatches(
-  groupDefaults: CreateDefaultsForFieldResult,
-  subgroupDefaults: CreateDefaultsForFieldResult | null
+  ...patches: Array<WorkSurfaceCreateDefaultPatch | null | undefined>
 ) {
+  const merged = Object.assign(
+    {},
+    ...patches.filter((patch): patch is WorkSurfaceCreateDefaultPatch =>
+      Boolean(patch)
+    )
+  ) as WorkSurfaceCreateDefaultPatch
+  const labelSources = patches
+    .map((patch) => patch?.labelIds)
+    .filter((labelIds): labelIds is string[] => labelIds !== undefined)
+
+  if (labelSources.length > 0) {
+    merged.labelIds = [...new Set(labelSources.flat())]
+  }
+
+  return merged
+}
+
+function getSingleFilterValue<T>(values: T[] | undefined) {
+  return values?.length === 1 ? values[0] : undefined
+}
+
+function isWorkItemStatus(
+  value: string | undefined
+): value is WorkItem["status"] {
+  return Boolean(value && workStatuses.includes(value as WorkItem["status"]))
+}
+
+function getCreateDefaultsFromFilters(
+  view: Pick<ViewDefinition, "filters">
+): {
+  defaultTeamId?: string | null
+  initialType?: WorkItemType | null
+  patch: WorkSurfaceCreateDefaultPatch
+} {
+  const status = getSingleFilterValue(view.filters.status)
+  const priority = getSingleFilterValue(view.filters.priority)
+  const projectId = getSingleFilterValue(view.filters.projectIds)
+  const teamId = getSingleFilterValue(view.filters.teamIds)
+  const itemType = getSingleFilterValue(view.filters.itemTypes)
+  const labelId = getSingleFilterValue(view.filters.labelIds)
+  const visibility = getSingleFilterValue(view.filters.visibility)
+  const createsPrivateWorkItem = visibility === "private"
+
   return {
-    ...groupDefaults.patch,
-    ...(subgroupDefaults?.patch ?? {}),
+    defaultTeamId: teamId,
+    initialType: itemType,
+    patch: {
+      ...(isWorkItemStatus(status) ? { status } : {}),
+      ...(priority ? { priority: priority as Priority } : {}),
+      ...(createsPrivateWorkItem
+        ? { primaryProjectId: null }
+        : projectId
+          ? { primaryProjectId: projectId }
+          : {}),
+      ...(labelId && !createsPrivateWorkItem ? { labelIds: [labelId] } : {}),
+      ...(visibility ? { visibility } : {}),
+    },
+  }
+}
+
+export function getWorkSurfaceCreateDefaultsFromView({
+  createContext,
+  view,
+}: {
+  createContext?: WorkSurfaceCreateContext
+  view: Pick<ViewDefinition, "filters">
+}) {
+  const filterDefaults = getCreateDefaultsFromFilters(view)
+  const defaultValues = getCreateDefaultValues({
+    createContext,
+    groupedPatch: filterDefaults.patch,
+  })
+
+  return {
+    defaultTeamId: filterDefaults.defaultTeamId ?? createContext?.defaultTeamId,
+    defaultProjectId: defaultValues.primaryProjectId,
+    initialType:
+      filterDefaults.initialType ??
+      (defaultValues.visibility === "private" ? ("task" as const) : null),
+    defaultValues,
   }
 }
 
@@ -354,9 +450,14 @@ function getCreateDefaultValues({
   groupedPatch,
 }: {
   createContext?: WorkSurfaceCreateContext
-  groupedPatch: CreateDefaultsForFieldResult["patch"]
+  groupedPatch: WorkSurfaceCreateDefaultPatch
 }) {
-  const createsPrivateWorkItem = createContext?.defaultVisibility === "private"
+  const visibility = groupedPatch.visibility ?? createContext?.defaultVisibility
+  const createsPrivateWorkItem = visibility === "private"
+  const hasExplicitProjectDefault = Object.hasOwn(
+    groupedPatch,
+    "primaryProjectId"
+  )
 
   return {
     status: groupedPatch.status,
@@ -368,12 +469,12 @@ function getCreateDefaultValues({
         : [],
     primaryProjectId: createsPrivateWorkItem
       ? null
-      : groupedPatch.primaryProjectId !== undefined
+      : hasExplicitProjectDefault
         ? groupedPatch.primaryProjectId
-        : (createContext?.defaultProjectId ?? null),
-    labelIds: groupedPatch.labelIds,
+        : createContext?.defaultProjectId,
+    labelIds: createsPrivateWorkItem ? [] : groupedPatch.labelIds,
     parentId: groupedPatch.parentId ?? null,
-    visibility: createContext?.defaultVisibility,
+    visibility,
   }
 }
 
@@ -387,7 +488,7 @@ function buildCreateDefaultsForGroup({
 }: {
   data: AppData
   items: WorkItem[]
-  view: Pick<ViewDefinition, "grouping" | "subGrouping">
+  view: Pick<ViewDefinition, "filters" | "grouping" | "subGrouping">
   groupValue: string
   subgroupValue?: string
   createContext?: WorkSurfaceCreateContext
@@ -408,20 +509,29 @@ function buildCreateDefaultsForGroup({
     teamId,
     view,
   })
+  const filterDefaults = getCreateDefaultsFromFilters(view)
   const groupedPatch = mergeCreateDefaultPatches(
-    groupDefaults,
-    subgroupDefaults
+    filterDefaults.patch,
+    groupDefaults.patch,
+    subgroupDefaults?.patch
   )
 
   return {
     defaultTeamId: getCreateDefaultTeamId({
       baseItem,
       createContext,
-      groupDefaults,
+      groupDefaults: {
+        ...groupDefaults,
+        defaultTeamId:
+          groupDefaults.defaultTeamId ?? filterDefaults.defaultTeamId,
+      },
       subgroupDefaults,
     }),
     initialType:
-      subgroupDefaults?.initialType ?? groupDefaults.initialType ?? null,
+      subgroupDefaults?.initialType ??
+      groupDefaults.initialType ??
+      filterDefaults.initialType ??
+      null,
     defaultValues: getCreateDefaultValues({
       createContext,
       groupedPatch,
@@ -446,7 +556,7 @@ function openCreateDialogForWorkSurfaceGroup({
   laneItems: WorkItem[]
   scopedItems?: WorkItem[]
   subgroupValue?: string
-  view: Pick<ViewDefinition, "grouping" | "subGrouping">
+  view: Pick<ViewDefinition, "filters" | "grouping" | "subGrouping">
 }) {
   const createDefaults = buildCreateDefaultsForGroup({
     data,
@@ -1097,6 +1207,73 @@ function useMemoizedWorkSurfaceGroups({
   )
 }
 
+function getVisibleWorkSurfaceSelectionIds({
+  childDisplayMode,
+  collapsedGroups,
+  data,
+  displayItems,
+  expandedItemIds,
+  groups,
+  scopedItems,
+  showChildItems,
+  view,
+}: {
+  childDisplayMode: ChildDisplayMode
+  collapsedGroups?: Set<string>
+  data: AppData
+  displayItems: WorkItem[]
+  expandedItemIds: Set<string>
+  groups: Array<[string, Map<string, WorkItem[]>]>
+  scopedItems?: WorkItem[]
+  showChildItems: boolean
+  view: ViewDefinition
+}) {
+  const itemIds: string[] = []
+
+  for (const [groupName, subgroups] of groups) {
+    if (collapsedGroups?.has(groupName)) {
+      continue
+    }
+
+    for (const [subgroupName, groupItems] of subgroups) {
+      if (view.hiddenState.subgroups.includes(subgroupName)) {
+        continue
+      }
+
+      const visibleContainerItems = getContainerItemsForDisplay(
+        groupItems,
+        displayItems,
+        showChildItems
+      )
+
+      for (const item of visibleContainerItems) {
+        itemIds.push(item.id)
+
+        if (!showChildItems || !expandedItemIds.has(item.id)) {
+          continue
+        }
+
+        const children = getDirectChildWorkItemsForDisplay(
+          data,
+          item,
+          view.ordering,
+          view,
+          scopedItems,
+          {
+            mode: childDisplayMode,
+          }
+        )
+
+        for (const child of children) {
+          itemIds.push(child.id)
+        }
+      }
+    }
+  }
+
+  return itemIds
+}
+
 export function BoardView({
   data,
   items,
@@ -1149,6 +1326,18 @@ export function BoardView({
   const showChildItems = Boolean(view.showChildItems)
   const sourceItems = scopedItems ?? items
   const displayItems = getParentGroupedDisplayItems(items, sourceItems, view)
+  const selection = useWorkItemSelection(
+    getVisibleWorkSurfaceSelectionIds({
+      childDisplayMode,
+      data,
+      displayItems,
+      expandedItemIds,
+      groups: visibleGroups,
+      scopedItems,
+      showChildItems,
+      view,
+    })
+  )
 
   function toggleExpandedItem(itemId: string) {
     toggleSetMember(setExpandedItemIds, itemId)
@@ -1268,6 +1457,7 @@ export function BoardView({
                                   item={item}
                                   data={data}
                                   displayProps={view.displayProps}
+                                  selection={editable ? selection : undefined}
                                   childCountOverride={getDisplayedChildCountOverride(
                                     childItems,
                                     childDisplayMode
@@ -1277,9 +1467,13 @@ export function BoardView({
                                       <WorkItemChildDisclosure
                                         data={data}
                                         item={item}
+                                        displayProps={view.displayProps}
                                         childItems={childItems}
                                         editable={editable}
                                         expanded={expandedItemIds.has(item.id)}
+                                        selection={
+                                          editable ? selection : undefined
+                                        }
                                         onToggle={() =>
                                           toggleExpandedItem(item.id)
                                         }
@@ -1442,6 +1636,22 @@ export function ListView({
   const showChildItems = Boolean(view.showChildItems)
   const sourceItems = scopedItems ?? items
   const displayItems = getParentGroupedDisplayItems(items, sourceItems, view)
+  const visibleSelectionGroups = groups.filter(
+    ([groupName]) => !view.hiddenState.groups.includes(groupName)
+  )
+  const selection = useWorkItemSelection(
+    getVisibleWorkSurfaceSelectionIds({
+      childDisplayMode,
+      collapsedGroups,
+      data,
+      displayItems,
+      expandedItemIds,
+      groups: visibleSelectionGroups,
+      scopedItems,
+      showChildItems,
+      view,
+    })
+  )
 
   function toggleGroup(groupName: string) {
     toggleSetMember(setCollapsedGroups, groupName)
@@ -1577,6 +1787,7 @@ export function ListView({
                                   data={data}
                                   item={item}
                                   displayProps={view.displayProps}
+                                  selection={editable ? selection : undefined}
                                   depth={0}
                                   hasChildren={hasChildren}
                                   childCountOverride={getDisplayedChildCountOverride(
@@ -1594,6 +1805,7 @@ export function ListView({
                                   data={data}
                                   item={item}
                                   displayProps={view.displayProps}
+                                  selection={editable ? selection : undefined}
                                   depth={0}
                                   hasChildren={hasChildren}
                                   childCountOverride={getDisplayedChildCountOverride(
@@ -1620,6 +1832,9 @@ export function ListView({
                                       data={data}
                                       item={child}
                                       displayProps={view.displayProps}
+                                      selection={
+                                        editable ? selection : undefined
+                                      }
                                       depth={1}
                                     />
                                   ) : (
@@ -1628,6 +1843,9 @@ export function ListView({
                                       data={data}
                                       item={child}
                                       displayProps={view.displayProps}
+                                      selection={
+                                        editable ? selection : undefined
+                                      }
                                       depth={1}
                                     />
                                   )
@@ -1932,6 +2150,7 @@ type ListRowBodyProps = {
   isDropTarget?: boolean
   dragAttributes?: DraggableBindings["attributes"]
   dragListeners?: DraggableBindings["listeners"]
+  selection?: WorkItemSelectionController
 }
 
 type ListRowProps = Omit<
@@ -2222,21 +2441,32 @@ function ListRowHoverActions({
 function ListRowContextMenuSlot({
   children,
   data,
+  displayProps,
   interactive,
   item,
+  selection,
 }: {
   children: ReactNode
   data: AppData
+  displayProps: DisplayProperty[]
   interactive: boolean
   item: WorkItem
+  selection?: WorkItemSelectionController
 }) {
   const router = useAppRouter()
+  const targetItems =
+    selection
+      ?.getContextItemIds(item.id)
+      .map((itemId) => getWorkItem(data, itemId))
+      .filter((entry): entry is WorkItem => entry !== null) ?? [item]
 
   return interactive ? (
     <IssueContextMenu
       data={data}
+      displayProps={displayProps}
       item={item}
       onEditItem={() => router.push(`/items/${item.id}`)}
+      targetItems={targetItems}
     >
       {children}
     </IssueContextMenu>
@@ -2258,6 +2488,7 @@ function ListRowBody({
   isDropTarget = false,
   dragAttributes,
   dragListeners,
+  selection,
 }: ListRowBodyProps) {
   const { idProperty, subCount, visibleProperties } = getListRowDisplayState({
     childCountOverride,
@@ -2271,8 +2502,11 @@ function ListRowBody({
     <div
       className={cn(
         "group/row relative transition-colors hover:bg-surface-2",
+        selection?.isSelected(item.id) && "bg-accent-bg/45",
         isDropTarget && "bg-surface-2"
       )}
+      onClick={(event) => selection?.handleModifiedClick(item.id, event)}
+      onContextMenu={() => selection?.handleContextMenu(item.id)}
       {...dragAttributes}
       {...dragListeners}
     >
@@ -2281,7 +2515,17 @@ function ListRowBody({
         style={{ paddingLeft: 14 + depth * 24 }}
       >
         <div className="flex items-center justify-center">
-          <span aria-hidden className="size-4" />
+          {selection ? (
+            <WorkItemSelectionCheckbox
+              checked={selection.isSelected(item.id)}
+              label={`Select ${item.key}`}
+              onChange={(event) =>
+                selection.handleCheckboxChange(item.id, event)
+              }
+            />
+          ) : (
+            <span aria-hidden className="size-4" />
+          )}
         </div>
         <ListRowDisclosure
           expanded={expanded}
@@ -2310,7 +2554,13 @@ function ListRowBody({
   )
 
   return (
-    <ListRowContextMenuSlot data={data} interactive={interactive} item={item}>
+    <ListRowContextMenuSlot
+      data={data}
+      displayProps={displayProps}
+      interactive={interactive}
+      item={item}
+      selection={selection}
+    >
       {body}
     </ListRowContextMenuSlot>
   )
@@ -2503,12 +2753,14 @@ const DraggableWorkCard = memo(function DraggableWorkCard({
   data,
   item,
   displayProps,
+  selection,
   childCountOverride,
   details,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
+  selection?: WorkItemSelectionController
   childCountOverride?: number
   details?: ReactNode
 }) {
@@ -2522,6 +2774,7 @@ const DraggableWorkCard = memo(function DraggableWorkCard({
           data={data}
           item={item}
           displayProps={displayProps}
+          selection={selection}
           childCountOverride={childCountOverride}
           details={details}
           isDropTarget={isDropTarget}
@@ -2537,6 +2790,7 @@ const BoardCardBody = memo(function BoardCardBody({
   data,
   item,
   displayProps,
+  selection,
   childCountOverride,
   details,
   isDropTarget = false,
@@ -2546,6 +2800,7 @@ const BoardCardBody = memo(function BoardCardBody({
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
+  selection?: WorkItemSelectionController
   childCountOverride?: number
   details?: ReactNode
   isDropTarget?: boolean
@@ -2562,18 +2817,31 @@ const BoardCardBody = memo(function BoardCardBody({
       variant: "board",
     })
   const itemHref = `/items/${item.id}`
+  const selected = selection?.isSelected(item.id) ?? false
+  const targetItems =
+    selection
+      ?.getContextItemIds(item.id)
+      .map((itemId) => getWorkItem(data, itemId))
+      .filter((entry): entry is WorkItem => entry !== null) ?? [item]
 
   return (
     <IssueContextMenu
       data={data}
+      displayProps={displayProps}
       item={item}
       onEditItem={() => router.push(itemHref)}
+      targetItems={targetItems}
     >
       <div
         className={cn(
           "group/card relative flex cursor-grab touch-none flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm active:cursor-grabbing",
+          selected && "border-[color:var(--brand)] bg-accent-bg/45",
           isDropTarget && "border-fg-4 bg-surface-2"
         )}
+        onClickCapture={(event) =>
+          selection?.handleModifiedClick(item.id, event)
+        }
+        onContextMenu={() => selection?.handleContextMenu(item.id)}
         {...dragAttributes}
         {...dragListeners}
       >
@@ -2583,6 +2851,16 @@ const BoardCardBody = memo(function BoardCardBody({
           className="absolute inset-0 rounded-[8px] focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
         />
         <div className="pointer-events-none relative z-10 flex items-start gap-2">
+          {selection ? (
+            <WorkItemSelectionCheckbox
+              checked={selected}
+              className="pointer-events-auto mt-0.5"
+              label={`Select ${item.key}`}
+              onChange={(event) =>
+                selection.handleCheckboxChange(item.id, event)
+              }
+            />
+          ) : null}
           <div className="min-w-0 flex-1">
             {idProperty || subCount > 0 ? (
               <div className="mb-1 flex items-center gap-1.5">
@@ -2606,6 +2884,7 @@ const BoardCardBody = memo(function BoardCardBody({
             <div className="flex items-center gap-1">
               <IssueActionMenu
                 data={data}
+                displayProps={displayProps}
                 item={item}
                 triggerClassName="rounded-sm p-0.5 hover:bg-surface-3"
               />
@@ -2640,16 +2919,20 @@ const BoardCardBody = memo(function BoardCardBody({
 function WorkItemChildDisclosure({
   data,
   item,
+  displayProps,
   childItems,
   editable,
   expanded,
+  selection,
   onToggle,
 }: {
   data: AppData
   item: WorkItem
+  displayProps: DisplayProperty[]
   childItems: WorkItem[]
   editable: boolean
   expanded: boolean
+  selection?: WorkItemSelectionController
   onToggle: () => void
 }) {
   if (childItems.length === 0) {
@@ -2685,8 +2968,11 @@ function WorkItemChildDisclosure({
             return editable ? (
               <DraggableBoardChildItem
                 key={child.id}
+                data={data}
                 item={child}
+                displayProps={displayProps}
                 assignee={childAssignee}
+                selection={selection}
               />
             ) : (
               <AppLink
@@ -2717,11 +3003,17 @@ function WorkItemChildDisclosure({
 }
 
 function DraggableBoardChildItem({
+  data,
   item,
+  displayProps,
   assignee,
+  selection,
 }: {
+  data: AppData
   item: WorkItem
+  displayProps: DisplayProperty[]
   assignee: ReturnType<typeof getUser> | null
+  selection?: WorkItemSelectionController
 }) {
   const {
     attributes,
@@ -2743,6 +3035,36 @@ function DraggableBoardChildItem({
     setDraggableNodeRef(node)
     setDroppableNodeRef(node)
   }
+  const selected = selection?.isSelected(item.id) ?? false
+  const targetItems =
+    selection
+      ?.getContextItemIds(item.id)
+      .map((itemId) => getWorkItem(data, itemId))
+      .filter((entry): entry is WorkItem => entry !== null) ?? [item]
+  const row = (
+    <BoardChildItemRow
+      item={item}
+      assignee={assignee}
+      interactive
+      href={`/items/${item.id}`}
+      isDropTarget={isOver && !isDragging}
+      dragAttributes={attributes}
+      dragListeners={listeners}
+      selection={
+        selection
+          ? {
+              checked: selected,
+              label: `Select ${item.key}`,
+              onChange: (event) =>
+                selection.handleCheckboxChange(item.id, event),
+              onContextMenu: () => selection.handleContextMenu(item.id),
+              onModifiedClick: (event) =>
+                selection.handleModifiedClick(item.id, event),
+            }
+          : undefined
+      }
+    />
+  )
 
   return (
     <div
@@ -2750,15 +3072,14 @@ function DraggableBoardChildItem({
       style={{ transform: CSS.Translate.toString(transform) }}
       className={cn(isDragging && "opacity-60")}
     >
-      <BoardChildItemRow
+      <IssueContextMenu
+        data={data}
+        displayProps={displayProps}
         item={item}
-        assignee={assignee}
-        interactive
-        href={`/items/${item.id}`}
-        isDropTarget={isOver && !isDragging}
-        dragAttributes={attributes}
-        dragListeners={listeners}
-      />
+        targetItems={targetItems}
+      >
+        {row}
+      </IssueContextMenu>
     </div>
   )
 }

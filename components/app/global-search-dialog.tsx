@@ -128,6 +128,10 @@ export function GlobalSearchDialog({
         ? getSearchSeedScopeKeys(currentWorkspaceId, currentUserId)
         : [],
     fetchLatest: () => fetchSearchSeedReadModel(currentWorkspaceId),
+    diagnostics: {
+      retainedData: open && Boolean(currentWorkspaceId),
+      surface: "global-search/dialog",
+    },
   })
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const [query, setQuery] = useState("")

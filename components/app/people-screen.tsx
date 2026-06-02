@@ -1,7 +1,12 @@
 "use client"
 
 import { useMemo, type MouseEvent, type ReactNode } from "react"
-import { CaretRight, CopySimple, UserCircle, Users } from "@phosphor-icons/react"
+import {
+  CaretRight,
+  CopySimple,
+  UserCircle,
+  Users,
+} from "@phosphor-icons/react"
 import { toast } from "sonner"
 import { useShallow } from "zustand/react/shallow"
 
@@ -135,6 +140,10 @@ function PeopleReadModelBoundary({ children }: { children: ReactNode }) {
     enabled: Boolean(workspaceId),
     scopeKeys: workspaceId ? getWorkspacePeopleScopeKeys(workspaceId) : [],
     fetchLatest: () => fetchWorkspacePeopleReadModel(workspaceId),
+    diagnostics: {
+      retainedData: Boolean(workspaceId),
+      surface: "people",
+    },
   })
 
   return <>{children}</>

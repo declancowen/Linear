@@ -5,12 +5,16 @@ import {
   bumpScopedReadModelVersionsServer,
   updateChatReadStateServer,
 } from "@/lib/server/convex"
-import { getConversationListScopeKeys } from "@/lib/scoped-sync/read-models"
+import {
+  getConversationListScopeKeys,
+  getConversationThreadScopeKeys,
+} from "@/lib/scoped-sync/read-models"
 import { handleAppContextJsonRoute } from "@/lib/server/route-handlers"
 import { jsonOk } from "@/lib/server/route-response"
 
 const chatReadStateBodySchema = z.object({
   action: z.enum(["read", "unread"]),
+  messageIds: z.array(z.string()).optional(),
 })
 
 export async function PATCH(
@@ -30,9 +34,13 @@ export async function PATCH(
         currentUserId: appContext.ensuredUser.userId,
         conversationId: chatId,
         action: parsed.action,
+        messageIds: parsed.action === "read" ? parsed.messageIds : undefined,
       })
       await bumpScopedReadModelVersionsServer({
-        scopeKeys: getConversationListScopeKeys(appContext.ensuredUser.userId),
+        scopeKeys: [
+          ...getConversationListScopeKeys(appContext.ensuredUser.userId),
+          ...getConversationThreadScopeKeys(chatId),
+        ],
       })
 
       return jsonOk({

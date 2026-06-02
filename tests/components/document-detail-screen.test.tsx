@@ -744,6 +744,87 @@ describe("DocumentDetailScreen", () => {
     )
   })
 
+  it("keeps the existing document body when a bootstrapping detail refresh returns stale empty content", async () => {
+    const existingContent =
+      '<p><span class="editor-mention" data-type="mention" data-id="user_2">@sam</span></p>'
+
+    fetchDocumentDetailReadModelMock.mockResolvedValue({
+      documents: [
+        {
+          id: "doc_1",
+          kind: "workspace-document",
+          workspaceId: "workspace_1",
+          teamId: null,
+          title: "Launch Notes From Stale Refresh",
+          content: "",
+          linkedProjectIds: [],
+          linkedWorkItemIds: [],
+          createdBy: currentUser.id,
+          updatedBy: currentUser.id,
+          createdAt: "2026-04-17T10:00:00.000Z",
+          updatedAt: "2026-04-17T10:05:00.000Z",
+        },
+      ],
+    })
+    useDocumentCollaborationMock.mockReturnValue({
+      bootstrapContent: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "Boot content",
+              },
+            ],
+          },
+        ],
+      },
+      editorCollaboration: {
+        binding: {
+          doc: {},
+          provider: {},
+        },
+        localUser: {
+          userId: "user_1",
+          sessionId: "session_1",
+          name: "Alex",
+          avatarUrl: null,
+          color: "#000000",
+          typing: false,
+          activeBlockId: null,
+          cursor: null,
+          selection: null,
+          cursorSide: null,
+        },
+      },
+      collaboration: null,
+      flush: flushCollaborationMock,
+      lifecycle: "bootstrapping",
+      viewers: [],
+    })
+
+    render(<DocumentDetailScreen documentId="doc_1" />)
+
+    await waitFor(() => {
+      expect(fetchDocumentDetailReadModelMock).toHaveBeenCalledWith("doc_1")
+      expect(
+        useAppStore
+          .getState()
+          .documents.find((document) => document.id === "doc_1")
+      ).toMatchObject({
+        title: "Launch Notes From Stale Refresh",
+        content: existingContent,
+      })
+    })
+    expect(richTextContentRenderMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        content: existingContent,
+      })
+    )
+  })
+
   it("shows the initial collaboration sync modal only once per document session", async () => {
     useDocumentCollaborationMock.mockReturnValue({
       bootstrapContent: null,

@@ -1,7 +1,6 @@
 import { api } from "@/convex/_generated/api"
 import { coerceApplicationError } from "@/lib/server/application-errors"
 import type { AuthenticatedAppUser } from "@/lib/workos/auth"
-import { triggerEmailJobProcessingServer } from "./notifications"
 
 import {
   getConvexServerClient,
@@ -31,7 +30,9 @@ const SCOPED_READ_MODEL_ERROR_MAPPINGS = [
 let hasLoggedScopedReadModelFallback = false
 
 function normalizeScopeKeys(scopeKeys: string[]) {
-  return [...new Set(scopeKeys.map((scopeKey) => scopeKey.trim()).filter(Boolean))]
+  return [
+    ...new Set(scopeKeys.map((scopeKey) => scopeKey.trim()).filter(Boolean)),
+  ]
 }
 
 function createZeroVersionEnvelope(scopeKeys: string[]) {
@@ -89,10 +90,11 @@ export async function getAuthContextServer(input: {
   workosUserId: string
   email?: string
 }) {
-  await triggerEmailJobProcessingServer()
-
   return runConvexRequestWithRetry("getAuthContextServer", () =>
-    getConvexServerClient().query(api.app.getAuthContext, withServerToken(input))
+    getConvexServerClient().query(
+      api.app.getAuthContext,
+      withServerToken(input)
+    )
   )
 }
 
@@ -123,8 +125,6 @@ export async function getSnapshotServer(input?: {
   email?: string
 }) {
   try {
-    await triggerEmailJobProcessingServer()
-
     return await runConvexRequestWithRetry("getSnapshotServer", () =>
       getConvexServerClient().query(
         api.app.getSnapshot,
@@ -158,8 +158,6 @@ export async function getWorkspaceMembershipBootstrapServer(input: {
   workspaceId: string
 }) {
   try {
-    await triggerEmailJobProcessingServer()
-
     return await runConvexRequestWithRetry(
       "getWorkspaceMembershipBootstrapServer",
       () =>
@@ -177,13 +175,15 @@ export async function getScopedReadModelVersionsServer(input: {
   scopeKeys: string[]
 }) {
   try {
-    return await runConvexRequestWithRetry("getScopedReadModelVersionsServer", () =>
-      getConvexServerClient().query(
-        api.app.getScopedReadModelVersions,
-        withServerToken({
-          scopeKeys: input.scopeKeys,
-        })
-      )
+    return await runConvexRequestWithRetry(
+      "getScopedReadModelVersionsServer",
+      () =>
+        getConvexServerClient().query(
+          api.app.getScopedReadModelVersions,
+          withServerToken({
+            scopeKeys: input.scopeKeys,
+          })
+        )
     )
   } catch (error) {
     const applicationError = coerceApplicationError(error, [
@@ -203,13 +203,15 @@ export async function bumpScopedReadModelVersionsServer(input: {
   scopeKeys: string[]
 }) {
   try {
-    return await runConvexRequestWithRetry("bumpScopedReadModelVersionsServer", () =>
-      getConvexServerClient().mutation(
-        api.app.bumpScopedReadModelVersions,
-        withServerToken({
-          scopeKeys: input.scopeKeys,
-        })
-      )
+    return await runConvexRequestWithRetry(
+      "bumpScopedReadModelVersionsServer",
+      () =>
+        getConvexServerClient().mutation(
+          api.app.bumpScopedReadModelVersions,
+          withServerToken({
+            scopeKeys: input.scopeKeys,
+          })
+        )
     )
   } catch (error) {
     const applicationError = coerceApplicationError(error, [

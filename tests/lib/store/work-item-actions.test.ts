@@ -145,6 +145,43 @@ describe("work item actions", () => {
     expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })
 
+  it("protects optimistically updated work items only until the mutation settles", async () => {
+    let resolveUpdate!: (value: { ok: true }) => void
+    syncUpdateWorkItemMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveUpdate = resolve
+      })
+    )
+    const harness = await createWorkItemActionsHarness()
+
+    harness.actions.updateWorkItem("parent", {
+      status: "in-progress",
+    })
+
+    expect(
+      (
+        harness.state as unknown as {
+          pendingWorkItemSyncsById: Record<string, string>
+        }
+      ).pendingWorkItemSyncsById.parent
+    ).toEqual(expect.any(String))
+    expect(
+      harness.state.workItems.find((item) => item.id === "parent")?.status
+    ).toBe("in-progress")
+
+    resolveUpdate({ ok: true })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(
+      (
+        harness.state as unknown as {
+          pendingWorkItemSyncsById: Record<string, string>
+        }
+      ).pendingWorkItemSyncsById.parent
+    ).toBeUndefined()
+  })
+
   it("requires confirmation before cascading an explicit project change across a hierarchy", async () => {
     const state = createState()
     state.projects = [createTestProject()]

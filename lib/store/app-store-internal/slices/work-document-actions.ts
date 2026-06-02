@@ -10,7 +10,7 @@ import {
   syncDeleteDocument,
   syncGenerateAttachmentUploadUrl,
   syncRenameDocument,
-  syncUpdateDocumentContent,
+  syncUpdateDocument,
   syncUpdateItemDescription,
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
@@ -229,6 +229,8 @@ function applyOptimisticWorkItemMainSectionUpdate({
                 ? {
                     linkedDocumentIds: relationships.documentIds,
                     linkedWorkItemIds: relationships.workItemIds,
+                    referencedProjectIds: relationships.projectIds,
+                    referencedViewIds: relationships.viewIds,
                   }
                 : {}),
               updatedAt,
@@ -561,6 +563,8 @@ export function createWorkDocumentActions({
                 ? {
                     linkedDocumentIds: relationships.documentIds,
                     linkedWorkItemIds: relationships.workItemIds,
+                    referencedProjectIds: relationships.projectIds,
+                    referencedViewIds: relationships.viewIds,
                   }
                 : {}),
             }
@@ -591,6 +595,32 @@ export function createWorkDocumentActions({
     })
   }
 
+  function markPendingDocumentContentSync(documentId: string, token: string) {
+    set((state) => ({
+      pendingDocumentContentSyncs: {
+        ...(state.pendingDocumentContentSyncs ?? {}),
+        [documentId]: token,
+      },
+    }))
+  }
+
+  function clearPendingDocumentContentSync(documentId: string, token?: string) {
+    set((state) => {
+      const currentToken = state.pendingDocumentContentSyncs?.[documentId]
+
+      if (!currentToken || (token && currentToken !== token)) {
+        return state
+      }
+
+      const nextPendingSyncs = { ...state.pendingDocumentContentSyncs }
+      delete nextPendingSyncs[documentId]
+
+      return {
+        pendingDocumentContentSyncs: nextPendingSyncs,
+      }
+    })
+  }
+
   function queueDocumentMetadataSync(
     documentId: string,
     syncDocument: (
@@ -599,37 +629,46 @@ export function createWorkDocumentActions({
     ) => Promise<{ updatedAt: string }>,
     options?: {
       deriveRelationships?: boolean
+      pendingContentToken?: string
     }
   ) {
     if (get().protectedDocumentIds.includes(documentId)) {
+      if (options?.pendingContentToken) {
+        clearPendingDocumentContentSync(documentId, options.pendingContentToken)
+      }
       return
     }
 
     runtime.queueRichTextSync(
       `document:${documentId}`,
-      (syncContext) => {
-        const state = get()
-        if (state.protectedDocumentIds.includes(documentId)) {
-          return null
-        }
+      async (syncContext) => {
+        let shouldClearPendingContentSync = false
 
-        const document = state.documents.find(
-          (entry) => entry.id === documentId
-        )
+        try {
+          const state = get()
+          if (state.protectedDocumentIds.includes(documentId)) {
+            shouldClearPendingContentSync = true
+            return null
+          }
 
-        if (!document || document.kind === "item-description") {
-          return null
-        }
+          const document = state.documents.find(
+            (entry) => entry.id === documentId
+          )
 
-        const relationships = options?.deriveRelationships
-          ? getDocumentRichTextReferenceRelationships(
-              state,
-              document,
-              document.content
-            )
-          : undefined
+          if (!document || document.kind === "item-description") {
+            shouldClearPendingContentSync = true
+            return null
+          }
 
-        return syncDocument(state, document).then((result) => {
+          const relationships = options?.deriveRelationships
+            ? getDocumentRichTextReferenceRelationships(
+                state,
+                document,
+                document.content
+              )
+            : undefined
+
+          const result = await syncDocument(state, document)
           if (!syncContext.isCurrent()) {
             return
           }
@@ -640,7 +679,15 @@ export function createWorkDocumentActions({
             state.currentUserId,
             relationships
           )
-        })
+          shouldClearPendingContentSync = true
+        } finally {
+          if (options?.pendingContentToken && shouldClearPendingContentSync) {
+            clearPendingDocumentContentSync(
+              documentId,
+              options.pendingContentToken
+            )
+          }
+        }
       },
       "Failed to update document",
       {
@@ -651,6 +698,8 @@ export function createWorkDocumentActions({
 
   return {
     updateDocumentContent(documentId, content) {
+      const pendingContentToken = createId("document-content-sync")
+
       set((state) => {
         return {
           documents: state.documents.map((entry) =>
@@ -663,24 +712,26 @@ export function createWorkDocumentActions({
           ),
         }
       })
+      markPendingDocumentContentSync(documentId, pendingContentToken)
 
       queueDocumentMetadataSync(
         documentId,
         (state, document) =>
-          syncUpdateDocumentContent(
-            state.currentUserId,
-            documentId,
-            document.content,
-            document.updatedAt
-          ),
-        { deriveRelationships: true }
+          syncUpdateDocument(documentId, {
+            title: document.title,
+            content: document.content,
+            expectedUpdatedAt: document.updatedAt,
+          }),
+        { deriveRelationships: true, pendingContentToken }
       )
     },
     cancelDocumentSync(documentId) {
       runtime.cancelRichTextSync(`document:${documentId}`)
+      clearPendingDocumentContentSync(documentId)
     },
     applyDocumentCollaborationContent(documentId, content) {
       runtime.cancelRichTextSync(`document:${documentId}`)
+      clearPendingDocumentContentSync(documentId)
 
       set((state) => ({
         documents: state.documents.map((document) =>
@@ -697,6 +748,7 @@ export function createWorkDocumentActions({
       const normalizedTitle = title.trim() || "Untitled document"
 
       runtime.cancelRichTextSync(`document:${documentId}`)
+      clearPendingDocumentContentSync(documentId)
       set((state) => ({
         documents: state.documents.map((document) =>
           document.id === documentId
@@ -725,8 +777,30 @@ export function createWorkDocumentActions({
         ),
       }))
 
-      queueDocumentMetadataSync(documentId, (state, document) =>
-        syncRenameDocument(state.currentUserId, documentId, document.title)
+      const currentPendingContentToken =
+        get().pendingDocumentContentSyncs?.[documentId] ?? undefined
+      const pendingContentToken = currentPendingContentToken
+        ? createId("document-content-sync")
+        : undefined
+
+      if (pendingContentToken) {
+        markPendingDocumentContentSync(documentId, pendingContentToken)
+      }
+
+      queueDocumentMetadataSync(
+        documentId,
+        (state, document) =>
+          pendingContentToken
+            ? syncUpdateDocument(documentId, {
+                title: document.title,
+                content: document.content,
+                expectedUpdatedAt: document.updatedAt,
+              })
+            : syncRenameDocument(state.currentUserId, documentId, document.title),
+        {
+          deriveRelationships: Boolean(pendingContentToken),
+          ...(pendingContentToken ? { pendingContentToken } : {}),
+        }
       )
     },
     async deleteDocument(documentId) {

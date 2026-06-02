@@ -11,6 +11,7 @@ import {
   getViewerScopedViewKey,
 } from "@/lib/domain/viewer-view-config"
 import {
+  MAX_PERSISTED_COLLABORATION_SIDEBARS,
   MAX_PERSISTED_SELECTED_VIEW_ROUTES,
   MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS,
   MAX_PERSISTED_VIEWER_VIEW_CONFIGS,
@@ -140,12 +141,22 @@ describe("viewer-local view config", () => {
         ]
       )
     )
+    const collaborationSidebarOpenBySurface = Object.fromEntries(
+      Array.from(
+        { length: MAX_PERSISTED_COLLABORATION_SIDEBARS + 2 },
+        (_, index) => [
+          getViewerScopedDirectoryKey("user_1", `collaboration:chat:${index}`),
+          index % 2 === 0,
+        ]
+      )
+    )
 
     const migrated = migratePersistedAppStore({
       ui: {
         selectedViewByRoute,
         viewerViewConfigByRoute,
         viewerDirectoryConfigByRoute,
+        collaborationSidebarOpenBySurface,
       },
     })
 
@@ -158,6 +169,9 @@ describe("viewer-local view config", () => {
     expect(
       Object.keys(migrated.ui?.viewerDirectoryConfigByRoute ?? {})
     ).toHaveLength(MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS)
+    expect(
+      Object.keys(migrated.ui?.collaborationSidebarOpenBySurface ?? {})
+    ).toHaveLength(MAX_PERSISTED_COLLABORATION_SIDEBARS)
 
     expect(migrated.ui?.selectedViewByRoute?.["/route_0"]).toBeUndefined()
     expect(
@@ -168,6 +182,11 @@ describe("viewer-local view config", () => {
     expect(
       migrated.ui?.viewerDirectoryConfigByRoute?.[
         getViewerScopedDirectoryKey("user_1", "/directory_0")
+      ]
+    ).toBeUndefined()
+    expect(
+      migrated.ui?.collaborationSidebarOpenBySurface?.[
+        getViewerScopedDirectoryKey("user_1", "collaboration:chat:0")
       ]
     ).toBeUndefined()
 
@@ -193,6 +212,41 @@ describe("viewer-local view config", () => {
         )
       ]
     ).toEqual({ layout: "board" })
+    expect(
+      migrated.ui?.collaborationSidebarOpenBySurface?.[
+        getViewerScopedDirectoryKey(
+          "user_1",
+          `collaboration:chat:${MAX_PERSISTED_COLLABORATION_SIDEBARS + 1}`
+        )
+      ]
+    ).toBe(false)
+  })
+
+  it("stores collaboration sidebar state under the current user and surface", () => {
+    const surfaceKey = "collaboration:workspace-chat:chat_1"
+
+    useAppStore.setState({
+      ...createEmptyState(),
+      currentUserId: "user_1",
+    })
+
+    useAppStore.getState().setCollaborationSidebarOpen(surfaceKey, false)
+
+    expect(useAppStore.getState().ui.collaborationSidebarOpenBySurface).toEqual(
+      {
+        [getViewerScopedDirectoryKey("user_1", surfaceKey)]: false,
+      }
+    )
+
+    useAppStore.setState({ currentUserId: "user_2" })
+    useAppStore.getState().setCollaborationSidebarOpen(surfaceKey, true)
+
+    expect(useAppStore.getState().ui.collaborationSidebarOpenBySurface).toEqual(
+      {
+        [getViewerScopedDirectoryKey("user_1", surfaceKey)]: false,
+        [getViewerScopedDirectoryKey("user_2", surfaceKey)]: true,
+      }
+    )
   })
 
   it("stores viewer overrides without mutating the shared view definition", () => {

@@ -980,11 +980,16 @@ function getMissingProjectDetailContent(hasLoadedProjectReadModel: boolean) {
 
 export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
+  const projectModel = getProjectDetailModel(data, projectId)
   const { hasLoadedOnce: hasLoadedProjectReadModel } =
     useScopedReadModelRefresh({
       enabled: true,
       scopeKeys: [createProjectDetailScopeKey(projectId)],
       fetchLatest: () => fetchProjectDetailReadModel(projectId),
+      diagnostics: {
+        retainedData: Boolean(projectModel),
+        surface: "project/detail",
+      },
       notFoundResult: createMissingScopedReadModelResult([
         {
           kind: "project-detail",
@@ -993,7 +998,6 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       ]),
     })
   const searchParams = useAppSearchParams()
-  const projectModel = getProjectDetailModel(data, projectId)
   const projectRoute = projectModel?.detailHref ?? null
   const savedProjectItemViews = useSavedProjectItemViews(
     projectModel,

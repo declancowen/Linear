@@ -9,6 +9,7 @@ import {
   syncUpdateComment,
 } from "@/lib/convex/client"
 import {
+  getDocumentCommentRichTextReferenceRelationships,
   getWorkItemCommentRichTextReferenceRelationships,
   hasWorkspaceAccess,
 } from "@/lib/domain/selectors"
@@ -54,6 +55,17 @@ type CommentNotificationContext = {
   followerIds: string[]
   notifications: AppStore["notifications"]
   targetId: string
+}
+
+type CommentReferenceRelationships = ReturnType<
+  typeof getWorkItemCommentRichTextReferenceRelationships
+>
+
+const emptyCommentReferenceRelationships: CommentReferenceRelationships = {
+  documentIds: [],
+  projectIds: [],
+  viewIds: [],
+  workItemIds: [],
 }
 
 function getExistingTargetComments(state: AppStore, input: AddCommentInput) {
@@ -181,6 +193,8 @@ function createOptimisticComment(
   mentionUserIds: string[],
   now: string
 ): AppStore["comments"][number] {
+  const referenceRelationships = getCommentReferenceRelationships(state, input)
+
   return {
     id: commentId,
     targetType: input.targetType,
@@ -188,30 +202,41 @@ function createOptimisticComment(
     parentCommentId: input.parentCommentId ?? null,
     content: input.content.trim(),
     mentionUserIds,
-    referencedWorkItemIds: getCommentReferencedWorkItemIds(state, input),
+    referencedWorkItemIds: referenceRelationships.workItemIds,
+    referencedDocumentIds: referenceRelationships.documentIds,
+    referencedProjectIds: referenceRelationships.projectIds,
+    referencedViewIds: referenceRelationships.viewIds,
     reactions: [],
     createdBy: state.currentUserId,
     createdAt: now,
   }
 }
 
-function getCommentReferencedWorkItemIds(
+function getCommentReferenceRelationships(
   state: AppStore,
   input: Pick<AddCommentInput, "content" | "targetId" | "targetType">
 ) {
-  if (input.targetType !== "workItem") {
-    return []
+  if (input.targetType === "workItem") {
+    const item = state.workItems.find((entry) => entry.id === input.targetId)
+
+    return item
+      ? getWorkItemCommentRichTextReferenceRelationships(
+          state,
+          item,
+          input.content
+        )
+      : emptyCommentReferenceRelationships
   }
 
-  const item = state.workItems.find((entry) => entry.id === input.targetId)
+  const document = state.documents.find((entry) => entry.id === input.targetId)
 
-  return item
-    ? getWorkItemCommentRichTextReferenceRelationships(
+  return document
+    ? getDocumentCommentRichTextReferenceRelationships(
         state,
-        item,
+        document,
         input.content
-      ).workItemIds
-    : []
+      )
+    : emptyCommentReferenceRelationships
 }
 
 function addMentionNotifications(
@@ -469,6 +494,11 @@ function updateCommentInState(
   const now = getNow()
   const target = getCommentMutationTarget(state, comment)
   const audienceUserIds = target?.audienceUserIds ?? []
+  const referenceRelationships = getCommentReferenceRelationships(state, {
+    content: input.content,
+    targetId: comment.targetId,
+    targetType: comment.targetType,
+  })
 
   return {
     ...state,
@@ -482,11 +512,10 @@ function updateCommentInState(
               state.users,
               audienceUserIds
             ),
-            referencedWorkItemIds: getCommentReferencedWorkItemIds(state, {
-              content: input.content,
-              targetId: comment.targetId,
-              targetType: comment.targetType,
-            }),
+            referencedWorkItemIds: referenceRelationships.workItemIds,
+            referencedDocumentIds: referenceRelationships.documentIds,
+            referencedProjectIds: referenceRelationships.projectIds,
+            referencedViewIds: referenceRelationships.viewIds,
             editedAt: now,
           }
         : entry

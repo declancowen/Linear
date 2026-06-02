@@ -249,6 +249,8 @@ export type PendingViewConfig = {
 
 export type AppStore = AppData & {
   protectedDocumentIds: string[]
+  pendingDocumentContentSyncs: Record<string, string>
+  pendingWorkItemSyncsById: Record<string, string>
   pendingViewConfigById: Record<string, PendingViewConfig>
   replaceDomainData: (data: AppSnapshot) => void
   mergeReadModelData: (
@@ -299,6 +301,7 @@ export type AppStore = AppData & {
     surfaceKey: string,
     patch: ViewerDirectoryConfig
   ) => void
+  setCollaborationSidebarOpen: (surfaceKey: string, open: boolean) => void
   setActiveInboxNotification: (notificationId: string | null) => void
   markNotificationRead: (notificationId: string) => void
   markNotificationsRead: (notificationIds: string[]) => void
@@ -417,7 +420,7 @@ export type AppStore = AppData & {
   sendChatMessage: (input: SendChatMessageInput) => void
   updateChatMessage: (messageId: string, input: UpdateChatMessageInput) => void
   deleteChatMessage: (messageId: string) => void
-  markChatRead: (conversationId: string) => void
+  markChatRead: (conversationId: string, messageIds?: string[]) => void
   markChatUnread: (conversationId: string) => void
   toggleChatMessageReaction: (messageId: string, emoji: string) => void
   createChannelPost: (input: CreateChannelPostInput) => void

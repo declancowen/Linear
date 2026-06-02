@@ -1646,6 +1646,10 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       enabled: Boolean(documentId),
       scopeKeys: documentId ? [createDocumentDetailScopeKey(documentId)] : [],
       fetchLatest: () => fetchDocumentDetailReadModel(documentId),
+      diagnostics: {
+        retainedData: Boolean(document),
+        surface: "document/detail",
+      },
       notFoundResult: documentId
         ? createMissingScopedReadModelResult([
             {

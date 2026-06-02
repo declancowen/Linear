@@ -587,9 +587,9 @@ export function filterReferenceCandidates(
     .slice(0, 8)
 }
 
-const SLASH_MENU_WIDTH = 288
+const SLASH_MENU_WIDTH = 360
 const MENTION_MENU_WIDTH = 256
-const REFERENCE_MENU_WIDTH = 288
+const REFERENCE_MENU_WIDTH = 520
 
 function getMenuLeft(
   state: MenuState,
@@ -633,7 +633,7 @@ export function SlashCommandMenu({
 
   return (
     <div
-      className="absolute z-50 w-72 max-w-[calc(100%-1rem)]"
+      className="absolute z-50 w-[22.5rem] max-w-[calc(100%-1rem)]"
       style={{
         left: getMenuLeft(state, containerWidth, SLASH_MENU_WIDTH),
         top: state.top,
@@ -836,7 +836,7 @@ export function ReferenceMenu({
 
   return (
     <div
-      className="absolute z-50 w-72 max-w-[calc(100%-1rem)]"
+      className="absolute z-50 w-[32.5rem] max-w-[calc(100%-1rem)]"
       style={{
         left: getMenuLeft(state, containerWidth, REFERENCE_MENU_WIDTH),
         top: state.top,

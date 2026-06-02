@@ -6,8 +6,10 @@ const mergeReadModelDataMock = vi.fn()
 const openScopedInvalidationStreamMock = vi.fn()
 const isScopedSyncEnabledMock = vi.fn()
 const redirectToExpiredSessionLoginMock = vi.fn()
+const reportFirstUsefulRenderDiagnosticMock = vi.fn()
 
 vi.mock("@/lib/browser/snapshot-diagnostics", () => ({
+  reportFirstUsefulRenderDiagnostic: reportFirstUsefulRenderDiagnosticMock,
   reportScopedReadModelDiagnostic: vi.fn(),
   reportScopedStreamReconnectDiagnostic: vi.fn(),
 }))
@@ -25,7 +27,11 @@ vi.mock("@/lib/scoped-sync/client", () => ({
 }))
 
 vi.mock("@/lib/store/app-store", () => ({
-  useAppStore: (selector: (state: { mergeReadModelData: typeof mergeReadModelDataMock }) => unknown) =>
+  useAppStore: (
+    selector: (state: {
+      mergeReadModelData: typeof mergeReadModelDataMock
+    }) => unknown
+  ) =>
     selector({
       mergeReadModelData: mergeReadModelDataMock,
     }),
@@ -82,9 +88,8 @@ function captureScopedStreamHandlers() {
 async function renderDefaultScopedRefresh(
   fetchLatestMock = vi.fn().mockResolvedValue({})
 ) {
-  const { useScopedReadModelRefresh } = await import(
-    "@/hooks/use-scoped-read-model-refresh"
-  )
+  const { useScopedReadModelRefresh } =
+    await import("@/hooks/use-scoped-read-model-refresh")
 
   renderHook(() =>
     useScopedReadModelRefresh({
@@ -116,6 +121,7 @@ describe("useScopedReadModelRefresh", () => {
     openScopedInvalidationStreamMock.mockReset()
     isScopedSyncEnabledMock.mockReset()
     redirectToExpiredSessionLoginMock.mockReset()
+    reportFirstUsefulRenderDiagnosticMock.mockReset()
     isScopedSyncEnabledMock.mockReturnValue(true)
     openScopedInvalidationStreamMock.mockReturnValue(vi.fn())
   })
@@ -179,9 +185,8 @@ describe("useScopedReadModelRefresh", () => {
     isScopedSyncEnabledMock.mockReturnValue(false)
 
     const fetchLatestMock = vi.fn().mockResolvedValue({})
-    const { useScopedReadModelRefresh } = await import(
-      "@/hooks/use-scoped-read-model-refresh"
-    )
+    const { useScopedReadModelRefresh } =
+      await import("@/hooks/use-scoped-read-model-refresh")
 
     const { result } = renderHook(() =>
       useScopedReadModelRefresh({
@@ -206,9 +211,8 @@ describe("useScopedReadModelRefresh", () => {
     const fetchLatestMock = vi
       .fn()
       .mockRejectedValue(new RouteMutationError("Not found", 404))
-    const { useScopedReadModelRefresh } = await import(
-      "@/hooks/use-scoped-read-model-refresh"
-    )
+    const { useScopedReadModelRefresh } =
+      await import("@/hooks/use-scoped-read-model-refresh")
 
     const { result } = renderHook(() =>
       useScopedReadModelRefresh({
@@ -260,9 +264,8 @@ describe("useScopedReadModelRefresh", () => {
     const fetchLatestMock = vi
       .fn()
       .mockRejectedValue(new RouteMutationError("Unauthorized", 401))
-    const { useScopedReadModelRefresh } = await import(
-      "@/hooks/use-scoped-read-model-refresh"
-    )
+    const { useScopedReadModelRefresh } =
+      await import("@/hooks/use-scoped-read-model-refresh")
 
     const { result } = renderHook(() =>
       useScopedReadModelRefresh({
@@ -284,16 +287,11 @@ describe("useScopedReadModelRefresh", () => {
     const { fetchLatestMock, firstFetch, secondFetch } =
       createTwoStepFetchMock()
     fetchLatestMock.mockResolvedValue({})
-    const { useScopedReadModelRefresh } = await import(
-      "@/hooks/use-scoped-read-model-refresh"
-    )
+    const { useScopedReadModelRefresh } =
+      await import("@/hooks/use-scoped-read-model-refresh")
 
     const { rerender } = renderHook(
-      ({
-        scopeKeys,
-      }: {
-        scopeKeys: string[]
-      }) =>
+      ({ scopeKeys }: { scopeKeys: string[] }) =>
         useScopedReadModelRefresh({
           enabled: true,
           scopeKeys,
@@ -339,9 +337,8 @@ describe("useScopedReadModelRefresh", () => {
   it("does not report a new scope as loaded before that scope finishes its first refresh", async () => {
     const { fetchLatestMock, firstFetch, secondFetch } =
       createTwoStepFetchMock()
-    const { useScopedReadModelRefresh } = await import(
-      "@/hooks/use-scoped-read-model-refresh"
-    )
+    const { useScopedReadModelRefresh } =
+      await import("@/hooks/use-scoped-read-model-refresh")
     const committedStates: string[] = []
 
     function Probe({ scopeKey }: { scopeKey: string }) {
@@ -382,5 +379,42 @@ describe("useScopedReadModelRefresh", () => {
       secondFetch.resolve({})
       await Promise.resolve()
     })
+  })
+
+  it("reports first useful render from retained data before a scoped refresh resolves", async () => {
+    const fetchState = createDeferred<Record<string, never>>()
+    const fetchLatestMock = vi.fn(() => fetchState.promise)
+    const { useScopedReadModelRefresh } =
+      await import("@/hooks/use-scoped-read-model-refresh")
+
+    renderHook(() =>
+      useScopedReadModelRefresh({
+        enabled: true,
+        scopeKeys: ["scope:a"],
+        fetchLatest: fetchLatestMock,
+        diagnostics: {
+          retainedData: true,
+          surface: "work-item/detail",
+        },
+      })
+    )
+
+    await waitFor(() => {
+      expect(reportFirstUsefulRenderDiagnosticMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          readModelLoaded: false,
+          retainedData: true,
+          scopeKeys: ["scope:a"],
+          surface: "work-item/detail",
+        })
+      )
+    })
+
+    await act(async () => {
+      fetchState.resolve({})
+      await Promise.resolve()
+    })
+
+    expect(reportFirstUsefulRenderDiagnosticMock).toHaveBeenCalledTimes(1)
   })
 })

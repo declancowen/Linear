@@ -492,6 +492,8 @@ export async function patchWorkItemDescriptionDocument(
     await ctx.db.patch(input.existing._id, {
       linkedDocumentIds: relationships.documentIds,
       linkedWorkItemIds: relationships.workItemIds,
+      referencedProjectIds: relationships.projectIds,
+      referencedViewIds: relationships.viewIds,
       updatedAt: input.now,
     })
   }
@@ -1239,6 +1241,8 @@ async function patchCollaborationDescriptionDocument(
     await ctx.db.patch(existing._id, {
       linkedDocumentIds: relationships.documentIds,
       linkedWorkItemIds: relationships.workItemIds,
+      referencedProjectIds: relationships.projectIds,
+      referencedViewIds: relationships.viewIds,
       updatedAt,
     })
   }

@@ -838,13 +838,42 @@ function selectChatMessagesForConversations(
 function selectChatReadStatesForConversations(
   snapshot: AppSnapshot,
   userId: string,
-  conversationIds: Iterable<string>
+  conversationIds: Iterable<string>,
+  options: {
+    includeMessageReceipts?: boolean
+  } = {}
 ) {
   const conversationIdSet = new Set(conversationIds)
-
-  return snapshot.chatReadStates.filter(
+  const readStates = snapshot.chatReadStates.filter(
     (state) =>
       state.userId === userId && conversationIdSet.has(state.conversationId)
+  )
+
+  if (options.includeMessageReceipts) {
+    return readStates
+  }
+
+  return readStates.map((state) => {
+    const readState = { ...state }
+
+    delete readState.messageReadAtById
+
+    return readState
+  })
+}
+
+function selectChatReadStatesForConversationThread(
+  snapshot: AppSnapshot,
+  userId: string,
+  conversationIds: Iterable<string>
+) {
+  return selectChatReadStatesForConversations(
+    snapshot,
+    userId,
+    conversationIds,
+    {
+      includeMessageReceipts: true,
+    }
   )
 }
 
@@ -1262,7 +1291,8 @@ export function selectProjectDetailReadModel(
     (item) =>
       accessibleProjectTeamIds.has(item.teamId ?? "") &&
       (item.primaryProjectId === project.id ||
-        item.linkedProjectIds.includes(project.id))
+        item.linkedProjectIds.includes(project.id) ||
+        (item.referencedProjectIds ?? []).includes(project.id))
   )
   const projectTeamIds = new Set(
     compactStringIds([
@@ -1988,7 +2018,7 @@ export function selectConversationThreadReadModel(
     extra: {
       calls,
       chatMessages: messages,
-      chatReadStates: selectChatReadStatesForConversations(
+      chatReadStates: selectChatReadStatesForConversationThread(
         snapshot,
         snapshot.currentUserId,
         [conversationId]

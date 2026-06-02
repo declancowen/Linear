@@ -18,6 +18,7 @@ type PersistedUiSlice = Pick<
   | "selectedViewByRoute"
   | "viewerViewConfigByRoute"
   | "viewerDirectoryConfigByRoute"
+  | "collaborationSidebarOpenBySurface"
 > &
   Partial<Pick<AppStore["ui"], "activeTeamId" | "activeInboxNotificationId">>
 
@@ -28,6 +29,7 @@ type ViewerDirectoryConfigEntry =
 export const MAX_PERSISTED_SELECTED_VIEW_ROUTES = 500
 export const MAX_PERSISTED_VIEWER_VIEW_CONFIGS = 1000
 export const MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS = 500
+export const MAX_PERSISTED_COLLABORATION_SIDEBARS = 500
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -58,6 +60,24 @@ function compactStringRecord(
     Object.fromEntries(
       Object.entries(value).filter(
         (entry): entry is [string, string] => typeof entry[1] === "string"
+      )
+    ),
+    maxEntries
+  )
+}
+
+function compactBooleanRecord(
+  value: unknown,
+  maxEntries: number
+): Record<string, boolean> {
+  if (!isRecord(value)) {
+    return {}
+  }
+
+  return limitRecordEntries(
+    Object.fromEntries(
+      Object.entries(value).filter(
+        (entry): entry is [string, boolean] => typeof entry[1] === "boolean"
       )
     ),
     maxEntries
@@ -99,6 +119,10 @@ function compactPersistedUi(
         ui?.viewerDirectoryConfigByRoute,
         MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS
       ),
+    collaborationSidebarOpenBySurface: compactBooleanRecord(
+      ui?.collaborationSidebarOpenBySurface,
+      MAX_PERSISTED_COLLABORATION_SIDEBARS
+    ),
   }
 
   if (typeof ui?.activeTeamId === "string") {
@@ -135,7 +159,7 @@ export const useAppStore = create<AppStore>()(
     storage: createJSONStorage(() =>
       typeof window === "undefined" ? noopStorage : localStorage
     ),
-    version: 4,
+    version: 5,
     migrate: (persistedState) => migratePersistedAppStore(persistedState),
     partialize: (state) => ({
       ui: compactPersistedUi(state.ui),

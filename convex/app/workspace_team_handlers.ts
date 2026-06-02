@@ -882,6 +882,7 @@ export async function deleteWorkspaceHandler(
     deletedDocumentIds,
     deletedProjectIds,
     deletedMilestoneIds,
+    deletedViewIds: new Set(views.map((view) => view.id)),
   })
   await cleanupViewFiltersForDeletedEntities(ctx, {
     deletedProjectIds,

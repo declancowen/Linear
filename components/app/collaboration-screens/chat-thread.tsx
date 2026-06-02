@@ -25,6 +25,7 @@ import {
   getUser,
   hasWorkspaceAccessInCollections,
 } from "@/lib/domain/selectors"
+import { getChatReadState } from "@/lib/domain/chat-read-state"
 import { chatMessageContentConstraints } from "@/lib/domain/input-constraints"
 import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
 import { useAppStore } from "@/lib/store/app-store"
@@ -52,6 +53,8 @@ import {
 } from "@/components/app/collaboration-screens/utils"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+
+const EMPTY_MESSAGE_READ_AT_BY_ID: Record<string, string> = {}
 
 function getLiveComposerContent(
   editorInstanceRef: RefObject<Editor | null>,
@@ -425,11 +428,13 @@ function ChatMessageHeader({
   authorView,
   isCurrentUser,
   message,
+  readAt,
 }: {
   author?: ChatThreadUser
   authorView: WorkspaceUserPresenceView
   isCurrentUser: boolean
   message: ChatThreadMessage
+  readAt?: string | null
 }) {
   return (
     <div className="-mt-px flex items-baseline gap-2">
@@ -438,13 +443,34 @@ function ChatMessageHeader({
           author?.name ??
           (isCurrentUser ? "You" : "Unknown")}
       </span>
-      <span className="text-[11.5px] text-fg-3">
-        {formatTimestamp(message.createdAt)}
-      </span>
-      {message.editedAt && !message.deletedAt ? (
-        <span className="text-[11.5px] text-fg-4">edited</span>
-      ) : null}
+      <ChatMessageMetadata message={message} readAt={readAt} />
     </div>
+  )
+}
+
+function ChatMessageMetadata({
+  className,
+  message,
+  readAt,
+}: {
+  className?: string
+  message: ChatThreadMessage
+  readAt?: string | null
+}) {
+  const metadata = [formatTimestamp(message.createdAt)]
+
+  if (readAt && !message.deletedAt) {
+    metadata.push(`Read ${formatTimestamp(readAt)}`)
+  }
+
+  if (message.editedAt && !message.deletedAt) {
+    metadata.push(`Edited ${formatTimestamp(message.editedAt)}`)
+  }
+
+  return (
+    <span className={cn("text-[11.5px] text-fg-3", className)}>
+      {metadata.join(" · ")}
+    </span>
   )
 }
 
@@ -573,6 +599,7 @@ function ChatMessageRow({
   onEditMessage,
   onQuoteMessage,
   previousMessage,
+  readAt,
   usersById,
 }: {
   author?: ChatThreadUser
@@ -588,6 +615,7 @@ function ChatMessageRow({
     authorName: string | undefined
   ) => void
   previousMessage?: ChatThreadMessage
+  readAt?: string | null
   usersById: Map<string, ChatThreadUser>
 }) {
   const isCurrentUser = message.createdBy === currentUserId
@@ -650,8 +678,15 @@ function ChatMessageRow({
               authorView={authorView}
               isCurrentUser={isCurrentUser}
               message={message}
+              readAt={readAt}
             />
-          ) : null}
+          ) : (
+            <ChatMessageMetadata
+              className="mb-0.5 text-fg-4"
+              message={message}
+              readAt={readAt}
+            />
+          )}
           <ChatMessageBody
             callJoinHref={callJoinHref}
             content={message.content}
@@ -715,6 +750,7 @@ function ChatMessageList({
   currentUserId,
   getMembershipState,
   messages,
+  messageReadAtById,
   onDeleteMessage,
   onEditMessage,
   onQuoteMessage,
@@ -726,6 +762,7 @@ function ChatMessageList({
     userId: string | null | undefined
   ) => WorkspaceMembershipState
   messages: ChatThreadMessage[]
+  messageReadAtById: Record<string, string>
   onDeleteMessage: (message: ChatThreadMessage) => void
   onEditMessage: (message: ChatThreadMessage) => void
   onQuoteMessage: (
@@ -761,6 +798,7 @@ function ChatMessageList({
             onEditMessage={onEditMessage}
             onQuoteMessage={onQuoteMessage}
             previousMessage={previousMessage}
+            readAt={messageReadAtById[message.id] ?? null}
             usersById={usersById}
           />
         )
@@ -776,6 +814,7 @@ function ChatMessagesPane({
   getMembershipState,
   loaded,
   messages,
+  messageReadAtById,
   messagesEndRef,
   onDeleteMessage,
   onEditMessage,
@@ -795,6 +834,7 @@ function ChatMessagesPane({
   ) => WorkspaceMembershipState
   loaded: boolean
   messages: ChatThreadMessage[]
+  messageReadAtById: Record<string, string>
   messagesEndRef: RefObject<HTMLDivElement | null>
   onDeleteMessage: (message: ChatThreadMessage) => void
   onEditMessage: (message: ChatThreadMessage) => void
@@ -844,6 +884,7 @@ function ChatMessagesPane({
             currentUserId={currentUserId}
             getMembershipState={getMembershipState}
             messages={messages}
+            messageReadAtById={messageReadAtById}
             onDeleteMessage={onDeleteMessage}
             onEditMessage={onEditMessage}
             onQuoteMessage={onQuoteMessage}
@@ -1380,6 +1421,11 @@ export function ChatThread({
   const messages = useAppStore(
     useShallow((state) => getChatMessages(state, conversationId))
   )
+  const messageReadAtById = useAppStore(
+    (state) =>
+      getChatReadState(state, state.currentUserId, conversationId)
+        ?.messageReadAtById ?? EMPTY_MESSAGE_READ_AT_BY_ID
+  )
   const { canCurrentUserSend, conversationScopeType, conversationScopeId } =
     useChatThreadScope(conversationId)
   const {
@@ -1465,6 +1511,16 @@ export function ChatThread({
     [typingUsers]
   )
   const latestMessageId = messages[messages.length - 1]?.id ?? null
+  const readableMessageIds = useMemo(
+    () =>
+      messages
+        .filter(
+          (message) => !message.deletedAt || message.createdBy === currentUserId
+        )
+        .filter((message) => !messageReadAtById[message.id])
+        .map((message) => message.id),
+    [currentUserId, messageReadAtById, messages]
+  )
   const { messagesEndRef, scrollRef } =
     useChatMessagesAutoScroll(latestMessageId)
 
@@ -1473,8 +1529,8 @@ export function ChatThread({
       return
     }
 
-    useAppStore.getState().markChatRead(conversationId)
-  }, [conversationId, latestMessageId, loaded])
+    useAppStore.getState().markChatRead(conversationId, readableMessageIds)
+  }, [conversationId, loaded, readableMessageIds])
 
   const seedComposer = (content: string) => {
     setComposerDraft((current) => ({
@@ -1561,6 +1617,7 @@ export function ChatThread({
         getMembershipState={getWorkspaceMembershipState}
         loaded={loaded}
         messages={messages}
+        messageReadAtById={messageReadAtById}
         messagesEndRef={messagesEndRef}
         onDeleteMessage={setDeleteMessage}
         onEditMessage={handleEditMessage}

@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 
 import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
 import { getChatWelcomeIntroDisplay } from "@/components/app/collaboration-screens/chat-welcome-display"
+import { formatTimestamp } from "@/components/app/collaboration-screens/utils"
 import { useAppStore } from "@/lib/store/app-store"
 import {
   createTestWorkspaceMembership,
@@ -102,6 +103,7 @@ const zoeUser = createTestUser({
 
 const toggleChatMessageReactionMock = vi.fn()
 const updateChatMessageMock = vi.fn()
+const markChatReadMock = vi.fn()
 
 function createReactionMessage() {
   return {
@@ -136,6 +138,7 @@ function renderDirectChatThread() {
 beforeEach(() => {
   toggleChatMessageReactionMock.mockReset()
   updateChatMessageMock.mockReset()
+  markChatReadMock.mockReset()
   useChatPresenceMock.mockReset()
   useChatPresenceMock.mockReturnValue({
     participants: [],
@@ -165,6 +168,7 @@ beforeEach(() => {
       },
     ],
     chatMessages: [],
+    markChatRead: markChatReadMock,
     toggleChatMessageReaction: toggleChatMessageReactionMock,
     updateChatMessage: updateChatMessageMock,
   })
@@ -255,6 +259,89 @@ describe("ChatThread", () => {
       "message_1",
       "👍"
     )
+  })
+
+  it("marks visible messages read with the opened message ids", () => {
+    useAppStore.setState({
+      chatMessages: [
+        createReactionMessage(),
+        {
+          ...createReactionMessage(),
+          id: "message_2",
+          content: "<p>Follow up</p>",
+          createdAt: "2026-04-15T12:05:00.000Z",
+        },
+      ],
+    })
+    markChatReadMock.mockClear()
+
+    renderDirectChatThread()
+
+    expect(markChatReadMock).toHaveBeenLastCalledWith("conversation_1", [
+      "message_1",
+      "message_2",
+    ])
+  })
+
+  it("renders persisted first-read metadata before the edited timestamp", () => {
+    const createdAt = "2026-04-15T12:00:00.000Z"
+    const readAt = "2026-04-15T12:05:00.000Z"
+    const editedAt = "2026-04-15T12:07:00.000Z"
+
+    useAppStore.setState({
+      chatMessages: [
+        {
+          ...createReactionMessage(),
+          createdAt,
+          editedAt,
+        },
+      ],
+      chatReadStates: [
+        {
+          id: "chat_read_state_user_current_conversation_1",
+          userId: currentUser.id,
+          conversationId: "conversation_1",
+          readAt,
+          unreadAt: null,
+          messageReadAtById: {
+            message_1: readAt,
+          },
+          createdAt: readAt,
+          updatedAt: readAt,
+        },
+      ],
+    })
+
+    renderDirectChatThread()
+
+    expect(
+      screen.getByText(
+        `${formatTimestamp(createdAt)} · Read ${formatTimestamp(
+          readAt
+        )} · Edited ${formatTimestamp(editedAt)}`
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("does not synthesize a read timestamp when no message receipt exists", () => {
+    useAppStore.setState({
+      chatMessages: [createReactionMessage()],
+      chatReadStates: [
+        {
+          id: "chat_read_state_user_current_conversation_1",
+          userId: currentUser.id,
+          conversationId: "conversation_1",
+          readAt: "2026-04-15T12:05:00.000Z",
+          unreadAt: null,
+          createdAt: "2026-04-15T12:05:00.000Z",
+          updatedAt: "2026-04-15T12:05:00.000Z",
+        },
+      ],
+    })
+
+    renderDirectChatThread()
+
+    expect(screen.queryByText(/Read Apr 15/i)).not.toBeInTheDocument()
   })
 
   it("disables chat message actions when the current role is read-only", () => {

@@ -264,6 +264,10 @@ function useInboxReadModel(currentUserId: string | null) {
       ? getNotificationInboxScopeKeys(currentUserId)
       : [],
     fetchLatest: () => fetchNotificationInboxReadModel(currentUserId ?? ""),
+    diagnostics: {
+      retainedData: Boolean(currentUserId),
+      surface: "inbox",
+    },
   })
 }
 

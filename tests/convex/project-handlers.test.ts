@@ -14,6 +14,9 @@ const listViewsByScopeMock = vi.fn()
 const listWorkspaceMembershipsByWorkspaceMock = vi.fn()
 const normalizeTeamMock = vi.fn()
 const normalizeTeamWorkflowSettingsMock = vi.fn()
+const cleanupRemainingLinksAfterDeleteMock = vi.fn()
+const cleanupViewFiltersForDeletedEntitiesMock = vi.fn()
+const deleteDocsMock = vi.fn()
 
 vi.mock("@/convex/app/core", () => ({
   assertServerToken: assertServerTokenMock,
@@ -53,9 +56,9 @@ vi.mock("@/convex/app/normalization", () => ({
 }))
 
 vi.mock("@/convex/app/cleanup", () => ({
-  cleanupRemainingLinksAfterDelete: vi.fn(),
-  cleanupViewFiltersForDeletedEntities: vi.fn(),
-  deleteDocs: vi.fn(),
+  cleanupRemainingLinksAfterDelete: cleanupRemainingLinksAfterDeleteMock,
+  cleanupViewFiltersForDeletedEntities: cleanupViewFiltersForDeletedEntitiesMock,
+  deleteDocs: deleteDocsMock,
 }))
 
 function createCtx() {
@@ -118,6 +121,9 @@ describe("project handlers", () => {
     listWorkspaceMembershipsByWorkspaceMock.mockReset()
     normalizeTeamMock.mockReset()
     normalizeTeamWorkflowSettingsMock.mockReset()
+    cleanupRemainingLinksAfterDeleteMock.mockReset()
+    cleanupViewFiltersForDeletedEntitiesMock.mockReset()
+    deleteDocsMock.mockReset()
 
     normalizeTeamWorkflowSettingsMock.mockReturnValue({
       templateDefaults: {
@@ -238,17 +244,20 @@ describe("project handlers", () => {
     listViewsByScopeMock.mockResolvedValue([
       {
         _id: "view_doc_1",
+        id: "view_1",
         containerType: "project-items",
         containerId: "project_1",
       },
       {
         _id: "view_doc_2",
+        id: "view_2",
         containerType: null,
         entityKind: "items",
         route: "/team/platform/projects/project_1",
       },
       {
         _id: "view_doc_3",
+        id: "view_3",
         containerType: null,
         entityKind: "items",
         route: "/team/platform/projects/other",
@@ -259,9 +268,11 @@ describe("project handlers", () => {
         collect: vi.fn().mockResolvedValue([
           {
             _id: "view_doc_2",
+            id: "view_2",
           },
           {
             _id: "view_doc_4",
+            id: "view_4",
           },
         ]),
       }),
@@ -274,5 +285,11 @@ describe("project handlers", () => {
     })
 
     expect(ctx.db.delete).toHaveBeenCalledWith("project_doc_1")
+    expect(cleanupRemainingLinksAfterDeleteMock).toHaveBeenCalledWith(ctx, {
+      currentUserId: "user_1",
+      deletedMilestoneIds: new Set(["milestone_1"]),
+      deletedProjectIds: new Set(["project_1"]),
+      deletedViewIds: new Set(["view_1", "view_2", "view_4"]),
+    })
   })
 })

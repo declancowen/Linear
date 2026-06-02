@@ -51,6 +51,7 @@ import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
   type AppData,
+  type DisplayProperty,
   type WorkItem,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
@@ -187,6 +188,74 @@ function createMenuData(): { data: AppData; item: WorkItem } {
   }
 }
 
+function createBulkMenuData(): {
+  data: AppData
+  item: WorkItem
+  secondItem: WorkItem
+} {
+  const { data, item } = createMenuData()
+  const secondItem: WorkItem = {
+    ...item,
+    id: "item_2",
+    key: "TES-2",
+    title: "Second item",
+  }
+
+  return {
+    item,
+    secondItem,
+    data: {
+      ...data,
+      labels: [
+        {
+          id: "label_cx",
+          workspaceId: "workspace_1",
+          name: "CX",
+          color: "blue",
+        },
+      ],
+      customPropertyDefinitions: [
+        {
+          id: "property_1",
+          workspaceId: "workspace_1",
+          teamId: "team_1",
+          targetType: "workItem",
+          name: "Risk",
+          icon: "Flag",
+          type: "select",
+          options: [{ id: "option_high", label: "High", color: "red" }],
+          isArchived: false,
+          createdBy: "user_1",
+          createdAt: "2026-04-20T00:00:00.000Z",
+          updatedAt: "2026-04-20T00:00:00.000Z",
+        },
+      ],
+      workItems: [item, secondItem],
+    },
+  }
+}
+
+function renderBulkContextMenu({
+  displayProps,
+}: {
+  displayProps: DisplayProperty[]
+}) {
+  const { data, item, secondItem } = createBulkMenuData()
+
+  render(
+    <IssueContextMenu
+      data={data}
+      displayProps={displayProps}
+      item={item}
+      targetItems={[item, secondItem]}
+    >
+      <button type="button">Open menu</button>
+    </IssueContextMenu>
+  )
+
+  return { data, item, secondItem }
+}
+
 describe("work item menus", () => {
   beforeEach(() => {
     useAppStore.setState({
@@ -195,6 +264,7 @@ describe("work item menus", () => {
         status: "project-confirmation-required",
         cascadeItemCount: 3,
       })) as never,
+      setCustomPropertyValue: vi.fn() as never,
       deleteWorkItem: vi.fn(async () => true) as never,
     })
     pushMock.mockReset()
@@ -316,5 +386,88 @@ describe("work item menus", () => {
         assigneeIds: ["user_1", "user_2"],
       }
     )
+  })
+
+  it("bulk-updates status only when status is visible in display properties", () => {
+    renderBulkContextMenu({ displayProps: ["status"] })
+
+    expect(screen.getByText("2 selected")).toBeInTheDocument()
+    expect(screen.getByText("Status")).toBeInTheDocument()
+    expect(screen.queryByText("Priority")).not.toBeInTheDocument()
+    expect(screen.queryByText("Open item")).not.toBeInTheDocument()
+    expect(screen.queryByText("Delete feature")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("In Progress"))
+
+    expect(useAppStore.getState().updateWorkItem).toHaveBeenCalledWith(
+      "item_1",
+      { status: "in-progress" }
+    )
+    expect(useAppStore.getState().updateWorkItem).toHaveBeenCalledWith(
+      "item_2",
+      { status: "in-progress" }
+    )
+  })
+
+  it("bulk-updates labels when labels are visible in display properties", () => {
+    renderBulkContextMenu({ displayProps: ["labels"] })
+
+    expect(screen.getByText("Labels")).toBeInTheDocument()
+    expect(screen.queryByText("Status")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("CX"))
+
+    expect(useAppStore.getState().updateWorkItem).toHaveBeenCalledWith(
+      "item_1",
+      { labelIds: ["label_cx"] }
+    )
+    expect(useAppStore.getState().updateWorkItem).toHaveBeenCalledWith(
+      "item_2",
+      { labelIds: ["label_cx"] }
+    )
+  })
+
+  it("does not show label actions on menus without visible display properties", () => {
+    const { data, item } = createBulkMenuData()
+
+    render(
+      <IssueContextMenu data={data} item={item}>
+        <button type="button">Open menu</button>
+      </IssueContextMenu>
+    )
+
+    expect(screen.queryByText("Labels")).not.toBeInTheDocument()
+    expect(screen.getByText("Status")).toBeInTheDocument()
+  })
+
+  it("bulk-updates visible custom select properties", () => {
+    renderBulkContextMenu({ displayProps: ["custom:property_1"] })
+
+    expect(screen.getByText("Risk")).toBeInTheDocument()
+    expect(screen.queryByText("Labels")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("High"))
+
+    expect(useAppStore.getState().setCustomPropertyValue).toHaveBeenCalledWith(
+      "item_1",
+      "property_1",
+      "option_high"
+    )
+    expect(useAppStore.getState().setCustomPropertyValue).toHaveBeenCalledWith(
+      "item_2",
+      "property_1",
+      "option_high"
+    )
+  })
+
+  it("keeps bulk project confirmation mounted after the context menu closes", () => {
+    renderBulkContextMenu({ displayProps: ["project"] })
+
+    fireEvent.click(screen.getByText("Roadmap"))
+
+    expect(
+      screen.getByText("Update project for selected items")
+    ).toBeInTheDocument()
+    expect(useAppStore.getState().updateWorkItem).not.toHaveBeenCalled()
   })
 })

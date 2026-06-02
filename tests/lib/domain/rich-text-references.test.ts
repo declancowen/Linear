@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   getDocumentRichTextReferenceRelationships,
   getRichTextReferenceCandidates,
+  getWorkItemCommentRichTextReferenceRelationships,
   getWorkItemDescriptionRichTextReferenceRelationships,
 } from "@/lib/domain/selectors"
 import {
@@ -175,7 +176,7 @@ describe("rich text reference selectors", () => {
     ])
   })
 
-  it("scopes work item descriptions to accessible documents and other work items", () => {
+  it("scopes work item descriptions to accessible docs, work items, projects, and views", () => {
     const data = createReferenceCandidateData()
 
     expect(
@@ -189,11 +190,15 @@ describe("rich text reference selectors", () => {
       "document:doc_current",
       "document:doc_team",
       "document:doc_workspace",
+      "project:project_team",
+      "project:project_workspace",
+      "view:view_team",
+      "view:view_workspace",
       "workItem:item_visible",
     ])
   })
 
-  it("scopes work item comments to accessible work item references only", () => {
+  it("scopes work item comments to accessible docs, work items, projects, and views", () => {
     const data = createReferenceCandidateData()
 
     expect(
@@ -203,7 +208,17 @@ describe("rich text reference selectors", () => {
           itemId: "item_current",
         })
       )
-    ).toEqual(["workItem:item_current", "workItem:item_visible"])
+    ).toEqual([
+      "document:doc_current",
+      "document:doc_team",
+      "document:doc_workspace",
+      "project:project_team",
+      "project:project_workspace",
+      "view:view_team",
+      "view:view_workspace",
+      "workItem:item_current",
+      "workItem:item_visible",
+    ])
   })
 
   it("does not offer shared references from private source artifacts", () => {
@@ -260,13 +275,38 @@ describe("rich text reference selectors", () => {
           referenceAnchor("workItem", "item_current"),
           referenceAnchor("document", "doc_team"),
           referenceAnchor("document", "doc_private"),
+          referenceAnchor("project", "project_workspace"),
+          referenceAnchor("view", "view_team"),
         ].join("")
       )
     ).toEqual({
       documentIds: ["doc_team"],
-      projectIds: [],
-      viewIds: [],
+      projectIds: ["project_workspace"],
+      viewIds: ["view_team"],
       workItemIds: ["item_visible"],
+    })
+  })
+
+  it("derives work item comment links across allowed reference types", () => {
+    const data = createReferenceCandidateData()
+    const item = data.workItems.find((entry) => entry.id === "item_current")!
+
+    expect(
+      getWorkItemCommentRichTextReferenceRelationships(
+        data,
+        item,
+        [
+          referenceAnchor("workItem", "item_current"),
+          referenceAnchor("document", "doc_workspace"),
+          referenceAnchor("project", "project_team"),
+          referenceAnchor("view", "view_workspace"),
+        ].join("")
+      )
+    ).toEqual({
+      documentIds: ["doc_workspace"],
+      projectIds: ["project_team"],
+      viewIds: ["view_workspace"],
+      workItemIds: ["item_current"],
     })
   })
 })

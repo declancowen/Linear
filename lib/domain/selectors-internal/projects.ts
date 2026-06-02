@@ -139,7 +139,8 @@ export function getProjectDetailModel(data: AppData, projectId: string) {
     data.workItems.filter(
       (item) =>
         item.primaryProjectId === project.id ||
-        item.linkedProjectIds.includes(project.id)
+        item.linkedProjectIds.includes(project.id) ||
+        (item.referencedProjectIds ?? []).includes(project.id)
     ),
     "priority"
   )

@@ -310,7 +310,9 @@ const displayPropertyOptions: DisplayProperty[] = [
 
 function isPrivateTaskView(view: ViewDefinition) {
   return (
-    view.entityKind === "items" && view.filters.visibility?.includes("private")
+    view.entityKind === "items" &&
+    view.filters.visibility?.length === 1 &&
+    view.filters.visibility[0] === "private"
   )
 }
 
@@ -3040,7 +3042,9 @@ export function LevelChipPopover({
     view.scopeType === "team" ? getTeam(state, view.scopeId) : null
   )
   const isPrivateTaskView = Boolean(
-    view.entityKind === "items" && view.filters.visibility?.includes("private")
+    view.entityKind === "items" &&
+      view.filters.visibility?.length === 1 &&
+      view.filters.visibility[0] === "private"
   )
   const isMyItemsLevelView = isMyItemsParentLevelView(view, isPrivateTaskView)
   const itemLevelExperience = isPrivateTaskView

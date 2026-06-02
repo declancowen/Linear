@@ -718,6 +718,8 @@ describe("work item handlers", () => {
     expect(ctx.db.patch).toHaveBeenNthCalledWith(3, "db_item_1", {
       linkedDocumentIds: [],
       linkedWorkItemIds: [],
+      referencedProjectIds: [],
+      referencedViewIds: [],
       updatedAt: "2026-04-20T22:20:00.000Z",
     })
     expect(validateWorkItemParentMock).not.toHaveBeenCalled()
@@ -793,6 +795,8 @@ describe("work item handlers", () => {
     expect(ctx.db.patch).toHaveBeenCalledWith("db_item_1", {
       linkedDocumentIds: [],
       linkedWorkItemIds: [],
+      referencedProjectIds: [],
+      referencedViewIds: [],
       updatedAt: "2026-04-20T22:20:00.000Z",
     })
   })

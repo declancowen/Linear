@@ -11,6 +11,8 @@ import {
   getProjectRelatedScopeKeys,
   getWorkItemDetailScopeKeys,
   getWorkspacePeopleScopeKeys,
+  selectConversationListReadModel,
+  selectConversationThreadReadModel,
   selectDocumentDetailReadModel,
   selectDocumentIndexReadModel,
   selectProjectDetailReadModel,
@@ -756,6 +758,67 @@ describe("scoped read model selectors", () => {
     expect(getWorkspacePeopleScopeKeys("workspace_1")).toEqual([
       "workspace-people:workspace_1",
     ])
+  })
+
+  it("keeps chat message read receipts out of list read models but includes them in thread read models", () => {
+    const snapshot = createSnapshotFixture()
+    snapshot.conversations = [
+      {
+        id: "chat_1",
+        kind: "chat",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        variant: "direct",
+        title: "Direct",
+        description: "",
+        participantIds: ["user_1", "user_2"],
+        roomId: null,
+        roomName: null,
+        createdBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+        lastActivityAt: "2026-04-22T00:00:00.000Z",
+      },
+    ]
+    snapshot.chatMessages = [
+      {
+        id: "message_1",
+        conversationId: "chat_1",
+        kind: "text",
+        content: "Private chat",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_2",
+        createdAt: "2026-04-22T00:00:00.000Z",
+      },
+    ]
+    snapshot.chatReadStates = [
+      {
+        id: "chat_read_state_user_1_chat_1",
+        userId: "user_1",
+        conversationId: "chat_1",
+        readAt: "2026-04-22T00:01:00.000Z",
+        unreadAt: null,
+        messageReadAtById: {
+          message_1: "2026-04-22T00:01:00.000Z",
+        },
+        createdAt: "2026-04-22T00:01:00.000Z",
+        updatedAt: "2026-04-22T00:01:00.000Z",
+      },
+    ]
+
+    const listPatch = selectConversationListReadModel(snapshot, "user_1")
+    const threadPatch = selectConversationThreadReadModel(snapshot, "chat_1")
+
+    expect(listPatch.chatReadStates?.[0]).toMatchObject({
+      id: "chat_read_state_user_1_chat_1",
+      readAt: "2026-04-22T00:01:00.000Z",
+      unreadAt: null,
+    })
+    expect(listPatch.chatReadStates?.[0]?.messageReadAtById).toBeUndefined()
+    expect(threadPatch?.chatReadStates?.[0]?.messageReadAtById).toEqual({
+      message_1: "2026-04-22T00:01:00.000Z",
+    })
   })
 
   it("resolves custom property definition invalidations for indexes, details, and view catalogs", () => {

@@ -971,9 +971,7 @@ function buildOptimisticAssigneeChangeActivity(input: {
   }
 
   const fromAssigneeIds = getWorkItemAssigneeIds(input.currentItem)
-  const toAssigneeIds = getResolvedWorkItemMutationAssigneeIds(
-    input.localPatch
-  )
+  const toAssigneeIds = getResolvedWorkItemMutationAssigneeIds(input.localPatch)
 
   if (haveSameWorkItemAssigneeIds(fromAssigneeIds, toAssigneeIds)) {
     return null
@@ -1206,21 +1204,44 @@ export function createWorkItemActions({
         }
       }
 
-      set((currentState) =>
-        applyOptimisticWorkItemUpdate(currentState, {
+      const syncToken = createId("work_item_sync")
+
+      set((currentState) => {
+        const optimisticState = applyOptimisticWorkItemUpdate(currentState, {
           itemId,
           localPatch,
           patch,
         })
-      )
+        return {
+          ...optimisticState,
+          pendingWorkItemSyncsById: {
+            ...(optimisticState.pendingWorkItemSyncsById ?? {}),
+            [itemId]: syncToken,
+          },
+        }
+      })
 
-      runtime.syncInBackground(
-        syncUpdateWorkItem(get().currentUserId, itemId, {
-          ...localPatch,
-          ...(expectedUpdatedAt !== undefined ? { expectedUpdatedAt } : {}),
-        }),
-        "Failed to update work item"
-      )
+      const updateTask = syncUpdateWorkItem(get().currentUserId, itemId, {
+        ...localPatch,
+        ...(expectedUpdatedAt !== undefined ? { expectedUpdatedAt } : {}),
+      }).finally(() => {
+        set((currentState) => {
+          if (currentState.pendingWorkItemSyncsById?.[itemId] !== syncToken) {
+            return currentState
+          }
+
+          const nextPendingSyncs = {
+            ...(currentState.pendingWorkItemSyncsById ?? {}),
+          }
+          delete nextPendingSyncs[itemId]
+
+          return {
+            pendingWorkItemSyncsById: nextPendingSyncs,
+          }
+        })
+      })
+
+      runtime.syncInBackground(updateTask, "Failed to update work item")
 
       return {
         status: "updated",

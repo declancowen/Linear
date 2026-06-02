@@ -31,6 +31,8 @@ import type {
 type UiSlice = Pick<
   AppStore,
   | "protectedDocumentIds"
+  | "pendingDocumentContentSyncs"
+  | "pendingWorkItemSyncsById"
   | "pendingViewConfigById"
   | "setDocumentBodyProtection"
   | "replaceDomainData"
@@ -48,6 +50,7 @@ type UiSlice = Pick<
   | "clearViewerViewDisplayProperties"
   | "toggleViewerViewHiddenValue"
   | "patchViewerDirectoryConfig"
+  | "setCollaborationSidebarOpen"
   | "setActiveInboxNotification"
 >
 
@@ -116,6 +119,10 @@ function getSelectedViewStorageKey(userId: string, route: string) {
   return getViewerScopedDirectoryKey(userId, route)
 }
 
+function getCollaborationSidebarStorageKey(userId: string, surfaceKey: string) {
+  return getViewerScopedDirectoryKey(userId, surfaceKey)
+}
+
 function mergeByKey<T>(
   existing: T[],
   incoming: T[] | undefined,
@@ -129,6 +136,33 @@ function mergeByKey<T>(
 
   for (const value of incoming) {
     entries.set(getKey(value), value)
+  }
+
+  return [...entries.values()]
+}
+
+function mergeChatReadStates(
+  existing: AppData["chatReadStates"],
+  incoming: AppData["chatReadStates"] | undefined
+) {
+  if (!incoming) {
+    return existing
+  }
+
+  const entries = new Map(existing.map((value) => [value.id, value]))
+
+  for (const value of incoming) {
+    const current = entries.get(value.id)
+
+    entries.set(
+      value.id,
+      current && value.messageReadAtById === undefined
+        ? {
+            ...value,
+            messageReadAtById: current.messageReadAtById,
+          }
+        : value
+    )
   }
 
   return [...entries.values()]
@@ -155,7 +189,8 @@ function preserveLocalNotificationReadState(
 function mergeProtectedDocuments(
   existing: AppData["documents"],
   incoming: AppData["documents"] | undefined,
-  protectedDocumentIds: string[],
+  protectedDocumentIds: string[] = [],
+  pendingDocumentContentSyncs: Record<string, string> = {},
   options?: {
     preserveExistingBodies?: boolean
   }
@@ -164,7 +199,10 @@ function mergeProtectedDocuments(
     return existing
   }
 
-  const protectedIds = new Set(protectedDocumentIds)
+  const protectedIds = new Set([
+    ...protectedDocumentIds,
+    ...Object.keys(pendingDocumentContentSyncs),
+  ])
 
   return mergeByKey(existing, incoming, (value) => value.id).map((document) => {
     const currentDocument =
@@ -420,7 +458,8 @@ function pruneScopedDomain(
   currentDomain: ArrayDomainEntry[],
   scopedDomain: ArrayDomainEntry[] | undefined,
   incomingDomain: ArrayDomainEntry[] | undefined,
-  keyResolver: (value: ArrayDomainEntry) => string
+  keyResolver: (value: ArrayDomainEntry) => string,
+  protectedKeys: ReadonlySet<string> = new Set()
 ) {
   if (!scopedDomain || !incomingDomain) {
     return currentDomain
@@ -439,7 +478,9 @@ function pruneScopedDomain(
   return currentDomain.filter((value) => {
     const key = keyResolver(value)
 
-    return !scopedKeys.has(key) || incomingKeys.has(key)
+    return (
+      protectedKeys.has(key) || !scopedKeys.has(key) || incomingKeys.has(key)
+    )
   })
 }
 
@@ -470,6 +511,10 @@ function applyScopedReadModelPruning(
       const keyResolver = domainKeyResolvers[domainKey]
       const incomingDomain = data[domainKey]
       const scopedDomain = scopedSelection[domainKey]
+      const protectedKeys =
+        domainKey === "workItems"
+          ? new Set(Object.keys(nextState.pendingWorkItemSyncsById ?? {}))
+          : undefined
 
       if (!Array.isArray(incomingDomain) || !Array.isArray(scopedDomain)) {
         continue
@@ -481,7 +526,8 @@ function applyScopedReadModelPruning(
           nextState[domainKey] as ArrayDomainEntry[],
           scopedDomain as ArrayDomainEntry[],
           incomingDomain as ArrayDomainEntry[],
-          keyResolver as (value: ArrayDomainEntry) => string
+          keyResolver as (value: ArrayDomainEntry) => string,
+          protectedKeys
         ) as AppData[typeof domainKey],
       }
     }
@@ -504,11 +550,14 @@ function applyReplacedDomainData(state: AppStore, data: Partial<AppData>) {
     ...state,
     ...data,
     protectedDocumentIds: state.protectedDocumentIds,
+    pendingDocumentContentSyncs: state.pendingDocumentContentSyncs ?? {},
+    pendingWorkItemSyncsById: state.pendingWorkItemSyncsById ?? {},
     pendingViewConfigById: reconciledViews.pendingViewConfigById,
     documents: mergeProtectedDocuments(
       state.documents,
       data.documents,
-      state.protectedDocumentIds
+      state.protectedDocumentIds,
+      state.pendingDocumentContentSyncs ?? {}
     ),
     views: reconciledViews.views,
     users: normalizeUsers(data.users ?? state.users),
@@ -615,10 +664,13 @@ function applyMergedReadModelData(
       prunedState.documents,
       data.documents,
       prunedState.protectedDocumentIds,
+      prunedState.pendingDocumentContentSyncs ?? {},
       {
         preserveExistingBodies: preserveExistingDocumentBodies,
       }
     ),
+    pendingDocumentContentSyncs: prunedState.pendingDocumentContentSyncs ?? {},
+    pendingWorkItemSyncsById: prunedState.pendingWorkItemSyncsById ?? {},
     pendingViewConfigById: reconciledViews.pendingViewConfigById,
     views: reconciledViews.views,
     comments: normalizeComments(
@@ -660,10 +712,9 @@ function applyMergedReadModelData(
         (value) => value.id
       )
     ),
-    chatReadStates: mergeByKey(
+    chatReadStates: mergeChatReadStates(
       prunedState.chatReadStates,
-      data.chatReadStates,
-      (value) => value.id
+      data.chatReadStates
     ),
     channelPosts: normalizeChannelPosts(
       mergeByKey(
@@ -696,6 +747,8 @@ export function createUiSlice(
   return {
     ...createEmptyState(),
     protectedDocumentIds: [],
+    pendingDocumentContentSyncs: {},
+    pendingWorkItemSyncsById: {},
     pendingViewConfigById: {},
     replaceDomainData(data) {
       set((state) => applyReplacedDomainData(state, data))
@@ -963,6 +1016,20 @@ export function createUiSlice(
           },
         }
       })
+    },
+    setCollaborationSidebarOpen(surfaceKey, open) {
+      set((state) => ({
+        ui: {
+          ...state.ui,
+          collaborationSidebarOpenBySurface: {
+            ...state.ui.collaborationSidebarOpenBySurface,
+            [getCollaborationSidebarStorageKey(
+              state.currentUserId,
+              surfaceKey
+            )]: open,
+          },
+        },
+      }))
     },
     setActiveInboxNotification(notificationId) {
       set((state) => ({

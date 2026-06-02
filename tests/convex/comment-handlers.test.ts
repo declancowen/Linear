@@ -262,7 +262,7 @@ describe("comment handlers", () => {
     expect(result.notificationUserIds).toEqual(["user_2"])
   })
 
-  it("persists allowed work item references on comments", async () => {
+  it("persists allowed rich text references on comments", async () => {
     const { addCommentHandler } = await import("@/convex/app/comment_handlers")
     const ctx = createCtx()
 
@@ -278,6 +278,25 @@ describe("comment handlers", () => {
       assigneeIds: [],
       subscriberIds: [],
     }))
+    getDocumentDocMock.mockResolvedValue({
+      _id: "document_1_db",
+      id: "document_1",
+      kind: "team-document",
+      teamId: "team_1",
+      workspaceId: "workspace_1",
+    })
+    getProjectDocMock.mockResolvedValue({
+      _id: "project_1_db",
+      id: "project_1",
+      scopeType: "team",
+      scopeId: "team_1",
+    })
+    getViewDocMock.mockResolvedValue({
+      _id: "view_1_db",
+      id: "view_1",
+      scopeType: "team",
+      scopeId: "team_1",
+    })
 
     await addCommentHandler(ctx as never, {
       serverToken: "server_token",
@@ -286,8 +305,12 @@ describe("comment handlers", () => {
       origin: "https://app.example.com",
       targetType: "workItem",
       targetId: "item_1",
-      content:
-        '<p><a data-type="entity-reference" data-reference-type="workItem" data-reference-id="item_2" href="/items/item_2">Referenced task</a></p>',
+      content: [
+        '<a data-type="entity-reference" data-reference-type="workItem" data-reference-id="item_2" href="/items/item_2">Referenced task</a>',
+        '<a data-type="entity-reference" data-reference-type="document" data-reference-id="document_1" href="/docs/document_1">Referenced doc</a>',
+        '<a data-type="entity-reference" data-reference-type="project" data-reference-id="project_1" href="/projects/project_1">Referenced project</a>',
+        '<a data-type="entity-reference" data-reference-type="view" data-reference-id="view_1" href="/views/view_1">Referenced view</a>',
+      ].join(""),
     })
 
     expect(ctx.db.insert).toHaveBeenCalledWith(
@@ -295,6 +318,9 @@ describe("comment handlers", () => {
       expect.objectContaining({
         id: "comment_client",
         referencedWorkItemIds: ["item_2"],
+        referencedDocumentIds: ["document_1"],
+        referencedProjectIds: ["project_1"],
+        referencedViewIds: ["view_1"],
       })
     )
   })

@@ -17,6 +17,10 @@ export function useConversationListReadModelRefresh(
     enabled: Boolean(currentUserId),
     scopeKeys: currentUserId ? getConversationListScopeKeys(currentUserId) : [],
     fetchLatest: () => fetchConversationListReadModel(currentUserId ?? ""),
+    diagnostics: {
+      retainedData: Boolean(currentUserId),
+      surface: "chat-channel/conversation-list",
+    },
   })
 }
 
@@ -29,5 +33,9 @@ export function useConversationThreadReadModelRefresh(
       ? getConversationThreadScopeKeys(conversationId)
       : [],
     fetchLatest: () => fetchConversationThreadReadModel(conversationId ?? ""),
+    diagnostics: {
+      retainedData: Boolean(conversationId),
+      surface: "chat/conversation-thread",
+    },
   })
 }

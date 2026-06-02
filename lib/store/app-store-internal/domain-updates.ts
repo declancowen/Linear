@@ -372,6 +372,14 @@ function buildNextStateAfterRemoval(
         item.linkedWorkItemIds ?? [],
         removal.deletedWorkItemIds
       ),
+      referencedProjectIds: filterDeletedIds(
+        item.referencedProjectIds ?? [],
+        removal.deletedProjectIds
+      ),
+      referencedViewIds: filterDeletedIds(
+        item.referencedViewIds ?? [],
+        removal.deletedViewIds
+      ),
       labelIds: filterDeletedIds(item.labelIds, removal.deletedLabelIds),
       milestoneId:
         item.milestoneId && removal.deletedMilestoneIds.has(item.milestoneId)
@@ -420,13 +428,33 @@ function buildNextStateAfterRemoval(
         ),
       },
     }))
-  const comments = state.comments.filter((comment) => {
-    if (comment.targetType === "workItem") {
-      return !removal.deletedWorkItemIds.has(comment.targetId)
-    }
+  const comments = state.comments
+    .filter((comment) => {
+      if (comment.targetType === "workItem") {
+        return !removal.deletedWorkItemIds.has(comment.targetId)
+      }
 
-    return !removal.deletedDocumentIds.has(comment.targetId)
-  })
+      return !removal.deletedDocumentIds.has(comment.targetId)
+    })
+    .map((comment) => ({
+      ...comment,
+      referencedWorkItemIds: filterDeletedIds(
+        comment.referencedWorkItemIds ?? [],
+        removal.deletedWorkItemIds
+      ),
+      referencedDocumentIds: filterDeletedIds(
+        comment.referencedDocumentIds ?? [],
+        removal.deletedDocumentIds
+      ),
+      referencedProjectIds: filterDeletedIds(
+        comment.referencedProjectIds ?? [],
+        removal.deletedProjectIds
+      ),
+      referencedViewIds: filterDeletedIds(
+        comment.referencedViewIds ?? [],
+        removal.deletedViewIds
+      ),
+    }))
   const attachments = state.attachments.filter((attachment) => {
     if (attachment.teamId && removal.deletedTeamIds.has(attachment.teamId)) {
       return false
@@ -664,6 +692,14 @@ export function getNextStateAfterProjectRemoval(
         item.linkedProjectIds,
         deletedProjectIds
       ),
+      referencedProjectIds: filterDeletedIds(
+        item.referencedProjectIds ?? [],
+        deletedProjectIds
+      ),
+      referencedViewIds: filterDeletedIds(
+        item.referencedViewIds ?? [],
+        deletedViewIds
+      ),
       milestoneId:
         item.milestoneId && deletedMilestoneIds.has(item.milestoneId)
           ? null
@@ -674,6 +710,17 @@ export function getNextStateAfterProjectRemoval(
       linkedProjectIds: filterDeletedIds(
         document.linkedProjectIds,
         deletedProjectIds
+      ),
+    })),
+    comments: state.comments.map((comment) => ({
+      ...comment,
+      referencedProjectIds: filterDeletedIds(
+        comment.referencedProjectIds ?? [],
+        deletedProjectIds
+      ),
+      referencedViewIds: filterDeletedIds(
+        comment.referencedViewIds ?? [],
+        deletedViewIds
       ),
     })),
     views: state.views

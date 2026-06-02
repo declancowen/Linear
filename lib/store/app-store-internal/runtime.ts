@@ -2,7 +2,10 @@
 
 import { toast } from "sonner"
 
-import { reportRealtimeFallbackDiagnostic } from "@/lib/browser/snapshot-diagnostics"
+import {
+  reportMutationReconciliationDiagnostic,
+  reportRealtimeFallbackDiagnostic,
+} from "@/lib/browser/snapshot-diagnostics"
 import { fetchSnapshot } from "@/lib/convex/client"
 import { RouteMutationError } from "@/lib/convex/client/shared"
 
@@ -22,7 +25,40 @@ type QueuedSyncEntry = {
 
 const queuedRichTextSyncs = new Map<string, QueuedSyncEntry>()
 
+function getReconciliationErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback
+}
+
 export function createStoreRuntime(get: AppStoreGet) {
+  function getPerformanceNow() {
+    return typeof window === "undefined" ? Date.now() : window.performance.now()
+  }
+
+  function reportRichTextReconciliation(input: {
+    error?: unknown
+    key: string
+    refreshStrategy: "none" | "snapshot"
+    startedAt: number
+    status: "success" | "failure" | "ignored"
+  }) {
+    reportMutationReconciliationDiagnostic({
+      durationMs: getPerformanceNow() - input.startedAt,
+      label: `rich-text:${input.key}`,
+      refreshStrategy: input.refreshStrategy,
+      status: input.status,
+      ...(input.error
+        ? {
+            errorMessage: getReconciliationErrorMessage(
+              input.error,
+              input.status === "ignored"
+                ? "Ignored sync failure"
+                : "Sync failed"
+            ),
+          }
+        : {}),
+    })
+  }
+
   function isProtectedRichTextSyncKey(key: string) {
     const state = get()
 
@@ -136,6 +172,7 @@ export function createStoreRuntime(get: AppStoreGet) {
 
     const task = entry.latestTask
     const taskGeneration = entry.generation
+    const startedAt = getPerformanceNow()
     entry.latestTask = null
     entry.inFlight = true
     const syncContext = {
@@ -146,14 +183,35 @@ export function createStoreRuntime(get: AppStoreGet) {
 
     try {
       await task(syncContext)
+      reportRichTextReconciliation({
+        key,
+        refreshStrategy: entry.refreshStrategy,
+        startedAt,
+        status: "success",
+      })
     } catch (error) {
       if (!syncContext.isCurrent()) {
         return
       }
 
       if (shouldIgnoreRichTextSyncFailure(key, error)) {
+        reportRichTextReconciliation({
+          error,
+          key,
+          refreshStrategy: entry.refreshStrategy,
+          startedAt,
+          status: "ignored",
+        })
         return
       }
+
+      reportRichTextReconciliation({
+        error,
+        key,
+        refreshStrategy: entry.refreshStrategy,
+        startedAt,
+        status: "failure",
+      })
 
       if (
         error instanceof RouteMutationError &&
@@ -260,9 +318,31 @@ export function createStoreRuntime(get: AppStoreGet) {
       return
     }
 
-    void task.catch((error) =>
-      handleSyncFailure(error, fallbackMessage, options)
-    )
+    const startedAt = getPerformanceNow()
+    const refreshStrategy = options?.refreshStrategy ?? "snapshot"
+
+    void task
+      .then(() => {
+        reportMutationReconciliationDiagnostic({
+          durationMs: getPerformanceNow() - startedAt,
+          label: fallbackMessage,
+          refreshStrategy,
+          status: "success",
+        })
+      })
+      .catch((error) => {
+        reportMutationReconciliationDiagnostic({
+          durationMs: getPerformanceNow() - startedAt,
+          label: fallbackMessage,
+          refreshStrategy,
+          status: "failure",
+          errorMessage: getReconciliationErrorMessage(
+            error,
+            "Background sync failed"
+          ),
+        })
+        return handleSyncFailure(error, fallbackMessage, options)
+      })
   }
 
   return {

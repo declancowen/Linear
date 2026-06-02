@@ -4,6 +4,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 
 import { redirectToExpiredSessionLogin } from "@/lib/browser/session-redirect"
 import {
+  reportFirstUsefulRenderDiagnostic,
   reportScopedReadModelDiagnostic,
   reportScopedStreamReconnectDiagnostic,
 } from "@/lib/browser/snapshot-diagnostics"
@@ -20,6 +21,10 @@ type ScopedReadModelRefreshInput = {
   fetchLatest: () => Promise<
     Partial<AppSnapshot> | ReadModelFetchResult<Partial<AppSnapshot>>
   >
+  diagnostics?: {
+    retainedData?: boolean
+    surface: string
+  }
   notFoundResult?:
     | Partial<AppSnapshot>
     | ReadModelFetchResult<Partial<AppSnapshot>>
@@ -58,6 +63,9 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   const inFlightGenerationRef = useRef<number | null>(null)
   const queuedRef = useRef(false)
   const runGenerationRef = useRef(0)
+  const firstUsefulRenderStartedAtRef = useRef(0)
+  const firstUsefulRenderSignatureRef = useRef("")
+  const reportedFirstUsefulRenderSignatureRef = useRef("")
   const degradedIntervalIdRef = useRef<number | null>(null)
   const scopedSyncEnabled = isScopedSyncEnabled()
   const scopeKeySignature = normalizeScopeKeys(input.scopeKeys).join("|")
@@ -69,6 +77,13 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     scopedSyncEnabled && input.enabled && scopeKeySignature.length > 0
       ? scopeKeySignature
       : ""
+  const isLoaded =
+    !scopedSyncEnabled ||
+    (hasLoadedOnce && loadedScopeKeySignature === activeScopeKeySignature)
+  const firstUsefulRenderSignature = [
+    input.diagnostics?.surface ?? "",
+    activeScopeKeySignature,
+  ].join("|")
 
   const handleRefreshSuccess = useEffectEvent(
     (result: ReadModelFetchResult<Partial<AppSnapshot>>, startedAt: number) => {
@@ -280,11 +295,50 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     }
   }, [input.enabled, scopeKeySignature, scopedSyncEnabled])
 
+  useEffect(() => {
+    if (!input.diagnostics?.surface) {
+      return
+    }
+
+    if (firstUsefulRenderSignatureRef.current !== firstUsefulRenderSignature) {
+      firstUsefulRenderSignatureRef.current = firstUsefulRenderSignature
+      firstUsefulRenderStartedAtRef.current = window.performance.now()
+      reportedFirstUsefulRenderSignatureRef.current = ""
+    }
+
+    const retainedData = input.diagnostics.retainedData ?? false
+    const hasUsefulRender = retainedData || isLoaded
+
+    if (
+      !hasUsefulRender ||
+      reportedFirstUsefulRenderSignatureRef.current ===
+        firstUsefulRenderSignature
+    ) {
+      return
+    }
+
+    reportedFirstUsefulRenderSignatureRef.current = firstUsefulRenderSignature
+    reportFirstUsefulRenderDiagnostic({
+      durationMs:
+        window.performance.now() - firstUsefulRenderStartedAtRef.current,
+      readModelLoaded: isLoaded,
+      refreshing,
+      retainedData,
+      scopeKeys,
+      surface: input.diagnostics.surface,
+    })
+  }, [
+    firstUsefulRenderSignature,
+    input.diagnostics?.retainedData,
+    input.diagnostics?.surface,
+    isLoaded,
+    refreshing,
+    scopeKeys,
+  ])
+
   return {
     error,
-    hasLoadedOnce:
-      !scopedSyncEnabled ||
-      (hasLoadedOnce && loadedScopeKeySignature === activeScopeKeySignature),
+    hasLoadedOnce: isLoaded,
     refreshing,
   }
 }

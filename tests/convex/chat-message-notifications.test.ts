@@ -12,6 +12,7 @@ const getChatMessageDocMock = vi.fn()
 const getConversationDocMock = vi.fn()
 const getTeamMembershipDocMock = vi.fn()
 const getWorkspaceEditRoleMock = vi.fn()
+const listChatMessagesByConversationMock = vi.fn()
 const listNotificationsByEntityMock = vi.fn()
 const listUsersByIdsMock = vi.fn()
 const getChannelConversationPathMock = vi.fn()
@@ -56,6 +57,7 @@ vi.mock("@/convex/app/data", () => ({
   getTeamMembershipDoc: getTeamMembershipDocMock,
   getTeamDoc: vi.fn(),
   getWorkspaceEditRole: getWorkspaceEditRoleMock,
+  listChatMessagesByConversation: listChatMessagesByConversationMock,
   getWorkspaceDoc: vi.fn(),
   listNotificationsByEntity: listNotificationsByEntityMock,
   listUsersByIds: listUsersByIdsMock,
@@ -132,6 +134,7 @@ describe("chat message notifications", () => {
     getConversationDocMock.mockReset()
     getTeamMembershipDocMock.mockReset()
     getWorkspaceEditRoleMock.mockReset()
+    listChatMessagesByConversationMock.mockReset()
     listNotificationsByEntityMock.mockReset()
     listUsersByIdsMock.mockReset()
     getChannelConversationPathMock.mockReset()
@@ -146,6 +149,7 @@ describe("chat message notifications", () => {
     getNowMock.mockReturnValue("2026-04-18T11:00:00.000Z")
     getConversationDocMock.mockResolvedValue(createConversation())
     getChatReadStateDocMock.mockResolvedValue(null)
+    listChatMessagesByConversationMock.mockResolvedValue([])
     listNotificationsByEntityMock.mockResolvedValue([])
     requireConversationAccessMock.mockImplementation(
       async (_ctx, conversation) => conversation
@@ -250,6 +254,9 @@ describe("chat message notifications", () => {
         conversationId: "conversation_1",
         readAt: "2026-04-18T11:00:00.000Z",
         unreadAt: null,
+        messageReadAtById: {
+          chat_message_1: "2026-04-18T11:00:00.000Z",
+        },
       }),
       expect.objectContaining({
         userId: "user_2",
@@ -268,6 +275,118 @@ describe("chat message notifications", () => {
       updatedAt: "2026-04-18T11:00:00.000Z",
       lastActivityAt: "2026-04-18T11:00:00.000Z",
     })
+  })
+
+  it("preserves existing per-message first-read timestamps when reading a chat", async () => {
+    const patchMock = vi.fn()
+    const { markChatConversationRead } = await import(
+      "@/convex/app/chat_read_states"
+    )
+
+    getChatReadStateDocMock.mockResolvedValueOnce({
+      _id: "chat_read_state_doc",
+      id: "chat_read_state_user_1_conversation_1",
+      userId: "user_1",
+      conversationId: "conversation_1",
+      readAt: "2026-04-18T10:30:00.000Z",
+      unreadAt: "2026-04-18T10:45:00.000Z",
+      messageReadAtById: {
+        message_old: "2026-04-18T10:30:00.000Z",
+      },
+      createdAt: "2026-04-18T10:30:00.000Z",
+      updatedAt: "2026-04-18T10:45:00.000Z",
+    })
+
+    await markChatConversationRead(
+      {
+        db: {
+          patch: patchMock,
+        },
+      } as never,
+      {
+        userId: "user_1",
+        conversationId: "conversation_1",
+        now: "2026-04-18T11:00:00.000Z",
+        messageIds: ["message_old", "message_new"],
+      }
+    )
+
+    expect(patchMock).toHaveBeenCalledWith("chat_read_state_doc", {
+      readAt: "2026-04-18T11:00:00.000Z",
+      unreadAt: null,
+      messageReadAtById: {
+        message_old: "2026-04-18T10:30:00.000Z",
+        message_new: "2026-04-18T11:00:00.000Z",
+      },
+      updatedAt: "2026-04-18T11:00:00.000Z",
+    })
+  })
+
+  it("filters chat read receipt ids to readable messages in the conversation", async () => {
+    const inserts: Array<[string, unknown]> = []
+    const { updateChatReadStateHandler } = await import(
+      "@/convex/app/chat_read_states"
+    )
+
+    listChatMessagesByConversationMock.mockResolvedValueOnce([
+      {
+        id: "message_visible",
+        conversationId: "conversation_1",
+        createdBy: "user_2",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        deletedAt: null,
+      },
+      {
+        id: "message_deleted_other",
+        conversationId: "conversation_1",
+        createdBy: "user_2",
+        createdAt: "2026-04-18T10:01:00.000Z",
+        deletedAt: "2026-04-18T10:02:00.000Z",
+      },
+      {
+        id: "message_deleted_self",
+        conversationId: "conversation_1",
+        createdBy: "user_1",
+        createdAt: "2026-04-18T10:03:00.000Z",
+        deletedAt: "2026-04-18T10:04:00.000Z",
+      },
+    ])
+
+    await updateChatReadStateHandler(
+      {
+        db: {
+          insert: vi.fn(async (table: string, value: unknown) => {
+            inserts.push([table, value])
+          }),
+          patch: vi.fn(),
+        },
+      } as never,
+      {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        conversationId: "conversation_1",
+        action: "read",
+        messageIds: [
+          "message_visible",
+          "message_deleted_other",
+          "message_deleted_self",
+          "message_unknown",
+        ],
+      }
+    )
+
+    expect(
+      inserts
+        .filter(([table]) => table === "chatReadStates")
+        .map(([, readState]) => readState)
+    ).toEqual([
+      expect.objectContaining({
+        messageReadAtById: {
+          message_visible: "2026-04-18T11:00:00.000Z",
+          message_deleted_self: "2026-04-18T11:00:00.000Z",
+        },
+      }),
+    ])
   })
 
   it("creates mention notifications without duplicate generic message notifications", async () => {

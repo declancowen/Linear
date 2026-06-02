@@ -170,12 +170,14 @@ describe("app store read model merge", () => {
           updatedAt: "2026-04-22T00:00:00.000Z",
         },
       ],
+      pendingWorkItemSyncsById: {},
       ui: {
         activeTeamId: "team_1",
         activeInboxNotificationId: null,
         selectedViewByRoute: {},
         viewerViewConfigByRoute: {},
         viewerDirectoryConfigByRoute: {},
+        collaborationSidebarOpenBySurface: {},
         activeCreateDialog: null,
       },
     })
@@ -218,6 +220,92 @@ describe("app store read model merge", () => {
       "workspace_1",
     ])
     expect(state.workspaceMemberships).toHaveLength(1)
+  })
+
+  it("preserves chat message receipt maps when a list read model omits them", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      conversations: [
+        {
+          id: "chat_1",
+          kind: "chat",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          variant: "direct",
+          title: "Direct",
+          description: "",
+          participantIds: [currentUser.id],
+          roomId: null,
+          roomName: null,
+          createdBy: currentUser.id,
+          createdAt: "2026-04-22T00:00:00.000Z",
+          updatedAt: "2026-04-22T00:00:00.000Z",
+          lastActivityAt: "2026-04-22T00:00:00.000Z",
+        },
+      ],
+      chatReadStates: [
+        {
+          id: "chat_read_state_user_current_chat_1",
+          userId: currentUser.id,
+          conversationId: "chat_1",
+          readAt: "2026-04-22T00:01:00.000Z",
+          unreadAt: null,
+          messageReadAtById: {
+            message_1: "2026-04-22T00:01:00.000Z",
+          },
+          createdAt: "2026-04-22T00:01:00.000Z",
+          updatedAt: "2026-04-22T00:01:00.000Z",
+        },
+      ],
+    }))
+
+    useAppStore.getState().mergeReadModelData({
+      chatReadStates: [
+        {
+          id: "chat_read_state_user_current_chat_1",
+          userId: currentUser.id,
+          conversationId: "chat_1",
+          readAt: "2026-04-22T00:02:00.000Z",
+          unreadAt: null,
+          createdAt: "2026-04-22T00:01:00.000Z",
+          updatedAt: "2026-04-22T00:02:00.000Z",
+        },
+      ],
+    })
+
+    expect(useAppStore.getState().chatReadStates[0]?.messageReadAtById).toEqual(
+      {
+        message_1: "2026-04-22T00:01:00.000Z",
+      }
+    )
+  })
+
+  it("keeps pending work item updates during scoped replacement pruning", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      pendingWorkItemSyncsById: {
+        item_1: "sync_1",
+      },
+    }))
+
+    useAppStore.getState().mergeReadModelData(
+      {
+        workItems: [],
+      },
+      {
+        replace: [
+          {
+            kind: "work-index",
+            scopeType: "team",
+            scopeId: "team_1",
+          },
+        ],
+      }
+    )
+
+    expect(useAppStore.getState().workItems.map((item) => item.id)).toEqual([
+      "item_1",
+    ])
   })
 
   it("ignores incidental current workspace ids from non-membership read models", () => {
@@ -585,6 +673,106 @@ describe("app store read model merge", () => {
 
     expect(protectedDocument?.title).toBe("Snapshot Workspace Doc")
     expect(protectedDocument?.content).toBe("<p>Workspace</p>")
+  })
+
+  it("preserves pending local document body syncs across stale read model merges and snapshot replacement", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      documents: state.documents.map((document) =>
+        document.id === "doc_workspace"
+          ? {
+              ...document,
+              content: "<p>Unsaved local draft</p>",
+            }
+          : document
+      ),
+      pendingDocumentContentSyncs: {
+        ...state.pendingDocumentContentSyncs,
+        doc_workspace: "pending-token-1",
+      },
+    }))
+
+    useAppStore.getState().mergeReadModelData({
+      documents: [
+        {
+          id: "doc_workspace",
+          kind: "workspace-document",
+          workspaceId: "workspace_1",
+          teamId: null,
+          title: "Stale Workspace Doc",
+          content: "",
+          linkedProjectIds: [],
+          linkedWorkItemIds: [],
+          createdBy: currentUser.id,
+          updatedBy: currentUser.id,
+          createdAt: "2026-04-22T00:00:00.000Z",
+          updatedAt: "2026-04-23T00:00:00.000Z",
+        },
+      ],
+    })
+
+    let pendingDocument = useAppStore
+      .getState()
+      .documents.find((document) => document.id === "doc_workspace")
+
+    expect(pendingDocument?.title).toBe("Stale Workspace Doc")
+    expect(pendingDocument?.content).toBe("<p>Unsaved local draft</p>")
+    expect(
+      useAppStore.getState().pendingDocumentContentSyncs.doc_workspace
+    ).toBe("pending-token-1")
+
+    const currentState = useAppStore.getState()
+    useAppStore.getState().replaceDomainData({
+      ...createEmptyState(),
+      currentUserId: currentState.currentUserId,
+      currentWorkspaceId: currentState.currentWorkspaceId,
+      workspaces: currentState.workspaces,
+      workspaceMemberships: currentState.workspaceMemberships,
+      teams: currentState.teams,
+      teamMemberships: currentState.teamMemberships,
+      users: currentState.users,
+      labels: currentState.labels,
+      projects: currentState.projects,
+      milestones: currentState.milestones,
+      workItems: currentState.workItems,
+      documents: [
+        {
+          id: "doc_workspace",
+          kind: "workspace-document",
+          workspaceId: "workspace_1",
+          teamId: null,
+          title: "Snapshot Workspace Doc",
+          content: "<p>Snapshot stale body</p>",
+          linkedProjectIds: [],
+          linkedWorkItemIds: [],
+          createdBy: currentUser.id,
+          updatedBy: currentUser.id,
+          createdAt: "2026-04-22T00:00:00.000Z",
+          updatedAt: "2026-04-24T00:00:00.000Z",
+        },
+      ],
+      views: currentState.views,
+      comments: currentState.comments,
+      attachments: currentState.attachments,
+      notifications: currentState.notifications,
+      invites: currentState.invites,
+      projectUpdates: currentState.projectUpdates,
+      conversations: currentState.conversations,
+      calls: currentState.calls,
+      chatMessages: currentState.chatMessages,
+      channelPosts: currentState.channelPosts,
+      channelPostComments: currentState.channelPostComments,
+    })
+
+    pendingDocument = useAppStore
+      .getState()
+      .documents.find((document) => document.id === "doc_workspace")
+
+    expect(pendingDocument?.title).toBe("Snapshot Workspace Doc")
+    expect(pendingDocument?.content).toBe("<p>Unsaved local draft</p>")
+    expect(
+      useAppStore.getState().pendingDocumentContentSyncs.doc_workspace
+    ).toBe("pending-token-1")
   })
 
   it("evicts only the missing work item when a detail refresh returns not found", () => {

@@ -341,6 +341,52 @@ describe("collaboration conversation actions", () => {
         unreadAt: null,
       }),
     ])
+    expect(
+      state.chatReadStates[0]?.messageReadAtById?.[
+        state.chatMessages[0]?.id ?? ""
+      ]
+    ).toEqual(expect.any(String))
+    await expect(backgroundTasks[0]).resolves.toBeNull()
+  })
+
+  it("marks visible chat messages read once without overwriting existing receipt timestamps", async () => {
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
+    state.chatReadStates = [
+      {
+        id: "chat_read_state_user_1_conversation_1",
+        userId: "user_1",
+        conversationId: "conversation_1",
+        readAt: "2026-04-21T10:02:00.000Z",
+        unreadAt: "2026-04-21T10:03:00.000Z",
+        messageReadAtById: {
+          message_old: "2026-04-21T10:02:00.000Z",
+        },
+        createdAt: "2026-04-21T10:02:00.000Z",
+        updatedAt: "2026-04-21T10:03:00.000Z",
+      },
+    ]
+
+    slice.markChatRead("conversation_1", ["message_old", "message_new"])
+
+    expect(state.chatReadStates[0]).toMatchObject({
+      readAt: expect.any(String),
+      unreadAt: null,
+      messageReadAtById: {
+        message_old: "2026-04-21T10:02:00.000Z",
+        message_new: expect.any(String),
+      },
+    })
+    expect(
+      state.chatReadStates[0]?.messageReadAtById?.message_new
+    ).not.toBe("2026-04-21T10:02:00.000Z")
+    expect(syncUpdateChatReadStateMock).toHaveBeenCalledWith(
+      "conversation_1",
+      "read",
+      {
+        messageIds: ["message_old", "message_new"],
+      }
+    )
     await expect(backgroundTasks[0]).resolves.toBeNull()
   })
 

@@ -19,10 +19,7 @@ import {
   getCurrentWorkspace,
   getWorkspaceChats,
 } from "@/lib/domain/selectors"
-import {
-  getChatConversationReadAt,
-  isChatConversationUnread,
-} from "@/lib/domain/chat-read-state"
+import { isChatConversationUnread } from "@/lib/domain/chat-read-state"
 import type {
   AppData,
   Conversation,
@@ -37,6 +34,10 @@ import {
   useConversationListReadModelRefresh,
   useConversationThreadReadModelRefresh,
 } from "@/components/app/collaboration-screens/read-model-refresh"
+import {
+  createCollaborationSidebarSurfaceKey,
+  usePersistedCollaborationSidebarState,
+} from "@/components/app/collaboration-screens/sidebar-state"
 import {
   ChatHeaderActions,
   DetailsSidebarToggle,
@@ -70,7 +71,6 @@ import {
 
 type WorkspaceChatListWidth = number | null
 type WorkspaceChatListEntry = Conversation & {
-  readAt?: string | null
   unread?: boolean
 }
 
@@ -430,8 +430,6 @@ export function WorkspaceChatsScreen() {
   )
   const users = useAppStore((state) => state.users)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [conversationListWidth, setConversationListWidth] =
     useState<WorkspaceChatListWidth>(null)
   const [conversationListResizing, setConversationListResizing] =
@@ -584,6 +582,17 @@ export function WorkspaceChatsScreen() {
 
   const selectedChatId = searchParams.get("chatId")
   const activeChatId = getActiveWorkspaceChatId(selectedChatId, chats)
+  const {
+    mobileSidebarOpen,
+    setMobileSidebarOpen,
+    setSidebarOpen,
+    sidebarOpen,
+  } = usePersistedCollaborationSidebarState(
+    createCollaborationSidebarSurfaceKey(
+      "workspace-chat",
+      activeChatId ?? workspace?.id
+    )
+  )
   const { hasLoadedOnce: hasLoadedConversationList } =
     useConversationListReadModelRefresh(currentUserId)
   const { hasLoadedOnce: hasLoadedConversationThread } =
@@ -611,11 +620,6 @@ export function WorkspaceChatsScreen() {
     () =>
       chats.map((chat) => ({
         ...chat,
-        readAt: getChatConversationReadAt(
-          { chatReadStates },
-          currentUserId,
-          chat.id
-        ),
         unread: isChatConversationUnread(
           { chatReadStates, notifications },
           currentUserId,

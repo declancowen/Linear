@@ -78,7 +78,10 @@ export function syncDeleteChatMessage(messageId: string) {
 
 export function syncUpdateChatReadState(
   conversationId: string,
-  action: "read" | "unread"
+  action: "read" | "unread",
+  options: {
+    messageIds?: string[]
+  } = {}
 ) {
   return runRouteMutation<{ ok: true }>(
     `/api/chats/${conversationId}/read-state`,
@@ -89,6 +92,9 @@ export function syncUpdateChatReadState(
       },
       body: JSON.stringify({
         action,
+        ...(action === "read" && options.messageIds?.length
+          ? { messageIds: options.messageIds }
+          : {}),
       }),
     }
   )

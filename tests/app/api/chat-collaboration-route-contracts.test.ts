@@ -13,6 +13,8 @@ import {
 const requireSessionMock = vi.fn()
 const requireAppContextMock = vi.fn()
 const getCallJoinContextServerMock = vi.fn()
+const updateChatReadStateServerMock = vi.fn()
+const bumpScopedReadModelVersionsServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 
 vi.mock("@/lib/server/route-auth", () =>
@@ -20,7 +22,9 @@ vi.mock("@/lib/server/route-auth", () =>
 )
 
 vi.mock("@/lib/server/convex", () => ({
+  bumpScopedReadModelVersionsServer: bumpScopedReadModelVersionsServerMock,
   getCallJoinContextServer: getCallJoinContextServerMock,
+  updateChatReadStateServer: updateChatReadStateServerMock,
 }))
 
 vi.mock("@/lib/server/provider-errors", () =>
@@ -40,7 +44,11 @@ function chatSessionRouteInput(url = "http://localhost", init?: RequestInit) {
 describe("chat collaboration session route contracts", () => {
   beforeEach(() => {
     mockCollaborationRouteAuthContext({
-      extraMocks: [getCallJoinContextServerMock],
+      extraMocks: [
+        bumpScopedReadModelVersionsServerMock,
+        getCallJoinContextServerMock,
+        updateChatReadStateServerMock,
+      ],
       requireAppContextMock,
       requireSessionMock,
       logProviderErrorMock,
@@ -136,5 +144,46 @@ describe("chat collaboration session route contracts", () => {
       "Collaboration service must use HTTPS/WSS when the app is served over HTTPS",
       "COLLABORATION_UNAVAILABLE"
     )
+  })
+
+  it("persists first-read message ids and refreshes list and thread read models", async () => {
+    const { PATCH } = await import(
+      "@/app/api/chats/[chatId]/read-state/route"
+    )
+    const {
+      getConversationListScopeKeys,
+      getConversationThreadScopeKeys,
+    } = await import("@/lib/scoped-sync/read-models")
+
+    const response = await PATCH(
+      ...chatSessionRouteInput(
+        "http://localhost/api/chats/conversation_1/read-state",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "read",
+            messageIds: ["message_1", "message_2"],
+          }),
+        }
+      )
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(updateChatReadStateServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      conversationId: "conversation_1",
+      action: "read",
+      messageIds: ["message_1", "message_2"],
+    })
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
+      scopeKeys: [
+        ...getConversationListScopeKeys("user_1"),
+        ...getConversationThreadScopeKeys("conversation_1"),
+      ],
+    })
   })
 })

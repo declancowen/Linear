@@ -17,12 +17,22 @@ export function getChatReadState(
   )
 }
 
-export function getChatConversationReadAt(
-  data: Pick<AppData, "chatReadStates">,
-  userId: string,
-  conversationId: string
+export function mergeChatMessageFirstReadTimestamps(
+  existing: Record<string, string> | null | undefined,
+  messageIds: readonly string[] | null | undefined,
+  readAt: string
 ) {
-  return getChatReadState(data, userId, conversationId)?.readAt ?? null
+  const next = { ...(existing ?? {}) }
+
+  for (const messageId of messageIds ?? []) {
+    if (!messageId || next[messageId]) {
+      continue
+    }
+
+    next[messageId] = readAt
+  }
+
+  return next
 }
 
 export function hasUnreadLegacyChatMessageNotification(
