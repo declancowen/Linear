@@ -1211,6 +1211,7 @@ function getVisibleWorkSurfaceSelectionIds({
   childDisplayMode,
   collapsedGroups,
   data,
+  displayItems,
   expandedItemIds,
   groups,
   scopedItems,
@@ -1220,6 +1221,7 @@ function getVisibleWorkSurfaceSelectionIds({
   childDisplayMode: ChildDisplayMode
   collapsedGroups?: Set<string>
   data: AppData
+  displayItems: WorkItem[]
   expandedItemIds: Set<string>
   groups: Array<[string, Map<string, WorkItem[]>]>
   scopedItems?: WorkItem[]
@@ -1238,7 +1240,13 @@ function getVisibleWorkSurfaceSelectionIds({
         continue
       }
 
-      for (const item of groupItems) {
+      const visibleContainerItems = getContainerItemsForDisplay(
+        groupItems,
+        displayItems,
+        showChildItems
+      )
+
+      for (const item of visibleContainerItems) {
         itemIds.push(item.id)
 
         if (!showChildItems || !expandedItemIds.has(item.id)) {
@@ -1322,6 +1330,7 @@ export function BoardView({
     getVisibleWorkSurfaceSelectionIds({
       childDisplayMode,
       data,
+      displayItems,
       expandedItemIds,
       groups: visibleGroups,
       scopedItems,
@@ -1635,6 +1644,7 @@ export function ListView({
       childDisplayMode,
       collapsedGroups,
       data,
+      displayItems,
       expandedItemIds,
       groups: visibleSelectionGroups,
       scopedItems,

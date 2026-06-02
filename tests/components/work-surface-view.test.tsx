@@ -496,6 +496,38 @@ function createEditableData(): AppData {
   }
 }
 
+function createCollapsedChildSelectionData() {
+  const firstParent = createWorkItem({
+    id: "first_parent",
+    key: "TES-1",
+    title: "First parent",
+    status: "todo",
+    type: "epic",
+  })
+  const hiddenCollapsedChild = createWorkItem({
+    id: "hidden_collapsed_child",
+    key: "TES-2",
+    title: "Hidden collapsed child",
+    status: "todo",
+    type: "feature",
+    parentId: firstParent.id,
+  })
+  const secondParent = createWorkItem({
+    id: "second_parent",
+    key: "TES-3",
+    title: "Second parent",
+    status: "todo",
+    type: "epic",
+  })
+
+  return {
+    data: {
+      ...createEditableData(),
+      workItems: [firstParent, hiddenCollapsedChild, secondParent],
+    },
+  }
+}
+
 function createCreateDefaultData(): AppData {
   return {
     ...createEditableData(),
@@ -2463,6 +2495,39 @@ describe("TimelineView primitives", () => {
   })
 })
 
+describe("BoardView", () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("excludes collapsed child cards from board selection ranges", () => {
+    const { data } = createCollapsedChildSelectionData()
+
+    render(
+      <BoardView
+        data={data}
+        items={data.workItems}
+        view={createView("board", ["status"], {
+          showChildItems: true,
+        })}
+        editable
+      />
+    )
+
+    expect(screen.queryByText("Hidden collapsed child")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText("Select TES-1"))
+    fireEvent.click(screen.getByText("Second parent"), { shiftKey: true })
+
+    expect(
+      screen.getByTestId("issue-context-targets-first_parent")
+    ).toHaveTextContent("first_parent,second_parent")
+    expect(
+      screen.getByTestId("issue-context-targets-first_parent")
+    ).not.toHaveTextContent("hidden_collapsed_child")
+  })
+})
+
 describe("ListView", () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -2577,6 +2642,33 @@ describe("ListView", () => {
     expect(
       screen.getByTestId("issue-context-targets-parent_item")
     ).not.toHaveTextContent("hidden_child")
+  })
+
+  it("excludes collapsed child rows from list selection ranges", () => {
+    const { data } = createCollapsedChildSelectionData()
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["status"], {
+          showChildItems: true,
+        })}
+        editable
+      />
+    )
+
+    expect(screen.queryByText("Hidden collapsed child")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText("Select TES-1"))
+    fireEvent.click(screen.getByText("Second parent"), { shiftKey: true })
+
+    expect(
+      screen.getByTestId("issue-context-targets-first_parent")
+    ).toHaveTextContent("first_parent,second_parent")
+    expect(
+      screen.getByTestId("issue-context-targets-first_parent")
+    ).not.toHaveTextContent("hidden_collapsed_child")
   })
 
   it("does not show bulk selection controls in read-only list rows", () => {

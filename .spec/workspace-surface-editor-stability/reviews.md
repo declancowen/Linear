@@ -91,6 +91,35 @@ At the end:
   - `architecture-standards` preflight — passed.
   - `diff-review` preflight — passed.
 
+## PR Review Turn: Codex Review 2026-06-02 Manual Follow-Up
+
+- Source: GitHub PR #48 Codex review by `chatgpt-codex-connector`, manually triggered with one `@codex review` comment after Codex review limits reset, reviewed commit `481e82a559`.
+- Review-thread import: unresolved, not outdated thread `PRRT_kwDOR_9-1s6GdoNT` on `components/app/screens/work-surface-view.tsx` lines 1241-1242.
+- Linked tasks: 2.1, 2.2, 3.1, 10.1
+- Linked requirements: REQ-BULK-001, REQ-BULK-002, REQ-PERF-002, REQ-REVIEW-001
+- Archetypes: contract, optimistic-state, shared-ui, release-safety
+- Finding CXR-003 [P2]: Exclude hidden child rows from bulk selection ranges.
+  - Root cause: visible row selection IDs iterated raw `groupItems`, while board/list rendering first filtered those groups through `getContainerItemsForDisplay(...)`. With `showChildItems` enabled, collapsed child rows whose parent is visible could be treated as selectable even though they were not rendered.
+  - Blast radius: multi-select shift ranges, selected-row context menus, bulk status/property/label updates, board cards, list rows, grouped lanes, and retained read-model states that include collapsed child items.
+  - Current reviewer claim: a shift-select across two visible parent rows/cards can silently include hidden collapsed children, and the bulk menu can apply updates to unseen items.
+  - Remediation radius: must fix now.
+  - Proper fix target: work-surface visible selection ID construction must mirror the board/list rendered-container contract; `useWorkItemSelection` remains a generic ordered-ID consumer.
+  - Prevention artifact target: component regression proving collapsed child rows retained in raw grouped data are excluded from selection ranges until the parent is expanded.
+- Required loop: use architecture-standards, run deep diff-review first after the fix, then normal clean-loop review until clean, validate, push to the PR, then wait for new feedback before making more changes. Do not manually trigger another Codex review unless GitHub/user indicates it is needed.
+- Resolution: fixed by making `getVisibleWorkSurfaceSelectionIds` consume the same `getContainerItemsForDisplay(groupItems, displayItems, showChildItems)` output used by board/list rendering, while preserving scoped expanded-child resolution from CXR-002. Board and list now both pass the active `displayItems` set into visible selection ID construction.
+- Deep review result: no additional code findings. The architecture boundary remains correct: `WorkSurfaceView` owns rendered-row/card visibility and selection ordering, `getContainerItemsForDisplay` remains the shared visible-container policy, and `useWorkItemSelection` remains a generic ordered-ID/range controller with no work-surface policy.
+- Normal diff-review result: no remaining code findings after validation and clean-loop preflight.
+- Validation:
+  - `pnpm exec vitest run tests/components/work-surface-view.test.tsx -t "excludes collapsed child"` — passed, 2 tests.
+  - `pnpm exec vitest run tests/components/work-surface-view.test.tsx` — passed, 1 file / 90 tests.
+  - `pnpm exec eslint components/app/screens/work-surface-view.tsx tests/components/work-surface-view.test.tsx --max-warnings 0` — passed.
+  - `pnpm typecheck` — passed.
+  - `git diff --check` — passed.
+  - `python3 ~/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/workspace-surface-editor-stability` — passed.
+  - `python3 ~/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/workspace-surface-editor-stability --strict` — passed.
+  - `architecture-standards` preflight — passed.
+  - `diff-review` preflight — passed for the deep pass and rerun for the normal clean-loop pass.
+
 ## Initial Planning Review
 
 - Linked tasks: T-001 through T-010
