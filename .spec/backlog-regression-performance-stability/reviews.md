@@ -50,6 +50,43 @@ Every future implementation slice must record:
 
 ## Review Entries
 
+### 2026-06-03: PR feedback loop 3 - Codex review workspace collection stream authorization
+- Linked tasks: 99.1 follow-up review loop
+- Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001
+- Linked design decisions: DES-008, DES-014, DES-015
+- Review mode: external finding import, deep diff-review with architecture-standards, normal re-review until clean
+- External feedback imported:
+  - GitHub Codex P2: workspace `document-index` and `project-index` scoped event subscriptions could 403 because authorization checked selector output for `workspaces`, while those selectors intentionally omit `workspaces`.
+- Scope fixed:
+  - Added collection scope-kind detection and `ScopedUserContext`-based collection authorization in `convex/app/scoped_read_models.ts`.
+  - Routed work/document/project/view collection scope keys through access-context authorization before read-model materialization.
+  - Left non-collection/detail scopes on the existing materialized-data authorization path.
+  - Updated handler tests to prove accessible team collection scopes and workspace document/project index scopes authorize without loading index data.
+- Architecture assessment:
+  - Clean. Collection stream authorization now uses the scoped access context instead of selector output shape.
+  - The route/backend contract is stronger because valid workspace index streams no longer depend on whether a selector includes `workspaces`.
+  - The fix also reduces authorization cost by avoiding collection read-model materialization for collection scope keys.
+- Validation:
+  - `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 7 tests.
+  - `pnpm exec tsc --noEmit --pretty false` - passed.
+  - `pnpm lint` - passed.
+  - `pnpm cost:guardrails` - passed, 4 files / 15 tests.
+  - `git diff --check` - passed.
+  - `pnpm test` - first run failed once in unrelated `tests/components/work-item-detail-screen.test.tsx` timing assertion for `Taylor`.
+  - `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx` - passed, 1 file / 42 tests.
+  - `pnpm test` - rerun passed, 222 files / 1475 tests.
+  - `pnpm build` - passed.
+  - Browser smoke was intentionally not run because the user instructed the implementation agent not to run smoke tests; manual browser smoke is user-owned validation.
+- Normal re-review result:
+  - Re-read scoped event authorization, collection scope parsing, read-model selector output contracts, server bridge, and tests after the implementation.
+  - No live Critical, High, or Medium findings remain.
+- Spec drift:
+  - No spec drift found. The feedback fits the existing read-model authority, scoped invalidation, route/backend contract, and Convex cost-bound requirements.
+- Residual risk:
+  - The unrelated UI test timing failure did not reproduce in targeted rerun and the full suite rerun passed; no code change was made for that flake in this loop.
+- Cleared to push:
+  - Yes. Commit and push the follow-up fixes to PR #49, then wait for the next review/CI result before making further changes.
+
 ### 2026-06-03: PR feedback loop 2 - Codex review notification target visibility
 - Linked tasks: 99.1 follow-up review loop
 - Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001

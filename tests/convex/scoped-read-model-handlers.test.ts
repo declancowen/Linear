@@ -221,7 +221,7 @@ describe("scoped read model Convex handlers", () => {
     )
   })
 
-  it("authorizes accessible team collection scopes through scoped data", async () => {
+  it("authorizes accessible team collection scopes from scoped access", async () => {
     const {
       createScopedCollectionScopeId,
       createWorkIndexScopeKey,
@@ -240,10 +240,34 @@ describe("scoped read model Convex handlers", () => {
       ],
     })
 
-    expect(dataMocks.listWorkItemsByTeam).toHaveBeenCalledWith(
-      expect.anything(),
-      "team_allowed"
+    expect(dataMocks.listWorkItemsByTeam).not.toHaveBeenCalled()
+  })
+
+  it("authorizes accessible workspace index scopes from scoped access", async () => {
+    const {
+      createDocumentIndexScopeKey,
+      createProjectIndexScopeKey,
+      createScopedCollectionScopeId,
+    } = await import("@/lib/scoped-sync/scope-keys")
+    const { authorizeScopedReadModelScopeKeysHandler } = await import(
+      "@/convex/app/scoped_read_models"
     )
+
+    await authorizeScopedReadModelScopeKeysHandler(ctx as never, {
+      serverToken: "server_token",
+      workosUserId: "workos_user_1",
+      scopeKeys: [
+        createDocumentIndexScopeKey(
+          createScopedCollectionScopeId("workspace", "workspace_1")
+        ),
+        createProjectIndexScopeKey(
+          createScopedCollectionScopeId("workspace", "workspace_1")
+        ),
+      ],
+    })
+
+    expect(dataMocks.listWorkspaceDocuments).not.toHaveBeenCalled()
+    expect(dataMocks.listProjectsByScope).not.toHaveBeenCalled()
   })
 
   it("loads conversation list previews through bounded latest-message reads", async () => {

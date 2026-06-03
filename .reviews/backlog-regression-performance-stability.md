@@ -51,17 +51,105 @@
 - Final total-diff route/backend contract fit, read-model authority, scoped invalidation, snapshot removal, and Convex cost bounds - added Turn 10
 - External Codex review feedback on scoped document visibility and generated Convex API roster - added Turn 11
 - External Codex review feedback on notification target visibility after access loss - added Turn 12
+- External Codex review feedback on workspace collection stream authorization - added Turn 13
 
 ## Review status
 
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-06-03 10:20:17 BST |
-| **Last reviewed** | 2026-06-03 15:27:31 BST |
-| **Total turns** | 12 |
+| **Last reviewed** | 2026-06-03 15:47:06 BST |
+| **Total turns** | 13 |
 | **Open findings** | 0 |
-| **Resolved findings** | 14 |
+| **Resolved findings** | 15 |
 | **Accepted findings** | 0 |
+
+## Turn 13 - 2026-06-03 15:47:06 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `3eecc788` with uncommitted PR-feedback fixes |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the next completed GitHub Codex review for PR #49, triaged the new current-head workspace collection stream P2, fixed the live authorization false negative, and reran the deep/normal review loop with architecture standards.
+
+**Outcome:** all clear for this PR-feedback follow-up. No live Critical, High, or Medium findings remain in the current local diff. The branch is ready for a follow-up commit and push to PR #49.
+
+**Risk score:** high - the fix touches scoped SSE authorization, read-model invalidation delivery, read-model authority, and Convex cost-sensitive authorization paths.
+
+**Change archetypes:** external finding import, route/backend authorization contract, scoped invalidation, cost containment, regression tests.
+
+**External finding import:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review | Workspace `document-index` and `project-index` SSE subscriptions could 403 because authorization checked projected read-model data for `workspaces`, but those selectors intentionally omit `workspaces` | live | Contract encoding / scope authorization | collection stream authorization should use current scoped access, not selector output shape | fixed |
+
+**Intent vs actual:** the Codex finding was live. Workspace document/project index read-model fetches could succeed, but the scoped event stream could reject the matching scope keys because authorization depended on selected read-model collections rather than the authoritative `ScopedUserContext`.
+
+**Confidence:** high. The fix introduces an explicit collection-scope authorization path based on `ScopedUserContext` and normalized collection scope keys, while retaining read-model materialization checks for non-collection/detail scope keys.
+
+**Coverage note:** reviewed scoped event route, server scope-key authorization bridge, collection scope key parsing, `instructionFromScopeKey`, `readModelDataAuthorizesScope`, document/project/work/view collection key families, and handler tests.
+
+**Deep-review evidence:** dual pass completed. Correctness/safety checked accessible workspace document/project indexes, inaccessible team rejection, personal work-index ownership, raw scope-id normalization, and non-collection scope behavior. Maintainability/structure checked that collection authorization now has a named access-context helper rather than inferring access from selector payloads.
+
+**Architecture assessment:** clean. Collection stream authorization now belongs to the scoped access context that already owns team/workspace/personal membership. Selectors are no longer treated as the source of authorization truth for collection scopes, which preserves route/backend contract fit and removes unnecessary read-model loading during SSE authorization.
+
+**Bug classes / invariants checked:** scoped invalidation authorization, route/backend contract encoding, selector output shape vs access authority, collection scope parsing, tenant/workspace/team scope, and cost-bounded authorization.
+
+**Branch totality:** reassessed branch-total current state after the external feedback. Prior Turn 11 and Turn 12 authority/privacy fixes remain intact.
+
+**Sibling closure:** checked work, document, project, and view collection scope keys; workspace/team/personal raw scope id parsing; workspace-membership/search/private-document index direct scopes; and the Next scoped events route that calls the authorization bridge.
+
+**Remediation impact surface:** changes are limited to `convex/app/scoped_read_models.ts` and `tests/convex/scoped-read-model-handlers.test.ts`. No Next route, client hook, scope-key builder, selector, schema, or generated Convex roster change was needed.
+
+**Residual risk / unknowns:** the first full-suite run after this fix had one unrelated timing failure in `tests/components/work-item-detail-screen.test.tsx`; the targeted file rerun passed 42/42 and the second full-suite run passed. No code change was made for that unrelated flake in this loop.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 7 tests
+- `pnpm exec tsc --noEmit --pretty false` - passed
+- `pnpm lint` - passed
+- `pnpm cost:guardrails` - passed, 4 files / 15 tests
+- `git diff --check` - passed
+- `pnpm test` - first run failed once in unrelated `tests/components/work-item-detail-screen.test.tsx` timing assertion for `Taylor`
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx` - passed, 1 file / 42 tests
+- `pnpm test` - rerun passed, 222 files / 1475 tests
+- `pnpm build` - passed
+- Browser smoke - intentionally not run by Codex; user-owned manual validation per instruction
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** GitHub Codex review comments, scoped events route, server authorization bridge, collection scope-key builders, scoped authorization handler, collection read-model selectors, and scoped read-model handler tests.
+- **Prior open findings rechecked:** no open findings existed before this review turn. The new external finding is resolved.
+- **Prior resolved/adjacent areas revalidated:** Turn 11 document visibility and Turn 12 notification target visibility fixes remain intact; focused handler tests now cover seven scoped cases.
+- **Hotspots or sibling paths revisited:** scoped SSE authorization, workspace document/project indexes, work index, view catalog, workspace membership, search seed/private search/private document index, and non-collection detail scopes.
+- **Dependency/adjacent surfaces revalidated:** `ScopedUserContext`, scope key parsing/normalization, event route authorization, cost guardrails, full test suite, and build.
+- **Why this is enough:** the issue was a false authorization denial caused by using selector payload shape as access evidence. The fix moves collection-scope authorization to the access context, adds direct regressions for workspace index keys, and validates both focused and full branch gates.
+
+### Challenger pass
+
+- `done` - assumed another collection key could still be authorized from incomplete selector data. The sweep moved all work/document/project/view collection keys onto the context-authorized path and leaves detail/non-collection keys on materialized data checks.
+
+### Resolved / Carried / New findings
+
+#### BRS-015 [P2] Workspace collection SSE subscriptions could be rejected because authorization depended on selector payload shape
+
+- **Status:** resolved
+- **Bug class:** contract encoding / scope authorization
+- **Invariant:** collection invalidation stream authorization must validate the requested collection scope against current user access, not against fields included by a particular read-model selector.
+- **Root cause:** `readModelDataAuthorizesCollectionScope` checked `data.workspaces` for workspace collection keys, but document/project index read models do not include `workspaces`.
+- **Fix:** added `contextAuthorizesCollectionScope` using `ScopedUserContext`; routed work/document/project/view collection keys through that helper before materializing read-model data; left non-collection scopes on the existing materialized-data authorization path; added regressions for accessible team and workspace document/project collection scopes without loading the index data.
+- **Verification:** focused scoped handler test, typecheck, lint, cost guardrails, targeted flaky test rerun, full tests rerun, build, and diff check passed.
+
+### Architecture assessment
+
+Clean. Collection authorization now uses the same access context as scoped read-model loading, preserving the intended read-model authority boundary and avoiding selector-shape coupling. The route/backend contract is stronger because valid workspace index streams no longer depend on whether the selector includes `workspaces`, and authorization no longer performs unnecessary collection reads.
+
+### Recommendations
+
+1. **Proceed:** commit and push the follow-up fixes to PR #49.
+2. **Watcher:** after push, wait for the next Codex/GitHub review and CI result before making further changes, to avoid duplicate review triggers.
 
 ## Turn 12 - 2026-06-03 15:27:31 BST
 

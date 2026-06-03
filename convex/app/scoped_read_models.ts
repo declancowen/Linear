@@ -1874,9 +1874,20 @@ function parseCollectionScopeKeyDescriptor(
   return { rawScopeId, scopeType, scopeId }
 }
 
-function readModelDataAuthorizesCollectionScope(
+function isCollectionReadModelScopeKind(
+  kind: NonNullable<ReturnType<typeof parseReadModelScopeKey>>["kind"]
+) {
+  return (
+    kind === READ_MODEL_SCOPE_KINDS.workIndex ||
+    kind === READ_MODEL_SCOPE_KINDS.documentIndex ||
+    kind === READ_MODEL_SCOPE_KINDS.projectIndex ||
+    kind === READ_MODEL_SCOPE_KINDS.viewCatalog
+  )
+}
+
+function contextAuthorizesCollectionScope(
   descriptor: NonNullable<ReturnType<typeof parseReadModelScopeKey>>,
-  data: ScopedReadModelPatch
+  context: ScopedUserContext
 ) {
   const collectionScope = parseCollectionScopeKeyDescriptor(descriptor)
 
@@ -1895,16 +1906,14 @@ function readModelDataAuthorizesCollectionScope(
   }
 
   if (collectionScope.scopeType === "personal") {
-    return data.currentUserId === collectionScope.scopeId
+    return collectionScope.scopeId === context.currentUserId
   }
 
   if (collectionScope.scopeType === "team") {
-    return (data.teams ?? []).some((team) => team.id === collectionScope.scopeId)
+    return context.accessibleTeamIds.has(collectionScope.scopeId)
   }
 
-  return (data.workspaces ?? []).some(
-    (workspace) => workspace.id === collectionScope.scopeId
-  )
+  return context.accessibleWorkspaceIds.has(collectionScope.scopeId)
 }
 
 function instructionFromScopeKey(
@@ -2010,13 +2019,8 @@ function readModelDataAuthorizesScope(
     )
   }
 
-  if (
-    descriptor.kind === READ_MODEL_SCOPE_KINDS.workIndex ||
-    descriptor.kind === READ_MODEL_SCOPE_KINDS.documentIndex ||
-    descriptor.kind === READ_MODEL_SCOPE_KINDS.projectIndex ||
-    descriptor.kind === READ_MODEL_SCOPE_KINDS.viewCatalog
-  ) {
-    return readModelDataAuthorizesCollectionScope(descriptor, data)
+  if (isCollectionReadModelScopeKind(descriptor.kind)) {
+    return false
   }
 
   return true
@@ -2062,6 +2066,13 @@ export async function authorizeScopedReadModelScopeKeysHandler(
 
     if (!instruction) {
       throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
+    }
+
+    if (isCollectionReadModelScopeKind(descriptor.kind)) {
+      if (!contextAuthorizesCollectionScope(descriptor, context)) {
+        throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
+      }
+      continue
     }
 
     const data = await getScopedReadModelHandler(ctx, {
