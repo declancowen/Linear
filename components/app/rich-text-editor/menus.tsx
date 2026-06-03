@@ -40,6 +40,7 @@ export type MenuState = {
   from: number
   to: number
   query: string
+  mode?: "trigger" | "picker"
   top: number
   bottom: number
   left: number
@@ -244,13 +245,20 @@ export function buildReferencePickerState(
 ): MenuState {
   const from = editor.state.selection.from
 
-  return buildAnchoredMenuState({
-    container,
-    editor,
-    from,
-    menuAnchor: from,
-    query: "",
-  })
+  return {
+    ...buildAnchoredMenuState({
+      container,
+      editor,
+      from,
+      menuAnchor: from,
+      query: "",
+    }),
+    mode: "picker",
+  }
+}
+
+export function isReferencePickerState(state: MenuState | null) {
+  return state?.mode === "picker"
 }
 
 export function buildMentionState(

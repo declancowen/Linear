@@ -1,6 +1,13 @@
 "use client"
 
-import { useMemo, useState, type Dispatch, type SetStateAction } from "react"
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react"
 import { useShallow } from "zustand/react/shallow"
 import {
   CaretDown,
@@ -48,6 +55,7 @@ import {
   normalizeTimeZone,
 } from "@/lib/time-zone"
 import { Button } from "@/components/ui/button"
+import { ProjectIconGlyph } from "@/components/app/entity-icons"
 import {
   ShortcutKeys,
   useCommandEnterSubmit,
@@ -103,6 +111,11 @@ import { TeamSpaceCrumbPicker } from "./team-space-crumb-picker"
 import { useWorkItemCorePickerState } from "./work-item-picker-state"
 
 type TextLimitState = ReturnType<typeof getTextInputLimitState>
+
+const EMPTY_CREATE_TITLE_CAN_SUBMIT = getTextInputLimitState(
+  "",
+  workItemTitleConstraints
+).canSubmit
 
 function CreateWorkItemCrumbRow({
   destinationOptions,
@@ -175,25 +188,41 @@ function CreateWorkItemCrumbRow({
 }
 
 function CreateWorkItemTitleFields({
-  title,
-  onTitleChange,
   titlePlaceholder,
-  titleLimitState,
-  description,
-  onDescriptionChange,
+  onTitleDraftChange,
+  onDescriptionDraftChange,
 }: {
-  title: string
-  onTitleChange: (title: string) => void
   titlePlaceholder: string
-  titleLimitState: TextLimitState
-  description: string
-  onDescriptionChange: (description: string) => void
+  onTitleDraftChange: (title: string, canSubmit: boolean) => void
+  onDescriptionDraftChange: (description: string) => void
 }) {
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const titleLimitState = useMemo(
+    () => getTextInputLimitState(title, workItemTitleConstraints),
+    [title]
+  )
+
+  function handleTitleChange(nextTitle: string) {
+    const nextLimitState = getTextInputLimitState(
+      nextTitle,
+      workItemTitleConstraints
+    )
+
+    setTitle(nextTitle)
+    onTitleDraftChange(nextTitle, nextLimitState.canSubmit)
+  }
+
+  function handleDescriptionChange(nextDescription: string) {
+    setDescription(nextDescription)
+    onDescriptionDraftChange(nextDescription)
+  }
+
   return (
     <div className="px-[18px] pt-3 pb-0.5">
       <Input
         value={title}
-        onChange={(event) => onTitleChange(event.target.value)}
+        onChange={(event) => handleTitleChange(event.target.value)}
         placeholder={titlePlaceholder}
         maxLength={workItemTitleConstraints.max}
         className="h-auto border-none bg-transparent px-0 py-1 text-[20px] font-semibold tracking-[-0.01em] shadow-none placeholder:font-medium placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
@@ -206,7 +235,7 @@ function CreateWorkItemTitleFields({
       />
       <Textarea
         value={description}
-        onChange={(event) => onDescriptionChange(event.target.value)}
+        onChange={(event) => handleDescriptionChange(event.target.value)}
         placeholder="Add description…"
         rows={3}
         className="mt-0.5 min-h-[60px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
@@ -293,7 +322,14 @@ function ProjectPicker({
           )}
           disabled={!team || Boolean(selectedParentItem?.primaryProjectId)}
         >
-          <FolderSimple className="size-[13px]" />
+          {selectedProject ? (
+            <ProjectIconGlyph
+              project={selectedProject}
+              className="size-[13px] shrink-0"
+            />
+          ) : (
+            <FolderSimple className="size-[13px] shrink-0" />
+          )}
           <span
             className={cn(
               "truncate",
@@ -330,7 +366,10 @@ function ProjectPicker({
                       ) : null
                     }
                   >
-                    <FolderSimple className="size-[14px] shrink-0 text-fg-3" />
+                    <ProjectIconGlyph
+                      project={project}
+                      className="size-[14px] shrink-0 text-fg-3"
+                    />
                     <span className="truncate">{project.name}</span>
                   </PropertyPopoverItem>
                 )
@@ -988,7 +1027,14 @@ function CreateWorkItemFooter({
   return (
     <div className="flex items-center gap-2.5 border-t border-line-soft bg-background px-3.5 py-2">
       <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-3">
-        <FolderSimple className="size-[13px] shrink-0" />
+        {selectedProject ? (
+          <ProjectIconGlyph
+            project={selectedProject}
+            className="size-[13px] shrink-0"
+          />
+        ) : (
+          <FolderSimple className="size-[13px] shrink-0" />
+        )}
         <span className="truncate">
           {destinationLabel ? (
             <>
@@ -1591,20 +1637,20 @@ function shouldShowParentSelect({
 
 function canSubmitCreateWorkItem({
   hasCreateScope,
-  titleLimitState,
+  titleCanSubmit,
   selectedType,
   requiresParent,
   selectedParentItem,
 }: {
   hasCreateScope: boolean
-  titleLimitState: TextLimitState
+  titleCanSubmit: boolean
   selectedType: WorkItemType | null
   requiresParent: boolean
   selectedParentItem: WorkItem | null
 }) {
   return (
     hasCreateScope &&
-    titleLimitState.canSubmit &&
+    titleCanSubmit &&
     selectedType !== null &&
     (!requiresParent || selectedParentItem !== null)
   )
@@ -2070,8 +2116,11 @@ export function CreateWorkItemDialog({
   )
   const availableLabels = useMemo(() => sortLabelsByName(labels), [labels])
   const [type, setType] = useState<WorkItemType>(initialState.type)
-  const [title, setTitle] = useState("")
-  const [description, setDescription] = useState("")
+  const draftTitleRef = useRef("")
+  const draftDescriptionRef = useRef("")
+  const [titleCanSubmit, setTitleCanSubmit] = useState(
+    () => EMPTY_CREATE_TITLE_CAN_SUBMIT
+  )
   const [status, setStatus] = useState<WorkStatus>(initialState.status)
   const [priority, setPriority] = useState<Priority>(initialState.priority)
   const [assigneeIds, setAssigneeIds] = useState<string[]>(
@@ -2201,12 +2250,6 @@ export function CreateWorkItemDialog({
       }),
     [selectedType, selectedTypeLabel, workCopy]
   )
-  const titleLimitState = getTextInputLimitState(
-    title,
-    workItemTitleConstraints
-  )
-  const normalizedTitle = title.trim()
-  const normalizedDescription = description.trim()
   const labelNameLimitState = getTextInputLimitState(
     newLabelName,
     labelNameConstraints
@@ -2222,7 +2265,7 @@ export function CreateWorkItemDialog({
     hasCreateScope: privateTaskMode
       ? Boolean(selectedWorkspaceId)
       : filteredTeams.length > 0,
-    titleLimitState,
+    titleCanSubmit,
     selectedType,
     requiresParent,
     selectedParentItem,
@@ -2231,6 +2274,40 @@ export function CreateWorkItemDialog({
     ? Boolean(selectedWorkspaceId)
     : hasItems(filteredTeams)
   const hasAvailableItemTypes = hasItems(availableItemTypes)
+
+  const resetDraftFields = useCallback(() => {
+    draftTitleRef.current = ""
+    draftDescriptionRef.current = ""
+    setTitleCanSubmit(EMPTY_CREATE_TITLE_CAN_SUBMIT)
+  }, [])
+
+  const handleDialogOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) {
+        resetDraftFields()
+      }
+
+      onOpenChange(nextOpen)
+    },
+    [onOpenChange, resetDraftFields]
+  )
+
+  const handleTitleDraftChange = useCallback(
+    (nextTitle: string, nextCanSubmit: boolean) => {
+      draftTitleRef.current = nextTitle
+      setTitleCanSubmit((currentCanSubmit) =>
+        currentCanSubmit === nextCanSubmit ? currentCanSubmit : nextCanSubmit
+      )
+    },
+    []
+  )
+
+  const handleDescriptionDraftChange = useCallback(
+    (nextDescription: string) => {
+      draftDescriptionRef.current = nextDescription
+    },
+    []
+  )
 
   function toggleLabel(labelId: string) {
     setSelectedLabelIds((current) => toggleSelectionValue(current, labelId))
@@ -2254,6 +2331,9 @@ export function CreateWorkItemDialog({
   }
 
   function handleCreate() {
+    const normalizedTitle = draftTitleRef.current.trim()
+    const normalizedDescription = draftDescriptionRef.current.trim()
+
     createWorkItemFromDialogState({
       selectedType,
       selectedTeamId,
@@ -2274,7 +2354,7 @@ export function CreateWorkItemDialog({
       scheduleTimeZone,
       visibility,
       normalizedDescription,
-      onOpenChange,
+      onOpenChange: handleDialogOpenChange,
     })
   }
 
@@ -2365,7 +2445,7 @@ export function CreateWorkItemDialog({
   useCommandEnterSubmit(canUseCommandSubmit(open, canCreate), handleCreate)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
         showCloseButton={false}
         className="top-[12vh] max-h-[calc(100vh-3rem)] translate-y-0 gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-[14vh] sm:max-w-[640px]"
@@ -2392,12 +2472,10 @@ export function CreateWorkItemDialog({
         />
 
         <CreateWorkItemTitleFields
-          title={title}
-          onTitleChange={setTitle}
+          key={open ? "create-work-item-open" : "create-work-item-closed"}
           titlePlaceholder={titlePlaceholder}
-          titleLimitState={titleLimitState}
-          description={description}
-          onDescriptionChange={setDescription}
+          onTitleDraftChange={handleTitleDraftChange}
+          onDescriptionDraftChange={handleDescriptionDraftChange}
         />
 
         <CreateWorkItemPropertiesRow
@@ -2481,7 +2559,7 @@ export function CreateWorkItemDialog({
           canCreate={canCreate}
           selectedTypeLabel={selectedTypeLabel}
           shortcutModifierLabel={shortcutModifierLabel}
-          onCancel={() => onOpenChange(false)}
+          onCancel={() => handleDialogOpenChange(false)}
           onCreate={handleCreate}
         />
       </DialogContent>

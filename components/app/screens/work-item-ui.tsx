@@ -42,9 +42,9 @@ import {
 import { toggleWorkItemAssigneeId } from "@/lib/domain/work-item-assignees"
 import { useAppStore } from "@/lib/store/app-store"
 import { UserAvatar } from "@/components/app/user-presence"
+import { ProjectIconGlyph } from "@/components/app/entity-icons"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
-import { createQuotedRichText } from "@/components/app/message-quote"
 import { MessageHoverActionBar } from "@/components/app/message-hover-action-bar"
 import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
@@ -467,8 +467,7 @@ function CommentThreadItem({
     }
   )
 
-  function openQuotedReply() {
-    setReplyContent(createQuotedRichText(comment.content, author?.name))
+  function openReply() {
     setReplyOpen(true)
   }
 
@@ -518,9 +517,10 @@ function CommentThreadItem({
           setEditContent(comment.content)
           setEditOpen(true)
         }}
-        onQuote={openQuotedReply}
+        onQuote={openReply}
         portalContainer={portalContainer}
-        quoteLabel="Quote comment"
+        quoteAction="reply"
+        quoteLabel="Reply"
         onReact={(emoji) => {
           useAppStore.getState().toggleCommentReaction(comment.id, emoji)
         }}
@@ -964,7 +964,14 @@ function InlineChildProjectChip({
       )}
       disabled
     >
-      <FolderSimple className="size-[13px]" />
+      {selectedProject ? (
+        <ProjectIconGlyph
+          project={selectedProject}
+          className="size-[13px] shrink-0"
+        />
+      ) : (
+        <FolderSimple className="size-[13px] shrink-0" />
+      )}
       <span
         className={cn(
           "truncate",

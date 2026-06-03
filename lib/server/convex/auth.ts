@@ -199,6 +199,106 @@ export async function getScopedReadModelVersionsServer(input: {
   }
 }
 
+export type ScopedReadModelServerInstruction =
+  | { kind: "document-detail"; documentId: string }
+  | {
+      kind: "document-index"
+      scopeType: "team" | "workspace"
+      scopeId: string
+    }
+  | { kind: "work-item-detail"; itemId: string }
+  | {
+      kind: "work-index"
+      scopeType: "personal" | "team" | "workspace"
+      scopeId: string
+    }
+  | { kind: "project-detail"; projectId: string }
+  | {
+      kind: "project-index"
+      scopeType: "team" | "workspace"
+      scopeId: string
+    }
+  | { kind: "workspace-people"; workspaceId: string }
+  | {
+      kind: "view-catalog"
+      scopeType: "team" | "workspace"
+      scopeId: string
+    }
+  | { kind: "notification-inbox" }
+  | { kind: "conversation-list" }
+  | { kind: "conversation-thread"; conversationId: string }
+  | { kind: "channel-feed"; conversationId: string }
+  | { kind: "search-seed"; workspaceId: string }
+
+export type ScopedReadModelScopeKeyServerTarget =
+  | { kind: "document"; documentId: string }
+  | { kind: "work-item"; itemId: string }
+  | { kind: "custom-property-definition"; teamId: string }
+  | { kind: "project"; projectId: string }
+  | { kind: "view"; viewId: string }
+  | { kind: "conversation"; conversationId: string }
+  | { kind: "channel-post"; postId: string }
+  | { kind: "chat-message"; messageId: string }
+  | { kind: "user-workspace-membership"; userId: string }
+
+export async function getScopedReadModelServer(input: {
+  workosUserId?: string
+  email?: string
+  selectedWorkspaceId?: string | null
+  instruction: ScopedReadModelServerInstruction
+}) {
+  try {
+    return await runConvexRequestWithRetry("getScopedReadModelServer", () =>
+      getConvexServerClient().query(
+        api.app.getScopedReadModel,
+        withServerToken(input)
+      )
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...SNAPSHOT_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function resolveScopedReadModelScopeKeysServer(input: {
+  workosUserId?: string
+  email?: string
+  selectedWorkspaceId?: string | null
+  target: ScopedReadModelScopeKeyServerTarget
+}) {
+  try {
+    return await runConvexRequestWithRetry(
+      "resolveScopedReadModelScopeKeysServer",
+      () =>
+        getConvexServerClient().query(
+          api.app.resolveScopedReadModelScopeKeys,
+          withServerToken(input)
+        )
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...SNAPSHOT_ERROR_MAPPINGS]) ?? error
+  }
+}
+
+export async function authorizeScopedReadModelScopeKeysConvexServer(input: {
+  workosUserId?: string
+  email?: string
+  selectedWorkspaceId?: string | null
+  scopeKeys: string[]
+}) {
+  try {
+    return await runConvexRequestWithRetry(
+      "authorizeScopedReadModelScopeKeysConvexServer",
+      () =>
+        getConvexServerClient().query(
+          api.app.authorizeScopedReadModelScopeKeys,
+          withServerToken(input)
+        )
+    )
+  } catch (error) {
+    throw coerceApplicationError(error, [...SNAPSHOT_ERROR_MAPPINGS]) ?? error
+  }
+}
+
 export async function bumpScopedReadModelVersionsServer(input: {
   scopeKeys: string[]
 }) {

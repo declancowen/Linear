@@ -9,6 +9,7 @@ import {
 
 export type AppCtx = MutationCtx | QueryCtx
 const QUERY_BATCH_SIZE = 20
+const CHAT_CONVERSATION_PREVIEW_SCAN_LIMIT = 25
 
 type TeamWorkspaceScope = {
   scopeType: "team" | "workspace"
@@ -819,6 +820,32 @@ export async function listChatMessagesByConversation(
     .query("chatMessages")
     .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
     .collect()
+}
+
+export async function listLatestReadableChatMessageByConversation(
+  ctx: AppCtx,
+  conversationId: string
+) {
+  const messages = await ctx.db
+    .query("chatMessages")
+    .withIndex("by_conversation_created_at", (q) =>
+      q.eq("conversationId", conversationId)
+    )
+    .order("desc")
+    .take(CHAT_CONVERSATION_PREVIEW_SCAN_LIMIT)
+
+  return messages.find((message) => !message.deletedAt) ?? null
+}
+
+export async function listLatestReadableChatMessagesByConversations(
+  ctx: AppCtx,
+  conversationIds: Iterable<string>
+) {
+  const messages = await mapInBatches([...new Set(conversationIds)], (id) =>
+    listLatestReadableChatMessageByConversation(ctx, id)
+  )
+
+  return messages.filter((message) => message != null)
 }
 
 export async function listChatMessagesByConversations(

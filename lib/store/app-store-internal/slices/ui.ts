@@ -33,6 +33,7 @@ type UiSlice = Pick<
   | "protectedDocumentIds"
   | "pendingDocumentContentSyncs"
   | "pendingWorkItemSyncsById"
+  | "pendingChatMessageSyncsById"
   | "pendingViewConfigById"
   | "setDocumentBodyProtection"
   | "replaceDomainData"
@@ -126,7 +127,10 @@ function getCollaborationSidebarStorageKey(userId: string, surfaceKey: string) {
 function mergeByKey<T>(
   existing: T[],
   incoming: T[] | undefined,
-  getKey: (value: T) => string
+  getKey: (value: T) => string,
+  options?: {
+    preserveExistingKeys?: ReadonlySet<string>
+  }
 ) {
   if (!incoming) {
     return existing
@@ -135,7 +139,40 @@ function mergeByKey<T>(
   const entries = new Map(existing.map((value) => [getKey(value), value]))
 
   for (const value of incoming) {
-    entries.set(getKey(value), value)
+    const key = getKey(value)
+
+    if (options?.preserveExistingKeys?.has(key) && entries.has(key)) {
+      continue
+    }
+
+    entries.set(key, value)
+  }
+
+  return [...entries.values()]
+}
+
+function replaceByKeyPreservingExisting<T>(
+  existing: T[],
+  incoming: T[] | undefined,
+  getKey: (value: T) => string,
+  preserveExistingKeys: ReadonlySet<string>
+) {
+  if (!incoming) {
+    return existing
+  }
+
+  const entries = new Map(incoming.map((value) => [getKey(value), value]))
+
+  if (preserveExistingKeys.size === 0) {
+    return [...entries.values()]
+  }
+
+  for (const value of existing) {
+    const key = getKey(value)
+
+    if (preserveExistingKeys.has(key)) {
+      entries.set(key, value)
+    }
   }
 
   return [...entries.values()]
@@ -514,7 +551,9 @@ function applyScopedReadModelPruning(
       const protectedKeys =
         domainKey === "workItems"
           ? new Set(Object.keys(nextState.pendingWorkItemSyncsById ?? {}))
-          : undefined
+          : domainKey === "chatMessages"
+            ? new Set(Object.keys(nextState.pendingChatMessageSyncsById ?? {}))
+            : undefined
 
       if (!Array.isArray(incomingDomain) || !Array.isArray(scopedDomain)) {
         continue
@@ -537,6 +576,12 @@ function applyScopedReadModelPruning(
 }
 
 function applyReplacedDomainData(state: AppStore, data: Partial<AppData>) {
+  const pendingWorkItemIds = new Set(
+    Object.keys(state.pendingWorkItemSyncsById ?? {})
+  )
+  const pendingChatMessageIds = new Set(
+    Object.keys(state.pendingChatMessageSyncsById ?? {})
+  )
   const reconciledViews = reconcilePendingViews(
     state.views,
     data.views,
@@ -552,7 +597,14 @@ function applyReplacedDomainData(state: AppStore, data: Partial<AppData>) {
     protectedDocumentIds: state.protectedDocumentIds,
     pendingDocumentContentSyncs: state.pendingDocumentContentSyncs ?? {},
     pendingWorkItemSyncsById: state.pendingWorkItemSyncsById ?? {},
+    pendingChatMessageSyncsById: state.pendingChatMessageSyncsById ?? {},
     pendingViewConfigById: reconciledViews.pendingViewConfigById,
+    workItems: replaceByKeyPreservingExisting(
+      state.workItems,
+      data.workItems,
+      (value) => value.id,
+      pendingWorkItemIds
+    ),
     documents: mergeProtectedDocuments(
       state.documents,
       data.documents,
@@ -571,7 +623,12 @@ function applyReplacedDomainData(state: AppStore, data: Partial<AppData>) {
     ),
     comments: normalizeComments(data.comments ?? state.comments),
     chatMessages: normalizeChatMessages(
-      data.chatMessages ?? state.chatMessages
+      replaceByKeyPreservingExisting(
+        state.chatMessages,
+        data.chatMessages,
+        (value) => value.id,
+        pendingChatMessageIds
+      )
     ),
     chatReadStates: data.chatReadStates ?? state.chatReadStates,
     channelPosts: normalizeChannelPosts(
@@ -600,6 +657,12 @@ function applyMergedReadModelData(
     state,
     data,
     replaceInstructions
+  )
+  const pendingWorkItemIds = new Set(
+    Object.keys(prunedState.pendingWorkItemSyncsById ?? {})
+  )
+  const pendingChatMessageIds = new Set(
+    Object.keys(prunedState.pendingChatMessageSyncsById ?? {})
   )
   const currentWorkspaceId = shouldApplyIncomingCurrentWorkspaceId(
     replaceInstructions
@@ -653,7 +716,8 @@ function applyMergedReadModelData(
     workItems: mergeByKey(
       prunedState.workItems,
       data.workItems,
-      (value) => value.id
+      (value) => value.id,
+      { preserveExistingKeys: pendingWorkItemIds }
     ),
     workItemActivities: mergeByKey(
       prunedState.workItemActivities,
@@ -671,6 +735,8 @@ function applyMergedReadModelData(
     ),
     pendingDocumentContentSyncs: prunedState.pendingDocumentContentSyncs ?? {},
     pendingWorkItemSyncsById: prunedState.pendingWorkItemSyncsById ?? {},
+    pendingChatMessageSyncsById:
+      prunedState.pendingChatMessageSyncsById ?? {},
     pendingViewConfigById: reconciledViews.pendingViewConfigById,
     views: reconciledViews.views,
     comments: normalizeComments(
@@ -709,7 +775,8 @@ function applyMergedReadModelData(
       mergeByKey(
         prunedState.chatMessages,
         data.chatMessages,
-        (value) => value.id
+        (value) => value.id,
+        { preserveExistingKeys: pendingChatMessageIds }
       )
     ),
     chatReadStates: mergeChatReadStates(
@@ -749,6 +816,7 @@ export function createUiSlice(
     protectedDocumentIds: [],
     pendingDocumentContentSyncs: {},
     pendingWorkItemSyncsById: {},
+    pendingChatMessageSyncsById: {},
     pendingViewConfigById: {},
     replaceDomainData(data) {
       set((state) => applyReplacedDomainData(state, data))

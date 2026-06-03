@@ -27,6 +27,7 @@ import {
   getTeam,
   getTeamMembers,
   getUser,
+  getWorkItem,
   hasWorkspaceAccess,
 } from "@/lib/domain/selectors"
 import {
@@ -425,6 +426,36 @@ function updateTargetWorkItems(
   }
 }
 
+function getWorkItemDepth(data: AppData, item: WorkItem) {
+  const visitedIds = new Set<string>()
+  let depth = 0
+  let parentId = item.parentId
+
+  while (parentId) {
+    if (visitedIds.has(parentId)) {
+      break
+    }
+
+    visitedIds.add(parentId)
+    const parent = getWorkItem(data, parentId)
+
+    if (!parent) {
+      break
+    }
+
+    depth += 1
+    parentId = parent.parentId
+  }
+
+  return depth
+}
+
+function getDeleteTargetItems(data: AppData, targetItems: WorkItem[]) {
+  return [...targetItems].sort(
+    (left, right) => getWorkItemDepth(data, right) - getWorkItemDepth(data, left)
+  )
+}
+
 function hasVisibleMenuProperty(
   displayProps: DisplayProperty[] | undefined,
   property: DisplayProperty
@@ -784,9 +815,22 @@ function IssueActionMenuContent({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   async function handleDelete() {
-    await useAppStore.getState().deleteWorkItem(item.id)
+    for (const target of getDeleteTargetItems(data, targetItems)) {
+      await useAppStore.getState().deleteWorkItem(target.id)
+    }
+
     setDeleteDialogOpen(false)
   }
+
+  const deleteActionLabel = isBulkMenu
+    ? "Delete selected items"
+    : `Delete ${itemLabel}`
+  const deleteDialogTitle = isBulkMenu
+    ? `Delete ${targetItems.length} selected items`
+    : `Delete ${item.key}`
+  const deleteDialogDescription = isBulkMenu
+    ? "These work items will be permanently removed. This can't be undone."
+    : "This work item will be permanently removed. This can't be undone."
 
   return (
     <>
@@ -863,7 +907,7 @@ function IssueActionMenuContent({
           targetItems={targetItems}
         />
       ))}
-      {editable && !isBulkMenu ? (
+      {editable ? (
         <>
           <MenuSeparator />
           <MenuItem
@@ -874,15 +918,15 @@ function IssueActionMenuContent({
             }}
           >
             <Trash className="size-4" />
-            Delete {itemLabel}
+            {deleteActionLabel}
           </MenuItem>
         </>
       ) : null}
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
-        title={`Delete ${item.key}`}
-        description="This work item will be permanently removed. This can't be undone."
+        title={deleteDialogTitle}
+        description={deleteDialogDescription}
         confirmLabel="Delete"
         variant="destructive"
         onConfirm={() => void handleDelete()}

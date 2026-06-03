@@ -203,12 +203,26 @@ describe("collaboration conversation actions", () => {
     })
 
     expect(state.chatMessages[0]?.content).toBe("<p>Hello</p>")
+    expect(
+      (
+        state as AppData & {
+          pendingChatMessageSyncsById: Record<string, string>
+        }
+      ).pendingChatMessageSyncsById[state.chatMessages[0]?.id ?? ""]
+    ).toEqual(expect.any(String))
     expect(syncSendChatMessageMock).toHaveBeenCalledWith(
       "conversation_1",
       "<p>Hello</p>",
       state.chatMessages[0]?.id
     )
     await expect(backgroundTasks[0]).resolves.toBeNull()
+    expect(
+      (
+        state as AppData & {
+          pendingChatMessageSyncsById: Record<string, string>
+        }
+      ).pendingChatMessageSyncsById
+    ).toEqual({})
   })
 
   it("updates owned chat messages optimistically before syncing", async () => {
@@ -384,10 +398,38 @@ describe("collaboration conversation actions", () => {
       "conversation_1",
       "read",
       {
-        messageIds: ["message_old", "message_new"],
+        messageIds: ["message_new"],
       }
     )
     await expect(backgroundTasks[0]).resolves.toBeNull()
+  })
+
+  it("does not sync chat read state when every visible message is already read", async () => {
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
+    state.chatReadStates = [
+      {
+        id: "chat_read_state_user_1_conversation_1",
+        userId: "user_1",
+        conversationId: "conversation_1",
+        readAt: "2026-04-21T10:02:00.000Z",
+        unreadAt: null,
+        messageReadAtById: {
+          message_old: "2026-04-21T10:02:00.000Z",
+        },
+        createdAt: "2026-04-21T10:02:00.000Z",
+        updatedAt: "2026-04-21T10:02:00.000Z",
+      },
+    ]
+
+    slice.markChatRead("conversation_1", ["message_old"])
+
+    expect(syncUpdateChatReadStateMock).not.toHaveBeenCalled()
+    expect(backgroundTasks).toEqual([])
+    expect(state.chatReadStates[0]).toMatchObject({
+      readAt: "2026-04-21T10:02:00.000Z",
+      updatedAt: "2026-04-21T10:02:00.000Z",
+    })
   })
 
   it("does not add duplicate optimistic message notifications for mentions", async () => {
@@ -550,6 +592,31 @@ describe("collaboration conversation actions", () => {
       "unread"
     )
     await expect(backgroundTasks[0]).resolves.toBeNull()
+  })
+
+  it("does not sync chat unread state when it is already unread", async () => {
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
+    state.chatReadStates = [
+      {
+        id: "chat_read_state_user_1_conversation_1",
+        userId: "user_1",
+        conversationId: "conversation_1",
+        readAt: "2026-04-21T10:02:00.000Z",
+        unreadAt: "2026-04-21T10:03:00.000Z",
+        createdAt: "2026-04-21T10:02:00.000Z",
+        updatedAt: "2026-04-21T10:03:00.000Z",
+      },
+    ]
+
+    slice.markChatUnread("conversation_1")
+
+    expect(syncUpdateChatReadStateMock).not.toHaveBeenCalled()
+    expect(backgroundTasks).toEqual([])
+    expect(state.chatReadStates[0]).toMatchObject({
+      unreadAt: "2026-04-21T10:03:00.000Z",
+      updatedAt: "2026-04-21T10:03:00.000Z",
+    })
   })
 
   it("stores structured call activity when a conversation call starts", async () => {

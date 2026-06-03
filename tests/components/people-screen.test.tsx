@@ -234,6 +234,14 @@ function createPeopleTestData(): AppData {
       }),
     ],
     users: [currentUser, maya, sam, deletedUser],
+    labels: [
+      {
+        id: "label_1",
+        workspaceId: workspace.id,
+        name: "Customer",
+        color: "#0ea5e9",
+      },
+    ],
     workItems: [workItem, hiddenPrivateItem],
     workItemActivities: [
       {
@@ -336,12 +344,17 @@ describe("people workspace screens", () => {
     expect(screen.getByText("Teams: Platform")).toBeInTheDocument()
     expect(screen.getByText("Created work item")).toBeInTheDocument()
     expect(screen.getByText("Changed work item status")).toBeInTheDocument()
+    expect(screen.getByText("Status: To-Do to Done")).toBeInTheDocument()
     expect(screen.getByText("Updated work item labels")).toBeInTheDocument()
+    expect(screen.getByText("Labels: added Customer")).toBeInTheDocument()
     expect(screen.getByText("Commented on work item")).toBeInTheDocument()
+    expect(screen.getAllByText("Comment").length).toBeGreaterThan(0)
     expect(screen.getByText("Commented on document")).toBeInTheDocument()
     expect(screen.getByText("Created channel post")).toBeInTheDocument()
     expect(screen.getByText("Commented on channel post")).toBeInTheDocument()
+    expect(screen.getByText("Looks good")).toBeInTheDocument()
     expect(screen.getByText("Posted project update")).toBeInTheDocument()
+    expect(screen.getByText("Posted update")).toBeInTheDocument()
     expect(screen.getAllByText("Export CSV").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Shipping notes").length).toBeGreaterThan(0)
     expect(screen.queryByText("Hidden private task")).not.toBeInTheDocument()

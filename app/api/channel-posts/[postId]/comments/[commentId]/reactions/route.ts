@@ -4,8 +4,7 @@ import {
   bumpScopedReadModelVersionsServer,
   toggleChannelPostCommentReactionServer,
 } from "@/lib/server/convex"
-import { getChannelPostRelatedScopeKeys } from "@/lib/scoped-sync/read-models"
-import { loadScopedReadModelSnapshotForSession } from "@/lib/server/scoped-read-models"
+import { resolveChannelPostReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   handleAppContextJsonRoute,
   reactionPayloadSchema,
@@ -24,7 +23,10 @@ export async function POST(
     failureCode: "CHANNEL_POST_COMMENT_REACTION_UPDATE_FAILED",
     async handle({ session, appContext, parsed }) {
       const { postId, commentId } = await params
-      const snapshot = await loadScopedReadModelSnapshotForSession(session)
+      const scopeKeys = await resolveChannelPostReadModelScopeKeysServer(
+        session,
+        postId
+      )
 
       await toggleChannelPostCommentReactionServer({
         currentUserId: appContext.ensuredUser.userId,
@@ -33,7 +35,7 @@ export async function POST(
         emoji: parsed.emoji,
       })
       await bumpScopedReadModelVersionsServer({
-        scopeKeys: getChannelPostRelatedScopeKeys(snapshot, postId),
+        scopeKeys,
       })
 
       return jsonOk({

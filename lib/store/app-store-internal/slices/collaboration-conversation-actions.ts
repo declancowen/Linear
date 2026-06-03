@@ -17,6 +17,9 @@ import { prepareRichTextMessageForStorage } from "@/lib/content/rich-text-securi
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import {
   createChatReadStateId,
+  getChatReadState,
+  getUnreadChatMessageReceiptIds,
+  hasUnreadLegacyChatMessageNotification,
   mergeChatMessageFirstReadTimestamps,
 } from "@/lib/domain/chat-read-state"
 import { isChatMessageNotification } from "@/lib/domain/notification-visibility"
@@ -529,6 +532,62 @@ function applyLocalChatReadState(
   }
 }
 
+type ChatReadStateMutationInput = {
+  action: "read" | "unread"
+  messageIds?: string[]
+}
+
+function getChatReadStateMutationInput(
+  state: AppStore,
+  conversationId: string,
+  action: "read" | "unread",
+  messageIds?: string[]
+): ChatReadStateMutationInput | null {
+  const existing = getChatReadState(
+    state,
+    state.currentUserId,
+    conversationId
+  )
+
+  if (action === "unread") {
+    return existing?.unreadAt != null
+      ? null
+      : {
+          action,
+        }
+  }
+
+  const unreadMessageIds = getUnreadChatMessageReceiptIds(
+    existing?.messageReadAtById,
+    messageIds
+  )
+  const hasUnreadLegacyNotification = hasUnreadLegacyChatMessageNotification(
+    state,
+    state.currentUserId,
+    conversationId
+  )
+  const hasUnreadReadState = existing?.unreadAt != null
+
+  if (
+    !hasUnreadReadState &&
+    !hasUnreadLegacyNotification &&
+    unreadMessageIds.length === 0
+  ) {
+    return null
+  }
+
+  return {
+    action,
+    messageIds: unreadMessageIds.length > 0 ? unreadMessageIds : undefined,
+  }
+}
+
+function hasChatReadStateMutationInput(
+  value: ReturnType<typeof getChatReadStateMutationInput>
+): value is NonNullable<ReturnType<typeof getChatReadStateMutationInput>> {
+  return value !== null
+}
+
 function addOptimisticMentionNotifications({
   actorName,
   conversation,
@@ -591,7 +650,8 @@ function addOptimisticChatMessageToState(
   state: AppStore,
   conversationId: string,
   preparedContent: PreparedChatMessageContent,
-  optimisticMessageId: string
+  optimisticMessageId: string,
+  syncToken: string
 ): AppStore | Partial<AppStore> {
   const conversation = getChatConversationForSend(state, conversationId)
 
@@ -630,6 +690,10 @@ function addOptimisticChatMessageToState(
   return {
     notifications: readStatePatch.notifications,
     chatReadStates: readStatePatch.chatReadStates,
+    pendingChatMessageSyncsById: {
+      ...(state.pendingChatMessageSyncsById ?? {}),
+      [optimisticMessageId]: syncToken,
+    },
     chatMessages: [
       ...state.chatMessages,
       {
@@ -1244,6 +1308,7 @@ export function createCollaborationConversationActions({
       }
 
       const optimisticMessageId = createId("chat_message")
+      const syncToken = createId("chat_message_sync")
       const conversationId =
         resolvedConversationIds.get(parsed.data.conversationId) ??
         parsed.data.conversationId
@@ -1253,9 +1318,16 @@ export function createCollaborationConversationActions({
           state,
           conversationId,
           preparedContent,
-          optimisticMessageId
+          optimisticMessageId,
+          syncToken
         )
       })
+
+      if (
+        get().pendingChatMessageSyncsById?.[optimisticMessageId] !== syncToken
+      ) {
+        return
+      }
 
       const sendTask = createSyncedChatMessageTask({
         conversationId,
@@ -1264,6 +1336,23 @@ export function createCollaborationConversationActions({
         set,
       }).finally(() => {
         pendingChatMessageSyncs.delete(optimisticMessageId)
+        set((state) => {
+          if (
+            state.pendingChatMessageSyncsById?.[optimisticMessageId] !==
+            syncToken
+          ) {
+            return state
+          }
+
+          const nextPendingSyncs = {
+            ...(state.pendingChatMessageSyncsById ?? {}),
+          }
+          delete nextPendingSyncs[optimisticMessageId]
+
+          return {
+            pendingChatMessageSyncsById: nextPendingSyncs,
+          }
+        })
       })
 
       pendingChatMessageSyncs.set(optimisticMessageId, sendTask)
@@ -1441,12 +1530,25 @@ export function createCollaborationConversationActions({
       runtime.syncInBackground(deleteTask, "Failed to delete message")
     },
     markChatRead(conversationId, messageIds) {
+      const mutationInput = getChatReadStateMutationInput(
+        get(),
+        conversationId,
+        "read",
+        messageIds
+      )
+
+      if (!hasChatReadStateMutationInput(mutationInput)) {
+        return
+      }
+
       set((state) =>
         applyLocalChatReadState(state, conversationId, "read", messageIds)
       )
 
       runtime.syncInBackground(
-        syncUpdateChatReadState(conversationId, "read", { messageIds }),
+        syncUpdateChatReadState(conversationId, "read", {
+          messageIds: mutationInput.messageIds,
+        }),
         "Failed to update chat read state",
         {
           refreshStrategy: "none",
@@ -1455,6 +1557,16 @@ export function createCollaborationConversationActions({
       )
     },
     markChatUnread(conversationId) {
+      const mutationInput = getChatReadStateMutationInput(
+        get(),
+        conversationId,
+        "unread"
+      )
+
+      if (!hasChatReadStateMutationInput(mutationInput)) {
+        return
+      }
+
       set((state) => applyLocalChatReadState(state, conversationId, "unread"))
 
       runtime.syncInBackground(

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import {
   afterAll,
   afterEach,
@@ -10,7 +10,10 @@ import {
 } from "vitest"
 
 import "@/tests/lib/fixtures/rich-text-composer-mocks"
-import { CommentsInline } from "@/components/app/screens/work-item-ui"
+import {
+  CommentsInline,
+  InlineChildIssueComposer,
+} from "@/components/app/screens/work-item-ui"
 import {
   createInlineChildWorkItem,
   getInlineChildIssueComposerModel,
@@ -21,9 +24,23 @@ import { useAppStore } from "@/lib/store/app-store"
 import {
   createTestProject,
   createTestTeam,
+  createTestTeamMembership,
   createTestUser,
   createTestWorkItem,
 } from "@/tests/lib/fixtures/app-data"
+
+vi.mock("@/components/app/entity-icons", () => ({
+  ProjectIconGlyph: ({
+    project,
+  }: {
+    project: { icon?: string | null; name?: string }
+  }) => (
+    <span
+      data-testid="project-icon-glyph"
+      data-project-icon={project.icon ?? ""}
+    />
+  ),
+}))
 
 describe("CommentsInline", () => {
   const consoleErrorSpy = vi
@@ -164,6 +181,66 @@ describe("CommentsInline", () => {
     expect(model.selectedProject?.id).toBe("project_external")
   })
 
+  it("shows the inherited project icon in the inline child composer", () => {
+    const parentItem = createTestWorkItem("parent_1", {
+      key: "PLAT-1",
+      teamId: "team_1",
+      type: "task",
+      title: "Parent task",
+      primaryProjectId: "project_launch",
+    })
+
+    useAppStore.setState((state) => ({
+      ...state,
+      teams: [
+        createTestTeam({
+          id: "team_1",
+          workspaceId: "workspace_1",
+          settings: {
+            experience: "project-management",
+          },
+        }),
+      ],
+      teamMemberships: [
+        createTestTeamMembership({
+          teamId: "team_1",
+          userId: "user_1",
+          role: "admin",
+        }),
+      ],
+      projects: [
+        createTestProject({
+          id: "project_launch",
+          name: "Product launch",
+          icon: "rocket",
+          scopeType: "team",
+          scopeId: "team_1",
+          templateType: "project-management",
+        }),
+      ],
+      workItems: [parentItem],
+    }))
+
+    render(
+      <InlineChildIssueComposer
+        teamId="team_1"
+        parentItem={parentItem}
+        disabled={false}
+        onCancel={vi.fn()}
+        onCreated={vi.fn()}
+      />
+    )
+
+    const inheritedProjectButton = screen.getByRole("button", {
+      name: /Product launch/i,
+    })
+
+    expect(inheritedProjectButton).toBeDisabled()
+    expect(
+      within(inheritedProjectButton).getByTestId("project-icon-glyph")
+    ).toHaveAttribute("data-project-icon", "rocket")
+  })
+
   it("creates inline child items with normalized optional fields and descriptions", () => {
     const createWorkItem = vi.fn().mockReturnValue("item_child")
     const updateItemDescription = vi.fn()
@@ -266,5 +343,32 @@ describe("CommentsInline", () => {
     })
 
     expect(button).toBeEnabled()
+  })
+
+  it("opens work item comment replies without inserting quoted content", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      comments: [
+        {
+          id: "comment_1",
+          targetType: "workItem",
+          targetId: "item_1",
+          parentCommentId: null,
+          content: "<p>Existing comment should not be quoted</p>",
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: "user_1",
+          createdAt: "2026-04-18T10:10:00.000Z",
+        },
+      ],
+    }))
+
+    render(<CommentsInline targetType="workItem" targetId="item_1" editable />)
+
+    expect(screen.queryByRole("button", { name: "Quote comment" })).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }))
+
+    expect(screen.getByLabelText("Reply to this thread...")).toHaveValue("")
   })
 })

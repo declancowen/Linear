@@ -108,9 +108,9 @@ export default defineSchema({
       "teamId",
       "propertyId",
     ]),
-  readModelVersions: defineTable(readModelVersionFields).index("by_scope_key", [
-    "scopeKey",
-  ]),
+  readModelVersions: defineTable(readModelVersionFields)
+    .index("by_scope_key", ["scopeKey"])
+    .index("by_updated_at", ["updatedAt"]),
   documents: defineTable(documentFields)
     .index("by_domain_id", ["id"])
     .index("by_created_by", ["createdBy"])
@@ -134,6 +134,9 @@ export default defineSchema({
   notifications: defineTable(notificationFields)
     .index("by_domain_id", ["id"])
     .index("by_user", ["userId"])
+    .index("by_created_at", ["createdAt"])
+    .index("by_read_at", ["readAt"])
+    .index("by_archived_at", ["archivedAt"])
     .index("by_emailed_at", ["emailedAt"])
     .index("by_entity", ["entityType", "entityId"]),
   workItemActivities: defineTable(workItemActivityFields)
@@ -141,6 +144,7 @@ export default defineSchema({
     .index("by_item", ["itemId"]),
   emailJobs: defineTable(emailJobFields)
     .index("by_domain_id", ["id"])
+    .index("by_created_at", ["createdAt"])
     .index("by_sent_at", ["sentAt"])
     .index("by_notification", ["notificationId"]),
   invites: defineTable(inviteFields)
@@ -162,7 +166,8 @@ export default defineSchema({
     .index("by_conversation", ["conversationId"]),
   chatMessages: defineTable(chatMessageFields)
     .index("by_domain_id", ["id"])
-    .index("by_conversation", ["conversationId"]),
+    .index("by_conversation", ["conversationId"])
+    .index("by_conversation_created_at", ["conversationId", "createdAt"]),
   chatReadStates: defineTable(chatReadStateFields)
     .index("by_domain_id", ["id"])
     .index("by_user", ["userId"])

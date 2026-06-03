@@ -42,6 +42,7 @@ import { getOrCreateAppConfig } from "./app/data"
 import {
   backfillWorkItemKeysHandler,
   backfillWorkspaceMembershipsHandler,
+  cleanupOperationalRetentionHandler,
   backfillLegacyLookupFieldsHandler,
   getLegacyLookupBackfillStatusHandler,
   getWorkItemKeyBackfillStatusHandler,
@@ -125,6 +126,13 @@ import {
   bumpScopedReadModelVersionsHandler,
   getScopedReadModelVersionsHandler,
 } from "./app/scoped_sync"
+import {
+  authorizeScopedReadModelScopeKeysHandler,
+  getScopedReadModelHandler,
+  resolveScopedReadModelScopeKeysHandler,
+  scopedReadModelInstructionValidator,
+  scopedReadModelScopeKeyTargetValidator,
+} from "./app/scoped_read_models"
 import {
   addCommentHandler,
   deleteCommentHandler,
@@ -355,6 +363,19 @@ export const bumpScopedReadModelVersions = operationalMutation({
   handler: bumpScopedReadModelVersionsHandler,
 })
 
+export const cleanupOperationalRetention = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    dryRun: v.optional(v.boolean()),
+    emailJobRetentionDays: v.optional(v.number()),
+    limit: v.optional(v.number()),
+    notificationRetentionDays: v.optional(v.number()),
+    now: v.optional(v.string()),
+    readModelVersionRetentionDays: v.optional(v.number()),
+  },
+  handler: cleanupOperationalRetentionHandler,
+})
+
 const workItemScheduleMutationArgs = {
   startDate: v.optional(nullableStringValidator),
   dueDate: v.optional(nullableStringValidator),
@@ -398,6 +419,39 @@ export const getScopedReadModelVersions = query({
     scopeKeys: v.array(v.string()),
   },
   handler: getScopedReadModelVersionsHandler,
+})
+
+export const getScopedReadModel = query({
+  args: {
+    ...serverAccessArgs,
+    workosUserId: v.optional(v.string()),
+    email: v.optional(v.string()),
+    selectedWorkspaceId: v.optional(v.union(v.string(), v.null())),
+    instruction: scopedReadModelInstructionValidator,
+  },
+  handler: getScopedReadModelHandler,
+})
+
+export const resolveScopedReadModelScopeKeys = query({
+  args: {
+    ...serverAccessArgs,
+    workosUserId: v.optional(v.string()),
+    email: v.optional(v.string()),
+    selectedWorkspaceId: v.optional(v.union(v.string(), v.null())),
+    target: scopedReadModelScopeKeyTargetValidator,
+  },
+  handler: resolveScopedReadModelScopeKeysHandler,
+})
+
+export const authorizeScopedReadModelScopeKeys = query({
+  args: {
+    ...serverAccessArgs,
+    workosUserId: v.optional(v.string()),
+    email: v.optional(v.string()),
+    selectedWorkspaceId: v.optional(v.union(v.string(), v.null())),
+    scopeKeys: v.array(v.string()),
+  },
+  handler: authorizeScopedReadModelScopeKeysHandler,
 })
 
 export const getCollaborationDocument = query({

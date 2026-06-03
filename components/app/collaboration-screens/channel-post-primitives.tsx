@@ -87,7 +87,7 @@ export function ForumPostCommentItem({
   currentUserId,
   onDelete,
   onEdit,
-  onQuote,
+  onReply,
   onReact,
   mentionCandidates,
   usersById,
@@ -99,7 +99,7 @@ export function ForumPostCommentItem({
   currentUserId: string
   onDelete?: (commentId: string) => void
   onEdit?: (commentId: string, content: string) => void
-  onQuote?: () => void
+  onReply?: () => void
   onReact?: (commentId: string, emoji: string) => void
   mentionCandidates: ForumUser[]
   usersById: UsersById
@@ -136,7 +136,7 @@ export function ForumPostCommentItem({
       <MessageHoverActionBar
         canDelete={canDelete}
         canEdit={canEdit}
-        canQuote={Boolean(onQuote)}
+        canQuote={Boolean(onReply)}
         canReact={Boolean(onReact)}
         className="top-0 right-1 -translate-y-1/2 group-hover/comment:flex focus-within:flex"
         deleteLabel="Delete comment"
@@ -146,8 +146,9 @@ export function ForumPostCommentItem({
           setEditContent(comment.content)
           setEditOpen(true)
         }}
-        onQuote={onQuote}
-        quoteLabel="Quote comment"
+        onQuote={onReply}
+        quoteAction="reply"
+        quoteLabel="Reply"
         onReact={(emoji) => onReact?.(comment.id, emoji)}
       />
       <div className="mt-[2px]">

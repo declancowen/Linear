@@ -205,7 +205,7 @@ function isPrivateTaskView(view: ViewDefinition | null) {
 }
 
 const PRIVATE_TASK_EXCLUDED_GROUP_OPTIONS = new Set<ViewDefinition["grouping"]>(
-  ["assignee", "project"]
+  ["assignee", "project", "team"]
 )
 
 const PRIVATE_TASK_EXCLUDED_DISPLAY_PROPERTIES = new Set<

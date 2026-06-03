@@ -308,6 +308,64 @@ describe("app store read model merge", () => {
     ])
   })
 
+  it("keeps pending chat messages during scoped replacement pruning", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      conversations: [
+        {
+          id: "chat_1",
+          kind: "chat",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          variant: "direct",
+          title: "Direct",
+          description: "",
+          participantIds: [currentUser.id],
+          roomId: null,
+          roomName: null,
+          createdBy: currentUser.id,
+          createdAt: "2026-04-22T00:00:00.000Z",
+          updatedAt: "2026-04-22T00:00:00.000Z",
+          lastActivityAt: "2026-04-22T00:00:00.000Z",
+        },
+      ],
+      chatMessages: [
+        {
+          id: "message_pending",
+          conversationId: "chat_1",
+          kind: "text",
+          content: "<p>Sending</p>",
+          callId: null,
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: currentUser.id,
+          createdAt: "2026-04-22T00:01:00.000Z",
+        },
+      ],
+      pendingChatMessageSyncsById: {
+        message_pending: "chat_message_sync_1",
+      },
+    }))
+
+    useAppStore.getState().mergeReadModelData(
+      {
+        chatMessages: [],
+      },
+      {
+        replace: [
+          {
+            kind: "conversation-thread",
+            conversationId: "chat_1",
+          },
+        ],
+      }
+    )
+
+    expect(
+      useAppStore.getState().chatMessages.map((message) => message.id)
+    ).toEqual(["message_pending"])
+  })
+
   it("ignores incidental current workspace ids from non-membership read models", () => {
     useAppStore.setState((state) => ({
       ...state,

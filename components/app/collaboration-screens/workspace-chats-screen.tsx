@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   useEffectEvent,
+  useSyncExternalStore,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
@@ -49,6 +50,7 @@ import {
 import {
   clampWorkspaceChatListWidth,
   CreateWorkspaceChatDialog,
+  WORKSPACE_CHAT_LIST_COLLAPSED_STORAGE_KEY,
   WORKSPACE_CHAT_LIST_DEFAULT_WIDTH,
   WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY,
 } from "@/components/app/collaboration-screens/workspace-chat-ui"
@@ -72,6 +74,52 @@ import {
 type WorkspaceChatListWidth = number | null
 type WorkspaceChatListEntry = Conversation & {
   unread?: boolean
+}
+
+function getInitialWorkspaceChatListWidth(): WorkspaceChatListWidth {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  const storedWidth = window.localStorage.getItem(
+    WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY
+  )
+  const parsedWidth = Number(storedWidth)
+
+  return storedWidth !== null && Number.isFinite(parsedWidth)
+    ? clampWorkspaceChatListWidth(parsedWidth)
+    : null
+}
+
+function getInitialWorkspaceChatListCollapsed() {
+  if (typeof window === "undefined") {
+    return false
+  }
+
+  return (
+    window.localStorage.getItem(WORKSPACE_CHAT_LIST_COLLAPSED_STORAGE_KEY) ===
+    "true"
+  )
+}
+
+function subscribeToWorkspaceChatListStorage() {
+  return () => {}
+}
+
+function useStoredWorkspaceChatListWidth() {
+  return useSyncExternalStore(
+    subscribeToWorkspaceChatListStorage,
+    getInitialWorkspaceChatListWidth,
+    () => null
+  )
+}
+
+function useStoredWorkspaceChatListCollapsed() {
+  return useSyncExternalStore(
+    subscribeToWorkspaceChatListStorage,
+    getInitialWorkspaceChatListCollapsed,
+    () => false
+  )
 }
 
 function getActiveWorkspaceChatId(
@@ -264,6 +312,7 @@ function WorkspaceChatsContent({
   activeChat,
   conversationListWidth,
   conversationListResizing,
+  conversationListCollapsed,
   latestMessagesByConversationId,
   members,
   hasLoadedConversationThread,
@@ -276,6 +325,7 @@ function WorkspaceChatsContent({
   onResizeStart,
   onResetWidth,
   onSelectChat,
+  onToggleConversationListCollapsed,
   splitRef,
 }: {
   hasLoadedConversationList: boolean
@@ -283,6 +333,7 @@ function WorkspaceChatsContent({
   activeChat: Conversation | null
   conversationListWidth: WorkspaceChatListWidth
   conversationListResizing: boolean
+  conversationListCollapsed: boolean
   latestMessagesByConversationId: Map<string, AppData["chatMessages"][number]>
   members: UserProfile[]
   hasLoadedConversationThread: boolean
@@ -295,6 +346,7 @@ function WorkspaceChatsContent({
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onResetWidth: () => void
   onSelectChat: (id: string) => void
+  onToggleConversationListCollapsed: () => void
   splitRef: RefObject<HTMLDivElement | null>
 }) {
   if (!hasLoadedConversationList && chats.length === 0) {
@@ -331,6 +383,7 @@ function WorkspaceChatsContent({
         activeChat={activeChat}
         conversationListWidth={conversationListWidth}
         conversationListResizing={conversationListResizing}
+        conversationListCollapsed={conversationListCollapsed}
         latestMessagesByConversationId={latestMessagesByConversationId}
         renderConversationAvatar={renderConversationAvatar}
         onCreateChat={onCreateChat}
@@ -339,6 +392,7 @@ function WorkspaceChatsContent({
         onResizeStart={onResizeStart}
         onResetWidth={onResetWidth}
         onSelectChat={onSelectChat}
+        onToggleConversationListCollapsed={onToggleConversationListCollapsed}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {activeChat ? (
@@ -430,12 +484,23 @@ export function WorkspaceChatsScreen() {
   )
   const users = useAppStore((state) => state.users)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [conversationListWidth, setConversationListWidth] =
-    useState<WorkspaceChatListWidth>(null)
+  const storedConversationListWidth = useStoredWorkspaceChatListWidth()
+  const storedConversationListCollapsed =
+    useStoredWorkspaceChatListCollapsed()
+  const [conversationListWidthOverride, setConversationListWidthOverride] =
+    useState<WorkspaceChatListWidth | undefined>(undefined)
   const [conversationListResizing, setConversationListResizing] =
     useState(false)
-  const [conversationListWidthReady, setConversationListWidthReady] =
-    useState(false)
+  const [
+    conversationListCollapsedOverride,
+    setConversationListCollapsedOverride,
+  ] = useState<boolean | undefined>(undefined)
+  const conversationListWidth =
+    conversationListWidthOverride === undefined
+      ? storedConversationListWidth
+      : conversationListWidthOverride
+  const conversationListCollapsed =
+    conversationListCollapsedOverride ?? storedConversationListCollapsed
   const conversationSplitRef = useRef<HTMLDivElement | null>(null)
   const conversationListDragRef = useRef<{
     containerWidth: number | null
@@ -444,26 +509,7 @@ export function WorkspaceChatsScreen() {
   } | null>(null)
 
   useEffect(() => {
-    const storedWidth = window.localStorage.getItem(
-      WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY
-    )
-    const frameId = window.requestAnimationFrame(() => {
-      const parsedWidth = Number(storedWidth)
-
-      if (storedWidth !== null && Number.isFinite(parsedWidth)) {
-        setConversationListWidth(clampWorkspaceChatListWidth(parsedWidth))
-      }
-
-      setConversationListWidthReady(true)
-    })
-
-    return () => {
-      window.cancelAnimationFrame(frameId)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!conversationListWidthReady) {
+    if (conversationListCollapsed) {
       return
     }
 
@@ -474,14 +520,19 @@ export function WorkspaceChatsScreen() {
     }
 
     const syncConversationListWidth = () => {
-      setConversationListWidth((currentWidth) =>
-        currentWidth === null
+      setConversationListWidthOverride((currentWidth) => {
+        const resolvedWidth =
+          currentWidth === undefined
+            ? storedConversationListWidth
+            : currentWidth
+
+        return resolvedWidth === null
           ? null
           : clampWorkspaceChatListWidth(
-              currentWidth,
+              resolvedWidth,
               getWorkspaceChatSplitElementWidth(element)
             )
-      )
+      })
     }
 
     syncConversationListWidth()
@@ -496,10 +547,10 @@ export function WorkspaceChatsScreen() {
     return () => {
       observer.disconnect()
     }
-  }, [chats.length, conversationListWidthReady])
+  }, [chats.length, conversationListCollapsed, storedConversationListWidth])
 
   useEffect(() => {
-    if (!conversationListWidthReady) {
+    if (conversationListWidthOverride === undefined) {
       return
     }
 
@@ -512,7 +563,18 @@ export function WorkspaceChatsScreen() {
       WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY,
       String(conversationListWidth)
     )
-  }, [conversationListWidth, conversationListWidthReady])
+  }, [conversationListWidth, conversationListWidthOverride])
+
+  useEffect(() => {
+    if (conversationListCollapsedOverride === undefined) {
+      return
+    }
+
+    window.localStorage.setItem(
+      WORKSPACE_CHAT_LIST_COLLAPSED_STORAGE_KEY,
+      conversationListCollapsed ? "true" : "false"
+    )
+  }, [conversationListCollapsed, conversationListCollapsedOverride])
 
   const stopConversationListResize = useEffectEvent(() => {
     conversationListDragRef.current = null
@@ -529,7 +591,7 @@ export function WorkspaceChatsScreen() {
         return
       }
 
-      setConversationListWidth(
+      setConversationListWidthOverride(
         clampWorkspaceChatListWidth(
           dragState.startWidth + event.clientX - dragState.startX,
           dragState.containerWidth
@@ -677,6 +739,7 @@ export function WorkspaceChatsScreen() {
         activeChat={activeChat}
         conversationListWidth={conversationListWidth}
         conversationListResizing={conversationListResizing}
+        conversationListCollapsed={conversationListCollapsed}
         latestMessagesByConversationId={latestMessagesByConversationId}
         members={members}
         hasLoadedConversationThread={hasLoadedConversationThread}
@@ -700,9 +763,14 @@ export function WorkspaceChatsScreen() {
         onMarkChatRead={(id) => useAppStore.getState().markChatRead(id)}
         onMarkChatUnread={(id) => useAppStore.getState().markChatUnread(id)}
         onResizeStart={handleConversationListResizeStart}
-        onResetWidth={() => setConversationListWidth(null)}
+        onResetWidth={() => setConversationListWidthOverride(null)}
         onSelectChat={(id) =>
           router.replace(`/chats?chatId=${id}`, { scroll: false })
+        }
+        onToggleConversationListCollapsed={() =>
+          setConversationListCollapsedOverride(
+            (current) => !(current ?? storedConversationListCollapsed)
+          )
         }
         splitRef={conversationSplitRef}
       />

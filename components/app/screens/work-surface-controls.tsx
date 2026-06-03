@@ -2119,21 +2119,37 @@ function ViewSortChipPopover({
   )
 }
 
-function ViewSortChipButton({
-  label,
-  ordering,
-  showValue,
-  tone,
-}: {
-  label?: string
-  ordering: OrderingField
-  showValue: boolean
-  tone: ChipTone
-}) {
+const ViewSortChipButton = forwardRef<
+  HTMLButtonElement,
+  {
+    label?: string
+    ordering: OrderingField
+    showValue: boolean
+    tone: ChipTone
+  } & ComponentPropsWithoutRef<"button">
+>(function ViewSortChipButton(
+  {
+    className,
+    label,
+    ordering,
+    showValue,
+    tone,
+    type = "button",
+    ...props
+  },
+  ref
+) {
   return (
     <button
-      type="button"
-      className={cn(chipBase, "work-view-chip", getChipToneClass(tone))}
+      ref={ref}
+      type={type}
+      className={cn(
+        chipBase,
+        "work-view-chip",
+        getChipToneClass(tone),
+        className
+      )}
+      {...props}
     >
       <SortAscending className="size-3.5 shrink-0" />
       <span className="shrink-0">{label ?? ORDERING_LABELS[ordering]}</span>
@@ -2145,7 +2161,7 @@ function ViewSortChipButton({
       <CaretDown className="size-3 shrink-0 opacity-70" />
     </button>
   )
-}
+})
 
 function ViewSortOptionsList({
   options,

@@ -11,7 +11,12 @@ import {
 import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import type { AppSnapshot } from "@/lib/domain/types"
+import {
+  SCOPED_DEGRADED_REFRESH_INTERVAL_MS,
+  isForegroundScopedRefreshStale,
+} from "@/lib/realtime/cost-policy"
 import { isScopedSyncEnabled } from "@/lib/realtime/feature-flags"
+import type { ScopedInvalidationEnvelope } from "@/lib/scoped-sync/client"
 import { openScopedInvalidationStream } from "@/lib/scoped-sync/client"
 import { useAppStore } from "@/lib/store/app-store"
 
@@ -52,8 +57,6 @@ function normalizeReadModelFetchResult(
   }
 }
 
-const SCOPED_DEGRADED_REFRESH_INTERVAL_MS = 5000
-
 export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   const mergeReadModelData = useAppStore((state) => state.mergeReadModelData)
   const [error, setError] = useState<string | null>(null)
@@ -63,6 +66,9 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   const inFlightGenerationRef = useRef<number | null>(null)
   const queuedRef = useRef(false)
   const runGenerationRef = useRef(0)
+  const lastRefreshRequestedAtRef = useRef(0)
+  const lastRefreshFailedRef = useRef(false)
+  const scopedVersionByKeyRef = useRef(new Map<string, number>())
   const firstUsefulRenderStartedAtRef = useRef(0)
   const firstUsefulRenderSignatureRef = useRef("")
   const reportedFirstUsefulRenderSignatureRef = useRef("")
@@ -90,6 +96,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       mergeReadModelData(result.data, {
         replace: result.replace,
       })
+      lastRefreshFailedRef.current = false
       reportScopedReadModelDiagnostic({
         durationMs: window.performance.now() - startedAt,
         scopeKeys,
@@ -112,6 +119,8 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       })
 
       if (isExpectedScopedReadModelMiss(nextError)) {
+        lastRefreshFailedRef.current = false
+
         if (input.notFoundResult) {
           const missingResult = normalizeReadModelFetchResult(
             input.notFoundResult
@@ -126,10 +135,12 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       }
 
       if (nextError instanceof RouteMutationError && nextError.status === 401) {
+        lastRefreshFailedRef.current = false
         redirectToExpiredSessionLogin()
         return true
       }
 
+      lastRefreshFailedRef.current = true
       console.error("Failed to refresh scoped read model", nextError)
       setError(
         nextError instanceof Error
@@ -151,6 +162,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     }
 
     inFlightGenerationRef.current = refreshGeneration
+    lastRefreshRequestedAtRef.current = Date.now()
     setRefreshing(true)
     const startedAt = window.performance.now()
 
@@ -206,6 +218,52 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     }, SCOPED_DEGRADED_REFRESH_INTERVAL_MS)
   })
 
+  const refreshFromForegroundEvent = useEffectEvent(() => {
+    if (
+      typeof document !== "undefined" &&
+      document.visibilityState !== "visible"
+    ) {
+      return
+    }
+
+    if (inFlightGenerationRef.current !== null) {
+      return
+    }
+
+    if (
+      !isForegroundScopedRefreshStale({
+        lastRefreshRequestedAt: lastRefreshRequestedAtRef.current,
+        now: Date.now(),
+      })
+    ) {
+      return
+    }
+
+    void refresh()
+  })
+
+  const commitScopedVersions = useEffectEvent(
+    (envelope: ScopedInvalidationEnvelope | undefined) => {
+      if (!envelope?.versions.length) {
+        return false
+      }
+
+      let hasChanges = false
+      const nextVersions = new Map(scopedVersionByKeyRef.current)
+
+      for (const entry of envelope.versions) {
+        if (nextVersions.get(entry.scopeKey) !== entry.version) {
+          hasChanges = true
+        }
+
+        nextVersions.set(entry.scopeKey, entry.version)
+      }
+
+      scopedVersionByKeyRef.current = nextVersions
+      return hasChanges
+    }
+  )
+
   useEffect(() => {
     const effectScopeKeys =
       scopeKeySignature.length > 0 ? scopeKeySignature.split("|") : []
@@ -214,6 +272,8 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       runGenerationRef.current += 1
       inFlightGenerationRef.current = null
       queuedRef.current = false
+      lastRefreshFailedRef.current = false
+      scopedVersionByKeyRef.current = new Map()
       stopDegradedRefresh()
       setRefreshing(false)
       setError(null)
@@ -226,6 +286,8 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       runGenerationRef.current += 1
       inFlightGenerationRef.current = null
       queuedRef.current = false
+      lastRefreshFailedRef.current = false
+      scopedVersionByKeyRef.current = new Map()
       stopDegradedRefresh()
       setRefreshing(false)
       setError(null)
@@ -235,6 +297,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     }
 
     runGenerationRef.current += 1
+    scopedVersionByKeyRef.current = new Map()
     stopDegradedRefresh()
     setHasLoadedOnce(false)
     void refresh()
@@ -243,23 +306,33 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
 
     const closeStream = openScopedInvalidationStream({
       scopeKeys: effectScopeKeys,
-      onReady() {
+      onReady(envelope) {
         stopDegradedRefresh()
+        const hasVersionChanges = commitScopedVersions(envelope)
 
         if (hasSeenReady) {
           hasEnteredDegradedMode = false
-          void refresh()
+          if (hasVersionChanges || lastRefreshFailedRef.current) {
+            void refresh()
+          }
           return
         }
 
         hasSeenReady = true
 
-        if (hasEnteredDegradedMode) {
+        if (
+          lastRefreshFailedRef.current ||
+          (hasEnteredDegradedMode && hasVersionChanges)
+        ) {
           hasEnteredDegradedMode = false
           void refresh()
+          return
         }
+
+        hasEnteredDegradedMode = false
       },
-      onInvalidate() {
+      onInvalidate(envelope) {
+        commitScopedVersions(envelope)
         void refresh()
       },
       onUnavailable() {
@@ -273,12 +346,8 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       },
     })
 
-    const handleFocus = () => {
-      void refresh()
-    }
-    const handleOnline = () => {
-      void refresh()
-    }
+    const handleFocus = refreshFromForegroundEvent
+    const handleOnline = refreshFromForegroundEvent
 
     window.addEventListener("focus", handleFocus)
     window.addEventListener("online", handleOnline)
@@ -287,6 +356,8 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       runGenerationRef.current += 1
       inFlightGenerationRef.current = null
       queuedRef.current = false
+      lastRefreshFailedRef.current = false
+      scopedVersionByKeyRef.current = new Map()
       stopDegradedRefresh()
       setRefreshing(false)
       closeStream()

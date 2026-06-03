@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 
 vi.mock("@/components/ui/select", async () => {
   const React = await import("react")
@@ -146,6 +152,22 @@ vi.mock("@/components/ui/select", async () => {
   }
 })
 
+vi.mock("@/components/app/entity-icons", () => ({
+  ProjectIconGlyph: ({
+    project,
+  }: {
+    project: { icon?: string | null; name?: string }
+  }) => (
+    <span
+      data-testid="project-icon-glyph"
+      data-project-icon={project.icon ?? ""}
+    />
+  ),
+  TeamIconGlyph: ({ icon }: { icon?: string }) => (
+    <span data-testid="team-icon-glyph" data-team-icon={icon ?? ""} />
+  ),
+}))
+
 import { CreateProjectDialog } from "@/components/app/screens/project-creation"
 import { CreateDocumentDialog } from "@/components/app/screens/create-document-dialog"
 import { CreateViewDialog } from "@/components/app/screens/create-view-dialog"
@@ -222,6 +244,7 @@ function seedParentFeatureProject(includeLaneProject = false) {
         id: "project_parent",
         templateType: "software-delivery",
         name: "Parent project",
+        icon: "target",
         status: "backlog",
         health: "no-update",
         memberIds: ["user_1"],
@@ -234,6 +257,7 @@ function seedParentFeatureProject(includeLaneProject = false) {
               id: "project_lane",
               templateType: "software-delivery",
               name: "Lane project",
+              icon: "rocket",
               status: "backlog",
               health: "no-update",
               memberIds: ["user_1"],
@@ -269,6 +293,12 @@ function spyOnCreateWorkItem() {
   return vi
     .spyOn(useAppStore.getState(), "createWorkItem")
     .mockReturnValue("item_new")
+}
+
+function spyOnUpdateItemDescription() {
+  return vi
+    .spyOn(useAppStore.getState(), "updateItemDescription")
+    .mockResolvedValue(undefined)
 }
 
 function renderPrivateTaskCreateDialog() {
@@ -453,6 +483,51 @@ describe("create dialogs", () => {
       "translate-y-0",
       "sm:top-[14vh]"
     )
+  })
+
+  it("submits the latest local title and description drafts without root draft state", async () => {
+    const createWorkItemSpy = spyOnCreateWorkItem()
+    const updateDescriptionSpy = spyOnUpdateItemDescription()
+
+    try {
+      render(
+        <CreateWorkItemDialog
+          open
+          onOpenChange={vi.fn()}
+          defaultTeamId="team_1"
+        />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText(/title/i), {
+        target: { value: "Draft one" },
+      })
+      fireEvent.change(screen.getByPlaceholderText(/title/i), {
+        target: { value: "Draft two" },
+      })
+      fireEvent.change(screen.getByPlaceholderText("Add description…"), {
+        target: { value: "First description" },
+      })
+      fireEvent.change(screen.getByPlaceholderText("Add description…"), {
+        target: { value: "Latest description" },
+      })
+
+      fireEvent.click(screen.getByRole("button", { name: /Create /i }))
+
+      await waitFor(() =>
+        expect(createWorkItemSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Draft two",
+          })
+        )
+      )
+      expect(updateDescriptionSpy).toHaveBeenCalledWith(
+        "item_new",
+        "<p>Latest description</p>"
+      )
+    } finally {
+      createWorkItemSpy.mockRestore()
+      updateDescriptionSpy.mockRestore()
+    }
   })
 
   it("lets you switch team spaces without throwing when an initial type is provided", async () => {
@@ -905,11 +980,14 @@ describe("create dialogs", () => {
         />
       )
 
-      await waitFor(() =>
-        expect(
-          screen.getByRole("button", { name: /Parent project/i })
-        ).toBeDisabled()
-      )
+      const inheritedProjectButton = await screen.findByRole("button", {
+        name: /Parent project/i,
+      })
+
+      expect(inheritedProjectButton).toBeDisabled()
+      expect(
+        within(inheritedProjectButton).getByTestId("project-icon-glyph")
+      ).toHaveAttribute("data-project-icon", "target")
       expect(screen.queryByText("FEAT-1 · child")).not.toBeInTheDocument()
 
       fireEvent.change(screen.getByPlaceholderText(/title/i), {

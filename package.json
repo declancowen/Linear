@@ -42,6 +42,7 @@
     "desktop:smoke": "node scripts/desktop-smoke.mjs",
     "lint": "eslint app components convex desktop electron hooks lib scripts test tests eslint.config.mjs next.config.mjs postcss.config.mjs proxy.ts vitest.config.ts --max-warnings 0",
     "test": "vitest run",
+    "cost:guardrails": "vitest run tests/app/api/read-model-static-guards.test.ts tests/lib/realtime-cost-policy.test.ts tests/lib/operations/convex-cost-guardrails.test.ts tests/convex/operational-retention.test.ts",
     "test:coverage": "vitest run --testTimeout 15000 --coverage --coverage.provider istanbul --coverage.reporter json",
     "test:watch": "vitest",
     "audit:deps": "pnpm audit --audit-level high",

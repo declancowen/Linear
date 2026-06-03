@@ -43,6 +43,8 @@ import {
 
 export const WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY =
   "workspace-chat-list-width:v2"
+export const WORKSPACE_CHAT_LIST_COLLAPSED_STORAGE_KEY =
+  "workspace-chat-list-collapsed:v1"
 export const WORKSPACE_CHAT_LIST_DEFAULT_WIDTH = 256
 export const WORKSPACE_CHAT_LIST_DEFAULT_WIDTH_PERCENTAGE = "25%"
 const WORKSPACE_CHAT_LIST_MIN_WIDTH = 224

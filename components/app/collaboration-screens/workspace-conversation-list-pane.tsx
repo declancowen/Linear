@@ -1,14 +1,14 @@
 "use client"
 
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react"
-import { Plus } from "@phosphor-icons/react"
+import { Plus, SidebarSimple } from "@phosphor-icons/react"
 
 import type { AppData, Conversation } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   ConversationList,
-  WORKSPACE_CHAT_LIST_DEFAULT_WIDTH_PERCENTAGE,
+  WORKSPACE_CHAT_LIST_DEFAULT_WIDTH,
 } from "@/components/app/collaboration-screens/workspace-chat-ui"
 import { getConversationPreview } from "@/components/app/collaboration-screens/workspace-conversation-preview"
 
@@ -19,6 +19,7 @@ export function WorkspaceConversationListPane({
   activeChat,
   conversationListWidth,
   conversationListResizing,
+  conversationListCollapsed,
   latestMessagesByConversationId,
   renderConversationAvatar,
   onCreateChat,
@@ -27,11 +28,13 @@ export function WorkspaceConversationListPane({
   onResizeStart,
   onResetWidth,
   onSelectChat,
+  onToggleConversationListCollapsed,
 }: {
   chats: Array<Conversation & { unread?: boolean }>
   activeChat: Conversation | null
   conversationListWidth: WorkspaceChatListWidth
   conversationListResizing: boolean
+  conversationListCollapsed: boolean
   latestMessagesByConversationId: Map<
     AppData["chatMessages"][number]["conversationId"],
     AppData["chatMessages"][number]
@@ -43,11 +46,53 @@ export function WorkspaceConversationListPane({
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onResetWidth: () => void
   onSelectChat: (id: string) => void
+  onToggleConversationListCollapsed: () => void
 }) {
-  const paneWidth =
-    conversationListWidth === null
-      ? WORKSPACE_CHAT_LIST_DEFAULT_WIDTH_PERCENTAGE
+  const paneWidth = conversationListCollapsed
+    ? "44px"
+    : conversationListWidth === null
+      ? `${WORKSPACE_CHAT_LIST_DEFAULT_WIDTH}px`
       : `${conversationListWidth}px`
+
+  if (conversationListCollapsed) {
+    return (
+      <div
+        data-workspace-chat-list-pane
+        data-collapsed="true"
+        className="relative flex min-h-0 shrink-0 flex-col items-center border-r"
+        style={{
+          width: paneWidth,
+          flexBasis: paneWidth,
+          minWidth: paneWidth,
+        }}
+      >
+        <div className="flex h-10 w-full shrink-0 items-center justify-center border-b">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label="Expand conversation list"
+            className="size-7 rounded-md"
+            onClick={onToggleConversationListCollapsed}
+          >
+            <SidebarSimple className="size-3.5" />
+          </Button>
+        </div>
+        <div className="flex flex-1 flex-col items-center gap-1 py-2">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label="New chat"
+            className="size-7 rounded-md"
+            onClick={onCreateChat}
+          >
+            <Plus className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -56,11 +101,23 @@ export function WorkspaceConversationListPane({
       style={{
         width: paneWidth,
         flexBasis: paneWidth,
-        minWidth: WORKSPACE_CHAT_LIST_DEFAULT_WIDTH_PERCENTAGE,
+        minWidth: `${WORKSPACE_CHAT_LIST_DEFAULT_WIDTH}px`,
       }}
     >
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b px-4">
-        <span className="truncate text-sm font-medium">Conversations</span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-medium">Conversations</span>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label="Collapse conversation list"
+            className="size-7 rounded-md"
+            onClick={onToggleConversationListCollapsed}
+          >
+            <SidebarSimple className="size-3.5" />
+          </Button>
+        </div>
         <Button
           size="sm"
           variant="ghost"

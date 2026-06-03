@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 const { pushMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -12,8 +12,25 @@ vi.mock("next/navigation", () => ({
 }))
 
 vi.mock("@/components/ui/confirm-dialog", () => ({
-  ConfirmDialog: ({ open, title }: { open: boolean; title: string }) =>
-    open ? <div>{title}</div> : null,
+  ConfirmDialog: ({
+    confirmLabel,
+    onConfirm,
+    open,
+    title,
+  }: {
+    confirmLabel: string
+    onConfirm: () => void
+    open: boolean
+    title: string
+  }) =>
+    open ? (
+      <div>
+        <div>{title}</div>
+        <button type="button" onClick={onConfirm}>
+          {confirmLabel}
+        </button>
+      </div>
+    ) : null,
 }))
 
 vi.mock("@/components/app/entity-icons", () => ({
@@ -395,7 +412,7 @@ describe("work item menus", () => {
     expect(screen.getByText("Status")).toBeInTheDocument()
     expect(screen.queryByText("Priority")).not.toBeInTheDocument()
     expect(screen.queryByText("Open item")).not.toBeInTheDocument()
-    expect(screen.queryByText("Delete feature")).not.toBeInTheDocument()
+    expect(screen.getByText("Delete selected items")).toBeInTheDocument()
 
     fireEvent.click(screen.getByText("In Progress"))
 
@@ -469,5 +486,22 @@ describe("work item menus", () => {
       screen.getByText("Update project for selected items")
     ).toBeInTheDocument()
     expect(useAppStore.getState().updateWorkItem).not.toHaveBeenCalled()
+  })
+
+  it("bulk-deletes every selected work item after confirmation", async () => {
+    renderBulkContextMenu({ displayProps: ["status"] })
+
+    fireEvent.click(screen.getByText("Delete selected items"))
+
+    expect(screen.getByText("Delete 2 selected items")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("Delete"))
+
+    expect(useAppStore.getState().deleteWorkItem).toHaveBeenCalledWith("item_1")
+    await waitFor(() =>
+      expect(useAppStore.getState().deleteWorkItem).toHaveBeenCalledWith(
+        "item_2"
+      )
+    )
   })
 })

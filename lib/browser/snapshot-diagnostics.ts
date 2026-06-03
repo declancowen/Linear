@@ -100,6 +100,29 @@ export function reportBootstrapModeDiagnostic(mode: string) {
   })
 }
 
+export function reportLegacySnapshotStreamDiagnostic(input: {
+  reason: string
+}) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    console.warn("[realtime] legacy snapshot stream enabled", {
+      reason: input.reason,
+    })
+    return
+  }
+
+  if (!isEnabled()) {
+    return
+  }
+
+  console.warn("[realtime] legacy snapshot stream enabled", {
+    reason: input.reason,
+  })
+}
+
 export function reportRealtimeFallbackDiagnostic(input: {
   reason: string
   target: string

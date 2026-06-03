@@ -12,7 +12,7 @@ export function getLatestMessagesByConversationId(
   const latestByConversationId = new Map<string, ChatMessage>()
 
   for (const message of chatMessages) {
-    if (!conversationIds.has(message.conversationId)) {
+    if (!conversationIds.has(message.conversationId) || message.deletedAt) {
       continue
     }
 
@@ -30,6 +30,10 @@ export function getConversationPreview(
   latest: ChatMessage | undefined
 ) {
   if (!latest) {
+    return "Open the conversation"
+  }
+
+  if (latest.deletedAt) {
     return "Open the conversation"
   }
 

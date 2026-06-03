@@ -1,4 +1,4 @@
-import type { AppSnapshot } from "@/lib/domain/types"
+import type { ScopedReadModelServerInstruction } from "@/lib/server/convex"
 import type { AuthenticatedSession } from "@/lib/server/route-auth"
 import {
   getConvexErrorMessage,
@@ -6,9 +6,14 @@ import {
 } from "@/lib/server/provider-errors"
 import { requireSession } from "@/lib/server/route-auth"
 import { isRouteResponse, jsonError, jsonOk } from "@/lib/server/route-response"
-import { loadScopedReadModelSnapshotForSession } from "@/lib/server/scoped-read-models"
+import { getScopedReadModelServer } from "@/lib/server/convex"
+import { getSelectedWorkspaceIdFromCookies } from "@/lib/server/workspace-selection"
 
 type CollectionReadModelScopeType = "personal" | "team" | "workspace"
+type CollectionReadModelKind = Extract<
+  ScopedReadModelServerInstruction,
+  { scopeType: CollectionReadModelScopeType }
+>["kind"]
 
 function parseCollectionReadModelScopeSearchParams<
   TScopeType extends CollectionReadModelScopeType,
@@ -34,21 +39,16 @@ function parseCollectionReadModelScopeSearchParams<
 
 export async function handleCollectionReadModelGet<
   TScopeType extends CollectionReadModelScopeType,
-  TData,
 >(
   request: Request,
   options: {
+    kind: CollectionReadModelKind
     allowedScopeTypes: ReadonlySet<TScopeType>
     invalidScopeMessage: string
     invalidScopeCode: string
     failureLogLabel: string
     failureMessage: string
     failureCode: string
-    select: (
-      snapshot: AppSnapshot,
-      scopeType: TScopeType,
-      scopeId: string
-    ) => TData
   }
 ) {
   const session = await requireSession()
@@ -69,10 +69,14 @@ export async function handleCollectionReadModelGet<
   }
 
   try {
-    const snapshot = await loadScopedReadModelSnapshotForSession(session)
+    const data = await loadScopedReadModelForSession(session, {
+      kind: options.kind,
+      scopeType: scope.scopeType,
+      scopeId: scope.scopeId,
+    } as ScopedReadModelServerInstruction)
 
     return jsonOk({
-      data: options.select(snapshot, scope.scopeType, scope.scopeId),
+      data,
     })
   } catch (error) {
     logProviderError(options.failureLogLabel, error)
@@ -87,11 +91,11 @@ export async function handleCollectionReadModelGet<
   }
 }
 
-export async function handleSnapshotReadModelGet<TData>(options: {
+export async function handleScopedReadModelGet<TData>(options: {
+  instruction: ScopedReadModelServerInstruction
   failureLogLabel: string
   failureMessage: string
   failureCode: string
-  select: (snapshot: AppSnapshot) => TData
 }) {
   const session = await requireSession()
 
@@ -100,10 +104,13 @@ export async function handleSnapshotReadModelGet<TData>(options: {
   }
 
   try {
-    const snapshot = await loadScopedReadModelSnapshotForSession(session)
+    const data = await loadScopedReadModelForSession(
+      session,
+      options.instruction
+    )
 
     return jsonOk({
-      data: options.select(snapshot),
+      data: data as TData,
     })
   } catch (error) {
     logProviderError(options.failureLogLabel, error)
@@ -118,18 +125,17 @@ export async function handleSnapshotReadModelGet<TData>(options: {
   }
 }
 
-export async function handleParameterizedSnapshotReadModelGet<
+export async function handleParameterizedScopedReadModelGet<
   TParams extends Record<string, string>,
-  TData,
 >(
   params: Promise<TParams>,
   options: {
+    buildInstruction: (params: TParams) => ScopedReadModelServerInstruction
     failureLogLabel: string
     failureMessage: string
     failureCode: string
     notFoundMessage: string
     notFoundCode: string
-    select: (snapshot: AppSnapshot, params: TParams) => TData | null
   }
 ) {
   const session = await requireSession()
@@ -140,8 +146,10 @@ export async function handleParameterizedSnapshotReadModelGet<
 
   try {
     const resolvedParams = await params
-    const snapshot = await loadScopedReadModelSnapshotForSession(session)
-    const data = options.select(snapshot, resolvedParams)
+    const data = await loadScopedReadModelForSession(
+      session,
+      options.buildInstruction(resolvedParams)
+    )
 
     if (!data) {
       return jsonError(options.notFoundMessage, 404, {
@@ -201,4 +209,18 @@ export async function handleWorkspaceReadModelGet<TData>(
       }
     )
   }
+}
+
+export async function loadScopedReadModelForSession(
+  session: AuthenticatedSession,
+  instruction: ScopedReadModelServerInstruction
+) {
+  const selectedWorkspaceId = await getSelectedWorkspaceIdFromCookies()
+
+  return getScopedReadModelServer({
+    workosUserId: session.user.id,
+    email: session.user.email ?? undefined,
+    selectedWorkspaceId,
+    instruction,
+  })
 }

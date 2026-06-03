@@ -69,8 +69,18 @@ function createTwoStepFetchMock() {
 }
 
 type ScopedStreamHandlers = {
-  onReady?: () => void
-  onInvalidate?: () => void
+  onReady?: (envelope?: {
+    versions: Array<{
+      scopeKey: string
+      version: number
+    }>
+  }) => void
+  onInvalidate?: (envelope?: {
+    versions: Array<{
+      scopeKey: string
+      version: number
+    }>
+  }) => void
   onUnavailable?: () => void
 }
 
@@ -126,7 +136,7 @@ describe("useScopedReadModelRefresh", () => {
     openScopedInvalidationStreamMock.mockReturnValue(vi.fn())
   })
 
-  it("refreshes when the scoped stream reports ready after the initial handshake", async () => {
+  it("does not refresh when reconnect ready reports unchanged scoped versions", async () => {
     const getHandlers = captureScopedStreamHandlers()
     const fetchLatestMock = await renderDefaultScopedRefresh()
 
@@ -134,15 +144,109 @@ describe("useScopedReadModelRefresh", () => {
       expect(fetchLatestMock).toHaveBeenCalledTimes(1)
     })
 
-    await flushScopedRefreshEvent(getHandlers()?.onReady)
+    await flushScopedRefreshEvent(() =>
+      getHandlers()?.onReady?.({
+        versions: [
+          {
+            scopeKey: "scope:a",
+            version: 1,
+          },
+        ],
+      })
+    )
 
     expect(fetchLatestMock).toHaveBeenCalledTimes(1)
 
-    await flushScopedRefreshEvent(getHandlers()?.onReady)
+    await flushScopedRefreshEvent(() =>
+      getHandlers()?.onReady?.({
+        versions: [
+          {
+            scopeKey: "scope:a",
+            version: 1,
+          },
+        ],
+      })
+    )
+
+    expect(fetchLatestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("refreshes when reconnect ready reports changed scoped versions", async () => {
+    const getHandlers = captureScopedStreamHandlers()
+    const fetchLatestMock = await renderDefaultScopedRefresh()
+
+    await waitFor(() => {
+      expect(fetchLatestMock).toHaveBeenCalledTimes(1)
+    })
+
+    await flushScopedRefreshEvent(() =>
+      getHandlers()?.onReady?.({
+        versions: [
+          {
+            scopeKey: "scope:a",
+            version: 1,
+          },
+        ],
+      })
+    )
+
+    expect(fetchLatestMock).toHaveBeenCalledTimes(1)
+
+    await flushScopedRefreshEvent(() =>
+      getHandlers()?.onReady?.({
+        versions: [
+          {
+            scopeKey: "scope:a",
+            version: 2,
+          },
+        ],
+      })
+    )
 
     await waitFor(() => {
       expect(fetchLatestMock).toHaveBeenCalledTimes(2)
     })
+  })
+
+  it("retries a failed scoped refresh on the next ready event", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {})
+    const getHandlers = captureScopedStreamHandlers()
+    const fetchLatestMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Network failed"))
+      .mockResolvedValue({})
+    const { useScopedReadModelRefresh } =
+      await import("@/hooks/use-scoped-read-model-refresh")
+
+    const { result } = renderHook(() =>
+      useScopedReadModelRefresh({
+        enabled: true,
+        scopeKeys: ["scope:a"],
+        fetchLatest: fetchLatestMock,
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("Network failed")
+    })
+
+    await flushScopedRefreshEvent(() =>
+      getHandlers()?.onReady?.({
+        versions: [
+          {
+            scopeKey: "scope:a",
+            version: 1,
+          },
+        ],
+      })
+    )
+
+    await waitFor(() => {
+      expect(fetchLatestMock).toHaveBeenCalledTimes(2)
+    })
+    consoleErrorSpy.mockRestore()
   })
 
   it("falls back to periodic refresh when the scoped stream is unavailable", async () => {
@@ -165,6 +269,19 @@ describe("useScopedReadModelRefresh", () => {
       expect(fetchLatestMock).toHaveBeenCalledTimes(1)
     })
 
+    await flushScopedRefreshEvent(() =>
+      getHandlers()?.onReady?.({
+        versions: [
+          {
+            scopeKey: "scope:a",
+            version: 1,
+          },
+        ],
+      })
+    )
+
+    expect(fetchLatestMock).toHaveBeenCalledTimes(1)
+
     await flushScopedRefreshEvent(getHandlers()?.onUnavailable)
 
     expect(fetchLatestMock).toHaveBeenCalledTimes(2)
@@ -173,12 +290,62 @@ describe("useScopedReadModelRefresh", () => {
 
     expect(fetchLatestMock).toHaveBeenCalledTimes(3)
 
-    await flushScopedRefreshEvent(getHandlers()?.onReady)
+    await flushScopedRefreshEvent(() =>
+      getHandlers()?.onReady?.({
+        versions: [
+          {
+            scopeKey: "scope:a",
+            version: 1,
+          },
+        ],
+      })
+    )
 
-    expect(fetchLatestMock).toHaveBeenCalledTimes(4)
+    expect(fetchLatestMock).toHaveBeenCalledTimes(3)
     expect(degradedRefreshCallback).not.toBeNull()
     expect(setIntervalSpy).toHaveBeenCalled()
     expect(clearIntervalSpy).toHaveBeenCalled()
+  })
+
+  it("gates focus and online refreshes by visibility and staleness", async () => {
+    const dateNowSpy = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(new Date("2026-06-03T10:00:00.000Z").getTime())
+    const visibilityStateSpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible")
+    const fetchLatestMock = await renderDefaultScopedRefresh()
+
+    await waitFor(() => {
+      expect(fetchLatestMock).toHaveBeenCalledTimes(1)
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"))
+      window.dispatchEvent(new Event("online"))
+      await Promise.resolve()
+    })
+
+    expect(fetchLatestMock).toHaveBeenCalledTimes(1)
+
+    dateNowSpy.mockReturnValue(new Date("2026-06-03T10:00:31.000Z").getTime())
+    visibilityStateSpy.mockReturnValue("hidden")
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"))
+      await Promise.resolve()
+    })
+
+    expect(fetchLatestMock).toHaveBeenCalledTimes(1)
+
+    visibilityStateSpy.mockReturnValue("visible")
+
+    await act(async () => {
+      window.dispatchEvent(new Event("online"))
+      await Promise.resolve()
+    })
+
+    expect(fetchLatestMock).toHaveBeenCalledTimes(2)
   })
 
   it("treats scoped refresh as loaded when scoped sync is disabled", async () => {

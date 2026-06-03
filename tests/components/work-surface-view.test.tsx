@@ -137,6 +137,7 @@ import {
   getCalendarWeekendVisibilityAnchorDate,
 } from "@/components/app/screens/work-surface-view/calendar-view"
 import { BoardChildItemRow } from "@/components/app/screens/work-surface-view/board-child-item-row"
+import { WorkItemSelectionCheckbox } from "@/components/app/screens/work-item-selection"
 import { requestWorkSurfaceDragUpdate } from "@/components/app/screens/work-surface-view/drag-state"
 import {
   TimelineBar,
@@ -2551,6 +2552,103 @@ describe("ListView", () => {
     expect(screen.queryByText("No items")).not.toBeInTheDocument()
   })
 
+  it("opens visible label properties as editable list dropdowns", () => {
+    const item = createWorkItem({
+      labelIds: ["label_cx"],
+      status: "todo",
+    })
+    const data = {
+      ...createEditableData(),
+      labels: [
+        {
+          id: "label_cx",
+          workspaceId: "workspace_1",
+          name: "CX",
+          color: "#34d399",
+        },
+        {
+          id: "label_ops",
+          workspaceId: "workspace_1",
+          name: "Ops",
+          color: "#60a5fa",
+        },
+      ],
+      workItems: [item],
+    }
+
+    useAppStore.setState(data)
+    const updateWorkItemSpy = vi
+      .spyOn(useAppStore.getState(), "updateWorkItem")
+      .mockImplementation((id: string, patch: Partial<WorkItem>) => {
+        useAppStore.setState((state) => ({
+          workItems: state.workItems.map((entry) =>
+            entry.id === id ? { ...entry, ...patch } : entry
+          ),
+        }))
+
+        return {
+          status: "updated" as const,
+        }
+      })
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["labels"])}
+        editable
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Labels: CX" }))
+    fireEvent.click(screen.getByRole("button", { name: "Ops" }))
+
+    expect(updateWorkItemSpy).toHaveBeenCalledWith("item_1", {
+      labelIds: ["label_cx", "label_ops"],
+    })
+  })
+
+  it("does not expose label dropdowns for private task rows", () => {
+    const item = createWorkItem({
+      id: "private_item",
+      key: "TES-1",
+      title: "Private follow-up",
+      labelIds: ["label_cx"],
+      visibility: "private",
+      workspaceId: "workspace_1",
+      teamId: null,
+    })
+    const data = {
+      ...createEditableData(),
+      labels: [
+        {
+          id: "label_cx",
+          workspaceId: "workspace_1",
+          name: "CX",
+          color: "#34d399",
+        },
+      ],
+      workItems: [item],
+    }
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["labels"], {
+          filters: {
+            ...createDefaultViewFilters(),
+            visibility: ["private"],
+          },
+        })}
+        editable
+      />
+    )
+
+    expect(screen.queryByRole("button", { name: /Labels:/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Label" })).not.toBeInTheDocument()
+  })
+
   it("passes selected visible list rows into the work item context menu", () => {
     const firstItem = createWorkItem({
       id: "item_1",
@@ -2588,6 +2686,63 @@ describe("ListView", () => {
       "data-display-props",
       "status"
     )
+  })
+
+  it("places list selection after disclosure next to the identity cluster", () => {
+    const parentItem = createWorkItem({
+      id: "parent_item",
+      key: "TES-1",
+      title: "Parent item",
+      status: "todo",
+      type: "epic",
+    })
+    const childItem = createWorkItem({
+      id: "child_item",
+      key: "TES-2",
+      title: "Child item",
+      status: "todo",
+      type: "feature",
+      parentId: parentItem.id,
+    })
+    const data = {
+      ...createEditableData(),
+      workItems: [parentItem, childItem],
+    }
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["status"], {
+          showChildItems: true,
+        })}
+        editable
+      />
+    )
+
+    const disclosure = screen.getByLabelText("Expand sub-issues")
+    const checkbox = screen.getByLabelText("Select TES-1")
+
+    expect(
+      disclosure.compareDocumentPosition(checkbox) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it("renders selected checkboxes as gray boxes with a black tick", () => {
+    render(
+      <WorkItemSelectionCheckbox
+        checked
+        label="Select TES-1"
+        onChange={vi.fn()}
+      />
+    )
+
+    const checkbox = screen.getByLabelText("Select TES-1")
+    const visualBox = checkbox.nextElementSibling
+
+    expect(visualBox).toHaveClass("border-0", "bg-surface-3")
+    expect(visualBox).toHaveClass("peer-checked:text-foreground")
   })
 
   it("keeps list selection ranges scoped to rendered child rows", () => {

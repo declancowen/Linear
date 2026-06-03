@@ -145,6 +145,35 @@ describe("view item levels", () => {
     ).toEqual(["feature-root", "feature-child"])
   })
 
+  it("matches parent filters against descendants across the hierarchy", () => {
+    const state = createEmptyState()
+    const epic = createTestWorkItem("epic", { type: "epic" })
+    const feature = createTestWorkItem("feature", {
+      type: "feature",
+      parentId: epic.id,
+    })
+    const story = createTestWorkItem("story", {
+      type: "story",
+      parentId: feature.id,
+    })
+    const unrelated = createTestWorkItem("unrelated", { type: "task" })
+
+    state.workItems = [epic, feature, story, unrelated]
+
+    expect(
+      getVisibleItemsForView(
+        state,
+        state.workItems,
+        createView({
+          filters: {
+            ...createView().filters,
+            parentIds: [epic.id],
+          },
+        })
+      ).map((item) => item.id)
+    ).toEqual(["feature", "story"])
+  })
+
   it("does not synthesize empty groups when empty groups are hidden", () => {
     const state = createEmptyState()
     const filteredItems = [createTestWorkItem("root-todo", { status: "todo" })]
@@ -646,6 +675,62 @@ describe("view item levels", () => {
         }
       ).map((item) => item.id)
     ).toEqual(["epic"])
+  })
+
+  it("does not lift assigned-descendant containers when descendants fail the active filters", () => {
+    const state = createEmptyState()
+    const epic = createTestWorkItem("epic", {
+      type: "epic",
+      status: "backlog",
+    })
+    const selectedParent = createTestWorkItem("selected-parent", {
+      type: "feature",
+      parentId: epic.id,
+      status: "todo",
+    })
+    const otherParent = createTestWorkItem("other-parent", {
+      type: "feature",
+      parentId: epic.id,
+      status: "todo",
+    })
+    const matchingStory = createTestWorkItem("matching-story", {
+      type: "story",
+      parentId: selectedParent.id,
+      assigneeId: "user_1",
+      status: "in-progress",
+    })
+    const nonMatchingStory = createTestWorkItem("non-matching-story", {
+      type: "story",
+      parentId: otherParent.id,
+      assigneeId: "user_1",
+      status: "in-progress",
+    })
+
+    state.workItems = [
+      epic,
+      selectedParent,
+      otherParent,
+      matchingStory,
+      nonMatchingStory,
+    ]
+
+    expect(
+      getVisibleItemsForView(
+        state,
+        [selectedParent, otherParent, matchingStory, nonMatchingStory],
+        createView({
+          itemLevel: "feature",
+          filters: {
+            ...createView().filters,
+            parentIds: [selectedParent.id],
+          },
+        }),
+        {
+          matchItems: [matchingStory, nonMatchingStory],
+          childDisplayMode: "assigned-descendants",
+        }
+      ).map((item) => item.id)
+    ).toEqual(["selected-parent"])
   })
 
   it("shows selected parent context for subscribed child items", () => {

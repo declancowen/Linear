@@ -14,7 +14,6 @@ import {
   getChannelPostComments,
   getConversationParticipants,
 } from "@/lib/domain/selectors"
-import { escapeHtml } from "@/lib/html"
 import {
   channelPostCommentContentConstraints,
   channelPostContentConstraints,
@@ -25,7 +24,6 @@ import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
-import { createQuotedRichText } from "@/components/app/message-quote"
 import { MessageHoverActionBar } from "@/components/app/message-hover-action-bar"
 import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
@@ -98,14 +96,14 @@ function ForumPostActionBar({
   onEdit,
   postId,
   onDelete,
-  onQuote,
+  onReply,
 }: {
   canEditPost: boolean
   canDeletePost: boolean
   onEdit: () => void
   postId: string
   onDelete: () => void
-  onQuote: () => void
+  onReply: () => void
 }) {
   return (
     <MessageHoverActionBar
@@ -117,19 +115,14 @@ function ForumPostActionBar({
       editLabel="Edit post"
       onDelete={onDelete}
       onEdit={onEdit}
-      onQuote={onQuote}
-      quoteLabel="Quote post"
+      onQuote={onReply}
+      quoteAction="reply"
+      quoteLabel="Reply"
       onReact={(emoji) => {
         useAppStore.getState().toggleChannelPostReaction(postId, emoji)
       }}
     />
   )
-}
-
-function getForumPostQuoteContent(post: ForumPostRecord) {
-  return post.title
-    ? `<p>${escapeHtml(post.title)}</p>${post.content}`
-    : post.content
 }
 
 function ForumPostReactions({
@@ -188,7 +181,7 @@ function ForumPostCommentList({
   mentionCandidates,
   onDeleteComment,
   onEditComment,
-  onQuoteComment,
+  onReplyComment,
   usersById,
   workspaceId,
 }: {
@@ -197,7 +190,7 @@ function ForumPostCommentList({
   mentionCandidates: ForumUser[]
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
-  onQuoteComment: (comment: ForumPostComment) => void
+  onReplyComment: (comment: ForumPostComment) => void
   usersById: UsersById
   workspaceId: string | null
 }) {
@@ -217,7 +210,7 @@ function ForumPostCommentList({
           mentionCandidates={mentionCandidates}
           onDelete={() => onDeleteComment(comment)}
           onEdit={onEditComment}
-          onQuote={() => onQuoteComment(comment)}
+          onReply={() => onReplyComment(comment)}
           onReact={(commentId, emoji) => {
             useAppStore
               .getState()
@@ -469,20 +462,12 @@ function useForumPostCardController(postId: string) {
       content,
     })
   }
-  const openQuotedReply = (content: string, authorName?: string) => {
+  const openReply = () => {
     setShowReplies(true)
     setReplyOpen(true)
-    setReply(createQuotedRichText(content, authorName))
   }
-  const handleQuotePost = () => {
-    openQuotedReply(getForumPostQuoteContent(post), author?.name)
-  }
-  const handleQuoteComment = (comment: ForumPostComment) => {
-    openQuotedReply(
-      comment.content,
-      usersById.get(comment.createdBy)?.name ?? "Unknown"
-    )
-  }
+  const handleReplyPost = () => openReply()
+  const handleReplyComment = () => openReply()
   const handleInsertReplyEmoji = (emoji: string) => {
     replyEditorRef.current?.chain().focus().insertContent(emoji).run()
   }
@@ -512,8 +497,8 @@ function useForumPostCardController(postId: string) {
     handleEditComment,
     handleEditPost,
     handleOpenEditPost,
-    handleQuoteComment,
-    handleQuotePost,
+    handleReplyComment,
+    handleReplyPost,
     handleInsertReplyEmoji,
     handleReply,
     hiddenCount,
@@ -586,7 +571,7 @@ function EarlierForumPostComments({
   mentionCandidates,
   onDeleteComment,
   onEditComment,
-  onQuoteComment,
+  onReplyComment,
   showReplies,
   usersById,
 }: Pick<
@@ -601,7 +586,7 @@ function EarlierForumPostComments({
 > & {
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
-  onQuoteComment: (comment: ForumPostComment) => void
+  onReplyComment: (comment: ForumPostComment) => void
 }) {
   if (!showReplies || hiddenCount <= 0) {
     return null
@@ -615,7 +600,7 @@ function EarlierForumPostComments({
         mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
-        onQuoteComment={onQuoteComment}
+        onReplyComment={onReplyComment}
         usersById={usersById}
         workspaceId={currentWorkspaceId}
       />
@@ -661,7 +646,7 @@ function ForumPostRepliesSection({
   onInsertEmoji,
   onDeleteComment,
   onEditComment,
-  onQuoteComment,
+  onReplyComment,
   onReply,
   onReplyChange,
   onSetReplyOpen,
@@ -684,7 +669,7 @@ function ForumPostRepliesSection({
   onInsertEmoji: (emoji: string) => void
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
-  onQuoteComment: (comment: ForumPostComment) => void
+  onReplyComment: (comment: ForumPostComment) => void
   onReply: () => void
   onReplyChange: (value: string) => void
   onSetReplyOpen: (open: boolean) => void
@@ -714,7 +699,7 @@ function ForumPostRepliesSection({
         mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
-        onQuoteComment={onQuoteComment}
+        onReplyComment={onReplyComment}
         showReplies={showReplies}
         usersById={usersById}
       />
@@ -725,7 +710,7 @@ function ForumPostRepliesSection({
         mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
-        onQuoteComment={onQuoteComment}
+        onReplyComment={onReplyComment}
         usersById={usersById}
         workspaceId={currentWorkspaceId}
       />
@@ -772,8 +757,8 @@ function ForumPostCardLayout({
   handleEditComment,
   handleEditPost,
   handleOpenEditPost,
-  handleQuoteComment,
-  handleQuotePost,
+  handleReplyComment,
+  handleReplyPost,
   handleInsertReplyEmoji,
   handleReply,
   hiddenCount,
@@ -828,10 +813,10 @@ function ForumPostCardLayout({
         onDelete={() => setDeletePostOpen(true)}
         onDeleteComment={setDeleteComment}
         onEditComment={handleEditComment}
-        onQuoteComment={handleQuoteComment}
+        onReplyComment={handleReplyComment}
         onEditPost={handleEditPost}
         onOpenEditPost={handleOpenEditPost}
-        onQuotePost={handleQuotePost}
+        onReplyPost={handleReplyPost}
         onInsertReplyEmoji={handleInsertReplyEmoji}
         onEditContentChange={setEditContent}
         onEditOpenChange={setEditOpen}
@@ -986,10 +971,10 @@ function ForumPostBody({
   onDelete,
   onDeleteComment,
   onEditComment,
-  onQuoteComment,
+  onReplyComment,
   onEditPost,
   onOpenEditPost,
-  onQuotePost,
+  onReplyPost,
   onInsertReplyEmoji,
   onEditContentChange,
   onEditOpenChange,
@@ -1026,10 +1011,10 @@ function ForumPostBody({
   onDelete: () => void
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
-  onQuoteComment: (comment: ForumPostComment) => void
+  onReplyComment: (comment: ForumPostComment) => void
   onEditPost: () => void
   onOpenEditPost: () => void
-  onQuotePost: () => void
+  onReplyPost: () => void
   onInsertReplyEmoji: (emoji: string) => void
   onEditContentChange: (content: string) => void
   onEditOpenChange: (open: boolean) => void
@@ -1056,7 +1041,7 @@ function ForumPostBody({
         postId={post.id}
         onDelete={onDelete}
         onEdit={onOpenEditPost}
-        onQuote={onQuotePost}
+        onReply={onReplyPost}
       />
 
       {editOpen ? (
@@ -1111,7 +1096,7 @@ function ForumPostBody({
         usersById={usersById}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
-        onQuoteComment={onQuoteComment}
+        onReplyComment={onReplyComment}
         onInsertEmoji={onInsertReplyEmoji}
         onReply={onReply}
         onReplyChange={onReplyChange}

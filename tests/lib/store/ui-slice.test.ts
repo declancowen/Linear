@@ -4,24 +4,29 @@ import { getViewerScopedViewKey } from "@/lib/domain/viewer-view-config"
 import { createUiSlice } from "@/lib/store/app-store-internal/slices/ui"
 import {
   createTestAppData,
+  createTestWorkItem,
   createTestViewDefinition,
 } from "@/tests/lib/fixtures/app-data"
 import { createMutableSetState } from "@/tests/lib/fixtures/store"
 
 function createUiSliceHarness() {
-  const state = createTestAppData({
-    views: [
-      createTestViewDefinition({
-        id: "view_1",
-        route: "/team/platform/work",
-        displayProps: ["id", "status"],
-        hiddenState: {
-          groups: ["todo"],
-          subgroups: [],
-        },
-      }),
-    ],
-  })
+  const state = {
+    ...createTestAppData({
+      views: [
+        createTestViewDefinition({
+          id: "view_1",
+          route: "/team/platform/work",
+          displayProps: ["id", "status"],
+          hiddenState: {
+            groups: ["todo"],
+            subgroups: [],
+          },
+        }),
+      ],
+    }),
+    pendingWorkItemSyncsById: {},
+    pendingChatMessageSyncsById: {},
+  }
   const setState = createMutableSetState(state)
   const slice = createUiSlice(setState as never)
   const storageKey = getViewerScopedViewKey(
@@ -136,5 +141,75 @@ describe("ui slice", () => {
     } as never)
 
     expect(state.notifications[0]?.readAt).toBe(readAt)
+  })
+
+  it("preserves pending optimistic work item fields while stale read models arrive", () => {
+    const { slice, state } = createUiSliceHarness()
+    const serverItem = createTestWorkItem("item_1", {
+      status: "todo",
+      updatedAt: "2026-04-20T09:00:00.000Z",
+    })
+    const optimisticItem = {
+      ...serverItem,
+      status: "done" as const,
+      updatedAt: "2026-04-20T10:00:00.000Z",
+    }
+
+    state.workItems = [optimisticItem]
+    state.pendingWorkItemSyncsById = {
+      item_1: "work_item_sync_1",
+    }
+
+    slice.mergeReadModelData({
+      workItems: [serverItem],
+    })
+
+    expect(state.workItems[0]).toMatchObject({
+      id: "item_1",
+      status: "done",
+      updatedAt: "2026-04-20T10:00:00.000Z",
+    })
+
+    slice.replaceDomainData({
+      workItems: [serverItem],
+    } as never)
+
+    expect(state.workItems[0]).toMatchObject({
+      id: "item_1",
+      status: "done",
+      updatedAt: "2026-04-20T10:00:00.000Z",
+    })
+  })
+
+  it("preserves pending optimistic chat messages while stale read models arrive", () => {
+    const { slice, state } = createUiSliceHarness()
+    const optimisticMessage = {
+      id: "message_pending",
+      conversationId: "conversation_1",
+      kind: "text" as const,
+      content: "<p>Sending</p>",
+      callId: null,
+      mentionUserIds: [],
+      reactions: [],
+      createdBy: "user_1",
+      createdAt: "2026-04-20T10:00:00.000Z",
+    }
+
+    state.chatMessages = [optimisticMessage]
+    state.pendingChatMessageSyncsById = {
+      message_pending: "chat_message_sync_1",
+    }
+
+    slice.mergeReadModelData({
+      chatMessages: [],
+    })
+
+    expect(state.chatMessages).toEqual([optimisticMessage])
+
+    slice.replaceDomainData({
+      chatMessages: [],
+    } as never)
+
+    expect(state.chatMessages).toEqual([optimisticMessage])
   })
 })

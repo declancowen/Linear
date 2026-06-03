@@ -11,6 +11,7 @@ const {
   fetchSnapshotVersionMock,
   mergeReadModelDataMock,
   replaceDomainDataMock,
+  reportLegacySnapshotStreamDiagnosticMock,
   resolveSnapshotThemePreferenceMock,
   setThemeMock,
   shouldUseLegacySnapshotSyncMock,
@@ -19,6 +20,7 @@ const {
   fetchSnapshotVersionMock: vi.fn(),
   mergeReadModelDataMock: vi.fn(),
   replaceDomainDataMock: vi.fn(),
+  reportLegacySnapshotStreamDiagnosticMock: vi.fn(),
   resolveSnapshotThemePreferenceMock: vi.fn<
     (value: ThemePreference) => ThemePreference | null
   >(() => null),
@@ -38,6 +40,8 @@ vi.mock("@/lib/browser/session-redirect", () => ({
 
 vi.mock("@/lib/browser/snapshot-diagnostics", () => ({
   reportBootstrapModeDiagnostic: vi.fn(),
+  reportLegacySnapshotStreamDiagnostic:
+    reportLegacySnapshotStreamDiagnosticMock,
   reportSnapshotApplyDiagnostic: vi.fn(),
   reportSnapshotFetchDiagnostic: vi.fn(),
   reportSnapshotStreamReconnectDiagnostic: vi.fn(),
@@ -149,6 +153,7 @@ describe("ConvexAppProvider", () => {
     fetchSnapshotVersionMock.mockReset()
     mergeReadModelDataMock.mockReset()
     replaceDomainDataMock.mockReset()
+    reportLegacySnapshotStreamDiagnosticMock.mockReset()
     resolveSnapshotThemePreferenceMock.mockReset()
     resolveSnapshotThemePreferenceMock.mockReturnValue(null)
     setThemeMock.mockReset()
@@ -198,6 +203,10 @@ describe("ConvexAppProvider", () => {
 
     await waitFor(() => {
       expect(replaceDomainDataMock).toHaveBeenCalled()
+    })
+    expect(reportLegacySnapshotStreamDiagnosticMock).toHaveBeenCalledWith({
+      reason:
+        "Legacy snapshot sync is enabled; scoped read models should be preferred in production.",
     })
   })
 

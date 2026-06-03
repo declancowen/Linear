@@ -24,6 +24,7 @@ import {
 } from "@/lib/domain/selectors"
 import {
   resolveUserStatus,
+  statusMeta,
   userStatusMeta,
   type AppData,
   type UserProfile,
@@ -43,7 +44,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
-import { cn } from "@/lib/utils"
+import { cn, getPlainTextContent } from "@/lib/utils"
 
 type WorkspacePersonMeta = {
   isSelf: boolean
@@ -314,6 +315,117 @@ export function PeopleScreen() {
   )
 }
 
+function truncateActivityDetail(value: string) {
+  const compact = value.replace(/\s+/g, " ").trim()
+
+  if (compact.length <= 120) {
+    return compact
+  }
+
+  return `${compact.slice(0, 117)}...`
+}
+
+function getCommentPreview(
+  data: AppData,
+  commentId: string,
+  fallback = "Comment detail unavailable"
+) {
+  const comment = data.comments.find((entry) => entry.id === commentId)
+  const preview = comment
+    ? truncateActivityDetail(getPlainTextContent(comment.content))
+    : ""
+
+  return preview || fallback
+}
+
+function getChannelCommentPreview(data: AppData, commentId: string) {
+  const comment = data.channelPostComments.find(
+    (entry) => entry.id === commentId
+  )
+  const preview = comment
+    ? truncateActivityDetail(getPlainTextContent(comment.content))
+    : ""
+
+  return preview || "Comment detail unavailable"
+}
+
+function getLabelNameById(data: AppData, labelId: string) {
+  return data.labels.find((label) => label.id === labelId)?.name ?? labelId
+}
+
+function getUserNameById(data: AppData, userId: string) {
+  const user = data.users.find((entry) => entry.id === userId)
+  return user ? getPersonName(user) : userId
+}
+
+function getChangeListDetail(input: {
+  property: string
+  fromValues: string[]
+  toValues: string[]
+  emptyLabel: string
+}) {
+  const fromSet = new Set(input.fromValues)
+  const toSet = new Set(input.toValues)
+  const added = input.toValues.filter((value) => !fromSet.has(value))
+  const removed = input.fromValues.filter((value) => !toSet.has(value))
+  const detailParts = [
+    added.length > 0 ? `added ${added.join(", ")}` : "",
+    removed.length > 0 ? `removed ${removed.join(", ")}` : "",
+  ].filter(Boolean)
+
+  return `${input.property}: ${
+    detailParts.length > 0 ? detailParts.join("; ") : input.emptyLabel
+  }`
+}
+
+function getWorkItemActivityDetail(data: AppData, activityId: string) {
+  const activity = data.workItemActivities.find(
+    (entry) => entry.id === activityId
+  )
+
+  if (!activity) {
+    return null
+  }
+
+  switch (activity.type) {
+    case "status-change":
+      return `Status: ${statusMeta[activity.fromStatus].label} to ${
+        statusMeta[activity.toStatus].label
+      }`
+    case "label-change":
+      return getChangeListDetail({
+        property: "Labels",
+        fromValues: activity.fromLabelIds.map((labelId) =>
+          getLabelNameById(data, labelId)
+        ),
+        toValues: activity.toLabelIds.map((labelId) =>
+          getLabelNameById(data, labelId)
+        ),
+        emptyLabel: "no visible label change",
+      })
+    case "assignee-change":
+      return getChangeListDetail({
+        property: "Assignees",
+        fromValues: activity.fromAssigneeIds.map((userId) =>
+          getUserNameById(data, userId)
+        ),
+        toValues: activity.toAssigneeIds.map((userId) =>
+          getUserNameById(data, userId)
+        ),
+        emptyLabel: "no visible assignee change",
+      })
+  }
+}
+
+function getProjectUpdatePreview(data: AppData, updateId: string) {
+  const update = data.projectUpdates.find((entry) => entry.id === updateId)
+  const preview = update
+    ? truncateActivityDetail(getPlainTextContent(update.content))
+    : ""
+
+  return preview || null
+}
+
 function getActivityPresentation(data: AppData, activity: PersonActivity) {
   switch (activity.type) {
     case "workItemCreated":
@@ -327,30 +439,35 @@ function getActivityPresentation(data: AppData, activity: PersonActivity) {
         label: "Commented on work item",
         category: "Work",
         href: `/items/${activity.itemId}`,
+        detail: getCommentPreview(data, activity.commentId),
       }
     case "workItemStatusChanged":
       return {
         label: "Changed work item status",
         category: "Work",
         href: `/items/${activity.itemId}`,
+        detail: getWorkItemActivityDetail(data, activity.activityId),
       }
     case "workItemLabelsChanged":
       return {
         label: "Updated work item labels",
         category: "Work",
         href: `/items/${activity.itemId}`,
+        detail: getWorkItemActivityDetail(data, activity.activityId),
       }
     case "workItemAssigneesChanged":
       return {
         label: "Updated work item assignees",
         category: "Work",
         href: `/items/${activity.itemId}`,
+        detail: getWorkItemActivityDetail(data, activity.activityId),
       }
     case "documentCommented":
       return {
         label: "Commented on document",
         category: "Docs",
         href: `/docs/${activity.documentId}`,
+        detail: getCommentPreview(data, activity.commentId),
       }
     case "channelPostCreated":
       return {
@@ -363,12 +480,14 @@ function getActivityPresentation(data: AppData, activity: PersonActivity) {
         label: "Commented on channel post",
         category: "Channel",
         href: getChannelPostHref(data, activity.postId) ?? "/workspace/channel",
+        detail: getChannelCommentPreview(data, activity.commentId),
       }
     case "projectUpdatePosted":
       return {
         label: "Posted project update",
         category: "Projects",
         href: getProjectHref(data, activity.projectId) ?? "/workspace/projects",
+        detail: getProjectUpdatePreview(data, activity.updateId),
       }
   }
 }
@@ -397,7 +516,7 @@ function ActivityRow({
       <span
         aria-hidden
         className={cn(
-          "mt-0.5 inline-flex shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase",
+          "mt-0.5 inline-flex shrink-0 rounded-md px-1.5 py-0.5 text-[9.5px] leading-4 font-semibold tracking-wide uppercase",
           ACTIVITY_CATEGORY_CLASSES[presentation.category] ??
             "bg-muted text-muted-foreground"
         )}
@@ -405,13 +524,18 @@ function ActivityRow({
         {presentation.category}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-sm text-fg-2">
+        <div className="text-[13px] leading-5 text-fg-2">
           {presentation.label}
           <span className="px-1.5 text-muted-foreground/50">·</span>
           <span className="font-medium text-foreground group-hover:underline">
             {activity.title}
           </span>
         </div>
+        {presentation.detail ? (
+          <div className="mt-0.5 line-clamp-2 text-[11.5px] leading-4 text-muted-foreground">
+            {presentation.detail}
+          </div>
+        ) : null}
       </div>
       <time
         className="shrink-0 text-xs text-muted-foreground"

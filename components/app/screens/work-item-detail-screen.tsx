@@ -119,7 +119,6 @@ import {
   toggleWorkItemAssigneeId,
 } from "@/lib/domain/work-item-assignees"
 import { RichTextContent } from "@/components/app/rich-text-content"
-import { createQuotedRichText } from "@/components/app/message-quote"
 import { MessageHoverActionBar } from "@/components/app/message-hover-action-bar"
 import {
   useWorkItemSurfacePortalContainer,
@@ -1231,14 +1230,13 @@ function useMainActivityReplyState(
     onReplyCreated?.()
   }
 
-  function openQuotedReply(authorName?: string) {
-    setReplyContent(createQuotedRichText(comment.content, authorName))
+  function openReply() {
     setReplyOpen(true)
   }
 
   return {
     handleReply,
-    openQuotedReply,
+    openReply,
     replyContent,
     replyEditorRef,
     replyLimitState,
@@ -1562,9 +1560,10 @@ function MainActivityCommentCard({
         editLabel="Edit comment"
         onDelete={() => editState.setDeleteOpen(true)}
         onEdit={editState.openEditComposer}
-        onQuote={() => replyState.openQuotedReply(author?.name)}
+        onQuote={replyState.openReply}
         portalContainer={portalContainer}
-        quoteLabel="Quote comment"
+        quoteAction="reply"
+        quoteLabel="Reply"
         onReact={(emoji) => {
           useAppStore.getState().toggleCommentReaction(comment.id, emoji)
         }}
@@ -1947,9 +1946,10 @@ function MainActivityCommentReplyRow({
         editLabel="Edit comment"
         onDelete={() => editState.setDeleteOpen(true)}
         onEdit={editState.openEditComposer}
-        onQuote={() => replyState.openQuotedReply(author?.name)}
+        onQuote={replyState.openReply}
         portalContainer={portalContainer}
-        quoteLabel="Quote comment"
+        quoteAction="reply"
+        quoteLabel="Reply"
         onReact={(emoji) => {
           useAppStore.getState().toggleCommentReaction(comment.id, emoji)
         }}

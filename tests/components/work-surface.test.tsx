@@ -5,11 +5,15 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 const {
   filterPopoverMock,
   getVisibleItemsForViewMock,
+  groupOptionsState,
   propertiesPopoverMock,
   searchParamsState,
 } = vi.hoisted(() => ({
   filterPopoverMock: vi.fn(() => null),
   getVisibleItemsForViewMock: vi.fn((_: unknown, items: unknown[]) => items),
+  groupOptionsState: {
+    value: ["status"],
+  },
   propertiesPopoverMock: vi.fn(() => null),
   searchParamsState: {
     value: "",
@@ -57,7 +61,7 @@ vi.mock("@/components/app/screens/entity-context-menus", () => ({
 
 vi.mock("@/components/app/screens/work-surface-controls", () => ({
   FilterPopover: filterPopoverMock,
-  getAvailableGroupOptions: () => ["status"],
+  getAvailableGroupOptions: () => groupOptionsState.value,
   GroupChipPopover: () => null,
   LayoutTabs: () => null,
   LevelChipPopover: ({ showLabel }: { showLabel?: boolean }) => (
@@ -260,6 +264,7 @@ describe("WorkSurface", () => {
     searchParamsState.value = ""
     filterPopoverMock.mockClear()
     getVisibleItemsForViewMock.mockClear()
+    groupOptionsState.value = ["status"]
     propertiesPopoverMock.mockClear()
     vi.clearAllMocks()
   })
@@ -471,6 +476,39 @@ describe("WorkSurface", () => {
     )
 
     expect(screen.queryByText("board-content")).not.toBeInTheDocument()
+    expect(screen.getByText("group:status/sub:none")).toBeInTheDocument()
+  })
+
+  it("removes team grouping from private task views", () => {
+    groupOptionsState.value = ["team", "status", "assignee", "project"]
+
+    render(
+      <WorkSurface
+        title="My items"
+        routeKey="/assigned"
+        views={[]}
+        fallbackViews={[
+          createView({
+            id: "view_assigned_private_tasks",
+            name: "Private tasks",
+            scopeType: "personal",
+            scopeId: "user_1",
+            route: "/assigned",
+            grouping: "team",
+            subGrouping: null,
+            filters: {
+              ...createDefaultViewFilters(),
+              visibility: ["private"],
+            },
+          }),
+        ]}
+        items={[]}
+        team={createTeam()}
+        emptyLabel="Nothing assigned"
+        allowCreateViews={false}
+      />
+    )
+
     expect(screen.getByText("group:status/sub:none")).toBeInTheDocument()
   })
 
