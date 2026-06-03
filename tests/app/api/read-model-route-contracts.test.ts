@@ -721,4 +721,78 @@ describe("read model route contracts", () => {
       code: "DOCUMENT_READ_MODEL_NOT_FOUND",
     })
   })
+
+  it("maps thrown scoped target lookup failures to route not-found responses", async () => {
+    const { GET } = await import("@/app/api/read-models/items/[itemId]/route")
+
+    getScopedReadModelServerMock.mockRejectedValueOnce(
+      new Error(
+        "[Request ID: abc123] Server Error\nUncaught Error: Work item not found"
+      )
+    )
+
+    const response = await GET(new Request("http://localhost") as never, {
+      params: Promise.resolve({
+        itemId: "item_inaccessible",
+      }),
+    })
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: "Work item not found",
+      message: "Work item not found",
+      code: "WORK_ITEM_READ_MODEL_NOT_FOUND",
+    })
+    expect(logProviderErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("hides scoped access failures behind the detail route not-found contract", async () => {
+    const { GET } =
+      await import("@/app/api/read-models/projects/[projectId]/route")
+
+    getScopedReadModelServerMock.mockRejectedValueOnce(
+      new Error(
+        "[Request ID: abc123] Server Error\nUncaught Error: You do not have access to this workspace"
+      )
+    )
+
+    const response = await GET(new Request("http://localhost") as never, {
+      params: Promise.resolve({
+        projectId: "project_inaccessible",
+      }),
+    })
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: "Project not found",
+      message: "Project not found",
+      code: "PROJECT_READ_MODEL_NOT_FOUND",
+    })
+    expect(logProviderErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps unexpected scoped detail loader failures on the 500 path", async () => {
+    const { GET } =
+      await import("@/app/api/read-models/conversations/[conversationId]/route")
+
+    const error = new Error("Convex query failed")
+    getScopedReadModelServerMock.mockRejectedValueOnce(error)
+
+    const response = await GET(new Request("http://localhost") as never, {
+      params: Promise.resolve({
+        conversationId: "chat_1",
+      }),
+    })
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      error: "Convex query failed",
+      message: "Convex query failed",
+      code: "CONVERSATION_THREAD_READ_MODEL_LOAD_FAILED",
+    })
+    expect(logProviderErrorMock).toHaveBeenCalledWith(
+      "Failed to load conversation thread read model",
+      error
+    )
+  })
 })

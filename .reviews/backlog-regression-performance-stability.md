@@ -55,17 +55,105 @@
 - External Codex review feedback on document index linked target visibility - added Turn 14
 - External Codex review feedback on deleted chat preview fallback scanning - added Turn 15
 - External Codex review feedback on private team work items in project scopes - added Turn 16
+- External Codex review feedback on scoped read-model detail route error semantics - added Turn 17
 
 ## Review status
 
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-06-03 10:20:17 BST |
-| **Last reviewed** | 2026-06-03 16:34:51 BST |
-| **Total turns** | 16 |
+| **Last reviewed** | 2026-06-03 17:00:48 BST |
+| **Total turns** | 17 |
 | **Open findings** | 0 |
-| **Resolved findings** | 19 |
+| **Resolved findings** | 20 |
 | **Accepted findings** | 0 |
+
+## Turn 17 - 2026-06-03 17:00:48 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `0eb3ed06` with uncommitted PR-feedback fixes |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the next current-head GitHub Codex review for PR #49, triaged the P2 scoped read-model detail route error-contract finding as live, fixed expected access/not-found loader failures being returned as 500s, and reran the deep/normal review loop with architecture standards.
+
+**Outcome:** all clear for this PR-feedback follow-up. No live Critical, High, or Medium findings remain in the current local diff. The branch is ready for commit, push, and the next watcher loop.
+
+**Risk score:** high - the fix touches shared read-model route error contracts, authorization/privacy response semantics, stale detail-link pruning, and provider-error logging.
+
+**Change archetypes:** external finding import, API contract fix, authorization/privacy response mapping, route compatibility, regression tests.
+
+**External finding import:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review | Scoped detail loaders could throw expected access/not-found errors that `handleParameterizedScopedReadModelGet` converted into 500 responses and raw access messages | live | Contract encoding / scope and tenancy / privacy | detail read-model routes must preserve the 404 not-found contract for missing or no-longer-readable targets | fixed |
+
+**Intent vs actual:** the new Convex scoped loaders correctly own authorization, but the Next route boundary failed to translate expected access/not-found failures into the existing detail route not-found contract. That made stale/inaccessible detail links look like server failures and could surface raw access-denied text.
+
+**Confidence:** high. The fix is limited to the shared parameterized read-model route handler and adds route-contract tests for wrapped Convex not-found errors, wrapped access-denied errors, and unexpected failures remaining on the logged 500 path.
+
+**Coverage note:** reviewed parameterized read-model routes for documents, work items, projects, conversations, channels, and workspace people; compared sibling collection/workspace route handlers and existing `ApplicationError` response patterns.
+
+**Deep-review evidence:** dual pass completed. Correctness/safety checked stale target, inaccessible target, wrapped Convex message normalization, no raw access-message leakage, no provider logging for expected route states, and unexpected backend failure behavior. Maintainability/structure checked that response mapping lives at the API edge while Convex remains the authorization/read-model authority.
+
+**Architecture assessment:** clean. Convex still performs authorization and scoped read-model loading; the route handler now owns only HTTP response semantics for expected detail lookup failures. The public API contract remains stable and tests assert serialized status/body/code behavior.
+
+**Bug classes / invariants checked:** contract encoding, scope and tenancy, authorization/privacy, variant state for stale/inaccessible detail targets, provider error logging, and route/backend contract fit.
+
+**Branch totality:** reassessed current branch state and prior PR feedback loops. This fix does not alter scoped invalidation, snapshot removal, Convex query authority, generated API roster, or read-model materialization.
+
+**Sibling closure:** checked document, item, project, conversation, channel, and workspace-people parameterized read-model routes. Collection and workspace read-model handlers were left unchanged because this live finding was about parameterized detail route not-found contracts and those handlers do not carry per-target not-found options.
+
+**Remediation impact surface:** changes are limited to `lib/server/scoped-read-model-route-handlers.ts`, `tests/app/api/read-model-route-contracts.test.ts`, and review ledgers. No Convex query, schema, client store, generated API, or cost policy change was needed.
+
+**Residual risk / unknowns:** workspace membership/search-seed routes still use the generic workspace handler and return generic failures for unexpected load errors. That is outside this finding's parameterized detail-route contract and was not changed to avoid broadening the patch.
+
+### Validation
+
+- `pnpm exec vitest run tests/app/api/read-model-route-contracts.test.ts` - passed, 1 file / 19 tests
+- `pnpm exec tsc --noEmit --pretty false` - passed
+- `pnpm lint` - passed
+- `pnpm cost:guardrails` - passed, 4 files / 15 tests
+- `git diff --check` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed
+- `pnpm test` - passed, 223 files / 1484 tests
+- `pnpm build` - passed
+- Browser smoke - intentionally not run by Codex; user-owned manual validation per instruction
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** GitHub Codex review body, parameterized read-model route handler, route response helpers, application error coercion helper, Convex scoped read-model access throw paths, route contract tests, and stale detail refresh behavior.
+- **Prior open findings rechecked:** no open findings existed before this review turn. The new external P2 finding is resolved.
+- **Prior resolved/adjacent areas revalidated:** prior document/project/private-item/deleted-preview fixes are untouched; full test/build validation passed after this route contract fix.
+- **Hotspots or sibling paths revisited:** document detail, work item detail, project detail, conversation thread, channel feed, workspace people, collection route handlers, workspace route handlers, and provider logging behavior.
+- **Dependency/adjacent surfaces revalidated:** `ApplicationError`, `coerceApplicationError`, `jsonApplicationError`, `getConvexErrorMessage`, scoped detail refresh 404 pruning, typecheck, lint, cost guardrails, and full test/build.
+- **Why this is enough:** the bug class was an API response mapping regression after moving authority into Convex. The shared parameterized handler now maps expected scoped lookup/access failures to each route's existing 404 contract while preserving unexpected failures on the 500 path.
+
+### Challenger pass
+
+- `done` - assumed one route could still leak raw access text. The shared parameterized route handler covers document, item, project, conversation, channel, and workspace-people read models; tests prove wrapped access text is replaced by the route not-found message/code.
+
+### Resolved / Carried / New findings
+
+#### BRS-020 [P2] Parameterized scoped read-model routes returned expected access/not-found loader failures as 500
+
+- **Status:** resolved
+- **Bug class:** contract encoding / scope and tenancy / privacy
+- **Invariant:** no-longer-readable or missing scoped detail targets must return the route not-found contract, not a server-failure contract or raw access text.
+- **Root cause:** `handleParameterizedScopedReadModelGet` only checked `!data`; thrown Convex access/not-found errors went through the generic provider-error catch.
+- **Fix:** added expected scoped lookup/access error coercion before logging and generic 500 handling; returned route-specific `ApplicationError` 404 responses for expected parameterized read-model failures; kept unexpected errors logged and returned as 500.
+- **Verification:** focused route contract tests, typecheck, lint, cost guardrails, spec validators, full test suite, build, and diff check passed.
+
+### Architecture assessment
+
+Clean. Authorization and read-model authority remain in Convex; HTTP response semantics stay at the Next route boundary. The fix strengthens the route/backend contract without reintroducing snapshots, client-side permission logic, or broad error swallowing.
+
+### Recommendations
+
+1. **Proceed:** commit and push the follow-up fixes to PR #49.
+2. **Watcher:** after push, wait for the next Codex/GitHub review and CI result before making further changes, to avoid duplicate review triggers.
 
 ## Turn 16 - 2026-06-03 16:30:59 BST
 

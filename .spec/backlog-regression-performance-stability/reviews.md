@@ -50,6 +50,45 @@ Every future implementation slice must record:
 
 ## Review Entries
 
+### 2026-06-03: PR feedback loop 7 - Codex review scoped detail route error semantics
+- Linked tasks: 99.1 follow-up review loop
+- Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001, REQ-SCOPED-001
+- Linked design decisions: DES-008, DES-014, DES-015
+- Review mode: external finding import, deep diff-review with architecture-standards, normal re-review until clean
+- External feedback imported:
+  - GitHub Codex P2: parameterized scoped read-model detail routes returned expected access/not-found loader errors as 500s and could expose raw access messages.
+- Scope fixed:
+  - Added expected scoped lookup/access error coercion in `handleParameterizedScopedReadModelGet`.
+  - Preserved Convex as the authorization/read-model authority while keeping HTTP response semantics at the route boundary.
+  - Returned each route's existing not-found message/code for missing or inaccessible parameterized read-model targets.
+  - Kept unexpected loader failures on the existing logged 500 path.
+  - Added route contract tests for wrapped target-not-found, wrapped access-denied, and unexpected failure variants.
+- Architecture assessment:
+  - Clean. The fix does not move access rules into the route; it maps already-authoritative Convex outcomes into the public API contract.
+  - The serialized route contract is asserted at the HTTP response level, including status, body message, code, and logging behavior.
+  - No Convex query, schema, generated API, client store, scoped invalidation, or snapshot-removal pattern changed.
+- Validation:
+  - `pnpm exec vitest run tests/app/api/read-model-route-contracts.test.ts` - passed, 1 file / 19 tests.
+  - `pnpm exec tsc --noEmit --pretty false` - passed.
+  - `pnpm lint` - passed.
+  - `pnpm cost:guardrails` - passed, 4 files / 15 tests.
+  - `git diff --check` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed.
+  - `pnpm test` - passed, 223 files / 1484 tests.
+  - `pnpm build` - passed.
+  - Browser smoke was intentionally not run because the user instructed the implementation agent not to run smoke tests; manual browser smoke is user-owned validation.
+- Normal re-review result:
+  - Re-read parameterized read-model routes, route response helpers, application error coercion, Convex access throw paths, stale detail refresh behavior, and sibling handlers after the implementation.
+  - Corrected an initial misplaced patch before focused validation passed.
+  - No live Critical, High, or Medium findings remain.
+- Spec drift:
+  - No spec drift found. The feedback fits the existing read-model authority, route/backend contract, snapshot-removal, privacy, and architecture-standard requirements.
+- Residual risk:
+  - Workspace membership/search-seed routes still use the generic workspace handler and were not changed because this review finding targeted parameterized detail route not-found contracts.
+- Cleared to push:
+  - Yes. Commit and push the follow-up fixes to PR #49, then wait for the next review/CI result before making further changes.
+
 ### 2026-06-03: PR feedback loop 6 - Codex review private team work items in project scopes
 - Linked tasks: 99.1 follow-up review loop
 - Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001
