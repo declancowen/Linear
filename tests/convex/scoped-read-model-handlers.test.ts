@@ -108,6 +108,25 @@ const team = {
   workspaceId: "workspace_1",
 }
 
+function createDocument(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "doc_1",
+    kind: "workspace-document",
+    workspaceId: "workspace_1",
+    teamId: null,
+    title: "Document",
+    content: "<p>Document</p>",
+    linkedProjectIds: [],
+    linkedWorkItemIds: [],
+    linkedDocumentIds: [],
+    createdBy: "user_1",
+    updatedBy: "user_1",
+    createdAt: "2026-06-03T12:00:00.000Z",
+    updatedAt: "2026-06-03T12:00:00.000Z",
+    ...overrides,
+  }
+}
+
 describe("scoped read model Convex handlers", () => {
   beforeEach(() => {
     vi.resetModules()
@@ -259,5 +278,187 @@ describe("scoped read model Convex handlers", () => {
       dataMocks.listLatestReadableChatMessagesByConversations
     ).toHaveBeenCalledWith(expect.anything(), ["chat_1"])
     expect(dataMocks.listChatMessagesByConversation).not.toHaveBeenCalled()
+  })
+
+  it("filters unreadable linked documents from work item detail scopes", async () => {
+    const { getScopedReadModelHandler } = await import(
+      "@/convex/app/scoped_read_models"
+    )
+    const item = {
+      id: "item_1",
+      title: "Fix visibility",
+      teamId: "team_allowed",
+      workspaceId: "workspace_1",
+      visibility: "team",
+      descriptionDocId: "doc_description",
+      linkedDocumentIds: ["doc_private_other"],
+      primaryProjectId: null,
+      linkedProjectIds: [],
+      referencedProjectIds: [],
+      parentId: null,
+      creatorId: "user_1",
+      assigneeId: null,
+      assigneeIds: [],
+      subscriberIds: [],
+    }
+    const visibleDocuments = [
+      createDocument({
+        id: "doc_description",
+        kind: "item-description",
+        linkedWorkItemIds: ["item_1"],
+      }),
+      createDocument({
+        id: "doc_workspace",
+        kind: "workspace-document",
+        linkedWorkItemIds: ["item_1"],
+      }),
+      createDocument({
+        id: "doc_team_allowed",
+        kind: "team-document",
+        teamId: "team_allowed",
+        linkedWorkItemIds: ["item_1"],
+      }),
+      createDocument({
+        id: "doc_private_mine",
+        kind: "private-document",
+        createdBy: "user_1",
+        linkedWorkItemIds: ["item_1"],
+      }),
+    ]
+    const unreadableDocuments = [
+      createDocument({
+        id: "doc_private_other",
+        kind: "private-document",
+        createdBy: "user_2",
+        linkedWorkItemIds: ["item_1"],
+      }),
+      createDocument({
+        id: "doc_team_forbidden",
+        kind: "team-document",
+        teamId: "team_forbidden",
+        linkedWorkItemIds: ["item_1"],
+      }),
+    ]
+
+    dataMocks.getWorkItemDoc.mockResolvedValue(item)
+    dataMocks.listWorkItemsByTeam.mockResolvedValue([item])
+    dataMocks.listDocumentsByIds.mockResolvedValue([
+      visibleDocuments[0],
+      unreadableDocuments[0],
+    ])
+    dataMocks.listWorkspaceDocuments.mockResolvedValue([
+      ...visibleDocuments.slice(1),
+      ...unreadableDocuments,
+    ])
+    dataMocks.listCommentsByTargets.mockResolvedValue([])
+    dataMocks.listAttachmentsByTargets.mockResolvedValue([])
+    dataMocks.listWorkItemActivitiesByWorkItems.mockResolvedValue([])
+
+    const result = await getScopedReadModelHandler(ctx as never, {
+      serverToken: "server_token",
+      workosUserId: "workos_user_1",
+      instruction: { kind: "work-item-detail", itemId: "item_1" },
+    })
+    const documentIds = result?.documents?.map((document) => document.id) ?? []
+
+    expect(documentIds).toEqual(
+      expect.arrayContaining([
+        "doc_description",
+        "doc_workspace",
+        "doc_team_allowed",
+        "doc_private_mine",
+      ])
+    )
+    expect(documentIds).not.toContain("doc_private_other")
+    expect(documentIds).not.toContain("doc_team_forbidden")
+  })
+
+  it("filters unreadable linked documents from project detail scopes", async () => {
+    const { getScopedReadModelHandler } = await import(
+      "@/convex/app/scoped_read_models"
+    )
+    const project = {
+      id: "project_1",
+      name: "Launch",
+      scopeType: "workspace",
+      scopeId: "workspace_1",
+      leadId: "user_1",
+      memberIds: [],
+    }
+    const item = {
+      id: "item_1",
+      title: "Launch work",
+      teamId: "team_allowed",
+      workspaceId: "workspace_1",
+      visibility: "team",
+      descriptionDocId: "doc_description",
+      linkedDocumentIds: [],
+      primaryProjectId: "project_1",
+      linkedProjectIds: [],
+      referencedProjectIds: [],
+      parentId: null,
+      creatorId: "user_1",
+      assigneeId: null,
+      assigneeIds: [],
+      subscriberIds: [],
+    }
+    const visibleDocuments = [
+      createDocument({
+        id: "doc_workspace",
+        kind: "workspace-document",
+        linkedProjectIds: ["project_1"],
+      }),
+      createDocument({
+        id: "doc_team_allowed",
+        kind: "team-document",
+        teamId: "team_allowed",
+        linkedProjectIds: ["project_1"],
+      }),
+      createDocument({
+        id: "doc_private_mine",
+        kind: "private-document",
+        createdBy: "user_1",
+        linkedProjectIds: ["project_1"],
+      }),
+    ]
+    const unreadableDocuments = [
+      createDocument({
+        id: "doc_private_other",
+        kind: "private-document",
+        createdBy: "user_2",
+        linkedProjectIds: ["project_1"],
+      }),
+      createDocument({
+        id: "doc_team_forbidden",
+        kind: "team-document",
+        teamId: "team_forbidden",
+        linkedProjectIds: ["project_1"],
+      }),
+    ]
+
+    dataMocks.getProjectDoc.mockResolvedValue(project)
+    dataMocks.listWorkItemsByTeam.mockResolvedValue([item])
+    dataMocks.listWorkspaceDocuments.mockResolvedValue([
+      ...visibleDocuments,
+      ...unreadableDocuments,
+    ])
+    dataMocks.listProjectUpdatesByProjects.mockResolvedValue([])
+
+    const result = await getScopedReadModelHandler(ctx as never, {
+      serverToken: "server_token",
+      workosUserId: "workos_user_1",
+      instruction: { kind: "project-detail", projectId: "project_1" },
+    })
+    const documentIds = result?.documents?.map((document) => document.id) ?? []
+
+    expect(documentIds).toEqual(
+      expect.arrayContaining([
+        "doc_workspace",
+        "doc_team_allowed",
+        "doc_private_mine",
+      ])
+    )
+    expect(documentIds).not.toContain("doc_private_other")
+    expect(documentIds).not.toContain("doc_team_forbidden")
   })
 })

@@ -445,6 +445,35 @@ function isAccessibleCollectionScope(
   return context.accessibleWorkspaceIds.has(scopeId)
 }
 
+function isReadableScopedDocument(
+  document: Document,
+  context: ScopedUserContext,
+  options: {
+    visibleWorkItemDescriptionDocIds?: ReadonlySet<string>
+  } = {}
+) {
+  if (document.kind === "item-description") {
+    return (
+      options.visibleWorkItemDescriptionDocIds?.has(document.id) ?? false
+    )
+  }
+
+  if (document.kind === "team-document") {
+    return Boolean(
+      document.teamId && context.accessibleTeamIds.has(document.teamId)
+    )
+  }
+
+  if (document.kind === "private-document") {
+    return (
+      document.createdBy === context.currentUserId &&
+      context.accessibleWorkspaceIds.has(document.workspaceId)
+    )
+  }
+
+  return context.accessibleWorkspaceIds.has(document.workspaceId)
+}
+
 async function loadProjectsByScopes(
   ctx: QueryCtx,
   scopes: Iterable<{ scopeType: "team" | "workspace"; scopeId: string }>
@@ -814,6 +843,9 @@ async function loadWorkItemDetailCollections(
     item.descriptionDocId,
     ...item.linkedDocumentIds,
   ])
+  const visibleWorkItemDescriptionDocIds = new Set(
+    compactStringIds(workItems.map((entry) => entry.descriptionDocId))
+  )
   const workspaceDocuments = itemWorkspaceId
     ? ((await listWorkspaceDocuments(ctx, itemWorkspaceId)) as Document[])
     : []
@@ -822,7 +854,11 @@ async function loadWorkItemDetailCollections(
     ...workspaceDocuments.filter((document) =>
       document.linkedWorkItemIds.includes(item.id)
     ),
-  ])
+  ]).filter((document) =>
+    isReadableScopedDocument(document, context, {
+      visibleWorkItemDescriptionDocIds,
+    })
+  )
   const relatedProjectIds = new Set(
     compactStringIds(
       workItems.flatMap((candidate) => [
@@ -923,6 +959,7 @@ async function loadProjectDetailCollections(
     .filter(
       (document) =>
         document.kind !== "item-description" &&
+        isReadableScopedDocument(document as Document, context) &&
         document.linkedProjectIds.includes(project.id)
     ) as Document[]
   const [updates, milestones, views] = await Promise.all([
@@ -1122,23 +1159,9 @@ async function loadWorkspacePeopleCollections(
     "workspace",
     workspaceId
   )
-  const documents = ((await listWorkspaceDocuments(
-    ctx,
-    workspaceId
-  )) as Document[]).filter((document) => {
-    if (document.kind === "workspace-document") {
-      return true
-    }
-
-    if (document.kind === "team-document") {
-      return Boolean(document.teamId && context.accessibleTeamIds.has(document.teamId))
-    }
-
-    return (
-      document.kind === "private-document" &&
-      document.createdBy === context.currentUserId
-    )
-  })
+  const documents = (
+    (await listWorkspaceDocuments(ctx, workspaceId)) as Document[]
+  ).filter((document) => isReadableScopedDocument(document, context))
   const projects = await loadProjectsByScopes(ctx, [
     { scopeType: "workspace", scopeId: workspaceId },
     ...teams.map((team) => ({ scopeType: "team" as const, scopeId: team.id })),

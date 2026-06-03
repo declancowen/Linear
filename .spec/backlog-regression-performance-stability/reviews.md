@@ -50,6 +50,45 @@ Every future implementation slice must record:
 
 ## Review Entries
 
+### 2026-06-03: PR feedback loop 1 - Codex review scoped document visibility and generated API roster
+- Linked tasks: 99.1 follow-up review loop
+- Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001
+- Linked design decisions: DES-008, DES-014, DES-015
+- Review mode: external finding import, deep diff-review with architecture-standards, normal re-review until clean
+- External feedback imported:
+  - GitHub Codex P1: work item detail scoped loader could expose unreadable linked documents from workspace document scans.
+  - GitHub Codex P1: project detail scoped loader could expose unreadable linked documents from workspace document scans.
+  - GitHub Actions CI: generated Convex API roster was stale for `convex/app/scoped_read_models`.
+- Scope fixed:
+  - Added a scoped document visibility helper in `convex/app/scoped_read_models.ts` for item-description, team-document, private-document, and workspace-document visibility.
+  - Applied the helper to work item detail and project detail document materialization.
+  - Routed workspace people document filtering through the same helper during sibling-path cleanup.
+  - Added handler regression tests that keep workspace/team/current-user-private documents visible while excluding other-user private and inaccessible-team documents.
+  - Added the new scoped read-model module to `convex/_generated/api.d.ts`.
+- Architecture assessment:
+  - Clean. The authorization/privacy invariant is enforced at the scoped Convex materializer boundary, before selector/UI shaping.
+  - The fix mirrors bootstrap document visibility semantics without reintroducing `getSnapshotServer`.
+  - Generated API drift is fixed at the generated contract boundary required by CI fallback verification.
+- Validation:
+  - `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 5 tests.
+  - `node scripts/verify-convex-generated-fallback.mjs` - passed, modules=40.
+  - `pnpm exec tsc --noEmit --pretty false` - passed.
+  - `pnpm lint` - passed.
+  - `pnpm cost:guardrails` - passed, 4 files / 15 tests.
+  - `git diff --check` - passed.
+  - `pnpm test` - passed, 222 files / 1473 tests.
+  - `pnpm build` - passed.
+  - Browser smoke was intentionally not run because the user instructed the implementation agent not to run smoke tests; manual browser smoke is user-owned validation.
+- Normal re-review result:
+  - Re-read the fixes, scoped document loader sibling paths, bootstrap/access rules, generated API roster, and tests after the implementation.
+  - No live Critical, High, or Medium findings remain.
+- Spec drift:
+  - No spec drift found. The feedback fits the existing read-model authority, snapshot removal, route/backend contract, and architecture-standard requirements.
+- Residual risk:
+  - The privacy leak is fixed. Work item/project detail still use workspace document scans before filtering; pagination/indexed lookup remains future capacity work if those detail surfaces become hot.
+- Cleared to push:
+  - Yes. Commit and push the follow-up fixes to PR #49, then wait for the next review/CI result before making further changes.
+
 ### 2026-06-03: Slice 99.1 final total-diff review, architecture assessment, and PR readiness
 - Linked tasks: 99.1
 - Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001

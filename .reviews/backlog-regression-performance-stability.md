@@ -6,7 +6,7 @@
 |-------|-------|
 | **Repository** | `/Users/declancowen/Documents/GitHub/Linear` |
 | **Remote** | `https://github.com/declancowen/Linear.git` |
-| **Branch** | `main` |
+| **Branch** | `backlog-regression-performance-stability` |
 | **Stack** | Next.js 16, React 19, Convex, TipTap, Zustand, Vitest |
 
 ## Scope
@@ -49,17 +49,115 @@
 - Bounded retention cleanup read/delete behavior for notifications, email jobs, and read-model versions - added Turn 9
 - Local/prod Convex target visibility for billing investigations - added Turn 9
 - Final total-diff route/backend contract fit, read-model authority, scoped invalidation, snapshot removal, and Convex cost bounds - added Turn 10
+- External Codex review feedback on scoped document visibility and generated Convex API roster - added Turn 11
 
 ## Review status
 
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-06-03 10:20:17 BST |
-| **Last reviewed** | 2026-06-03 14:47:38 BST |
-| **Total turns** | 10 |
+| **Last reviewed** | 2026-06-03 15:07:31 BST |
+| **Total turns** | 11 |
 | **Open findings** | 0 |
-| **Resolved findings** | 11 |
+| **Resolved findings** | 13 |
 | **Accepted findings** | 0 |
+
+## Turn 11 - 2026-06-03 15:07:31 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `6e02a9ec` with uncommitted PR-feedback fixes |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the completed GitHub Codex review feedback for PR #49, triaged it against the current tree, fixed the live scoped document visibility leak, fixed the generated Convex API roster CI failure, and reran the deep/normal review loop with architecture standards.
+
+**Outcome:** all clear for the PR-feedback follow-up. No live Critical, High, or Medium findings remain in the current local diff. The branch is ready for a follow-up commit and push to PR #49.
+
+**Risk score:** high - the feedback touched server-side document visibility, read-model authority, scoped materialization, and generated Convex API contract files.
+
+**Change archetypes:** external finding import, authorization/privacy fix, scoped read-model architecture, CI/generated binding contract, regression tests.
+
+**External finding import:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review | Work item detail scoped loader could include linked private/inaccessible-team documents from workspace document scans | live | Authorization/privacy / scoped read-model leak | linked-document visibility must match bootstrap visibility for work item detail, including workspace-linked documents | fixed |
+| GitHub Codex review | Project detail scoped loader could include linked private/inaccessible-team documents from workspace document scans | live | Authorization/privacy / scoped read-model leak | linked-document visibility must match bootstrap visibility for project detail, including workspace-linked documents | fixed |
+| GitHub Actions CI | Convex generated API roster missing `convex/app/scoped_read_models` import/map entry | live | Generated API contract / CI drift | new Convex module must be represented in committed generated API roster when deployment codegen is unavailable | fixed |
+
+**Intent vs actual:** the Codex findings were live. The old bootstrap path filtered documents through kind/team/private/workspace visibility before selection; the new scoped materializer had copied the scope shape but not that visibility invariant for workspace-linked documents in work item/project detail. The generated API roster drift was also live and explained both current failing CI check runs.
+
+**Confidence:** high. The fix centralizes scoped document visibility in `convex/app/scoped_read_models.ts`, applies it to work item detail, project detail, and workspace people materialization, and adds regression tests for current-user private visibility plus other-user private/inaccessible-team exclusion.
+
+**Coverage note:** reviewed Codex review comments, current scoped loader code, bootstrap document visibility rules, document access rules, document index/search/workspace-people sibling paths, generated API verifier, CI workflow, and focused/full validation.
+
+**Deep-review evidence:** dual pass completed. Correctness/safety checked privacy/authorization leakage, item-description visibility, current-user private document visibility, team-document membership, workspace document readability, and generated API CI contract. Maintainability/structure checked that the fix lives in the scoped Convex materializer rather than selector/UI layers and avoids duplicate visibility predicates.
+
+**Architecture assessment:** clean after fixes. Document visibility is now enforced at the scoped Convex materialization boundary for the affected read models. The UI selectors only shape already-authorized scoped data. The new helper mirrors bootstrap visibility rules without reintroducing `getSnapshotServer`, and the generated API roster fix aligns CI fallback verification with the new Convex module boundary.
+
+**Bug classes / invariants checked:** server-side authorization, tenant/team/private document visibility, scoped read-model authority, snapshot-to-scoped migration parity, generated API drift, and CI fallback contract.
+
+**Branch totality:** reassessed branch-total current state after the external feedback. No additional GitHub review comments were present. The earlier final review remains valid; this turn updates the branch with the external privacy/CI fixes and revalidates the affected architecture.
+
+**Sibling closure:** checked `loadDocumentDetailCollections`, `loadDocumentsForScope`, document index/search-seed loaders, workspace people loader, work item detail loader, project detail loader, bootstrap visibility helpers, document access helpers, and generated API verifier. Workspace people now reuses the same scoped document visibility helper to avoid a second rule copy.
+
+**Remediation impact surface:** changes are limited to `convex/app/scoped_read_models.ts`, `tests/convex/scoped-read-model-handlers.test.ts`, and `convex/_generated/api.d.ts`. No route/client/store behavior changed.
+
+**Residual risk / unknowns:** project/work item detail loaders still read workspace documents before filtering, so the cost profile remains the same as the prior branch for those detail surfaces. The privacy bug is fixed; deeper pagination/indexed lookup for high-cardinality detail-linked documents remains future capacity work if production data warrants it.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 5 tests
+- `node scripts/verify-convex-generated-fallback.mjs` - passed, modules=40
+- `pnpm exec tsc --noEmit --pretty false` - passed
+- `pnpm lint` - passed
+- `pnpm cost:guardrails` - passed, 4 files / 15 tests
+- `git diff --check` - passed
+- `pnpm test` - passed, 222 files / 1473 tests
+- `pnpm build` - passed
+- Browser smoke - intentionally not run by Codex; user-owned manual validation per instruction
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** GitHub Codex review comments, CI failed log, bootstrap document visibility helpers, Convex document access helpers, scoped read-model materializer, generated API verifier, CI workflow, and scoped read-model handler tests.
+- **Prior open findings rechecked:** no prior open findings existed before the GitHub review. The new external findings are resolved in this turn.
+- **Prior resolved/adjacent areas revalidated:** cost guardrails still pass, full tests still pass, build still passes, and the generated API fallback verifier now passes.
+- **Hotspots or sibling paths revisited:** work item detail, project detail, document detail, document index, search seed, workspace people, generated API roster, and scoped materialization.
+- **Dependency/adjacent surfaces revalidated:** Convex generated API type map, document visibility predicates, read-model selectors, and CI fallback verification.
+- **Why this is enough:** the feedback was narrow but privacy-sensitive. The fix addresses the owner boundary, adds direct regression tests for both review comments, centralizes the duplicated sibling rule, and validates both behavior and CI contract.
+
+### Challenger pass
+
+- `done` - assumed the same visibility bug existed in another document materializer. That pass found the workspace people loader had a separate but equivalent local visibility predicate, so it was routed through the new helper. Document detail, document index, and search seed already use access checks or scoped document loaders.
+
+### Resolved / Carried / New findings
+
+#### BRS-012 [P1] Scoped work item/project detail loaders could leak unreadable linked documents
+
+- **Status:** resolved
+- **Bug class:** authorization/privacy / scoped read-model migration parity
+- **Invariant:** scoped read models must apply the same document visibility rules as the old bootstrap snapshot before materializing linked document metadata/content.
+- **Root cause:** work item and project detail scoped loaders scanned workspace documents and filtered only by link relationship, so other-user private documents and inaccessible-team documents in the same workspace could enter the scoped snapshot.
+- **Fix:** added a scoped document visibility helper for item-description, team, private, and workspace documents; applied it to work item detail, project detail, and workspace people; added regression tests covering visible workspace/team/current-user-private docs and excluding other-user private/inaccessible-team docs.
+- **Verification:** focused scoped handler tests, typecheck, lint, cost guardrails, full tests, build, and diff check passed.
+
+#### BRS-013 [P2] CI fallback generated API roster was stale for the new scoped read-model module
+
+- **Status:** resolved
+- **Bug class:** generated API contract / CI drift
+- **Invariant:** a new Convex source module must be represented in committed generated API bindings when CI cannot run deployment-backed codegen.
+- **Root cause:** `convex/app/scoped_read_models.ts` was added without the corresponding `convex/_generated/api.d.ts` import/map entry.
+- **Fix:** added the scoped read-model module import and API map entry in `convex/_generated/api.d.ts`.
+- **Verification:** `node scripts/verify-convex-generated-fallback.mjs` passed locally; typecheck and build passed.
+
+### Architecture assessment
+
+Clean. The privacy invariant now belongs to the scoped Convex materializer, not UI selectors or client routes. The helper is narrow, mirrors existing bootstrap access semantics, and avoids broad snapshot fallback. CI generated-binding drift is fixed at the generated API contract boundary.
+
+### Recommendations
+
+1. **Proceed:** commit and push the follow-up fixes to PR #49.
+2. **Watcher:** after push, wait for the next Codex/GitHub review and CI result before making further changes, to avoid duplicate review triggers.
 
 ## Turn 10 - 2026-06-03 14:47:38 BST
 
