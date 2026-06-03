@@ -52,17 +52,105 @@
 - External Codex review feedback on scoped document visibility and generated Convex API roster - added Turn 11
 - External Codex review feedback on notification target visibility after access loss - added Turn 12
 - External Codex review feedback on workspace collection stream authorization - added Turn 13
+- External Codex review feedback on document index linked target visibility - added Turn 14
 
 ## Review status
 
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-06-03 10:20:17 BST |
-| **Last reviewed** | 2026-06-03 15:47:06 BST |
-| **Total turns** | 13 |
+| **Last reviewed** | 2026-06-03 16:03:18 BST |
+| **Total turns** | 14 |
 | **Open findings** | 0 |
-| **Resolved findings** | 15 |
+| **Resolved findings** | 16 |
 | **Accepted findings** | 0 |
+
+## Turn 14 - 2026-06-03 16:03:18 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `5a6e2883` with uncommitted PR-feedback fixes |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the next completed GitHub Codex review for PR #49, triaged the current-head document-index linked project P1, fixed the live linked-target authorization leak, swept the sibling linked-work-item path, and reran the deep/normal review loop with architecture standards.
+
+**Outcome:** all clear for this PR-feedback follow-up. No live Critical, High, or Medium findings remain in the current local diff. The branch is ready for a follow-up commit and push to PR #49.
+
+**Risk score:** high - the fix touches server-side scoped read-model materialization, authorization/privacy, snapshot-removal parity, and Convex cost-sensitive document index loading.
+
+**Change archetypes:** external finding import, authorization/privacy fix, scoped read-model authority, snapshot-to-scoped parity, cost containment, regression tests.
+
+**External finding import:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review | Workspace `document-index` could return a linked team-scoped project from an inaccessible team because linked projects were fetched by id and the selector only checked document link ids | live | Authorization/privacy / scope and tenancy | linked targets in scoped read models must pass the same access rules the old full snapshot already enforced | fixed |
+
+**Intent vs actual:** the Codex finding was live. A readable workspace document could link to an inaccessible team project; the scoped loader fetched that project by id, then the document-index selector returned it because the visible document linked it. The same snapshot-parity bug class applied to linked work items.
+
+**Confidence:** high. The fix adds a scoped work-item readability predicate beside existing document/project predicates, filters linked projects and linked work items before materializing the document-index snapshot, and narrows the shared document collection loader to the legacy document-index/search-seed document scope.
+
+**Coverage note:** reviewed document-index loader, legacy selector behavior, document/search-seed shared document loader, linked project/work-item selectors, work item private/team access rules, notification/project/document prior fixes, and scoped handler tests.
+
+**Deep-review evidence:** dual pass completed. Correctness/safety checked accessible workspace documents, current-user private documents, inaccessible team projects, inaccessible team work items, other-user private work items, workspace-scoped projects, and document collection kind parity. Maintainability/structure checked that server read-model materializers own target authorization and selectors remain projection-only.
+
+**Architecture assessment:** clean. The scoped Convex materializer is the authority for what records can enter a read-model snapshot. The fix preserves the old snapshot contract without reintroducing full snapshots, keeps authorization based on `ScopedUserContext`, and bounds Convex I/O to visible documents plus their linked target ids.
+
+**Bug classes / invariants checked:** scoped read-model authority, scope and tenancy, server-side authorization, snapshot-to-scoped parity, linked target materialization, private work item access, and document/search collection cost bounds.
+
+**Branch totality:** reassessed branch-total current state after the external feedback. Prior Turn 11 document visibility, Turn 12 notification visibility, and Turn 13 stream authorization fixes remain intact.
+
+**Sibling closure:** checked linked projects, linked work items, document collection filtering, search-seed reuse of `loadDocumentsForScope`, work-item/project detail linked document paths, notification target filtering, and collection stream authorization.
+
+**Remediation impact surface:** changes are limited to `convex/app/scoped_read_models.ts` and `tests/convex/scoped-read-model-handlers.test.ts`. No Next route, client hook, selector, schema, generated Convex roster, or scope-key contract change was needed.
+
+**Residual risk / unknowns:** linked target reads still fetch candidate ids before filtering because target scope is not known without reading the target. The read count is bounded by visible document link ids and avoids broad snapshot reads.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 8 tests
+- `pnpm exec tsc --noEmit --pretty false` - passed
+- `pnpm lint` - passed
+- `pnpm cost:guardrails` - passed, 4 files / 15 tests
+- `git diff --check` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed
+- `pnpm test` - passed, 222 files / 1476 tests
+- `pnpm build` - passed
+- Browser smoke - intentionally not run by Codex; user-owned manual validation per instruction
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** GitHub Codex review comment, document-index loader, legacy document-index/search-seed selectors, scoped document/project/work-item visibility helpers, shared document loader, and scoped read-model handler tests.
+- **Prior open findings rechecked:** no open findings existed before this review turn. The new external finding is resolved.
+- **Prior resolved/adjacent areas revalidated:** Turn 11 document visibility, Turn 12 notification target filtering, and Turn 13 collection stream authorization remain intact; focused handler tests now cover eight scoped cases.
+- **Hotspots or sibling paths revisited:** linked projects, linked work items, private/team/workspace document variants, search seed, work item/project detail linked documents, notification target materialization, and collection scope authorization.
+- **Dependency/adjacent surfaces revalidated:** `ScopedUserContext`, legacy selectors, access semantics for projects/work items/documents, cost guardrails, typecheck, lint, and diff whitespace.
+- **Why this is enough:** the issue was a scoped materializer leak from direct linked-target reads. The fix applies the access predicate before materialization, adds a public handler regression for both project and work-item variants, and validates the cost/static gates relevant to the billing/read-model architecture.
+
+### Challenger pass
+
+- `done` - assumed another linked target could still be materialized by id from a visible document. The sweep found and fixed linked work items as the sibling path; linked teams are derived from already-filtered documents/projects/work items and cannot introduce inaccessible teams through this route.
+
+### Resolved / Carried / New findings
+
+#### BRS-016 [P1] Document index linked targets could expose inaccessible project or work-item metadata
+
+- **Status:** resolved
+- **Bug class:** authorization/privacy / scope and tenancy
+- **Invariant:** records materialized into scoped read models must be independently readable by the current user, even when referenced by a readable parent document.
+- **Root cause:** the scoped document-index loader fetched linked projects and work items directly by id from visible document link fields. The old full snapshot only contained accessible target records, but the scoped loader did not recreate that access filter before selector projection.
+- **Fix:** filtered linked projects through `isReadableScopedProject`; added and applied `isReadableScopedWorkItem`; narrowed `loadDocumentsForScope` to legacy document collection semantics; added a handler regression proving allowed targets remain and inaccessible team/private targets are excluded.
+- **Verification:** focused scoped handler test, typecheck, lint, cost guardrails, and diff check passed.
+
+### Architecture assessment
+
+Clean. The server read-model materializer now preserves the authority boundary for linked document-index targets while selectors stay pure projection logic. The change avoids snapshot fallback and keeps Convex cost bounded to visible documents and their link ids.
+
+### Recommendations
+
+1. **Proceed:** commit and push the follow-up fixes to PR #49.
+2. **Watcher:** after push, wait for the next Codex/GitHub review and CI result before making further changes, to avoid duplicate review triggers.
 
 ## Turn 13 - 2026-06-03 15:47:06 BST
 

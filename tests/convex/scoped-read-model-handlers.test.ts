@@ -127,6 +127,49 @@ function createDocument(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function createProject(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "project_1",
+    name: "Launch",
+    scopeType: "team",
+    scopeId: "team_allowed",
+    leadId: "user_1",
+    memberIds: [],
+    ...overrides,
+  }
+}
+
+function createWorkItem(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "item_1",
+    key: "PLT-1",
+    teamId: "team_allowed",
+    workspaceId: "workspace_1",
+    type: "story",
+    title: "Investigate",
+    descriptionDocId: "doc_description",
+    status: "todo",
+    priority: "medium",
+    assigneeId: null,
+    assigneeIds: [],
+    creatorId: "user_1",
+    parentId: null,
+    primaryProjectId: null,
+    linkedProjectIds: [],
+    linkedDocumentIds: [],
+    labelIds: [],
+    visibility: "team",
+    milestoneId: null,
+    startDate: null,
+    dueDate: null,
+    targetDate: null,
+    subscriberIds: [],
+    createdAt: "2026-06-03T12:00:00.000Z",
+    updatedAt: "2026-06-03T12:00:00.000Z",
+    ...overrides,
+  }
+}
+
 function createNotification(overrides: Record<string, unknown> = {}) {
   return {
     id: "notification_1",
@@ -268,6 +311,122 @@ describe("scoped read model Convex handlers", () => {
 
     expect(dataMocks.listWorkspaceDocuments).not.toHaveBeenCalled()
     expect(dataMocks.listProjectsByScope).not.toHaveBeenCalled()
+  })
+
+  it("filters document index linked targets through scoped access", async () => {
+    const { getScopedReadModelHandler } = await import(
+      "@/convex/app/scoped_read_models"
+    )
+    const documents = [
+      createDocument({
+        id: "doc_workspace",
+        kind: "workspace-document",
+        linkedProjectIds: [
+          "project_allowed",
+          "project_workspace",
+          "project_forbidden",
+        ],
+        linkedWorkItemIds: [
+          "item_allowed",
+          "item_forbidden",
+          "item_private_mine",
+          "item_private_other",
+        ],
+      }),
+      createDocument({
+        id: "doc_private_mine",
+        kind: "private-document",
+        createdBy: "user_1",
+        linkedProjectIds: ["project_allowed"],
+      }),
+      createDocument({
+        id: "doc_private_other",
+        kind: "private-document",
+        createdBy: "user_2",
+        linkedProjectIds: ["project_forbidden"],
+        linkedWorkItemIds: ["item_private_other"],
+      }),
+      createDocument({
+        id: "doc_team_allowed",
+        kind: "team-document",
+        teamId: "team_allowed",
+        linkedProjectIds: ["project_allowed"],
+        linkedWorkItemIds: ["item_allowed"],
+      }),
+    ]
+    const projects = new Map(
+      [
+        createProject({
+          id: "project_allowed",
+          name: "Allowed team project",
+        }),
+        createProject({
+          id: "project_workspace",
+          name: "Allowed workspace project",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+        }),
+        createProject({
+          id: "project_forbidden",
+          name: "Forbidden team project",
+          scopeId: "team_forbidden",
+        }),
+      ].map((project) => [project.id, project])
+    )
+    const workItems = new Map(
+      [
+        createWorkItem({
+          id: "item_allowed",
+          title: "Allowed team item",
+        }),
+        createWorkItem({
+          id: "item_forbidden",
+          title: "Forbidden team item",
+          teamId: "team_forbidden",
+        }),
+        createWorkItem({
+          id: "item_private_mine",
+          title: "My private item",
+          teamId: null,
+          visibility: "private",
+        }),
+        createWorkItem({
+          id: "item_private_other",
+          title: "Other private item",
+          teamId: null,
+          creatorId: "user_2",
+          visibility: "private",
+        }),
+      ].map((item) => [item.id, item])
+    )
+
+    dataMocks.listWorkspaceDocuments.mockResolvedValue(documents)
+    dataMocks.getProjectDoc.mockImplementation((_ctx, id: string) =>
+      Promise.resolve(projects.get(id) ?? null)
+    )
+    dataMocks.getWorkItemDoc.mockImplementation((_ctx, id: string) =>
+      Promise.resolve(workItems.get(id) ?? null)
+    )
+
+    const result = await getScopedReadModelHandler(ctx as never, {
+      serverToken: "server_token",
+      workosUserId: "workos_user_1",
+      instruction: {
+        kind: "document-index",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+      },
+    })
+    const documentIds = result?.documents?.map((document) => document.id) ?? []
+    const projectIds = result?.projects?.map((project) => project.id) ?? []
+    const workItemIds = result?.workItems?.map((item) => item.id) ?? []
+
+    expect(documentIds).toEqual(["doc_workspace", "doc_private_mine"])
+    expect(projectIds).toEqual(["project_allowed", "project_workspace"])
+    expect(projectIds).not.toContain("project_forbidden")
+    expect(workItemIds).toEqual(["item_allowed", "item_private_mine"])
+    expect(workItemIds).not.toContain("item_forbidden")
+    expect(workItemIds).not.toContain("item_private_other")
   })
 
   it("loads conversation list previews through bounded latest-message reads", async () => {

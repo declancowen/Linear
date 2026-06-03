@@ -480,6 +480,43 @@ function isReadableScopedProject(project: Project, context: ScopedUserContext) {
     : context.accessibleWorkspaceIds.has(project.scopeId)
 }
 
+function isReadableScopedWorkItem(item: WorkItem, context: ScopedUserContext) {
+  if ((item.visibility ?? "team") === "private") {
+    return Boolean(
+      item.creatorId === context.currentUserId &&
+        item.workspaceId &&
+        context.accessibleWorkspaceIds.has(item.workspaceId)
+    )
+  }
+
+  return Boolean(item.teamId && context.accessibleTeamIds.has(item.teamId))
+}
+
+function isDocumentInCollectionScope(
+  document: Document,
+  context: ScopedUserContext,
+  scopeType: "team" | "workspace",
+  scopeId: string
+) {
+  if (!isReadableScopedDocument(document, context)) {
+    return false
+  }
+
+  if (scopeType === "team") {
+    return document.kind === "team-document" && document.teamId === scopeId
+  }
+
+  if (document.kind === "workspace-document") {
+    return document.workspaceId === scopeId
+  }
+
+  return (
+    document.kind === "private-document" &&
+    document.workspaceId === scopeId &&
+    document.createdBy === context.currentUserId
+  )
+}
+
 function isReadableScopedConversation(
   conversation: Conversation,
   context: ScopedUserContext
@@ -579,10 +616,16 @@ async function loadDocumentsForScope(
   }
 
   if (scopeType === "team") {
-    return (await listTeamDocuments(ctx, scopeId)) as Document[]
+    return ((await listTeamDocuments(ctx, scopeId)) as Document[]).filter(
+      (document) =>
+        isDocumentInCollectionScope(document, context, scopeType, scopeId)
+    )
   }
 
-  return (await listWorkspaceDocuments(ctx, scopeId)) as Document[]
+  return ((await listWorkspaceDocuments(ctx, scopeId)) as Document[]).filter(
+    (document) =>
+      isDocumentInCollectionScope(document, context, scopeType, scopeId)
+  )
 }
 
 async function loadViewsForScope(
@@ -664,13 +707,19 @@ async function loadCollectionReadModelCollections(
       instruction.scopeType,
       instruction.scopeId
     )
-    const projects = await getProjectsByIds(
+    const linkedProjects = await getProjectsByIds(
       ctx,
       documents.flatMap((document) => document.linkedProjectIds)
     )
-    const workItems = await getWorkItemsByIds(
+    const projects = linkedProjects.filter((project) =>
+      isReadableScopedProject(project, context)
+    )
+    const linkedWorkItems = await getWorkItemsByIds(
       ctx,
       documents.flatMap((document) => document.linkedWorkItemIds)
+    )
+    const workItems = linkedWorkItems.filter((item) =>
+      isReadableScopedWorkItem(item, context)
     )
     const views = await loadViewsForScope(
       ctx,

@@ -50,6 +50,44 @@ Every future implementation slice must record:
 
 ## Review Entries
 
+### 2026-06-03: PR feedback loop 4 - Codex review document index linked target visibility
+- Linked tasks: 99.1 follow-up review loop
+- Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001
+- Linked design decisions: DES-008, DES-014, DES-015
+- Review mode: external finding import, deep diff-review with architecture-standards, normal re-review until clean
+- External feedback imported:
+  - GitHub Codex P1: workspace `document-index` could expose inaccessible team-scoped project metadata when a readable workspace document linked to a project in a team the user cannot access.
+- Scope fixed:
+  - Filtered document-index linked projects through scoped project access before materializing the read-model snapshot.
+  - Added and applied scoped work-item access filtering for document-index linked work items as the sibling bug-class path.
+  - Narrowed the shared document collection loader to legacy document-index/search-seed document semantics, so workspace document collections materialize workspace documents and current-user private documents, not unrelated team or other-user private documents.
+  - Added a handler regression covering allowed workspace/team/private targets and forbidden team/private targets.
+- Architecture assessment:
+  - Clean. The Convex scoped materializer remains the read-model authority for authorization and snapshot-removal parity.
+  - Selectors remain projection-only and do not need to infer authorization from link fields.
+  - The fix is cost-bounded: it reads visible documents and linked target ids, then filters targets before snapshot materialization.
+- Validation:
+  - `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 8 tests.
+  - `pnpm exec tsc --noEmit --pretty false` - passed.
+  - `pnpm lint` - passed.
+  - `pnpm cost:guardrails` - passed, 4 files / 15 tests.
+  - `git diff --check` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed.
+  - `pnpm test` - passed, 222 files / 1476 tests.
+  - `pnpm build` - passed.
+  - Browser smoke was intentionally not run because the user instructed the implementation agent not to run smoke tests; manual browser smoke is user-owned validation.
+- Normal re-review result:
+  - Re-read document-index materialization, legacy selector behavior, search-seed reuse, linked target selector projection, work-item/project access rules, sibling scoped loaders, and tests after the implementation.
+  - Simplified one maintainability issue from the deep review by replacing mixed `await`/`.then` target filtering with explicit intermediate variables.
+  - No live Critical, High, or Medium findings remain.
+- Spec drift:
+  - No spec drift found. The feedback fits the existing read-model authority, snapshot removal, route/backend contract, Convex cost-bound, and architecture-standard requirements.
+- Residual risk:
+  - Candidate linked targets are still fetched before filtering because their scope is not known without reading the target. This is bounded by visible document link ids and does not reintroduce broad snapshot reads.
+- Cleared to push:
+  - Yes. Commit and push the follow-up fixes to PR #49, then wait for the next review/CI result before making further changes.
+
 ### 2026-06-03: PR feedback loop 3 - Codex review workspace collection stream authorization
 - Linked tasks: 99.1 follow-up review loop
 - Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001
