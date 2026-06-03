@@ -57,17 +57,108 @@
 - External Codex review feedback on private team work items in project scopes - added Turn 16
 - External Codex review feedback on scoped read-model detail route error semantics - added Turn 17
 - External Codex review feedback on private sibling work items in item detail scopes - added Turn 18
+- External Codex review feedback on linked project admission in item detail scopes - added Turn 19
 
 ## Review status
 
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-06-03 10:20:17 BST |
-| **Last reviewed** | 2026-06-03 17:19:07 BST |
-| **Total turns** | 18 |
+| **Last reviewed** | 2026-06-03 17:39:40 BST |
+| **Total turns** | 19 |
 | **Open findings** | 0 |
-| **Resolved findings** | 21 |
+| **Resolved findings** | 22 |
 | **Accepted findings** | 0 |
+
+## Turn 19 - 2026-06-03 17:39:40 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `b719b438` with uncommitted PR-feedback fixes |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the next current-head GitHub Codex review for PR #49, triaged the P1 linked-project item-detail finding as live, fixed linked project admission before milestone/response derivation, and reran the deep/normal review loop with architecture standards.
+
+**Outcome:** all clear for this PR-feedback follow-up. No live Critical, High, or Medium findings remain in the current local diff. The branch is ready for commit, push, and the next watcher loop.
+
+**Risk score:** high - the fix touches scoped read-model authority, item detail materialization, linked project metadata, milestone derivation, privacy/tenancy, and snapshot-removal parity.
+
+**Change archetypes:** external finding import, data-admission fix, derived-output guard, scoped read-model materializer, regression test, skill-learning update.
+
+**External finding import:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review | Work item detail linked project ids could materialize an inaccessible team project and feed milestone/project response data | live | Data admission / derived ID propagation / invariant transfer / authorization privacy | readable item state does not make linked project targets or their derived data eligible for the item-detail snapshot | fixed |
+
+**Intent vs actual:** item detail now validates sibling work-item candidates, but readable work items can still reference projects from teams the user cannot access. The detail materializer hydrated linked project ids directly and used the resulting project list for both response data and milestone lookup before applying the project owner's readability rule.
+
+**Confidence:** high. The fix admits project candidates only when `isReadableScopedProject` allows them and derives milestone lookup ids from that admitted project set. The regression test proves the inaccessible linked project is absent from returned projects and the milestone query input.
+
+**Coverage note:** reviewed work item detail project acquisition, project index/detail private-item fixes, document index linked-target admission, notification target project admission, selector projection boundaries, and milestone derivation.
+
+**Deep-review evidence:** dual pass completed. Correctness/safety checked linked project direct-id acquisition, workspace/team project scope candidates, milestone lookup inputs, selector projection limitations, stale/inaccessible project targets, and sibling linked-target paths. Maintainability/structure checked that data admission remains in the Convex scoped materializer instead of route/client projection code.
+
+**Architecture assessment:** clean. The read-model authority remains Convex. The change applies target-owner admission before derived outputs and keeps the route/client layers as transport/projection. It does not reintroduce broad snapshots or expand polling/read-model cost paths.
+
+**Bug classes / invariants checked:** data admission, derived ID propagation, invariant transfer from legacy snapshot filtering, authorization/privacy, scope and tenancy, projection-is-not-authority, linked-target stale/access-loss variants, and Convex cost bounds.
+
+**Branch totality:** reassessed the current branch state and prior PR feedback loops. This fix complements Turn 14's document linked-target admission and Turn 18's item-detail work-item admission by closing linked-project admission and milestone derivation in item detail.
+
+**Sibling closure:** checked document-index linked projects/work items, project index/detail work items, notification project target admission, work item detail work-item candidates, work item detail linked projects, and downstream custom-property/milestone derivations. The general mechanism is not "use a filter"; it is authoritative data admission plus derived-output proof for the chosen implementation shape.
+
+**Remediation impact surface:** changes are limited to `convex/app/scoped_read_models.ts`, `tests/convex/scoped-read-model-handlers.test.ts`, and review ledgers. No route, schema, data helper, generated API, client store, scope-key contract, or cost guardrail change was needed.
+
+**Skill-learning update:** updated local `architecture-standards`, `diff-review`, and `spec-driven-development` guidance outside the repo to learn at the architecture-mechanism level: outcome/intent, ownership/authority, data admission/materialization, derived behavior, contracts, operational/cost behavior, and verification/enforcement. The concrete incident remains in the review ledger; reusable skill guidance avoids naming this repo's files/entities as future rules.
+
+**Residual risk / unknowns:** linked project candidates are still read before admission because their owner scope is only known after loading the target. This is bounded by item-detail candidate project ids and does not return or derive data from inaccessible targets after admission.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 12 tests
+- `pnpm exec tsc --noEmit --pretty false` - passed
+- `pnpm lint` - passed
+- `pnpm cost:guardrails` - passed, 4 files / 15 tests
+- `git diff --check` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed
+- `pnpm test` - passed, 223 files / 1486 tests
+- `pnpm build` - passed
+- Browser smoke - intentionally not run by Codex; user-owned manual validation per instruction
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** GitHub Codex review comment, work item detail materializer, project admission helper, document linked-target path, project index/detail paths, notification project path, selector projection, and milestone lookup.
+- **Prior open findings rechecked:** no open findings existed before this review turn. The new external P1 finding is resolved.
+- **Prior resolved/adjacent areas revalidated:** Turn 14 document linked-target admission, Turn 16 project-scope private-item admission, Turn 17 route error contract, and Turn 18 item-detail work-item admission remain intact; full test/build validation passed after this linked-project fix.
+- **Hotspots or sibling paths revisited:** work item detail linked projects, work item detail milestones, document index linked targets, notification project targets, project index/detail work items, custom property value derivation, and selector projection.
+- **Dependency/adjacent surfaces revalidated:** `ScopedUserContext`, `isReadableScopedProject`, team/workspace project scope rules, data-admission proof, derived-output proof, typecheck, lint, cost guardrails, spec validators, diff whitespace, full test suite, and build.
+- **Why this is enough:** the escaped mechanism was admitted source data driving unauthorized derived outputs after authority moved out of the legacy snapshot. Item-detail linked project candidates now pass the project owner rule before response data and milestone ids are derived.
+
+### Challenger pass
+
+- `done` - assumed excluding the project from returned `projects` might be enough. Rejected: milestone lookup also derives from the project list, so the test asserts the downstream query input excludes the inaccessible project.
+- `done` - checked whether this should become a hardcoded read-model rule in the skills. Rejected: the reusable mechanism is data admission and derived behavior proof across any implementation shape.
+
+### Resolved / Carried / New findings
+
+#### BRS-022 [P1] Work item detail linked projects admitted inaccessible project targets
+
+- **Status:** resolved
+- **Bug class:** data admission / derived ID propagation / invariant transfer / authorization privacy
+- **Invariant:** linked targets and their derived data must satisfy the target owner's eligibility rule before entering a scoped output or downstream derivation.
+- **Root cause:** `loadWorkItemDetailCollections` hydrated related project ids and combined scope project candidates without applying `isReadableScopedProject` before returning projects and deriving milestone ids.
+- **Fix:** admitted deduped project candidates through `isReadableScopedProject` before milestone lookup and response materialization.
+- **Verification:** focused scoped handler test, typecheck, lint, cost guardrails, spec validators, full test suite, build, and diff check passed.
+
+### Architecture assessment
+
+Clean. Admission and derived-output validation are located at the Convex read-model materialization boundary, preserving the new scoped read-model authority and keeping selectors/routes as projection/transport. The change is cost-bounded and does not depend on a specific implementation tactic as the architectural rule.
+
+### Recommendations
+
+1. **Proceed:** commit and push the follow-up fixes to PR #49.
+2. **Watcher:** after push, wait for the next Codex/GitHub review and CI result before making further changes, to avoid duplicate review triggers.
 
 ## Turn 18 - 2026-06-03 17:19:07 BST
 

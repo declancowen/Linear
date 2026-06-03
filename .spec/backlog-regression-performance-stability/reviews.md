@@ -50,6 +50,45 @@ Every future implementation slice must record:
 
 ## Review Entries
 
+### 2026-06-03: PR feedback loop 9 - Codex review linked project admission in item detail scopes
+- Linked tasks: 99.1 follow-up review loop
+- Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001, REQ-SCOPED-001
+- Linked design decisions: DES-008, DES-014, DES-015
+- Review mode: external finding import, deep diff-review with architecture-standards, normal re-review until clean
+- External feedback imported:
+  - GitHub Codex P1: work item detail linked project ids could materialize an inaccessible team project and feed derived milestone/project response data.
+- Scope fixed:
+  - Admitted deduped project candidates inside `loadWorkItemDetailCollections` through `isReadableScopedProject` before milestone lookup and response materialization.
+  - Kept Convex as the read-model authority and avoided moving eligibility decisions to selectors, routes, or client code.
+  - Added a handler regression proving an inaccessible linked project is absent from returned projects and the milestone lookup input.
+- Architecture assessment:
+  - Clean. The fix addresses the mechanism at the architecture level: target-owner data admission plus derived-output proof after scoped read-model authority moved out of the legacy snapshot.
+  - The implementation uses the repo's current project readability helper, but the recorded learning is not implementation-specific; future skills now phrase this as data admission and derived behavior across any implementation shape.
+  - The fix remains bounded to item-detail project candidates and does not reintroduce broad snapshots or expand polling/read-model cost paths.
+- Validation:
+  - `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 12 tests.
+  - `pnpm exec tsc --noEmit --pretty false` - passed.
+  - `pnpm lint` - passed.
+  - `pnpm cost:guardrails` - passed, 4 files / 15 tests.
+  - `git diff --check` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed.
+  - `pnpm test` - passed, 223 files / 1486 tests.
+  - `pnpm build` - passed.
+  - Browser smoke was intentionally not run because the user instructed the implementation agent not to run smoke tests; manual browser smoke is user-owned validation.
+- Normal re-review result:
+  - Re-read work item detail project acquisition, milestone derivation, document linked-target admission, project index/detail work-item admission, notification project target admission, selectors, and tests after the implementation.
+  - The sibling mechanism was admitted source data driving derived outputs; no additional live leak remained after linked projects were admitted at the project owner boundary before milestone ids were derived.
+  - No live Critical, High, or Medium findings remain.
+- Spec drift:
+  - No spec drift found. The feedback fits the existing read-model authority, snapshot-removal, privacy, scoped Convex cost-bound, and architecture-standard requirements.
+- Residual risk:
+  - Linked project targets are read before admission because target scope is only known after loading the target. This remains bounded by item-detail candidate project ids and inaccessible targets are not returned or used for derived milestone lookup.
+- Skill-learning update:
+  - Updated local `architecture-standards`, `diff-review`, and `spec-driven-development` guidance outside the repo to learn at the generic architecture mechanism level rather than from concrete implementation details.
+- Cleared to push:
+  - Yes. Commit and push the follow-up fixes to PR #49, then wait for the next review/CI result before making further changes.
+
 ### 2026-06-03: PR feedback loop 8 - Codex review private sibling item detail scopes
 - Linked tasks: 99.1 follow-up review loop
 - Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001, REQ-SCOPED-001

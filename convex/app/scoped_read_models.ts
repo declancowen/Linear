@@ -963,7 +963,7 @@ async function loadWorkItemDetailCollections(
           itemWorkspaceId
         )) as Project[])
       : []),
-  ])
+  ]).filter((project) => isReadableScopedProject(project, context))
   const [milestones, comments, attachments, activities] = await Promise.all([
     listMilestonesByProjects(ctx, projects.map((project) => project.id)),
     listCommentsByTargets(ctx, {
