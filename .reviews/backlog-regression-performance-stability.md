@@ -53,17 +53,105 @@
 - External Codex review feedback on notification target visibility after access loss - added Turn 12
 - External Codex review feedback on workspace collection stream authorization - added Turn 13
 - External Codex review feedback on document index linked target visibility - added Turn 14
+- External Codex review feedback on deleted chat preview fallback scanning - added Turn 15
 
 ## Review status
 
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-06-03 10:20:17 BST |
-| **Last reviewed** | 2026-06-03 16:03:18 BST |
-| **Total turns** | 14 |
+| **Last reviewed** | 2026-06-03 16:19:13 BST |
+| **Total turns** | 15 |
 | **Open findings** | 0 |
-| **Resolved findings** | 16 |
+| **Resolved findings** | 17 |
 | **Accepted findings** | 0 |
+
+## Turn 15 - 2026-06-03 16:15:06 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `c67a5df6` with uncommitted PR-feedback fixes |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the next completed GitHub Codex review for PR #49, triaged the current-head conversation preview P2, fixed the live deleted-message preview regression, and reran the deep/normal review loop with architecture standards.
+
+**Outcome:** all clear for this PR-feedback follow-up. No live Critical, High, or Medium findings remain in the current local diff. The branch is ready for commit, push, and the next watcher loop.
+
+**Risk score:** high - the fix touches Convex data access for chat preview read models, user-facing conversation-list semantics, and cost-bounded backend query behavior.
+
+**Change archetypes:** external finding import, backend data helper, scoped read-model preview contract, deletion variant, Convex cost bounds, regression tests.
+
+**External finding import:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review | Conversation-list preview helper returned `null` when the newest 25 messages were deleted, even if an older non-deleted message existed | live | Variant state / semantic regression / cost-bound fallback | bounded preview reads must skip deleted rows far enough to preserve latest-readable preview semantics without returning to full history scans | fixed |
+
+**Intent vs actual:** the Codex finding was live. The scoped conversation-list loader now relies on `listLatestReadableChatMessagesByConversations`; its per-conversation helper only read 25 newest rows and then filtered deleted messages locally, so deletion-heavy threads could lose previews until a new message was posted.
+
+**Confidence:** high. The fix keeps the normal 25-row read for common cases and only runs a bounded 250-row fallback when the initial page is full and contains no readable message.
+
+**Coverage note:** reviewed Convex data helper, conversation-list scoped loader, deleted-message visibility rules, existing index `chatMessages.by_conversation_created_at`, cost guardrails, and focused data/helper tests.
+
+**Deep-review evidence:** dual pass completed. Correctness/safety checked readable first page, 25 deleted newest rows plus older readable row, short all-deleted conversations, and conversation-list helper dependency. Maintainability/structure checked that the fallback stays in the data helper owner and does not reintroduce full conversation history reads in the scoped loader.
+
+**Architecture assessment:** clean. Preview lookup remains a backend data-helper responsibility, the scoped loader still asks for latest-readable previews through one bounded helper, and the fallback keeps Convex reads proportional to the deletion-heavy edge case rather than broad snapshots.
+
+**Bug classes / invariants checked:** variant state, semantic regression, bounded fallback, deleted-message visibility, Convex query cost, and route/read-model contract fit.
+
+**Branch totality:** reassessed branch-total current state after the external feedback. Prior Turn 14 linked-target filtering remains intact.
+
+**Sibling closure:** checked `listLatestReadableChatMessagesByConversations`, conversation-list scoped loader usage, direct conversation-thread loader behavior, deleted message rendering tests, and cost guardrail coverage.
+
+**Remediation impact surface:** changes are limited to `convex/app/data.ts`, `tests/convex/data-chat-preview.test.ts`, and review ledgers. No route, schema, scoped loader, selector, client store, or generated Convex roster change was needed.
+
+**Residual risk / unknowns:** conversations with more than 250 newest deleted messages can still return no preview until a newer readable message appears. This is an explicit cost-bounded tradeoff against restoring full history scans for every conversation-list load.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/data-chat-preview.test.ts tests/convex/scoped-read-model-handlers.test.ts` - passed, 2 files / 11 tests
+- `pnpm exec tsc --noEmit --pretty false` - passed
+- `pnpm lint` - passed
+- `pnpm cost:guardrails` - passed, 4 files / 15 tests
+- `git diff --check` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed
+- `pnpm test` - passed, 223 files / 1479 tests
+- `pnpm build` - passed
+- Browser smoke - intentionally not run by Codex; user-owned manual validation per instruction
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** GitHub Codex review comment, `convex/app/data.ts`, conversation-list scoped loader, schema indexes, focused scoped handler tests, and chat preview tests.
+- **Prior open findings rechecked:** no open findings existed before this review turn. The new external finding is resolved.
+- **Prior resolved/adjacent areas revalidated:** Turn 14 document-index linked target filtering remains intact via the focused scoped handler suite.
+- **Hotspots or sibling paths revisited:** latest-readable chat preview helper, bulk conversation preview helper, deleted-message visibility, direct thread reads, cost guardrails, and scoped conversation-list loading.
+- **Dependency/adjacent surfaces revalidated:** `chatMessages.by_conversation_created_at`, batching helper behavior, TypeScript/lint/static guardrails, and data helper tests.
+- **Why this is enough:** the issue was a bounded-query deletion variant. The fix preserves the cheap common path, adds a bounded fallback for the exact deleted-row edge, and tests the public data helper behavior directly.
+
+### Challenger pass
+
+- `done` - assumed the fix could accidentally restore full-history scans. The implementation keeps the scoped loader unchanged and caps fallback reads at 250 rows only after the 25-row page is full and all deleted.
+
+### Resolved / Carried / New findings
+
+#### BRS-017 [P2] Deleted newest chat messages could hide older readable conversation previews
+
+- **Status:** resolved
+- **Bug class:** variant state / semantic regression / cost-bound fallback
+- **Invariant:** conversation-list previews should show the latest readable message when one exists within the bounded preview window, even if newer rows are deleted.
+- **Root cause:** the new bounded preview helper read 25 newest chat rows and filtered `deletedAt` after the cap, so it could stop before an older readable row.
+- **Fix:** added a bounded fallback scan of 250 latest rows only when the initial 25-row page is full and contains no readable message; added data-helper regression tests for readable first page, deletion-heavy fallback, and short all-deleted conversations.
+- **Verification:** focused chat preview/scoped handler tests, typecheck, lint, cost guardrails, and diff check passed.
+
+### Architecture assessment
+
+Clean. The backend data helper owns the preview-read policy, preserving the scoped read-model contract without reintroducing full history reads. The fallback is explicit, bounded, and limited to the deletion-heavy variant that needs it.
+
+### Recommendations
+
+1. **Proceed:** commit and push the follow-up fixes to PR #49.
+2. **Watcher:** after push, wait for the next Codex/GitHub review and CI result before making further changes, to avoid duplicate review triggers.
 
 ## Turn 14 - 2026-06-03 16:03:18 BST
 

@@ -50,6 +50,43 @@ Every future implementation slice must record:
 
 ## Review Entries
 
+### 2026-06-03: PR feedback loop 5 - Codex review deleted chat preview fallback
+- Linked tasks: 99.1 follow-up review loop
+- Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001
+- Linked design decisions: DES-008, DES-012, DES-014, DES-015
+- Review mode: external finding import, deep diff-review with architecture-standards, normal re-review until clean
+- External feedback imported:
+  - GitHub Codex P2: conversation-list previews could disappear when the newest 25 chat messages were deleted, even if an older readable message existed.
+- Scope fixed:
+  - Kept the normal latest-readable preview query at 25 rows for the common path.
+  - Added a bounded 250-row fallback only when the initial page is full and all rows are deleted.
+  - Added focused data-helper tests covering readable first page, deletion-heavy fallback, and short all-deleted conversations.
+- Architecture assessment:
+  - Clean. Preview lookup remains owned by the Convex data helper, not the UI or selector layer.
+  - The scoped conversation-list loader continues to use a bounded latest-readable helper instead of full conversation history reads.
+  - The fallback is a deliberate cost tradeoff: deletion-heavy threads get older previews without returning to broad snapshot/full-history behavior.
+- Validation:
+  - `pnpm exec vitest run tests/convex/data-chat-preview.test.ts tests/convex/scoped-read-model-handlers.test.ts` - passed, 2 files / 11 tests.
+  - `pnpm exec tsc --noEmit --pretty false` - passed.
+  - `pnpm lint` - passed.
+  - `pnpm cost:guardrails` - passed, 4 files / 15 tests.
+  - `git diff --check` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed.
+  - `pnpm test` - passed, 223 files / 1479 tests.
+  - `pnpm build` - passed.
+  - Browser smoke was intentionally not run because the user instructed the implementation agent not to run smoke tests; manual browser smoke is user-owned validation.
+- Normal re-review result:
+  - Re-read the data helper, scoped conversation-list loader, schema index, deleted-message thread behavior, cost guardrails, and tests after the implementation.
+  - Corrected one test-name wording issue from the deep review.
+  - No live Critical, High, or Medium findings remain.
+- Spec drift:
+  - No spec drift found. The feedback fits the existing chat preview, read-model authority, Convex cost-bound, and architecture-standard requirements.
+- Residual risk:
+  - More than 250 newest deleted messages can still produce no preview. This is accepted as a bounded-cost limit rather than reintroducing full-history scans.
+- Cleared to push:
+  - Yes. Commit and push the follow-up fixes to PR #49, then wait for the next review/CI result before making further changes.
+
 ### 2026-06-03: PR feedback loop 4 - Codex review document index linked target visibility
 - Linked tasks: 99.1 follow-up review loop
 - Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001
