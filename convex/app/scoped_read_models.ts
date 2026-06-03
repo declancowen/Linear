@@ -474,6 +474,30 @@ function isReadableScopedDocument(
   return context.accessibleWorkspaceIds.has(document.workspaceId)
 }
 
+function isReadableScopedProject(project: Project, context: ScopedUserContext) {
+  return project.scopeType === "team"
+    ? context.accessibleTeamIds.has(project.scopeId)
+    : context.accessibleWorkspaceIds.has(project.scopeId)
+}
+
+function isReadableScopedConversation(
+  conversation: Conversation,
+  context: ScopedUserContext
+) {
+  if (conversation.scopeType === "team") {
+    return context.accessibleTeamIds.has(conversation.scopeId)
+  }
+
+  if (!context.accessibleWorkspaceIds.has(conversation.scopeId)) {
+    return false
+  }
+
+  return (
+    conversation.kind === "channel" ||
+    conversation.participantIds.includes(context.currentUserId)
+  )
+}
+
 async function loadProjectsByScopes(
   ctx: QueryCtx,
   scopes: Iterable<{ scopeType: "team" | "workspace"; scopeId: string }>
@@ -1115,28 +1139,64 @@ async function loadNotificationInboxCollections(
       .filter((notification) => notification.entityType === "project")
       .map((notification) => notification.entityId)
   )
-  const [allInviteCandidates, conversations, channelPosts, projects] =
-    await Promise.all([
-      Promise.all([
-        listInvitesByNormalizedEmail(
-          ctx,
-          normalizeEmailAddress(context.currentUserEmail)
-        ),
-        listInvitesByTeams(ctx, context.accessibleTeamIds),
-      ]).then((entries) => entries.flat()),
-      Promise.all([...conversationIds].map((id) => getConversationDoc(ctx, id))),
-      Promise.all([...postIds].map((id) => getChannelPostDoc(ctx, id))),
-      getProjectsByIds(ctx, projectIds),
-    ])
+  const [
+    allInviteCandidates,
+    conversationCandidates,
+    channelPostCandidates,
+    projectCandidates,
+  ] = await Promise.all([
+    Promise.all([
+      listInvitesByNormalizedEmail(
+        ctx,
+        normalizeEmailAddress(context.currentUserEmail)
+      ),
+      listInvitesByTeams(ctx, context.accessibleTeamIds),
+    ]).then((entries) => entries.flat()),
+    Promise.all([...conversationIds].map((id) => getConversationDoc(ctx, id))),
+    Promise.all([...postIds].map((id) => getChannelPostDoc(ctx, id))),
+    getProjectsByIds(ctx, projectIds),
+  ])
   const invites = (allInviteCandidates as Invite[]).filter((invite) =>
     inviteIds.has(invite.id)
   )
+  const directConversations = (conversationCandidates.filter(
+    isPresent
+  ) as unknown as Conversation[]).filter((conversation) =>
+    isReadableScopedConversation(conversation, context)
+  )
+  const channelPosts = channelPostCandidates.filter(
+    isPresent
+  ) as unknown as ChannelPost[]
+  const channelPostConversations = (
+    await Promise.all(
+      [
+        ...new Set(
+          channelPosts.map((post) => post.conversationId).filter(Boolean)
+        ),
+      ].map((id) => getConversationDoc(ctx, id))
+    )
+  )
+    .filter(isPresent)
+    .filter(
+      (conversation) =>
+        conversation.kind === "channel" &&
+        isReadableScopedConversation(conversation as Conversation, context)
+    ) as unknown as Conversation[]
+  const readableChannelPostConversationIds = new Set(
+    channelPostConversations.map((conversation) => conversation.id)
+  )
+  const projects = (projectCandidates as Project[]).filter((project) =>
+    isReadableScopedProject(project, context)
+  )
 
   return {
-    channelPosts: channelPosts.filter(isPresent) as unknown as ChannelPost[],
-    conversations: conversations.filter(
-      isPresent
-    ) as unknown as Conversation[],
+    channelPosts: channelPosts.filter((post) =>
+      readableChannelPostConversationIds.has(post.conversationId)
+    ),
+    conversations: dedupeById([
+      ...directConversations,
+      ...channelPostConversations,
+    ]),
     invites,
     notifications,
     projects,

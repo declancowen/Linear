@@ -50,6 +50,43 @@ Every future implementation slice must record:
 
 ## Review Entries
 
+### 2026-06-03: PR feedback loop 2 - Codex review notification target visibility
+- Linked tasks: 99.1 follow-up review loop
+- Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001
+- Linked design decisions: DES-008, DES-014, DES-015
+- Review mode: external finding import, deep diff-review with architecture-standards, normal re-review until clean
+- External feedback imported:
+  - GitHub Codex P1: notification inbox scoped loader could materialize stale/inaccessible conversation, channel-post, or project target metadata directly by notification entity id after access loss.
+- Scope fixed:
+  - Added scoped project and conversation target visibility helpers in `convex/app/scoped_read_models.ts`.
+  - Filtered direct notification chat targets by current team/workspace/participant access.
+  - Filtered project notification targets by accessible project scope.
+  - Filtered channel-post notification targets through their readable parent channel conversation before returning the post.
+  - Added a handler regression test covering accessible and inaccessible chat, channel-post, and project notification targets.
+- Architecture assessment:
+  - Clean. Notification target visibility is enforced at the scoped Convex materializer boundary before selector/UI shaping.
+  - The selector contract remains unchanged and projects already-authorized records only.
+  - The fix keeps reads bounded by notification target ids and does not reintroduce `getSnapshotServer`.
+- Validation:
+  - `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 6 tests.
+  - `pnpm exec tsc --noEmit --pretty false` - passed.
+  - `pnpm lint` - passed.
+  - `pnpm cost:guardrails` - passed, 4 files / 15 tests.
+  - `node scripts/verify-convex-generated-fallback.mjs` - passed, modules=40.
+  - `git diff --check` - passed.
+  - `pnpm test` - passed, 222 files / 1474 tests.
+  - `pnpm build` - passed.
+  - Browser smoke was intentionally not run because the user instructed the implementation agent not to run smoke tests; manual browser smoke is user-owned validation.
+- Normal re-review result:
+  - Re-read notification target loader, selector contract, bootstrap visibility, conversation/project access rules, sibling scoped loaders, and tests after the implementation.
+  - No live Critical, High, or Medium findings remain.
+- Spec drift:
+  - No spec drift found. The feedback fits the existing read-model authority, snapshot removal, route/backend contract, and architecture-standard requirements.
+- Residual risk:
+  - User-owned notifications still include historical notification message/content preview, matching prior bootstrap behavior. Target record materialization is now access-gated.
+- Cleared to push:
+  - Yes. Commit and push the follow-up fixes to PR #49, then wait for the next review/CI result before making further changes.
+
 ### 2026-06-03: PR feedback loop 1 - Codex review scoped document visibility and generated API roster
 - Linked tasks: 99.1 follow-up review loop
 - Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001

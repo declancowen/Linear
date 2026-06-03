@@ -127,6 +127,25 @@ function createDocument(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function createNotification(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "notification_1",
+    userId: "user_1",
+    type: "mention",
+    entityType: "project",
+    entityId: "project_1",
+    actorId: "user_2",
+    message: "You were mentioned",
+    contentPreview: null,
+    targetCommentId: null,
+    readAt: null,
+    archivedAt: null,
+    emailedAt: null,
+    createdAt: "2026-06-03T12:00:00.000Z",
+    ...overrides,
+  }
+}
+
 describe("scoped read model Convex handlers", () => {
   beforeEach(() => {
     vi.resetModules()
@@ -460,5 +479,175 @@ describe("scoped read model Convex handlers", () => {
     )
     expect(documentIds).not.toContain("doc_private_other")
     expect(documentIds).not.toContain("doc_team_forbidden")
+  })
+
+  it("filters unreadable notification targets from inbox scopes", async () => {
+    const { getScopedReadModelHandler } = await import(
+      "@/convex/app/scoped_read_models"
+    )
+    const conversations = new Map(
+      [
+        {
+          id: "chat_allowed",
+          kind: "chat",
+          scopeType: "team",
+          scopeId: "team_allowed",
+          variant: "team",
+          title: "Allowed chat",
+          description: "",
+          participantIds: ["user_1", "user_2"],
+          createdBy: "user_1",
+          createdAt: "2026-06-03T12:00:00.000Z",
+          updatedAt: "2026-06-03T12:00:00.000Z",
+          lastActivityAt: "2026-06-03T12:00:00.000Z",
+        },
+        {
+          id: "chat_forbidden",
+          kind: "chat",
+          scopeType: "team",
+          scopeId: "team_forbidden",
+          variant: "team",
+          title: "Forbidden chat",
+          description: "",
+          participantIds: ["user_2"],
+          createdBy: "user_2",
+          createdAt: "2026-06-03T12:00:00.000Z",
+          updatedAt: "2026-06-03T12:00:00.000Z",
+          lastActivityAt: "2026-06-03T12:00:00.000Z",
+        },
+        {
+          id: "channel_allowed",
+          kind: "channel",
+          scopeType: "team",
+          scopeId: "team_allowed",
+          variant: "team",
+          title: "Allowed channel",
+          description: "",
+          participantIds: ["user_1", "user_2"],
+          createdBy: "user_1",
+          createdAt: "2026-06-03T12:00:00.000Z",
+          updatedAt: "2026-06-03T12:00:00.000Z",
+          lastActivityAt: "2026-06-03T12:00:00.000Z",
+        },
+        {
+          id: "channel_forbidden",
+          kind: "channel",
+          scopeType: "team",
+          scopeId: "team_forbidden",
+          variant: "team",
+          title: "Forbidden channel",
+          description: "",
+          participantIds: ["user_2"],
+          createdBy: "user_2",
+          createdAt: "2026-06-03T12:00:00.000Z",
+          updatedAt: "2026-06-03T12:00:00.000Z",
+          lastActivityAt: "2026-06-03T12:00:00.000Z",
+        },
+      ].map((conversation) => [conversation.id, conversation])
+    )
+    const channelPosts = new Map(
+      [
+        {
+          id: "post_allowed",
+          conversationId: "channel_allowed",
+          content: "<p>Allowed post</p>",
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: "user_1",
+          createdAt: "2026-06-03T12:00:00.000Z",
+          updatedAt: "2026-06-03T12:00:00.000Z",
+        },
+        {
+          id: "post_forbidden",
+          conversationId: "channel_forbidden",
+          content: "<p>Forbidden post</p>",
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: "user_2",
+          createdAt: "2026-06-03T12:00:00.000Z",
+          updatedAt: "2026-06-03T12:00:00.000Z",
+        },
+      ].map((post) => [post.id, post])
+    )
+    const projects = new Map(
+      [
+        {
+          id: "project_allowed",
+          name: "Allowed project",
+          scopeType: "team",
+          scopeId: "team_allowed",
+          leadId: "user_1",
+          memberIds: [],
+        },
+        {
+          id: "project_forbidden",
+          name: "Forbidden project",
+          scopeType: "team",
+          scopeId: "team_forbidden",
+          leadId: "user_2",
+          memberIds: [],
+        },
+      ].map((project) => [project.id, project])
+    )
+
+    dataMocks.listNotificationsByUser.mockResolvedValue([
+      createNotification({
+        id: "notification_chat_allowed",
+        entityType: "chat",
+        entityId: "chat_allowed",
+      }),
+      createNotification({
+        id: "notification_chat_forbidden",
+        entityType: "chat",
+        entityId: "chat_forbidden",
+      }),
+      createNotification({
+        id: "notification_post_allowed",
+        entityType: "channelPost",
+        entityId: "post_allowed",
+      }),
+      createNotification({
+        id: "notification_post_forbidden",
+        entityType: "channelPost",
+        entityId: "post_forbidden",
+      }),
+      createNotification({
+        id: "notification_project_allowed",
+        entityType: "project",
+        entityId: "project_allowed",
+      }),
+      createNotification({
+        id: "notification_project_forbidden",
+        entityType: "project",
+        entityId: "project_forbidden",
+      }),
+    ])
+    dataMocks.listInvitesByNormalizedEmail.mockResolvedValue([])
+    dataMocks.listInvitesByTeams.mockResolvedValue([])
+    dataMocks.getConversationDoc.mockImplementation((_ctx, id: string) =>
+      Promise.resolve(conversations.get(id) ?? null)
+    )
+    dataMocks.getChannelPostDoc.mockImplementation((_ctx, id: string) =>
+      Promise.resolve(channelPosts.get(id) ?? null)
+    )
+    dataMocks.getProjectDoc.mockImplementation((_ctx, id: string) =>
+      Promise.resolve(projects.get(id) ?? null)
+    )
+
+    const result = await getScopedReadModelHandler(ctx as never, {
+      serverToken: "server_token",
+      workosUserId: "workos_user_1",
+      instruction: { kind: "notification-inbox" },
+    })
+    const resultConversationIds =
+      result?.conversations?.map((conversation) => conversation.id) ?? []
+    const resultPostIds = result?.channelPosts?.map((post) => post.id) ?? []
+    const resultProjectIds = result?.projects?.map((project) => project.id) ?? []
+
+    expect(resultConversationIds).toEqual(["chat_allowed"])
+    expect(resultConversationIds).not.toContain("chat_forbidden")
+    expect(resultConversationIds).not.toContain("channel_forbidden")
+    expect(resultPostIds).toEqual(["post_allowed"])
+    expect(resultProjectIds).toEqual(["project_allowed"])
   })
 })

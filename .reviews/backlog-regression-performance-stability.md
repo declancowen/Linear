@@ -50,17 +50,104 @@
 - Local/prod Convex target visibility for billing investigations - added Turn 9
 - Final total-diff route/backend contract fit, read-model authority, scoped invalidation, snapshot removal, and Convex cost bounds - added Turn 10
 - External Codex review feedback on scoped document visibility and generated Convex API roster - added Turn 11
+- External Codex review feedback on notification target visibility after access loss - added Turn 12
 
 ## Review status
 
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-06-03 10:20:17 BST |
-| **Last reviewed** | 2026-06-03 15:07:31 BST |
-| **Total turns** | 11 |
+| **Last reviewed** | 2026-06-03 15:27:31 BST |
+| **Total turns** | 12 |
 | **Open findings** | 0 |
-| **Resolved findings** | 13 |
+| **Resolved findings** | 14 |
 | **Accepted findings** | 0 |
+
+## Turn 12 - 2026-06-03 15:27:31 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `30b2f0e6` with uncommitted PR-feedback fixes |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the next completed GitHub Codex review for PR #49, triaged the new current-head notification inbox P1, fixed the live scoped target leak, and reran the deep/normal review loop with architecture standards.
+
+**Outcome:** all clear for this PR-feedback follow-up. No live Critical, High, or Medium findings remain in the current local diff. The branch is ready for a follow-up commit and push to PR #49.
+
+**Risk score:** high - the fix touches server-side notification target materialization, scoped read-model authority, team/workspace access, and Convex billing-sensitive query shape.
+
+**Change archetypes:** external finding import, authorization/privacy fix, scoped read-model architecture, notification inbox regression test.
+
+**External finding import:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review | Notification inbox could materialize stale/inaccessible conversation, channel post, or project targets by id after the user lost access | live | Authorization/privacy / scope and tenancy | user-owned notifications may remain, but target records must still pass current access before entering scoped snapshots | fixed |
+
+**Intent vs actual:** the Codex finding was live. The notification loader fetched target conversations, channel posts, and projects directly by notification entity id, so old notifications could rehydrate target metadata that the current user no longer had access to. This differed from the old bootstrap path, where target records were only selectable if they were already present in the visible snapshot.
+
+**Confidence:** high. The fix adds scoped project and conversation visibility helpers beside the existing document visibility helper, filters direct chat targets, filters projects by their team/workspace scope, gates channel posts through their readable parent channel conversation, and adds a handler regression test for accessible and inaccessible targets.
+
+**Coverage note:** reviewed notification loader, notification selector contract, bootstrap conversation/project visibility, conversation-list visibility rules, scoped document fixes from Turn 11, and sibling direct-id hydration paths in `convex/app/scoped_read_models.ts`.
+
+**Deep-review evidence:** dual pass completed. Correctness/safety checked stale access removal, team/workspace scope membership, workspace direct-chat participant access, channel-post parent conversation authorization, and notification-vs-target data separation. Maintainability/structure checked that target visibility stays in the Convex scoped materializer rather than selector/UI code and does not reintroduce snapshot fallback.
+
+**Architecture assessment:** clean. Read-model loaders remain the authoritative boundary for scoped data entering a snapshot. Selectors project authorized data only. The new helpers reuse the existing `ScopedUserContext` rather than widening route/client contracts, and the cost shape stays bounded by notification target ids instead of full snapshot reads.
+
+**Bug classes / invariants checked:** server-side authorization, scope and tenancy, scoped read-model authority, snapshot-to-scoped migration parity, stale access retained notifications, and bounded notification target hydration.
+
+**Branch totality:** reassessed branch-total current state after the external feedback. The new GitHub Codex finding is resolved; prior Turn 11 document-visibility findings were rechecked as adjacent authority hotspots.
+
+**Sibling closure:** checked direct-id target hydration in notification inbox, work item detail linked documents, project detail linked documents, document detail direct access, document index/search scoped loaders, conversation list, channel feed/thread access, project index scope loading, and workspace people document filtering.
+
+**Remediation impact surface:** changes are limited to `convex/app/scoped_read_models.ts` and `tests/convex/scoped-read-model-handlers.test.ts`. No Next route, client store, selector, schema, or generated Convex roster change was needed.
+
+**Residual risk / unknowns:** user-owned notification rows can still contain their historical `message` and `contentPreview`; that matches prior bootstrap behavior and is not target record materialization. Detail surfaces still use some direct-id reads or workspace scans before filtering, so high-cardinality pagination/indexing remains future capacity work if production data warrants it.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 6 tests
+- `pnpm exec tsc --noEmit --pretty false` - passed
+- `pnpm lint` - passed
+- `pnpm cost:guardrails` - passed, 4 files / 15 tests
+- `node scripts/verify-convex-generated-fallback.mjs` - passed, modules=40
+- `git diff --check` - passed
+- `pnpm test` - passed, 222 files / 1474 tests
+- `pnpm build` - passed
+- Browser smoke - intentionally not run by Codex; user-owned manual validation per instruction
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** GitHub Codex review comments, notification inbox loader, read-model selector, bootstrap conversation/project selection, conversation access patterns, scoped document visibility helper, and read-model handler tests.
+- **Prior open findings rechecked:** no open findings existed before this review turn. The new external finding is resolved.
+- **Prior resolved/adjacent areas revalidated:** Turn 11 document visibility fixes remain intact; focused tests now cover six scoped handler cases.
+- **Hotspots or sibling paths revisited:** notification inbox, work item detail, project detail, document detail, document index/search seed, conversation list/thread/feed, workspace people, and project index.
+- **Dependency/adjacent surfaces revalidated:** scoped materialization, selector projection contract, team/workspace membership context, generated API roster verifier, cost guardrails, full test suite, and build.
+- **Why this is enough:** the issue was a narrow but privacy-sensitive scoped-materialization leak. The fix addresses the owning boundary, adds a direct regression for lost-access target records, sweeps sibling direct-id hydration paths, and validates the full branch gates.
+
+### Challenger pass
+
+- `done` - assumed another target type could still be materialized by id without access. The sweep found notification inbox as the live gap; document/project sibling leaks were already closed in Turn 11, and conversation thread/channel feed direct loaders still call `requireConversationAccess`.
+
+### Resolved / Carried / New findings
+
+#### BRS-014 [P1] Notification inbox could expose inaccessible target metadata after access loss
+
+- **Status:** resolved
+- **Bug class:** authorization/privacy / scope and tenancy
+- **Invariant:** scoped notification snapshots may include user-owned notifications, but target records must pass current access before materialization.
+- **Root cause:** `loadNotificationInboxCollections` hydrated conversation, channel-post, and project targets directly by notification entity id without applying current team/workspace/participant access.
+- **Fix:** added scoped project and conversation visibility helpers; filtered direct conversation targets; filtered project targets; filtered channel posts through readable parent channel conversations; added a handler regression covering accessible and inaccessible chat, channel post, and project targets.
+- **Verification:** focused scoped handler test, typecheck, lint, cost guardrails, generated Convex roster verification, full tests, build, and diff check passed.
+
+### Architecture assessment
+
+Clean. The notification target visibility invariant is now enforced at the scoped Convex materializer boundary, using current membership context. The selector contract remains unchanged and only projects authorized records. No snapshot fallback, client-side authorization, or broad read-model route change was introduced.
+
+### Recommendations
+
+1. **Proceed:** commit and push the follow-up fixes to PR #49.
+2. **Watcher:** after push, wait for the next Codex/GitHub review and CI result before making further changes, to avoid duplicate review triggers.
 
 ## Turn 11 - 2026-06-03 15:07:31 BST
 
