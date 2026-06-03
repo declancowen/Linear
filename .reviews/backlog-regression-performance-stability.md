@@ -56,17 +56,106 @@
 - External Codex review feedback on deleted chat preview fallback scanning - added Turn 15
 - External Codex review feedback on private team work items in project scopes - added Turn 16
 - External Codex review feedback on scoped read-model detail route error semantics - added Turn 17
+- External Codex review feedback on private sibling work items in item detail scopes - added Turn 18
 
 ## Review status
 
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-06-03 10:20:17 BST |
-| **Last reviewed** | 2026-06-03 17:00:48 BST |
-| **Total turns** | 17 |
+| **Last reviewed** | 2026-06-03 17:19:07 BST |
+| **Total turns** | 18 |
 | **Open findings** | 0 |
-| **Resolved findings** | 20 |
+| **Resolved findings** | 21 |
 | **Accepted findings** | 0 |
+
+## Turn 18 - 2026-06-03 17:19:07 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `f45d7726` with uncommitted PR-feedback fixes |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the next current-head GitHub Codex review for PR #49, triaged the P1 private sibling item-detail finding as live, fixed unreadable work-item candidates entering detail snapshots through same-team scans, and reran the deep/normal review loop with architecture standards.
+
+**Outcome:** all clear for this PR-feedback follow-up. No live Critical, High, or Medium findings remain in the current local diff. The branch is ready for commit, push, and the next watcher loop.
+
+**Risk score:** high - the fix touches scoped read-model authority, item detail materialization, private-item privacy, custom property value visibility, and the snapshot-removal replacement path.
+
+**Change archetypes:** external finding import, authorization/privacy fix, candidate-acquisition guard, scoped read-model materializer, regression test.
+
+**External finding import:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review | Work item detail team-sibling scans could return another user's private legacy item with `teamId`, including its custom property values | live | Authorization/privacy / candidate expansion / invariant transfer / compatibility and legacy data | item detail scopes must reapply work-item readability to every candidate produced by private or team acquisition paths before materialization | fixed |
+
+**Intent vs actual:** Convex scoped read models are the new authority after snapshot removal, but item detail still had a direct same-team candidate acquisition path. That path treated sibling rows from `listWorkItemsByTeam` as materializable detail-snapshot rows before applying `isReadableScopedWorkItem`, so a legacy private row with `teamId` could leak into `workItems` and downstream custom property value reads.
+
+**Confidence:** high. The fix applies the owning work-item readability rule inside `loadWorkItemDetailCollections` before deriving item ids, linked document ids, related project ids, team ids, and custom property value lookups. The regression test proves unreadable private siblings are absent from returned work items, returned custom property values, and the custom-property query input.
+
+**Coverage note:** reviewed work item detail private and team acquisition paths, shared scoped work-item loading, project index/detail private-item fixes, document linked-target filters, selector projection boundaries, and custom property value materialization.
+
+**Deep-review evidence:** dual pass completed. Correctness/safety checked legacy private rows with `teamId`, same-team sibling scans, current-user private candidates, downstream id derivation, linked-document/project/team/custom-property expansion, and selector/projection limitations. Maintainability/structure checked that authorization remains in the Convex scoped materializer, not the Next route or client selector layer.
+
+**Architecture assessment:** clean. The read-model authority remains Convex; the materializer now validates candidates at the acquisition boundary. This preserves snapshot-removal cost bounds because it filters the bounded team/private candidate set already needed by item detail and does not add broad snapshot reads.
+
+**Bug classes / invariants checked:** authorization/privacy, scope and tenancy, candidate expansion, invariant transfer from legacy snapshot filtering, compatibility with legacy private `teamId`, projection-is-not-authority, and custom property value visibility.
+
+**Branch totality:** reassessed the current branch state and prior PR feedback loops. This fix complements Turn 16's project-scope private-item guard by closing the remaining direct item-detail team scan. It does not alter scoped invalidation, route/backend error contracts, generated Convex API roster, or polling/cost policy.
+
+**Sibling closure:** checked shared work-item scope loading, project index, project detail, document index linked work items, workspace people/search-seed/work index consumers, and work item detail. The sibling acquisition mode was direct team/private candidate scans; item detail now applies `isReadableScopedWorkItem` before materialization just like the project-scope fixes.
+
+**Remediation impact surface:** changes are limited to `convex/app/scoped_read_models.ts`, `tests/convex/scoped-read-model-handlers.test.ts`, and review ledgers. No route, schema, data helper, generated API, client store, scope-key contract, or cost guardrail change was needed.
+
+**Residual risk / unknowns:** current user's own private legacy items with `teamId` can still pass `isReadableScopedWorkItem`, matching the private-item access rule. The test focuses on excluding other-user private candidates and their custom property values.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 11 tests
+- `pnpm exec tsc --noEmit --pretty false` - passed
+- `pnpm lint` - passed
+- `pnpm cost:guardrails` - passed, 4 files / 15 tests
+- `git diff --check` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed
+- `pnpm test` - passed, 223 files / 1485 tests
+- `pnpm build` - passed
+- Browser smoke - intentionally not run by Codex; user-owned manual validation per instruction
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** GitHub Codex review comment, work item detail materializer, `isReadableScopedWorkItem`, shared work-item scope loader, project index/detail loaders, document linked-target filtering, selector projection, and custom property value lookup.
+- **Prior open findings rechecked:** no open findings existed before this review turn. The new external P1 finding is resolved.
+- **Prior resolved/adjacent areas revalidated:** Turn 16 project-scope private-item fixes remain intact; Turn 17 route error contract remains untouched; full test/build validation passed after this item-detail fix.
+- **Hotspots or sibling paths revisited:** private branch item-detail acquisition, team branch item-detail acquisition, project index, project detail, work index, search seed, workspace people, document index linked work items, and custom property value materialization.
+- **Dependency/adjacent surfaces revalidated:** `ScopedUserContext`, work-item visibility semantics, team/workspace/private rules, selector behavior, typecheck, lint, cost guardrails, spec validators, diff whitespace, full test suite, and build.
+- **Why this is enough:** the bug class was unreadable candidates entering a scoped materializer after authority moved out of the legacy snapshot. Every item-detail candidate now passes the owning readability rule before any derived ids or custom property values are materialized.
+
+### Challenger pass
+
+- `done` - assumed filtering returned `workItems` alone might be enough. Rejected: downstream custom property values derive from `workItemIds`, so the test also asserts the custom-property lookup input excludes the unreadable private sibling.
+- `done` - checked whether a selector could hide leaked data. Rejected: projection is not authority; the materializer now prevents the row and its derived values from entering the snapshot.
+
+### Resolved / Carried / New findings
+
+#### BRS-021 [P1] Work item detail scopes materialized unreadable private sibling candidates
+
+- **Status:** resolved
+- **Bug class:** authorization/privacy / candidate expansion / invariant transfer / compatibility and legacy data
+- **Invariant:** every work item candidate entering an item-detail read model must satisfy the owning work-item readability rule before downstream ids or custom property values are derived.
+- **Root cause:** `loadWorkItemDetailCollections` used private and team candidate acquisition paths without applying `isReadableScopedWorkItem` before materializing sibling work items and custom property values.
+- **Fix:** filtered private and team sibling candidate lists through `isReadableScopedWorkItem` before deriving `workItemIds`.
+- **Verification:** focused scoped handler test, typecheck, lint, cost guardrails, spec validators, full test suite, build, and diff check passed.
+
+### Architecture assessment
+
+Clean. Candidate validation is now located at the Convex read-model materialization boundary, preserving Convex as source of read-model authority and keeping selectors/routes as projection/transport. The change is cost-bounded and does not reintroduce broad snapshots or client-side permission filtering.
+
+### Recommendations
+
+1. **Proceed:** commit and push the follow-up fixes to PR #49.
+2. **Watcher:** after push, wait for the next Codex/GitHub review and CI result before making further changes, to avoid duplicate review triggers.
 
 ## Turn 17 - 2026-06-03 17:00:48 BST
 

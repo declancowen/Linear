@@ -50,6 +50,43 @@ Every future implementation slice must record:
 
 ## Review Entries
 
+### 2026-06-03: PR feedback loop 8 - Codex review private sibling item detail scopes
+- Linked tasks: 99.1 follow-up review loop
+- Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001, REQ-SCOPED-001
+- Linked design decisions: DES-008, DES-014, DES-015
+- Review mode: external finding import, deep diff-review with architecture-standards, normal re-review until clean
+- External feedback imported:
+  - GitHub Codex P1: work item detail same-team scans could expose another user's private legacy work item with `teamId`, including derived custom property values.
+- Scope fixed:
+  - Filtered private and team sibling candidates inside `loadWorkItemDetailCollections` through `isReadableScopedWorkItem` before deriving `workItemIds`.
+  - Kept Convex as the read-model authority and avoided moving privacy filtering to selectors, routes, or client code.
+  - Added a handler regression proving unreadable private siblings are absent from returned work items, returned custom property values, and the custom-property lookup input.
+- Architecture assessment:
+  - Clean. Candidate validation happens at the Convex scoped materialization boundary, matching snapshot-removal authority and the architecture-standard rule that projection is not authorization.
+  - The fix is bounded to the already-needed private/team item-detail candidate lists and does not reintroduce broad snapshots or expand polling/read-model cost paths.
+  - The review treated boundary movement as a required proof obligation, not an automatic blocker: the proof is the owning readability check plus regression coverage for the bad acquisition mode.
+- Validation:
+  - `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 11 tests.
+  - `pnpm exec tsc --noEmit --pretty false` - passed.
+  - `pnpm lint` - passed.
+  - `pnpm cost:guardrails` - passed, 4 files / 15 tests.
+  - `git diff --check` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed.
+  - `pnpm test` - passed, 223 files / 1485 tests.
+  - `pnpm build` - passed.
+  - Browser smoke was intentionally not run because the user instructed the implementation agent not to run smoke tests; manual browser smoke is user-owned validation.
+- Normal re-review result:
+  - Re-read work item detail acquisition, shared work-item loaders, project index/detail private-item fixes, document linked-target filters, selectors, custom property value materialization, and tests after the implementation.
+  - The sibling acquisition mode was same-team/private candidate scans; no additional live leak remained after item-detail candidates were filtered at the owning boundary.
+  - No live Critical, High, or Medium findings remain.
+- Spec drift:
+  - No spec drift found. The feedback fits the existing read-model authority, snapshot-removal, privacy, scoped Convex cost-bound, and architecture-standard requirements.
+- Residual risk:
+  - Current user's own private legacy items with `teamId` can still be readable where `isReadableScopedWorkItem` allows them. That matches the private-item access rule; other-user private items are excluded.
+- Cleared to push:
+  - Yes. Commit and push the follow-up fixes to PR #49, then wait for the next review/CI result before making further changes.
+
 ### 2026-06-03: PR feedback loop 7 - Codex review scoped detail route error semantics
 - Linked tasks: 99.1 follow-up review loop
 - Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001, REQ-SCOPED-001

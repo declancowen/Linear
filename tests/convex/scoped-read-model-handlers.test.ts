@@ -653,6 +653,84 @@ describe("scoped read model Convex handlers", () => {
     expect(documentIds).not.toContain("doc_team_forbidden")
   })
 
+  it("filters unreadable private sibling items from work item detail scopes", async () => {
+    const { getScopedReadModelHandler } = await import(
+      "@/convex/app/scoped_read_models"
+    )
+    const openedItem = createWorkItem({
+      id: "item_open",
+      title: "Open item",
+      visibility: "team",
+      creatorId: "user_1",
+    })
+    const visibleTeamSibling = createWorkItem({
+      id: "item_team_sibling",
+      title: "Visible team sibling",
+      visibility: "team",
+      creatorId: "user_2",
+    })
+    const visiblePrivateSibling = createWorkItem({
+      id: "item_private_mine",
+      title: "My private sibling",
+      visibility: "private",
+      creatorId: "user_1",
+    })
+    const unreadablePrivateSibling = createWorkItem({
+      id: "item_private_other",
+      title: "Other private sibling",
+      visibility: "private",
+      creatorId: "user_2",
+    })
+
+    dataMocks.getWorkItemDoc.mockResolvedValue(openedItem)
+    dataMocks.listWorkItemsByTeam.mockResolvedValue([
+      openedItem,
+      visibleTeamSibling,
+      visiblePrivateSibling,
+      unreadablePrivateSibling,
+    ])
+    dataMocks.listDocumentsByIds.mockResolvedValue([])
+    dataMocks.listWorkspaceDocuments.mockResolvedValue([])
+    dataMocks.listCommentsByTargets.mockResolvedValue([])
+    dataMocks.listAttachmentsByTargets.mockResolvedValue([])
+    dataMocks.listWorkItemActivitiesByWorkItems.mockResolvedValue([])
+    dataMocks.listCustomPropertyDefinitionsByTeams.mockResolvedValue([
+      { id: "property_1", teamId: "team_allowed", name: "Size" },
+    ])
+    dataMocks.listCustomPropertyValuesByWorkItems.mockImplementation(
+      async (_ctx, itemIds: Iterable<string>) =>
+        [...itemIds].map((workItemId) => ({
+          id: `value_${workItemId}`,
+          propertyId: "property_1",
+          workItemId,
+          value: "M",
+        }))
+    )
+
+    const result = await getScopedReadModelHandler(ctx as never, {
+      serverToken: "server_token",
+      workosUserId: "workos_user_1",
+      instruction: { kind: "work-item-detail", itemId: "item_open" },
+    })
+    const workItemIds = result?.workItems?.map((entry) => entry.id) ?? []
+    const customPropertyWorkItemIds =
+      result?.customPropertyValues?.map((entry) => entry.workItemId) ?? []
+
+    expect(workItemIds).toEqual(
+      expect.arrayContaining(["item_open", "item_team_sibling"])
+    )
+    expect(workItemIds).not.toContain("item_private_other")
+    expect(customPropertyWorkItemIds).toEqual(
+      expect.arrayContaining(["item_open", "item_team_sibling"])
+    )
+    expect(customPropertyWorkItemIds).not.toContain("item_private_other")
+    expect(
+      [
+        ...dataMocks.listCustomPropertyValuesByWorkItems.mock.calls[0][1],
+      ]
+    ).not.toContain("item_private_other")
+  })
+
   it("filters unreadable linked documents from project detail scopes", async () => {
     const { getScopedReadModelHandler } = await import(
       "@/convex/app/scoped_read_models"

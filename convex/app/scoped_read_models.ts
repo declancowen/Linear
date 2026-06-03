@@ -914,10 +914,13 @@ async function loadWorkItemDetailCollections(
           item.creatorId
         )) as WorkItem[]).filter(
           (candidate) =>
-            (candidate.workspaceId ?? itemWorkspaceId) === itemWorkspaceId
+            (candidate.workspaceId ?? itemWorkspaceId) === itemWorkspaceId &&
+            isReadableScopedWorkItem(candidate, context)
         )
       : item.teamId
-        ? ((await listWorkItemsByTeam(ctx, item.teamId)) as WorkItem[])
+        ? ((await listWorkItemsByTeam(ctx, item.teamId)) as WorkItem[]).filter(
+            (candidate) => isReadableScopedWorkItem(candidate, context)
+          )
         : [item]
   const workItemIds = new Set(workItems.map((entry) => entry.id))
   const linkedDocumentIds = new Set<string>([
