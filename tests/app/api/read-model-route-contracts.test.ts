@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import type { AppSnapshot } from "@/lib/domain/types"
 import {
+  selectReadModelForInstruction,
+  type ScopedReadModelReplaceInstruction,
+} from "@/lib/scoped-sync/read-models"
+import type { ScopedReadModelServerInstruction } from "@/lib/server/convex"
+import {
   createScopedReadModelProject,
   createScopedReadModelTeam,
   createScopedReadModelUser,
@@ -14,7 +19,7 @@ import {
 } from "@/tests/lib/fixtures/api-routes"
 
 const requireSessionMock = vi.fn()
-const getSnapshotServerMock = vi.fn()
+const getScopedReadModelServerMock = vi.fn()
 const getWorkspaceMembershipBootstrapServerMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 
@@ -23,7 +28,7 @@ vi.mock("@/lib/server/route-auth", () => ({
 }))
 
 vi.mock("@/lib/server/convex", () => ({
-  getSnapshotServer: getSnapshotServerMock,
+  getScopedReadModelServer: getScopedReadModelServerMock,
   getWorkspaceMembershipBootstrapServer:
     getWorkspaceMembershipBootstrapServerMock,
 }))
@@ -43,12 +48,48 @@ async function getDocumentIndexReadModelResponse(
 ) {
   const { GET } = await import("@/app/api/read-models/documents/index/route")
 
-  getSnapshotServerMock.mockResolvedValue(snapshot)
+  mockScopedReadModelSnapshot(snapshot)
 
   return GET(
     new Request(
       "http://localhost/api/read-models/documents/index?scopeType=workspace&scopeId=workspace_1"
     ) as never
+  )
+}
+
+function normalizeSnapshot(snapshot: Partial<AppSnapshot>): AppSnapshot {
+  const { ui: discardedUi, ...emptySnapshot } = createEmptyState()
+  void discardedUi
+
+  return {
+    ...emptySnapshot,
+    ...snapshot,
+  } as AppSnapshot
+}
+
+function toSelectorInstruction(
+  instruction: ScopedReadModelServerInstruction,
+  currentUserId: string
+): ScopedReadModelReplaceInstruction {
+  if (instruction.kind === "notification-inbox") {
+    return { kind: "notification-inbox", userId: currentUserId }
+  }
+
+  if (instruction.kind === "conversation-list") {
+    return { kind: "conversation-list", userId: currentUserId }
+  }
+
+  return instruction
+}
+
+function mockScopedReadModelSnapshot(snapshot: Partial<AppSnapshot>) {
+  const normalizedSnapshot = normalizeSnapshot(snapshot)
+
+  getScopedReadModelServerMock.mockImplementation(async ({ instruction }) =>
+    selectReadModelForInstruction(
+      normalizedSnapshot,
+      toSelectorInstruction(instruction, normalizedSnapshot.currentUserId)
+    )
   )
 }
 
@@ -342,7 +383,7 @@ async function expectReadModelData(
 describe("read model route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
-    getSnapshotServerMock.mockReset()
+    getScopedReadModelServerMock.mockReset()
     getWorkspaceMembershipBootstrapServerMock.mockReset()
     logProviderErrorMock.mockReset()
 
@@ -359,7 +400,7 @@ describe("read model route contracts", () => {
     const { GET } =
       await import("@/app/api/read-models/documents/[documentId]/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET(...readModelRequest({ documentId: "doc_1" }))
 
@@ -398,7 +439,7 @@ describe("read model route contracts", () => {
       invites: [{ id: "invite_1" }],
     })
 
-    expect(getSnapshotServerMock).not.toHaveBeenCalled()
+    expect(getScopedReadModelServerMock).not.toHaveBeenCalled()
     expect(getWorkspaceMembershipBootstrapServerMock).toHaveBeenCalledWith({
       workosUserId: "workos_1",
       email: "alex@example.com",
@@ -410,7 +451,7 @@ describe("read model route contracts", () => {
     const { GET } =
       await import("@/app/api/read-models/workspaces/[workspaceId]/people/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET(
       ...readModelRequest({ workspaceId: "workspace_1" })
@@ -437,7 +478,7 @@ describe("read model route contracts", () => {
   it("returns a project index read model", async () => {
     const { GET } = await import("@/app/api/read-models/projects/index/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET(
       new Request(
@@ -494,7 +535,7 @@ describe("read model route contracts", () => {
   it("returns a work item detail read model", async () => {
     const { GET } = await import("@/app/api/read-models/items/[itemId]/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET(new Request("http://localhost") as never, {
       params: Promise.resolve({
@@ -514,7 +555,7 @@ describe("read model route contracts", () => {
     const { GET } =
       await import("@/app/api/read-models/projects/[projectId]/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET(new Request("http://localhost") as never, {
       params: Promise.resolve({
@@ -535,7 +576,7 @@ describe("read model route contracts", () => {
   it("returns a work index read model", async () => {
     const { GET } = await import("@/app/api/read-models/work/index/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET(
       new Request(
@@ -556,7 +597,7 @@ describe("read model route contracts", () => {
   it("returns a view catalog read model", async () => {
     const { GET } = await import("@/app/api/read-models/views/catalog/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET(
       new Request(
@@ -580,7 +621,7 @@ describe("read model route contracts", () => {
     const { GET } =
       await import("@/app/api/read-models/notifications/inbox/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET()
 
@@ -594,7 +635,7 @@ describe("read model route contracts", () => {
     const { GET } =
       await import("@/app/api/read-models/conversations/list/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET()
 
@@ -608,7 +649,7 @@ describe("read model route contracts", () => {
     const { GET } =
       await import("@/app/api/read-models/conversations/[conversationId]/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET(new Request("http://localhost") as never, {
       params: Promise.resolve({
@@ -630,7 +671,7 @@ describe("read model route contracts", () => {
     const { GET } =
       await import("@/app/api/read-models/channels/[channelId]/feed/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET(new Request("http://localhost") as never, {
       params: Promise.resolve({
@@ -652,7 +693,7 @@ describe("read model route contracts", () => {
     const { GET } =
       await import("@/app/api/read-models/workspaces/[workspaceId]/search-seed/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET(
       ...readModelRequest({ workspaceId: "workspace_1" })
@@ -669,7 +710,7 @@ describe("read model route contracts", () => {
     const { GET } =
       await import("@/app/api/read-models/documents/[documentId]/route")
 
-    getSnapshotServerMock.mockResolvedValue(createSnapshot())
+    mockScopedReadModelSnapshot(createSnapshot())
 
     const response = await GET(...documentReadModelRequest("doc_missing"))
 
@@ -679,5 +720,79 @@ describe("read model route contracts", () => {
       message: "Document not found",
       code: "DOCUMENT_READ_MODEL_NOT_FOUND",
     })
+  })
+
+  it("maps thrown scoped target lookup failures to route not-found responses", async () => {
+    const { GET } = await import("@/app/api/read-models/items/[itemId]/route")
+
+    getScopedReadModelServerMock.mockRejectedValueOnce(
+      new Error(
+        "[Request ID: abc123] Server Error\nUncaught Error: Work item not found"
+      )
+    )
+
+    const response = await GET(new Request("http://localhost") as never, {
+      params: Promise.resolve({
+        itemId: "item_inaccessible",
+      }),
+    })
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: "Work item not found",
+      message: "Work item not found",
+      code: "WORK_ITEM_READ_MODEL_NOT_FOUND",
+    })
+    expect(logProviderErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("hides scoped access failures behind the detail route not-found contract", async () => {
+    const { GET } =
+      await import("@/app/api/read-models/projects/[projectId]/route")
+
+    getScopedReadModelServerMock.mockRejectedValueOnce(
+      new Error(
+        "[Request ID: abc123] Server Error\nUncaught Error: You do not have access to this workspace"
+      )
+    )
+
+    const response = await GET(new Request("http://localhost") as never, {
+      params: Promise.resolve({
+        projectId: "project_inaccessible",
+      }),
+    })
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: "Project not found",
+      message: "Project not found",
+      code: "PROJECT_READ_MODEL_NOT_FOUND",
+    })
+    expect(logProviderErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps unexpected scoped detail loader failures on the 500 path", async () => {
+    const { GET } =
+      await import("@/app/api/read-models/conversations/[conversationId]/route")
+
+    const error = new Error("Convex query failed")
+    getScopedReadModelServerMock.mockRejectedValueOnce(error)
+
+    const response = await GET(new Request("http://localhost") as never, {
+      params: Promise.resolve({
+        conversationId: "chat_1",
+      }),
+    })
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      error: "Convex query failed",
+      message: "Convex query failed",
+      code: "CONVERSATION_THREAD_READ_MODEL_LOAD_FAILED",
+    })
+    expect(logProviderErrorMock).toHaveBeenCalledWith(
+      "Failed to load conversation thread read model",
+      error
+    )
   })
 })

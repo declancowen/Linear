@@ -41,7 +41,7 @@ export function BoardChildItemRow({
 }) {
   const className = cn(
     "relative flex cursor-grab touch-none items-center gap-2 rounded-md px-1.5 py-1 text-[12px] transition-colors hover:bg-surface-3 active:cursor-grabbing",
-    selection?.checked && "bg-accent-bg/45",
+    selection?.checked && "bg-surface-2",
     isDropTarget && "bg-surface-3"
   )
 

@@ -9,6 +9,8 @@ import {
 
 export type AppCtx = MutationCtx | QueryCtx
 const QUERY_BATCH_SIZE = 20
+const CHAT_CONVERSATION_PREVIEW_SCAN_LIMIT = 25
+const CHAT_CONVERSATION_PREVIEW_FALLBACK_SCAN_LIMIT = 250
 
 type TeamWorkspaceScope = {
   scopeType: "team" | "workspace"
@@ -819,6 +821,64 @@ export async function listChatMessagesByConversation(
     .query("chatMessages")
     .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
     .collect()
+}
+
+export async function listLatestReadableChatMessageByConversation(
+  ctx: AppCtx,
+  conversationId: string
+) {
+  const messages = await listLatestChatMessagesByConversation(
+    ctx,
+    conversationId,
+    CHAT_CONVERSATION_PREVIEW_SCAN_LIMIT
+  )
+  const readableMessage = findLatestReadableChatMessage(messages)
+
+  if (
+    readableMessage ||
+    messages.length < CHAT_CONVERSATION_PREVIEW_SCAN_LIMIT
+  ) {
+    return readableMessage
+  }
+
+  const fallbackMessages = await listLatestChatMessagesByConversation(
+    ctx,
+    conversationId,
+    CHAT_CONVERSATION_PREVIEW_FALLBACK_SCAN_LIMIT
+  )
+
+  return findLatestReadableChatMessage(fallbackMessages)
+}
+
+async function listLatestChatMessagesByConversation(
+  ctx: AppCtx,
+  conversationId: string,
+  limit: number
+) {
+  return ctx.db
+    .query("chatMessages")
+    .withIndex("by_conversation_created_at", (q) =>
+      q.eq("conversationId", conversationId)
+    )
+    .order("desc")
+    .take(limit)
+}
+
+function findLatestReadableChatMessage(
+  messages: Awaited<ReturnType<typeof listLatestChatMessagesByConversation>>
+) {
+  return messages.find((message) => !message.deletedAt) ?? null
+}
+
+export async function listLatestReadableChatMessagesByConversations(
+  ctx: AppCtx,
+  conversationIds: Iterable<string>
+) {
+  const messages = await mapInBatches([...new Set(conversationIds)], (id) =>
+    listLatestReadableChatMessageByConversation(ctx, id)
+  )
+
+  return messages.filter((message) => message != null)
 }
 
 export async function listChatMessagesByConversations(

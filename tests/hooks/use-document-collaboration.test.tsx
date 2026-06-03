@@ -666,11 +666,9 @@ describe("useDocumentCollaboration", () => {
     const session = createSession()
 
     mockOpenSession(session)
-    await renderCollaborationHook()
+    const { result } = await renderCollaborationHook()
 
-    await waitFor(() => {
-      expect(session.connect).toHaveBeenCalledTimes(1)
-    })
+    await expectAttachedCollaboration(result)
 
     act(() => {
       window.dispatchEvent(new Event("pagehide"))

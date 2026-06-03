@@ -7,16 +7,15 @@ import {
   deleteChannelPostServer,
   updateChannelPostServer,
 } from "@/lib/server/convex"
-import { getChannelPostRelatedScopeKeys } from "@/lib/scoped-sync/read-models"
 import {
-  loadScopedReadModelSnapshotForSession,
+  resolveChannelPostReadModelScopeKeysServer,
   resolveConversationReadModelScopeKeysServer,
 } from "@/lib/server/scoped-read-models"
 import {
   handleAppContextJsonRoute,
   handleAppContextRoute,
 } from "@/lib/server/route-handlers"
-import { jsonError, jsonOk } from "@/lib/server/route-response"
+import { jsonOk } from "@/lib/server/route-response"
 
 const channelPostUpdateBodySchema = z.object({
   title: channelPostSchema.shape.title,
@@ -66,23 +65,10 @@ export async function DELETE(
     failureCode: "CHANNEL_POST_DELETE_FAILED",
     async handle({ session, appContext }) {
       const { postId } = await params
-      const snapshot = await loadScopedReadModelSnapshotForSession(session)
-      const post =
-        snapshot.channelPosts.find((entry) => entry.id === postId) ?? null
-
-      if (!post) {
-        return jsonOk({
-          ok: true,
-        })
-      }
-
-      if (post.createdBy !== appContext.ensuredUser.userId) {
-        return jsonError("You can only delete your own posts", 403, {
-          code: "CHANNEL_POST_DELETE_FORBIDDEN",
-        })
-      }
-
-      const scopeKeys = getChannelPostRelatedScopeKeys(snapshot, postId)
+      const scopeKeys = await resolveChannelPostReadModelScopeKeysServer(
+        session,
+        postId
+      )
 
       await deleteChannelPostServer({
         currentUserId: appContext.ensuredUser.userId,

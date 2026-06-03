@@ -7,7 +7,6 @@ import {
   EnvelopeSimple,
   Quotes,
   UserCircle,
-  X,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
@@ -55,13 +54,12 @@ export function UserStatusDot({
   if (resolvedStatus === "offline") {
     return (
       <span
+        aria-hidden="true"
         className={cn(
-          "inline-flex size-2 items-center justify-center rounded-full bg-zinc-400 text-background",
+          "inline-flex size-2 rounded-full bg-zinc-300 ring-1 ring-zinc-500/35 dark:bg-zinc-500 dark:ring-zinc-300/35",
           className
         )}
-      >
-        <X weight="bold" className="size-[75%]" />
-      </span>
+      />
     )
   }
 
@@ -440,7 +438,7 @@ export function UserHoverCard({
         side={side}
         portalContainer={portalContainer}
         portalled={portalled}
-        className={cn("w-[22rem]", className)}
+        className={cn("z-[80] w-[22rem]", className)}
       >
         <UserHoverCardPanel
           state={resolvedDisplayState}

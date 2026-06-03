@@ -149,7 +149,7 @@ describe("scoped events route contracts", () => {
     const firstChunk = await reader!.read()
     const text = new TextDecoder().decode(firstChunk.value)
 
-    expect(text).toContain("retry: 3000")
+    expect(text).toContain("retry: 15000")
     expect(text).toContain("event: ready")
 
     requestAbortController.abort()
@@ -171,7 +171,7 @@ describe("scoped events route contracts", () => {
 
     expect(response.status).toBe(200)
     const body = await response.text()
-    expect(body).toContain("retry: 10000")
+    expect(body).toContain("retry: 30000")
     expect(body).toContain("event: unavailable")
   })
 

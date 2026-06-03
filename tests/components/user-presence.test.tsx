@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react"
 
 import { SurfaceSidebarContent } from "@/components/app/collaboration-screens/shared-ui"
 import { getSurfaceSidebarHeroDisplay } from "@/components/app/collaboration-screens/surface-sidebar-display"
-import { UserHoverCard } from "@/components/app/user-presence"
+import { UserHoverCard, UserStatusDot } from "@/components/app/user-presence"
 import { useAppStore } from "@/lib/store/app-store"
 import {
   createTestUser,
@@ -28,8 +28,16 @@ vi.mock("@/components/ui/hover-card", () => ({
   HoverCardTrigger: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
-  HoverCardContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
+  HoverCardContent: ({
+    children,
+    className,
+  }: {
+    children: ReactNode
+    className?: string
+  }) => (
+    <div data-testid="hover-card-content" className={className}>
+      {children}
+    </div>
   ),
 }))
 
@@ -173,6 +181,30 @@ describe("workspace former-member presence", () => {
     expect(screen.getByText("No status set")).toBeInTheDocument()
     expect(screen.getByText("No status message")).toBeInTheDocument()
     expect(screen.queryByText("Offline")).not.toBeInTheDocument()
+  })
+
+  it("renders profile hover cards above app surfaces", () => {
+    render(
+      <UserHoverCard
+        user={formerUser}
+        userId={formerUser.id}
+        currentUserId={currentUser.id}
+        workspaceId="workspace_1"
+      >
+        <button type="button">Open layered profile</button>
+      </UserHoverCard>
+    )
+
+    expect(screen.getByTestId("hover-card-content")).toHaveClass("z-[80]")
+  })
+
+  it("uses a plain offline indicator without an X glyph", () => {
+    const { container } = render(<UserStatusDot status="offline" />)
+
+    const dot = container.firstElementChild
+
+    expect(dot).not.toBeNull()
+    expect(dot?.querySelector("svg")).toBeNull()
   })
 
   it("opens the workspace profile from the hover card profile action", () => {

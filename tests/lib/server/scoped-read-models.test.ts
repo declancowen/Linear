@@ -1,171 +1,116 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createEmptyState } from "@/lib/domain/empty-state"
-import type { AppSnapshot } from "@/lib/domain/types"
-
-const getSnapshotServerMock = vi.fn()
+const authorizeScopedReadModelScopeKeysConvexServerMock = vi.fn()
 const bumpScopedReadModelVersionsServerMock = vi.fn()
+const getSelectedWorkspaceIdFromCookiesMock = vi.fn()
+const resolveScopedReadModelScopeKeysServerMock = vi.fn()
 
 vi.mock("@/lib/server/convex", () => ({
+  authorizeScopedReadModelScopeKeysConvexServer:
+    authorizeScopedReadModelScopeKeysConvexServerMock,
   bumpScopedReadModelVersionsServer: bumpScopedReadModelVersionsServerMock,
-  getSnapshotServer: getSnapshotServerMock,
+  resolveScopedReadModelScopeKeysServer:
+    resolveScopedReadModelScopeKeysServerMock,
 }))
 
-function createSnapshotFixture(): AppSnapshot {
-  return {
-    ...createEmptyState(),
-    currentUserId: "user_1",
-    currentWorkspaceId: "workspace_1",
-    workspaces: [{ id: "workspace_1" }] as AppSnapshot["workspaces"],
-    teams: [{ id: "team_1" }] as AppSnapshot["teams"],
-    documents: [
-      {
-        id: "doc_1",
-        kind: "team-document",
-        workspaceId: "workspace_1",
-        teamId: "team_1",
-        createdBy: "user_1",
-      },
-      {
-        id: "doc_private_1",
-        kind: "private-document",
-        workspaceId: "workspace_1",
-        createdBy: "user_1",
-      },
-    ] as AppSnapshot["documents"],
-    workItems: [{ id: "item_1" }] as AppSnapshot["workItems"],
-    projects: [{ id: "project_1" }] as AppSnapshot["projects"],
-    conversations: [{ id: "conversation_1" }] as AppSnapshot["conversations"],
-  }
-}
+vi.mock("@/lib/server/workspace-selection", () => ({
+  getSelectedWorkspaceIdFromCookies: getSelectedWorkspaceIdFromCookiesMock,
+}))
 
-describe("authorizeScopedReadModelScopeKeysServer", () => {
+const session = {
+  user: {
+    id: "workos_1",
+    email: "alex@example.com",
+  },
+  organizationId: "org_1",
+} as never
+
+describe("scoped read model server helpers", () => {
   beforeEach(() => {
     vi.resetModules()
-    getSnapshotServerMock.mockReset()
+    authorizeScopedReadModelScopeKeysConvexServerMock.mockReset()
     bumpScopedReadModelVersionsServerMock.mockReset()
-    getSnapshotServerMock.mockResolvedValue(createSnapshotFixture())
+    getSelectedWorkspaceIdFromCookiesMock.mockReset()
+    resolveScopedReadModelScopeKeysServerMock.mockReset()
+
+    authorizeScopedReadModelScopeKeysConvexServerMock.mockResolvedValue(
+      undefined
+    )
     bumpScopedReadModelVersionsServerMock.mockResolvedValue(undefined)
+    getSelectedWorkspaceIdFromCookiesMock.mockResolvedValue("workspace_1")
+    resolveScopedReadModelScopeKeysServerMock.mockResolvedValue([
+      "document-detail:doc_1",
+    ])
   })
 
-  it("allows current-user and accessible entity scope keys", async () => {
+  it("authorizes scope keys through the narrow Convex authorizer", async () => {
     const { authorizeScopedReadModelScopeKeysServer } =
       await import("@/lib/server/scoped-read-models")
 
-    await expect(
-      authorizeScopedReadModelScopeKeysServer(
-        {
-          user: {
-            id: "workos_1",
-            email: "alex@example.com",
-          },
-          organizationId: "org_1",
-        } as never,
-        [
-          "shell-context",
-          "notification-inbox:user_1",
-          "conversation-list:user_1",
-          "workspace-membership:workspace_1",
-          "search-seed:workspace_1",
-          "private-search-seed:workspace_1:user_1",
-          "work-index:team_team_1",
-          "document-index:workspace_workspace_1",
-          "private-document-index:workspace_1:user_1",
-          "document-detail:doc_1",
-          "work-item-detail:item_1",
-          "project-detail:project_1",
-          "conversation-thread:conversation_1",
-          "channel-feed:conversation_1",
-        ]
-      )
-    ).resolves.toBeUndefined()
+    await authorizeScopedReadModelScopeKeysServer(session, [
+      "document-detail:doc_1",
+    ])
+
+    expect(
+      authorizeScopedReadModelScopeKeysConvexServerMock
+    ).toHaveBeenCalledWith({
+      workosUserId: "workos_1",
+      email: "alex@example.com",
+      selectedWorkspaceId: "workspace_1",
+      scopeKeys: ["document-detail:doc_1"],
+    })
   })
 
-  it("normalizes partial snapshots before authorizing collection scope keys", async () => {
-    getSnapshotServerMock.mockResolvedValue({
-      currentUserId: "user_1",
-      currentWorkspaceId: "workspace_1",
-      workspaces: [{ id: "workspace_1" }],
-    } as Partial<AppSnapshot>)
+  it("surfaces Convex authorization failures", async () => {
+    authorizeScopedReadModelScopeKeysConvexServerMock.mockRejectedValue(
+      new Error("Unauthorized scoped read model key: notification-inbox:user_2")
+    )
 
     const { authorizeScopedReadModelScopeKeysServer } =
       await import("@/lib/server/scoped-read-models")
 
     await expect(
-      authorizeScopedReadModelScopeKeysServer(
-        {
-          user: {
-            id: "workos_1",
-            email: "alex@example.com",
-          },
-          organizationId: "org_1",
-        } as never,
-        ["document-index:workspace_workspace_1"]
-      )
-    ).resolves.toBeUndefined()
-  })
-
-  it("rejects inaccessible scope keys", async () => {
-    const { authorizeScopedReadModelScopeKeysServer } =
-      await import("@/lib/server/scoped-read-models")
-
-    await expect(
-      authorizeScopedReadModelScopeKeysServer(
-        {
-          user: {
-            id: "workos_1",
-            email: "alex@example.com",
-          },
-          organizationId: "org_1",
-        } as never,
-        ["notification-inbox:user_2"]
-      )
+      authorizeScopedReadModelScopeKeysServer(session, [
+        "notification-inbox:user_2",
+      ])
     ).rejects.toThrow(
       "Unauthorized scoped read model key: notification-inbox:user_2"
     )
   })
 
-  it("rejects private scope keys for a different user", async () => {
-    const { authorizeScopedReadModelScopeKeysServer } =
-      await import("@/lib/server/scoped-read-models")
-
-    await expect(
-      authorizeScopedReadModelScopeKeysServer(
-        {
-          user: {
-            id: "workos_1",
-            email: "alex@example.com",
-          },
-          organizationId: "org_1",
-        } as never,
-        ["private-document-index:workspace_1:user_2"]
-      )
-    ).rejects.toThrow(
-      "Unauthorized scoped read model key: private-document-index:workspace_1:user_2"
-    )
-  })
-
-  it("resolves private document invalidations to owner-scoped keys", async () => {
+  it("resolves document invalidations through the narrow Convex resolver", async () => {
     const { resolveDocumentReadModelScopeKeysServer } =
       await import("@/lib/server/scoped-read-models")
 
     await expect(
-      resolveDocumentReadModelScopeKeysServer(
-        {
-          user: {
-            id: "workos_1",
-            email: "alex@example.com",
-          },
-          organizationId: "org_1",
-        } as never,
-        "doc_private_1"
-      )
-    ).resolves.toEqual([
-      "document-detail:doc_private_1",
-      "private-document-index:workspace_1:user_1",
-      "private-search-seed:workspace_1:user_1",
-      "workspace-people:workspace_1",
+      resolveDocumentReadModelScopeKeysServer(session, "doc_1")
+    ).resolves.toEqual(["document-detail:doc_1"])
+
+    expect(resolveScopedReadModelScopeKeysServerMock).toHaveBeenCalledWith({
+      workosUserId: "workos_1",
+      email: "alex@example.com",
+      selectedWorkspaceId: "workspace_1",
+      target: {
+        kind: "document",
+        documentId: "doc_1",
+      },
+    })
+  })
+
+  it("bumps resolved work item invalidations", async () => {
+    resolveScopedReadModelScopeKeysServerMock.mockResolvedValue([
+      "work-item-detail:item_1",
+      "work-index:team_team_1",
     ])
+
+    const { bumpWorkItemReadModelScopesServer } =
+      await import("@/lib/server/scoped-read-models")
+
+    await bumpWorkItemReadModelScopesServer(session, "item_1")
+
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
+      scopeKeys: ["work-item-detail:item_1", "work-index:team_team_1"],
+    })
   })
 
   it("bumps owner-scoped private document and search invalidations without shared workspace keys", async () => {

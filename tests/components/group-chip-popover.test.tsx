@@ -6,6 +6,7 @@ import {
   getAvailableGroupOptions,
   GroupChipPopover,
   LevelChipPopover,
+  SortChipPopover,
 } from "@/components/app/screens/work-surface-controls"
 import {
   createDefaultViewFilters,
@@ -125,6 +126,19 @@ describe("LevelChipPopover", () => {
     fireEvent.click(trigger)
 
     expect(screen.getByText("Highest parent")).toBeInTheDocument()
+  })
+})
+
+describe("SortChipPopover", () => {
+  it("opens and updates ordering from the sort trigger", () => {
+    const onUpdateView = vi.fn()
+
+    render(<SortChipPopover view={createView()} onUpdateView={onUpdateView} />)
+
+    fireEvent.click(screen.getByRole("button", { name: /priority/i }))
+    fireEvent.click(screen.getByRole("button", { name: "Updated" }))
+
+    expect(onUpdateView).toHaveBeenCalledWith({ ordering: "updatedAt" })
   })
 })
 

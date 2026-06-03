@@ -2040,6 +2040,7 @@ export async function deleteChannelPostCommentHandler(
 
   if (!comment) {
     return {
+      deleted: false,
       ok: true,
     }
   }
@@ -2058,6 +2059,7 @@ export async function deleteChannelPostCommentHandler(
     await ctx.db.delete(comment._id)
 
     return {
+      deleted: true,
       ok: true,
     }
   }
@@ -2077,6 +2079,7 @@ export async function deleteChannelPostCommentHandler(
   })
 
   return {
+    deleted: true,
     ok: true,
   }
 }

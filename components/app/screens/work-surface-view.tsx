@@ -26,10 +26,13 @@ import {
   useSensors,
 } from "@dnd-kit/core"
 import {
+  Check,
   CaretDown,
   CaretRight,
+  MagnifyingGlass,
   Plus,
   SidebarSimple,
+  Tag,
   TreeStructure,
 } from "@phosphor-icons/react"
 
@@ -59,11 +62,26 @@ import {
   getCustomPropertyIdFromDisplayReference,
   workStatuses,
 } from "@/lib/domain/types"
-import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
+import {
+  isCustomPropertyDefinitionForWorkItem,
+  sortLabelsByName,
+} from "@/lib/domain/labels"
 import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 import { useAppStore } from "@/lib/store/app-store"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { StatusRing } from "@/components/ui/template-primitives"
+import {
+  PROPERTY_POPOVER_CLASS,
+  PropertyPopoverGroup,
+  PropertyPopoverItem,
+  PropertyPopoverList,
+  PropertyPopoverSearch,
+  StatusRing,
+} from "@/components/ui/template-primitives"
 
 import {
   IssueActionMenu,
@@ -77,7 +95,11 @@ import {
   type WorkItemSelectionController,
 } from "./work-item-selection"
 import { WorkItemAssigneeAvatar, WorkItemTypeBadge } from "./work-item-ui"
-import { getCreateDefaultsForField, LabelColorDot } from "./shared"
+import {
+  getCreateDefaultsForField,
+  LabelColorDot,
+  useWorkItemLabelEditorState,
+} from "./shared"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
 import { CustomPropertyValueControl } from "./custom-property-controls"
 import { getContainerItemsForDisplay } from "./helpers"
@@ -874,6 +896,7 @@ type WorkItemDisplayPropertyContext = {
   variant: "list" | "board"
   childProgress: ChildProgressRollup | null
   dueDateLabel: string | null
+  editable: boolean
   isOverdue: boolean
   isSoon: boolean
 }
@@ -965,9 +988,20 @@ function renderWorkItemParentProperty({
 
 function renderWorkItemLabelsProperty({
   data,
+  editable,
   item,
   variant,
 }: WorkItemDisplayPropertyContext) {
+  if (editable) {
+    return (
+      <WorkItemLabelsPropertyControl
+        data={data}
+        item={item}
+        variant={variant}
+      />
+    )
+  }
+
   if ((item.visibility ?? "team") === "private" || item.labelIds.length === 0) {
     return null
   }
@@ -989,6 +1023,168 @@ function renderWorkItemLabelsProperty({
       )
     })
     .filter(Boolean)
+}
+
+function getSurfaceItemWorkspaceId(data: AppData, item: WorkItem) {
+  if ((item.visibility ?? "team") === "private") {
+    return item.workspaceId ?? null
+  }
+
+  return item.workspaceId ?? getTeam(data, item.teamId)?.workspaceId ?? null
+}
+
+function stopWorkSurfaceControlEvent(event: { stopPropagation: () => void }) {
+  event.stopPropagation()
+}
+
+function getLabelTriggerLabel(selectedLabels: AppData["labels"]) {
+  if (selectedLabels.length === 0) {
+    return "Label"
+  }
+
+  const [firstLabel] = selectedLabels
+
+  if (selectedLabels.length === 1) {
+    return firstLabel?.name ?? "Label"
+  }
+
+  return `${firstLabel?.name ?? "Labels"} +${selectedLabels.length - 1}`
+}
+
+function WorkItemLabelsPropertyControl({
+  data,
+  item,
+  variant,
+}: {
+  data: AppData
+  item: WorkItem
+  variant: "list" | "board"
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const workspaceId = getSurfaceItemWorkspaceId(data, item)
+  const labels = useMemo(() => sortLabelsByName(data.labels), [data.labels])
+  const { availableLabels, selectedLabels, toggleLabel } =
+    useWorkItemLabelEditorState({
+      item,
+      labels,
+      workspaceId,
+    })
+  const matches = availableLabels.filter((label) =>
+    label.name.toLowerCase().includes(query.trim().toLowerCase())
+  )
+  const triggerLabel = getLabelTriggerLabel(selectedLabels)
+  const visibleSelectedLabels = selectedLabels.slice(
+    0,
+    variant === "board" ? 2 : 1
+  )
+
+  if ((item.visibility ?? "team") === "private") {
+    return null
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (!nextOpen) {
+          setQuery("")
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={
+            selectedLabels.length > 0
+              ? `Labels: ${selectedLabels.map((label) => label.name).join(", ")}`
+              : "Label"
+          }
+          className={cn(
+            META_CHIP_CLASS,
+            selectedLabels.length === 0 &&
+              "border-dashed bg-transparent text-fg-3"
+          )}
+          onPointerDown={stopDragPropagation}
+          onClick={stopWorkSurfaceControlEvent}
+        >
+          {visibleSelectedLabels.length > 0 ? (
+            visibleSelectedLabels.map((label) => (
+              <span
+                key={label.id}
+                className="inline-flex min-w-0 items-center gap-1"
+              >
+                <LabelColorDot color={label.color} className="size-[7px]" />
+                <span className="max-w-[88px] truncate">{label.name}</span>
+              </span>
+            ))
+          ) : (
+            <>
+              <Tag className="size-3 shrink-0" />
+              <span>{triggerLabel}</span>
+            </>
+          )}
+          {selectedLabels.length > visibleSelectedLabels.length ? (
+            <span className="text-fg-3">
+              +{selectedLabels.length - visibleSelectedLabels.length}
+            </span>
+          ) : null}
+          <CaretDown className="size-3 shrink-0 opacity-60" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(PROPERTY_POPOVER_CLASS, "w-[260px]")}
+        onPointerDown={stopDragPropagation}
+        onClick={stopWorkSurfaceControlEvent}
+      >
+        <PropertyPopoverSearch
+          icon={<MagnifyingGlass className="size-[14px]" />}
+          placeholder="Find label..."
+          value={query}
+          onChange={setQuery}
+        />
+        <PropertyPopoverList>
+          <PropertyPopoverGroup>Labels</PropertyPopoverGroup>
+          <PropertyPopoverItem
+            muted
+            selected={item.labelIds.length === 0}
+            onClick={() =>
+              useAppStore.getState().updateWorkItem(item.id, { labelIds: [] })
+            }
+            trailing={
+              item.labelIds.length === 0 ? (
+                <Check className="size-[14px] text-foreground" />
+              ) : null
+            }
+          >
+            <Tag className="size-3.5 shrink-0 text-fg-3" />
+            <span>No labels</span>
+          </PropertyPopoverItem>
+          {matches.map((label) => {
+            const selected = item.labelIds.includes(label.id)
+
+            return (
+              <PropertyPopoverItem
+                key={label.id}
+                selected={selected}
+                onClick={() => toggleLabel(label.id)}
+                trailing={
+                  selected ? (
+                    <Check className="size-[14px] text-foreground" />
+                  ) : null
+                }
+              >
+                <LabelColorDot color={label.color} className="size-[7px]" />
+                <span className="truncate">{label.name}</span>
+              </PropertyPopoverItem>
+            )
+          })}
+        </PropertyPopoverList>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 function renderWorkItemDueDateProperty({
@@ -1145,6 +1341,7 @@ function renderWorkItemDisplayProperties({
   variant,
   childProgress,
   dueDateLabel,
+  editable,
   isOverdue,
   isSoon,
 }: {
@@ -1154,6 +1351,7 @@ function renderWorkItemDisplayProperties({
   variant: "list" | "board"
   childProgress: ChildProgressRollup | null
   dueDateLabel: string | null
+  editable: boolean
   isOverdue: boolean
   isSoon: boolean
 }) {
@@ -1165,6 +1363,7 @@ function renderWorkItemDisplayProperties({
       variant,
       childProgress,
       dueDateLabel,
+      editable,
       isOverdue,
       isSoon,
     })
@@ -2162,12 +2361,14 @@ function getWorkSurfaceItemDisplayState({
   childCountOverride,
   data,
   displayProps,
+  editable = false,
   item,
   variant,
 }: Pick<
   ListRowBodyProps,
   "childCountOverride" | "data" | "displayProps" | "item"
 > & {
+  editable?: boolean
   variant: "board" | "list"
 }) {
   const dueDateLabel =
@@ -2191,6 +2392,7 @@ function getWorkSurfaceItemDisplayState({
       variant,
       childProgress,
       dueDateLabel,
+      editable,
       isOverdue,
       isSoon,
     }),
@@ -2202,6 +2404,7 @@ function getWorkSurfaceItemDisplayState({
       variant,
       childProgress,
       dueDateLabel,
+      editable,
       isOverdue,
       isSoon,
     }),
@@ -2212,15 +2415,19 @@ function getListRowDisplayState({
   childCountOverride,
   data,
   displayProps,
+  editable,
   item,
 }: Pick<
   ListRowBodyProps,
   "childCountOverride" | "data" | "displayProps" | "item"
->) {
+> & {
+  editable: boolean
+}) {
   return getWorkSurfaceItemDisplayState({
     childCountOverride,
     data,
     displayProps,
+    editable,
     item,
     variant: "list",
   })
@@ -2494,6 +2701,7 @@ function ListRowBody({
     childCountOverride,
     data,
     displayProps,
+    editable: Boolean(selection),
     item,
   })
   const disclosureSlotClass = depth === 0 ? "size-5" : "size-4"
@@ -2502,7 +2710,7 @@ function ListRowBody({
     <div
       className={cn(
         "group/row relative transition-colors hover:bg-surface-2",
-        selection?.isSelected(item.id) && "bg-accent-bg/45",
+        selection?.isSelected(item.id) && "bg-surface-2",
         isDropTarget && "bg-surface-2"
       )}
       onClick={(event) => selection?.handleModifiedClick(item.id, event)}
@@ -2514,6 +2722,12 @@ function ListRowBody({
         className="flex min-h-[34px] items-center gap-2.5 pr-5"
         style={{ paddingLeft: 14 + depth * 24 }}
       >
+        <ListRowDisclosure
+          expanded={expanded}
+          hasChildren={hasChildren}
+          slotClassName={disclosureSlotClass}
+          onToggleExpanded={onToggleExpanded}
+        />
         <div className="flex items-center justify-center">
           {selection ? (
             <WorkItemSelectionCheckbox
@@ -2527,12 +2741,6 @@ function ListRowBody({
             <span aria-hidden className="size-4" />
           )}
         </div>
-        <ListRowDisclosure
-          expanded={expanded}
-          hasChildren={hasChildren}
-          slotClassName={disclosureSlotClass}
-          onToggleExpanded={onToggleExpanded}
-        />
         <ListRowLinkSlot interactive={interactive} itemId={item.id}>
           <ListRowLinkedContent
             idProperty={idProperty}
@@ -2813,6 +3021,7 @@ const BoardCardBody = memo(function BoardCardBody({
       childCountOverride,
       data,
       displayProps,
+      editable: Boolean(selection),
       item,
       variant: "board",
     })
@@ -2835,7 +3044,7 @@ const BoardCardBody = memo(function BoardCardBody({
       <div
         className={cn(
           "group/card relative flex cursor-grab touch-none flex-col gap-2 rounded-[8px] border border-line bg-surface px-3 py-2.5 transition-all hover:border-[color:var(--text-4)] hover:shadow-sm active:cursor-grabbing",
-          selected && "border-[color:var(--brand)] bg-accent-bg/45",
+          selected && "border-line bg-surface-2",
           isDropTarget && "border-fg-4 bg-surface-2"
         )}
         onClickCapture={(event) =>

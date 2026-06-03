@@ -70,13 +70,15 @@ function DocumentListRow({
                 {document.title}
               </span>
               <DocumentListPreview preview={meta.preview} />
+            </div>
+            <div className="ml-auto flex shrink-0 flex-col items-end gap-1">
               <DocumentDisplayProperties
                 data={data}
                 displayProps={displayProps}
                 document={document}
               />
+              <DocumentListDesktopMeta meta={meta} />
             </div>
-            <DocumentListDesktopMeta meta={meta} />
           </div>
           <DocumentListMobileMeta meta={meta} />
         </div>
@@ -161,19 +163,23 @@ function DocumentDisplayProperties({
   displayProps: DisplayProperty[]
   document: AppDocument
 }) {
-  const labels = displayProps
-    .map((property) => getDocumentPropertyLabel(data, document, property))
-    .filter((label): label is string => Boolean(label))
+  const labels = Array.from(
+    new Set(
+      Array.from(new Set(displayProps))
+        .map((property) => getDocumentPropertyLabel(data, document, property))
+        .filter((label): label is string => Boolean(label))
+    )
+  )
 
   if (labels.length === 0) {
     return null
   }
 
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-      {labels.map((label, index) => (
+    <div className="flex max-w-[280px] flex-wrap items-center justify-end gap-1.5">
+      {labels.map((label) => (
         <span
-          key={`${label}:${index}`}
+          key={label}
           className="rounded border border-line-soft bg-surface-2 px-1.5 py-0.5 text-[10.5px] leading-none text-fg-3"
         >
           {label}

@@ -35,6 +35,15 @@ export function mergeChatMessageFirstReadTimestamps(
   return next
 }
 
+export function getUnreadChatMessageReceiptIds(
+  existing: Record<string, string> | null | undefined,
+  messageIds: readonly string[] | null | undefined
+) {
+  return [...new Set(messageIds ?? [])].filter(
+    (messageId) => messageId && !existing?.[messageId]
+  )
+}
+
 export function hasUnreadLegacyChatMessageNotification(
   data: Pick<AppData, "notifications">,
   userId: string,

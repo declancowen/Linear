@@ -3,6 +3,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server"
 import { normalizeWorkItemKeyNumberPadding } from "../../lib/domain/work-item-key"
 import {
   assertServerToken,
+  getNow,
   mergeMembershipRole,
   normalizeEmailAddress,
   normalizeJoinCode,
@@ -20,6 +21,25 @@ type ServerAccessArgs = {
 type BackfillArgs = ServerAccessArgs & {
   limit?: number
 }
+
+type ConvexDocId = Parameters<MutationCtx["db"]["delete"]>[0]
+
+type OperationalRetentionCleanupArgs = ServerAccessArgs & {
+  dryRun?: boolean
+  emailJobRetentionDays?: number
+  limit?: number
+  notificationRetentionDays?: number
+  now?: string
+  readModelVersionRetentionDays?: number
+}
+
+export const OPERATIONAL_RETENTION_DEFAULT_LIMIT = 100
+export const OPERATIONAL_RETENTION_MAX_LIMIT = 500
+export const NOTIFICATION_RETENTION_DAYS = 90
+export const EMAIL_JOB_RETENTION_DAYS = 30
+export const READ_MODEL_VERSION_RETENTION_DAYS = 30
+export const FAILED_EMAIL_JOB_RETENTION_ATTEMPT_THRESHOLD = 5
+export const OPERATIONAL_RETENTION_SCAN_MULTIPLIER = 3
 
 type LegacyLookupStatus = {
   teams: {
@@ -93,6 +113,284 @@ type WorkItemKeyBackfillStatus = {
   }
   remaining: {
     total: number
+  }
+}
+
+function resolveRetentionLimit(limit: number | undefined) {
+  if (!Number.isFinite(limit) || !limit || limit <= 0) {
+    return OPERATIONAL_RETENTION_DEFAULT_LIMIT
+  }
+
+  return Math.min(OPERATIONAL_RETENTION_MAX_LIMIT, Math.floor(limit))
+}
+
+function resolveRetentionScanLimit(limit: number) {
+  return Math.min(
+    OPERATIONAL_RETENTION_MAX_LIMIT * OPERATIONAL_RETENTION_SCAN_MULTIPLIER,
+    Math.max(1, limit * OPERATIONAL_RETENTION_SCAN_MULTIPLIER)
+  )
+}
+
+function resolveRetentionDays(
+  value: number | undefined,
+  defaultValue: number
+) {
+  return Number.isFinite(value) && value && value > 0
+    ? Math.floor(value)
+    : defaultValue
+}
+
+function getRetentionCutoffIso(now: string, retentionDays: number) {
+  return new Date(
+    Date.parse(now) - retentionDays * 24 * 60 * 60 * 1000
+  ).toISOString()
+}
+
+function isBeforeCutoff(value: string | null | undefined, cutoffIso: string) {
+  return Boolean(value && value < cutoffIso)
+}
+
+function shouldDeleteNotificationForRetention(
+  notification: {
+    archivedAt?: string | null
+    createdAt: string
+    digestClaimId?: string | null
+    emailedAt?: string | null
+    readAt?: string | null
+  },
+  cutoffIso: string
+) {
+  return (
+    !notification.digestClaimId &&
+    [
+      notification.archivedAt,
+      notification.emailedAt,
+      notification.readAt,
+    ].some((timestamp) => isBeforeCutoff(timestamp, cutoffIso))
+  )
+}
+
+function shouldDeleteEmailJobForRetention(
+  job: {
+    attemptCount?: number | null
+    createdAt: string
+    lastError?: string | null
+    sentAt?: string | null
+  },
+  cutoffIso: string
+) {
+  if (isBeforeCutoff(job.sentAt, cutoffIso)) {
+    return true
+  }
+
+  return (
+    isBeforeCutoff(job.createdAt, cutoffIso) &&
+    Boolean(job.lastError) &&
+    (job.attemptCount ?? 0) >= FAILED_EMAIL_JOB_RETENTION_ATTEMPT_THRESHOLD
+  )
+}
+
+function shouldDeleteReadModelVersionForRetention(
+  version: {
+    updatedAt: string
+  },
+  cutoffIso: string
+) {
+  return isBeforeCutoff(version.updatedAt, cutoffIso)
+}
+
+function collectRetentionCandidates<T extends { _id: ConvexDocId }>(input: {
+  candidates: T[]
+  limit: number
+  shouldDelete: (candidate: T) => boolean
+}) {
+  const selected: T[] = []
+
+  for (const candidate of input.candidates) {
+    if (selected.length >= input.limit) {
+      break
+    }
+
+    if (input.shouldDelete(candidate)) {
+      selected.push(candidate)
+    }
+  }
+
+  return selected
+}
+
+function dedupeRetentionCandidates<T extends { _id: ConvexDocId }>(
+  candidates: T[]
+) {
+  const seen = new Set<ConvexDocId>()
+  const deduped: T[] = []
+
+  for (const candidate of candidates) {
+    if (seen.has(candidate._id)) {
+      continue
+    }
+
+    seen.add(candidate._id)
+    deduped.push(candidate)
+  }
+
+  return deduped
+}
+
+async function deleteRetentionCandidates(
+  ctx: MutationCtx,
+  candidates: Array<{ _id: ConvexDocId }>,
+  dryRun: boolean
+) {
+  if (dryRun) {
+    return
+  }
+
+  for (const candidate of candidates) {
+    await ctx.db.delete(candidate._id)
+  }
+}
+
+export async function cleanupOperationalRetentionHandler(
+  ctx: MutationCtx,
+  args: OperationalRetentionCleanupArgs
+) {
+  assertServerToken(args.serverToken)
+  const now = args.now ?? getNow()
+  const limit = resolveRetentionLimit(args.limit)
+  const notificationCutoffIso = getRetentionCutoffIso(
+    now,
+    resolveRetentionDays(
+      args.notificationRetentionDays,
+      NOTIFICATION_RETENTION_DAYS
+    )
+  )
+  const emailJobCutoffIso = getRetentionCutoffIso(
+    now,
+    resolveRetentionDays(args.emailJobRetentionDays, EMAIL_JOB_RETENTION_DAYS)
+  )
+  const readModelVersionCutoffIso = getRetentionCutoffIso(
+    now,
+    resolveRetentionDays(
+      args.readModelVersionRetentionDays,
+      READ_MODEL_VERSION_RETENTION_DAYS
+    )
+  )
+  const dryRun = args.dryRun ?? true
+
+  const notificationScanLimit = resolveRetentionScanLimit(limit)
+  const [readNotifications, archivedNotifications, emailedNotifications] =
+    await Promise.all([
+      ctx.db
+        .query("notifications")
+        .withIndex("by_read_at", (query) =>
+          query.gt("readAt", "").lt("readAt", notificationCutoffIso)
+        )
+        .take(notificationScanLimit),
+      ctx.db
+        .query("notifications")
+        .withIndex("by_archived_at", (query) =>
+          query.gt("archivedAt", "").lt("archivedAt", notificationCutoffIso)
+        )
+        .take(notificationScanLimit),
+      ctx.db
+        .query("notifications")
+        .withIndex("by_emailed_at", (query) =>
+          query.gt("emailedAt", "").lt("emailedAt", notificationCutoffIso)
+        )
+        .take(notificationScanLimit),
+    ])
+
+  const notificationCandidates = collectRetentionCandidates({
+    candidates: dedupeRetentionCandidates([
+      ...readNotifications,
+      ...archivedNotifications,
+      ...emailedNotifications,
+    ]),
+    limit,
+    shouldDelete: (notification) =>
+      shouldDeleteNotificationForRetention(notification, notificationCutoffIso),
+  })
+  const remainingLimitAfterNotifications = Math.max(
+    0,
+    limit - notificationCandidates.length
+  )
+
+  const emailJobScanLimit = resolveRetentionScanLimit(
+    remainingLimitAfterNotifications
+  )
+  const [sentEmailJobs, failedEmailJobs] =
+    remainingLimitAfterNotifications > 0
+      ? await Promise.all([
+          ctx.db
+            .query("emailJobs")
+            .withIndex("by_sent_at", (query) =>
+              query.gt("sentAt", "").lt("sentAt", emailJobCutoffIso)
+            )
+            .take(emailJobScanLimit),
+          ctx.db
+            .query("emailJobs")
+            .withIndex("by_created_at", (query) =>
+              query.lt("createdAt", emailJobCutoffIso)
+            )
+            .take(emailJobScanLimit),
+        ])
+      : [[], []]
+  const emailJobCandidates = collectRetentionCandidates({
+    candidates: dedupeRetentionCandidates([...sentEmailJobs, ...failedEmailJobs]),
+    limit: remainingLimitAfterNotifications,
+    shouldDelete: (job) =>
+      shouldDeleteEmailJobForRetention(job, emailJobCutoffIso),
+  })
+  const remainingLimitAfterEmailJobs = Math.max(
+    0,
+    remainingLimitAfterNotifications - emailJobCandidates.length
+  )
+
+  const readModelVersions =
+    remainingLimitAfterEmailJobs > 0
+      ? await ctx.db
+          .query("readModelVersions")
+          .withIndex("by_updated_at", (query) =>
+            query.lt("updatedAt", readModelVersionCutoffIso)
+          )
+          .take(resolveRetentionScanLimit(remainingLimitAfterEmailJobs))
+      : []
+  const readModelVersionCandidates = collectRetentionCandidates({
+    candidates: readModelVersions,
+    limit: remainingLimitAfterEmailJobs,
+    shouldDelete: (version) =>
+      shouldDeleteReadModelVersionForRetention(
+        version,
+        readModelVersionCutoffIso
+      ),
+  })
+
+  await deleteRetentionCandidates(ctx, notificationCandidates, dryRun)
+  await deleteRetentionCandidates(ctx, emailJobCandidates, dryRun)
+  await deleteRetentionCandidates(ctx, readModelVersionCandidates, dryRun)
+
+  const deleted = {
+    emailJobs: emailJobCandidates.length,
+    notifications: notificationCandidates.length,
+    readModelVersions: readModelVersionCandidates.length,
+  }
+
+  return {
+    cutoffs: {
+      emailJobs: emailJobCutoffIso,
+      notifications: notificationCutoffIso,
+      readModelVersions: readModelVersionCutoffIso,
+    },
+    deleted: {
+      ...deleted,
+      total:
+        deleted.emailJobs +
+        deleted.notifications +
+        deleted.readModelVersions,
+    },
+    dryRun,
+    limit,
   }
 }
 

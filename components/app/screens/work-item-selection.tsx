@@ -7,6 +7,7 @@ import {
   type ChangeEvent,
   type MouseEvent,
 } from "react"
+import { Check } from "@phosphor-icons/react"
 
 import { cn } from "@/lib/utils"
 
@@ -159,18 +160,32 @@ export function WorkItemSelectionCheckbox({
   onChange: (event: ChangeEvent<HTMLInputElement>) => void
 }) {
   return (
-    <input
-      type="checkbox"
-      aria-label={label}
-      checked={checked}
+    <label
       data-no-drag="true"
       className={cn(
-        "size-3.5 shrink-0 cursor-pointer rounded border-line accent-[color:var(--brand)]",
+        "inline-grid size-4 shrink-0 cursor-pointer place-items-center",
         className
       )}
-      onChange={onChange}
-      onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
-    />
+      onClick={(event) => event.stopPropagation()}
+    >
+      <input
+        type="checkbox"
+        aria-label={label}
+        checked={checked}
+        className="peer sr-only"
+        onChange={onChange}
+      />
+      <span
+        aria-hidden
+        className={cn(
+          "grid size-3.5 place-items-center rounded-[3px] border-0 bg-surface-3 text-transparent transition-colors",
+          "peer-focus-visible:ring-2 peer-focus-visible:ring-[color:var(--brand)] peer-focus-visible:outline-none",
+          "peer-checked:bg-surface-3 peer-checked:text-foreground"
+        )}
+      >
+        <Check className="size-3 text-current" weight="bold" />
+      </span>
+    </label>
   )
 }

@@ -14,6 +14,7 @@ import {
 } from "@/lib/browser/authenticated-event-source"
 import {
   reportBootstrapModeDiagnostic,
+  reportLegacySnapshotStreamDiagnostic,
   reportSnapshotApplyDiagnostic,
   reportSnapshotFetchDiagnostic,
   reportSnapshotStreamReconnectDiagnostic,
@@ -135,6 +136,10 @@ function ConvexStateSync({
     }
 
     reportBootstrapModeDiagnostic("legacy-snapshot-stream")
+    reportLegacySnapshotStreamDiagnostic({
+      reason:
+        "Legacy snapshot sync is enabled; scoped read models should be preferred in production.",
+    })
 
     function clearStreamReconnectTimeout() {
       if (streamReconnectTimeoutId !== null) {

@@ -672,6 +672,14 @@ describe("work item detail screen", () => {
     useAppStore.setState(createEmptyState())
   })
 
+  async function flushDeferredSidebarSections() {
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 0)
+      })
+    })
+  }
+
   it("keeps the work item detail read model subscribed while description collaboration is attached", () => {
     useDocumentCollaborationMock.mockReturnValue({
       bootstrapContent: null,
@@ -1718,6 +1726,7 @@ describe("work item detail screen", () => {
         editable
       />
     )
+    await flushDeferredSidebarSections()
 
     expect(screen.getByRole("button", { name: "Project" })).toBeInTheDocument()
     expect(screen.getByText("Primary roadmap")).toBeInTheDocument()

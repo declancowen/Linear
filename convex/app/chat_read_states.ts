@@ -2,6 +2,7 @@ import type { MutationCtx } from "../_generated/server"
 
 import {
   createChatReadStateId,
+  getUnreadChatMessageReceiptIds,
   mergeChatMessageFirstReadTimestamps,
 } from "../../lib/domain/chat-read-state"
 import {
@@ -111,13 +112,32 @@ export async function markChatConversationRead(
     input.userId,
     input.conversationId
   )
-  const messageReadAtById = input.messageIds?.length
+  const unreadMessageIds = getUnreadChatMessageReceiptIds(
+    existing?.messageReadAtById,
+    input.messageIds
+  )
+  const messageReadAtById = unreadMessageIds.length
     ? mergeChatMessageFirstReadTimestamps(
         existing?.messageReadAtById,
-        input.messageIds,
+        unreadMessageIds,
         input.now
       )
     : undefined
+
+  if (
+    existing &&
+    existing.readAt &&
+    existing.unreadAt === null &&
+    unreadMessageIds.length === 0
+  ) {
+    await markLegacyChatMessageNotificationsRead(ctx, {
+      userId: input.userId,
+      conversationId: input.conversationId,
+      readAt: input.now,
+    })
+    return existing
+  }
+
   const readState = await upsertChatReadState(ctx, {
     userId: input.userId,
     conversationId: input.conversationId,
@@ -152,6 +172,10 @@ export async function markChatConversationUnread(
     input.userId,
     input.conversationId
   )
+
+  if (existing?.unreadAt != null) {
+    return existing
+  }
 
   return upsertChatReadState(ctx, {
     userId: input.userId,

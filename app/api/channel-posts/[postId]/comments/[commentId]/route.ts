@@ -7,13 +7,12 @@ import {
   deleteChannelPostCommentServer,
   updateChannelPostCommentServer,
 } from "@/lib/server/convex"
-import { getChannelPostRelatedScopeKeys } from "@/lib/scoped-sync/read-models"
-import { loadScopedReadModelSnapshotForSession } from "@/lib/server/scoped-read-models"
+import { resolveChannelPostReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import {
   handleAppContextJsonRoute,
   handleAppContextRoute,
 } from "@/lib/server/route-handlers"
-import { jsonError, jsonOk } from "@/lib/server/route-response"
+import { jsonOk } from "@/lib/server/route-response"
 
 const channelPostCommentUpdateBodySchema = z.object({
   content: channelPostCommentSchema.shape.content,
@@ -31,8 +30,10 @@ export async function PATCH(
     failureCode: "CHANNEL_POST_COMMENT_UPDATE_FAILED",
     async handle({ session, appContext, parsed }) {
       const { postId, commentId } = await params
-      const snapshot = await loadScopedReadModelSnapshotForSession(session)
-      const scopeKeys = getChannelPostRelatedScopeKeys(snapshot, postId)
+      const scopeKeys = await resolveChannelPostReadModelScopeKeysServer(
+        session,
+        postId
+      )
 
       await updateChannelPostCommentServer({
         currentUserId: appContext.ensuredUser.userId,
@@ -61,39 +62,24 @@ export async function DELETE(
     failureCode: "CHANNEL_POST_COMMENT_DELETE_FAILED",
     async handle({ session, appContext }) {
       const { postId, commentId } = await params
-      const snapshot = await loadScopedReadModelSnapshotForSession(session)
-      const comment =
-        snapshot.channelPostComments.find((entry) => entry.id === commentId) ??
-        null
-
-      if (!comment) {
-        return jsonOk({
-          ok: true,
-        })
-      }
-
-      if (comment.postId !== postId) {
-        return jsonError("Comment not found", 404, {
-          code: "CHANNEL_POST_COMMENT_NOT_FOUND",
-        })
-      }
-
-      if (comment.createdBy !== appContext.ensuredUser.userId) {
-        return jsonError("You can only delete your own comments", 403, {
-          code: "CHANNEL_POST_COMMENT_DELETE_FORBIDDEN",
-        })
-      }
-
-      const scopeKeys = getChannelPostRelatedScopeKeys(snapshot, postId)
-
-      await deleteChannelPostCommentServer({
+      const result = await deleteChannelPostCommentServer({
         currentUserId: appContext.ensuredUser.userId,
         postId,
         commentId,
       })
-      await bumpScopedReadModelVersionsServer({
-        scopeKeys,
-      })
+
+      if (result?.deleted !== false) {
+        const scopeKeys = await resolveChannelPostReadModelScopeKeysServer(
+          session,
+          postId
+        )
+
+        if (scopeKeys.length > 0) {
+          await bumpScopedReadModelVersionsServer({
+            scopeKeys,
+          })
+        }
+      }
 
       return jsonOk({
         ok: true,

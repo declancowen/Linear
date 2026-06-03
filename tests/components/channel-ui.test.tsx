@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import "@/tests/lib/fixtures/rich-text-composer-mocks"
@@ -249,6 +249,54 @@ describe("NewPostComposer", () => {
     })
 
     expect(button).toBeEnabled()
+  })
+
+  it("opens channel replies without inserting quoted content", () => {
+    useAppStore.setState({
+      channelPosts: [
+        {
+          id: "post_1",
+          conversationId: "channel_1",
+          title: "Roadmap",
+          content: "<p>Post body that should not be quoted</p>",
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: "user_1",
+          createdAt: "2026-04-18T10:00:00.000Z",
+          updatedAt: "2026-04-18T10:00:00.000Z",
+        },
+      ],
+      channelPostComments: [
+        {
+          id: "comment_1",
+          postId: "post_1",
+          content: "<p>Comment body that should not be quoted</p>",
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: "user_1",
+          createdAt: "2026-04-18T10:05:00.000Z",
+        },
+      ],
+    })
+
+    const { container } = render(<ForumPostCard postId="post_1" />)
+    const commentRow = container.querySelector("#comment_1")
+
+    expect(commentRow).not.toBeNull()
+    expect(screen.queryByRole("button", { name: "Quote post" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Quote comment" })).toBeNull()
+
+    act(() => {
+      fireEvent.click(
+        within(commentRow as HTMLElement).getByRole("button", {
+          name: "Reply",
+        })
+      )
+    })
+
+    expect(
+      screen.getByLabelText("Reply with @mentions or /commands…")
+    ).toHaveValue("")
   })
 
   it("renders owned post deletion as a direct delete button", () => {

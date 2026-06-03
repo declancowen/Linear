@@ -37,6 +37,7 @@ import type * as app_notifications from "../app/notifications.js";
 import type * as app_presence_helpers from "../app/presence_helpers.js";
 import type * as app_project_handlers from "../app/project_handlers.js";
 import type * as app_rich_text_reference_relationships from "../app/rich_text_reference_relationships.js";
+import type * as app_scoped_read_models from "../app/scoped_read_models.js";
 import type * as app_scoped_sync from "../app/scoped_sync.js";
 import type * as app_server_users from "../app/server_users.js";
 import type * as app_team_feature_guards from "../app/team_feature_guards.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   "app/presence_helpers": typeof app_presence_helpers;
   "app/project_handlers": typeof app_project_handlers;
   "app/rich_text_reference_relationships": typeof app_rich_text_reference_relationships;
+  "app/scoped_read_models": typeof app_scoped_read_models;
   "app/scoped_sync": typeof app_scoped_sync;
   "app/server_users": typeof app_server_users;
   "app/team_feature_guards": typeof app_team_feature_guards;

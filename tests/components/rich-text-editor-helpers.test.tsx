@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 
 import { insertUploadedAttachment } from "@/components/app/rich-text-editor/attachment-insertion"
 import { uploadRichTextEditorAttachment } from "@/components/app/rich-text-editor/attachment-upload-one"
@@ -29,8 +29,10 @@ import {
 } from "@/components/app/rich-text-editor/marker-comparison"
 import { areArraysEqual } from "@/components/app/rich-text-editor/array-equality"
 import {
+  buildReferencePickerState,
   filterReferenceCandidates,
   filterSlashCommands,
+  isReferencePickerState,
   MentionMenu,
   ReferenceMenu,
   SlashCommandMenu,
@@ -749,6 +751,36 @@ describe("rich text editor helpers", () => {
     expect(promptReferencePicker).toHaveBeenCalled()
   })
 
+  it("marks slash-triggered reference search as an explicit picker state", () => {
+    const state = buildReferencePickerState(
+      {
+        state: {
+          selection: {
+            from: 3,
+          },
+        },
+        view: {
+          coordsAtPos: vi.fn(() => ({
+            bottom: 24,
+            left: 12,
+            top: 4,
+          })),
+        },
+      } as never,
+      null
+    )
+
+    expect(state).toEqual(
+      expect.objectContaining({
+        from: 3,
+        mode: "picker",
+        query: "",
+        to: 3,
+      })
+    )
+    expect(isReferencePickerState(state)).toBe(true)
+  })
+
   it("hides the reference command when the editor has no reference candidates", () => {
     const commands = filterSlashCommands("ref", {
       enableReferences: false,
@@ -801,6 +833,64 @@ describe("rich text editor helpers", () => {
       expect(
         screen.getByText("Link work, docs, projects, or views")
       ).toBeInTheDocument()
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      })
+    }
+  })
+
+  it("opens the reference picker from the rendered slash command menu", () => {
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    })
+    const promptReferencePicker = vi.fn()
+    const deleteRange = vi.fn(() => chain)
+    const run = vi.fn(() => true)
+    const chain = {
+      deleteRange,
+      focus: vi.fn(() => chain),
+      run,
+    }
+    const editor = {
+      chain: vi.fn(() => chain),
+    }
+
+    try {
+      const commands = filterSlashCommands("ref", {
+        enableReferences: true,
+        enableUploads: false,
+        promptAttachmentUpload: vi.fn(),
+        promptEmojiPicker: vi.fn(),
+        promptImageUpload: vi.fn(),
+        promptReferencePicker,
+      })
+
+      render(
+        <SlashCommandMenu
+          activeIndex={0}
+          commands={commands}
+          containerWidth={720}
+          editor={editor as never}
+          state={{
+            bottom: 40,
+            from: 2,
+            left: 12,
+            query: "ref",
+            to: 5,
+            top: 80,
+          }}
+          onComplete={vi.fn()}
+        />
+      )
+
+      fireEvent.click(screen.getByText("Reference"))
+
+      expect(deleteRange).toHaveBeenCalledWith({ from: 2, to: 5 })
+      expect(promptReferencePicker).toHaveBeenCalledWith(editor)
     } finally {
       Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
         configurable: true,

@@ -1,6 +1,12 @@
 "use client"
 
-import { NotePencil, Quotes, Smiley, Trash } from "@phosphor-icons/react"
+import {
+  ArrowBendUpLeft,
+  NotePencil,
+  Quotes,
+  Smiley,
+  Trash,
+} from "@phosphor-icons/react"
 
 import { cn } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
@@ -25,6 +31,7 @@ export function MessageHoverActionBar({
   onReact,
   portalContainer,
   quoteLabel = "Quote reply",
+  quoteAction = "quote",
 }: {
   canDelete?: boolean
   canEdit?: boolean
@@ -40,8 +47,10 @@ export function MessageHoverActionBar({
   onReact: (emoji: string) => void
   portalContainer?: HTMLElement | null
   quoteLabel?: string
+  quoteAction?: "quote" | "reply"
 }) {
   const showMessageActions = canQuote || canEdit || canDelete
+  const QuoteActionIcon = quoteAction === "reply" ? ArrowBendUpLeft : Quotes
 
   if (!canReact && !showMessageActions) {
     return null
@@ -99,7 +108,7 @@ export function MessageHoverActionBar({
           className={baseButtonClassName}
           onClick={onQuote}
         >
-          <Quotes className="size-[14px]" />
+          <QuoteActionIcon className="size-[14px]" />
         </button>
       ) : null}
       {canEdit ? (

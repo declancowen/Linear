@@ -45,6 +45,7 @@ import {
   buildSlashState,
   insertMention,
   insertReference,
+  isReferencePickerState,
   MentionMenu,
   ReferenceMenu,
   SlashCommandMenu,
@@ -1001,6 +1002,10 @@ function handleReferenceMenuKeyDown({
 
   if (navigationResult !== null) {
     return navigationResult
+  }
+
+  if (isReferencePickerState(currentReferenceState)) {
+    return false
   }
 
   const nextReferenceState = buildReferenceState(currentEditor, container)
@@ -2624,10 +2629,24 @@ function useRichTextMenuState({
   const previousReferenceQueryRef = useRef<string | null>(null)
   const [slashState, setSlashState] = useState<MenuState | null>(null)
   const [mentionState, setMentionState] = useState<MenuState | null>(null)
-  const [referenceState, setReferenceState] = useState<MenuState | null>(null)
+  const [referenceState, setReferenceStateValue] =
+    useState<MenuState | null>(null)
+  const referenceStateRef = useRef<MenuState | null>(null)
   const [slashIndex, setSlashIndex] = useState(0)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [referenceIndex, setReferenceIndex] = useState(0)
+
+  const setReferenceState = useCallback<
+    Dispatch<SetStateAction<MenuState | null>>
+  >((nextReferenceState) => {
+    const resolvedReferenceState =
+      typeof nextReferenceState === "function"
+        ? nextReferenceState(referenceStateRef.current)
+        : nextReferenceState
+
+    referenceStateRef.current = resolvedReferenceState
+    setReferenceStateValue(resolvedReferenceState)
+  }, [])
 
   const syncSlashState = useCallback((nextSlashState: MenuState | null) => {
     const nextQuery = nextSlashState?.query ?? null
@@ -2662,7 +2681,7 @@ function useRichTextMenuState({
         setReferenceIndex(0)
       }
     },
-    []
+    [setReferenceState]
   )
 
   const requestReferencePicker = useCallback(
@@ -2687,6 +2706,10 @@ function useRichTextMenuState({
           : null
       )
       syncMentionState(buildMentionState(currentEditor, containerRef.current))
+      if (enableReferences && isReferencePickerState(referenceStateRef.current)) {
+        return
+      }
+
       syncReferenceState(
         enableReferences
           ? buildReferenceState(currentEditor, containerRef.current)

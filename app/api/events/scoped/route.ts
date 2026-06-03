@@ -1,4 +1,11 @@
 import { ApplicationError } from "@/lib/server/application-errors"
+import {
+  REALTIME_STREAM_DEFAULT_RETRY_MS,
+  REALTIME_STREAM_HEARTBEAT_INTERVAL_MS,
+  REALTIME_STREAM_MAX_DURATION_MS,
+  REALTIME_STREAM_UNAVAILABLE_RETRY_MS,
+  resolveRealtimeStreamPollIntervalMs,
+} from "@/lib/realtime/cost-policy"
 import { getScopedReadModelVersionsServer } from "@/lib/server/convex"
 import {
   createEventStreamResponse,
@@ -9,12 +16,6 @@ import { requireConvexRouteContext } from "@/lib/server/route-auth"
 import { isRouteResponse, jsonError } from "@/lib/server/route-response"
 import { authorizeScopedReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 import { pollScopedReadModelVersions } from "./polling"
-
-const STREAM_POLL_INTERVAL_MS = 1000
-const STREAM_HEARTBEAT_INTERVAL_MS = 15000
-const STREAM_MAX_DURATION_MS = 55000
-const STREAM_DEFAULT_RETRY_MS = 3000
-const STREAM_UNAVAILABLE_RETRY_MS = 10000
 
 export const dynamic = "force-dynamic"
 
@@ -81,7 +82,7 @@ export async function GET(request: Request) {
           message: error.message,
         },
         {
-          retryMs: STREAM_UNAVAILABLE_RETRY_MS,
+          retryMs: REALTIME_STREAM_UNAVAILABLE_RETRY_MS,
         }
       )
     }
@@ -104,20 +105,20 @@ export async function GET(request: Request) {
           versions: initial.versions,
         },
         {
-          retryMs: STREAM_DEFAULT_RETRY_MS,
+          retryMs: REALTIME_STREAM_DEFAULT_RETRY_MS,
         }
       )
 
       await runPollingEventStream(context, {
-        heartbeatIntervalMs: STREAM_HEARTBEAT_INTERVAL_MS,
-        maxDurationMs: STREAM_MAX_DURATION_MS,
-        pollIntervalMs: STREAM_POLL_INTERVAL_MS,
+        heartbeatIntervalMs: REALTIME_STREAM_HEARTBEAT_INTERVAL_MS,
+        maxDurationMs: REALTIME_STREAM_MAX_DURATION_MS,
+        pollIntervalMs: resolveRealtimeStreamPollIntervalMs(),
         poll: () =>
           pollScopedReadModelVersions(
             context,
             pollState,
             scopeKeys,
-            STREAM_UNAVAILABLE_RETRY_MS
+            REALTIME_STREAM_UNAVAILABLE_RETRY_MS
           ),
       })
     }

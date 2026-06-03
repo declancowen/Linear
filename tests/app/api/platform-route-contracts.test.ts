@@ -201,7 +201,9 @@ describe("platform route contracts", () => {
     })
     bumpScopedReadModelVersionsServerMock.mockResolvedValue(undefined)
     resolveChannelPostReadModelScopeKeysServerMock.mockResolvedValue([
-      "channel-post:post_1",
+      "channel-feed:conversation_1",
+      "conversation-list:user_1",
+      "notification-inbox:user_1",
     ])
     loadScopedReadModelSnapshotForSessionMock.mockResolvedValue(
       createChannelSnapshot()
@@ -323,14 +325,18 @@ describe("platform route contracts", () => {
   })
 
   it("treats already-deleted channel-post comments as idempotent success", async () => {
-    loadScopedReadModelSnapshotForSessionMock.mockResolvedValue(
-      createChannelSnapshot({
-        channelPostComments: [],
-      })
-    )
+    deleteChannelPostCommentServerMock.mockResolvedValue({
+      deleted: false,
+      ok: true,
+    })
 
     await deleteDefaultChannelPostComment()
-    expect(deleteChannelPostCommentServerMock).not.toHaveBeenCalled()
+    expect(deleteChannelPostCommentServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      postId: "post_1",
+      commentId: "comment_1",
+    })
+    expect(resolveChannelPostReadModelScopeKeysServerMock).not.toHaveBeenCalled()
     expect(bumpScopedReadModelVersionsServerMock).not.toHaveBeenCalled()
   })
 

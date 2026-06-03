@@ -12,6 +12,7 @@ import type { Editor } from "@tiptap/react"
 import {
   ArrowUp,
   ArrowSquareOut,
+  Eye,
   PaperPlaneTilt,
   Smiley,
 } from "@phosphor-icons/react"
@@ -332,10 +333,7 @@ function getChatMessageRowMeta({
     !showDayDivider &&
     !isCallMessage &&
     !isCallThreadMessage(previousMessage) &&
-    previousMessage?.createdBy === message.createdBy &&
-    new Date(message.createdAt).getTime() -
-      new Date(previousMessage.createdAt).getTime() <
-      5 * 60_000
+    previousMessage?.createdBy === message.createdBy
 
   return {
     callJoinHref,
@@ -427,23 +425,18 @@ function ChatMessageHeader({
   author,
   authorView,
   isCurrentUser,
-  message,
-  readAt,
 }: {
   author?: ChatThreadUser
   authorView: WorkspaceUserPresenceView
   isCurrentUser: boolean
-  message: ChatThreadMessage
-  readAt?: string | null
 }) {
   return (
-    <div className="-mt-px flex items-baseline gap-2">
+    <div className="-mt-px flex min-w-0 items-baseline gap-2">
       <span className="text-[13.5px] font-semibold text-foreground">
         {authorView?.name ??
           author?.name ??
           (isCurrentUser ? "You" : "Unknown")}
       </span>
-      <ChatMessageMetadata message={message} readAt={readAt} />
     </div>
   )
 }
@@ -457,19 +450,37 @@ function ChatMessageMetadata({
   message: ChatThreadMessage
   readAt?: string | null
 }) {
-  const metadata = [formatTimestamp(message.createdAt)]
-
-  if (readAt && !message.deletedAt) {
-    metadata.push(`Read ${formatTimestamp(readAt)}`)
-  }
-
-  if (message.editedAt && !message.deletedAt) {
-    metadata.push(`Edited ${formatTimestamp(message.editedAt)}`)
-  }
+  const timestamp = formatTimestamp(message.createdAt)
+  const readTimestamp =
+    readAt && !message.deletedAt ? formatTimestamp(readAt) : null
+  const edited = Boolean(message.editedAt && !message.deletedAt)
 
   return (
-    <span className={cn("text-[11.5px] text-fg-3", className)}>
-      {metadata.join(" · ")}
+    <span
+      className={cn(
+        "flex shrink-0 items-center justify-end gap-1.5 text-right text-[11.5px] whitespace-nowrap text-fg-3",
+        className
+      )}
+    >
+      <span>{timestamp}</span>
+      {readTimestamp ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <span
+            className="inline-flex items-center gap-1"
+            aria-label={`Read ${readTimestamp}`}
+          >
+            <Eye className="size-3" />
+            <span>{readTimestamp}</span>
+          </span>
+        </>
+      ) : null}
+      {edited ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <span>Edited</span>
+        </>
+      ) : null}
     </span>
   )
 }
@@ -510,7 +521,7 @@ function ChatMessageBody({
   return (
     <RichTextContent
       content={getChatMessageMarkup(content)}
-      className="max-w-full text-[13.5px] leading-[1.55] [overflow-wrap:anywhere] break-words text-foreground [&_.editor-mention]:rounded [&_.editor-mention]:bg-accent-bg [&_.editor-mention]:px-1 [&_.editor-mention]:font-medium [&_.editor-mention]:text-accent-fg [&_a]:break-all [&_code]:rounded [&_code]:bg-surface-3 [&_code]:px-1.5 [&_code]:py-[1px] [&_code]:text-[12.5px] [&_p]:my-0 [&_p+p]:mt-1 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap"
+      className="max-w-full text-[13.5px] leading-[1.55] [overflow-wrap:anywhere] break-words text-foreground [&_.editor-mention]:rounded [&_.editor-mention]:bg-accent-bg [&_.editor-mention]:px-1 [&_.editor-mention]:font-medium [&_.editor-mention]:text-accent-fg [&_a]:break-all [&_a]:text-blue-600 [&_a]:underline dark:[&_a]:text-blue-400 [&_code]:rounded [&_code]:bg-surface-3 [&_code]:px-1.5 [&_code]:py-[1px] [&_code]:text-[12.5px] [&_p]:my-0 [&_p+p]:mt-1 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap"
     />
   )
 }
@@ -671,33 +682,32 @@ function ChatMessageRow({
         ) : (
           <ChatMessageAvatar author={author} authorView={authorView} />
         )}
-        <div className="flex min-w-0 flex-col">
-          {!groupedWithPrev ? (
-            <ChatMessageHeader
-              author={author}
-              authorView={authorView}
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex min-w-0 flex-1 flex-col">
+            {!groupedWithPrev ? (
+              <ChatMessageHeader
+                author={author}
+                authorView={authorView}
+                isCurrentUser={isCurrentUser}
+              />
+            ) : null}
+            <ChatMessageBody
+              callJoinHref={callJoinHref}
+              content={message.content}
+              deletedAt={message.deletedAt}
               isCurrentUser={isCurrentUser}
-              message={message}
-              readAt={readAt}
             />
-          ) : (
-            <ChatMessageMetadata
-              className="mb-0.5 text-fg-4"
+            <ChatMessageReactions
+              canReact={canCurrentUserWrite}
+              currentUserId={currentUserId}
               message={message}
-              readAt={readAt}
+              usersById={usersById}
             />
-          )}
-          <ChatMessageBody
-            callJoinHref={callJoinHref}
-            content={message.content}
-            deletedAt={message.deletedAt}
-            isCurrentUser={isCurrentUser}
-          />
-          <ChatMessageReactions
-            canReact={canCurrentUserWrite}
-            currentUserId={currentUserId}
+          </div>
+          <ChatMessageMetadata
+            className={cn(!groupedWithPrev && "pt-0.5")}
             message={message}
-            usersById={usersById}
+            readAt={readAt}
           />
         </div>
       </div>
@@ -1514,12 +1524,10 @@ export function ChatThread({
   const readableMessageIds = useMemo(
     () =>
       messages
-        .filter(
-          (message) => !message.deletedAt || message.createdBy === currentUserId
-        )
+        .filter((message) => !message.deletedAt)
         .filter((message) => !messageReadAtById[message.id])
         .map((message) => message.id),
-    [currentUserId, messageReadAtById, messages]
+    [messageReadAtById, messages]
   )
   const { messagesEndRef, scrollRef } =
     useChatMessagesAutoScroll(latestMessageId)

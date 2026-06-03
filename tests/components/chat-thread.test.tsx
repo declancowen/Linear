@@ -261,6 +261,31 @@ describe("ChatThread", () => {
     )
   })
 
+  it("keeps quote available for writable direct chat messages", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      workspaceMemberships: [
+        createTestWorkspaceMembership({
+          workspaceId: "workspace_1",
+          userId: currentUser.id,
+          role: "admin",
+        }),
+        createTestWorkspaceMembership({
+          workspaceId: "workspace_1",
+          userId: formerUser.id,
+          role: "member",
+        }),
+      ],
+      chatMessages: [createReactionMessage()],
+    }))
+
+    renderDirectChatThread()
+
+    expect(
+      screen.getByRole("button", { name: "Quote message" })
+    ).toBeInTheDocument()
+  })
+
   it("marks visible messages read with the opened message ids", () => {
     useAppStore.setState({
       chatMessages: [
@@ -283,44 +308,46 @@ describe("ChatThread", () => {
     ])
   })
 
-  it("renders persisted first-read metadata before the edited timestamp", () => {
+  it("renders compact right-side read and edited metadata", () => {
     const createdAt = "2026-04-15T12:00:00.000Z"
     const readAt = "2026-04-15T12:05:00.000Z"
     const editedAt = "2026-04-15T12:07:00.000Z"
 
-    useAppStore.setState({
-      chatMessages: [
-        {
-          ...createReactionMessage(),
-          createdAt,
-          editedAt,
-        },
-      ],
-      chatReadStates: [
-        {
-          id: "chat_read_state_user_current_conversation_1",
-          userId: currentUser.id,
-          conversationId: "conversation_1",
-          readAt,
-          unreadAt: null,
-          messageReadAtById: {
-            message_1: readAt,
+    act(() => {
+      useAppStore.setState({
+        chatMessages: [
+          {
+            ...createReactionMessage(),
+            createdAt,
+            editedAt,
           },
-          createdAt: readAt,
-          updatedAt: readAt,
-        },
-      ],
+        ],
+        chatReadStates: [
+          {
+            id: "chat_read_state_user_current_conversation_1",
+            userId: currentUser.id,
+            conversationId: "conversation_1",
+            readAt,
+            unreadAt: null,
+            messageReadAtById: {
+              message_1: readAt,
+            },
+            createdAt: readAt,
+            updatedAt: readAt,
+          },
+        ],
+      })
     })
 
     renderDirectChatThread()
 
+    expect(screen.getByText(formatTimestamp(createdAt))).toBeInTheDocument()
     expect(
-      screen.getByText(
-        `${formatTimestamp(createdAt)} · Read ${formatTimestamp(
-          readAt
-        )} · Edited ${formatTimestamp(editedAt)}`
-      )
+      screen.getByLabelText(`Read ${formatTimestamp(readAt)}`)
     ).toBeInTheDocument()
+    expect(screen.getByText("Edited")).toBeInTheDocument()
+    expect(screen.queryByText(/Read Apr 15/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(formatTimestamp(editedAt))).not.toBeInTheDocument()
   })
 
   it("does not synthesize a read timestamp when no message receipt exists", () => {
@@ -342,6 +369,118 @@ describe("ChatThread", () => {
     renderDirectChatThread()
 
     expect(screen.queryByText(/Read Apr 15/i)).not.toBeInTheDocument()
+  })
+
+  it("keeps same-sender message identity grouped across long gaps", () => {
+    useAppStore.setState({
+      chatMessages: [
+        {
+          id: "message_1",
+          conversationId: "conversation_1",
+          kind: "text",
+          content: "<p>First</p>",
+          callId: null,
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: currentUser.id,
+          createdAt: "2026-04-15T12:00:00.000Z",
+        },
+        {
+          id: "message_2",
+          conversationId: "conversation_1",
+          kind: "text",
+          content: "<p>Thirty minutes later</p>",
+          callId: null,
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: currentUser.id,
+          createdAt: "2026-04-15T12:30:00.000Z",
+        },
+      ],
+    })
+
+    renderDirectChatThread()
+
+    expect(screen.getAllByText("Current User")).toHaveLength(1)
+
+    act(() => {
+      useAppStore.setState({
+        chatMessages: [
+          {
+            id: "message_1",
+            conversationId: "conversation_1",
+            kind: "text",
+            content: "<p>First</p>",
+            callId: null,
+            mentionUserIds: [],
+            reactions: [],
+            createdBy: currentUser.id,
+            createdAt: "2026-04-15T12:00:00.000Z",
+          },
+          {
+            id: "message_2",
+            conversationId: "conversation_1",
+            kind: "text",
+            content: "<p>Different person</p>",
+            callId: null,
+            mentionUserIds: [],
+            reactions: [],
+            createdBy: formerUser.id,
+            createdAt: "2026-04-15T12:10:00.000Z",
+          },
+          {
+            id: "message_3",
+            conversationId: "conversation_1",
+            kind: "text",
+            content: "<p>Current user again</p>",
+            callId: null,
+            mentionUserIds: [],
+            reactions: [],
+            createdBy: currentUser.id,
+            createdAt: "2026-04-15T12:40:00.000Z",
+          },
+        ],
+      })
+    })
+
+    expect(screen.getAllByText("Current User")).toHaveLength(2)
+  })
+
+  it("renders only linked message text as a blue underlined link", () => {
+    useAppStore.setState({
+      chatMessages: [
+        {
+          id: "message_1",
+          conversationId: "conversation_1",
+          kind: "text",
+          content:
+            '<p>Open <a href="https://example.com">launch plan</a> today</p>',
+          callId: null,
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: currentUser.id,
+          createdAt: "2026-04-15T12:00:00.000Z",
+        },
+      ],
+    })
+
+    const { container } = render(
+      <ChatThread
+        conversationId="conversation_1"
+        title="Declan Cowen"
+        description=""
+        members={[currentUser, formerUser]}
+      />
+    )
+
+    const link = screen.getByRole("link", { name: "launch plan" })
+
+    expect(link).toHaveAttribute("href", "https://example.com")
+    expect(link).toHaveTextContent("launch plan")
+    expect(link.parentElement).toHaveTextContent("Open launch plan today")
+    expect(container.querySelector(".tiptap")?.className).toContain(
+      "[&_a]:underline"
+    )
   })
 
   it("disables chat message actions when the current role is read-only", () => {

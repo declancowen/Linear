@@ -359,7 +359,7 @@ function itemMatchesView(
       ...item.subscriberIds,
     ]),
     matchesOptionalFilter(view.filters.projectIds, item.primaryProjectId ?? ""),
-    matchesParentFilter(view.filters.parentIds ?? [], item.parentId),
+    matchesParentFilter(data, view.filters.parentIds ?? [], item),
     matchesOptionalFilter(view.filters.itemTypes, item.type),
     matchesAnyOptionalFilter(view.filters.labelIds, item.labelIds),
     matchesOptionalFilter(
@@ -398,7 +398,19 @@ function matchesAnyOptionalFilter<T>(values: T[], candidates: T[]) {
   )
 }
 
-function matchesParentFilter(parentIds: string[], parentId: string | null) {
+function getSelectedParentFilterIds(parentIds: string[]) {
+  return parentIds.filter((value) => value !== EMPTY_PARENT_FILTER_VALUE)
+}
+
+function hasActiveParentFilter(view: ViewDefinition) {
+  return getSelectedParentFilterIds(view.filters.parentIds ?? []).length > 0
+}
+
+function matchesParentFilter(
+  data: AppData,
+  parentIds: string[],
+  item: WorkItem
+) {
   const selectedParentIds = parentIds.filter(
     (value) => value !== EMPTY_PARENT_FILTER_VALUE
   )
@@ -407,7 +419,24 @@ function matchesParentFilter(parentIds: string[], parentId: string | null) {
     return true
   }
 
-  return parentId !== null && selectedParentIds.includes(parentId)
+  const selectedParentIdSet = new Set(selectedParentIds)
+  const visitedIds = new Set<string>()
+  let parentId = item.parentId
+
+  while (parentId) {
+    if (selectedParentIdSet.has(parentId)) {
+      return true
+    }
+
+    if (visitedIds.has(parentId)) {
+      break
+    }
+
+    visitedIds.add(parentId)
+    parentId = getWorkItem(data, parentId)?.parentId ?? null
+  }
+
+  return false
 }
 
 function matchesCompletionFilter(showCompleted: boolean, status: WorkStatus) {
@@ -528,6 +557,14 @@ function getAssignedDescendantContainerIds(
   const visibleContainerIds = new Set<string>()
 
   for (const item of matchItems) {
+    if (
+      !itemMatchesView(data, item, view, {
+        ignoreItemLevel: true,
+      })
+    ) {
+      continue
+    }
+
     const containerId = getAssignedDescendantContainerId(
       data,
       itemsById,
@@ -575,7 +612,8 @@ export function getVisibleItemsForView(
   if (
     view.entityKind === "items" &&
     !view.itemLevel &&
-    view.filters.itemTypes.length === 0
+    view.filters.itemTypes.length === 0 &&
+    !hasActiveParentFilter(view)
   ) {
     return filteredItems.filter((item) => item.parentId === null)
   }

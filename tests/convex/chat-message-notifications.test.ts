@@ -322,6 +322,125 @@ describe("chat message notifications", () => {
     })
   })
 
+  it("does not patch chat read state when the read boundary is unchanged", async () => {
+    const patchMock = vi.fn()
+    const { markChatConversationRead } = await import(
+      "@/convex/app/chat_read_states"
+    )
+
+    getChatReadStateDocMock.mockResolvedValueOnce({
+      _id: "chat_read_state_doc",
+      id: "chat_read_state_user_1_conversation_1",
+      userId: "user_1",
+      conversationId: "conversation_1",
+      readAt: "2026-04-18T10:30:00.000Z",
+      unreadAt: null,
+      messageReadAtById: {
+        message_old: "2026-04-18T10:30:00.000Z",
+      },
+      createdAt: "2026-04-18T10:30:00.000Z",
+      updatedAt: "2026-04-18T10:30:00.000Z",
+    })
+
+    await markChatConversationRead(
+      {
+        db: {
+          patch: patchMock,
+        },
+      } as never,
+      {
+        userId: "user_1",
+        conversationId: "conversation_1",
+        now: "2026-04-18T11:00:00.000Z",
+        messageIds: ["message_old"],
+      }
+    )
+
+    expect(patchMock).not.toHaveBeenCalled()
+  })
+
+  it("still clears legacy chat notifications when chat read state is unchanged", async () => {
+    const patchMock = vi.fn()
+    const { markChatConversationRead } = await import(
+      "@/convex/app/chat_read_states"
+    )
+
+    getChatReadStateDocMock.mockResolvedValueOnce({
+      _id: "chat_read_state_doc",
+      id: "chat_read_state_user_1_conversation_1",
+      userId: "user_1",
+      conversationId: "conversation_1",
+      readAt: "2026-04-18T10:30:00.000Z",
+      unreadAt: null,
+      messageReadAtById: {},
+      createdAt: "2026-04-18T10:30:00.000Z",
+      updatedAt: "2026-04-18T10:30:00.000Z",
+    })
+    listNotificationsByEntityMock.mockResolvedValueOnce([
+      {
+        _id: "notification_doc",
+        id: "notification_1",
+        userId: "user_1",
+        entityType: "chat",
+        entityId: "conversation_1",
+        type: "message",
+        readAt: null,
+      },
+    ])
+
+    await markChatConversationRead(
+      {
+        db: {
+          patch: patchMock,
+        },
+      } as never,
+      {
+        userId: "user_1",
+        conversationId: "conversation_1",
+        now: "2026-04-18T11:00:00.000Z",
+      }
+    )
+
+    expect(patchMock).toHaveBeenCalledTimes(1)
+    expect(patchMock).toHaveBeenCalledWith("notification_doc", {
+      readAt: "2026-04-18T11:00:00.000Z",
+    })
+  })
+
+  it("does not patch chat read state when the unread boundary is unchanged", async () => {
+    const patchMock = vi.fn()
+    const { markChatConversationUnread } = await import(
+      "@/convex/app/chat_read_states"
+    )
+
+    getChatReadStateDocMock.mockResolvedValueOnce({
+      _id: "chat_read_state_doc",
+      id: "chat_read_state_user_1_conversation_1",
+      userId: "user_1",
+      conversationId: "conversation_1",
+      readAt: "2026-04-18T10:30:00.000Z",
+      unreadAt: "2026-04-18T10:45:00.000Z",
+      messageReadAtById: {},
+      createdAt: "2026-04-18T10:30:00.000Z",
+      updatedAt: "2026-04-18T10:45:00.000Z",
+    })
+
+    await markChatConversationUnread(
+      {
+        db: {
+          patch: patchMock,
+        },
+      } as never,
+      {
+        userId: "user_1",
+        conversationId: "conversation_1",
+        now: "2026-04-18T11:00:00.000Z",
+      }
+    )
+
+    expect(patchMock).not.toHaveBeenCalled()
+  })
+
   it("filters chat read receipt ids to readable messages in the conversation", async () => {
     const inserts: Array<[string, unknown]> = []
     const { updateChatReadStateHandler } = await import(
