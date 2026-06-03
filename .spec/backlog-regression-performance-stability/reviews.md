@@ -50,6 +50,45 @@ Every future implementation slice must record:
 
 ## Review Entries
 
+### 2026-06-03: PR feedback loop 6 - Codex review private team work items in project scopes
+- Linked tasks: 99.1 follow-up review loop
+- Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001
+- Linked design decisions: DES-008, DES-014, DES-015
+- Review mode: external finding import, deep diff-review with architecture-standards, normal re-review until clean
+- External feedback imported:
+  - GitHub Codex P1: project index could expose another user's private legacy work item that still has `teamId` and references a project in scope.
+  - GitHub Codex P1: project detail could expose another user's private legacy work item from accessible team scans when it references the readable project.
+- Scope fixed:
+  - Filtered shared scoped work-item loads through `isReadableScopedWorkItem`.
+  - Preserved personal-scope support for the current user's private items.
+  - Added explicit readable work-item checks before project-index and project-detail project-link filtering.
+  - Added handler regressions for project index and project detail private legacy team-item exclusions.
+- Architecture assessment:
+  - Clean. Work-item privacy remains enforced in the Convex scoped materializer before selector projection.
+  - The shared work-item loader now closes sibling collection consumers, while project detail's direct team scan has its own boundary guard.
+  - No route, schema, client, or generated API contract change was needed.
+- Validation:
+  - `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 10 tests.
+  - `pnpm exec tsc --noEmit --pretty false` - passed.
+  - `pnpm lint` - passed.
+  - `pnpm cost:guardrails` - passed, 4 files / 15 tests.
+  - `git diff --check` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed.
+  - `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed.
+  - `pnpm test` - passed, 223 files / 1481 tests.
+  - `pnpm build` - passed.
+  - Browser smoke was intentionally not run because the user instructed the implementation agent not to run smoke tests; manual browser smoke is user-owned validation.
+- Normal re-review result:
+  - Re-read project index, project detail, shared work-item scoped loader, work index/search/workspace-people consumers, work item detail materialization, selectors, and tests after the implementation.
+  - Simplified one readability issue in the personal private-item branch and one unnecessary cast in project detail during the deep review.
+  - No live Critical, High, or Medium findings remain.
+- Spec drift:
+  - No spec drift found. The feedback fits the existing read-model authority, private-item privacy, legacy-data compatibility, and architecture-standard requirements.
+- Residual risk:
+  - Current user's own private legacy items with `teamId` remain readable in scoped project contexts. That matches the private-item access rule; other-user private items are excluded.
+- Cleared to push:
+  - Yes. Commit and push the follow-up fixes to PR #49, then wait for the next review/CI result before making further changes.
+
 ### 2026-06-03: PR feedback loop 5 - Codex review deleted chat preview fallback
 - Linked tasks: 99.1 follow-up review loop
 - Linked requirements: REQ-FINAL-001, REQ-PR-001, REQ-KNOWLEDGE-001, REQ-RECORD-001, REQ-DRIFT-001

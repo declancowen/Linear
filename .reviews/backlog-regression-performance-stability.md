@@ -54,17 +54,115 @@
 - External Codex review feedback on workspace collection stream authorization - added Turn 13
 - External Codex review feedback on document index linked target visibility - added Turn 14
 - External Codex review feedback on deleted chat preview fallback scanning - added Turn 15
+- External Codex review feedback on private team work items in project scopes - added Turn 16
 
 ## Review status
 
 | Field | Value |
 |-------|-------|
 | **Review started** | 2026-06-03 10:20:17 BST |
-| **Last reviewed** | 2026-06-03 16:19:13 BST |
-| **Total turns** | 15 |
+| **Last reviewed** | 2026-06-03 16:34:51 BST |
+| **Total turns** | 16 |
 | **Open findings** | 0 |
-| **Resolved findings** | 17 |
+| **Resolved findings** | 19 |
 | **Accepted findings** | 0 |
+
+## Turn 16 - 2026-06-03 16:30:59 BST
+
+| Field | Value |
+|-------|-------|
+| **Commit** | `19e3472f` with uncommitted PR-feedback fixes |
+| **IDE / Agent** | Codex |
+
+**Summary:** Imported the next completed GitHub Codex review for PR #49, triaged two current-head P1 findings around legacy private work items with `teamId`, fixed the live project-index and project-detail leaks, swept sibling scoped work-item loaders, and reran the deep/normal review loop with architecture standards.
+
+**Outcome:** all clear for this PR-feedback follow-up. No live Critical, High, or Medium findings remain in the current local diff. The branch is ready for commit, push, and the next watcher loop.
+
+**Risk score:** high - the fix touches scoped work-item materialization, project index/detail read-model authority, custom property value visibility, private-item privacy, and Convex read-model cost boundaries.
+
+**Change archetypes:** external finding import, authorization/privacy fix, scoped read-model authority, legacy data compatibility, project index/detail regression tests.
+
+**External finding import:**
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review | Project index could expose another user's private legacy work item that still has `teamId` and references a project in scope | live | Authorization/privacy / compatibility and legacy data | work-item candidates from team scans must pass private-item visibility before project-link materialization | fixed |
+| GitHub Codex review | Project detail could expose another user's private legacy work item from accessible team scans when it references the readable project | live | Authorization/privacy / compatibility and legacy data | project detail work items must preserve the old full-snapshot private-item filter before selector projection | fixed |
+
+**Intent vs actual:** both Codex findings were live. `listWorkItemsByTeam` can return legacy private items that still have a team id. Project index and project detail filtered those rows only by project relationship, recreating data the old full snapshot had already removed through bootstrap work-item visibility.
+
+**Confidence:** high. The fix applies `isReadableScopedWorkItem` to the shared scoped work-item loader, keeps personal scope support for the current user's private items, and adds explicit readable checks before project index/detail project-link filtering.
+
+**Coverage note:** reviewed shared work-item scope loading, project index, project detail, work index/search/workspace-people consumers, work item detail materialization, legacy selector behavior, private-item access rules, and focused handler tests.
+
+**Deep-review evidence:** dual pass completed. Correctness/safety checked team-scoped project index, project detail, private other-user item with `teamId`, public team item preservation, current scoped access context, and sibling consumers of `loadWorkItemsForScope`. Maintainability/structure checked that the privacy rule remains in the Convex scoped materializer rather than selector/UI code.
+
+**Architecture assessment:** clean. Scoped read-model materializers remain the authority for what work item records can enter snapshots. Shared loading now filters unreadable private work items once, while project index/detail retain explicit local guards at the project-link boundary.
+
+**Bug classes / invariants checked:** authorization/privacy, scope and tenancy, compatibility with legacy private `teamId`, read-model authority, custom property value visibility, and sibling loader reuse.
+
+**Branch totality:** reassessed branch-total current state after the external feedback. Prior Turn 14 linked-target filtering and Turn 15 deleted-preview fallback remain intact.
+
+**Sibling closure:** checked project index, project detail, work index, search seed, workspace people, document index linked work items, and work item detail. The remaining direct work-item detail team scan is not a live privacy leak because final detail selectors filter work items/custom values before returning data.
+
+**Remediation impact surface:** changes are limited to `convex/app/scoped_read_models.ts`, `tests/convex/scoped-read-model-handlers.test.ts`, and review ledgers. No route, schema, data helper, client store, generated Convex roster, or scope-key contract change was needed.
+
+**Residual risk / unknowns:** current user's own private legacy items with `teamId` remain readable, including in project contexts, matching private-item access semantics. Other-user private items are filtered before materialization.
+
+### Validation
+
+- `pnpm exec vitest run tests/convex/scoped-read-model-handlers.test.ts` - passed, 1 file / 10 tests
+- `pnpm exec tsc --noEmit --pretty false` - passed
+- `pnpm lint` - passed
+- `pnpm cost:guardrails` - passed, 4 files / 15 tests
+- `git diff --check` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/lint_spec.py --spec-dir .spec/backlog-regression-performance-stability` - passed
+- `python3 /Users/declancowen/.codex/skills/spec-driven-development/scripts/traceability_report.py --spec-dir .spec/backlog-regression-performance-stability --strict` - passed
+- `pnpm test` - passed, 223 files / 1481 tests
+- `pnpm build` - passed
+- Browser smoke - intentionally not run by Codex; user-owned manual validation per instruction
+
+### Branch-totality proof
+
+- **Non-delta files/systems re-read:** GitHub Codex review comments, scoped work-item loader, project index/detail loaders, legacy selectors, private work-item access helper, focused scoped handler tests, and sibling scoped consumers.
+- **Prior open findings rechecked:** no open findings existed before this review turn. Both new external findings are resolved.
+- **Prior resolved/adjacent areas revalidated:** Turn 14 linked-target filters and Turn 15 chat preview fallback remain intact; focused handler tests now cover ten scoped cases.
+- **Hotspots or sibling paths revisited:** project index, project detail, work index, search seed, workspace people, document index linked work items, work item detail, and custom property value materialization.
+- **Dependency/adjacent surfaces revalidated:** `ScopedUserContext`, `isReadableScopedWorkItem`, team/workspace/private visibility rules, typecheck, lint, cost guardrails, and diff whitespace.
+- **Why this is enough:** the bug class was legacy private rows entering scoped snapshots through team scans. The shared loader now filters unreadable rows, project-specific selection guards the live boundary, and regressions cover both PR findings.
+
+### Challenger pass
+
+- `done` - assumed another team-scan consumer could still materialize other-user private rows. The shared loader now filters unreadable private rows for work/project/search/workspace-people collection consumers, and project detail's direct scan has its own readable filter.
+
+### Resolved / Carried / New findings
+
+#### BRS-018 [P1] Project index could expose private legacy team work items
+
+- **Status:** resolved
+- **Bug class:** authorization/privacy / compatibility and legacy data
+- **Invariant:** team-scanned work items must pass current private-item visibility before being returned from scoped project indexes.
+- **Root cause:** `loadWorkItemsForScope` returned all team rows, including legacy private rows with `teamId`, and project index filtered only by project relationship.
+- **Fix:** filtered scoped team work-item candidates through `isReadableScopedWorkItem`; kept an explicit readable check before project-index project-link filtering; added a handler regression.
+- **Verification:** focused scoped handler test, typecheck, lint, cost guardrails, and diff check passed.
+
+#### BRS-019 [P1] Project detail could expose private legacy team work items
+
+- **Status:** resolved
+- **Bug class:** authorization/privacy / compatibility and legacy data
+- **Invariant:** project detail work items must preserve private-item access rules even when legacy private rows still have team ids and project links.
+- **Root cause:** project detail loaded all accessible-team items and filtered only by project relationship.
+- **Fix:** filtered project-detail candidates through `isReadableScopedWorkItem` before project-link checks; added a handler regression.
+- **Verification:** focused scoped handler test, typecheck, lint, cost guardrails, and diff check passed.
+
+### Architecture assessment
+
+Clean. Work-item visibility is enforced in the Convex scoped materializer before snapshot projection. The shared loader reduces repeated privacy risk for collection read models, and project detail's direct read now has the same authoritative check.
+
+### Recommendations
+
+1. **Proceed:** commit and push the follow-up fixes to PR #49.
+2. **Watcher:** after push, wait for the next Codex/GitHub review and CI result before making further changes, to avoid duplicate review triggers.
 
 ## Turn 15 - 2026-06-03 16:15:06 BST
 

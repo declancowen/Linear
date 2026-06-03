@@ -584,25 +584,32 @@ async function loadWorkItemsForScope(
   }
 
   if (scopeType === "team") {
-    return (await listWorkItemsByTeam(ctx, scopeId)) as WorkItem[]
+    return ((await listWorkItemsByTeam(ctx, scopeId)) as WorkItem[]).filter(
+      (item) => isReadableScopedWorkItem(item, context)
+    )
   }
 
   const teams = filterAccessibleTeams(context, scopeType, scopeId)
   const teamItems = (
     await Promise.all(teams.map((team) => listWorkItemsByTeam(ctx, team.id)))
   ).flat() as WorkItem[]
+  const readableTeamItems = teamItems.filter((item) =>
+    isReadableScopedWorkItem(item, context)
+  )
 
   if (scopeType === "personal") {
+    const privateItems = (await listPrivateWorkItemsByCreator(
+      ctx,
+      context.currentUserId
+    )) as WorkItem[]
+
     return dedupeById([
-      ...teamItems,
-      ...((await listPrivateWorkItemsByCreator(
-        ctx,
-        context.currentUserId
-      )) as WorkItem[]),
+      ...readableTeamItems,
+      ...privateItems.filter((item) => isReadableScopedWorkItem(item, context)),
     ])
   }
 
-  return teamItems
+  return readableTeamItems
 }
 
 async function loadDocumentsForScope(
@@ -752,8 +759,9 @@ async function loadCollectionReadModelCollections(
     const projectIds = new Set(projects.map((project) => project.id))
     const projectWorkItems = workItems.filter(
       (item) =>
-        (item.primaryProjectId && projectIds.has(item.primaryProjectId)) ||
-        item.linkedProjectIds.some((projectId) => projectIds.has(projectId))
+        isReadableScopedWorkItem(item, context) &&
+        ((item.primaryProjectId && projectIds.has(item.primaryProjectId)) ||
+          item.linkedProjectIds.some((projectId) => projectIds.has(projectId)))
     )
     const customPropertyDefinitions =
       await listCustomPropertyDefinitionsByTeams(ctx, teamIds)
@@ -1011,16 +1019,16 @@ async function loadProjectDetailCollections(
     project.scopeType === "team"
       ? context.teams.filter((team) => team.id === project.scopeId)
       : context.teams.filter((team) => team.workspaceId === project.scopeId)
-  const workItems = (
+  const projectCandidateItems = (
     await Promise.all(teams.map((team) => listWorkItemsByTeam(ctx, team.id)))
-  )
-    .flat()
-    .filter(
-      (item) =>
-        item.primaryProjectId === project.id ||
+  ).flat() as WorkItem[]
+  const workItems = projectCandidateItems.filter(
+    (item) =>
+      isReadableScopedWorkItem(item, context) &&
+      (item.primaryProjectId === project.id ||
         item.linkedProjectIds.includes(project.id) ||
-        (item.referencedProjectIds ?? []).includes(project.id)
-    ) as WorkItem[]
+        (item.referencedProjectIds ?? []).includes(project.id))
+  )
   const workspaceIds = new Set([
     project.scopeType === "workspace" ? project.scopeId : null,
     ...teams.map((team) => team.workspaceId),
