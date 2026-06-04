@@ -11,7 +11,7 @@ import {
 import { cn } from "@/lib/utils"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 
-export const DEFAULT_REACTION_EMOJIS = ["👍", "✅", "❤️", "😂", "🎉"] as const
+const DEFAULT_REACTION_EMOJIS = ["👍", "✅", "❤️", "😂", "🎉"] as const
 
 const baseButtonClassName =
   "inline-grid size-7 place-items-center rounded text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"

@@ -900,6 +900,11 @@ function rollbackOptimisticChannelPostCommentCreate(
     channelPostComments: state.channelPostComments.filter(
       (comment) => comment.id !== commentId
     ),
+    pendingChannelPostCommentSyncsById: Object.fromEntries(
+      Object.entries(state.pendingChannelPostCommentSyncsById ?? {}).filter(
+        ([pendingCommentId]) => pendingCommentId !== commentId
+      )
+    ),
   }))
 }
 
@@ -1143,6 +1148,7 @@ export function createCollaborationChannelActions({
       }
 
       const optimisticCommentId = createId("channel_comment")
+      const syncToken = createId("channel_comment_sync")
       let shouldSync = false
 
       set((state) => {
@@ -1197,6 +1203,10 @@ export function createCollaborationChannelActions({
               createdAt: now,
             },
           ],
+          pendingChannelPostCommentSyncsById: {
+            ...(state.pendingChannelPostCommentSyncsById ?? {}),
+            [optimisticCommentId]: syncToken,
+          },
           notifications,
           channelPosts: state.channelPosts.map((entry) =>
             entry.id === post.id ? { ...entry, updatedAt: now } : entry
@@ -1259,6 +1269,24 @@ export function createCollaborationChannelActions({
         })
         .finally(() => {
           pendingChannelPostCommentCreates.delete(optimisticCommentId)
+          set((state) => {
+            if (
+              state.pendingChannelPostCommentSyncsById?.[
+                optimisticCommentId
+              ] !== syncToken
+            ) {
+              return state
+            }
+
+            const nextPendingSyncs = {
+              ...(state.pendingChannelPostCommentSyncsById ?? {}),
+            }
+            delete nextPendingSyncs[optimisticCommentId]
+
+            return {
+              pendingChannelPostCommentSyncsById: nextPendingSyncs,
+            }
+          })
         })
 
       runtime.syncInBackground(syncTask, "Failed to post reply")

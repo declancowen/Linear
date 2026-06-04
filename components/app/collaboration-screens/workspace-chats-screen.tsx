@@ -8,11 +8,10 @@ import {
   useEffectEvent,
   useSyncExternalStore,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
   type RefObject,
 } from "react"
 import { useAppRouter, useAppSearchParams } from "@/lib/browser/app-navigation"
-import { Plus } from "@phosphor-icons/react"
+import { Plus, SidebarIcon } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
 import {
@@ -22,7 +21,6 @@ import {
 } from "@/lib/domain/selectors"
 import { isChatConversationUnread } from "@/lib/domain/chat-read-state"
 import type {
-  AppData,
   Conversation,
   UserProfile,
   Workspace,
@@ -59,7 +57,10 @@ import {
   WorkspaceChatParticipantAvatar,
   type WorkspaceChatAccessCollections,
 } from "@/components/app/collaboration-screens/workspace-chat-avatar"
-import { WorkspaceConversationListPane } from "@/components/app/collaboration-screens/workspace-conversation-list-pane"
+import {
+  WorkspaceConversationListPane,
+  type WorkspaceConversationListPaneProps,
+} from "@/components/app/collaboration-screens/workspace-conversation-list-pane"
 import { getLatestMessagesByConversationId } from "@/components/app/collaboration-screens/workspace-conversation-preview"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -72,9 +73,6 @@ import {
 } from "@/components/ui/sheet"
 
 type WorkspaceChatListWidth = number | null
-type WorkspaceChatListEntry = Conversation & {
-  unread?: boolean
-}
 
 function getInitialWorkspaceChatListWidth(): WorkspaceChatListWidth {
   if (typeof window === "undefined") {
@@ -306,49 +304,30 @@ function WorkspaceConversationAvatar({
   )
 }
 
-function WorkspaceChatsContent({
-  hasLoadedConversationList,
-  chats,
-  activeChat,
-  conversationListWidth,
-  conversationListResizing,
-  conversationListCollapsed,
-  latestMessagesByConversationId,
-  members,
-  hasLoadedConversationThread,
-  welcomeParticipant,
-  sidebarOpen,
-  renderConversationAvatar,
-  onCreateChat,
-  onMarkChatRead,
-  onMarkChatUnread,
-  onResizeStart,
-  onResetWidth,
-  onSelectChat,
-  onToggleConversationListCollapsed,
-  splitRef,
-}: {
+type WorkspaceChatsContentProps = WorkspaceConversationListPaneProps & {
   hasLoadedConversationList: boolean
-  chats: WorkspaceChatListEntry[]
-  activeChat: Conversation | null
-  conversationListWidth: WorkspaceChatListWidth
-  conversationListResizing: boolean
-  conversationListCollapsed: boolean
-  latestMessagesByConversationId: Map<string, AppData["chatMessages"][number]>
   members: UserProfile[]
   hasLoadedConversationThread: boolean
   welcomeParticipant: UserProfile | null
   sidebarOpen: boolean
-  renderConversationAvatar: (conversationId: string) => ReactNode
-  onCreateChat: () => void
-  onMarkChatRead: (id: string) => void
-  onMarkChatUnread: (id: string) => void
-  onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
-  onResetWidth: () => void
-  onSelectChat: (id: string) => void
   onToggleConversationListCollapsed: () => void
   splitRef: RefObject<HTMLDivElement | null>
-}) {
+}
+
+function WorkspaceChatsContent({
+  hasLoadedConversationList,
+  chats,
+  activeChat,
+  conversationListCollapsed,
+  members,
+  hasLoadedConversationThread,
+  welcomeParticipant,
+  sidebarOpen,
+  onCreateChat,
+  onToggleConversationListCollapsed,
+  splitRef,
+  ...conversationListPaneProps
+}: WorkspaceChatsContentProps) {
   if (!hasLoadedConversationList && chats.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-20 text-sm text-muted-foreground">
@@ -381,18 +360,9 @@ function WorkspaceChatsContent({
       <WorkspaceConversationListPane
         chats={chats}
         activeChat={activeChat}
-        conversationListWidth={conversationListWidth}
-        conversationListResizing={conversationListResizing}
         conversationListCollapsed={conversationListCollapsed}
-        latestMessagesByConversationId={latestMessagesByConversationId}
-        renderConversationAvatar={renderConversationAvatar}
         onCreateChat={onCreateChat}
-        onMarkChatRead={onMarkChatRead}
-        onMarkChatUnread={onMarkChatUnread}
-        onResizeStart={onResizeStart}
-        onResetWidth={onResetWidth}
-        onSelectChat={onSelectChat}
-        onToggleConversationListCollapsed={onToggleConversationListCollapsed}
+        {...conversationListPaneProps}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {activeChat ? (
@@ -403,6 +373,22 @@ function WorkspaceChatsContent({
             members={members}
             loaded={hasLoadedConversationThread}
             welcomeParticipant={welcomeParticipant}
+            conversationListAction={
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label={
+                  conversationListCollapsed
+                    ? "Expand conversation list"
+                    : "Collapse conversation list"
+                }
+                className="size-7 rounded-md"
+                onClick={onToggleConversationListCollapsed}
+              >
+                <SidebarIcon className="size-3.5" />
+              </Button>
+            }
           />
         ) : null}
       </div>

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
+  createDefaultViewFilters,
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
 } from "@/lib/domain/types"
@@ -134,6 +135,21 @@ function createState() {
       selectedViewByRoute: {},
     },
   }
+}
+
+function mockSuccessfulAttachmentUpload(storageId = "storage_1") {
+  syncGenerateAttachmentUploadUrlMock.mockResolvedValue({
+    uploadUrl: "https://uploads.example.com",
+  })
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        storageId,
+      }),
+    })
+  )
 }
 
 function createReplacingStoreState(initialState = createState()) {
@@ -298,18 +314,7 @@ describe("work document actions", () => {
     const storeState = createReplacingStoreState()
     const refreshFromServerMock = vi.fn().mockResolvedValue(undefined)
 
-    syncGenerateAttachmentUploadUrlMock.mockResolvedValue({
-      uploadUrl: "https://uploads.example.com",
-    })
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({
-          storageId: "storage_1",
-        }),
-      })
-    )
+    mockSuccessfulAttachmentUpload()
     syncCreateAttachmentMock.mockRejectedValue(new Error("convex failed"))
     vi.spyOn(console, "error").mockImplementation(() => {})
 
@@ -333,6 +338,70 @@ describe("work document actions", () => {
     expect(refreshFromServerMock).toHaveBeenCalledTimes(1)
     expect(storeState.current.attachments).toEqual([])
     expect(toastErrorMock).toHaveBeenCalledWith("Failed to upload attachment")
+  })
+
+  it("uploads attachments against conversation targets", async () => {
+    const state = {
+      ...createState(),
+      conversations: [
+        {
+          id: "conversation_1",
+          kind: "channel" as const,
+          scopeType: "team" as const,
+          scopeId: "team_1",
+          variant: "team" as const,
+          title: "Platform",
+          description: "",
+          participantIds: ["user_1"],
+          roomId: null,
+          roomName: null,
+          createdBy: "user_1",
+          createdAt: "2026-04-17T10:00:00.000Z",
+          updatedAt: "2026-04-17T10:00:00.000Z",
+          lastActivityAt: "2026-04-17T10:00:00.000Z",
+        },
+      ],
+    }
+    const harness = await createWorkDocumentActionsHarness(state)
+    const file = new File(["hello"], "brief.pdf", { type: "application/pdf" })
+
+    mockSuccessfulAttachmentUpload()
+    syncCreateAttachmentMock.mockResolvedValue({
+      attachmentId: "attachment_1",
+      fileUrl: "https://files.example.com/brief.pdf",
+    })
+
+    const result = await harness.actions.uploadAttachment(
+      "conversation",
+      "conversation_1",
+      file
+    )
+
+    expect(result).toEqual({
+      fileName: "brief.pdf",
+      fileUrl: "https://files.example.com/brief.pdf",
+    })
+    expect(syncGenerateAttachmentUploadUrlMock).toHaveBeenCalledWith(
+      "conversation",
+      "conversation_1"
+    )
+    expect(syncCreateAttachmentMock).toHaveBeenCalledWith({
+      targetType: "conversation",
+      targetId: "conversation_1",
+      storageId: "storage_1",
+      fileName: "brief.pdf",
+      contentType: "application/pdf",
+      size: file.size,
+    })
+    expect(harness.state.attachments[0]).toMatchObject({
+      id: "attachment_1",
+      targetType: "conversation",
+      targetId: "conversation_1",
+      teamId: "team_1",
+      fileName: "brief.pdf",
+      fileUrl: "https://files.example.com/brief.pdf",
+    })
+    expect(toastSuccessMock).toHaveBeenCalledWith("brief.pdf uploaded")
   })
 
   it("restores only the failed attachment on delete failure", async () => {
@@ -807,28 +876,7 @@ describe("work document actions", () => {
           itemLevel: "task" as const,
           showChildItems: true,
           layout: "list" as const,
-          filters: {
-            status: [],
-            priority: [],
-            assigneeIds: [],
-            creatorIds: [],
-            subscriberIds: [],
-            updatedByIds: [],
-            documentKinds: [],
-            linkedWorkItemIds: [],
-            leadIds: [],
-            health: [],
-            milestoneIds: [],
-            relationTypes: [],
-            projectIds: [],
-            parentIds: [],
-            itemTypes: [],
-            labelIds: [],
-            teamIds: [],
-            visibility: [],
-            showCompleted: true,
-            showEmptyGroups: true,
-          },
+          filters: createDefaultViewFilters(),
           grouping: "status" as const,
           subGrouping: null,
           ordering: "priority" as const,

@@ -486,6 +486,22 @@ function renderWorkItemDetail(itemId = "item_1") {
   return render(<WorkItemDetailScreen itemId={itemId} />)
 }
 
+function renderWorkItemBreadcrumbAfterStatePatch(
+  itemId: string,
+  patchState: (state: ReturnType<typeof useAppStore.getState>) => Partial<AppData>
+) {
+  act(() => {
+    useAppStore.setState((state) => ({
+      ...state,
+      ...patchState(state),
+    }))
+  })
+
+  renderWorkItemDetail(itemId)
+
+  return screen.getByLabelText("Work item breadcrumb")
+}
+
 function getSubtaskSurfaceQueries() {
   const surface = screen.getAllByText("Sub-tasks")[0]?.closest("section")
 
@@ -518,6 +534,41 @@ async function expectWorkItemEditorClosed() {
       { timeout: WORK_ITEM_EDITOR_CLOSE_TIMEOUT_MS }
     )
   ).toBeInTheDocument()
+}
+
+function setupAttachedDescriptionCollaboration() {
+  const flushMock = vi.fn().mockResolvedValue(undefined)
+  const applyItemDescriptionCollaborationContentMock = vi.fn()
+
+  useDocumentCollaborationMock.mockReturnValue({
+    bootstrapContent: null,
+    editorCollaboration: {},
+    collaboration: {},
+    flush: flushMock,
+    isAwaitingCollaboration: false,
+    lifecycle: "attached",
+    viewers: [],
+  })
+  useAppStore.setState({
+    applyItemDescriptionCollaborationContent:
+      applyItemDescriptionCollaborationContentMock,
+  } as Partial<ReturnType<typeof useAppStore.getState>>)
+
+  return { applyItemDescriptionCollaborationContentMock, flushMock }
+}
+
+function renderSidebarSurfaceForTestData(data: AppData) {
+  const item = data.workItems.find((candidate) => candidate.id === "item_1")
+
+  if (!item) {
+    throw new Error("Expected seeded work item")
+  }
+
+  render(
+    <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
+  )
+
+  return item
 }
 
 function setSaveWorkItemMainSectionMock(saveMock: ReturnType<typeof vi.fn>) {
@@ -702,18 +753,14 @@ describe("work item detail screen", () => {
   })
 
   it("shows the parent item in the top breadcrumb for child items", () => {
-    act(() => {
-      useAppStore.setState((state) => ({
-        ...state,
+    const breadcrumb = renderWorkItemBreadcrumbAfterStatePatch(
+      "item_2",
+      (state) => ({
         workItems: state.workItems.map((item) =>
           item.id === "item_2" ? { ...item, parentId: "item_1" } : item
         ),
-      }))
-    })
-
-    render(<WorkItemDetailScreen itemId="item_2" />)
-
-    const breadcrumb = screen.getByLabelText("Work item breadcrumb")
+      })
+    )
 
     expect(within(breadcrumb).getByText("PLA-2")).toBeInTheDocument()
     expect(
@@ -726,9 +773,9 @@ describe("work item detail screen", () => {
   })
 
   it("links private task breadcrumbs back to the private tasks view", () => {
-    act(() => {
-      useAppStore.setState((state) => ({
-        ...state,
+    const breadcrumb = renderWorkItemBreadcrumbAfterStatePatch(
+      "item_1",
+      (state) => ({
         workItems: state.workItems.map((item) =>
           item.id === "item_1"
             ? {
@@ -738,12 +785,8 @@ describe("work item detail screen", () => {
               }
             : item
         ),
-      }))
-    })
-
-    render(<WorkItemDetailScreen itemId="item_1" />)
-
-    const breadcrumb = screen.getByLabelText("Work item breadcrumb")
+      })
+    )
 
     expect(
       within(breadcrumb).getByRole("link", { name: "Private tasks" })
@@ -981,22 +1024,8 @@ describe("work item detail screen", () => {
   })
 
   it("patches attached collaboration description content on Done instead of every keystroke", async () => {
-    const flushMock = vi.fn().mockResolvedValue(undefined)
-    const applyItemDescriptionCollaborationContentMock = vi.fn()
-
-    useDocumentCollaborationMock.mockReturnValue({
-      bootstrapContent: null,
-      editorCollaboration: {},
-      collaboration: {},
-      flush: flushMock,
-      isAwaitingCollaboration: false,
-      lifecycle: "attached",
-      viewers: [],
-    })
-    useAppStore.setState({
-      applyItemDescriptionCollaborationContent:
-        applyItemDescriptionCollaborationContentMock,
-    } as Partial<ReturnType<typeof useAppStore.getState>>)
+    const { applyItemDescriptionCollaborationContentMock, flushMock } =
+      setupAttachedDescriptionCollaboration()
 
     renderWorkItemDetail()
     openWorkItemEditor()
@@ -1017,22 +1046,8 @@ describe("work item detail screen", () => {
   })
 
   it("patches attached collaboration description content on Close instead of every keystroke", () => {
-    const flushMock = vi.fn().mockResolvedValue(undefined)
-    const applyItemDescriptionCollaborationContentMock = vi.fn()
-
-    useDocumentCollaborationMock.mockReturnValue({
-      bootstrapContent: null,
-      editorCollaboration: {},
-      collaboration: {},
-      flush: flushMock,
-      isAwaitingCollaboration: false,
-      lifecycle: "attached",
-      viewers: [],
-    })
-    useAppStore.setState({
-      applyItemDescriptionCollaborationContent:
-        applyItemDescriptionCollaborationContentMock,
-    } as Partial<ReturnType<typeof useAppStore.getState>>)
+    const { applyItemDescriptionCollaborationContentMock, flushMock } =
+      setupAttachedDescriptionCollaboration()
 
     renderWorkItemDetail()
     openWorkItemEditor()
@@ -1470,6 +1485,45 @@ describe("work item detail screen", () => {
     )
   })
 
+  it("keeps sidebar activity comments read-only", async () => {
+    const commentedAt = new Date(Date.now() - 3 * 60 * 1000).toISOString()
+    const data = createWorkItemDetailTestData({
+      comments: [
+        {
+          id: "comment_1",
+          targetType: "workItem",
+          targetId: "item_1",
+          parentCommentId: null,
+          content: "<p>Following up</p>",
+          mentionUserIds: [],
+          reactions: [],
+          createdBy: "user_1",
+          createdAt: commentedAt,
+          editedAt: null,
+        },
+      ],
+    })
+    renderSidebarSurfaceForTestData(data)
+    await flushDeferredSidebarSections()
+
+    expect(richTextContentRenderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachmentDisplay: "inline",
+        content: "<p>Following up</p>",
+      })
+    )
+    expect(screen.queryByLabelText(/Leave a comment/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Comment" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Reply" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Edit comment" })
+    ).not.toBeInTheDocument()
+  })
+
   it("renders persisted work item status changes in activity", async () => {
     const data = createWorkItemDetailTestData({
       workItemActivities: [
@@ -1484,15 +1538,7 @@ describe("work item detail screen", () => {
         },
       ],
     })
-    const item = data.workItems.find((candidate) => candidate.id === "item_1")
-
-    if (!item) {
-      throw new Error("Expected seeded work item")
-    }
-
-    render(
-      <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
-    )
+    renderSidebarSurfaceForTestData(data)
 
     await waitFor(() =>
       expect(
@@ -2182,12 +2228,15 @@ describe("work item detail screen", () => {
       key: "Enter",
     })
 
-    const [comment] = useAppStore.getState().comments
-    expect(comment).toMatchObject({
-      targetType: "workItem",
-      targetId: "item_1",
-      mentionUserIds: ["user_2"],
+    await waitFor(() => {
+      expect(useAppStore.getState().comments[0]).toMatchObject({
+        targetType: "workItem",
+        targetId: "item_1",
+        mentionUserIds: ["user_2"],
+      })
     })
+    const [comment] = useAppStore.getState().comments
+
     expect(comment.content).toContain('data-id="user_2"')
   })
 })

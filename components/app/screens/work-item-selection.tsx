@@ -9,6 +9,8 @@ import {
 } from "react"
 import { Check } from "@phosphor-icons/react"
 
+import { getWorkItem } from "@/lib/domain/selectors"
+import type { AppData, WorkItem } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
 
 function uniqueIds(ids: string[]) {
@@ -147,6 +149,23 @@ export function useWorkItemSelection(visibleItemIds: string[]) {
 }
 
 export type WorkItemSelectionController = ReturnType<typeof useWorkItemSelection>
+
+export function getWorkItemSelectionContextItems({
+  data,
+  item,
+  selection,
+}: {
+  data: AppData
+  item: WorkItem
+  selection?: WorkItemSelectionController
+}) {
+  return (
+    selection
+      ?.getContextItemIds(item.id)
+      .map((itemId) => getWorkItem(data, itemId))
+      .filter((entry): entry is WorkItem => entry !== null) ?? [item]
+  )
+}
 
 export function WorkItemSelectionCheckbox({
   checked,

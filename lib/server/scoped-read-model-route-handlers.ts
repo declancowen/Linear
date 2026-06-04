@@ -104,43 +104,26 @@ function parseCollectionReadModelScopeSearchParams<
   }
 }
 
-export async function handleCollectionReadModelGet<
-  TScopeType extends CollectionReadModelScopeType,
->(
-  request: Request,
-  options: {
-    kind: CollectionReadModelKind
-    allowedScopeTypes: ReadonlySet<TScopeType>
-    invalidScopeMessage: string
-    invalidScopeCode: string
-    failureLogLabel: string
-    failureMessage: string
-    failureCode: string
-  }
-) {
+async function handleReadModelJsonRoute<TData>(options: {
+  failureLogLabel: string
+  failureMessage: string
+  failureCode: string
+  load: (
+    session: AuthenticatedSession
+  ) => Promise<TData | Response> | TData | Response
+}) {
   const session = await requireSession()
 
   if (isRouteResponse(session)) {
     return session
   }
 
-  const scope = parseCollectionReadModelScopeSearchParams(
-    new URL(request.url).searchParams,
-    options.allowedScopeTypes
-  )
-
-  if (!scope) {
-    return jsonError(options.invalidScopeMessage, 400, {
-      code: options.invalidScopeCode,
-    })
-  }
-
   try {
-    const data = await loadScopedReadModelForSession(session, {
-      kind: options.kind,
-      scopeType: scope.scopeType,
-      scopeId: scope.scopeId,
-    } as ScopedReadModelServerInstruction)
+    const data = await options.load(session)
+
+    if (isRouteResponse(data)) {
+      return data
+    }
 
     return jsonOk({
       data,
@@ -158,38 +141,61 @@ export async function handleCollectionReadModelGet<
   }
 }
 
+export async function handleCollectionReadModelGet<
+  TScopeType extends CollectionReadModelScopeType,
+>(
+  request: Request,
+  options: {
+    kind: CollectionReadModelKind
+    allowedScopeTypes: ReadonlySet<TScopeType>
+    invalidScopeMessage: string
+    invalidScopeCode: string
+    failureLogLabel: string
+    failureMessage: string
+    failureCode: string
+  }
+) {
+  return handleReadModelJsonRoute({
+    failureLogLabel: options.failureLogLabel,
+    failureMessage: options.failureMessage,
+    failureCode: options.failureCode,
+    load: (session) => {
+      const scope = parseCollectionReadModelScopeSearchParams(
+        new URL(request.url).searchParams,
+        options.allowedScopeTypes
+      )
+
+      if (!scope) {
+        return jsonError(options.invalidScopeMessage, 400, {
+          code: options.invalidScopeCode,
+        })
+      }
+
+      return loadScopedReadModelForSession(session, {
+        kind: options.kind,
+        scopeType: scope.scopeType,
+        scopeId: scope.scopeId,
+      } as ScopedReadModelServerInstruction)
+    },
+  })
+}
+
 export async function handleScopedReadModelGet<TData>(options: {
   instruction: ScopedReadModelServerInstruction
   failureLogLabel: string
   failureMessage: string
   failureCode: string
 }) {
-  const session = await requireSession()
-
-  if (isRouteResponse(session)) {
-    return session
-  }
-
-  try {
-    const data = await loadScopedReadModelForSession(
-      session,
-      options.instruction
-    )
-
-    return jsonOk({
-      data: data as TData,
-    })
-  } catch (error) {
-    logProviderError(options.failureLogLabel, error)
-
-    return jsonError(
-      getConvexErrorMessage(error, options.failureMessage),
-      500,
-      {
-        code: options.failureCode,
-      }
-    )
-  }
+  return handleReadModelJsonRoute<TData>({
+    failureLogLabel: options.failureLogLabel,
+    failureMessage: options.failureMessage,
+    failureCode: options.failureCode,
+    load: async (session) =>
+      (await loadScopedReadModelForSession(
+        session,
+        options.instruction
+      )) as TData,
+  })
 }
 
 export async function handleParameterizedScopedReadModelGet<
@@ -261,30 +267,15 @@ export async function handleWorkspaceReadModelGet<TData>(
     ) => Promise<TData> | TData
   }
 ) {
-  const session = await requireSession()
-
-  if (isRouteResponse(session)) {
-    return session
-  }
-
-  try {
-    const { workspaceId } = await params
-    const data = await options.load(session, workspaceId)
-
-    return jsonOk({
-      data,
-    })
-  } catch (error) {
-    logProviderError(options.failureLogLabel, error)
-
-    return jsonError(
-      getConvexErrorMessage(error, options.failureMessage),
-      500,
-      {
-        code: options.failureCode,
-      }
-    )
-  }
+  return handleReadModelJsonRoute<TData>({
+    failureLogLabel: options.failureLogLabel,
+    failureMessage: options.failureMessage,
+    failureCode: options.failureCode,
+    load: async (session) => {
+      const { workspaceId } = await params
+      return options.load(session, workspaceId)
+    },
+  })
 }
 
 export async function loadScopedReadModelForSession(

@@ -3,8 +3,8 @@
 import type { ReactElement } from "react"
 import { useAppRouter } from "@/lib/browser/app-navigation"
 import {
+  ChatCircleText,
   CopySimple,
-  EnvelopeSimple,
   Quotes,
   UserCircle,
 } from "@phosphor-icons/react"
@@ -56,7 +56,7 @@ export function UserStatusDot({
       <span
         aria-hidden="true"
         className={cn(
-          "inline-flex size-2 rounded-full bg-zinc-300 ring-1 ring-zinc-500/35 dark:bg-zinc-500 dark:ring-zinc-300/35",
+          "inline-flex size-2 rounded-full bg-zinc-300 dark:bg-zinc-500",
           className
         )}
       />
@@ -116,7 +116,7 @@ export function UserAvatar({
 }
 
 type UserHoverDisplayState = {
-  canEmail: boolean
+  canChat: boolean
   canProfile: boolean
   displayUser: NonNullable<ReturnType<typeof buildWorkspaceUserPresenceView>>
   hasStatusMessage: boolean
@@ -157,7 +157,12 @@ function getUserHoverDisplayState({
     userId != null && currentUserId != null && userId === currentUserId
 
   return {
-    canEmail: Boolean(displayUser.email) && !isSelf,
+    canChat:
+      Boolean(userId) &&
+      Boolean(workspaceId) &&
+      !isSelf &&
+      !displayUser.isDeletedAccount &&
+      hasActiveWorkspaceAccess,
     canProfile:
       userId != null &&
       workspaceId != null &&
@@ -233,45 +238,45 @@ function UserHoverPresenceDetails({
 }
 
 function UserHoverActions({
-  canEmail,
+  canChat,
   canProfile,
-  email,
+  onChat,
   onProfile,
 }: {
-  canEmail: boolean
+  canChat: boolean
   canProfile: boolean
-  email: string | null | undefined
+  onChat: () => void
   onProfile: () => void
 }) {
-  if (!canEmail && !canProfile) {
+  if (!canChat && !canProfile) {
     return null
   }
 
   return (
     <div className="mt-4 flex gap-2">
-      {canEmail ? (
+      {canChat ? (
         <Button
-          asChild
+          type="button"
           variant="outline"
           size="sm"
           className={cn(
             "min-w-0 border-border bg-muted text-foreground hover:bg-accent hover:text-foreground",
             canProfile ? "flex-1" : "w-full"
           )}
+          onClick={onChat}
         >
-          <a href={`mailto:${email}`}>
-            <EnvelopeSimple className="size-3.5" />
-            Email
-          </a>
+          <ChatCircleText className="size-3.5" />
+          Chat
         </Button>
       ) : null}
       {canProfile ? (
         <Button
+          type="button"
           variant="outline"
           size="sm"
           className={cn(
             "min-w-0 border-border bg-muted text-foreground hover:bg-accent hover:text-foreground",
-            email ? "flex-1" : "w-full"
+            canChat ? "flex-1" : "w-full"
           )}
           onClick={onProfile}
         >
@@ -285,15 +290,17 @@ function UserHoverActions({
 
 function UserHoverCardPanel({
   state,
+  onChat,
   onCopyEmail,
   onProfile,
 }: {
   state: UserHoverDisplayState
+  onChat: () => void
   onCopyEmail: () => void
   onProfile: () => void
 }) {
   const {
-    canEmail,
+    canChat,
     canProfile,
     displayUser,
     hasStatusMessage,
@@ -350,9 +357,9 @@ function UserHoverCardPanel({
           resolvedStatus={resolvedStatus}
         />
         <UserHoverActions
-          canEmail={canEmail}
+          canChat={canChat}
           canProfile={canProfile}
-          email={displayUser.email}
+          onChat={onChat}
           onProfile={onProfile}
         />
       </div>
@@ -422,6 +429,23 @@ export function UserHoverCard({
     }
   }
 
+  function handleChat() {
+    if (!resolvedDisplayState.canChat || !userId || !workspaceId) {
+      return
+    }
+
+    const conversationId = useAppStore.getState().createWorkspaceChat({
+      participantIds: [userId],
+      workspaceId,
+      title: "",
+      description: "",
+    })
+
+    if (conversationId) {
+      router.push(`/chats?chatId=${conversationId}`)
+    }
+  }
+
   function handleProfile() {
     if (!resolvedDisplayState.canProfile || !userId || !workspaceId) {
       return
@@ -438,10 +462,11 @@ export function UserHoverCard({
         side={side}
         portalContainer={portalContainer}
         portalled={portalled}
-        className={cn("z-[80] w-[22rem]", className)}
+        className={cn("z-[120] w-[22rem]", className)}
       >
         <UserHoverCardPanel
           state={resolvedDisplayState}
+          onChat={handleChat}
           onCopyEmail={() => void handleCopyEmail()}
           onProfile={handleProfile}
         />

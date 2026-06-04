@@ -17,6 +17,8 @@ import {
   collectDocumentCommentFollowerIds,
   collectWorkItemCommentFollowerIds,
 } from "@/lib/domain/comment-followers"
+import { prepareRichTextForStorage } from "@/lib/content/rich-text-security"
+import { commentContentConstraints } from "@/lib/domain/input-constraints"
 import { collectCommentDescendantIds } from "@/lib/domain/comment-threads"
 import { commentSchema } from "@/lib/domain/types"
 import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
@@ -480,6 +482,31 @@ function isPrivateWorkItemComment(
   )
 }
 
+function getTopLevelParentCommentId(state: AppStore, input: AddCommentInput) {
+  if (!input.parentCommentId) {
+    return input.parentCommentId
+  }
+
+  const existingComments = getExistingTargetComments(state, input)
+  const seen = new Set<string>()
+  let parentCommentId = input.parentCommentId
+
+  while (parentCommentId && !seen.has(parentCommentId)) {
+    seen.add(parentCommentId)
+    const parentComment = existingComments.find(
+      (comment) => comment.id === parentCommentId
+    )
+
+    if (!parentComment?.parentCommentId) {
+      return parentCommentId
+    }
+
+    parentCommentId = parentComment.parentCommentId
+  }
+
+  return input.parentCommentId
+}
+
 function updateCommentInState(
   state: AppStore,
   commentId: string,
@@ -588,6 +615,19 @@ function addCommentToState(
   return applyCommentStateUpdate(state, input, comment, notifications, now)
 }
 
+function prepareCommentContentForStore(content: string) {
+  const preparedContent = prepareRichTextForStorage(content, {
+    minPlainTextCharacters: commentContentConstraints.min,
+  })
+
+  if (!preparedContent.isMeaningful) {
+    toast.error("Comment cannot be empty")
+    return null
+  }
+
+  return preparedContent.sanitized
+}
+
 export function createWorkCommentActions({
   get,
   runtime,
@@ -606,26 +646,74 @@ export function createWorkCommentActions({
         return
       }
 
-      if (isPrivateWorkItemCommentInput(get(), parsed.data)) {
+      const preparedContent = prepareCommentContentForStore(parsed.data.content)
+      if (!preparedContent) {
+        return
+      }
+
+      const preparedInput = {
+        ...parsed.data,
+        parentCommentId: getTopLevelParentCommentId(get(), parsed.data),
+        content: preparedContent,
+      }
+
+      if (isPrivateWorkItemCommentInput(get(), preparedInput)) {
         toast.error("Comments are not available on private tasks")
         return
       }
 
       const commentId = createId("comment")
+      const syncToken = createId("comment_sync")
+      let shouldSync = false
+
       set((state) => {
-        return addCommentToState(state, parsed.data, commentId)
+        const nextState = addCommentToState(state, preparedInput, commentId)
+        const nextComments = nextState.comments ?? state.comments
+        shouldSync = nextComments.some((comment) => comment.id === commentId)
+
+        if (!shouldSync) {
+          return nextState
+        }
+
+        return {
+          ...nextState,
+          pendingCommentSyncsById: {
+            ...(nextState.pendingCommentSyncsById ?? {}),
+            [commentId]: syncToken,
+          },
+        }
       })
+
+      if (!shouldSync) {
+        return
+      }
 
       const createTask: Promise<unknown> | null = syncAddComment(
         get().currentUserId,
-        parsed.data.targetType,
-        parsed.data.targetId,
-        parsed.data.content,
-        parsed.data.parentCommentId,
+        preparedInput.targetType,
+        preparedInput.targetId,
+        preparedInput.content,
+        preparedInput.parentCommentId,
         commentId
       )
       const syncTask = createTask
-        ? createTask.finally(() => pendingCommentCreates.delete(commentId))
+        ? createTask.finally(() => {
+            pendingCommentCreates.delete(commentId)
+            set((state) => {
+              if (state.pendingCommentSyncsById?.[commentId] !== syncToken) {
+                return state
+              }
+
+              const nextPendingSyncs = {
+                ...(state.pendingCommentSyncsById ?? {}),
+              }
+              delete nextPendingSyncs[commentId]
+
+              return {
+                pendingCommentSyncsById: nextPendingSyncs,
+              }
+            })
+          })
         : null
 
       if (syncTask) {
@@ -654,9 +742,14 @@ export function createWorkCommentActions({
         return
       }
 
+      const preparedContent = prepareCommentContentForStore(parsed.data.content)
+      if (!preparedContent) {
+        return
+      }
+
       set((state) =>
         updateCommentInState(state, commentId, {
-          content: parsed.data.content,
+          content: preparedContent,
         })
       )
 
@@ -665,11 +758,11 @@ export function createWorkCommentActions({
         ? pendingCreate.then(
             () =>
               get().comments.some((entry) => entry.id === commentId)
-                ? syncUpdateComment(commentId, parsed.data.content)
+                ? syncUpdateComment(commentId, preparedContent)
                 : null,
             () => null
           )
-        : syncUpdateComment(commentId, parsed.data.content)
+        : syncUpdateComment(commentId, preparedContent)
 
       runtime.syncInBackground(syncTask, "Failed to update comment")
 

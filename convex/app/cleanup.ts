@@ -12,9 +12,13 @@ import {
   syncConversationParticipants,
 } from "./conversations"
 import {
+  getDocumentDoc,
   getTeamDoc,
   getUserDoc,
+  getWorkItemDoc,
+  listAttachmentsByStorageIds,
   listAttachmentsByTargets,
+  listAttachmentsByTarget,
   listCallsByConversations,
   listChannelPostCommentsByPosts,
   listChannelPostsByConversations,
@@ -33,13 +37,11 @@ import {
   listProjectsByScopes,
   listProjectUpdatesByProjects,
   listTeamDocuments,
-  listTeamsByIds,
   listViewsByScopes,
   listViewsByScope,
   listWorkItemActivitiesByWorkItems,
   listWorkItemsByTeam,
-  listWorkspaceMembershipsByUser,
-  listWorkspacesOwnedByUser,
+  loadUserWorkspaceAccessSummary,
   listWorkspaceTeams,
   resolvePreferredWorkspaceId,
   syncWorkspaceMembershipRoleFromTeams,
@@ -119,25 +121,9 @@ async function getAccessibleWorkspaceIdsForUser(
   ctx: MutationCtx,
   userId: string
 ) {
-  const [workspaceMemberships, memberships, ownedWorkspaces] =
-    await Promise.all([
-      listWorkspaceMembershipsByUser(ctx, userId),
-      ctx.db
-        .query("teamMemberships")
-        .withIndex("by_user", (q) => q.eq("userId", userId))
-        .collect(),
-      listWorkspacesOwnedByUser(ctx, userId),
-    ])
-  const teams = await listTeamsByIds(
-    ctx,
-    memberships.map((membership) => membership.teamId)
+  return loadUserWorkspaceAccessSummary(ctx, userId).then(
+    (summary) => summary.accessibleWorkspaceIds
   )
-
-  return new Set<string>([
-    ...workspaceMemberships.map((membership) => membership.workspaceId),
-    ...teams.map((team) => team.workspaceId),
-    ...ownedWorkspaces.map((workspace) => workspace.id),
-  ])
 }
 
 type RemovedAccessProject = Awaited<
@@ -577,6 +563,149 @@ export async function deleteStorageObjects(
   for (const storageId of new Set(storageIds)) {
     await ctx.storage.delete(storageId as never)
   }
+}
+
+function combineContent(contents: Array<string | null | undefined>) {
+  return contents.filter(Boolean).join("\n")
+}
+
+async function collectRemainingAttachmentTargetContent(
+  ctx: MutationCtx,
+  input: {
+    targetType: "workItem" | "document" | "conversation"
+    targetId: string
+  }
+) {
+  if (input.targetType === "conversation") {
+    const [messages, posts] = await Promise.all([
+      listChatMessagesByConversations(ctx, [input.targetId]),
+      listChannelPostsByConversations(ctx, [input.targetId]),
+    ])
+    const postComments = await listChannelPostCommentsByPosts(
+      ctx,
+      posts.map((post) => post.id)
+    )
+
+    return [
+      ...messages
+        .filter((message) => !message.deletedAt)
+        .map((message) => message.content),
+      ...posts.map((post) => post.content),
+      ...postComments.map((comment) => comment.content),
+    ]
+  }
+
+  const comments = await listCommentsByTargets(ctx, {
+    targetIds: [input.targetId],
+    targetType: input.targetType,
+  })
+
+  if (input.targetType === "document") {
+    const document = await getDocumentDoc(ctx, input.targetId)
+
+    return [document?.content, ...comments.map((comment) => comment.content)]
+  }
+
+  const item = await getWorkItemDoc(ctx, input.targetId)
+  const description = item?.descriptionDocId
+    ? await getDocumentDoc(ctx, item.descriptionDocId)
+    : null
+
+  return [description?.content, ...comments.map((comment) => comment.content)]
+}
+
+async function selectUnreferencedAttachmentStorageIds(
+  ctx: MutationCtx,
+  attachments: Array<{ _id: unknown; storageId: unknown }>
+) {
+  const attachmentIds = new Set(attachments.map((attachment) => attachment._id))
+  const storageIds = new Set(
+    attachments
+      .map((attachment) => attachment.storageId)
+      .filter((storageId): storageId is string => typeof storageId === "string")
+  )
+
+  if (storageIds.size === 0) {
+    return []
+  }
+
+  const storageAttachmentRecords = await listAttachmentsByStorageIds(
+    ctx,
+    storageIds
+  )
+  const referencedStorageIds = new Set<string>()
+
+  for (const attachment of storageAttachmentRecords) {
+    if (!attachmentIds.has(attachment._id)) {
+      referencedStorageIds.add(attachment.storageId as string)
+    }
+  }
+
+  return [...storageIds].filter((storageId) => !referencedStorageIds.has(storageId))
+}
+
+/**
+ * Deletes attachments (storage object + row) for a target that are referenced
+ * by the given deleted content. Used when a single message/post/comment/reply
+ * is removed so its attached files are removed with it, even though attachments
+ * are stored per target rather than per message.
+ */
+export async function deleteContentReferencedAttachments(
+  ctx: MutationCtx,
+  input: {
+    targetType: "workItem" | "document" | "conversation"
+    targetId: string
+    contents: Array<string | null | undefined>
+  }
+) {
+  const combined = combineContent(input.contents)
+
+  if (!combined.trim()) {
+    return
+  }
+
+  const attachments = await listAttachmentsByTarget(
+    ctx,
+    input.targetType,
+    input.targetId
+  )
+  const referenced: typeof attachments = []
+
+  for (const attachment of attachments) {
+    const url = await ctx.storage.getUrl(attachment.storageId as never)
+
+    if (url && combined.includes(url)) {
+      referenced.push(attachment)
+    }
+  }
+
+  if (referenced.length === 0) {
+    return
+  }
+
+  const remainingContent = combineContent(
+    await collectRemainingAttachmentTargetContent(ctx, input)
+  )
+
+  const deletable = []
+
+  for (const attachment of referenced) {
+    const url = await ctx.storage.getUrl(attachment.storageId as never)
+
+    if (!url || !remainingContent.includes(url)) {
+      deletable.push(attachment)
+    }
+  }
+
+  if (deletable.length === 0) {
+    return
+  }
+
+  await deleteStorageObjects(
+    ctx,
+    await selectUnreferencedAttachmentStorageIds(ctx, deletable)
+  )
+  await deleteDocs(ctx, deletable)
 }
 
 type NotificationEntityTarget = {
@@ -1732,6 +1861,7 @@ export async function cascadeDeleteTeamData(
   const [
     workItemAttachments,
     documentAttachments,
+    conversationAttachments,
     workItemComments,
     documentComments,
     documentPresence,
@@ -1746,6 +1876,10 @@ export async function cascadeDeleteTeamData(
       targetType: "document",
       targetIds: deletedDocumentIds,
     }),
+    listAttachmentsByTargets(ctx, {
+      targetType: "conversation",
+      targetIds: conversations.map((conversation) => conversation.id),
+    }),
     listCommentsByTargets(ctx, {
       targetType: "workItem",
       targetIds: deletedWorkItemIds,
@@ -1758,7 +1892,11 @@ export async function cascadeDeleteTeamData(
     listInvitesByTeam(ctx, team.id),
     listWorkItemActivitiesByWorkItems(ctx, deletedWorkItemIds),
   ])
-  const attachments = [...workItemAttachments, ...documentAttachments]
+  const attachments = [
+    ...workItemAttachments,
+    ...documentAttachments,
+    ...conversationAttachments,
+  ]
   const comments = [...workItemComments, ...documentComments]
   const deletedInviteIds = new Set(invites.map((invite) => invite.id))
   const notifications = dedupeById(

@@ -38,6 +38,150 @@ const projectLead = {
   email: "lead@example.com",
 }
 
+function createChatConversation(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "chat_1",
+    kind: "chat" as const,
+    scopeType: "workspace" as const,
+    scopeId: "workspace_1",
+    variant: "direct" as const,
+    title: "Direct",
+    description: "",
+    participantIds: [currentUser.id],
+    roomId: null,
+    roomName: null,
+    createdBy: currentUser.id,
+    createdAt: "2026-04-22T00:00:00.000Z",
+    updatedAt: "2026-04-22T00:00:00.000Z",
+    lastActivityAt: "2026-04-22T00:00:00.000Z",
+    ...overrides,
+  }
+}
+
+function createChatMessage(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "message_1",
+    conversationId: "chat_1",
+    kind: "text" as const,
+    content: "<p>First</p>",
+    callId: null,
+    mentionUserIds: [],
+    reactions: [],
+    createdBy: currentUser.id,
+    createdAt: "2026-04-22T00:01:00.000Z",
+    ...overrides,
+  }
+}
+
+function createThreadHistoryFixture() {
+  return {
+    conversation: createChatConversation({
+      updatedAt: "2026-04-22T00:03:00.000Z",
+      lastActivityAt: "2026-04-22T00:03:00.000Z",
+    }),
+    messages: [
+      createChatMessage(),
+      createChatMessage({
+        id: "message_2",
+        content: "<p>Second</p>",
+        createdAt: "2026-04-22T00:02:00.000Z",
+      }),
+      createChatMessage({
+        id: "message_3",
+        content: "<p>Latest</p>",
+        createdAt: "2026-04-22T00:03:00.000Z",
+      }),
+    ],
+  }
+}
+
+function seedThreadHistory({ conversation, messages }: ReturnType<typeof createThreadHistoryFixture>) {
+  useAppStore.setState((state) => ({
+    ...state,
+    conversations: [conversation],
+    chatMessages: messages,
+  }))
+}
+
+function mergeLatestThreadMessage(
+  { conversation, messages }: ReturnType<typeof createThreadHistoryFixture>,
+  replaceScope: Record<string, unknown>
+) {
+  useAppStore.getState().mergeReadModelData(
+    {
+      conversations: [conversation],
+      chatMessages: [messages[2]],
+    },
+    {
+      replace: [replaceScope as never],
+    }
+  )
+}
+
+function createWorkspaceDocumentRecord({
+  content,
+  title,
+  updatedAt,
+}: {
+  content: string
+  title: string
+  updatedAt: string
+}) {
+  return {
+    id: "doc_workspace",
+    kind: "workspace-document" as const,
+    workspaceId: "workspace_1",
+    teamId: null,
+    title,
+    content,
+    linkedProjectIds: [],
+    linkedWorkItemIds: [],
+    createdBy: currentUser.id,
+    updatedBy: currentUser.id,
+    createdAt: "2026-04-22T00:00:00.000Z",
+    updatedAt,
+  }
+}
+
+function getWorkspaceDocument() {
+  return useAppStore
+    .getState()
+    .documents.find((document) => document.id === "doc_workspace")
+}
+
+function replaceDomainDataWithDocuments(
+  documents: Array<ReturnType<typeof createWorkspaceDocumentRecord>>
+) {
+  const currentState = useAppStore.getState()
+
+  useAppStore.getState().replaceDomainData({
+    ...createEmptyState(),
+    currentUserId: currentState.currentUserId,
+    currentWorkspaceId: currentState.currentWorkspaceId,
+    workspaces: currentState.workspaces,
+    workspaceMemberships: currentState.workspaceMemberships,
+    teams: currentState.teams,
+    teamMemberships: currentState.teamMemberships,
+    users: currentState.users,
+    labels: currentState.labels,
+    projects: currentState.projects,
+    milestones: currentState.milestones,
+    workItems: currentState.workItems,
+    documents,
+    views: currentState.views,
+    comments: currentState.comments,
+    attachments: currentState.attachments,
+    notifications: currentState.notifications,
+    invites: currentState.invites,
+    projectUpdates: currentState.projectUpdates,
+    conversations: currentState.conversations,
+    calls: currentState.calls,
+    chatMessages: currentState.chatMessages,
+    channelPosts: currentState.channelPosts,
+    channelPostComments: currentState.channelPostComments,
+  })
+}
+
 describe("app store read model merge", () => {
   beforeEach(() => {
     useAppStore.setState({
@@ -171,6 +315,9 @@ describe("app store read model merge", () => {
         },
       ],
       pendingWorkItemSyncsById: {},
+      pendingCommentSyncsById: {},
+      pendingChatMessageSyncsById: {},
+      pendingChannelPostCommentSyncsById: {},
       ui: {
         activeTeamId: "team_1",
         activeInboxNotificationId: null,
@@ -225,24 +372,7 @@ describe("app store read model merge", () => {
   it("preserves chat message receipt maps when a list read model omits them", () => {
     useAppStore.setState((state) => ({
       ...state,
-      conversations: [
-        {
-          id: "chat_1",
-          kind: "chat",
-          scopeType: "workspace",
-          scopeId: "workspace_1",
-          variant: "direct",
-          title: "Direct",
-          description: "",
-          participantIds: [currentUser.id],
-          roomId: null,
-          roomName: null,
-          createdBy: currentUser.id,
-          createdAt: "2026-04-22T00:00:00.000Z",
-          updatedAt: "2026-04-22T00:00:00.000Z",
-          lastActivityAt: "2026-04-22T00:00:00.000Z",
-        },
-      ],
+      conversations: [createChatConversation()],
       chatReadStates: [
         {
           id: "chat_read_state_user_current_chat_1",
@@ -311,36 +441,12 @@ describe("app store read model merge", () => {
   it("keeps pending chat messages during scoped replacement pruning", () => {
     useAppStore.setState((state) => ({
       ...state,
-      conversations: [
-        {
-          id: "chat_1",
-          kind: "chat",
-          scopeType: "workspace",
-          scopeId: "workspace_1",
-          variant: "direct",
-          title: "Direct",
-          description: "",
-          participantIds: [currentUser.id],
-          roomId: null,
-          roomName: null,
-          createdBy: currentUser.id,
-          createdAt: "2026-04-22T00:00:00.000Z",
-          updatedAt: "2026-04-22T00:00:00.000Z",
-          lastActivityAt: "2026-04-22T00:00:00.000Z",
-        },
-      ],
+      conversations: [createChatConversation()],
       chatMessages: [
-        {
+        createChatMessage({
           id: "message_pending",
-          conversationId: "chat_1",
-          kind: "text",
           content: "<p>Sending</p>",
-          callId: null,
-          mentionUserIds: [],
-          reactions: [],
-          createdBy: currentUser.id,
-          createdAt: "2026-04-22T00:01:00.000Z",
-        },
+        }),
       ],
       pendingChatMessageSyncsById: {
         message_pending: "chat_message_sync_1",
@@ -364,6 +470,153 @@ describe("app store read model merge", () => {
     expect(
       useAppStore.getState().chatMessages.map((message) => message.id)
     ).toEqual(["message_pending"])
+  })
+
+  it("keeps pending work item comments during scoped replacement pruning", () => {
+    const pendingComment = {
+      id: "comment_pending",
+      targetType: "workItem" as const,
+      targetId: "item_1",
+      parentCommentId: null,
+      content: "<p>Uploading file</p>",
+      mentionUserIds: [],
+      reactions: [],
+      createdBy: currentUser.id,
+      createdAt: "2026-04-22T00:01:00.000Z",
+    }
+    const staleComment = {
+      ...pendingComment,
+      id: "comment_stale",
+      content: "<p>Stale</p>",
+    }
+
+    useAppStore.setState((state) => ({
+      ...state,
+      comments: [pendingComment, staleComment],
+      pendingCommentSyncsById: {
+        comment_pending: "comment_sync_1",
+      },
+    }))
+
+    useAppStore.getState().mergeReadModelData(
+      {
+        comments: [],
+      },
+      {
+        replace: [
+          {
+            kind: "work-item-detail",
+            itemId: "item_1",
+          },
+        ],
+      }
+    )
+
+    expect(useAppStore.getState().comments.map((comment) => comment.id)).toEqual(
+      ["comment_pending"]
+    )
+  })
+
+  it("keeps pending channel post comments during scoped replacement pruning", () => {
+    const conversation = {
+      id: "channel_1",
+      kind: "channel" as const,
+      scopeType: "team" as const,
+      scopeId: "team_1",
+      variant: "team" as const,
+      title: "Platform",
+      description: "",
+      participantIds: [currentUser.id],
+      roomId: null,
+      roomName: null,
+      createdBy: currentUser.id,
+      createdAt: "2026-04-22T00:00:00.000Z",
+      updatedAt: "2026-04-22T00:00:00.000Z",
+      lastActivityAt: "2026-04-22T00:00:00.000Z",
+    }
+    const post = {
+      id: "post_1",
+      conversationId: "channel_1",
+      title: "Roadmap",
+      content: "<p>Post</p>",
+      mentionUserIds: [],
+      reactions: [],
+      createdBy: currentUser.id,
+      createdAt: "2026-04-22T00:00:00.000Z",
+      updatedAt: "2026-04-22T00:00:00.000Z",
+    }
+    const pendingComment = {
+      id: "channel_comment_pending",
+      postId: "post_1",
+      content: "<p>Uploading file</p>",
+      mentionUserIds: [],
+      reactions: [],
+      createdBy: currentUser.id,
+      createdAt: "2026-04-22T00:01:00.000Z",
+    }
+    const staleComment = {
+      ...pendingComment,
+      id: "channel_comment_stale",
+      content: "<p>Stale</p>",
+    }
+
+    useAppStore.setState((state) => ({
+      ...state,
+      conversations: [conversation],
+      channelPosts: [post],
+      channelPostComments: [pendingComment, staleComment],
+      pendingChannelPostCommentSyncsById: {
+        channel_comment_pending: "channel_comment_sync_1",
+      },
+    }))
+
+    useAppStore.getState().mergeReadModelData(
+      {
+        channelPostComments: [],
+      },
+      {
+        replace: [
+          {
+            kind: "channel-feed",
+            conversationId: "channel_1",
+          },
+        ],
+      }
+    )
+
+    expect(
+      useAppStore
+        .getState()
+        .channelPostComments.map((comment) => comment.id)
+    ).toEqual(["channel_comment_pending"])
+  })
+
+  it("does not prune loaded thread history from latest-message conversation list previews", () => {
+    const threadHistory = createThreadHistoryFixture()
+
+    seedThreadHistory(threadHistory)
+    mergeLatestThreadMessage(threadHistory, {
+      kind: "conversation-list",
+      userId: currentUser.id,
+    })
+
+    expect(
+      useAppStore.getState().chatMessages.map((message) => message.id)
+    ).toEqual(["message_1", "message_2", "message_3"])
+  })
+
+  it("keeps conversation thread replacements authoritative for non-pending messages", () => {
+    const threadHistory = createThreadHistoryFixture()
+
+    seedThreadHistory(threadHistory)
+    mergeLatestThreadMessage(threadHistory, {
+      kind: "conversation-thread",
+      conversationId: "chat_1",
+    })
+
+    expect(
+      useAppStore.getState().chatMessages.map((message) => message.id)
+    ).toEqual(["message_3"])
   })
 
   it("ignores incidental current workspace ids from non-membership read models", () => {
@@ -658,76 +911,28 @@ describe("app store read model merge", () => {
 
     useAppStore.getState().mergeReadModelData({
       documents: [
-        {
-          id: "doc_workspace",
-          kind: "workspace-document",
-          workspaceId: "workspace_1",
-          teamId: null,
+        createWorkspaceDocumentRecord({
           title: "Stale Workspace Doc",
           content: "<p>Stale body</p>",
-          linkedProjectIds: [],
-          linkedWorkItemIds: [],
-          createdBy: currentUser.id,
-          updatedBy: currentUser.id,
-          createdAt: "2026-04-22T00:00:00.000Z",
           updatedAt: "2026-04-23T00:00:00.000Z",
-        },
+        }),
       ],
     })
 
-    let protectedDocument = useAppStore
-      .getState()
-      .documents.find((document) => document.id === "doc_workspace")
+    let protectedDocument = getWorkspaceDocument()
 
     expect(protectedDocument?.title).toBe("Stale Workspace Doc")
     expect(protectedDocument?.content).toBe("<p>Workspace</p>")
 
-    const currentState = useAppStore.getState()
-    useAppStore.getState().replaceDomainData({
-      ...createEmptyState(),
-      currentUserId: currentState.currentUserId,
-      currentWorkspaceId: currentState.currentWorkspaceId,
-      workspaces: currentState.workspaces,
-      workspaceMemberships: currentState.workspaceMemberships,
-      teams: currentState.teams,
-      teamMemberships: currentState.teamMemberships,
-      users: currentState.users,
-      labels: currentState.labels,
-      projects: currentState.projects,
-      milestones: currentState.milestones,
-      workItems: currentState.workItems,
-      documents: [
-        {
-          id: "doc_workspace",
-          kind: "workspace-document",
-          workspaceId: "workspace_1",
-          teamId: null,
-          title: "Snapshot Workspace Doc",
-          content: "<p>Snapshot body</p>",
-          linkedProjectIds: [],
-          linkedWorkItemIds: [],
-          createdBy: currentUser.id,
-          updatedBy: currentUser.id,
-          createdAt: "2026-04-22T00:00:00.000Z",
-          updatedAt: "2026-04-24T00:00:00.000Z",
-        },
-      ],
-      views: currentState.views,
-      comments: currentState.comments,
-      attachments: currentState.attachments,
-      notifications: currentState.notifications,
-      invites: currentState.invites,
-      projectUpdates: currentState.projectUpdates,
-      conversations: currentState.conversations,
-      calls: currentState.calls,
-      chatMessages: currentState.chatMessages,
-      channelPosts: currentState.channelPosts,
-      channelPostComments: currentState.channelPostComments,
-    })
+    replaceDomainDataWithDocuments([
+      createWorkspaceDocumentRecord({
+        title: "Snapshot Workspace Doc",
+        content: "<p>Snapshot body</p>",
+        updatedAt: "2026-04-24T00:00:00.000Z",
+      }),
+    ])
 
-    protectedDocument = useAppStore
-      .getState()
-      .documents.find((document) => document.id === "doc_workspace")
+    protectedDocument = getWorkspaceDocument()
 
     expect(protectedDocument?.title).toBe("Snapshot Workspace Doc")
     expect(protectedDocument?.content).toBe("<p>Workspace</p>")
@@ -752,26 +957,15 @@ describe("app store read model merge", () => {
 
     useAppStore.getState().mergeReadModelData({
       documents: [
-        {
-          id: "doc_workspace",
-          kind: "workspace-document",
-          workspaceId: "workspace_1",
-          teamId: null,
+        createWorkspaceDocumentRecord({
           title: "Stale Workspace Doc",
           content: "",
-          linkedProjectIds: [],
-          linkedWorkItemIds: [],
-          createdBy: currentUser.id,
-          updatedBy: currentUser.id,
-          createdAt: "2026-04-22T00:00:00.000Z",
           updatedAt: "2026-04-23T00:00:00.000Z",
-        },
+        }),
       ],
     })
 
-    let pendingDocument = useAppStore
-      .getState()
-      .documents.find((document) => document.id === "doc_workspace")
+    let pendingDocument = getWorkspaceDocument()
 
     expect(pendingDocument?.title).toBe("Stale Workspace Doc")
     expect(pendingDocument?.content).toBe("<p>Unsaved local draft</p>")
@@ -779,52 +973,15 @@ describe("app store read model merge", () => {
       useAppStore.getState().pendingDocumentContentSyncs.doc_workspace
     ).toBe("pending-token-1")
 
-    const currentState = useAppStore.getState()
-    useAppStore.getState().replaceDomainData({
-      ...createEmptyState(),
-      currentUserId: currentState.currentUserId,
-      currentWorkspaceId: currentState.currentWorkspaceId,
-      workspaces: currentState.workspaces,
-      workspaceMemberships: currentState.workspaceMemberships,
-      teams: currentState.teams,
-      teamMemberships: currentState.teamMemberships,
-      users: currentState.users,
-      labels: currentState.labels,
-      projects: currentState.projects,
-      milestones: currentState.milestones,
-      workItems: currentState.workItems,
-      documents: [
-        {
-          id: "doc_workspace",
-          kind: "workspace-document",
-          workspaceId: "workspace_1",
-          teamId: null,
-          title: "Snapshot Workspace Doc",
-          content: "<p>Snapshot stale body</p>",
-          linkedProjectIds: [],
-          linkedWorkItemIds: [],
-          createdBy: currentUser.id,
-          updatedBy: currentUser.id,
-          createdAt: "2026-04-22T00:00:00.000Z",
-          updatedAt: "2026-04-24T00:00:00.000Z",
-        },
-      ],
-      views: currentState.views,
-      comments: currentState.comments,
-      attachments: currentState.attachments,
-      notifications: currentState.notifications,
-      invites: currentState.invites,
-      projectUpdates: currentState.projectUpdates,
-      conversations: currentState.conversations,
-      calls: currentState.calls,
-      chatMessages: currentState.chatMessages,
-      channelPosts: currentState.channelPosts,
-      channelPostComments: currentState.channelPostComments,
-    })
+    replaceDomainDataWithDocuments([
+      createWorkspaceDocumentRecord({
+        title: "Snapshot Workspace Doc",
+        content: "<p>Snapshot stale body</p>",
+        updatedAt: "2026-04-24T00:00:00.000Z",
+      }),
+    ])
 
-    pendingDocument = useAppStore
-      .getState()
-      .documents.find((document) => document.id === "doc_workspace")
+    pendingDocument = getWorkspaceDocument()
 
     expect(pendingDocument?.title).toBe("Snapshot Workspace Doc")
     expect(pendingDocument?.content).toBe("<p>Unsaved local draft</p>")

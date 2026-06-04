@@ -7,6 +7,7 @@
     "desktop/renderer/main.tsx",
     "electron/after-pack.cjs",
     "electron/preload.cjs",
+    "lib/server/linkedom-canvas-shim.cjs",
     "services/partykit/server.ts"
   ],
   "ignorePatterns": [

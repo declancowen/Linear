@@ -603,6 +603,13 @@ describe("collaboration channel notification helpers", () => {
     )
 
     expect(optimisticComment?.id).toMatch(/^channel_comment_/)
+    expect(
+      (
+        state as typeof state & {
+          pendingChannelPostCommentSyncsById: Record<string, string>
+        }
+      ).pendingChannelPostCommentSyncsById[optimisticComment?.id ?? ""]
+    ).toMatch(/^channel_comment_sync_/)
     expect(channelActionTestDoubles.convex.addComment).toHaveBeenCalledWith(
       "post_1",
       "<p>Fresh reply</p>",
@@ -619,6 +626,13 @@ describe("collaboration channel notification helpers", () => {
         }),
       ])
     )
+    expect(
+      (
+        state as typeof state & {
+          pendingChannelPostCommentSyncsById: Record<string, string>
+        }
+      ).pendingChannelPostCommentSyncsById
+    ).toEqual({})
   })
 
   it("deletes the server-created comment when an optimistic reply is removed before create sync resolves", async () => {

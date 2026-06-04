@@ -2,7 +2,14 @@
 
 import type { StateStorage } from "zustand/middleware"
 
-import type { AppData, UserStatus } from "@/lib/domain/types"
+import {
+  createNotificationRecordFromArgs,
+  type CreateNotificationRecordArgs,
+} from "@/lib/domain/notifications"
+import type {
+  AppData,
+  UserStatus,
+} from "@/lib/domain/types"
 import { haveSameIds } from "@/lib/domain/collaboration-utils"
 export {
   createMentionIds,
@@ -46,45 +53,11 @@ export function getNextActiveTeamId(
   )
 }
 
-export function createNotification(
-  userId: string,
-  actorId: string,
-  message: string,
-  entityType:
-    | "workItem"
-    | "document"
-    | "project"
-    | "invite"
-    | "channelPost"
-    | "chat",
-  entityId: string,
-  type:
-    | "mention"
-    | "assignment"
-    | "comment"
-    | "message"
-    | "invite"
-    | "status-change",
-  metadata: {
-    contentPreview?: string | null
-    targetCommentId?: string | null
-  } = {}
-) {
-  return {
+export function createNotification(...args: CreateNotificationRecordArgs) {
+  return createNotificationRecordFromArgs(args, {
     id: createId("notification"),
-    userId,
-    actorId,
-    message,
-    entityType,
-    entityId,
-    type,
-    contentPreview: metadata.contentPreview?.trim() || null,
-    targetCommentId: metadata.targetCommentId?.trim() || null,
-    readAt: null,
-    archivedAt: null,
-    emailedAt: null,
     createdAt: getNow(),
-  }
+  })
 }
 
 export function createNotificationDraft(

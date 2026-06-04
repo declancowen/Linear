@@ -264,35 +264,30 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     }
   )
 
+  const resetInactiveRefreshState = useEffectEvent((loaded: boolean) => {
+    runGenerationRef.current += 1
+    inFlightGenerationRef.current = null
+    queuedRef.current = false
+    lastRefreshFailedRef.current = false
+    scopedVersionByKeyRef.current = new Map()
+    stopDegradedRefresh()
+    setRefreshing(false)
+    setError(null)
+    setLoadedScopeKeySignature("")
+    setHasLoadedOnce(loaded)
+  })
+
   useEffect(() => {
     const effectScopeKeys =
       scopeKeySignature.length > 0 ? scopeKeySignature.split("|") : []
 
     if (!scopedSyncEnabled) {
-      runGenerationRef.current += 1
-      inFlightGenerationRef.current = null
-      queuedRef.current = false
-      lastRefreshFailedRef.current = false
-      scopedVersionByKeyRef.current = new Map()
-      stopDegradedRefresh()
-      setRefreshing(false)
-      setError(null)
-      setLoadedScopeKeySignature("")
-      setHasLoadedOnce(true)
+      resetInactiveRefreshState(true)
       return
     }
 
     if (!input.enabled || effectScopeKeys.length === 0) {
-      runGenerationRef.current += 1
-      inFlightGenerationRef.current = null
-      queuedRef.current = false
-      lastRefreshFailedRef.current = false
-      scopedVersionByKeyRef.current = new Map()
-      stopDegradedRefresh()
-      setRefreshing(false)
-      setError(null)
-      setLoadedScopeKeySignature("")
-      setHasLoadedOnce(false)
+      resetInactiveRefreshState(false)
       return
     }
 

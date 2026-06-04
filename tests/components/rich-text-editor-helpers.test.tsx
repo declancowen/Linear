@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 
+import {
+  convertSelectedEditorAttachmentReferenceToPreview,
+  convertSelectedEditorImageToReference,
+} from "@/components/app/rich-text-editor"
 import { insertUploadedAttachment } from "@/components/app/rich-text-editor/attachment-insertion"
 import { uploadRichTextEditorAttachment } from "@/components/app/rich-text-editor/attachment-upload-one"
 import { uploadRichTextEditorFiles } from "@/components/app/rich-text-editor/attachment-uploads"
@@ -27,6 +31,11 @@ import {
   areCollaborationSelectionMarkersEqual,
   sortCollaborationMarkers,
 } from "@/components/app/rich-text-editor/marker-comparison"
+import {
+  flushPendingAttachmentUploads,
+  hasPendingAttachments,
+  registerPendingAttachment,
+} from "@/components/app/rich-text-editor/pending-attachments"
 import { areArraysEqual } from "@/components/app/rich-text-editor/array-equality"
 import {
   buildReferencePickerState,
@@ -192,9 +201,11 @@ describe("rich text editor helpers", () => {
     const editor = {
       state: {
         doc: {
-          descendants: vi.fn((visit: (node: (typeof nodes)[number]) => void) => {
-            nodes.forEach(visit)
-          }),
+          descendants: vi.fn(
+            (visit: (node: (typeof nodes)[number]) => void) => {
+              nodes.forEach(visit)
+            }
+          ),
         },
       },
     }
@@ -221,7 +232,9 @@ describe("rich text editor helpers", () => {
       name: "Alex",
       color: "#123456",
     })
-    expect(getCollaborationAwarenessUser({ userId: "", sessionId: "s" })).toBeNull()
+    expect(
+      getCollaborationAwarenessUser({ userId: "", sessionId: "s" })
+    ).toBeNull()
 
     const awareness = {
       getLocalState: vi.fn(),
@@ -421,6 +434,39 @@ describe("rich text editor helpers", () => {
       },
     ])
 
+    const heicChain = createEditorChain()
+    insertUploadedAttachment({
+      currentEditor: {
+        chain: () => heicChain,
+        state: {
+          doc: {
+            content: {
+              size: 5,
+            },
+          },
+        },
+      } as never,
+      file: new File(["image"], "camera.heic", { type: "" }),
+      uploaded: {
+        fileName: "camera.heic",
+        fileUrl: "https://example.com/camera.heic",
+      } as never,
+    })
+
+    expect(heicChain.insertContent).toHaveBeenCalledWith([
+      {
+        type: "image",
+        attrs: {
+          src: "https://example.com/camera.heic",
+          alt: "camera.heic",
+          title: "camera.heic",
+        },
+      },
+      {
+        type: "paragraph",
+      },
+    ])
+
     const linkChain = createEditorChain()
     const linkEditor = {
       chain: () => linkChain,
@@ -442,9 +488,55 @@ describe("rich text editor helpers", () => {
       } as never,
     })
 
-    expect(linkChain.insertContent).toHaveBeenCalledWith(
-      '<p><a href="https://example.com/spec?x=&lt;bad&gt;" target="_blank" rel="noreferrer">spec &lt;one&gt;.pdf</a></p>'
-    )
+    expect(linkChain.insertContent).toHaveBeenCalledWith([
+      {
+        type: "attachmentReference",
+        attrs: {
+          href: "https://example.com/spec?x=<bad>",
+          fileName: "spec <one>.pdf",
+          attachmentKind: "pdf",
+        },
+      },
+      {
+        type: "text",
+        text: " ",
+      },
+    ])
+
+    const imageReferenceChain = createEditorChain()
+    insertUploadedAttachment({
+      currentEditor: {
+        chain: () => imageReferenceChain,
+        state: {
+          doc: {
+            content: {
+              size: 5,
+            },
+          },
+        },
+      } as never,
+      file: new File(["image"], "image.png", { type: "image/png" }),
+      insertMode: "reference",
+      uploaded: {
+        fileName: "image.png",
+        fileUrl: "https://example.com/image.png",
+      } as never,
+    })
+
+    expect(imageReferenceChain.insertContent).toHaveBeenCalledWith([
+      {
+        type: "attachmentReference",
+        attrs: {
+          href: "https://example.com/image.png",
+          fileName: "image.png",
+          attachmentKind: "image",
+        },
+      },
+      {
+        type: "text",
+        text: " ",
+      },
+    ])
 
     const emptyChain = createEditorChain()
     insertUploadedAttachment({
@@ -465,6 +557,76 @@ describe("rich text editor helpers", () => {
       } as never,
     })
     expect(emptyChain.insertContent).not.toHaveBeenCalled()
+  })
+
+  it("converts the selected image preview into an inline reference", () => {
+    const chain = createEditorChain()
+    const editor = {
+      chain: () => chain,
+      state: {
+        selection: {
+          node: {
+            type: { name: "image" },
+            attrs: {
+              src: "https://example.com/photo.png?x=<bad>",
+              alt: "photo <one>.png",
+            },
+          },
+        },
+      },
+    }
+
+    expect(convertSelectedEditorImageToReference(editor as never)).toBe(true)
+    expect(chain.insertContent).toHaveBeenCalledWith([
+      {
+        type: "attachmentReference",
+        attrs: {
+          href: "https://example.com/photo.png?x=<bad>",
+          fileName: "photo <one>.png",
+          attachmentKind: "image",
+        },
+      },
+      {
+        type: "text",
+        text: " ",
+      },
+    ])
+  })
+
+  it("converts a selected inline image reference into an image preview", () => {
+    const chain = createEditorChain()
+    const editor = {
+      chain: () => chain,
+      state: {
+        selection: {
+          node: {
+            type: { name: "attachmentReference" },
+            attrs: {
+              href: "https://example.com/photo.png",
+              fileName: "photo.png",
+              attachmentKind: "image",
+            },
+          },
+        },
+      },
+    }
+
+    expect(
+      convertSelectedEditorAttachmentReferenceToPreview(editor as never)
+    ).toBe(true)
+    expect(chain.insertContent).toHaveBeenCalledWith([
+      {
+        type: "image",
+        attrs: {
+          src: "https://example.com/photo.png",
+          alt: "photo.png",
+          title: "photo.png",
+        },
+      },
+      {
+        type: "paragraph",
+      },
+    ])
   })
 
   it("resolves text nodes and caret coordinates from DOM ranges", () => {
@@ -545,14 +707,20 @@ describe("rich text editor helpers", () => {
       bottom: 9,
     })
     expect(getLocalTextblockBoundarySide(baseEditor as never, 0)).toBe("after")
-    expect(getLocalTextblockBoundarySide(baseEditor as never, 10)).toBe("before")
+    expect(getLocalTextblockBoundarySide(baseEditor as never, 10)).toBe(
+      "before"
+    )
     expect(getLocalTextblockBoundarySide(baseEditor as never, 5)).toBeNull()
-    expect(resolveCollaborationCaretCoordinates(baseEditor as never, 0)).toEqual({
+    expect(
+      resolveCollaborationCaretCoordinates(baseEditor as never, 0)
+    ).toEqual({
       left: 0,
       top: 4,
       bottom: 9,
     })
-    expect(resolveCollaborationCaretCoordinates(baseEditor as never, 5)).toEqual({
+    expect(
+      resolveCollaborationCaretCoordinates(baseEditor as never, 5)
+    ).toEqual({
       left: 3,
       top: 4,
       bottom: 9,
@@ -565,6 +733,7 @@ describe("rich text editor helpers", () => {
     const setUploadingAttachment = vi.fn()
     const uploadAttachment = vi
       .fn()
+      .mockResolvedValue(null)
       .mockResolvedValueOnce({
         fileName: "image.png",
         fileUrl: "https://example.com/image.png",
@@ -629,6 +798,114 @@ describe("rich text editor helpers", () => {
     })
 
     expect(uploadAttachment).toHaveBeenCalledTimes(3)
+  })
+
+  it("clears the attachment uploading state when uploads fail", async () => {
+    const setUploadingAttachment = vi.fn()
+
+    await expect(
+      uploadRichTextEditorAttachment({
+        currentEditor: {
+          chain: () => createEditorChain(),
+          state: {
+            doc: {
+              content: {
+                size: 5,
+              },
+            },
+          },
+        } as never,
+        file: new File(["file"], "spec.pdf", { type: "application/pdf" }),
+        setUploadingAttachment,
+        uploadAttachment: vi.fn().mockRejectedValue(new Error("upload failed")),
+      })
+    ).rejects.toThrow("upload failed")
+
+    expect(setUploadingAttachment).toHaveBeenNthCalledWith(1, true)
+    expect(setUploadingAttachment).toHaveBeenNthCalledWith(2, false)
+  })
+
+  it("keeps pending attachment mappings when a deferred flush fails", async () => {
+    const createObjectURLDescriptor = Object.getOwnPropertyDescriptor(
+      URL,
+      "createObjectURL"
+    )
+    const revokeObjectURLDescriptor = Object.getOwnPropertyDescriptor(
+      URL,
+      "revokeObjectURL"
+    )
+    const revokeObjectURL = vi.fn()
+
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi
+        .fn()
+        .mockReturnValueOnce("blob:pending-one")
+        .mockReturnValueOnce("blob:pending-two"),
+    })
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL,
+    })
+
+    try {
+      const firstUrl = registerPendingAttachment(
+        new File(["one"], "one.png", { type: "image/png" })
+      )
+      const secondUrl = registerPendingAttachment(
+        new File(["two"], "two.pdf", { type: "application/pdf" })
+      )
+      const html = `<p><a data-type="attachment" href="${firstUrl}">one.png</a><a data-type="attachment" href="${secondUrl}">two.pdf</a></p>`
+
+      const failedUpload = vi
+        .fn()
+        .mockResolvedValueOnce({
+          fileName: "one.png",
+          fileUrl: "https://example.com/one.png",
+        })
+        .mockResolvedValueOnce(null)
+
+      await expect(
+        flushPendingAttachmentUploads(html, failedUpload)
+      ).resolves.toBeNull()
+
+      expect(hasPendingAttachments(html)).toBe(true)
+      expect(revokeObjectURL).not.toHaveBeenCalled()
+
+      const retryUpload = vi.fn().mockResolvedValueOnce({
+        fileName: "two.pdf",
+        fileUrl: "https://example.com/two.pdf",
+      })
+
+      await expect(
+        flushPendingAttachmentUploads(html, retryUpload)
+      ).resolves.toBe(
+        '<p><a data-type="attachment" href="https://example.com/one.png">one.png</a><a data-type="attachment" href="https://example.com/two.pdf">two.pdf</a></p>'
+      )
+
+      expect(retryUpload).toHaveBeenCalledOnce()
+      expect(retryUpload).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "two.pdf",
+        })
+      )
+
+      expect(hasPendingAttachments(html)).toBe(false)
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:pending-one")
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:pending-two")
+    } finally {
+      if (createObjectURLDescriptor) {
+        Object.defineProperty(URL, "createObjectURL", createObjectURLDescriptor)
+      } else {
+        delete (URL as { createObjectURL?: unknown }).createObjectURL
+      }
+
+      if (revokeObjectURLDescriptor) {
+        Object.defineProperty(URL, "revokeObjectURL", revokeObjectURLDescriptor)
+      } else {
+        delete (URL as { revokeObjectURL?: unknown }).revokeObjectURL
+      }
+    }
   })
 
   it("sorts collaboration markers and handles menu navigation keys", () => {
@@ -935,7 +1212,9 @@ describe("rich text editor helpers", () => {
       )
 
       expect(container.firstElementChild).toHaveClass("w-[32.5rem]")
-      expect(screen.getByText("Customer experience roadmap")).toBeInTheDocument()
+      expect(
+        screen.getByText("Customer experience roadmap")
+      ).toBeInTheDocument()
       expect(screen.getByText("Workspace project")).toBeInTheDocument()
     } finally {
       Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {

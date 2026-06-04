@@ -274,6 +274,70 @@ function addCrossWorkspaceTeamFixture(snapshot: AppSnapshot) {
   )
 }
 
+function createChatConversationFixture(
+  overrides: Partial<AppSnapshot["conversations"][number]> = {}
+): AppSnapshot["conversations"][number] {
+  return {
+    id: "chat_1",
+    kind: "chat",
+    scopeType: "workspace",
+    scopeId: "workspace_1",
+    variant: "direct",
+    title: "Direct",
+    description: "",
+    participantIds: ["user_1", "user_2"],
+    roomId: null,
+    roomName: null,
+    createdBy: "user_1",
+    createdAt: "2026-04-22T00:00:00.000Z",
+    updatedAt: "2026-04-22T00:00:00.000Z",
+    lastActivityAt: "2026-04-22T00:00:00.000Z",
+    ...overrides,
+  }
+}
+
+function createChatMessageFixture(): AppSnapshot["chatMessages"][number] {
+  return {
+    id: "message_1",
+    conversationId: "chat_1",
+    kind: "text",
+    content: "Private chat",
+    mentionUserIds: [],
+    reactions: [],
+    createdBy: "user_2",
+    createdAt: "2026-04-22T00:00:00.000Z",
+  }
+}
+
+function createChatReadStateFixture(
+  userId: string,
+  readAt: string
+): AppSnapshot["chatReadStates"][number] {
+  return {
+    id: `chat_read_state_${userId}_chat_1`,
+    userId,
+    conversationId: "chat_1",
+    readAt,
+    unreadAt: null,
+    messageReadAtById: {
+      message_1: readAt,
+    },
+    createdAt: readAt,
+    updatedAt: readAt,
+  }
+}
+
+function seedSnapshotChatThread(
+  snapshot: AppSnapshot,
+  conversation: AppSnapshot["conversations"][number]
+) {
+  snapshot.conversations = [conversation]
+  snapshot.chatReadStates = [
+    createChatReadStateFixture("user_1", "2026-04-22T00:01:00.000Z"),
+    createChatReadStateFixture("user_2", "2026-04-22T00:02:00.000Z"),
+  ]
+}
+
 describe("scoped read model selectors", () => {
   it("selects the document detail subset", () => {
     const snapshot = createSnapshotFixture()
@@ -762,50 +826,8 @@ describe("scoped read model selectors", () => {
 
   it("keeps chat message read receipts out of list read models but includes them in thread read models", () => {
     const snapshot = createSnapshotFixture()
-    snapshot.conversations = [
-      {
-        id: "chat_1",
-        kind: "chat",
-        scopeType: "workspace",
-        scopeId: "workspace_1",
-        variant: "direct",
-        title: "Direct",
-        description: "",
-        participantIds: ["user_1", "user_2"],
-        roomId: null,
-        roomName: null,
-        createdBy: "user_1",
-        createdAt: "2026-04-22T00:00:00.000Z",
-        updatedAt: "2026-04-22T00:00:00.000Z",
-        lastActivityAt: "2026-04-22T00:00:00.000Z",
-      },
-    ]
-    snapshot.chatMessages = [
-      {
-        id: "message_1",
-        conversationId: "chat_1",
-        kind: "text",
-        content: "Private chat",
-        mentionUserIds: [],
-        reactions: [],
-        createdBy: "user_2",
-        createdAt: "2026-04-22T00:00:00.000Z",
-      },
-    ]
-    snapshot.chatReadStates = [
-      {
-        id: "chat_read_state_user_1_chat_1",
-        userId: "user_1",
-        conversationId: "chat_1",
-        readAt: "2026-04-22T00:01:00.000Z",
-        unreadAt: null,
-        messageReadAtById: {
-          message_1: "2026-04-22T00:01:00.000Z",
-        },
-        createdAt: "2026-04-22T00:01:00.000Z",
-        updatedAt: "2026-04-22T00:01:00.000Z",
-      },
-    ]
+    seedSnapshotChatThread(snapshot, createChatConversationFixture())
+    snapshot.chatMessages = [createChatMessageFixture()]
 
     const listPatch = selectConversationListReadModel(snapshot, "user_1")
     const threadPatch = selectConversationThreadReadModel(snapshot, "chat_1")
@@ -816,9 +838,38 @@ describe("scoped read model selectors", () => {
       unreadAt: null,
     })
     expect(listPatch.chatReadStates?.[0]?.messageReadAtById).toBeUndefined()
-    expect(threadPatch?.chatReadStates?.[0]?.messageReadAtById).toEqual({
-      message_1: "2026-04-22T00:01:00.000Z",
+    expect(
+      threadPatch?.chatReadStates
+        ?.map((readState) => readState.userId)
+        .sort()
+    ).toEqual(["user_1", "user_2"])
+    expect(
+      threadPatch?.chatReadStates?.find(
+        (readState) => readState.userId === "user_2"
+      )?.messageReadAtById
+    ).toEqual({
+      message_1: "2026-04-22T00:02:00.000Z",
     })
+  })
+
+  it("keeps team chat thread read states current-user scoped without message receipts", () => {
+    const snapshot = createSnapshotFixture()
+    seedSnapshotChatThread(
+      snapshot,
+      createChatConversationFixture({
+        scopeType: "team",
+        scopeId: "team_1",
+        variant: "team",
+        title: "Team",
+      })
+    )
+
+    const threadPatch = selectConversationThreadReadModel(snapshot, "chat_1")
+
+    expect(threadPatch?.chatReadStates?.map((readState) => readState.id)).toEqual([
+      "chat_read_state_user_1_chat_1",
+    ])
+    expect(threadPatch?.chatReadStates?.[0]?.messageReadAtById).toBeUndefined()
   })
 
   it("resolves custom property definition invalidations for indexes, details, and view catalogs", () => {

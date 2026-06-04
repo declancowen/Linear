@@ -3,7 +3,6 @@ import { z } from "zod"
 
 import { chatMessageSchema } from "@/lib/domain/types"
 import {
-  bumpScopedReadModelVersionsServer,
   deleteChatMessageServer,
   updateChatMessageServer,
 } from "@/lib/server/convex"
@@ -12,7 +11,10 @@ import {
   handleAppContextRoute,
 } from "@/lib/server/route-handlers"
 import { jsonOk } from "@/lib/server/route-response"
-import { resolveChatMessageReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
+import {
+  bumpScopedReadModelScopeKeysServer,
+  resolveChatMessageReadModelScopeKeysServer,
+} from "@/lib/server/scoped-read-models"
 
 const chatMessageUpdateBodySchema = z.object({
   content: chatMessageSchema.shape.content,
@@ -40,9 +42,7 @@ export async function PATCH(
         messageId,
         content: parsed.content,
       })
-      await bumpScopedReadModelVersionsServer({
-        scopeKeys,
-      })
+      await bumpScopedReadModelScopeKeysServer(scopeKeys)
 
       return jsonOk({
         ok: true,
@@ -70,9 +70,7 @@ export async function DELETE(
         currentUserId: appContext.ensuredUser.userId,
         messageId,
       })
-      await bumpScopedReadModelVersionsServer({
-        scopeKeys,
-      })
+      await bumpScopedReadModelScopeKeysServer(scopeKeys)
 
       return jsonOk({
         ok: true,

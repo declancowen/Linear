@@ -10,6 +10,11 @@ export function formatTimestamp(value: string) {
   return format(d, "MMM d, h:mm a")
 }
 
+export function formatChatMessageTime(value: string) {
+  const d = new Date(value)
+  return format(d, "HH:mm")
+}
+
 export function formatShortDate(value: string) {
   const d = new Date(value)
   if (isToday(d)) return format(d, "h:mm a")

@@ -47,10 +47,6 @@ vi.mock("@/components/app/collaboration-screens/chat-thread", () => ({
   ),
 }))
 
-vi.mock("@/components/app/collaboration-screens/call-invite-launcher", () => ({
-  CallInviteLauncher: () => null,
-}))
-
 vi.mock("@/components/app/collaboration-screens/channel-ui", () => ({
   ForumPostCard: ({ postId }: { postId: string }) => <div>{`Forum post ${postId}`}</div>,
   NewPostComposer: () => <div>Composer</div>,

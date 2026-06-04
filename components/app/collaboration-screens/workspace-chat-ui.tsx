@@ -46,7 +46,6 @@ export const WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY =
 export const WORKSPACE_CHAT_LIST_COLLAPSED_STORAGE_KEY =
   "workspace-chat-list-collapsed:v1"
 export const WORKSPACE_CHAT_LIST_DEFAULT_WIDTH = 256
-export const WORKSPACE_CHAT_LIST_DEFAULT_WIDTH_PERCENTAGE = "25%"
 const WORKSPACE_CHAT_LIST_MIN_WIDTH = 224
 const WORKSPACE_CHAT_LIST_MIN_WIDTH_RATIO = 0.25
 const WORKSPACE_CHAT_LIST_MAX_WIDTH = 420
@@ -74,6 +73,169 @@ export function clampWorkspaceChatListWidth(
   return Math.min(
     getWorkspaceChatListMaxWidth(containerWidth),
     Math.max(getWorkspaceChatListMinWidth(containerWidth), value)
+  )
+}
+
+type ConversationListItem = {
+  id: string
+  title: string
+  unread?: boolean
+  updatedAt: string
+}
+
+function ConversationListRowBody({
+  conversation,
+  leading,
+  preview,
+  selected,
+  unread,
+}: {
+  conversation: ConversationListItem
+  leading?: ReactNode
+  preview: string
+  selected: boolean
+  unread: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        "grid w-full items-center gap-x-3",
+        unread && "pl-1",
+        leading
+          ? "grid-cols-[auto_minmax(0,1fr)]"
+          : "grid-cols-[minmax(0,1fr)]"
+      )}
+    >
+      {leading ? <div className="row-span-2 shrink-0">{leading}</div> : null}
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-2">
+        <div
+          className={cn(
+            "truncate text-[13px] leading-5",
+            selected || unread ? "font-semibold" : "font-medium"
+          )}
+        >
+          {conversation.title}
+        </div>
+        <div className="flex max-w-[7.75rem] shrink-0 items-center gap-1 overflow-hidden text-[10px] text-muted-foreground">
+          <span className="shrink-0 tabular-nums">
+            {formatShortDate(conversation.updatedAt)}
+          </span>
+        </div>
+      </div>
+      <div
+        className={cn(
+          "mt-0.5 min-w-0 truncate text-[11px]",
+          unread ? "text-foreground/80" : "text-muted-foreground"
+        )}
+      >
+        {preview}
+      </div>
+    </div>
+  )
+}
+
+function ConversationReadStateButton({
+  conversationId,
+  onMarkRead,
+  onMarkUnread,
+  unread,
+}: {
+  conversationId: string
+  onMarkRead: (id: string) => void
+  onMarkUnread: (id: string) => void
+  unread: boolean
+}) {
+  const actionLabel = unread ? "Mark chat as read" : "Mark chat as unread"
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={actionLabel}
+          className="absolute top-2 right-2 inline-grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 transition hover:bg-surface-3 hover:text-foreground focus-visible:opacity-100 group-focus-within/chat-row:opacity-100 group-hover/chat-row:opacity-100"
+          onClick={(event) => {
+            event.stopPropagation()
+
+            if (unread) {
+              onMarkRead(conversationId)
+              return
+            }
+
+            onMarkUnread(conversationId)
+          }}
+        >
+          {unread ? (
+            <CheckCircle className="size-3.5" />
+          ) : (
+            <Circle className="size-3.5" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent sideOffset={6}>{actionLabel}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function ConversationListRow({
+  conversation,
+  leading,
+  onMarkRead,
+  onMarkUnread,
+  onSelect,
+  preview,
+  selected,
+}: {
+  conversation: ConversationListItem
+  leading?: ReactNode
+  onMarkRead?: (id: string) => void
+  onMarkUnread?: (id: string) => void
+  onSelect: (id: string) => void
+  preview: string
+  selected: boolean
+}) {
+  const unread = conversation.unread ?? false
+  const canToggleReadState =
+    onMarkRead !== undefined && onMarkUnread !== undefined
+
+  return (
+    <div className="group/chat-row relative">
+      <button
+        type="button"
+        className={cn(
+          "relative block w-full max-w-full overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors",
+          canToggleReadState && "pr-9",
+          selected
+            ? "bg-accent"
+            : unread
+              ? "bg-primary/5 hover:bg-accent/60"
+              : "hover:bg-accent/50"
+        )}
+        onClick={() => onSelect(conversation.id)}
+      >
+        {unread ? (
+          <span
+            aria-hidden="true"
+            className="absolute top-1/2 left-1.5 size-1.5 -translate-y-1/2 rounded-full bg-primary"
+          />
+        ) : null}
+        <ConversationListRowBody
+          conversation={conversation}
+          leading={leading}
+          preview={preview}
+          selected={selected}
+          unread={unread}
+        />
+      </button>
+      {canToggleReadState ? (
+        <ConversationReadStateButton
+          conversationId={conversation.id}
+          onMarkRead={onMarkRead}
+          onMarkUnread={onMarkUnread}
+          unread={unread}
+        />
+      ) : null}
+    </div>
   )
 }
 
@@ -110,111 +272,18 @@ export function ConversationList({
     >
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col px-1 py-1">
-          {conversations.map((conversation) => {
-            const leading = renderLeading?.(conversation.id)
-            const unread = conversation.unread ?? false
-            const actionLabel = unread
-              ? "Mark chat as read"
-              : "Mark chat as unread"
-            const canToggleReadState =
-              onMarkRead !== undefined && onMarkUnread !== undefined
-
-            return (
-              <div
-                key={conversation.id}
-                className="group/chat-row relative"
-              >
-                <button
-                  type="button"
-                  className={cn(
-                    "relative block w-full max-w-full overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors",
-                    canToggleReadState && "pr-9",
-                    selectedId === conversation.id
-                      ? "bg-accent"
-                      : unread
-                        ? "bg-primary/5 hover:bg-accent/60"
-                        : "hover:bg-accent/50"
-                  )}
-                  onClick={() => onSelect(conversation.id)}
-                >
-                  {unread ? (
-                    <span
-                      aria-hidden="true"
-                      className="absolute top-1/2 left-1.5 size-1.5 -translate-y-1/2 rounded-full bg-primary"
-                    />
-                  ) : null}
-                  <div
-                    className={cn(
-                      "grid w-full items-center gap-x-3",
-                      unread && "pl-1",
-                      leading
-                        ? "grid-cols-[auto_minmax(0,1fr)]"
-                        : "grid-cols-[minmax(0,1fr)]"
-                    )}
-                  >
-                    {leading ? (
-                      <div className="row-span-2 shrink-0">{leading}</div>
-                    ) : null}
-                    <div
-                      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-2"
-                    >
-                      <div
-                        className={cn(
-                          "truncate text-[13px] leading-5",
-                          selectedId === conversation.id || unread
-                            ? "font-semibold"
-                            : "font-medium"
-                        )}
-                      >
-                        {conversation.title}
-                      </div>
-                      <div className="flex max-w-[7.75rem] shrink-0 items-center gap-1 overflow-hidden text-[10px] text-muted-foreground">
-                        <span className="shrink-0 tabular-nums">
-                          {formatShortDate(conversation.updatedAt)}
-                        </span>
-                      </div>
-                    </div>
-                    <div
-                      className={cn(
-                        "mt-0.5 min-w-0 truncate text-[11px]",
-                        unread ? "text-foreground/80" : "text-muted-foreground"
-                      )}
-                    >
-                      {renderPreview(conversation.id)}
-                    </div>
-                  </div>
-                </button>
-                {canToggleReadState ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={actionLabel}
-                        className="absolute top-2 right-2 inline-grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 transition hover:bg-surface-3 hover:text-foreground focus-visible:opacity-100 group-focus-within/chat-row:opacity-100 group-hover/chat-row:opacity-100"
-                        onClick={(event) => {
-                          event.stopPropagation()
-
-                          if (unread) {
-                            onMarkRead(conversation.id)
-                            return
-                          }
-
-                          onMarkUnread(conversation.id)
-                        }}
-                      >
-                        {unread ? (
-                          <CheckCircle className="size-3.5" />
-                        ) : (
-                          <Circle className="size-3.5" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent sideOffset={6}>{actionLabel}</TooltipContent>
-                  </Tooltip>
-                ) : null}
-              </div>
-            )
-          })}
+          {conversations.map((conversation) => (
+            <ConversationListRow
+              key={conversation.id}
+              conversation={conversation}
+              leading={renderLeading?.(conversation.id)}
+              onMarkRead={onMarkRead}
+              onMarkUnread={onMarkUnread}
+              onSelect={onSelect}
+              preview={renderPreview(conversation.id)}
+              selected={selectedId === conversation.id}
+            />
+          ))}
         </div>
       </ScrollArea>
     </div>

@@ -1,7 +1,7 @@
 "use client"
 
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react"
-import { Plus, SidebarSimple } from "@phosphor-icons/react"
+import { Plus } from "@phosphor-icons/react"
 
 import type { AppData, Conversation } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
@@ -14,22 +14,7 @@ import { getConversationPreview } from "@/components/app/collaboration-screens/w
 
 type WorkspaceChatListWidth = number | null
 
-export function WorkspaceConversationListPane({
-  chats,
-  activeChat,
-  conversationListWidth,
-  conversationListResizing,
-  conversationListCollapsed,
-  latestMessagesByConversationId,
-  renderConversationAvatar,
-  onCreateChat,
-  onMarkChatRead,
-  onMarkChatUnread,
-  onResizeStart,
-  onResetWidth,
-  onSelectChat,
-  onToggleConversationListCollapsed,
-}: {
+export type WorkspaceConversationListPaneProps = {
   chats: Array<Conversation & { unread?: boolean }>
   activeChat: Conversation | null
   conversationListWidth: WorkspaceChatListWidth
@@ -46,8 +31,23 @@ export function WorkspaceConversationListPane({
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onResetWidth: () => void
   onSelectChat: (id: string) => void
-  onToggleConversationListCollapsed: () => void
-}) {
+}
+
+export function WorkspaceConversationListPane({
+  chats,
+  activeChat,
+  conversationListWidth,
+  conversationListResizing,
+  conversationListCollapsed,
+  latestMessagesByConversationId,
+  renderConversationAvatar,
+  onCreateChat,
+  onMarkChatRead,
+  onMarkChatUnread,
+  onResizeStart,
+  onResetWidth,
+  onSelectChat,
+}: WorkspaceConversationListPaneProps) {
   const paneWidth = conversationListCollapsed
     ? "44px"
     : conversationListWidth === null
@@ -71,24 +71,35 @@ export function WorkspaceConversationListPane({
             type="button"
             size="icon"
             variant="ghost"
-            aria-label="Expand conversation list"
-            className="size-7 rounded-md"
-            onClick={onToggleConversationListCollapsed}
-          >
-            <SidebarSimple className="size-3.5" />
-          </Button>
-        </div>
-        <div className="flex flex-1 flex-col items-center gap-1 py-2">
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
             aria-label="New chat"
             className="size-7 rounded-md"
             onClick={onCreateChat}
           >
             <Plus className="size-3.5" />
           </Button>
+        </div>
+        <div className="no-scrollbar flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
+          {chats.map((chat) => (
+            <button
+              key={chat.id}
+              type="button"
+              aria-label={`Open ${chat.title}`}
+              title={chat.title}
+              className={cn(
+                "relative inline-grid size-8 place-items-center rounded-md transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                activeChat?.id === chat.id && "bg-accent"
+              )}
+              onClick={() => onSelectChat(chat.id)}
+            >
+              {chat.unread ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute top-1 right-1 size-1.5 rounded-full bg-primary"
+                />
+              ) : null}
+              {renderConversationAvatar(chat.id)}
+            </button>
+          ))}
         </div>
       </div>
     )
@@ -107,16 +118,6 @@ export function WorkspaceConversationListPane({
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b px-4">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="truncate text-sm font-medium">Conversations</span>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            aria-label="Collapse conversation list"
-            className="size-7 rounded-md"
-            onClick={onToggleConversationListCollapsed}
-          >
-            <SidebarSimple className="size-3.5" />
-          </Button>
         </div>
         <Button
           size="sm"

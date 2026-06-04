@@ -25,7 +25,9 @@ function createUiSliceHarness() {
       ],
     }),
     pendingWorkItemSyncsById: {},
+    pendingCommentSyncsById: {},
     pendingChatMessageSyncsById: {},
+    pendingChannelPostCommentSyncsById: {},
   }
   const setState = createMutableSetState(state)
   const slice = createUiSlice(setState as never)
@@ -211,5 +213,67 @@ describe("ui slice", () => {
     } as never)
 
     expect(state.chatMessages).toEqual([optimisticMessage])
+  })
+
+  it("preserves pending optimistic comments while stale read models arrive", () => {
+    const { slice, state } = createUiSliceHarness()
+    const optimisticComment = {
+      id: "comment_pending",
+      targetType: "workItem" as const,
+      targetId: "item_1",
+      parentCommentId: null,
+      content: "<p>Uploading</p>",
+      mentionUserIds: [],
+      reactions: [],
+      createdBy: "user_1",
+      createdAt: "2026-04-20T10:00:00.000Z",
+    }
+
+    state.comments = [optimisticComment]
+    state.pendingCommentSyncsById = {
+      comment_pending: "comment_sync_1",
+    }
+
+    slice.mergeReadModelData({
+      comments: [],
+    })
+
+    expect(state.comments).toEqual([optimisticComment])
+
+    slice.replaceDomainData({
+      comments: [],
+    } as never)
+
+    expect(state.comments).toEqual([optimisticComment])
+  })
+
+  it("preserves pending optimistic channel post comments while stale read models arrive", () => {
+    const { slice, state } = createUiSliceHarness()
+    const optimisticComment = {
+      id: "channel_comment_pending",
+      postId: "post_1",
+      content: "<p>Uploading</p>",
+      mentionUserIds: [],
+      reactions: [],
+      createdBy: "user_1",
+      createdAt: "2026-04-20T10:00:00.000Z",
+    }
+
+    state.channelPostComments = [optimisticComment]
+    state.pendingChannelPostCommentSyncsById = {
+      channel_comment_pending: "channel_comment_sync_1",
+    }
+
+    slice.mergeReadModelData({
+      channelPostComments: [],
+    })
+
+    expect(state.channelPostComments).toEqual([optimisticComment])
+
+    slice.replaceDomainData({
+      channelPostComments: [],
+    } as never)
+
+    expect(state.channelPostComments).toEqual([optimisticComment])
   })
 })

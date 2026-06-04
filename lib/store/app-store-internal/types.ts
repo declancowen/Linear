@@ -251,7 +251,9 @@ export type AppStore = AppData & {
   protectedDocumentIds: string[]
   pendingDocumentContentSyncs: Record<string, string>
   pendingWorkItemSyncsById: Record<string, string>
+  pendingCommentSyncsById: Record<string, string>
   pendingChatMessageSyncsById: Record<string, string>
+  pendingChannelPostCommentSyncsById: Record<string, string>
   pendingViewConfigById: Record<string, PendingViewConfig>
   replaceDomainData: (data: AppSnapshot) => void
   mergeReadModelData: (

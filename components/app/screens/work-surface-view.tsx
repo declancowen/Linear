@@ -40,6 +40,7 @@ import {
   buildItemGroups,
   buildItemGroupsWithEmptyGroups,
   getDirectChildWorkItemsForDisplay,
+  getParentGroupHeaderIds,
   getTeam,
   getUser,
   getWorkItem,
@@ -90,6 +91,7 @@ import {
   stopDragPropagation,
 } from "./work-item-menus"
 import {
+  getWorkItemSelectionContextItems,
   useWorkItemSelection,
   WorkItemSelectionCheckbox,
   type WorkItemSelectionController,
@@ -235,7 +237,7 @@ function getWorkSurfaceGroups({
   const groupedItems = getParentGroupedDisplayItems(items, sourceItems, view)
 
   return [
-    ...(editable
+    ...(editable || isParentGroupingField(view.grouping)
       ? buildItemGroupsWithEmptyGroups(data, groupedItems, view, {
           sourceItems,
           teamId: createContext?.defaultTeamId,
@@ -250,19 +252,6 @@ function isParentGroupingField(field: ViewDefinition["grouping"] | null) {
   return field === "parent"
 }
 
-function getParentIdsWithChildren(sourceItems: WorkItem[]) {
-  const sourceItemIds = new Set(sourceItems.map((item) => item.id))
-  const parentIds = new Set<string>()
-
-  sourceItems.forEach((item) => {
-    if (item.parentId && sourceItemIds.has(item.parentId)) {
-      parentIds.add(item.parentId)
-    }
-  })
-
-  return parentIds
-}
-
 function getParentGroupedDisplayItems(
   items: WorkItem[],
   sourceItems: WorkItem[],
@@ -275,7 +264,7 @@ function getParentGroupedDisplayItems(
     return items
   }
 
-  const parentIds = getParentIdsWithChildren(sourceItems)
+  const parentIds = getParentGroupHeaderIds(sourceItems)
 
   if (parentIds.size === 0) {
     return items
@@ -1406,17 +1395,7 @@ function useMemoizedWorkSurfaceGroups({
   )
 }
 
-function getVisibleWorkSurfaceSelectionIds({
-  childDisplayMode,
-  collapsedGroups,
-  data,
-  displayItems,
-  expandedItemIds,
-  groups,
-  scopedItems,
-  showChildItems,
-  view,
-}: {
+type VisibleWorkSurfaceSelectionIdsInput = {
   childDisplayMode: ChildDisplayMode
   collapsedGroups?: Set<string>
   data: AppData
@@ -1426,51 +1405,73 @@ function getVisibleWorkSurfaceSelectionIds({
   scopedItems?: WorkItem[]
   showChildItems: boolean
   view: ViewDefinition
-}) {
-  const itemIds: string[] = []
+}
 
-  for (const [groupName, subgroups] of groups) {
-    if (collapsedGroups?.has(groupName)) {
-      continue
-    }
-
-    for (const [subgroupName, groupItems] of subgroups) {
-      if (view.hiddenState.subgroups.includes(subgroupName)) {
-        continue
-      }
-
-      const visibleContainerItems = getContainerItemsForDisplay(
-        groupItems,
-        displayItems,
-        showChildItems
-      )
-
-      for (const item of visibleContainerItems) {
-        itemIds.push(item.id)
-
-        if (!showChildItems || !expandedItemIds.has(item.id)) {
-          continue
-        }
-
-        const children = getDirectChildWorkItemsForDisplay(
-          data,
-          item,
-          view.ordering,
-          view,
-          scopedItems,
-          {
-            mode: childDisplayMode,
-          }
-        )
-
-        for (const child of children) {
-          itemIds.push(child.id)
-        }
-      }
-    }
+function getExpandedChildSelectionIds(
+  item: WorkItem,
+  {
+    childDisplayMode,
+    data,
+    expandedItemIds,
+    scopedItems,
+    showChildItems,
+    view,
+  }: VisibleWorkSurfaceSelectionIdsInput
+) {
+  if (!showChildItems || !expandedItemIds.has(item.id)) {
+    return []
   }
 
-  return itemIds
+  return getDirectChildWorkItemsForDisplay(
+    data,
+    item,
+    view.ordering,
+    view,
+    scopedItems,
+    {
+      mode: childDisplayMode,
+    }
+  ).map((child) => child.id)
+}
+
+function getVisibleSubgroupSelectionIds(
+  groupItems: WorkItem[],
+  input: VisibleWorkSurfaceSelectionIdsInput
+) {
+  const visibleContainerItems = getContainerItemsForDisplay(
+    groupItems,
+    input.displayItems,
+    input.showChildItems
+  )
+
+  return visibleContainerItems.flatMap((item) => [
+    item.id,
+    ...getExpandedChildSelectionIds(item, input),
+  ])
+}
+
+function getVisibleGroupSelectionIds(
+  groupName: string,
+  subgroups: Map<string, WorkItem[]>,
+  input: VisibleWorkSurfaceSelectionIdsInput
+) {
+  if (input.collapsedGroups?.has(groupName)) {
+    return []
+  }
+
+  return Array.from(subgroups).flatMap(([subgroupName, groupItems]) =>
+    input.view.hiddenState.subgroups.includes(subgroupName)
+      ? []
+      : getVisibleSubgroupSelectionIds(groupItems, input)
+  )
+}
+
+function getVisibleWorkSurfaceSelectionIds(
+  input: VisibleWorkSurfaceSelectionIdsInput
+) {
+  return input.groups.flatMap(([groupName, subgroups]) =>
+    getVisibleGroupSelectionIds(groupName, subgroups, input)
+  )
 }
 
 export function BoardView({
@@ -2054,7 +2055,7 @@ export function ListView({
                             {editable ? (
                               <button
                                 type="button"
-                                className="ml-[38px] flex items-center gap-2 px-2.5 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                                className="flex items-center gap-2.5 py-2 pr-2.5 pl-[45px] text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
                                 onClick={() =>
                                   openCreateForGroup({
                                     groupValue: groupName,
@@ -2080,7 +2081,7 @@ export function ListView({
                       >
                         <button
                           type="button"
-                          className="ml-[38px] flex items-center gap-2 px-2.5 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                          className="flex items-center gap-2.5 py-2 pr-2.5 pl-[45px] text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
                           onClick={() =>
                             openCreateForGroup({
                               groupValue: groupName,
@@ -2661,11 +2662,11 @@ function ListRowContextMenuSlot({
   selection?: WorkItemSelectionController
 }) {
   const router = useAppRouter()
-  const targetItems =
-    selection
-      ?.getContextItemIds(item.id)
-      .map((itemId) => getWorkItem(data, itemId))
-      .filter((entry): entry is WorkItem => entry !== null) ?? [item]
+  const targetItems = getWorkItemSelectionContextItems({
+    data,
+    item,
+    selection,
+  })
 
   return interactive ? (
     <IssueContextMenu
@@ -2728,7 +2729,14 @@ function ListRowBody({
           slotClassName={disclosureSlotClass}
           onToggleExpanded={onToggleExpanded}
         />
-        <div className="flex items-center justify-center">
+        <div
+          className={cn(
+            "flex items-center justify-center",
+            selection &&
+              "opacity-0 transition-opacity group-hover/row:opacity-100",
+            selection?.isSelected(item.id) && "opacity-100"
+          )}
+        >
           {selection ? (
             <WorkItemSelectionCheckbox
               checked={selection.isSelected(item.id)}
@@ -3027,11 +3035,11 @@ const BoardCardBody = memo(function BoardCardBody({
     })
   const itemHref = `/items/${item.id}`
   const selected = selection?.isSelected(item.id) ?? false
-  const targetItems =
-    selection
-      ?.getContextItemIds(item.id)
-      .map((itemId) => getWorkItem(data, itemId))
-      .filter((entry): entry is WorkItem => entry !== null) ?? [item]
+  const targetItems = getWorkItemSelectionContextItems({
+    data,
+    item,
+    selection,
+  })
 
   return (
     <IssueContextMenu
@@ -3063,7 +3071,10 @@ const BoardCardBody = memo(function BoardCardBody({
           {selection ? (
             <WorkItemSelectionCheckbox
               checked={selected}
-              className="pointer-events-auto mt-0.5"
+              className={cn(
+                "pointer-events-auto mt-0.5 opacity-0 transition-opacity group-hover/card:opacity-100",
+                selected && "opacity-100"
+              )}
               label={`Select ${item.key}`}
               onChange={(event) =>
                 selection.handleCheckboxChange(item.id, event)
@@ -3245,11 +3256,11 @@ function DraggableBoardChildItem({
     setDroppableNodeRef(node)
   }
   const selected = selection?.isSelected(item.id) ?? false
-  const targetItems =
-    selection
-      ?.getContextItemIds(item.id)
-      .map((itemId) => getWorkItem(data, itemId))
-      .filter((entry): entry is WorkItem => entry !== null) ?? [item]
+  const targetItems = getWorkItemSelectionContextItems({
+    data,
+    item,
+    selection,
+  })
   const row = (
     <BoardChildItemRow
       item={item}

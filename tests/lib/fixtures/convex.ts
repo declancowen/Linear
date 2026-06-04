@@ -36,6 +36,19 @@ export function getTestWorkItemAudienceUserIds(
   ].filter((userId): userId is string => Boolean(userId))
 }
 
+export function createEmptyConvexRelationshipDataMocks() {
+  return {
+    listAttachmentsByStorageIds: vi.fn(() => []),
+    listAttachmentsByTarget: vi.fn(() => []),
+    listAttachmentsByTargets: vi.fn(() => []),
+    listCallsByConversations: vi.fn(() => []),
+    listChannelPostCommentsByPosts: vi.fn(() => []),
+    listChannelPostsByConversations: vi.fn(() => []),
+    listChatMessagesByConversations: vi.fn(() => []),
+    listCommentsByTargets: vi.fn(() => []),
+  }
+}
+
 export function mockEmptyQueryCollect(ctx: {
   db: {
     query: ReturnType<typeof vi.fn>

@@ -98,6 +98,76 @@ const EntityReference = Node.create({
   },
 })
 
+const NonInclusiveLink = Link.extend({
+  inclusive() {
+    return false
+  },
+})
+
+const AttachmentReference = Node.create({
+  name: "attachmentReference",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: true,
+
+  addAttributes() {
+    return {
+      href: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("href"),
+      },
+      fileName: {
+        default: null,
+        parseHTML: (element) =>
+          element.getAttribute("data-file-name") ?? element.textContent,
+      },
+      attachmentKind: {
+        default: "file",
+        parseHTML: (element) =>
+          element.getAttribute("data-attachment-kind") ?? "file",
+      },
+    }
+  },
+
+  parseHTML() {
+    return [{ tag: 'a[data-type="attachment"]' }]
+  },
+
+  renderHTML({ HTMLAttributes, node }) {
+    const fileName =
+      typeof node.attrs.fileName === "string" && node.attrs.fileName.length > 0
+        ? node.attrs.fileName
+        : "Attachment"
+    const href =
+      typeof node.attrs.href === "string" && node.attrs.href.length > 0
+        ? node.attrs.href
+        : "#"
+    const attachmentKind =
+      typeof node.attrs.attachmentKind === "string"
+        ? node.attrs.attachmentKind
+        : "file"
+
+    return [
+      "a",
+      mergeAttributes(HTMLAttributes, {
+        class: "editor-attachment",
+        "data-type": "attachment",
+        "data-attachment-kind": attachmentKind,
+        "data-file-name": fileName,
+        href,
+        target: "_blank",
+        rel: "noreferrer",
+      }),
+      fileName,
+    ]
+  },
+
+  renderText({ node }) {
+    return typeof node.attrs.fileName === "string" ? node.attrs.fileName : ""
+  },
+})
+
 export function createRichTextBaseExtensions(options?: {
   placeholder?: string
   collaboration?: boolean
@@ -132,11 +202,12 @@ export function createRichTextBaseExtensions(options?: {
       },
     }),
     Underline,
-    Link.configure({
+    NonInclusiveLink.configure({
       openOnClick: false,
       autolink: true,
     }),
     EntityReference,
+    AttachmentReference,
     Mention.configure({
       HTMLAttributes: {
         class: "editor-mention",

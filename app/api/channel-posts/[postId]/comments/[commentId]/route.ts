@@ -3,11 +3,13 @@ import { z } from "zod"
 
 import { channelPostCommentSchema } from "@/lib/domain/types"
 import {
-  bumpScopedReadModelVersionsServer,
   deleteChannelPostCommentServer,
   updateChannelPostCommentServer,
 } from "@/lib/server/convex"
-import { resolveChannelPostReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
+import {
+  bumpScopedReadModelScopeKeysServer,
+  resolveChannelPostReadModelScopeKeysServer,
+} from "@/lib/server/scoped-read-models"
 import {
   handleAppContextJsonRoute,
   handleAppContextRoute,
@@ -41,9 +43,7 @@ export async function PATCH(
         commentId,
         content: parsed.content,
       })
-      await bumpScopedReadModelVersionsServer({
-        scopeKeys,
-      })
+      await bumpScopedReadModelScopeKeysServer(scopeKeys)
 
       return jsonOk({
         ok: true,
@@ -75,9 +75,7 @@ export async function DELETE(
         )
 
         if (scopeKeys.length > 0) {
-          await bumpScopedReadModelVersionsServer({
-            scopeKeys,
-          })
+          await bumpScopedReadModelScopeKeysServer(scopeKeys)
         }
       }
 

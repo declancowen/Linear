@@ -130,7 +130,8 @@ export default defineSchema({
     .index("by_target", ["targetType", "targetId"]),
   attachments: defineTable(attachmentFields)
     .index("by_domain_id", ["id"])
-    .index("by_target", ["targetType", "targetId"]),
+    .index("by_target", ["targetType", "targetId"])
+    .index("by_storage", ["storageId"]),
   notifications: defineTable(notificationFields)
     .index("by_domain_id", ["id"])
     .index("by_user", ["userId"])

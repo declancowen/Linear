@@ -50,6 +50,10 @@ async function bumpResolvedScopedReadModelScopeKeys(
   })
 }
 
+export async function bumpScopedReadModelScopeKeysServer(scopeKeys: string[]) {
+  await bumpResolvedScopedReadModelScopeKeys(scopeKeys)
+}
+
 export async function authorizeScopedReadModelScopeKeysServer(
   session: AuthenticatedSession,
   scopeKeys: string[]
@@ -251,9 +255,24 @@ export async function bumpCommentTargetReadModelScopesServer(
 export async function bumpAttachmentTargetReadModelScopesServer(
   session: AuthenticatedSession,
   input: {
-    targetType: "workItem" | "document"
+    targetType: "workItem" | "document" | "conversation"
     targetId: string
   }
 ) {
-  await bumpCommentTargetReadModelScopesServer(session, input)
+  if (input.targetType === "conversation") {
+    await bumpResolvedScopedReadModelScopeKeys(
+      resolveConversationReadModelScopeKeysServer(session, input.targetId)
+    )
+    return
+  }
+
+  const commentTarget: {
+    targetType: "workItem" | "document"
+    targetId: string
+  } = {
+    targetType: input.targetType,
+    targetId: input.targetId,
+  }
+
+  await bumpCommentTargetReadModelScopesServer(session, commentTarget)
 }

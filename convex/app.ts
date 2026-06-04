@@ -247,6 +247,13 @@ const clearPresenceActorArgs = {
   sessionId: v.string(),
 }
 
+const scopedReadModelServerAccessArgs = {
+  ...serverAccessArgs,
+  workosUserId: v.optional(v.string()),
+  email: v.optional(v.string()),
+  selectedWorkspaceId: v.optional(v.union(v.string(), v.null())),
+}
+
 async function bumpSnapshotVersion(ctx: MutationCtx) {
   const config = await getOrCreateAppConfig(ctx)
 
@@ -423,10 +430,7 @@ export const getScopedReadModelVersions = query({
 
 export const getScopedReadModel = query({
   args: {
-    ...serverAccessArgs,
-    workosUserId: v.optional(v.string()),
-    email: v.optional(v.string()),
-    selectedWorkspaceId: v.optional(v.union(v.string(), v.null())),
+    ...scopedReadModelServerAccessArgs,
     instruction: scopedReadModelInstructionValidator,
   },
   handler: getScopedReadModelHandler,
@@ -434,10 +438,7 @@ export const getScopedReadModel = query({
 
 export const resolveScopedReadModelScopeKeys = query({
   args: {
-    ...serverAccessArgs,
-    workosUserId: v.optional(v.string()),
-    email: v.optional(v.string()),
-    selectedWorkspaceId: v.optional(v.union(v.string(), v.null())),
+    ...scopedReadModelServerAccessArgs,
     target: scopedReadModelScopeKeyTargetValidator,
   },
   handler: resolveScopedReadModelScopeKeysHandler,
@@ -445,10 +446,7 @@ export const resolveScopedReadModelScopeKeys = query({
 
 export const authorizeScopedReadModelScopeKeys = query({
   args: {
-    ...serverAccessArgs,
-    workosUserId: v.optional(v.string()),
-    email: v.optional(v.string()),
-    selectedWorkspaceId: v.optional(v.union(v.string(), v.null())),
+    ...scopedReadModelServerAccessArgs,
     scopeKeys: v.array(v.string()),
   },
   handler: authorizeScopedReadModelScopeKeysHandler,

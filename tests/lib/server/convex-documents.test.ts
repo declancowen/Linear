@@ -324,6 +324,41 @@ describe("convex document server wrappers", () => {
     })
   })
 
+  it("rejects comments that become empty after pending attachments are stripped", async () => {
+    const { addCommentServer, updateCommentServer } = await import(
+      "@/lib/server/convex/documents"
+    )
+
+    await expect(
+      addCommentServer({
+        currentUserId: "user_1",
+        targetType: "workItem",
+        targetId: "item_1",
+        content:
+          '<p><a data-type="attachment" class="editor-attachment" href="blob:http://local/file" data-file-name="pending.pdf">pending.pdf</a></p>',
+      })
+    ).rejects.toMatchObject({
+      name: "ApplicationError",
+      status: 400,
+      code: "COMMENT_EMPTY",
+    })
+
+    await expect(
+      updateCommentServer({
+        currentUserId: "user_1",
+        commentId: "comment_1",
+        content:
+          '<p><a data-type="attachment" class="editor-attachment" href="blob:http://local/file" data-file-name="pending.pdf">pending.pdf</a></p>',
+      })
+    ).rejects.toMatchObject({
+      name: "ApplicationError",
+      status: 400,
+      code: "COMMENT_EMPTY",
+    })
+
+    expect(mutationMock).not.toHaveBeenCalled()
+  })
+
   it("maps document presence failures to application errors", async () => {
     const { clearDocumentPresenceServer, heartbeatDocumentPresenceServer } =
       await import("@/lib/server/convex/documents")

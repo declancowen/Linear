@@ -899,18 +899,29 @@ function addTypeGroupKeys(
   allowedTypes.forEach((type) => keys.add(type))
 }
 
+export function getParentGroupHeaderIds(sourceItems: WorkItem[]) {
+  const sourceItemIds = new Set(sourceItems.map((item) => item.id))
+  const headerIds = new Set<string>()
+
+  for (const item of sourceItems) {
+    if (item.parentId && sourceItemIds.has(item.parentId)) {
+      headerIds.add(item.parentId)
+    } else if (
+      item.parentId === null &&
+      getAllowedChildWorkItemTypesForItem(item).length > 0
+    ) {
+      headerIds.add(item.id)
+    }
+  }
+
+  return headerIds
+}
+
 function addParentGroupKeys(
   keys: Set<string>,
   context: AvailableGroupKeyContext
 ) {
-  const sourceItemIds = new Set(context.sourceItems.map((item) => item.id))
-  const parentIds = new Set<string>()
-
-  context.sourceItems.forEach((item) => {
-    if (item.parentId && sourceItemIds.has(item.parentId)) {
-      parentIds.add(item.parentId)
-    }
-  })
+  const parentIds = getParentGroupHeaderIds(context.sourceItems)
 
   const hasParentlessDisplayItem =
     context.sourceItems.length === 0 ||
@@ -1063,6 +1074,21 @@ export function buildItemGroupsWithEmptyGroups(
     availableGroupKeys.forEach((groupKey) => {
       if (!groups.has(groupKey)) {
         groups.set(groupKey, new Map())
+      }
+    })
+  }
+
+  if (view.grouping === "parent") {
+    const headerSourceItems = options?.sourceItems ?? items
+    const headerItemsById = new Map(
+      headerSourceItems.map((item) => [item.id, item] as const)
+    )
+
+    getParentGroupHeaderIds(headerSourceItems).forEach((headerId) => {
+      const headerItem = headerItemsById.get(headerId)
+
+      if (headerItem && !groups.has(formatParentGroupValue(headerItem))) {
+        groups.set(formatParentGroupValue(headerItem), new Map())
       }
     })
   }

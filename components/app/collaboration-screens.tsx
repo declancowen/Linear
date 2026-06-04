@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Hash, PaperPlaneTilt } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
@@ -27,6 +27,10 @@ import {
   NewPostComposer,
 } from "@/components/app/collaboration-screens/channel-ui"
 import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
+import {
+  ConversationFilesPanel,
+  ConversationTabBar,
+} from "@/components/app/collaboration-screens/conversation-files-panel"
 import {
   useConversationListReadModelRefresh,
   useConversationThreadReadModelRefresh,
@@ -175,22 +179,13 @@ function WorkspaceChannelBody({
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
-      <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="relative z-30 shrink-0 border-b bg-background/95 backdrop-blur">
-          <div className="mx-auto max-w-3xl overflow-visible px-5 py-4">
-            <NewPostComposer channelId={activeChannel.id} />
-          </div>
-        </div>
-        <div className="relative z-0 no-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
-          <div className="mx-auto max-w-3xl px-5 py-5">
-            <ChannelPostsState
-              emptyDescription="Start a workspace discussion by creating the first post."
-              hasLoadedChannelFeed={hasLoadedChannelFeed}
-              posts={posts}
-            />
-          </div>
-        </div>
-      </div>
+      <ChannelPostFeedPanel
+        channelId={activeChannel.id}
+        editable
+        emptyDescription="Start a workspace discussion by creating the first post."
+        hasLoadedChannelFeed={hasLoadedChannelFeed}
+        posts={posts}
+      />
       <TeamSurfaceSidebar
         open={sidebarOpen}
         label="Workspace channel"
@@ -477,6 +472,73 @@ type ChannelPost = AppData["channelPosts"][number]
 type TeamMember = AppData["users"][number]
 type TeamRecord = AppData["teams"][number]
 
+function ChannelPostFeedPanel({
+  channelId,
+  editable,
+  emptyDescription,
+  hasLoadedChannelFeed,
+  posts,
+}: {
+  channelId: string
+  editable: boolean
+  emptyDescription: string
+  hasLoadedChannelFeed: boolean
+  posts: ChannelPost[]
+}) {
+  const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
+  const postIds = useMemo(() => new Set(posts.map((post) => post.id)), [posts])
+  const commentEntries = useAppStore(
+    useShallow((state) =>
+      state.channelPostComments
+        .filter((comment) => postIds.has(comment.postId))
+        .map((comment) => ({
+          content: comment.content,
+          createdAt: comment.createdAt,
+        }))
+    )
+  )
+  const fileContents = useMemo(
+    () => [
+      ...posts.map((post) => ({
+        content: post.content,
+        createdAt: post.createdAt,
+      })),
+      ...commentEntries,
+    ],
+    [posts, commentEntries]
+  )
+
+  return (
+    <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {editable ? (
+        <div className="relative z-30 shrink-0 border-b bg-background/95 backdrop-blur">
+          <div className="mx-auto max-w-3xl overflow-visible px-5 py-4">
+            <NewPostComposer channelId={channelId} />
+          </div>
+        </div>
+      ) : null}
+      <div className="shrink-0 border-b">
+        <div className="mx-auto flex max-w-3xl items-center justify-end px-5 py-1.5">
+          <ConversationTabBar activeTab={activeTab} onTabChange={setActiveTab} />
+        </div>
+      </div>
+      <div className="relative z-0 no-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+        {activeTab === "files" ? (
+          <ConversationFilesPanel entries={fileContents} />
+        ) : (
+          <div className="mx-auto max-w-3xl px-5 py-5">
+            <ChannelPostsState
+              emptyDescription={emptyDescription}
+              hasLoadedChannelFeed={hasLoadedChannelFeed}
+              posts={posts}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ChannelPostsState({
   emptyDescription,
   hasLoadedChannelFeed,
@@ -530,22 +592,13 @@ function TeamChannelPostSurface({
 }) {
   return (
     <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      {editable ? (
-        <div className="relative z-30 shrink-0 border-b bg-background/95 backdrop-blur">
-          <div className="mx-auto max-w-3xl overflow-visible px-5 py-4">
-            <NewPostComposer channelId={activeChannel.id} />
-          </div>
-        </div>
-      ) : null}
-      <div className="relative z-0 no-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className="mx-auto max-w-3xl px-5 py-5">
-          <ChannelPostsState
-            emptyDescription="Start a discussion by creating the first post."
-            hasLoadedChannelFeed={hasLoadedChannelFeed}
-            posts={posts}
-          />
-        </div>
-      </div>
+      <ChannelPostFeedPanel
+        channelId={activeChannel.id}
+        editable={editable}
+        emptyDescription="Start a discussion by creating the first post."
+        hasLoadedChannelFeed={hasLoadedChannelFeed}
+        posts={posts}
+      />
     </div>
   )
 }

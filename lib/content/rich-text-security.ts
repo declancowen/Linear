@@ -67,6 +67,8 @@ const RICH_TEXT_ALLOWED_ATTRIBUTES: Record<string, readonly string[]> = {
     "data-reference-type",
     "data-reference-id",
     "data-label",
+    "data-attachment-kind",
+    "data-file-name",
   ],
   col: ["style"],
   div: ["data-type"],
@@ -86,6 +88,7 @@ const RICH_TEXT_ALLOWED_ATTRIBUTES: Record<string, readonly string[]> = {
 
 const RICH_TEXT_ALLOWED_CLASSES: Record<string, readonly string[]> = {
   a: [
+    "editor-attachment",
     "editor-reference",
     "editor-reference-document",
     "editor-reference-project",
@@ -128,6 +131,8 @@ const RICH_TEXT_ALLOWED_STYLES: Record<
   },
 }
 
+const INLINE_URL_PATTERN = /https?:\/\/[^\s<>"']+/giu
+
 function getAttributeMap(element: Element) {
   return Object.fromEntries(
     [...element.attributes].map((attribute) => [
@@ -148,7 +153,11 @@ function escapeAttribute(value: string) {
   return escapeHtml(value).replace(/"/g, "&quot;")
 }
 
-function isSafeUrlAttribute(tagName: string, attributeName: string, value: string) {
+function isSafeUrlAttribute(
+  tagName: string,
+  attributeName: string,
+  value: string
+) {
   if (attributeName !== "href" && attributeName !== "src") {
     return true
   }
@@ -171,15 +180,61 @@ function isSafeUrlAttribute(tagName: string, attributeName: string, value: strin
   const scheme = schemeMatch[1]
 
   if (tagName === "img") {
-    return scheme === "http" || scheme === "https"
+    return scheme === "http" || scheme === "https" || scheme === "blob"
   }
 
   return (
     scheme === "http" ||
     scheme === "https" ||
     scheme === "mailto" ||
-    scheme === "tel"
+    scheme === "tel" ||
+    scheme === "blob"
   )
+}
+
+function isLocalBlobUrl(value: string | null | undefined) {
+  const compactValue =
+    value
+      ?.trim()
+      .replace(/[\u0000-\u001F\u007F\s]+/gu, "")
+      .toLowerCase() ?? ""
+
+  return compactValue.startsWith("blob:")
+}
+
+function removeLocalBlobUrlsFromStorageContent(content: string) {
+  if (!/blob:/iu.test(content) && !content.includes('data-type="attachment"')) {
+    return content
+  }
+
+  const { document } = parseHTML(
+    `<!DOCTYPE html><html><head></head><body>${content}</body></html>`
+  )
+
+  document.body.querySelectorAll("img[src]").forEach((element) => {
+    const src = element.getAttribute("src")
+
+    if (isLocalBlobUrl(src)) {
+      element.remove()
+    }
+  })
+
+  document.body.querySelectorAll("a[href]").forEach((element) => {
+    const href = element.getAttribute("href")
+
+    if (!isLocalBlobUrl(href) && href) {
+      return
+    }
+
+    if (element.getAttribute("data-type") === "attachment") {
+      element.remove()
+      return
+    }
+
+    element.replaceWith(...[...element.childNodes])
+  })
+
+  return document.body.innerHTML.trim()
 }
 
 function sanitizeStyleAttribute(tagName: string, value: string) {
@@ -231,42 +286,9 @@ function sanitizeClassAttribute(tagName: string, value: string) {
   return sanitizedClasses.length > 0 ? sanitizedClasses.join(" ") : null
 }
 
-function normalizeAnchorAttributes(attributes: Record<string, string>) {
-  const href = attributes.href?.trim() ?? null
-  const target = attributes.target === "_blank" ? "_blank" : null
-  const className = attributes.class
-    ? sanitizeClassAttribute("a", attributes.class)
-    : null
-  const dataType =
-    attributes["data-type"] === "entity-reference"
-      ? "entity-reference"
-      : null
-  const referenceType = isRichTextEntityReferenceType(
-    attributes["data-reference-type"]
-  )
-    ? attributes["data-reference-type"]
-    : null
-  const referenceId = attributes["data-reference-id"]?.trim() ?? null
-  const referenceLabel = attributes["data-label"]?.trim() ?? null
-  const entityReferenceAttributes =
-    dataType && referenceType && referenceId
-      ? {
-          "data-type": dataType,
-          "data-reference-type": referenceType,
-          "data-reference-id": referenceId,
-          ...(referenceLabel ? { "data-label": referenceLabel } : {}),
-        }
-      : null
-  const safeHref =
-    href && isSafeUrlAttribute("a", "href", href)
-      ? entityReferenceAttributes &&
-        !href.startsWith("/") &&
-        !href.startsWith("#")
-        ? null
-        : href
-      : null
+function getAnchorRelValues(rel: string | undefined, target: string | null) {
   const relValues = new Set(
-    attributes.rel
+    rel
       ?.split(/\s+/u)
       .map((value) => value.trim())
       .filter(Boolean) ?? []
@@ -276,6 +298,84 @@ function normalizeAnchorAttributes(attributes: Record<string, string>) {
     relValues.add("noopener")
     relValues.add("noreferrer")
   }
+
+  return relValues
+}
+
+function normalizeAttachmentAnchorAttributes(
+  attributes: Record<string, string>,
+  href: string | null
+) {
+  const relValues = getAnchorRelValues(attributes.rel, "_blank")
+  const attachmentKind = attributes["data-attachment-kind"]?.trim()
+  const fileName = attributes["data-file-name"]?.trim()
+  const safeHref = href && isSafeUrlAttribute("a", "href", href) ? href : null
+
+  return {
+    ...(safeHref ? { href: safeHref } : {}),
+    target: "_blank",
+    rel: [...relValues].sort().join(" "),
+    class: "editor-attachment",
+    "data-type": "attachment",
+    ...(attachmentKind ? { "data-attachment-kind": attachmentKind } : {}),
+    ...(fileName ? { "data-file-name": fileName } : {}),
+  }
+}
+
+function getEntityReferenceAttributes(attributes: Record<string, string>) {
+  const dataType =
+    attributes["data-type"] === "entity-reference" ? "entity-reference" : null
+  const referenceType = isRichTextEntityReferenceType(
+    attributes["data-reference-type"]
+  )
+    ? attributes["data-reference-type"]
+    : null
+  const referenceId = attributes["data-reference-id"]?.trim() ?? null
+  const referenceLabel = attributes["data-label"]?.trim() ?? null
+  return dataType && referenceType && referenceId
+    ? {
+        "data-type": dataType,
+        "data-reference-type": referenceType,
+        "data-reference-id": referenceId,
+        ...(referenceLabel ? { "data-label": referenceLabel } : {}),
+      }
+    : null
+}
+
+function getSafeAnchorHref(
+  href: string | null,
+  entityReferenceAttributes: ReturnType<typeof getEntityReferenceAttributes>
+) {
+  if (!href || !isSafeUrlAttribute("a", "href", href)) {
+    return null
+  }
+
+  if (
+    entityReferenceAttributes &&
+    !href.startsWith("/") &&
+    !href.startsWith("#")
+  ) {
+    return null
+  }
+
+  return href
+}
+
+function normalizeAnchorAttributes(attributes: Record<string, string>) {
+  const href = attributes.href?.trim() ?? null
+  const target = attributes.target === "_blank" ? "_blank" : null
+  const className = attributes.class
+    ? sanitizeClassAttribute("a", attributes.class)
+    : null
+
+  if (isAttachmentAnchor(attributes)) {
+    return normalizeAttachmentAnchorAttributes(attributes, href)
+  }
+
+  const entityReferenceAttributes = getEntityReferenceAttributes(attributes)
+  const safeHref =
+    getSafeAnchorHref(href, entityReferenceAttributes)
+  const relValues = getAnchorRelValues(attributes.rel, target)
 
   return {
     ...(safeHref ? { href: safeHref } : {}),
@@ -294,7 +394,9 @@ function sanitizeAttribute(
 ) {
   if (tagName === "a") {
     const normalizedAttributes = normalizeAnchorAttributes(attributes)
-    return normalizedAttributes[attributeName as keyof typeof normalizedAttributes]
+    return normalizedAttributes[
+      attributeName as keyof typeof normalizedAttributes
+    ]
   }
 
   if (!RICH_TEXT_ALLOWED_ATTRIBUTES[tagName]?.includes(attributeName)) {
@@ -314,6 +416,75 @@ function sanitizeAttribute(
   }
 
   return value.trim()
+}
+
+function isEntityReferenceAnchor(attributes: Record<string, string>) {
+  return (
+    attributes["data-type"] === "entity-reference" &&
+    isRichTextEntityReferenceType(attributes["data-reference-type"]) &&
+    Boolean(attributes["data-reference-id"]?.trim())
+  )
+}
+
+function isAttachmentAnchor(attributes: Record<string, string>) {
+  return attributes["data-type"] === "attachment"
+}
+
+function hasOnlyTextChildren(element: Element) {
+  return [...element.childNodes].every((child) => child.nodeType === 3)
+}
+
+function isSingleUrlText(value: string) {
+  const trimmedValue = value.trim()
+  const matches = [...trimmedValue.matchAll(INLINE_URL_PATTERN)]
+
+  return matches.length === 1 && matches[0]?.[0] === trimmedValue
+}
+
+function normalizeMixedTextAnchor(element: Element) {
+  const attributes = getAttributeMap(element)
+
+  if (isEntityReferenceAnchor(attributes) || !hasOnlyTextChildren(element)) {
+    return null
+  }
+
+  if (isAttachmentAnchor(attributes)) {
+    return null
+  }
+
+  const textContent = element.textContent ?? ""
+  const matches = [...textContent.matchAll(INLINE_URL_PATTERN)]
+
+  if (matches.length === 0 || isSingleUrlText(textContent)) {
+    return null
+  }
+
+  let cursor = 0
+  const parts: string[] = []
+
+  for (const match of matches) {
+    const url = match[0]
+    const index = match.index ?? 0
+
+    parts.push(escapeHtml(textContent.slice(cursor, index)))
+
+    const anchorAttributes = normalizeAnchorAttributes({
+      ...attributes,
+      href: url,
+    })
+    const attributesFragment = Object.entries(anchorAttributes)
+      .map(([name, value]) => `${name}="${escapeAttribute(value)}"`)
+      .join(" ")
+
+    parts.push(
+      `<a${attributesFragment ? ` ${attributesFragment}` : ""}>${escapeHtml(url)}</a>`
+    )
+    cursor = index + url.length
+  }
+
+  parts.push(escapeHtml(textContent.slice(cursor)))
+
+  return parts.join("")
 }
 
 function sanitizeElementAttributes(element: Element, tagName: string) {
@@ -349,13 +520,45 @@ function sanitizeElementAttributes(element: Element, tagName: string) {
     .join(" ")
 }
 
-function sanitizeNode(node: Node): string {
+function serializePrimitiveRichTextNode(node: Node) {
   if (node.nodeType === 3) {
     return escapeHtml(node.textContent ?? "")
   }
 
   if (node.nodeType !== 1) {
     return ""
+  }
+
+  return null
+}
+
+function serializeSanitizedElement(
+  tagName: string,
+  attributes: string,
+  content: string
+) {
+  if (!RICH_TEXT_ALLOWED_TAG_SET.has(tagName)) {
+    return content
+  }
+
+  const attributesFragment = attributes ? ` ${attributes}` : ""
+
+  if (tagName === "br" || tagName === "hr") {
+    return `<${tagName}${attributesFragment}>`
+  }
+
+  if (RICH_TEXT_VOID_TAGS.has(tagName)) {
+    return `<${tagName}${attributesFragment} />`
+  }
+
+  return `<${tagName}${attributesFragment}>${content}</${tagName}>`
+}
+
+function sanitizeNode(node: Node): string {
+  const primitiveNode = serializePrimitiveRichTextNode(node)
+
+  if (primitiveNode !== null) {
+    return primitiveNode
   }
 
   const element = node as Element
@@ -372,17 +575,39 @@ function sanitizeNode(node: Node): string {
   }
 
   const attributes = sanitizeElementAttributes(element, tagName)
-  const attributesFragment = attributes ? ` ${attributes}` : ""
+  return serializeSanitizedElement(tagName, attributes, content)
+}
 
-  if (tagName === "br" || tagName === "hr") {
-    return `<${tagName}${attributesFragment}>`
+function normalizeMessageLinkNode(node: Node): string {
+  const primitiveNode = serializePrimitiveRichTextNode(node)
+
+  if (primitiveNode !== null) {
+    return primitiveNode
   }
 
-  if (RICH_TEXT_VOID_TAGS.has(tagName)) {
-    return `<${tagName}${attributesFragment} />`
+  const element = node as Element
+  const tagName = element.tagName.toLowerCase()
+  const attributes = getAttributeMap(element)
+
+  if (
+    tagName === "a" &&
+    !isEntityReferenceAnchor(attributes) &&
+    !isAttachmentAnchor(attributes)
+  ) {
+    const mixedTextAnchor = normalizeMixedTextAnchor(element)
+
+    if (mixedTextAnchor !== null) {
+      return mixedTextAnchor
+    }
+
+    if (!isSingleUrlText(element.textContent ?? "")) {
+      return [...element.childNodes].map(normalizeMessageLinkNode).join("")
+    }
   }
 
-  return `<${tagName}${attributesFragment}>${content}</${tagName}>`
+  const content = [...element.childNodes].map(normalizeMessageLinkNode).join("")
+  const sanitizedAttributes = sanitizeElementAttributes(element, tagName)
+  return serializeSanitizedElement(tagName, sanitizedAttributes, content)
 }
 
 export function sanitizeRichTextContent(content: string) {
@@ -483,9 +708,17 @@ export function trimTrailingRichTextDisplayWhitespace(content: string) {
   return document.body.innerHTML.trim()
 }
 
-function sanitizeRichTextMessageContent(content: string) {
+export function sanitizeRichTextMessageContent(content: string) {
   const sanitized = sanitizeRichTextContent(content)
-  const normalized = trimTrailingRichTextDisplayWhitespace(sanitized)
+  const { document } = parseHTML(
+    `<!DOCTYPE html><html><head></head><body>${sanitized}</body></html>`
+  )
+  const messageLinkNormalized = [...document.body.childNodes]
+    .map(normalizeMessageLinkNode)
+    .join("")
+  const normalized = trimTrailingRichTextDisplayWhitespace(
+    messageLinkNormalized
+  )
 
   return normalized.length > 0 ? normalized : sanitized
 }
@@ -496,7 +729,9 @@ export function prepareRichTextForStorage(
     minPlainTextCharacters?: number
   }
 ) {
-  const sanitized = sanitizeRichTextContent(content)
+  const sanitized = removeLocalBlobUrlsFromStorageContent(
+    sanitizeRichTextContent(content)
+  )
   const plainText = getPlainTextContent(sanitized)
   const minPlainTextCharacters = options?.minPlainTextCharacters ?? 0
 
@@ -513,7 +748,9 @@ export function prepareRichTextMessageForStorage(
     minPlainTextCharacters?: number
   }
 ) {
-  const sanitized = sanitizeRichTextMessageContent(content)
+  const sanitized = removeLocalBlobUrlsFromStorageContent(
+    sanitizeRichTextMessageContent(content)
+  )
   const plainText = getPlainTextContent(sanitized)
   const minPlainTextCharacters = options?.minPlainTextCharacters ?? 0
 

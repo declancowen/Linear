@@ -9,14 +9,20 @@ import {
   buildWorkItemDescriptionMentionDetailText,
   buildWorkItemDescriptionMentionNotificationMessage,
 } from "../../lib/domain/notification-copy"
+import { getAttachmentFileValidationMessage } from "../../lib/domain/file-uploads"
+import type { AttachmentTargetType } from "../../lib/domain/types"
 import { extractRichTextMentionCounts } from "../../lib/content/rich-text-mentions"
 import { assertServerToken, getNow } from "./core"
 import {
+  getAttachmentDoc,
+  getConversationDoc,
   getDocumentDoc,
+  getTeamDoc,
   getUserDoc,
   getWorkItemByDescriptionDocId,
   getWorkItemDoc,
   listActiveUsersByIds,
+  listAttachmentsByStorageId,
 } from "./data"
 import { resolveAttachmentTarget } from "./assets"
 import {
@@ -29,7 +35,11 @@ import {
   requireWorkspaceAdminAccess,
 } from "./access"
 import { createNotification } from "./collaboration_utils"
-import { getTeamMemberIds, getWorkspaceUserIds } from "./conversations"
+import {
+  getTeamMemberIds,
+  getWorkspaceUserIds,
+  requireConversationAccess,
+} from "./conversations"
 import { queueEmailJobs } from "./email_job_handlers"
 import { deleteDocumentCascade } from "./lifecycle"
 import { listDocumentPresenceViewers } from "./normalization"
@@ -41,9 +51,7 @@ import {
   resolveDocumentRichTextReferenceRelationships,
   resolveWorkItemDescriptionRichTextReferenceRelationships,
 } from "./rich_text_reference_relationships"
-import { getAttachmentDoc } from "./data"
 import { createId, getNow as now } from "./core"
-import { getTeamDoc } from "./data"
 import { normalizeTeam } from "./normalization"
 
 type ServerAccessArgs = {
@@ -132,7 +140,7 @@ type SendItemDescriptionMentionNotificationsArgs = ServerAccessArgs & {
 
 type GenerateAttachmentUploadUrlArgs = ServerAccessArgs & {
   currentUserId: string
-  targetType: "workItem" | "document"
+  targetType: AttachmentTargetType
   targetId: string
 }
 
@@ -144,7 +152,7 @@ type GenerateSettingsImageUploadUrlArgs = ServerAccessArgs & {
 
 type CreateAttachmentArgs = ServerAccessArgs & {
   currentUserId: string
-  targetType: "workItem" | "document"
+  targetType: AttachmentTargetType
   targetId: string
   storageId: StorageId
   fileName: string
@@ -307,17 +315,27 @@ async function touchAttachmentTarget(
   target: AttachmentTarget,
   currentUserId: string
 ) {
-  await ctx.db.patch(
-    target.recordId,
-    target.entityType === "workItem"
-      ? {
-          updatedAt: getNow(),
-        }
-      : {
-          updatedAt: getNow(),
-          updatedBy: currentUserId,
-        }
-  )
+  const updatedAt = getNow()
+
+  if (target.entityType === "workItem") {
+    await ctx.db.patch(target.recordId, {
+      updatedAt,
+    })
+    return
+  }
+
+  if (target.entityType === "conversation") {
+    await ctx.db.patch(target.recordId, {
+      updatedAt,
+      lastActivityAt: updatedAt,
+    })
+    return
+  }
+
+  await ctx.db.patch(target.recordId, {
+    updatedAt,
+    updatedBy: currentUserId,
+  })
 }
 
 export async function updateDocumentContentHandler(
@@ -1107,7 +1125,10 @@ export async function generateSettingsImageUploadUrlHandler(
 
 async function loadAttachmentUploadMetadata(
   ctx: MutationCtx,
-  args: Pick<CreateAttachmentArgs, "storageId" | "size">
+  args: Pick<
+    CreateAttachmentArgs,
+    "contentType" | "fileName" | "size" | "storageId"
+  >
 ) {
   const metadata = await ctx.storage.getMetadata(args.storageId)
 
@@ -1117,6 +1138,16 @@ async function loadAttachmentUploadMetadata(
 
   if ((metadata.size ?? args.size) <= 0) {
     throw new Error("File is empty")
+  }
+
+  const validationMessage = getAttachmentFileValidationMessage({
+    name: args.fileName,
+    size: metadata.size ?? args.size,
+    type: args.contentType || metadata.contentType,
+  })
+
+  if (validationMessage) {
+    throw new Error(validationMessage)
   }
 
   return metadata
@@ -1154,6 +1185,16 @@ async function requireEditableAttachmentTargetAccess(
     }
 
     await requireEditableWorkItemAccess(ctx, item, args.currentUserId)
+    return
+  }
+
+  if (args.targetType === "conversation") {
+    await requireConversationAccess(
+      ctx,
+      await getConversationDoc(ctx, args.targetId),
+      args.currentUserId,
+      "write"
+    )
     return
   }
 
@@ -1213,7 +1254,18 @@ export async function deleteAttachmentHandler(
     targetId: attachment.targetId,
     targetType: attachment.targetType,
   })
-  await ctx.storage.delete(attachment.storageId)
+  const attachmentStorageRecords = await listAttachmentsByStorageId(
+    ctx,
+    attachment.storageId as string
+  )
+  const hasSiblingAttachment = attachmentStorageRecords.some(
+    (record) => record._id !== attachment._id
+  )
+
+  if (!hasSiblingAttachment) {
+    await ctx.storage.delete(attachment.storageId)
+  }
+
   await ctx.db.delete(attachment._id)
 
   await touchAttachmentTarget(ctx, target, args.currentUserId)

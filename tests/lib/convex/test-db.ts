@@ -7,12 +7,12 @@ export type ConvexTestRecord = {
 
 type ConvexTestTables = Record<string, ConvexTestRecord[]>
 type ConvexTestQueryOperator = "eq" | "lt" | "lte" | "gt" | "gte"
-export type ConvexTestQueryFilter = {
+type ConvexTestQueryFilter = {
   field: string
   operator: ConvexTestQueryOperator
   value: unknown
 }
-export type ConvexTestQueryOperation = {
+type ConvexTestQueryOperation = {
   count?: number
   filters: ConvexTestQueryFilter[]
   indexName?: string

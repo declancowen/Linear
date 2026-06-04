@@ -50,7 +50,7 @@ function getFallbackParentTypeForExperience(
   return null
 }
 
-export function getParentGroupingType(
+function getParentGroupingType(
   context?: WorkGroupingLabelContext
 ): WorkItemType | null {
   const itemLevel = context?.view?.itemLevel ?? null
@@ -78,7 +78,7 @@ export function getEmptyParentGroupingLabel(
   return `No ${getParentGroupingLabel(context).toLowerCase()}`
 }
 
-export function getGroupFieldOptionLabel(
+export function getContextualGroupFieldOptionLabel(
   field: GroupField,
   context?: WorkGroupingLabelContext
 ) {

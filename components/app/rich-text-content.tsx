@@ -1,10 +1,22 @@
 "use client"
 
-import { useMemo, type MouseEvent } from "react"
+import { useMemo, useState, type MouseEvent } from "react"
 import { toast } from "sonner"
 
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { parseHtmlDocument } from "@/lib/content/html-parsing"
 import { sanitizeRichTextContent } from "@/lib/content/rich-text-security"
 import type { RichTextEntityReferenceCandidate } from "@/lib/content/rich-text-references"
+import {
+  getAttachmentFileKind,
+  isImageAttachmentFile,
+  isSupportedAttachmentFileType,
+  type AttachmentFileKind,
+} from "@/lib/domain/file-uploads"
 import { cn } from "@/lib/utils"
 
 function getReferenceKey(type: string | undefined, id: string | undefined) {
@@ -32,18 +44,197 @@ function getReferenceAnchor(target: EventTarget | null) {
   return anchor instanceof HTMLAnchorElement ? anchor : null
 }
 
+type ImagePreviewState = {
+  label: string
+  src: string
+}
+
+type AttachmentDisplayMode = "default" | "inline"
+
+function getUrlPathname(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+
+  try {
+    const baseUrl =
+      typeof window === "undefined"
+        ? "https://app.linear.local"
+        : window.location.href
+
+    return new URL(value, baseUrl).pathname
+  } catch {
+    return value
+  }
+}
+
+function isImageHrefCandidate(anchor: HTMLAnchorElement) {
+  const href = anchor.getAttribute("href")
+  const label = anchor.textContent?.trim() ?? ""
+  const pathname = getUrlPathname(href)
+
+  return [label, href, pathname].some((candidate) =>
+    isImageAttachmentFile(candidate, null)
+  )
+}
+
+function getInlineImageReferenceLabel(image: Element) {
+  const label =
+    image.getAttribute("alt")?.trim() ||
+    image.getAttribute("title")?.trim() ||
+    image.getAttribute("data-file-name")?.trim() ||
+    image.getAttribute("src")?.split("/").filter(Boolean).at(-1)?.trim()
+
+  return label || "Image"
+}
+
+function replaceImagePreviewsWithAttachmentLinks(container: HTMLElement) {
+  const images = container.querySelectorAll("img.editor-image")
+
+  images.forEach((image) => {
+    const src =
+      (image as HTMLImageElement).currentSrc ||
+      image.getAttribute("src") ||
+      (image as HTMLImageElement).src
+
+    if (!src) {
+      return
+    }
+
+    const ownerDocument = image.ownerDocument
+
+    if (!ownerDocument) {
+      return
+    }
+
+    const anchor = ownerDocument.createElement("a")
+    anchor.href = src
+    anchor.target = "_blank"
+    anchor.rel = "noreferrer"
+    anchor.className = "editor-attachment"
+    anchor.dataset.type = "attachment"
+    anchor.dataset.attachmentKind = "image"
+    anchor.dataset.richTextGeneratedImageReference = "true"
+    anchor.textContent = getInlineImageReferenceLabel(image)
+    image.replaceWith(anchor)
+  })
+}
+
+function getAnchorAttachmentKind(
+  anchor: Element
+): AttachmentFileKind | null {
+  if (anchor.getAttribute("data-type") === "entity-reference") {
+    return null
+  }
+
+  const label = anchor.textContent?.trim() ?? ""
+  const href = anchor.getAttribute("href")
+  const candidate = label || getUrlPathname(href) || href || ""
+
+  return isSupportedAttachmentFileType(candidate, null)
+    ? getAttachmentFileKind(candidate, null)
+    : null
+}
+
+/**
+ * Bakes attachment presentation into the HTML so the chip + type icon render
+ * from static markup + CSS, instead of mutating the DOM after render. In inline
+ * mode image previews become reference chips; supported file links upgrade to
+ * chips in every mode.
+ */
+function transformAttachmentReferences(html: string, inline: boolean) {
+  const doc = parseHtmlDocument(html)
+
+  if (inline) {
+    replaceImagePreviewsWithAttachmentLinks(doc.body)
+  }
+
+  doc.body.querySelectorAll("a[href]").forEach((anchor) => {
+    if (anchor.getAttribute("data-type") === "attachment") {
+      return
+    }
+
+    const kind = getAnchorAttachmentKind(anchor)
+
+    if (!kind) {
+      return
+    }
+
+    anchor.classList.add("editor-attachment")
+    anchor.setAttribute("data-type", "attachment")
+    anchor.setAttribute("data-attachment-kind", kind)
+  })
+
+  return doc.body.innerHTML
+}
+
+function getImagePreviewFromTarget(
+  target: EventTarget | null
+): ImagePreviewState | null {
+  if (!(target instanceof Element)) {
+    return null
+  }
+
+  const image = target.closest("img.editor-image")
+
+  if (image instanceof HTMLImageElement) {
+    const src = image.currentSrc || image.src || image.getAttribute("src")
+
+    if (!src) {
+      return null
+    }
+
+    return {
+      label:
+        image.alt.trim() ||
+        image.title.trim() ||
+        image.getAttribute("src") ||
+        "Image preview",
+      src,
+    }
+  }
+
+  const anchor = target.closest("a[href]")
+
+  if (
+    anchor instanceof HTMLAnchorElement &&
+    anchor.dataset.type !== "entity-reference" &&
+    isImageHrefCandidate(anchor)
+  ) {
+    return {
+      label: anchor.textContent?.trim() || "Image preview",
+      src: anchor.href,
+    }
+  }
+
+  return null
+}
+
 export function RichTextContent({
   content,
   className,
+  attachmentDisplay = "default",
   referenceCandidates,
 }: {
   content: string
   className?: string
+  attachmentDisplay?: AttachmentDisplayMode
   referenceCandidates?: RichTextEntityReferenceCandidate[]
 }) {
+  const [imagePreview, setImagePreview] = useState<ImagePreviewState | null>(
+    null
+  )
   const sanitizedContent = useMemo(
     () => sanitizeRichTextContent(content),
     [content]
+  )
+  const displayedContent = useMemo(
+    () =>
+      transformAttachmentReferences(
+        sanitizedContent,
+        attachmentDisplay === "inline"
+      ),
+    [attachmentDisplay, sanitizedContent]
   )
   const accessibleReferenceKeys = useMemo(
     () =>
@@ -58,38 +249,79 @@ export function RichTextContent({
   )
 
   return (
-    <div
-      className={cn(
-        "tiptap break-words [&_a]:text-primary [&_a]:underline-offset-2 hover:[&_a]:underline [&_li]:ml-4 [&_ol]:list-decimal [&_p+p]:mt-2 [&_ul]:list-disc",
-        className
-      )}
-      onClickCapture={(event) => {
-        if (
-          !accessibleReferenceKeys ||
-          !isPlainReferenceNavigationClick(event)
-        ) {
-          return
-        }
+    <>
+      <div
+        className={cn(
+          "tiptap break-words [&_a]:text-primary [&_a]:underline-offset-2 hover:[&_a]:underline [&_li]:ml-4 [&_ol]:list-decimal [&_p+p]:mt-2 [&_ul]:list-disc",
+          className
+        )}
+        onClickCapture={(event) => {
+          if (!isPlainReferenceNavigationClick(event)) {
+            return
+          }
 
-        const anchor = getReferenceAnchor(event.target)
+          const preview = getImagePreviewFromTarget(event.target)
 
-        if (!anchor) {
-          return
-        }
+          if (preview) {
+            event.preventDefault()
+            setImagePreview(preview)
+            return
+          }
 
-        const referenceKey = getReferenceKey(
-          anchor.dataset.referenceType,
-          anchor.dataset.referenceId
-        )
+          if (!accessibleReferenceKeys) {
+            return
+          }
 
-        if (!referenceKey || accessibleReferenceKeys.has(referenceKey)) {
-          return
-        }
+          const anchor = getReferenceAnchor(event.target)
 
-        event.preventDefault()
-        toast.error("You do not have access to this reference")
-      }}
-      dangerouslySetInnerHTML={{ __html: sanitizedContent }}
-    />
+          if (!anchor) {
+            return
+          }
+
+          const referenceKey = getReferenceKey(
+            anchor.dataset.referenceType,
+            anchor.dataset.referenceId
+          )
+
+          if (!referenceKey || accessibleReferenceKeys.has(referenceKey)) {
+            return
+          }
+
+          event.preventDefault()
+          toast.error("You do not have access to this reference")
+        }}
+        dangerouslySetInnerHTML={{ __html: displayedContent }}
+      />
+      <Dialog
+        open={imagePreview !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setImagePreview(null)
+          }
+        }}
+      >
+        <DialogContent
+          aria-describedby={undefined}
+          className="max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] gap-3 bg-black/90 p-3 text-white sm:max-w-[calc(100vw-2rem)]"
+        >
+          <DialogTitle className="sr-only">
+            {imagePreview?.label ?? "Image preview"}
+          </DialogTitle>
+          {imagePreview ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element -- Uploaded rich-text images use user-provided URLs that are not statically known. */}
+              <img
+                src={imagePreview.src}
+                alt={imagePreview.label}
+                className="mx-auto max-h-[calc(100vh-7rem)] max-w-full rounded-md object-contain"
+              />
+              <div className="truncate px-8 text-center text-xs text-white/75">
+                {imagePreview.label}
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

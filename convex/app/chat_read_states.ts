@@ -1,9 +1,12 @@
 import type { MutationCtx } from "../_generated/server"
+import type { Conversation } from "../../lib/domain/types"
 
 import {
   createChatReadStateId,
+  getReadableChatMessageReceiptIds,
   getUnreadChatMessageReceiptIds,
   mergeChatMessageFirstReadTimestamps,
+  supportsChatMessageReadReceipts,
 } from "../../lib/domain/chat-read-state"
 import {
   getChatReadStateDoc,
@@ -103,10 +106,17 @@ export async function markChatConversationRead(
   input: {
     userId: string
     conversationId: string
+    conversation?: Pick<Conversation, "kind" | "scopeType" | "variant"> | null
     now: string
     messageIds?: string[]
   }
 ) {
+  const readableMessageIds = await selectReadableMessageIdsForReceipt(ctx, {
+    conversation: input.conversation,
+    conversationId: input.conversationId,
+    currentUserId: input.userId,
+    messageIds: input.messageIds,
+  })
   const existing = await getChatReadStateDoc(
     ctx,
     input.userId,
@@ -114,7 +124,7 @@ export async function markChatConversationRead(
   )
   const unreadMessageIds = getUnreadChatMessageReceiptIds(
     existing?.messageReadAtById,
-    input.messageIds
+    readableMessageIds
   )
   const messageReadAtById = unreadMessageIds.length
     ? mergeChatMessageFirstReadTimestamps(
@@ -208,6 +218,7 @@ export async function markChatUnreadForUsers(
 async function selectReadableMessageIdsForReceipt(
   ctx: MutationCtx,
   input: {
+    conversation?: Pick<Conversation, "kind" | "scopeType" | "variant"> | null
     conversationId: string
     currentUserId: string
     messageIds?: string[]
@@ -217,19 +228,24 @@ async function selectReadableMessageIdsForReceipt(
     return undefined
   }
 
-  const requestedIds = new Set(input.messageIds)
+  const conversation =
+    input.conversation ?? (await getConversationDoc(ctx, input.conversationId))
+
+  if (!supportsChatMessageReadReceipts(conversation)) {
+    return undefined
+  }
+
   const readableMessages = await listChatMessagesByConversation(
     ctx,
     input.conversationId
   )
   const readableIds = new Set(
-    readableMessages
-      .filter(
-        (message) =>
-          requestedIds.has(message.id) &&
-          (!message.deletedAt || message.createdBy === input.currentUserId)
-      )
-      .map((message) => message.id)
+    getReadableChatMessageReceiptIds({
+      conversationId: input.conversationId,
+      currentUserId: input.currentUserId,
+      messages: readableMessages,
+      messageIds: input.messageIds,
+    })
   )
 
   return input.messageIds.filter((messageId) => readableIds.has(messageId))
@@ -251,21 +267,13 @@ export async function updateChatReadStateHandler(
   }
 
   const now = getNow()
-  const messageIds =
-    args.action === "read"
-      ? await selectReadableMessageIdsForReceipt(ctx, {
-          conversationId: conversation.id,
-          currentUserId: args.currentUserId,
-          messageIds: args.messageIds,
-        })
-      : undefined
-
   return args.action === "read"
     ? markChatConversationRead(ctx, {
         userId: args.currentUserId,
         conversationId: conversation.id,
+        conversation,
         now,
-        messageIds,
+        messageIds: args.messageIds,
       })
     : markChatConversationUnread(ctx, {
         userId: args.currentUserId,

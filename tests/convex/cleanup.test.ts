@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   cascadeDeleteTeamData,
   cleanupRemainingLinksAfterDelete,
+  deleteContentReferencedAttachments,
 } from "@/convex/app/cleanup"
 import { createMutableConvexTestCtx } from "@/tests/lib/convex/test-db"
 
@@ -154,7 +155,186 @@ function createViewFilters() {
   }
 }
 
+const REFERENCED_IMAGE_CONTENT =
+  '<p><img src="https://assets.example.com/image.png"></p>'
+
+function createReferencedImageComment(overrides: Record<string, unknown> = {}) {
+  return {
+    _id: "comment_2_doc",
+    id: "comment_2",
+    targetType: "workItem" as const,
+    targetId: "item_1",
+    parentCommentId: null,
+    content: REFERENCED_IMAGE_CONTENT,
+    mentionUserIds: [],
+    reactions: [],
+    createdBy: "user_2",
+    createdAt: "2026-04-17T10:05:00.000Z",
+    ...overrides,
+  }
+}
+
+function createImageAttachmentRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    _id: "attachment_2_doc",
+    id: "attachment_2",
+    targetType: "document" as const,
+    targetId: "document_2",
+    teamId: "team_1",
+    storageId: "storage_1",
+    fileName: "image.png",
+    contentType: "image/png",
+    size: 42,
+    uploadedBy: "user_1",
+    createdAt: "2026-04-17T10:06:00.000Z",
+    ...overrides,
+  }
+}
+
+function createAttachmentCleanupCtx() {
+  const comments: Array<{
+    _id: string
+    id: string
+    targetType: "workItem"
+    targetId: string
+    parentCommentId: string | null
+    content: string
+    mentionUserIds: string[]
+    reactions: unknown[]
+    createdBy: string
+    createdAt: string
+  }> = []
+
+  const ctx = createMutableConvexTestCtx({
+    attachments: [
+      {
+        _id: "attachment_1_doc",
+        id: "attachment_1",
+        targetType: "workItem",
+        targetId: "item_1",
+        teamId: "team_1",
+        storageId: "storage_1",
+        fileName: "image.png",
+        contentType: "image/png",
+        size: 42,
+        uploadedBy: "user_1",
+        createdAt: "2026-04-17T10:00:00.000Z",
+      },
+    ],
+    comments,
+    documents: [
+      {
+        _id: "description_doc",
+        id: "description_1",
+        kind: "item-description",
+        teamId: "team_1",
+        workspaceId: "workspace_1",
+        title: "Task description",
+        content: "<p></p>",
+        linkedProjectIds: [],
+        linkedWorkItemIds: [],
+      },
+    ],
+    workItems: [
+      {
+        _id: "item_1_doc",
+        id: "item_1",
+        teamId: "team_1",
+        descriptionDocId: "description_1",
+      },
+    ],
+  })
+
+  return {
+    ...ctx,
+    storage: {
+      delete: vi.fn(),
+      getUrl: vi.fn(async (storageId: string) =>
+        storageId === "storage_1" ? "https://assets.example.com/image.png" : null
+      ),
+    },
+  }
+}
+
+function getPrivateCleanupRecords(ctx: ReturnType<typeof createCascadeDeleteTeamCtx>) {
+  return {
+    privateDescription: ctx.tables.documents.find(
+      (document) => document.id === "private_description"
+    ),
+    privateWorkItem: ctx.tables.workItems.find(
+      (workItem) => workItem.id === "private_item"
+    ),
+  }
+}
+
+function addPrivateWorkItemComment(
+  ctx: ReturnType<typeof createCascadeDeleteTeamCtx>,
+  references: Record<string, unknown>
+) {
+  ;(ctx.tables.comments as unknown[]).push({
+    _id: "comment_doc",
+    id: "comment_1",
+    targetType: "workItem",
+    targetId: "private_item",
+    parentCommentId: null,
+    content: "<p>References</p>",
+    mentionUserIds: [],
+    reactions: [],
+    createdBy: "user_1",
+    createdAt: "2026-04-17T10:00:00.000Z",
+    ...references,
+  })
+}
+
+async function deleteReferencedImageAttachments(
+  ctx: ReturnType<typeof createAttachmentCleanupCtx>
+) {
+  await deleteContentReferencedAttachments(ctx as never, {
+    targetType: "workItem",
+    targetId: "item_1",
+    contents: [REFERENCED_IMAGE_CONTENT],
+  })
+}
+
+function expectRemainingAttachmentIds(
+  ctx: ReturnType<typeof createAttachmentCleanupCtx>,
+  attachmentIds: string[]
+) {
+  expect(ctx.tables.attachments.map((attachment) => attachment.id)).toEqual(
+    attachmentIds
+  )
+}
+
 describe("cleanup handlers", () => {
+  it("keeps content attachments while another live target content reference remains", async () => {
+    const ctx = createAttachmentCleanupCtx()
+    ctx.tables.comments.push(createReferencedImageComment())
+
+    await deleteReferencedImageAttachments(ctx)
+
+    expect(ctx.storage.delete).not.toHaveBeenCalled()
+    expectRemainingAttachmentIds(ctx, ["attachment_1"])
+  })
+
+  it("keeps storage while another attachment record references it", async () => {
+    const ctx = createAttachmentCleanupCtx()
+    ctx.tables.attachments.push(createImageAttachmentRecord())
+
+    await deleteReferencedImageAttachments(ctx)
+
+    expect(ctx.storage.delete).not.toHaveBeenCalled()
+    expectRemainingAttachmentIds(ctx, ["attachment_2"])
+  })
+
+  it("deletes storage after the last referenced attachment record is removed", async () => {
+    const ctx = createAttachmentCleanupCtx()
+
+    await deleteReferencedImageAttachments(ctx)
+
+    expect(ctx.storage.delete).toHaveBeenCalledWith("storage_1")
+    expect(ctx.tables.attachments).toEqual([])
+  })
+
   it("keeps private work items when deleting a team", async () => {
     const ctx = createCascadeDeleteTeamCtx()
 
@@ -203,12 +383,7 @@ describe("cleanup handlers", () => {
 
   it("clears deleted team view references when preserving private work items", async () => {
     const ctx = createCascadeDeleteTeamCtx()
-    const privateDescription = ctx.tables.documents.find(
-      (document) => document.id === "private_description"
-    )
-    const privateWorkItem = ctx.tables.workItems.find(
-      (workItem) => workItem.id === "private_item"
-    )
+    const { privateDescription, privateWorkItem } = getPrivateCleanupRecords(ctx)
 
     Object.assign(privateDescription ?? {}, {
       linkedViewIds: ["team_view", "kept_view"],
@@ -216,18 +391,8 @@ describe("cleanup handlers", () => {
     Object.assign(privateWorkItem ?? {}, {
       referencedViewIds: ["team_view", "kept_view"],
     })
-    ;(ctx.tables.comments as unknown[]).push({
-      _id: "comment_doc",
-      id: "comment_1",
-      targetType: "workItem",
-      targetId: "private_item",
-      parentCommentId: null,
-      content: "<p>References</p>",
-      mentionUserIds: [],
+    addPrivateWorkItemComment(ctx, {
       referencedViewIds: ["team_view", "kept_view"],
-      reactions: [],
-      createdBy: "user_1",
-      createdAt: "2026-04-17T10:00:00.000Z",
     })
     ;(ctx.tables.views as unknown[]).push({
       _id: "team_view_doc",
@@ -263,12 +428,7 @@ describe("cleanup handlers", () => {
 
   it("clears deleted entity reference ids from persisted document, work item, and comment metadata", async () => {
     const ctx = createCascadeDeleteTeamCtx()
-    const privateDescription = ctx.tables.documents.find(
-      (document) => document.id === "private_description"
-    )
-    const privateWorkItem = ctx.tables.workItems.find(
-      (workItem) => workItem.id === "private_item"
-    )
+    const { privateDescription, privateWorkItem } = getPrivateCleanupRecords(ctx)
 
     Object.assign(privateDescription ?? {}, {
       linkedProjectIds: ["deleted_project", "kept_project"],
@@ -280,21 +440,11 @@ describe("cleanup handlers", () => {
       referencedProjectIds: ["deleted_project", "kept_project"],
       referencedViewIds: ["deleted_view", "view_1"],
     })
-    ;(ctx.tables.comments as unknown[]).push({
-      _id: "comment_doc",
-      id: "comment_1",
-      targetType: "workItem",
-      targetId: "private_item",
-      parentCommentId: null,
-      content: "<p>References</p>",
-      mentionUserIds: [],
+    addPrivateWorkItemComment(ctx, {
       referencedWorkItemIds: ["deleted_item", "private_item"],
       referencedDocumentIds: ["deleted_doc", "private_description"],
       referencedProjectIds: ["deleted_project", "kept_project"],
       referencedViewIds: ["deleted_view", "view_1"],
-      reactions: [],
-      createdBy: "user_1",
-      createdAt: "2026-04-17T10:00:00.000Z",
     })
 
     await cleanupRemainingLinksAfterDelete(ctx as never, {

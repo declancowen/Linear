@@ -11,6 +11,8 @@ const assertServerTokenMock = vi.fn()
 const getAttachmentDocMock = vi.fn()
 const getDocumentDocMock = vi.fn()
 const getProjectDocMock = vi.fn()
+const listAttachmentsByStorageIdMock = vi.fn()
+const getWorkItemByDescriptionDocIdMock = vi.fn()
 const listActiveUsersByIdsMock = vi.fn()
 const requireEditableDocumentAccessMock = vi.fn()
 const requireEditableWorkItemAccessMock = vi.fn()
@@ -18,7 +20,6 @@ const requireReadableDocumentAccessMock = vi.fn()
 const requireReadableTeamAccessMock = vi.fn()
 const requireReadableWorkItemAccessMock = vi.fn()
 const requireReadableWorkspaceAccessMock = vi.fn()
-const getWorkItemByDescriptionDocIdMock = vi.fn()
 const getWorkItemDocMock = vi.fn()
 const getTeamMemberIdsMock = vi.fn()
 const getViewDocMock = vi.fn()
@@ -54,6 +55,7 @@ vi.mock("@/convex/app/data", () => ({
   getWorkItemByDescriptionDocId: getWorkItemByDescriptionDocIdMock,
   getWorkItemDoc: getWorkItemDocMock,
   listActiveUsersByIds: listActiveUsersByIdsMock,
+  listAttachmentsByStorageId: listAttachmentsByStorageIdMock,
 }))
 
 vi.mock("@/convex/app/access", async () => {
@@ -155,6 +157,33 @@ async function mockPrivateAttachmentTargetAccessDenied() {
   )
 }
 
+async function mockDeletableWorkItemAttachment(
+  storageAttachments: Array<{ _id: string; storageId: string }>
+) {
+  const assets = await import("@/convex/app/assets")
+
+  getAttachmentDocMock.mockResolvedValue({
+    _id: "attachment_1_db",
+    id: "attachment_1",
+    targetType: "workItem",
+    targetId: "item_1",
+    teamId: "team_1",
+    storageId: "storage_1",
+  })
+  vi.mocked(assets.resolveAttachmentTarget).mockResolvedValue({
+    teamId: "team_1",
+    entityType: "workItem",
+    recordId: "item_1_db" as never,
+  })
+  getWorkItemDocMock.mockResolvedValue({
+    _id: "item_1_db",
+    id: "item_1",
+    teamId: "team_1",
+    visibility: "team",
+  })
+  listAttachmentsByStorageIdMock.mockResolvedValue(storageAttachments)
+}
+
 describe("document mention notifications", () => {
   beforeEach(() => {
     buildMentionEmailJobsMock.mockReset()
@@ -162,6 +191,7 @@ describe("document mention notifications", () => {
     getAttachmentDocMock.mockReset()
     getDocumentDocMock.mockReset()
     getProjectDocMock.mockReset()
+    listAttachmentsByStorageIdMock.mockReset()
     listActiveUsersByIdsMock.mockReset()
     requireEditableDocumentAccessMock.mockReset()
     requireEditableWorkItemAccessMock.mockReset()
@@ -227,6 +257,7 @@ describe("document mention notifications", () => {
       },
     ])
     queueEmailJobsMock.mockResolvedValue(undefined)
+    listAttachmentsByStorageIdMock.mockResolvedValue([])
   })
 
   it("allows sending a pending count that is backed by persisted mentions", async () => {
@@ -766,6 +797,45 @@ describe("document mention notifications", () => {
 
     expect(ctx.storage.delete).not.toHaveBeenCalled()
     expect(ctx.db.delete).not.toHaveBeenCalled()
+  })
+
+  it("keeps shared storage when deleting one attachment record", async () => {
+    const { deleteAttachmentHandler } =
+      await import("@/convex/app/document_handlers")
+    const ctx = createCtx()
+
+    await mockDeletableWorkItemAttachment([
+      { _id: "attachment_1_db", storageId: "storage_1" },
+      { _id: "attachment_2_db", storageId: "storage_1" },
+    ])
+
+    await deleteAttachmentHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      attachmentId: "attachment_1",
+    })
+
+    expect(ctx.storage.delete).not.toHaveBeenCalled()
+    expect(ctx.db.delete).toHaveBeenCalledWith("attachment_1_db")
+  })
+
+  it("deletes storage when deleting the last attachment record", async () => {
+    const { deleteAttachmentHandler } =
+      await import("@/convex/app/document_handlers")
+    const ctx = createCtx()
+
+    await mockDeletableWorkItemAttachment([
+      { _id: "attachment_1_db", storageId: "storage_1" },
+    ])
+
+    await deleteAttachmentHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      attachmentId: "attachment_1",
+    })
+
+    expect(ctx.storage.delete).toHaveBeenCalledWith("storage_1")
+    expect(ctx.db.delete).toHaveBeenCalledWith("attachment_1_db")
   })
 
   it("updates document title and content while preserving mention notification caps", async () => {

@@ -179,7 +179,7 @@ describe("Inbox row primitives", () => {
     expect(onDelete).toHaveBeenCalledTimes(1)
   })
 
-  it("shows comment previews and opens targeted work item comments", () => {
+  it("shows comment previews in the detail pane only and opens targeted work item comments", () => {
     const actor = createTestUser({
       id: "user_2",
       name: "Maya",
@@ -221,7 +221,7 @@ describe("Inbox row primitives", () => {
 
     expect(
       screen.getAllByText("The API needs a retry budget.")
-    ).toHaveLength(2)
+    ).toHaveLength(1)
     expect(screen.getByText("Comment")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Open comment" })).toHaveAttribute(
       "href",

@@ -36,7 +36,12 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  ATTACHMENT_FILE_INPUT_ACCEPT,
+  ATTACHMENT_IMAGE_INPUT_ACCEPT,
+} from "@/lib/domain/file-uploads"
 import { cn } from "@/lib/utils"
+import type { RichTextAttachmentInsertMode } from "./attachment-insertion"
 
 export type FullPageCanvasWidth = "narrow" | "medium" | "wide"
 
@@ -64,7 +69,11 @@ type RichTextToolbarProps = {
   editor: Editor
   fullPage: boolean
   fullPageCanvasWidth: FullPageCanvasWidth
-  handleFiles: (files: File[], position?: number | null) => Promise<void>
+  handleFiles: (
+    files: File[],
+    position?: number | null,
+    insertMode?: RichTextAttachmentInsertMode
+  ) => Promise<void>
   hiddenAttachmentInputRef: RefObject<HTMLInputElement | null>
   hiddenImageInputRef: RefObject<HTMLInputElement | null>
   pickerInsertPosition: number | null
@@ -445,11 +454,13 @@ function UploadToolbarGroup({
         ref={hiddenAttachmentInputRef}
         className="hidden"
         type="file"
+        accept={ATTACHMENT_FILE_INPUT_ACCEPT}
         multiple
         onChange={(event) =>
           void handleFiles(
             Array.from(event.target.files ?? []),
-            pickerInsertPosition
+            pickerInsertPosition,
+            "reference"
           )
         }
       />
@@ -457,12 +468,13 @@ function UploadToolbarGroup({
         ref={hiddenImageInputRef}
         className="hidden"
         type="file"
-        accept="image/*"
+        accept={ATTACHMENT_IMAGE_INPUT_ACCEPT}
         multiple
         onChange={(event) =>
           void handleFiles(
             Array.from(event.target.files ?? []),
-            pickerInsertPosition
+            pickerInsertPosition,
+            "preview"
           )
         }
       />

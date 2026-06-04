@@ -471,6 +471,37 @@ export async function listWorkspacesOwnedByUser(ctx: AppCtx, userId: string) {
     .collect()
 }
 
+export async function loadUserWorkspaceAccessSummary(
+  ctx: AppCtx,
+  userId: string
+) {
+  const [workspaceMemberships, teamMemberships, ownedWorkspaces] =
+    await Promise.all([
+      listWorkspaceMembershipsByUser(ctx, userId),
+      listTeamMembershipsByUser(ctx, userId),
+      listWorkspacesOwnedByUser(ctx, userId),
+    ])
+  const teams = await listTeamsByIds(
+    ctx,
+    teamMemberships.map((membership) => membership.teamId)
+  )
+  const accessibleWorkspaceIds = new Set<string>([
+    ...workspaceMemberships.map((membership) => membership.workspaceId),
+    ...teams.map((team) => team.workspaceId),
+    ...ownedWorkspaces.map((workspace) => workspace.id),
+  ])
+  const accessibleTeamIds = new Set(teams.map((team) => team.id))
+
+  return {
+    accessibleTeamIds,
+    accessibleWorkspaceIds,
+    ownedWorkspaces,
+    teamMemberships,
+    teams,
+    workspaceMemberships,
+  }
+}
+
 export async function listWorkspacesByIds(
   ctx: AppCtx,
   workspaceIds: Iterable<string>
@@ -916,6 +947,16 @@ export async function listChatReadStatesByUser(ctx: AppCtx, userId: string) {
     .collect()
 }
 
+export async function listChatReadStatesByConversation(
+  ctx: AppCtx,
+  conversationId: string
+) {
+  return ctx.db
+    .query("chatReadStates")
+    .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
+    .collect()
+}
+
 export async function listChannelPostsByConversation(
   ctx: AppCtx,
   conversationId: string
@@ -975,7 +1016,7 @@ export async function getAttachmentDoc(ctx: AppCtx, id: string) {
 
 export async function listAttachmentsByTarget(
   ctx: AppCtx,
-  targetType: "workItem" | "document",
+  targetType: "workItem" | "document" | "conversation",
   targetId: string
 ) {
   return ctx.db
@@ -986,10 +1027,32 @@ export async function listAttachmentsByTarget(
     .collect()
 }
 
+export async function listAttachmentsByStorageId(ctx: AppCtx, storageId: string) {
+  return ctx.db
+    .query("attachments")
+    .withIndex("by_storage", (q) => q.eq("storageId", storageId as never))
+    .collect()
+}
+
+export async function listAttachmentsByStorageIds(
+  ctx: AppCtx,
+  storageIds: Iterable<string>
+) {
+  const uniqueStorageIds = [...new Set(storageIds)]
+
+  if (uniqueStorageIds.length === 0) {
+    return []
+  }
+
+  return flatMapInBatches(uniqueStorageIds, (storageId) =>
+    listAttachmentsByStorageId(ctx, storageId)
+  )
+}
+
 export async function listAttachmentsByTargets(
   ctx: AppCtx,
   input: {
-    targetType: "workItem" | "document"
+    targetType: "workItem" | "document" | "conversation"
     targetIds: Iterable<string>
   }
 ) {

@@ -43,11 +43,18 @@ function getReferenceIds(content: string, type: RichTextEntityReferenceType) {
 async function filterReadableDocumentReferenceIds(
   ctx: MutationCtx,
   ids: string[],
-  currentUserId: string
+  currentUserId: string,
+  options: {
+    excludeDocumentId?: string
+  } = {}
 ) {
   const allowedIds: string[] = []
 
   for (const id of ids) {
+    if (id === options.excludeDocumentId) {
+      continue
+    }
+
     const document = await getDocumentDoc(ctx, id)
 
     if (
@@ -67,6 +74,43 @@ async function filterReadableDocumentReferenceIds(
   }
 
   return allowedIds
+}
+
+async function resolveReadableRichTextReferenceRelationships(
+  ctx: MutationCtx,
+  input: {
+    content: string
+    currentUserId: string
+    excludeDocumentId?: string
+    excludeWorkItemId?: string
+  }
+): Promise<RichTextReferenceRelationshipIds> {
+  const [documentIds, projectIds, viewIds, workItemIds] = await Promise.all([
+    filterReadableDocumentReferenceIds(
+      ctx,
+      getReferenceIds(input.content, "document"),
+      input.currentUserId,
+      { excludeDocumentId: input.excludeDocumentId }
+    ),
+    filterReadableProjectReferenceIds(
+      ctx,
+      getReferenceIds(input.content, "project"),
+      input.currentUserId
+    ),
+    filterReadableViewReferenceIds(
+      ctx,
+      getReferenceIds(input.content, "view"),
+      input.currentUserId
+    ),
+    filterReadableWorkItemReferenceIds(
+      ctx,
+      getReferenceIds(input.content, "workItem"),
+      input.currentUserId,
+      { excludeItemId: input.excludeWorkItemId }
+    ),
+  ])
+
+  return { documentIds, projectIds, viewIds, workItemIds }
 }
 
 async function filterReadableWorkItemReferenceIds(
@@ -175,32 +219,11 @@ export async function resolveDocumentRichTextReferenceRelationships(
     return emptyRelationships
   }
 
-  const [documentIds, projectIds, viewIds, workItemIds] = await Promise.all([
-    filterReadableDocumentReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "document").filter(
-        (id) => id !== input.document.id
-      ),
-      input.currentUserId
-    ),
-    filterReadableProjectReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "project"),
-      input.currentUserId
-    ),
-    filterReadableViewReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "view"),
-      input.currentUserId
-    ),
-    filterReadableWorkItemReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "workItem"),
-      input.currentUserId
-    ),
-  ])
-
-  return { documentIds, projectIds, viewIds, workItemIds }
+  return resolveReadableRichTextReferenceRelationships(ctx, {
+    content: input.content,
+    currentUserId: input.currentUserId,
+    excludeDocumentId: input.document.id,
+  })
 }
 
 export async function resolveWorkItemDescriptionRichTextReferenceRelationships(
@@ -215,31 +238,11 @@ export async function resolveWorkItemDescriptionRichTextReferenceRelationships(
     return emptyRelationships
   }
 
-  const [documentIds, projectIds, viewIds, workItemIds] = await Promise.all([
-    filterReadableDocumentReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "document"),
-      input.currentUserId
-    ),
-    filterReadableProjectReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "project"),
-      input.currentUserId
-    ),
-    filterReadableViewReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "view"),
-      input.currentUserId
-    ),
-    filterReadableWorkItemReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "workItem"),
-      input.currentUserId,
-      { excludeItemId: input.item.id }
-    ),
-  ])
-
-  return { documentIds, projectIds, viewIds, workItemIds }
+  return resolveReadableRichTextReferenceRelationships(ctx, {
+    content: input.content,
+    currentUserId: input.currentUserId,
+    excludeWorkItemId: input.item.id,
+  })
 }
 
 export async function resolveWorkItemCommentReferenceRelationships(
@@ -254,30 +257,10 @@ export async function resolveWorkItemCommentReferenceRelationships(
     return emptyRelationships
   }
 
-  const [documentIds, projectIds, viewIds, workItemIds] = await Promise.all([
-    filterReadableDocumentReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "document"),
-      input.currentUserId
-    ),
-    filterReadableProjectReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "project"),
-      input.currentUserId
-    ),
-    filterReadableViewReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "view"),
-      input.currentUserId
-    ),
-    filterReadableWorkItemReferenceIds(
-      ctx,
-      getReferenceIds(input.content, "workItem"),
-      input.currentUserId
-    ),
-  ])
-
-  return { documentIds, projectIds, viewIds, workItemIds }
+  return resolveReadableRichTextReferenceRelationships(ctx, {
+    content: input.content,
+    currentUserId: input.currentUserId,
+  })
 }
 
 export async function resolveDocumentCommentReferenceRelationships(

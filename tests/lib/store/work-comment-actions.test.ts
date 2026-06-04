@@ -225,6 +225,48 @@ describe("work comment actions", () => {
     expect(backgroundTasks).toHaveLength(1)
   })
 
+  it("does not create comments that become empty after pending attachments are stripped", async () => {
+    const { backgroundTasks, slice, state } =
+      await createWorkCommentActionsHarness()
+
+    slice.addComment({
+      targetType: "workItem",
+      targetId: "item_1",
+      content:
+        '<p><img src="blob:http://local/image" class="editor-image" alt="pending.png" /></p>',
+    })
+
+    expect(state.comments.map((comment) => comment.id)).toEqual([
+      "comment_root",
+      "comment_reply",
+    ])
+    expect(workCommentTestDoubles.convex.addComment).not.toHaveBeenCalled()
+    expect(backgroundTasks).toEqual([])
+    expect(workCommentTestDoubles.notifications.error).toHaveBeenCalledWith(
+      "Comment cannot be empty"
+    )
+  })
+
+  it("does not update comments that become empty after pending attachments are stripped", async () => {
+    const { backgroundTasks, slice, state } =
+      await createWorkCommentActionsHarness()
+
+    slice.updateComment("comment_root", {
+      content:
+        '<p><a data-type="attachment" class="editor-attachment" href="blob:http://local/file" data-file-name="pending.pdf">pending.pdf</a></p>',
+    })
+
+    expect(state.comments[0]).toMatchObject({
+      id: "comment_root",
+      content: "<p>Root comment</p>",
+    })
+    expect(workCommentTestDoubles.convex.updateComment).not.toHaveBeenCalled()
+    expect(backgroundTasks).toEqual([])
+    expect(workCommentTestDoubles.notifications.error).toHaveBeenCalledWith(
+      "Comment cannot be empty"
+    )
+  })
+
   it("stores optimistic comment references across allowed entity types", async () => {
     workCommentTestDoubles.convex.addComment.mockResolvedValue({
       ok: true,
@@ -277,6 +319,13 @@ describe("work comment actions", () => {
       (comment) => comment.content === "<p>Fresh comment</p>"
     )
     expect(optimisticComment?.id).toMatch(/^comment_/)
+    expect(
+      (
+        state as typeof state & {
+          pendingCommentSyncsById: Record<string, string>
+        }
+      ).pendingCommentSyncsById[optimisticComment?.id ?? ""]
+    ).toMatch(/^comment_sync_/)
     expect(workCommentTestDoubles.convex.addComment).toHaveBeenCalledWith(
       "user_1",
       "workItem",
@@ -301,6 +350,44 @@ describe("work comment actions", () => {
     expect(workCommentTestDoubles.convex.updateComment).toHaveBeenCalledWith(
       optimisticComment?.id,
       "<p>Fresh comment edited</p>"
+    )
+    expect(
+      (
+        state as typeof state & {
+          pendingCommentSyncsById: Record<string, string>
+        }
+      ).pendingCommentSyncsById
+    ).toEqual({})
+  })
+
+  it("flattens replies to replies onto the root comment", async () => {
+    workCommentTestDoubles.convex.addComment.mockResolvedValue({
+      ok: true,
+      commentId: "comment_client",
+    })
+    const { slice, state } = await createWorkCommentActionsHarness()
+
+    slice.addComment({
+      targetType: "workItem",
+      targetId: "item_1",
+      parentCommentId: "comment_reply",
+      content: "<p>Nested reply</p>",
+    })
+
+    const flattenedReply = state.comments.find(
+      (comment) => comment.content === "<p>Nested reply</p>"
+    )
+
+    expect(flattenedReply).toMatchObject({
+      parentCommentId: "comment_root",
+    })
+    expect(workCommentTestDoubles.convex.addComment).toHaveBeenCalledWith(
+      "user_1",
+      "workItem",
+      "item_1",
+      "<p>Nested reply</p>",
+      "comment_root",
+      flattenedReply?.id
     )
   })
 

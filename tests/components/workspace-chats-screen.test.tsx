@@ -37,11 +37,16 @@ vi.mock("@/lib/convex/client", () => ({
 }))
 
 vi.mock("@/components/app/collaboration-screens/chat-thread", () => ({
-  ChatThread: () => <div>Chat thread</div>,
-}))
-
-vi.mock("@/components/app/collaboration-screens/call-invite-launcher", () => ({
-  CallInviteLauncher: () => null,
+  ChatThread: ({
+    conversationListAction,
+  }: {
+    conversationListAction?: ReactNode
+  }) => (
+    <div>
+      {conversationListAction}
+      <div>Chat thread</div>
+    </div>
+  ),
 }))
 
 vi.mock("@/components/app/user-presence", () => ({
@@ -211,7 +216,6 @@ describe("workspace chat display helpers", () => {
           onResizeStart={onResizeStart}
           onResetWidth={onResetWidth}
           onSelectChat={onSelectChat}
-          onToggleConversationListCollapsed={vi.fn()}
         />
       </>
     )
@@ -231,41 +235,18 @@ describe("workspace chat display helpers", () => {
     expect(onSelectChat).toHaveBeenCalledWith("chat_1")
   })
 
-  it("collapses and restores only the workspace conversation list pane", () => {
+  it("renders a collapsed workspace conversation icon rail without names", () => {
     const conversation = {
       id: "chat_1",
       kind: "chat",
       title: "Planning",
+      unread: true,
       updatedAt: "2026-04-18T10:00:00.000Z",
     } as never
-    const onToggleConversationListCollapsed = vi.fn()
+    const onCreateChat = vi.fn()
+    const onSelectChat = vi.fn()
 
-    const { rerender } = render(
-      <WorkspaceConversationListPane
-        chats={[conversation]}
-        activeChat={conversation}
-        conversationListWidth={288}
-        conversationListResizing={false}
-        conversationListCollapsed={false}
-        latestMessagesByConversationId={new Map()}
-        renderConversationAvatar={() => <span>Avatar</span>}
-        onCreateChat={vi.fn()}
-        onMarkChatRead={vi.fn()}
-        onMarkChatUnread={vi.fn()}
-        onResizeStart={vi.fn()}
-        onResetWidth={vi.fn()}
-        onSelectChat={vi.fn()}
-        onToggleConversationListCollapsed={onToggleConversationListCollapsed}
-      />
-    )
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Collapse conversation list" })
-    )
-
-    expect(onToggleConversationListCollapsed).toHaveBeenCalledTimes(1)
-
-    rerender(
+    render(
       <WorkspaceConversationListPane
         chats={[conversation]}
         activeChat={conversation}
@@ -274,24 +255,22 @@ describe("workspace chat display helpers", () => {
         conversationListCollapsed
         latestMessagesByConversationId={new Map()}
         renderConversationAvatar={() => <span>Avatar</span>}
-        onCreateChat={vi.fn()}
+        onCreateChat={onCreateChat}
         onMarkChatRead={vi.fn()}
         onMarkChatUnread={vi.fn()}
         onResizeStart={vi.fn()}
         onResetWidth={vi.fn()}
-        onSelectChat={vi.fn()}
-        onToggleConversationListCollapsed={onToggleConversationListCollapsed}
+        onSelectChat={onSelectChat}
       />
     )
 
-    expect(screen.getByLabelText("Expand conversation list")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }))
+    fireEvent.click(screen.getByRole("button", { name: "Open Planning" }))
+
+    expect(onCreateChat).toHaveBeenCalledTimes(1)
+    expect(onSelectChat).toHaveBeenCalledWith("chat_1")
+    expect(screen.getByText("Avatar")).toBeInTheDocument()
     expect(screen.queryByText("Planning")).not.toBeInTheDocument()
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Expand conversation list" })
-    )
-
-    expect(onToggleConversationListCollapsed).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -367,5 +346,44 @@ describe("WorkspaceChatsScreen", () => {
 
     expect(screen.getByText("No chats yet")).toBeInTheDocument()
     expect(screen.queryByText("Loading chats...")).not.toBeInTheDocument()
+  })
+
+  it("renders the conversation list collapse control above the active chat thread", () => {
+    useScopedReadModelRefreshMock.mockReturnValue({
+      error: null,
+      hasLoadedOnce: true,
+      refreshing: false,
+    })
+    useAppStore.setState((state) => ({
+      ...state,
+      conversations: [
+        {
+          id: "chat_1",
+          kind: "chat",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          variant: "direct",
+          title: "Planning",
+          description: "",
+          participantIds: ["user_1"],
+          roomId: null,
+          roomName: null,
+          createdBy: "user_1",
+          createdAt: "2026-04-18T10:00:00.000Z",
+          updatedAt: "2026-04-18T10:00:00.000Z",
+          lastActivityAt: "2026-04-18T10:00:00.000Z",
+        },
+      ],
+    }))
+
+    render(<WorkspaceChatsScreen />)
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Collapse conversation list" })
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Expand conversation list" })
+    ).toBeInTheDocument()
   })
 })

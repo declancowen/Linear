@@ -1,6 +1,7 @@
 import {
   prepareRichTextMessageForStorage,
   prepareRichTextForStorage,
+  sanitizeRichTextMessageContent,
   sanitizeRichTextContent,
 } from "@/lib/content/rich-text-security"
 
@@ -55,7 +56,7 @@ describe("rich-text security", () => {
 
   it("drops raw-text containers instead of reactivating their contents", () => {
     const sanitized = sanitizeRichTextContent(
-      '<p>Safe</p><xmp><img src=x onerror=alert(1)><script>alert(1)</script></xmp>'
+      "<p>Safe</p><xmp><img src=x onerror=alert(1)><script>alert(1)</script></xmp>"
     )
 
     expect(sanitized).toBe("<p>Safe</p>")
@@ -83,6 +84,36 @@ describe("rich-text security", () => {
     expect(sanitized).not.toContain('href="https://example.com"')
   })
 
+  it("preserves mixed text anchors outside chat message normalization", () => {
+    expect(
+      sanitizeRichTextContent(
+        '<p><a href="https://example.com">see https://example.com</a></p>'
+      )
+    ).toBe('<p><a href="https://example.com">see https://example.com</a></p>')
+  })
+
+  it("keeps only URL substrings linked when pasted URLs over-extend link marks", () => {
+    const prepared = prepareRichTextMessageForStorage(
+      '<p><a href="https://example.com" target="_blank" rel="noopener noreferrer nofollow">hey look at this link https://example.com</a></p>',
+      {
+        minPlainTextCharacters: 1,
+      }
+    )
+
+    expect(prepared.sanitized).toBe(
+      '<p>hey look at this link <a href="https://example.com" target="_blank" rel="nofollow noopener noreferrer">https://example.com</a></p>'
+    )
+    expect(prepared.plainText).toBe("hey look at this link https://example.com")
+  })
+
+  it("unwraps stale non-url links from chat message content", () => {
+    expect(
+      sanitizeRichTextMessageContent(
+        '<p><a href="https://example.com" target="_blank" rel="noopener noreferrer nofollow">hey look at this link</a></p>'
+      )
+    ).toBe("<p>hey look at this link</p>")
+  })
+
   it("trims trailing hard breaks and empty blocks from message content", () => {
     const trailingBreaks = prepareRichTextMessageForStorage(
       "<p>Hello<br><br></p>",
@@ -103,5 +134,26 @@ describe("rich-text security", () => {
     )
 
     expect(trailingEmptyParagraphs.sanitized).toBe("<p>Hello<br>World</p>")
+  })
+
+  it("allows local blob URLs while editing but removes them before storage", () => {
+    const pendingContent =
+      '<p><img src="BLOB:http://local/image" class="editor-image" alt="pending.png" /><a data-type="attachment" class="editor-attachment" href="blob:http://local/file" data-file-name="pending.pdf">pending.pdf</a></p>'
+
+    expect(sanitizeRichTextContent(pendingContent)).toContain(
+      'src="BLOB:http://local/image"'
+    )
+    expect(sanitizeRichTextContent(pendingContent)).toContain(
+      'href="blob:http://local/file"'
+    )
+
+    const preparedComment = prepareRichTextForStorage(pendingContent)
+    const preparedMessage = prepareRichTextMessageForStorage(pendingContent, {
+      minPlainTextCharacters: 1,
+    })
+
+    expect(preparedComment.sanitized).not.toMatch(/blob:/iu)
+    expect(preparedMessage.sanitized).not.toMatch(/blob:/iu)
+    expect(preparedMessage.isMeaningful).toBe(false)
   })
 })

@@ -10,6 +10,8 @@ import { MessageHoverActionBar } from "@/components/app/message-hover-action-bar
 import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
+import { RichTextUploadButton } from "@/components/app/rich-text-editor/upload-button"
+import type { RichTextAttachmentUploader } from "@/components/app/rich-text-editor/attachment-upload-one"
 import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
 import { formatTimestamp } from "@/components/app/collaboration-screens/utils"
 import {
@@ -87,6 +89,7 @@ export function ForumPostCommentItem({
   currentUserId,
   onDelete,
   onEdit,
+  onUploadAttachment,
   onReply,
   onReact,
   mentionCandidates,
@@ -99,6 +102,7 @@ export function ForumPostCommentItem({
   currentUserId: string
   onDelete?: (commentId: string) => void
   onEdit?: (commentId: string, content: string) => void
+  onUploadAttachment: RichTextAttachmentUploader
   onReply?: () => void
   onReact?: (commentId: string, emoji: string) => void
   mentionCandidates: ForumUser[]
@@ -190,6 +194,8 @@ export function ForumPostCommentItem({
                 }
                 enforcePlainTextLimit
                 onSubmitShortcut={handleSave}
+                onUploadAttachment={onUploadAttachment}
+                deferAttachmentUpload
                 submitOnEnter
                 className="[&_.ProseMirror]:min-h-[2.25rem] [&_.ProseMirror]:text-[13px]"
               />
@@ -218,6 +224,14 @@ export function ForumPostCommentItem({
                     <Smiley className="size-4" />
                   </button>
                 }
+              />
+              <RichTextUploadButton
+                className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                deferUpload
+                editorRef={editEditorRef}
+                iconClassName="size-4"
+                insertMode="auto"
+                onUploadAttachment={onUploadAttachment}
               />
               <div className="flex items-center gap-2">
                 <Button

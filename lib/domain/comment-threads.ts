@@ -27,6 +27,36 @@ export function groupCommentsByParentId(comments: AppData["comments"]) {
   )
 }
 
+export function flattenCommentReplies(
+  replies: AppData["comments"],
+  repliesByParentId: Record<string, AppData["comments"]>
+) {
+  const flat: AppData["comments"] = []
+  const seen = new Set<string>()
+
+  function visit(list: AppData["comments"]) {
+    for (const reply of list) {
+      if (seen.has(reply.id)) {
+        continue
+      }
+
+      seen.add(reply.id)
+      flat.push(reply)
+
+      const childReplies = repliesByParentId[reply.id] ?? []
+      if (childReplies.length > 0) {
+        visit(childReplies)
+      }
+    }
+  }
+
+  visit(replies)
+
+  return flat.sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt)
+  )
+}
+
 export function collectCommentDescendantIds(
   comments: readonly CommentThreadNode[],
   commentId: string

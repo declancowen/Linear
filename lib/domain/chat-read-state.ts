@@ -44,6 +44,48 @@ export function getUnreadChatMessageReceiptIds(
   )
 }
 
+type ChatReadReceiptMessage = Pick<
+  AppData["chatMessages"][number],
+  "createdBy" | "deletedAt" | "id" | "conversationId"
+>
+type ChatReadReceiptConversation = Pick<
+  AppData["conversations"][number],
+  "kind" | "scopeType" | "variant"
+>
+
+export function supportsChatMessageReadReceipts(
+  conversation: ChatReadReceiptConversation | null | undefined
+) {
+  return (
+    conversation?.kind === "chat" &&
+    conversation.scopeType === "workspace" &&
+    (conversation.variant === "direct" || conversation.variant === "group")
+  )
+}
+
+export function getReadableChatMessageReceiptIds(input: {
+  conversationId: string
+  currentUserId: string
+  messages: ChatReadReceiptMessage[]
+  messageIds: readonly string[] | null | undefined
+}) {
+  const requestedIds = new Set(input.messageIds ?? [])
+
+  if (requestedIds.size === 0) {
+    return []
+  }
+
+  return input.messages
+    .filter(
+      (message) =>
+        requestedIds.has(message.id) &&
+        message.conversationId === input.conversationId &&
+        message.createdBy !== input.currentUserId &&
+        !message.deletedAt
+    )
+    .map((message) => message.id)
+}
+
 export function hasUnreadLegacyChatMessageNotification(
   data: Pick<AppData, "notifications">,
   userId: string,
@@ -60,7 +102,7 @@ export function hasUnreadLegacyChatMessageNotification(
   )
 }
 
-export function isChatReadStateUnread(
+function isChatReadStateUnread(
   state: Pick<ChatReadState, "unreadAt"> | null | undefined
 ) {
   return state?.unreadAt != null
@@ -75,6 +117,59 @@ export function isChatConversationUnread(
     isChatReadStateUnread(getChatReadState(data, userId, conversationId)) ||
     hasUnreadLegacyChatMessageNotification(data, userId, conversationId)
   )
+}
+
+export function getSeenChatMessageIds(input: {
+  conversationId: string
+  currentUserId: string
+  messages: Array<
+    Pick<
+      AppData["chatMessages"][number],
+      "createdBy" | "deletedAt" | "id" | "conversationId"
+    >
+  >
+  participantIds: readonly string[]
+  readStates: Array<
+    Pick<ChatReadState, "conversationId" | "messageReadAtById" | "userId">
+  >
+}) {
+  const otherParticipantIds = new Set(
+    input.participantIds.filter((userId) => userId !== input.currentUserId)
+  )
+  const currentUserMessageIds = new Set(
+    input.messages
+      .filter(
+        (message) =>
+          message.conversationId === input.conversationId &&
+          message.createdBy === input.currentUserId &&
+          !message.deletedAt
+      )
+      .map((message) => message.id)
+  )
+  const seenMessageIds = new Set<string>()
+
+  for (const readState of input.readStates) {
+    if (readState.conversationId !== input.conversationId) {
+      continue
+    }
+
+    const isCurrentUserReadState = readState.userId === input.currentUserId
+    const isOtherParticipantReadState = otherParticipantIds.has(
+      readState.userId
+    )
+
+    if (!isCurrentUserReadState && !isOtherParticipantReadState) {
+      continue
+    }
+
+    for (const messageId of Object.keys(readState.messageReadAtById ?? {})) {
+      if (isOtherParticipantReadState && currentUserMessageIds.has(messageId)) {
+        seenMessageIds.add(messageId)
+      }
+    }
+  }
+
+  return seenMessageIds
 }
 
 export function getUnreadWorkspaceChatCount(

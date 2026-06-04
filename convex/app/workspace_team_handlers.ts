@@ -855,11 +855,21 @@ export async function deleteWorkspaceHandler(
     "workspace",
     workspace.id
   )
-  const [attachments, comments, documentPresence, notifications] =
+  const [
+    documentAttachments,
+    conversationAttachments,
+    comments,
+    documentPresence,
+    notifications,
+  ] =
     await Promise.all([
       listAttachmentsByTargets(ctx, {
         targetType: "document",
         targetIds: deletedDocumentIds,
+      }),
+      listAttachmentsByTargets(ctx, {
+        targetType: "conversation",
+        targetIds: conversations.map((conversation) => conversation.id),
       }),
       listCommentsByTargets(ctx, {
         targetType: "document",
@@ -876,6 +886,7 @@ export async function deleteWorkspaceHandler(
         })
       ),
     ])
+  const attachments = [...documentAttachments, ...conversationAttachments]
 
   await cleanupRemainingLinksAfterDelete(ctx, {
     currentUserId: args.currentUserId,

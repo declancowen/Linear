@@ -113,7 +113,7 @@ import {
   WorkItemTypeIcon,
 } from "./shared"
 import {
-  getGroupFieldOptionLabel as getContextualGroupFieldOptionLabel,
+  getContextualGroupFieldOptionLabel,
   getParentGroupingLabel,
 } from "./work-grouping-labels"
 import { cn } from "@/lib/utils"

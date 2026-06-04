@@ -1,12 +1,14 @@
 import type { MutationCtx } from "../_generated/server"
 
 import { IMAGE_UPLOAD_MAX_SIZE } from "./core"
-import { getDocumentDoc, getWorkItemDoc } from "./data"
+import { getConversationDoc, getDocumentDoc, getWorkItemDoc } from "./data"
+import { requireConversationAccess } from "./conversations"
 
 export async function resolveAttachmentTarget(
   ctx: MutationCtx,
-  targetType: "workItem" | "document",
-  targetId: string
+  targetType: "workItem" | "document" | "conversation",
+  targetId: string,
+  currentUserId?: string
 ) {
   if (targetType === "workItem") {
     const item = await getWorkItemDoc(ctx, targetId)
@@ -19,6 +21,25 @@ export async function resolveAttachmentTarget(
       teamId: item.teamId,
       entityType: "workItem" as const,
       recordId: item._id,
+    }
+  }
+
+  if (targetType === "conversation") {
+    const conversation = await getConversationDoc(ctx, targetId)
+
+    if (!conversation) {
+      throw new Error("Conversation not found")
+    }
+
+    if (currentUserId) {
+      await requireConversationAccess(ctx, conversation, currentUserId, "write")
+    }
+
+    return {
+      teamId:
+        conversation.scopeType === "team" ? conversation.scopeId : null,
+      entityType: "conversation" as const,
+      recordId: conversation._id,
     }
   }
 

@@ -22,11 +22,10 @@ import { relativePositionToAbsolutePosition } from "@tiptap/y-tiptap"
 import Collaboration, { isChangeOrigin } from "@tiptap/extension-collaboration"
 import FileHandler from "@tiptap/extension-file-handler"
 import type { Node as ProsemirrorNode } from "@tiptap/pm/model"
+import { ImageSquare, Paperclip } from "@phosphor-icons/react"
 import * as Y from "yjs"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
-import {
-  type CollaborationAwarenessState,
-} from "@/lib/collaboration/awareness"
+import { type CollaborationAwarenessState } from "@/lib/collaboration/awareness"
 import { COLLABORATION_XML_FRAGMENT } from "@/lib/collaboration/constants"
 import { getCollaborationUserColor } from "@/lib/collaboration/colors"
 import type { PartyKitDocumentCollaborationBinding } from "@/lib/collaboration/adapters/partykit"
@@ -34,7 +33,8 @@ import type { RichTextMentionCounts } from "@/lib/content/rich-text-mentions"
 import { sanitizeRichTextContent } from "@/lib/content/rich-text-security"
 import type { DocumentPresenceViewer, UserProfile } from "@/lib/domain/types"
 import { createRichTextBaseExtensions } from "@/lib/rich-text/extensions"
-import { cn } from "@/lib/utils"
+import { cn, getPlainTextContent } from "@/lib/utils"
+import { isImageAttachmentFile } from "@/lib/domain/file-uploads"
 import {
   filterMentionCandidates,
   filterReferenceCandidates,
@@ -74,7 +74,10 @@ import {
 } from "./rich-text-editor/marker-comparison"
 import { handleRichTextMenuNavigationKeyDown } from "./rich-text-editor/menu-navigation"
 import { uploadRichTextEditorFiles } from "./rich-text-editor/attachment-uploads"
-import { type UploadedAttachment } from "./rich-text-editor/attachment-insertion"
+import {
+  type RichTextAttachmentInsertMode,
+  type UploadedAttachment,
+} from "./rich-text-editor/attachment-insertion"
 import { resolveCollaborationCaretCoordinates } from "./rich-text-editor/caret-position"
 import { getClientRectsForDocumentRange } from "./rich-text-editor/collapsed-range"
 import {
@@ -142,6 +145,7 @@ type RichTextEditorProps = {
   showStats?: boolean
   autoFocus?: boolean
   onUploadAttachment?: (file: File) => Promise<UploadedAttachment | null>
+  deferAttachmentUpload?: boolean
   onSubmitShortcut?: () => void
   submitOnEnter?: boolean
   onStatsChange?: (stats: RichTextEditorStats) => void
@@ -199,6 +203,154 @@ const EMPTY_REFERENCE_CANDIDATES: ReferenceCandidate[] = []
 const TYPING_IDLE_TIMEOUT_MS = 1500
 const MAX_VISIBLE_BLOCK_PRESENCE_VIEWERS = 2
 const COLLABORATION_CURSOR_LABEL_TOP_THRESHOLD_PX = 28
+
+function getImageReferenceLabel(input: {
+  alt?: unknown
+  src?: unknown
+  title?: unknown
+}) {
+  const label =
+    typeof input.alt === "string" && input.alt.trim().length > 0
+      ? input.alt.trim()
+      : typeof input.title === "string" && input.title.trim().length > 0
+        ? input.title.trim()
+        : null
+
+  if (label) {
+    return label
+  }
+
+  if (typeof input.src !== "string") {
+    return "image"
+  }
+
+  try {
+    const pathname = new URL(input.src, window.location.href).pathname
+    const fileName = pathname.split("/").filter(Boolean).at(-1)
+
+    return fileName || "image"
+  } catch {
+    const fileName = input.src.split("/").filter(Boolean).at(-1)
+
+    return fileName || "image"
+  }
+}
+
+function getSelectedNodeAttrs(
+  currentEditor: Editor,
+  nodeTypeName: "attachmentReference" | "image"
+) {
+  const node = (currentEditor.state.selection as { node?: unknown }).node
+
+  if (
+    !isRecord(node) ||
+    !isRecord(node.type) ||
+    node.type.name !== nodeTypeName
+  ) {
+    return null
+  }
+
+  if (!isRecord(node.attrs)) {
+    return null
+  }
+
+  return { attrs: node.attrs }
+}
+
+function getSelectedImageNode(currentEditor: Editor) {
+  return getSelectedNodeAttrs(currentEditor, "image")
+}
+
+function getSelectedAttachmentReferenceNode(currentEditor: Editor) {
+  return getSelectedNodeAttrs(currentEditor, "attachmentReference")
+}
+
+export function convertSelectedEditorImageToReference(currentEditor: Editor) {
+  const selectedNode = getSelectedImageNode(currentEditor)
+
+  if (!selectedNode) {
+    return false
+  }
+
+  const src = selectedNode.attrs.src
+
+  if (typeof src !== "string" || src.trim().length === 0) {
+    return false
+  }
+
+  const label = getImageReferenceLabel(selectedNode.attrs)
+
+  return currentEditor
+    .chain()
+    .focus()
+    .insertContent([
+      {
+        type: "attachmentReference",
+        attrs: {
+          href: src,
+          fileName: label,
+          attachmentKind: "image",
+        },
+      },
+      {
+        type: "text",
+        text: " ",
+      },
+    ])
+    .run()
+}
+
+export function convertSelectedEditorAttachmentReferenceToPreview(
+  currentEditor: Editor
+) {
+  const selectedNode = getSelectedAttachmentReferenceNode(currentEditor)
+
+  if (!selectedNode) {
+    return false
+  }
+
+  const href = selectedNode.attrs.href
+
+  if (typeof href !== "string" || href.trim().length === 0) {
+    return false
+  }
+
+  const fileName =
+    typeof selectedNode.attrs.fileName === "string" &&
+    selectedNode.attrs.fileName.trim().length > 0
+      ? selectedNode.attrs.fileName.trim()
+      : getImageReferenceLabel({ src: href })
+  const attachmentKind =
+    typeof selectedNode.attrs.attachmentKind === "string"
+      ? selectedNode.attrs.attachmentKind
+      : null
+
+  if (
+    attachmentKind !== "image" &&
+    !isImageAttachmentFile(fileName, null) &&
+    !isImageAttachmentFile(href, null)
+  ) {
+    return false
+  }
+
+  return currentEditor
+    .chain()
+    .focus()
+    .insertContent([
+      {
+        type: "image",
+        attrs: {
+          src: href,
+          alt: fileName,
+          title: fileName,
+        },
+      },
+      {
+        type: "paragraph",
+      },
+    ])
+    .run()
+}
 
 function getActiveBlockId(currentEditor: Editor) {
   const { $from } = currentEditor.state.selection
@@ -1483,7 +1635,163 @@ function CollaborationSelectionPresenceOverlay({
   )
 }
 
+function isSelectedImageNode(currentEditor: Editor) {
+  return getSelectedImageNode(currentEditor) !== null
+}
+
+function isSelectedImageAttachmentReferenceNode(currentEditor: Editor) {
+  const selectedNode = getSelectedAttachmentReferenceNode(currentEditor)
+
+  if (!selectedNode) {
+    return false
+  }
+
+  const href = selectedNode.attrs.href
+  const fileName = selectedNode.attrs.fileName
+  const attachmentKind = selectedNode.attrs.attachmentKind
+
+  return (
+    attachmentKind === "image" ||
+    (typeof fileName === "string" && isImageAttachmentFile(fileName, null)) ||
+    (typeof href === "string" && isImageAttachmentFile(href, null))
+  )
+}
+
+type SelectedNodeConversionOverlayProps = {
+  containerRef: MutableRefObject<HTMLDivElement | null>
+  currentEditor: Editor
+  editable: boolean
+}
+
+function SelectedNodeConversionOverlay({
+  canShow,
+  containerRef,
+  currentEditor,
+  editable,
+  icon,
+  label,
+  onConvert,
+  selector,
+}: SelectedNodeConversionOverlayProps & {
+  canShow: (editor: Editor) => boolean
+  icon: ReactNode
+  label: string
+  onConvert: (editor: Editor) => boolean
+  selector: string
+}) {
+  const [position, setPosition] = useState<{
+    left: number
+    top: number
+  } | null>(null)
+
+  const updatePosition = useCallback(() => {
+    if (!editable || !canShow(currentEditor)) {
+      setPosition(null)
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      const container = containerRef.current
+      const selectedNode = container?.querySelector(selector)
+
+      if (!(container && selectedNode instanceof HTMLElement)) {
+        setPosition(null)
+        return
+      }
+
+      const containerRect = container.getBoundingClientRect()
+      const nodeRect = selectedNode.getBoundingClientRect()
+
+      setPosition({
+        left: nodeRect.right - containerRect.left - 6,
+        top: nodeRect.top - containerRect.top + 6,
+      })
+    })
+  }, [canShow, containerRef, currentEditor, editable, selector])
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(updatePosition)
+    currentEditor.on("selectionUpdate", updatePosition)
+    currentEditor.on("update", updatePosition)
+    window.addEventListener("resize", updatePosition)
+    window.addEventListener("scroll", updatePosition, true)
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      currentEditor.off("selectionUpdate", updatePosition)
+      currentEditor.off("update", updatePosition)
+      window.removeEventListener("resize", updatePosition)
+      window.removeEventListener("scroll", updatePosition, true)
+    }
+  }, [currentEditor, updatePosition])
+
+  if (!position) {
+    return null
+  }
+
+  return (
+    <button
+      type="button"
+      className="absolute z-20 inline-flex -translate-x-full items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-[11.5px] font-medium text-fg-2 shadow-sm transition-colors hover:bg-surface-2 hover:text-foreground"
+      style={{
+        left: position.left,
+        top: position.top,
+      }}
+      onMouseDown={(event) => {
+        event.preventDefault()
+      }}
+      onClick={() => {
+        if (onConvert(currentEditor)) {
+          setPosition(null)
+        }
+      }}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+function SelectedImageReferenceConversionOverlay({
+  containerRef,
+  currentEditor,
+  editable,
+}: SelectedNodeConversionOverlayProps) {
+  return (
+    <SelectedNodeConversionOverlay
+      canShow={isSelectedImageNode}
+      containerRef={containerRef}
+      currentEditor={currentEditor}
+      editable={editable}
+      icon={<Paperclip className="size-3.5" />}
+      label="Inline reference"
+      onConvert={convertSelectedEditorImageToReference}
+      selector="img.editor-image.ProseMirror-selectednode"
+    />
+  )
+}
+
+function SelectedAttachmentPreviewConversionOverlay({
+  containerRef,
+  currentEditor,
+  editable,
+}: SelectedNodeConversionOverlayProps) {
+  return (
+    <SelectedNodeConversionOverlay
+      canShow={isSelectedImageAttachmentReferenceNode}
+      containerRef={containerRef}
+      currentEditor={currentEditor}
+      editable={editable}
+      icon={<ImageSquare className="size-3.5" />}
+      label="Image preview"
+      onConvert={convertSelectedEditorAttachmentReferenceToPreview}
+      selector='a.editor-attachment.ProseMirror-selectednode[data-attachment-kind="image"]'
+    />
+  )
+}
+
 function RichTextEditorSurface({
+  attachmentPreviewConversionOverlay,
   blockPresence,
   className,
   collaborationCursorPresence,
@@ -1493,12 +1801,14 @@ function RichTextEditorSurface({
   fullPage,
   fullPageCanvasWidth,
   inlineEmojiPicker,
+  imageReferenceConversionOverlay,
   mentionMenu,
   onInlineMouseDownCapture,
   referenceMenu,
   slashMenu,
   toolbar,
 }: {
+  attachmentPreviewConversionOverlay: ReactNode
   blockPresence: ReactNode
   className?: string
   collaborationCursorPresence: ReactNode
@@ -1508,6 +1818,7 @@ function RichTextEditorSurface({
   fullPage: boolean
   fullPageCanvasWidth: FullPageCanvasWidth
   inlineEmojiPicker: ReactNode
+  imageReferenceConversionOverlay: ReactNode
   mentionMenu: ReactNode
   onInlineMouseDownCapture: (event: MouseEvent<HTMLDivElement>) => void
   referenceMenu: ReactNode
@@ -1530,6 +1841,8 @@ function RichTextEditorSurface({
         {referenceMenu}
         {mentionMenu}
         {inlineEmojiPicker}
+        {imageReferenceConversionOverlay}
+        {attachmentPreviewConversionOverlay}
       </FullPageRichTextShell>
     )
   }
@@ -1549,6 +1862,8 @@ function RichTextEditorSurface({
         {referenceMenu}
         {mentionMenu}
         {inlineEmojiPicker}
+        {imageReferenceConversionOverlay}
+        {attachmentPreviewConversionOverlay}
       </div>
       {toolbar}
     </div>
@@ -1573,7 +1888,11 @@ type RichTextEditorBodyProps = {
   filteredSlashCommands: ReturnType<typeof filterSlashCommands>
   fullPage: boolean
   fullPageCanvasWidth: FullPageCanvasWidth
-  handleToolbarFiles: (files: File[], position?: number | null) => Promise<void>
+  handleToolbarFiles: (
+    files: File[],
+    position?: number | null,
+    insertMode?: RichTextAttachmentInsertMode
+  ) => Promise<void>
   hiddenAttachmentInputRef: MutableRefObject<HTMLInputElement | null>
   hiddenImageInputRef: MutableRefObject<HTMLInputElement | null>
   mentionIndex: number
@@ -1963,6 +2282,20 @@ function RichTextEditorBody({
     setReferenceIndex,
     setReferenceState,
   })
+  const imageReferenceConversionOverlay = (
+    <SelectedImageReferenceConversionOverlay
+      containerRef={containerRef}
+      currentEditor={activeEditor}
+      editable={editable}
+    />
+  )
+  const attachmentPreviewConversionOverlay = (
+    <SelectedAttachmentPreviewConversionOverlay
+      containerRef={containerRef}
+      currentEditor={activeEditor}
+      editable={editable}
+    />
+  )
 
   const blockPresence = (
     <BlockPresenceOverlay
@@ -1985,6 +2318,7 @@ function RichTextEditorBody({
 
   return (
     <RichTextEditorSurface
+      attachmentPreviewConversionOverlay={attachmentPreviewConversionOverlay}
       blockPresence={blockPresence}
       className={className}
       collaborationCursorPresence={collaborationCursorPresence}
@@ -1993,6 +2327,7 @@ function RichTextEditorBody({
       currentEditor={activeEditor}
       fullPage={fullPage}
       fullPageCanvasWidth={fullPageCanvasWidth}
+      imageReferenceConversionOverlay={imageReferenceConversionOverlay}
       inlineEmojiPicker={inlineEmojiPicker}
       mentionMenu={mentionMenu}
       onInlineMouseDownCapture={createInlineEditorMouseDownCapture(
@@ -2629,8 +2964,9 @@ function useRichTextMenuState({
   const previousReferenceQueryRef = useRef<string | null>(null)
   const [slashState, setSlashState] = useState<MenuState | null>(null)
   const [mentionState, setMentionState] = useState<MenuState | null>(null)
-  const [referenceState, setReferenceStateValue] =
-    useState<MenuState | null>(null)
+  const [referenceState, setReferenceStateValue] = useState<MenuState | null>(
+    null
+  )
   const referenceStateRef = useRef<MenuState | null>(null)
   const [slashIndex, setSlashIndex] = useState(0)
   const [mentionIndex, setMentionIndex] = useState(0)
@@ -2706,7 +3042,10 @@ function useRichTextMenuState({
           : null
       )
       syncMentionState(buildMentionState(currentEditor, containerRef.current))
-      if (enableReferences && isReferencePickerState(referenceStateRef.current)) {
+      if (
+        enableReferences &&
+        isReferencePickerState(referenceStateRef.current)
+      ) {
         return
       }
 
@@ -2768,11 +3107,13 @@ function useRichTextActiveBlockReporter({
 }
 
 function useRichTextUploads({
+  deferUpload = false,
   editorRef,
   hiddenAttachmentInputRef,
   hiddenImageInputRef,
   onUploadAttachmentRef,
 }: {
+  deferUpload?: boolean
   editorRef: MutableRefObject<Editor | null>
   hiddenAttachmentInputRef: MutableRefObject<HTMLInputElement | null>
   hiddenImageInputRef: MutableRefObject<HTMLInputElement | null>
@@ -2783,27 +3124,38 @@ function useRichTextUploads({
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
 
   const handleEditorFiles = useCallback(
-    async (currentEditor: Editor, files: File[], position?: number | null) => {
+    async (
+      currentEditor: Editor,
+      files: File[],
+      position?: number | null,
+      insertMode?: RichTextAttachmentInsertMode
+    ) => {
       await uploadRichTextEditorFiles({
         currentEditor,
+        deferUpload,
         files,
+        insertMode,
         position,
         setUploadingAttachment,
         uploadAttachment: onUploadAttachmentRef.current,
       })
     },
-    [onUploadAttachmentRef]
+    [deferUpload, onUploadAttachmentRef]
   )
 
   const handleToolbarFiles = useCallback(
-    async (files: File[], position?: number | null) => {
+    async (
+      files: File[],
+      position?: number | null,
+      insertMode?: RichTextAttachmentInsertMode
+    ) => {
       const currentEditor = editorRef.current
 
       if (!currentEditor) {
         return
       }
 
-      await handleEditorFiles(currentEditor, files, position)
+      await handleEditorFiles(currentEditor, files, position, insertMode)
 
       if (hiddenAttachmentInputRef.current) {
         hiddenAttachmentInputRef.current.value = ""
@@ -3192,7 +3544,7 @@ function getRichTextStatsWords(editor: Editor | null) {
 }
 
 function getRichTextStatsCharacters(editor: Editor | null) {
-  return editor?.storage.characterCount.characters() ?? 0
+  return editor ? getPlainTextContent(editor.getHTML()).length : 0
 }
 
 function isRichTextTooShort(characters: number, minimum: number) {
@@ -3309,6 +3661,7 @@ export function RichTextEditor({
   showStats = true,
   autoFocus = false,
   onUploadAttachment,
+  deferAttachmentUpload = false,
   onSubmitShortcut,
   submitOnEnter = false,
   onStatsChange,
@@ -3400,6 +3753,7 @@ export function RichTextEditor({
 
   const { handleEditorFiles, handleToolbarFiles, uploadingAttachment } =
     useRichTextUploads({
+      deferUpload: deferAttachmentUpload,
       editorRef,
       hiddenAttachmentInputRef,
       hiddenImageInputRef,

@@ -20,13 +20,14 @@ import {
   getUser,
 } from "@/lib/domain/selectors"
 import {
+  flattenCommentReplies,
   getRootComments,
   groupCommentsByParentId,
 } from "@/lib/domain/comment-threads"
 import { getUsersForTeamMemberships } from "@/lib/domain/team-members"
 import {
   commentContentConstraints,
-  getTextInputLimitState,
+  type TextInputLimitState,
   workItemTitleConstraints,
 } from "@/lib/domain/input-constraints"
 import {
@@ -49,6 +50,11 @@ import { MessageHoverActionBar } from "@/components/app/message-hover-action-bar
 import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
+import {
+  RichTextUploadButton,
+} from "@/components/app/rich-text-editor/upload-button"
+import type { RichTextAttachmentUploader } from "@/components/app/rich-text-editor/attachment-upload-one"
+import { flushPendingCommentContentAttachments, getCommentContentLimitState, useCommentComposer } from "./use-comment-composer"
 import { ShortcutKeys } from "@/components/app/shortcut-keys"
 import {
   createInlineChildWorkItem,
@@ -70,14 +76,13 @@ import {
   propertyChipTriggerClass as chipTriggerClass,
   propertyChipTriggerDashedClass as chipTriggerDashedClass,
 } from "./property-chips"
-import { useCommentComposer } from "./use-comment-composer"
 import { useWorkItemCorePickerState } from "./work-item-picker-state"
 import { cn } from "@/lib/utils"
 
 export const WORK_ITEM_COMMENT_SHORTCUT_KEY_CLASS =
   "h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
 
-type WorkItemCommentLimitState = ReturnType<typeof getTextInputLimitState>
+type WorkItemCommentLimitState = ReturnType<typeof getCommentContentLimitState>
 type WorkItemReferenceCandidates = ComponentProps<
   typeof RichTextEditor
 >["referenceCandidates"]
@@ -89,6 +94,7 @@ export function WorkItemCommentComposerActions({
   emojiButtonClassName = "rounded-md p-1 text-foreground transition-colors hover:bg-accent disabled:text-muted-foreground/50 disabled:hover:bg-transparent",
   emojiIconClassName = "size-4",
   limitState,
+  onUploadAttachment,
 }: {
   children: ReactNode
   editable?: boolean
@@ -96,6 +102,7 @@ export function WorkItemCommentComposerActions({
   emojiButtonClassName?: string
   emojiIconClassName?: string
   limitState: WorkItemCommentLimitState
+  onUploadAttachment?: RichTextAttachmentUploader
 }) {
   const portalContainer = useWorkItemSurfacePortalContainer()
 
@@ -107,23 +114,34 @@ export function WorkItemCommentComposerActions({
         className="mt-0 mb-1.5"
       />
       <div className="flex items-center justify-between gap-2">
-        <EmojiPickerPopover
-          align="start"
-          portalContainer={portalContainer}
-          side="top"
-          onEmojiSelect={(emoji) =>
-            editorRef.current?.chain().focus().insertContent(emoji).run()
-          }
-          trigger={
-            <button
-              type="button"
-              disabled={!editable}
-              className={emojiButtonClassName}
-            >
-              <Smiley className={emojiIconClassName} />
-            </button>
-          }
-        />
+        <div className="flex items-center gap-1">
+          <EmojiPickerPopover
+            align="start"
+            portalContainer={portalContainer}
+            side="top"
+            onEmojiSelect={(emoji) =>
+              editorRef.current?.chain().focus().insertContent(emoji).run()
+            }
+            trigger={
+              <button
+                type="button"
+                disabled={!editable}
+                className={emojiButtonClassName}
+              >
+                <Smiley className={emojiIconClassName} />
+              </button>
+            }
+          />
+          <RichTextUploadButton
+            className={emojiButtonClassName}
+            deferUpload
+            disabled={!editable}
+            editorRef={editorRef}
+            iconClassName={emojiIconClassName}
+            insertMode="auto"
+            onUploadAttachment={onUploadAttachment}
+          />
+        </div>
         {children}
       </div>
     </>
@@ -311,6 +329,7 @@ function CommentReplyComposer({
   replyLimitState,
   setReplyContent,
   onCancel,
+  onUploadAttachment,
   onReply,
 }: {
   editable: boolean
@@ -318,9 +337,10 @@ function CommentReplyComposer({
   referenceCandidates: WorkItemReferenceCandidates
   replyContent: string
   replyEditorRef: MutableRefObject<Editor | null>
-  replyLimitState: ReturnType<typeof getTextInputLimitState>
+  replyLimitState: WorkItemCommentLimitState
   setReplyContent: (content: string) => void
   onCancel: () => void
+  onUploadAttachment: RichTextAttachmentUploader
   onReply: () => void
 }) {
   return (
@@ -343,6 +363,8 @@ function CommentReplyComposer({
           maxPlainTextCharacters={commentContentConstraints.max}
           enforcePlainTextLimit
           onSubmitShortcut={onReply}
+          onUploadAttachment={onUploadAttachment}
+          deferAttachmentUpload
           submitOnEnter
           className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
         />
@@ -351,6 +373,7 @@ function CommentReplyComposer({
         <WorkItemCommentComposerActions
           editorRef={replyEditorRef}
           limitState={replyLimitState}
+          onUploadAttachment={onUploadAttachment}
         >
           <ShortcutKeys
             keys={["Enter"]}
@@ -384,6 +407,7 @@ function CommentReplies({
   targetId,
   targetType,
   usersById,
+  onReplyToThread,
 }: {
   editable: boolean
   mentionCandidates: AppData["users"]
@@ -393,6 +417,7 @@ function CommentReplies({
   targetId: string
   targetType: "workItem" | "document"
   usersById: ReadonlyMap<string, AppData["users"][number]>
+  onReplyToThread: () => void
 }) {
   if (replies.length === 0) {
     return null
@@ -411,6 +436,7 @@ function CommentReplies({
           mentionCandidates={mentionCandidates}
           referenceCandidates={referenceCandidates}
           usersById={usersById}
+          onReplyToThread={onReplyToThread}
         />
       ))}
     </div>
@@ -426,6 +452,7 @@ function CommentThreadItem({
   mentionCandidates,
   referenceCandidates,
   usersById,
+  onReplyToThread,
 }: {
   comment: AppData["comments"][number]
   repliesByParentId: Record<string, AppData["comments"]>
@@ -435,6 +462,7 @@ function CommentThreadItem({
   mentionCandidates: AppData["users"]
   referenceCandidates: WorkItemReferenceCandidates
   usersById: ReadonlyMap<string, AppData["users"][number]>
+  onReplyToThread?: () => void
 }) {
   const { author, currentUserId } = useAppStore(
     useShallow((state) => ({
@@ -450,29 +478,33 @@ function CommentThreadItem({
   const replyEditorRef = useRef<Editor | null>(null)
   const editEditorRef = useRef<Editor | null>(null)
   const portalContainer = useWorkItemSurfacePortalContainer()
-  const replies = repliesByParentId[comment.id] ?? []
+  const replies = onReplyToThread
+    ? []
+    : flattenCommentReplies(repliesByParentId[comment.id] ?? [], repliesByParentId)
   const canMutateComment = editable && comment.createdBy === currentUserId
-  const replyLimitState = getTextInputLimitState(
-    replyContent,
-    commentContentConstraints,
-    {
-      plainText: true,
-    }
-  )
-  const editLimitState = getTextInputLimitState(
-    editContent,
-    commentContentConstraints,
-    {
-      plainText: true,
-    }
-  )
+  const handleUploadAttachment: RichTextAttachmentUploader = (file) =>
+    useAppStore.getState().uploadAttachment(targetType, targetId, file)
+  const replyLimitState = getCommentContentLimitState(replyContent)
+  const editLimitState = getCommentContentLimitState(editContent)
 
   function openReply() {
     setReplyOpen(true)
   }
 
-  function handleReply() {
+  const openThreadReply = onReplyToThread ?? openReply
+
+  async function handleReply() {
     if (!replyLimitState.canSubmit) {
+      return
+    }
+
+    const outgoingContent = await flushPendingCommentContentAttachments({
+      content: replyContent,
+      targetId,
+      targetType,
+    })
+
+    if (outgoingContent === null) {
       return
     }
 
@@ -480,19 +512,29 @@ function CommentThreadItem({
       targetType,
       targetId,
       parentCommentId: comment.id,
-      content: replyContent,
+      content: outgoingContent,
     })
     setReplyContent("")
     setReplyOpen(false)
   }
 
-  function handleSaveEdit() {
+  async function handleSaveEdit() {
     if (!editLimitState.canSubmit) {
       return
     }
 
-    useAppStore.getState().updateComment(comment.id, {
+    const outgoingContent = await flushPendingCommentContentAttachments({
       content: editContent,
+      targetId,
+      targetType,
+    })
+
+    if (outgoingContent === null) {
+      return
+    }
+
+    useAppStore.getState().updateComment(comment.id, {
+      content: outgoingContent,
     })
     setEditOpen(false)
   }
@@ -503,114 +545,120 @@ function CommentThreadItem({
   }
 
   return (
-    <div className="group/comment relative flex flex-col gap-3 rounded-xl border bg-card/60 p-4">
-      <MessageHoverActionBar
-        canDelete={canMutateComment}
-        canEdit={canMutateComment}
-        canQuote={editable}
-        canReact={editable}
-        className="top-0 right-3 -translate-y-1/2 group-hover/comment:flex focus-within:flex"
-        deleteLabel="Delete comment"
-        editLabel="Edit comment"
-        onDelete={() => setDeleteOpen(true)}
-        onEdit={() => {
-          setEditContent(comment.content)
-          setEditOpen(true)
-        }}
-        onQuote={openReply}
-        portalContainer={portalContainer}
-        quoteAction="reply"
-        quoteLabel="Reply"
-        onReact={(emoji) => {
-          useAppStore.getState().toggleCommentReaction(comment.id, emoji)
-        }}
-      />
-      <CommentThreadHeader
-        authorName={author?.name}
-        createdAt={comment.createdAt}
-        editedAt={comment.editedAt}
-      />
-
-      {editOpen ? (
-        <div className="flex flex-col gap-2 rounded-lg border bg-background/70 p-3">
-          <div className="rounded-md border border-line bg-surface px-3 py-2 transition-colors focus-within:border-fg-3">
-            <RichTextEditor
-              content={editContent}
-              onChange={setEditContent}
-              editable={editable}
-              compact
-              autoFocus
-              allowSlashCommands={false}
-              showToolbar={false}
-              showStats={false}
-              placeholder="Edit comment..."
-              editorInstanceRef={editEditorRef}
-              mentionCandidates={mentionCandidates}
-              referenceCandidates={referenceCandidates}
-              minPlainTextCharacters={commentContentConstraints.min}
-              maxPlainTextCharacters={commentContentConstraints.max}
-              enforcePlainTextLimit
-              onSubmitShortcut={handleSaveEdit}
-              submitOnEnter
-              className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
-            />
-          </div>
-          <WorkItemCommentComposerActions
-            editorRef={editEditorRef}
-            limitState={editLimitState}
-          >
-            <div className="ml-auto flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setEditContent(comment.content)
-                  setEditOpen(false)
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                disabled={!editLimitState.canSubmit}
-                onClick={handleSaveEdit}
-              >
-                Save
-              </Button>
-            </div>
-          </WorkItemCommentComposerActions>
-        </div>
-      ) : (
-        <RichTextContent
-          content={comment.content}
-          referenceCandidates={referenceCandidates}
-          className="text-sm leading-7 text-muted-foreground [&_p]:my-0 [&_p+p]:mt-2"
-        />
-      )}
-
-      <CommentThreadActions
-        comment={comment}
-        currentUserId={currentUserId}
-        editable={editable}
-        usersById={usersById}
-      />
-
-      {replyOpen ? (
-        <CommentReplyComposer
-          editable={editable}
-          mentionCandidates={mentionCandidates}
-          referenceCandidates={referenceCandidates}
-          replyContent={replyContent}
-          replyEditorRef={replyEditorRef}
-          replyLimitState={replyLimitState}
-          setReplyContent={setReplyContent}
-          onCancel={() => {
-            setReplyContent("")
-            setReplyOpen(false)
+    <div className="relative flex flex-col gap-3 rounded-xl border bg-card/60 p-4">
+      <div className="group/comment relative flex flex-col gap-3">
+        <MessageHoverActionBar
+          canDelete={canMutateComment}
+          canEdit={canMutateComment}
+          canQuote={editable}
+          canReact={editable}
+          className="top-0 right-3 -translate-y-1/2 group-hover/comment:flex focus-within:flex"
+          deleteLabel="Delete comment"
+          editLabel="Edit comment"
+          onDelete={() => setDeleteOpen(true)}
+          onEdit={() => {
+            setEditContent(comment.content)
+            setEditOpen(true)
           }}
-          onReply={handleReply}
+          onQuote={openThreadReply}
+          portalContainer={portalContainer}
+          quoteAction="reply"
+          quoteLabel="Reply"
+          onReact={(emoji) => {
+            useAppStore.getState().toggleCommentReaction(comment.id, emoji)
+          }}
         />
-      ) : null}
+        <CommentThreadHeader
+          authorName={author?.name}
+          createdAt={comment.createdAt}
+          editedAt={comment.editedAt}
+        />
+
+        {editOpen ? (
+          <div className="flex flex-col gap-2 rounded-lg border bg-background/70 p-3">
+            <div className="rounded-md border border-line bg-surface px-3 py-2 transition-colors focus-within:border-fg-3">
+              <RichTextEditor
+                content={editContent}
+                onChange={setEditContent}
+                editable={editable}
+                compact
+                autoFocus
+                allowSlashCommands={false}
+                showToolbar={false}
+                showStats={false}
+                placeholder="Edit comment..."
+                editorInstanceRef={editEditorRef}
+                mentionCandidates={mentionCandidates}
+                referenceCandidates={referenceCandidates}
+                minPlainTextCharacters={commentContentConstraints.min}
+                maxPlainTextCharacters={commentContentConstraints.max}
+                enforcePlainTextLimit
+                onSubmitShortcut={handleSaveEdit}
+                onUploadAttachment={handleUploadAttachment}
+                deferAttachmentUpload
+                submitOnEnter
+                className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
+              />
+            </div>
+            <WorkItemCommentComposerActions
+              editorRef={editEditorRef}
+              limitState={editLimitState}
+              onUploadAttachment={handleUploadAttachment}
+            >
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setEditContent(comment.content)
+                    setEditOpen(false)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!editLimitState.canSubmit}
+                  onClick={handleSaveEdit}
+                >
+                  Save
+                </Button>
+              </div>
+            </WorkItemCommentComposerActions>
+          </div>
+        ) : (
+          <RichTextContent
+            content={comment.content}
+            referenceCandidates={referenceCandidates}
+            className="text-sm leading-7 text-muted-foreground [&_p]:my-0 [&_p+p]:mt-2"
+          />
+        )}
+
+        <CommentThreadActions
+          comment={comment}
+          currentUserId={currentUserId}
+          editable={editable}
+          usersById={usersById}
+        />
+
+        {replyOpen ? (
+          <CommentReplyComposer
+            editable={editable}
+            mentionCandidates={mentionCandidates}
+            referenceCandidates={referenceCandidates}
+            replyContent={replyContent}
+            replyEditorRef={replyEditorRef}
+            replyLimitState={replyLimitState}
+            setReplyContent={setReplyContent}
+            onCancel={() => {
+              setReplyContent("")
+              setReplyOpen(false)
+            }}
+            onUploadAttachment={handleUploadAttachment}
+            onReply={handleReply}
+          />
+        ) : null}
+      </div>
 
       <CommentReplies
         editable={editable}
@@ -621,6 +669,7 @@ function CommentThreadItem({
         targetId={targetId}
         targetType={targetType}
         usersById={usersById}
+        onReplyToThread={openThreadReply}
       />
       <ConfirmDialog
         open={deleteOpen}
@@ -799,6 +848,8 @@ export function CommentsInline({
     handleComment,
     setContent,
   } = useCommentComposer(targetType, targetId)
+  const handleUploadAttachment: RichTextAttachmentUploader = (file) =>
+    useAppStore.getState().uploadAttachment(targetType, targetId, file)
 
   if (isPrivateWorkItemCommentSurface) {
     return null
@@ -837,6 +888,8 @@ export function CommentsInline({
             maxPlainTextCharacters={commentContentConstraints.max}
             enforcePlainTextLimit
             onSubmitShortcut={handleComment}
+            onUploadAttachment={handleUploadAttachment}
+            deferAttachmentUpload
             submitOnEnter
             className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
           />
@@ -846,6 +899,7 @@ export function CommentsInline({
             editable={editable}
             editorRef={commentEditorRef}
             limitState={commentLimitState}
+            onUploadAttachment={handleUploadAttachment}
           >
             <ShortcutKeys
               keys={["Enter"]}
@@ -880,7 +934,7 @@ function InlineChildIssueFields({
   childTitlePlaceholder: string
   description: string
   title: string
-  titleLimitState: ReturnType<typeof getTextInputLimitState>
+  titleLimitState: TextInputLimitState
   onDescriptionChange: (value: string) => void
   onTitleChange: (value: string) => void
 }) {

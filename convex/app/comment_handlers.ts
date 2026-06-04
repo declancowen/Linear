@@ -7,6 +7,7 @@ import {
 import { collectCommentDescendantIds } from "../../lib/domain/comment-threads"
 import type { CommentEmail } from "../../lib/email/builders"
 import { getPlainTextContent } from "../../lib/utils"
+import { deleteContentReferencedAttachments } from "./cleanup"
 import {
   createMentionIds,
   createNotification,
@@ -97,6 +98,67 @@ export function assertParentCommentTarget(
     parentComment.targetId !== args.targetId
   ) {
     throw new Error("Reply must stay on the same thread target")
+  }
+}
+
+async function resolveTopLevelParentComment(
+  ctx: MutationCtx,
+  parentComment: CommentDoc,
+  args: AddCommentArgs
+) {
+  let topLevelParent = parentComment
+  const seenParentIds = new Set<string>()
+
+  while (topLevelParent.parentCommentId) {
+    if (seenParentIds.has(topLevelParent.id)) {
+      throw new Error("Parent comment thread is invalid")
+    }
+
+    seenParentIds.add(topLevelParent.id)
+    const nextParent = await getCommentDoc(ctx, topLevelParent.parentCommentId)
+
+    assertParentCommentTarget(nextParent, {
+      ...args,
+      parentCommentId: topLevelParent.parentCommentId,
+    })
+
+    if (!nextParent) {
+      throw new Error("Parent comment not found")
+    }
+
+    topLevelParent = nextParent
+  }
+
+  return topLevelParent
+}
+
+async function normalizeAddCommentParent(
+  ctx: MutationCtx,
+  args: AddCommentArgs
+) {
+  const parentComment = args.parentCommentId
+    ? await getCommentDoc(ctx, args.parentCommentId)
+    : null
+
+  assertParentCommentTarget(parentComment, args)
+
+  if (!parentComment) {
+    return args
+  }
+
+  const topLevelParent = await resolveTopLevelParentComment(
+    ctx,
+    parentComment,
+    args
+  )
+
+  if (topLevelParent.id === args.parentCommentId) {
+    return args
+  }
+
+  return {
+    ...args,
+    parentCommentId: topLevelParent.id,
   }
 }
 
@@ -473,47 +535,48 @@ export async function addCommentHandler(
   args: AddCommentArgs
 ) {
   assertServerToken(args.serverToken)
+  const normalizedArgs = await normalizeAddCommentParent(ctx, args)
   const existingComments = await listCommentsByTarget(
     ctx,
-    args.targetType,
-    args.targetId
+    normalizedArgs.targetType,
+    normalizedArgs.targetId
   )
-  const parentComment = args.parentCommentId
-    ? await getCommentDoc(ctx, args.parentCommentId)
-    : null
 
-  assertParentCommentTarget(parentComment, args)
   const targetContext =
-    args.targetType === "workItem"
-      ? await resolveWorkItemCommentTarget(ctx, args, existingComments)
-      : await resolveDocumentCommentTarget(ctx, args, existingComments)
+    normalizedArgs.targetType === "workItem"
+      ? await resolveWorkItemCommentTarget(ctx, normalizedArgs, existingComments)
+      : await resolveDocumentCommentTarget(
+          ctx,
+          normalizedArgs,
+          existingComments
+        )
 
   const audience = await getMentionAudienceContext(ctx, {
-    actorUserId: args.currentUserId,
+    actorUserId: normalizedArgs.currentUserId,
     audienceUserIds: targetContext.audienceUserIds,
   })
   const mentionUserIds = createMentionIds(
-    args.content,
+    normalizedArgs.content,
     audience.users,
     audience.audienceUserIds
   )
   const referenceRelationships = await resolveCommentReferenceRelationships(ctx, {
-    content: args.content,
-    currentUserId: args.currentUserId,
-    targetId: args.targetId,
-    targetType: args.targetType,
+    content: normalizedArgs.content,
+    currentUserId: normalizedArgs.currentUserId,
+    targetId: normalizedArgs.targetId,
+    targetType: normalizedArgs.targetType,
   })
 
   const commentId = await insertComment(
     ctx,
-    args,
+    normalizedArgs,
     mentionUserIds,
     referenceRelationships
   )
 
   const { mentionEmails, notifiedUserIds } = await notifyMentionedCommentUsers({
     ctx,
-    args,
+    args: normalizedArgs,
     actorName: audience.actorName,
     commentId,
     entityTitle: targetContext.entityTitle,
@@ -524,11 +587,11 @@ export async function addCommentHandler(
 
   const commentEmails = await notifyCommentFollowers({
     ctx,
-    args,
+    args: normalizedArgs,
     actorName: audience.actorName,
     audienceUserIds: new Set(audience.audienceUserIds),
     commentId,
-    commentText: getPlainTextContent(args.content),
+    commentText: getPlainTextContent(normalizedArgs.content),
     entityTitle: targetContext.entityTitle,
     entityType: targetContext.entityType,
     followerIds: targetContext.followerIds,
@@ -693,11 +756,22 @@ export async function deleteCommentHandler(
   )
 
   const deletedIds = collectCommentDescendantIds(existingComments, comment.id)
+  const deletedContents = existingComments
+    .filter((entry) => deletedIds.has(entry.id))
+    .map((entry) => entry.content)
 
   for (const entry of existingComments) {
     if (deletedIds.has(entry.id)) {
       await ctx.db.delete(entry._id)
     }
+  }
+
+  if (comment.targetType === "workItem" || comment.targetType === "document") {
+    await deleteContentReferencedAttachments(ctx, {
+      targetType: comment.targetType,
+      targetId: comment.targetId,
+      contents: deletedContents,
+    })
   }
 
   return {

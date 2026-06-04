@@ -14,6 +14,7 @@ const dataMocks = vi.hoisted(() => ({
   listChannelPostCommentsByPosts: vi.fn(),
   listChannelPostsByConversation: vi.fn(),
   listChatMessagesByConversation: vi.fn(),
+  listChatReadStatesByConversation: vi.fn(),
   listLatestReadableChatMessagesByConversations: vi.fn(),
   listChatReadStatesByUser: vi.fn(),
   listCommentsByTargets: vi.fn(),
@@ -24,6 +25,7 @@ const dataMocks = vi.hoisted(() => ({
   listInvitesByNormalizedEmail: vi.fn(),
   listInvitesByTeams: vi.fn(),
   listLabelsByWorkspaces: vi.fn(),
+  loadUserWorkspaceAccessSummary: vi.fn(),
   listMilestonesByProjects: vi.fn(),
   listNotificationsByUser: vi.fn(),
   listPrivateWorkItemsByCreator: vi.fn(),
@@ -189,6 +191,105 @@ function createNotification(overrides: Record<string, unknown> = {}) {
   }
 }
 
+async function getScopedReadModel(instruction: Record<string, unknown>) {
+  const { getScopedReadModelHandler } = await import(
+    "@/convex/app/scoped_read_models"
+  )
+
+  return getScopedReadModelHandler(ctx as never, {
+    serverToken: "server_token",
+    workosUserId: "workos_user_1",
+    instruction: instruction as never,
+  })
+}
+
+async function getWorkItemDetailReadModel(itemId: string) {
+  return getScopedReadModel({ kind: "work-item-detail", itemId })
+}
+
+function getResultWorkItemIds(result: { workItems?: Array<{ id: string }> } | null) {
+  return result?.workItems?.map((item) => item.id) ?? []
+}
+
+function createProjectVisibilityFixture() {
+  const project = createProject({
+    id: "project_1",
+    name: "Launch",
+  })
+  const publicItem = createWorkItem({
+    id: "item_public",
+    primaryProjectId: "project_1",
+  })
+  const privateOtherItem = createWorkItem({
+    id: "item_private_other",
+    creatorId: "user_2",
+    primaryProjectId: "project_1",
+    visibility: "private",
+  })
+
+  return { privateOtherItem, project, publicItem }
+}
+
+function createConversationThread(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "chat_1",
+    kind: "chat",
+    scopeType: "team",
+    scopeId: "team_allowed",
+    variant: "team",
+    title: "Platform",
+    description: "",
+    participantIds: ["user_1", "user_2"],
+    createdBy: "user_1",
+    createdAt: "2026-06-03T12:00:00.000Z",
+    updatedAt: "2026-06-03T12:00:00.000Z",
+    lastActivityAt: "2026-06-03T12:01:00.000Z",
+    ...overrides,
+  }
+}
+
+function createChatReadState(userId: string, readAt: string) {
+  return {
+    id: `chat_read_state_${userId}_chat_1`,
+    userId,
+    conversationId: "chat_1",
+    readAt,
+    unreadAt: null,
+    messageReadAtById: {
+      message_1: readAt,
+    },
+    createdAt: readAt,
+    updatedAt: readAt,
+  }
+}
+
+function mockConversationThreadData({
+  conversation,
+  messages = [],
+  readStates,
+}: {
+  conversation: Record<string, unknown>
+  messages?: Array<Record<string, unknown>>
+  readStates: Array<Record<string, unknown>>
+}) {
+  dataMocks.getConversationDoc.mockResolvedValue(conversation)
+  dataMocks.listChatMessagesByConversation.mockResolvedValue(messages)
+  dataMocks.listCallsByConversation.mockResolvedValue([])
+  dataMocks.listChatReadStatesByConversation.mockResolvedValue(readStates)
+}
+
+function mockEmptyWorkItemDetailSecondaryCollections() {
+  dataMocks.listCommentsByTargets.mockResolvedValue([])
+  dataMocks.listAttachmentsByTargets.mockResolvedValue([])
+  dataMocks.listWorkItemActivitiesByWorkItems.mockResolvedValue([])
+}
+
+function mockEmptyWorkItemDetailRelations() {
+  dataMocks.listDocumentsByIds.mockResolvedValue([])
+  dataMocks.listWorkspaceDocuments.mockResolvedValue([])
+  mockEmptyWorkItemDetailSecondaryCollections()
+}
+
 describe("scoped read model Convex handlers", () => {
   beforeEach(() => {
     vi.resetModules()
@@ -221,6 +322,18 @@ describe("scoped read model Convex handlers", () => {
     dataMocks.listWorkspaceMembershipsByWorkspaces.mockResolvedValue([
       { workspaceId: "workspace_1", userId: "user_1", role: "member" },
     ])
+    dataMocks.loadUserWorkspaceAccessSummary.mockResolvedValue({
+      accessibleTeamIds: new Set(["team_allowed"]),
+      accessibleWorkspaceIds: new Set(["workspace_1"]),
+      ownedWorkspaces: [],
+      teamMemberships: [
+        { teamId: "team_allowed", userId: "user_1", role: "member" },
+      ],
+      teams: [team],
+      workspaceMemberships: [
+        { workspaceId: "workspace_1", userId: "user_1", role: "member" },
+      ],
+    })
     dataMocks.listLabelsByWorkspaces.mockResolvedValue([])
     dataMocks.listUsersByIds.mockResolvedValue([user])
     dataMocks.listWorkItemsByTeam.mockResolvedValue([])
@@ -234,6 +347,7 @@ describe("scoped read model Convex handlers", () => {
     dataMocks.listPrivateWorkItemsByCreator.mockResolvedValue([])
     dataMocks.listConversationsByScope.mockResolvedValue([])
     dataMocks.listLatestReadableChatMessagesByConversations.mockResolvedValue([])
+    dataMocks.listChatReadStatesByConversation.mockResolvedValue([])
     dataMocks.listChatReadStatesByUser.mockResolvedValue([])
   })
 
@@ -430,23 +544,8 @@ describe("scoped read model Convex handlers", () => {
   })
 
   it("filters unreadable private team items from project index scopes", async () => {
-    const { getScopedReadModelHandler } = await import(
-      "@/convex/app/scoped_read_models"
-    )
-    const project = createProject({
-      id: "project_1",
-      name: "Launch",
-    })
-    const publicItem = createWorkItem({
-      id: "item_public",
-      primaryProjectId: "project_1",
-    })
-    const privateOtherItem = createWorkItem({
-      id: "item_private_other",
-      creatorId: "user_2",
-      primaryProjectId: "project_1",
-      visibility: "private",
-    })
+    const { privateOtherItem, project, publicItem } =
+      createProjectVisibilityFixture()
 
     dataMocks.listProjectsByScope.mockResolvedValue([project])
     dataMocks.listWorkItemsByTeam.mockResolvedValue([
@@ -454,39 +553,20 @@ describe("scoped read model Convex handlers", () => {
       privateOtherItem,
     ])
 
-    const result = await getScopedReadModelHandler(ctx as never, {
-      serverToken: "server_token",
-      workosUserId: "workos_user_1",
-      instruction: {
-        kind: "project-index",
-        scopeType: "team",
-        scopeId: "team_allowed",
-      },
+    const result = await getScopedReadModel({
+      kind: "project-index",
+      scopeType: "team",
+      scopeId: "team_allowed",
     })
-    const workItemIds = result?.workItems?.map((item) => item.id) ?? []
+    const workItemIds = getResultWorkItemIds(result)
 
     expect(workItemIds).toEqual(["item_public"])
     expect(workItemIds).not.toContain("item_private_other")
   })
 
   it("filters unreadable private team items from project detail scopes", async () => {
-    const { getScopedReadModelHandler } = await import(
-      "@/convex/app/scoped_read_models"
-    )
-    const project = createProject({
-      id: "project_1",
-      name: "Launch",
-    })
-    const publicItem = createWorkItem({
-      id: "item_public",
-      primaryProjectId: "project_1",
-    })
-    const privateOtherItem = createWorkItem({
-      id: "item_private_other",
-      creatorId: "user_2",
-      primaryProjectId: "project_1",
-      visibility: "private",
-    })
+    const { privateOtherItem, project, publicItem } =
+      createProjectVisibilityFixture()
 
     dataMocks.getProjectDoc.mockResolvedValue(project)
     dataMocks.listWorkItemsByTeam.mockResolvedValue([
@@ -496,12 +576,11 @@ describe("scoped read model Convex handlers", () => {
     dataMocks.listWorkspaceDocuments.mockResolvedValue([])
     dataMocks.listProjectUpdatesByProjects.mockResolvedValue([])
 
-    const result = await getScopedReadModelHandler(ctx as never, {
-      serverToken: "server_token",
-      workosUserId: "workos_user_1",
-      instruction: { kind: "project-detail", projectId: "project_1" },
+    const result = await getScopedReadModel({
+      kind: "project-detail",
+      projectId: "project_1",
     })
-    const workItemIds = result?.workItems?.map((item) => item.id) ?? []
+    const workItemIds = getResultWorkItemIds(result)
 
     expect(workItemIds).toEqual(["item_public"])
     expect(workItemIds).not.toContain("item_private_other")
@@ -560,10 +639,71 @@ describe("scoped read model Convex handlers", () => {
     expect(dataMocks.listChatMessagesByConversation).not.toHaveBeenCalled()
   })
 
-  it("filters unreadable linked documents from work item detail scopes", async () => {
-    const { getScopedReadModelHandler } = await import(
-      "@/convex/app/scoped_read_models"
+  it("loads participant read states for workspace chat conversation threads", async () => {
+    const conversation = createConversationThread({
+      scopeType: "workspace",
+      scopeId: "workspace_1",
+      variant: "direct",
+      title: "Direct",
+    })
+    const message = {
+      id: "message_1",
+      conversationId: "chat_1",
+      kind: "text",
+      content: "<p>Current user sent this</p>",
+      mentionUserIds: [],
+      reactions: [],
+      createdBy: "user_1",
+      createdAt: "2026-06-03T12:01:00.000Z",
+    }
+
+    mockConversationThreadData({
+      conversation,
+      messages: [message],
+      readStates: [
+        createChatReadState("user_1", "2026-06-03T12:02:00.000Z"),
+        createChatReadState("user_2", "2026-06-03T12:03:00.000Z"),
+        createChatReadState("user_3", "2026-06-03T12:04:00.000Z"),
+      ],
+    })
+
+    const result = await getScopedReadModel({
+      kind: "conversation-thread",
+      conversationId: "chat_1",
+    })
+
+    expect(dataMocks.listChatReadStatesByConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      "chat_1"
     )
+    expect(dataMocks.listChatReadStatesByUser).not.toHaveBeenCalled()
+    expect(result?.chatReadStates?.map((readState) => readState.id)).toEqual([
+      "chat_read_state_user_1_chat_1",
+      "chat_read_state_user_2_chat_1",
+    ])
+  })
+
+  it("keeps team chat thread read states current-user scoped without message receipts", async () => {
+    mockConversationThreadData({
+      conversation: createConversationThread(),
+      readStates: [
+        createChatReadState("user_1", "2026-06-03T12:02:00.000Z"),
+        createChatReadState("user_2", "2026-06-03T12:03:00.000Z"),
+      ],
+    })
+
+    const result = await getScopedReadModel({
+      kind: "conversation-thread",
+      conversationId: "chat_1",
+    })
+
+    expect(result?.chatReadStates?.map((readState) => readState.id)).toEqual([
+      "chat_read_state_user_1_chat_1",
+    ])
+    expect(result?.chatReadStates?.[0]?.messageReadAtById).toBeUndefined()
+  })
+
+  it("filters unreadable linked documents from work item detail scopes", async () => {
     const item = {
       id: "item_1",
       title: "Fix visibility",
@@ -630,15 +770,9 @@ describe("scoped read model Convex handlers", () => {
       ...visibleDocuments.slice(1),
       ...unreadableDocuments,
     ])
-    dataMocks.listCommentsByTargets.mockResolvedValue([])
-    dataMocks.listAttachmentsByTargets.mockResolvedValue([])
-    dataMocks.listWorkItemActivitiesByWorkItems.mockResolvedValue([])
+    mockEmptyWorkItemDetailSecondaryCollections()
 
-    const result = await getScopedReadModelHandler(ctx as never, {
-      serverToken: "server_token",
-      workosUserId: "workos_user_1",
-      instruction: { kind: "work-item-detail", itemId: "item_1" },
-    })
+    const result = await getWorkItemDetailReadModel("item_1")
     const documentIds = result?.documents?.map((document) => document.id) ?? []
 
     expect(documentIds).toEqual(
@@ -654,9 +788,6 @@ describe("scoped read model Convex handlers", () => {
   })
 
   it("filters unreadable private sibling items from work item detail scopes", async () => {
-    const { getScopedReadModelHandler } = await import(
-      "@/convex/app/scoped_read_models"
-    )
     const openedItem = createWorkItem({
       id: "item_open",
       title: "Open item",
@@ -689,11 +820,7 @@ describe("scoped read model Convex handlers", () => {
       visiblePrivateSibling,
       unreadablePrivateSibling,
     ])
-    dataMocks.listDocumentsByIds.mockResolvedValue([])
-    dataMocks.listWorkspaceDocuments.mockResolvedValue([])
-    dataMocks.listCommentsByTargets.mockResolvedValue([])
-    dataMocks.listAttachmentsByTargets.mockResolvedValue([])
-    dataMocks.listWorkItemActivitiesByWorkItems.mockResolvedValue([])
+    mockEmptyWorkItemDetailRelations()
     dataMocks.listCustomPropertyDefinitionsByTeams.mockResolvedValue([
       { id: "property_1", teamId: "team_allowed", name: "Size" },
     ])
@@ -707,11 +834,7 @@ describe("scoped read model Convex handlers", () => {
         }))
     )
 
-    const result = await getScopedReadModelHandler(ctx as never, {
-      serverToken: "server_token",
-      workosUserId: "workos_user_1",
-      instruction: { kind: "work-item-detail", itemId: "item_open" },
-    })
+    const result = await getWorkItemDetailReadModel("item_open")
     const workItemIds = result?.workItems?.map((entry) => entry.id) ?? []
     const customPropertyWorkItemIds =
       result?.customPropertyValues?.map((entry) => entry.workItemId) ?? []
@@ -732,9 +855,6 @@ describe("scoped read model Convex handlers", () => {
   })
 
   it("filters unreadable linked projects from work item detail scopes", async () => {
-    const { getScopedReadModelHandler } = await import(
-      "@/convex/app/scoped_read_models"
-    )
     const openedItem = createWorkItem({
       id: "item_open",
       title: "Open item",
@@ -779,17 +899,9 @@ describe("scoped read model Convex handlers", () => {
         return []
       }
     )
-    dataMocks.listDocumentsByIds.mockResolvedValue([])
-    dataMocks.listWorkspaceDocuments.mockResolvedValue([])
-    dataMocks.listCommentsByTargets.mockResolvedValue([])
-    dataMocks.listAttachmentsByTargets.mockResolvedValue([])
-    dataMocks.listWorkItemActivitiesByWorkItems.mockResolvedValue([])
+    mockEmptyWorkItemDetailRelations()
 
-    const result = await getScopedReadModelHandler(ctx as never, {
-      serverToken: "server_token",
-      workosUserId: "workos_user_1",
-      instruction: { kind: "work-item-detail", itemId: "item_open" },
-    })
+    const result = await getWorkItemDetailReadModel("item_open")
     const projectIds = result?.projects?.map((project) => project.id) ?? []
 
     expect(projectIds).toEqual(["project_allowed", "project_workspace"])

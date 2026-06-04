@@ -20,6 +20,7 @@ import {
   hasWorkspaceAccess,
 } from "@/lib/domain/selectors"
 import { documentSchema } from "@/lib/domain/types"
+import { getAttachmentFileValidationMessage } from "@/lib/domain/file-uploads"
 import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 
 import { createId, getNow } from "../helpers"
@@ -33,7 +34,6 @@ import {
 import type { AppStore } from "../types"
 import type { WorkSlice, WorkSliceFactoryArgs } from "./work-shared"
 
-const MAX_ATTACHMENT_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024
 const DEFAULT_ATTACHMENT_CONTENT_TYPE = "application/octet-stream"
 
 type AttachmentUploadTargetType = Parameters<WorkSlice["uploadAttachment"]>[0]
@@ -338,49 +338,103 @@ async function persistWorkItemMainSectionUpdate({
   }
 }
 
+function readOnlyAttachmentTarget() {
+  return {
+    ok: false,
+    message: "Your current role is read-only",
+  } satisfies AttachmentUploadValidationResult
+}
+
+function validateEditableWorkItemAttachmentTarget(
+  state: AppStore,
+  targetId: string
+): AttachmentUploadValidationResult {
+  const item = state.workItems.find((entry) => entry.id === targetId)
+
+  if (!item) {
+    return {
+      ok: false,
+      message: "Work item not found",
+    }
+  }
+
+  if ((item.visibility ?? "team") === "private") {
+    return canEditPrivateWorkItem(state, item)
+      ? { ok: true, teamId: null }
+      : readOnlyAttachmentTarget()
+  }
+
+  const role = effectiveRole(state, item.teamId)
+
+  return role === "viewer" || role === "guest" || !role
+    ? readOnlyAttachmentTarget()
+    : { ok: true, teamId: item.teamId }
+}
+
+function validateEditableConversationAttachmentTarget(
+  state: AppStore,
+  targetId: string
+): AttachmentUploadValidationResult {
+  const conversation = state.conversations.find(
+    (entry) => entry.id === targetId
+  )
+
+  if (!conversation) {
+    return {
+      ok: false,
+      message: "Conversation not found",
+    }
+  }
+
+  if (
+    conversation.kind === "chat" &&
+    !conversation.participantIds.includes(state.currentUserId)
+  ) {
+    return {
+      ok: false,
+      message: "You do not have access to this chat",
+    }
+  }
+
+  if (conversation.scopeType === "workspace") {
+    return canEditWorkspaceDocuments(state, conversation.scopeId)
+      ? { ok: true, teamId: null }
+      : readOnlyAttachmentTarget()
+  }
+
+  const role = effectiveRole(state, conversation.scopeId)
+
+  return role === "viewer" || role === "guest" || !role
+    ? readOnlyAttachmentTarget()
+    : { ok: true, teamId: conversation.scopeId }
+}
+
+function validateEditableDocumentAttachmentTarget(
+  state: AppStore,
+  targetId: string
+): AttachmentUploadValidationResult {
+  const document = state.documents.find((entry) => entry.id === targetId)
+  const role = effectiveRole(state, document?.teamId)
+
+  return role === "viewer" || role === "guest" || !role
+    ? readOnlyAttachmentTarget()
+    : { ok: true, teamId: document?.teamId ?? null }
+}
+
 function validateEditableAttachmentTarget(
   state: AppStore,
   targetType: AttachmentUploadTargetType,
   targetId: string
 ): AttachmentUploadValidationResult {
   if (targetType === "workItem") {
-    const item = state.workItems.find((entry) => entry.id === targetId)
-
-    if (!item) {
-      return {
-        ok: false,
-        message: "Work item not found",
-      }
-    }
-
-    if ((item.visibility ?? "team") === "private") {
-      return canEditPrivateWorkItem(state, item)
-        ? { ok: true, teamId: null }
-        : {
-            ok: false,
-            message: "Your current role is read-only",
-          }
-    }
-
-    const role = effectiveRole(state, item.teamId)
-
-    return role === "viewer" || role === "guest" || !role
-      ? {
-          ok: false,
-          message: "Your current role is read-only",
-        }
-      : { ok: true, teamId: item.teamId }
+    return validateEditableWorkItemAttachmentTarget(state, targetId)
   }
 
-  const document = state.documents.find((entry) => entry.id === targetId)
-  const role = effectiveRole(state, document?.teamId)
+  if (targetType === "conversation") {
+    return validateEditableConversationAttachmentTarget(state, targetId)
+  }
 
-  return role === "viewer" || role === "guest" || !role
-    ? {
-        ok: false,
-        message: "Your current role is read-only",
-      }
-    : { ok: true, teamId: document?.teamId ?? null }
+  return validateEditableDocumentAttachmentTarget(state, targetId)
 }
 
 function validateAttachmentUpload(
@@ -409,24 +463,9 @@ function validateAttachmentUpload(
 function validateAttachmentFile(
   file: File | null | undefined
 ): AttachmentUploadValidationResult {
-  if (!file || file.size <= 0) {
-    return {
-      ok: false,
-      message: "Choose a file to upload",
-    }
-  }
+  const message = getAttachmentFileValidationMessage(file)
 
-  if (file.size > MAX_ATTACHMENT_UPLOAD_SIZE_BYTES) {
-    return {
-      ok: false,
-      message: "Files must be 25 MB or smaller",
-    }
-  }
-
-  return {
-    ok: true,
-    teamId: null,
-  }
+  return message ? { ok: false, message } : { ok: true, teamId: null }
 }
 
 async function uploadAttachmentFileToStorage(uploadUrl: string, file: File) {

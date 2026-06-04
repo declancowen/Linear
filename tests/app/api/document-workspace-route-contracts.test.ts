@@ -37,6 +37,14 @@ const bumpCommentTargetReadModelScopesServerMock = vi.fn()
 const bumpNotificationInboxReadModelScopesServerMock = vi.fn()
 const notifyCollaborationDocumentChangedServerMock = vi.fn()
 
+function createCommentCreationRequest() {
+  return createJsonRouteRequest("http://localhost/api/comments", "POST", {
+    targetType: "workItem",
+    targetId: "item_1",
+    content: "Hello world",
+  })
+}
+
 vi.mock("@/lib/server/route-auth", () => ({
   requireSession: requireSessionMock,
   requireAppContext: requireAppContextMock,
@@ -233,19 +241,7 @@ describe("document and workspace route contracts", () => {
       notificationUserIds: ["user_2", "user_3"],
     })
 
-    const response = await POST(
-      new Request("http://localhost/api/comments", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          targetType: "workItem",
-          targetId: "item_1",
-          content: "Hello world",
-        }),
-      }) as never
-    )
+    const response = await POST(createCommentCreationRequest() as never)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
@@ -275,19 +271,7 @@ describe("document and workspace route contracts", () => {
       })
     )
 
-    const response = await POST(
-      new Request("http://localhost/api/comments", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          targetType: "workItem",
-          targetId: "item_1",
-          content: "Hello world",
-        }),
-      }) as never
-    )
+    const response = await POST(createCommentCreationRequest() as never)
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toEqual({

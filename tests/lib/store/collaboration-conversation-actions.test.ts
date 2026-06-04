@@ -143,6 +143,19 @@ async function createConversationActionsHarness() {
   return { backgroundTasks, setState, slice, state }
 }
 
+function setConversationAsWorkspaceDirect(state: AppData) {
+  state.conversations = state.conversations.map((conversation) =>
+    conversation.id === "conversation_1"
+      ? {
+          ...conversation,
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          variant: "direct",
+        }
+      : conversation
+  )
+}
+
 describe("collaboration conversation actions", () => {
   beforeEach(() => {
     vi.resetModules()
@@ -335,7 +348,7 @@ describe("collaboration conversation actions", () => {
     expect(toastErrorMock).toHaveBeenCalledWith("Your current role is read-only")
   })
 
-  it("marks the sent chat read without creating a generic inbox notification", async () => {
+  it("marks the sent chat read without creating a self message receipt or generic inbox notification", async () => {
     syncSendChatMessageMock.mockResolvedValueOnce(null)
 
     const { backgroundTasks, slice, state } =
@@ -353,19 +366,21 @@ describe("collaboration conversation actions", () => {
         conversationId: "conversation_1",
         readAt: expect.any(String),
         unreadAt: null,
+        messageReadAtById: {},
       }),
     ])
     expect(
       state.chatReadStates[0]?.messageReadAtById?.[
         state.chatMessages[0]?.id ?? ""
       ]
-    ).toEqual(expect.any(String))
+    ).toBeUndefined()
     await expect(backgroundTasks[0]).resolves.toBeNull()
   })
 
   it("marks visible chat messages read once without overwriting existing receipt timestamps", async () => {
     const { backgroundTasks, slice, state } =
       await createConversationActionsHarness()
+    setConversationAsWorkspaceDirect(state)
     state.chatReadStates = [
       {
         id: "chat_read_state_user_1_conversation_1",
@@ -380,8 +395,44 @@ describe("collaboration conversation actions", () => {
         updatedAt: "2026-04-21T10:03:00.000Z",
       },
     ]
+    state.chatMessages = [
+      {
+        id: "message_old",
+        conversationId: "conversation_1",
+        kind: "text",
+        content: "<p>Already read</p>",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_2",
+        createdAt: "2026-04-21T10:01:00.000Z",
+      },
+      {
+        id: "message_new",
+        conversationId: "conversation_1",
+        kind: "text",
+        content: "<p>Unread</p>",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_2",
+        createdAt: "2026-04-21T10:04:00.000Z",
+      },
+      {
+        id: "message_self",
+        conversationId: "conversation_1",
+        kind: "text",
+        content: "<p>Mine</p>",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_1",
+        createdAt: "2026-04-21T10:05:00.000Z",
+      },
+    ]
 
-    slice.markChatRead("conversation_1", ["message_old", "message_new"])
+    slice.markChatRead("conversation_1", [
+      "message_old",
+      "message_new",
+      "message_self",
+    ])
 
     expect(state.chatReadStates[0]).toMatchObject({
       readAt: expect.any(String),
@@ -401,12 +452,16 @@ describe("collaboration conversation actions", () => {
         messageIds: ["message_new"],
       }
     )
+    expect(
+      state.chatReadStates[0]?.messageReadAtById?.message_self
+    ).toBeUndefined()
     await expect(backgroundTasks[0]).resolves.toBeNull()
   })
 
   it("does not sync chat read state when every visible message is already read", async () => {
     const { backgroundTasks, slice, state } =
       await createConversationActionsHarness()
+    setConversationAsWorkspaceDirect(state)
     state.chatReadStates = [
       {
         id: "chat_read_state_user_1_conversation_1",
@@ -421,6 +476,18 @@ describe("collaboration conversation actions", () => {
         updatedAt: "2026-04-21T10:02:00.000Z",
       },
     ]
+    state.chatMessages = [
+      {
+        id: "message_old",
+        conversationId: "conversation_1",
+        kind: "text",
+        content: "<p>Already read</p>",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_2",
+        createdAt: "2026-04-21T10:01:00.000Z",
+      },
+    ]
 
     slice.markChatRead("conversation_1", ["message_old"])
 
@@ -430,6 +497,51 @@ describe("collaboration conversation actions", () => {
       readAt: "2026-04-21T10:02:00.000Z",
       updatedAt: "2026-04-21T10:02:00.000Z",
     })
+  })
+
+  it("keeps team chat reads conversation-level when message ids are provided", async () => {
+    const { backgroundTasks, slice, state } =
+      await createConversationActionsHarness()
+    state.chatReadStates = [
+      {
+        id: "chat_read_state_user_1_conversation_1",
+        userId: "user_1",
+        conversationId: "conversation_1",
+        readAt: "2026-04-21T10:02:00.000Z",
+        unreadAt: "2026-04-21T10:03:00.000Z",
+        messageReadAtById: {},
+        createdAt: "2026-04-21T10:02:00.000Z",
+        updatedAt: "2026-04-21T10:03:00.000Z",
+      },
+    ]
+    state.chatMessages = [
+      {
+        id: "message_new",
+        conversationId: "conversation_1",
+        kind: "text",
+        content: "<p>Unread</p>",
+        mentionUserIds: [],
+        reactions: [],
+        createdBy: "user_2",
+        createdAt: "2026-04-21T10:04:00.000Z",
+      },
+    ]
+
+    slice.markChatRead("conversation_1", ["message_new"])
+
+    expect(state.chatReadStates[0]).toMatchObject({
+      readAt: expect.any(String),
+      unreadAt: null,
+      messageReadAtById: {},
+    })
+    expect(syncUpdateChatReadStateMock).toHaveBeenCalledWith(
+      "conversation_1",
+      "read",
+      {
+        messageIds: undefined,
+      }
+    )
+    await expect(backgroundTasks[0]).resolves.toBeNull()
   })
 
   it("does not add duplicate optimistic message notifications for mentions", async () => {

@@ -245,6 +245,24 @@ function renderAssignedFallbackSurface() {
   )
 }
 
+function renderEmptyTeamWorkSurfaceWithView(view: ViewDefinition) {
+  useAppStore.setState({
+    ...useAppStore.getState(),
+    views: [view],
+  })
+
+  render(
+    <WorkSurface
+      title="Work"
+      routeKey="/team/platform/work"
+      views={[view]}
+      items={[]}
+      team={createTeam()}
+      emptyLabel="No work"
+    />
+  )
+}
+
 describe("WorkSurface", () => {
   beforeEach(() => {
     useAppStore.setState({
@@ -350,21 +368,7 @@ describe("WorkSurface", () => {
       subGrouping: null,
     })
 
-    useAppStore.setState({
-      ...useAppStore.getState(),
-      views: [view],
-    })
-
-    render(
-      <WorkSurface
-        title="Work"
-        routeKey="/team/platform/work"
-        views={[view]}
-        items={[]}
-        team={createTeam()}
-        emptyLabel="No work"
-      />
-    )
+    renderEmptyTeamWorkSurfaceWithView(view)
 
     fireEvent.click(screen.getByRole("button", { name: "New" }))
 
@@ -395,21 +399,7 @@ describe("WorkSurface", () => {
       subGrouping: null,
     })
 
-    useAppStore.setState({
-      ...useAppStore.getState(),
-      views: [view],
-    })
-
-    render(
-      <WorkSurface
-        title="Work"
-        routeKey="/team/platform/work"
-        views={[view]}
-        items={[]}
-        team={createTeam()}
-        emptyLabel="No work"
-      />
-    )
+    renderEmptyTeamWorkSurfaceWithView(view)
 
     fireEvent.click(screen.getByRole("button", { name: "New" }))
 

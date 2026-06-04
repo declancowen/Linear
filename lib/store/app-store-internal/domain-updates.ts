@@ -464,6 +464,10 @@ function buildNextStateAfterRemoval(
       return !removal.deletedWorkItemIds.has(attachment.targetId)
     }
 
+    if (attachment.targetType === "conversation") {
+      return !removal.deletedConversationIds.has(attachment.targetId)
+    }
+
     return !removal.deletedDocumentIds.has(attachment.targetId)
   })
   const notifications = state.notifications.filter(

@@ -14,6 +14,7 @@ import {
   ArrowSquareOut,
   Eye,
   PaperPlaneTilt,
+  PencilSimple,
   Smiley,
 } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
@@ -26,7 +27,13 @@ import {
   getUser,
   hasWorkspaceAccessInCollections,
 } from "@/lib/domain/selectors"
-import { getChatReadState } from "@/lib/domain/chat-read-state"
+import {
+  getChatReadState,
+  getReadableChatMessageReceiptIds,
+  getSeenChatMessageIds,
+  supportsChatMessageReadReceipts,
+} from "@/lib/domain/chat-read-state"
+import { sanitizeRichTextMessageContent } from "@/lib/content/rich-text-security"
 import { chatMessageContentConstraints } from "@/lib/domain/input-constraints"
 import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
 import { useAppStore } from "@/lib/store/app-store"
@@ -38,7 +45,17 @@ import { MessageHoverActionBar } from "@/components/app/message-hover-action-bar
 import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
-import { UserAvatar } from "@/components/app/user-presence"
+import { RichTextUploadButton } from "@/components/app/rich-text-editor/upload-button"
+import {
+  flushPendingAttachmentUploads,
+  hasPendingAttachments,
+} from "@/components/app/rich-text-editor/pending-attachments"
+import {
+  ConversationFilesPanel,
+  ConversationTabBar,
+} from "./conversation-files-panel"
+import type { RichTextAttachmentUploader } from "@/components/app/rich-text-editor/attachment-upload-one"
+import { UserAvatar, UserHoverCard } from "@/components/app/user-presence"
 import {
   ChatHeaderActions,
   EmptyState,
@@ -46,8 +63,8 @@ import {
 import { getChatWelcomeIntroDisplay } from "@/components/app/collaboration-screens/chat-welcome-display"
 import {
   buildCallJoinHref,
+  formatChatMessageTime,
   formatDayDivider,
-  formatTimestamp,
   getChatMessageMarkup,
   getLocalDayKey,
   parseCallInviteMessage,
@@ -56,6 +73,9 @@ import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
 const EMPTY_MESSAGE_READ_AT_BY_ID: Record<string, string> = {}
+const EMPTY_MESSAGE_IDS: string[] = []
+const EMPTY_PARTICIPANT_IDS: string[] = []
+const EMPTY_SEEN_MESSAGE_IDS = new Set<string>()
 
 function getLiveComposerContent(
   editorInstanceRef: RefObject<Editor | null>,
@@ -87,6 +107,7 @@ function ChatComposer({
   draftContent,
   editing,
   onCancelEdit,
+  onUploadAttachment,
   onTypingChange,
 }: {
   placeholder?: string
@@ -98,6 +119,7 @@ function ChatComposer({
   draftContent?: string
   editing?: boolean
   onCancelEdit?: () => void
+  onUploadAttachment: RichTextAttachmentUploader
   onTypingChange?: (typing: boolean) => void
 }) {
   const EMPTY_COMPOSER_CONTENT = "<p></p>"
@@ -114,7 +136,7 @@ function ChatComposer({
     [currentUserId, mentionCandidates]
   )
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const liveContent = getLiveComposerContent(editorInstanceRef, content)
     const livePlainText = getPlainTextContent(liveContent).trim()
 
@@ -122,9 +144,24 @@ function ChatComposer({
       return
     }
 
+    let outgoingContent = liveContent
+
+    if (hasPendingAttachments(liveContent)) {
+      const flushedContent = await flushPendingAttachmentUploads(
+        liveContent,
+        onUploadAttachment
+      )
+
+      if (flushedContent === null) {
+        return
+      }
+
+      outgoingContent = flushedContent
+    }
+
     clearTypingTimeout(typingTimeoutRef)
     onTypingChange?.(false)
-    onSend(liveContent)
+    onSend(outgoingContent)
     setContent(EMPTY_COMPOSER_CONTENT)
     setComposerKey((current) => current + 1)
   }
@@ -197,6 +234,8 @@ function ChatComposer({
           maxPlainTextCharacters={chatMessageContentConstraints.max}
           enforcePlainTextLimit
           onSubmitShortcut={handleSend}
+          onUploadAttachment={onUploadAttachment}
+          deferAttachmentUpload
           submitOnEnter
           className="min-w-0 [&_.ProseMirror]:max-h-40 [&_.ProseMirror]:min-h-[1.55em] [&_.ProseMirror]:overflow-y-auto [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
         />
@@ -214,9 +253,17 @@ function ChatComposer({
               >
                 <Smiley className="size-[13px]" />
               </button>
-            }
-          />
-          <span className="flex-1" />
+          }
+        />
+        <RichTextUploadButton
+          deferUpload
+          disabled={!editable}
+          editorRef={editorInstanceRef}
+          iconClassName="size-[13px]"
+          insertMode="auto"
+          onUploadAttachment={onUploadAttachment}
+        />
+        <span className="flex-1" />
           <kbd className="mr-1 inline-flex h-[18px] items-center rounded-[4px] border border-line bg-surface-2 px-1 font-sans text-[10.5px] font-medium text-fg-3">
             ⏎
           </kbd>
@@ -424,19 +471,38 @@ function ChatMessageAvatar({
 function ChatMessageHeader({
   author,
   authorView,
+  currentUserId,
   isCurrentUser,
+  workspaceId,
 }: {
   author?: ChatThreadUser
   authorView: WorkspaceUserPresenceView
+  currentUserId: string
   isCurrentUser: boolean
+  workspaceId: string | null
 }) {
+  const displayName =
+    authorView?.name ?? author?.name ?? (isCurrentUser ? "You" : "Unknown")
+  const displayNameElement = (
+    <span className="text-[13.5px] font-semibold text-foreground">
+      {displayName}
+    </span>
+  )
+
   return (
-    <div className="-mt-px flex min-w-0 items-baseline gap-2">
-      <span className="text-[13.5px] font-semibold text-foreground">
-        {authorView?.name ??
-          author?.name ??
-          (isCurrentUser ? "You" : "Unknown")}
-      </span>
+    <div className="-mt-px mb-1 flex min-w-0 items-baseline gap-2">
+      {author ? (
+        <UserHoverCard
+          user={author}
+          userId={author.id}
+          currentUserId={currentUserId}
+          workspaceId={workspaceId}
+        >
+          {displayNameElement}
+        </UserHoverCard>
+      ) : (
+        displayNameElement
+      )}
     </div>
   )
 }
@@ -444,43 +510,39 @@ function ChatMessageHeader({
 function ChatMessageMetadata({
   className,
   message,
-  readAt,
+  seen,
 }: {
   className?: string
   message: ChatThreadMessage
-  readAt?: string | null
+  seen: boolean
 }) {
-  const timestamp = formatTimestamp(message.createdAt)
-  const readTimestamp =
-    readAt && !message.deletedAt ? formatTimestamp(readAt) : null
+  const timestamp = formatChatMessageTime(message.createdAt)
   const edited = Boolean(message.editedAt && !message.deletedAt)
 
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center justify-end gap-1.5 text-right text-[11.5px] whitespace-nowrap text-fg-3",
+        "flex shrink-0 items-center justify-end gap-1.5 text-right text-[11.5px] whitespace-nowrap text-fg-4",
         className
       )}
     >
-      <span>{timestamp}</span>
-      {readTimestamp ? (
+      {seen ? (
         <>
-          <span aria-hidden="true">·</span>
-          <span
-            className="inline-flex items-center gap-1"
-            aria-label={`Read ${readTimestamp}`}
-          >
-            <Eye className="size-3" />
-            <span>{readTimestamp}</span>
+          <span className="inline-flex items-center" aria-label="Seen">
+            <Eye className="size-3.5" />
           </span>
+          <span aria-hidden="true">·</span>
         </>
       ) : null}
       {edited ? (
         <>
+          <span className="inline-flex items-center" aria-label="Edited">
+            <PencilSimple className="size-3.5" />
+          </span>
           <span aria-hidden="true">·</span>
-          <span>Edited</span>
         </>
       ) : null}
+      <span>{timestamp}</span>
     </span>
   )
 }
@@ -520,7 +582,7 @@ function ChatMessageBody({
 
   return (
     <RichTextContent
-      content={getChatMessageMarkup(content)}
+      content={sanitizeRichTextMessageContent(getChatMessageMarkup(content))}
       className="max-w-full text-[13.5px] leading-[1.55] [overflow-wrap:anywhere] break-words text-foreground [&_.editor-mention]:rounded [&_.editor-mention]:bg-accent-bg [&_.editor-mention]:px-1 [&_.editor-mention]:font-medium [&_.editor-mention]:text-accent-fg [&_a]:break-all [&_a]:text-blue-600 [&_a]:underline dark:[&_a]:text-blue-400 [&_code]:rounded [&_code]:bg-surface-3 [&_code]:px-1.5 [&_code]:py-[1px] [&_code]:text-[12.5px] [&_p]:my-0 [&_p+p]:mt-1 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap"
     />
   )
@@ -610,8 +672,9 @@ function ChatMessageRow({
   onEditMessage,
   onQuoteMessage,
   previousMessage,
-  readAt,
+  seen,
   usersById,
+  workspaceId,
 }: {
   author?: ChatThreadUser
   authorView: WorkspaceUserPresenceView
@@ -626,8 +689,9 @@ function ChatMessageRow({
     authorName: string | undefined
   ) => void
   previousMessage?: ChatThreadMessage
-  readAt?: string | null
+  seen: boolean
   usersById: Map<string, ChatThreadUser>
+  workspaceId: string | null
 }) {
   const isCurrentUser = message.createdBy === currentUserId
   const canMutateMessage =
@@ -650,8 +714,8 @@ function ChatMessageRow({
       <div
         className={cn(
           "group/msg relative grid items-start gap-x-2.5 px-4 transition-colors hover:bg-surface-2",
-          groupedWithPrev ? "py-0" : "py-0.5",
-          showTopMargin && "mt-2"
+          "py-0.5",
+          showTopMargin && "mt-3"
         )}
         style={{ gridTemplateColumns: "24px 1fr" }}
       >
@@ -682,13 +746,18 @@ function ChatMessageRow({
         ) : (
           <ChatMessageAvatar author={author} authorView={authorView} />
         )}
-        <div className="flex min-w-0 items-start gap-3">
+        <div
+          className="grid min-w-0 items-start gap-3"
+          style={{ gridTemplateColumns: "minmax(0, 1fr) max-content" }}
+        >
           <div className="flex min-w-0 flex-1 flex-col">
             {!groupedWithPrev ? (
               <ChatMessageHeader
                 author={author}
                 authorView={authorView}
+                currentUserId={currentUserId}
                 isCurrentUser={isCurrentUser}
+                workspaceId={workspaceId}
               />
             ) : null}
             <ChatMessageBody
@@ -707,7 +776,7 @@ function ChatMessageRow({
           <ChatMessageMetadata
             className={cn(!groupedWithPrev && "pt-0.5")}
             message={message}
-            readAt={readAt}
+            seen={isCurrentUser && seen}
           />
         </div>
       </div>
@@ -716,15 +785,19 @@ function ChatMessageRow({
 }
 
 function ChatThreadHeader({
+  conversationListAction,
   description,
   detailsAction,
   membersCount,
+  tabs,
   title,
   videoAction,
 }: {
+  conversationListAction?: ReactNode
   description: string
   detailsAction?: ReactNode
   membersCount: number
+  tabs?: ReactNode
   title: string
   videoAction?: ReactNode
 }) {
@@ -733,6 +806,7 @@ function ChatThreadHeader({
   return (
     <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
       <div className="flex min-w-0 items-center gap-2">
+        {conversationListAction}
         <span className="truncate text-sm font-medium">{title}</span>
         {description ? (
           <span className="hidden truncate text-xs text-muted-foreground 2xl:inline">
@@ -743,14 +817,15 @@ function ChatThreadHeader({
           {membersCount} members
         </span>
       </div>
-      {hasHeaderActions ? (
-        <div className="flex items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-1.5">
+        {tabs}
+        {hasHeaderActions ? (
           <ChatHeaderActions
             videoAction={videoAction}
             detailsAction={detailsAction}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -760,11 +835,12 @@ function ChatMessageList({
   currentUserId,
   getMembershipState,
   messages,
-  messageReadAtById,
+  seenMessageIds,
   onDeleteMessage,
   onEditMessage,
   onQuoteMessage,
   usersById,
+  workspaceId,
 }: {
   canCurrentUserWrite: boolean
   currentUserId: string
@@ -772,7 +848,7 @@ function ChatMessageList({
     userId: string | null | undefined
   ) => WorkspaceMembershipState
   messages: ChatThreadMessage[]
-  messageReadAtById: Record<string, string>
+  seenMessageIds: Set<string>
   onDeleteMessage: (message: ChatThreadMessage) => void
   onEditMessage: (message: ChatThreadMessage) => void
   onQuoteMessage: (
@@ -780,6 +856,7 @@ function ChatMessageList({
     authorName: string | undefined
   ) => void
   usersById: Map<string, ChatThreadUser>
+  workspaceId: string | null
 }) {
   const visibleMessages = messages.filter(
     (message) => !message.deletedAt || message.createdBy === currentUserId
@@ -808,8 +885,9 @@ function ChatMessageList({
             onEditMessage={onEditMessage}
             onQuoteMessage={onQuoteMessage}
             previousMessage={previousMessage}
-            readAt={messageReadAtById[message.id] ?? null}
+            seen={seenMessageIds.has(message.id)}
             usersById={usersById}
+            workspaceId={workspaceId}
           />
         )
       })}
@@ -824,7 +902,7 @@ function ChatMessagesPane({
   getMembershipState,
   loaded,
   messages,
-  messageReadAtById,
+  seenMessageIds,
   messagesEndRef,
   onDeleteMessage,
   onEditMessage,
@@ -835,6 +913,7 @@ function ChatMessagesPane({
   usersById,
   welcomeParticipant,
   welcomeParticipantView,
+  workspaceId,
 }: {
   canCurrentUserWrite: boolean
   currentUserId: string
@@ -844,7 +923,7 @@ function ChatMessagesPane({
   ) => WorkspaceMembershipState
   loaded: boolean
   messages: ChatThreadMessage[]
-  messageReadAtById: Record<string, string>
+  seenMessageIds: Set<string>
   messagesEndRef: RefObject<HTMLDivElement | null>
   onDeleteMessage: (message: ChatThreadMessage) => void
   onEditMessage: (message: ChatThreadMessage) => void
@@ -858,6 +937,7 @@ function ChatMessagesPane({
   usersById: Map<string, ChatThreadUser>
   welcomeParticipant?: ChatThreadUser | null
   welcomeParticipantView: WorkspaceUserPresenceView
+  workspaceId: string | null
 }) {
   return (
     <div
@@ -894,11 +974,12 @@ function ChatMessagesPane({
             currentUserId={currentUserId}
             getMembershipState={getMembershipState}
             messages={messages}
-            messageReadAtById={messageReadAtById}
+            seenMessageIds={seenMessageIds}
             onDeleteMessage={onDeleteMessage}
             onEditMessage={onEditMessage}
             onQuoteMessage={onQuoteMessage}
             usersById={usersById}
+            workspaceId={workspaceId}
           />
           <div ref={messagesEndRef} aria-hidden className="h-px shrink-0" />
         </>
@@ -1012,6 +1093,11 @@ function ChatComposerPanel({
         draftContent={draftContent}
         editing={Boolean(editingMessageId)}
         onCancelEdit={onCancelEdit}
+        onUploadAttachment={(file) =>
+          useAppStore
+            .getState()
+            .uploadAttachment("conversation", conversationId, file)
+        }
         onTypingChange={onTypingChange}
         onSend={(content) => {
           if (editingMessageId) {
@@ -1396,8 +1482,21 @@ function useChatMessagesAutoScroll(latestMessageId: string | null) {
       scrollToBottom()
     })
 
+    const pendingImages = Array.from(el.querySelectorAll("img")).filter(
+      (image) => !image.complete
+    )
+
+    pendingImages.forEach((image) => {
+      image.addEventListener("load", scrollToBottom, { once: true })
+      image.addEventListener("error", scrollToBottom, { once: true })
+    })
+
     return () => {
       window.cancelAnimationFrame(frameId)
+      pendingImages.forEach((image) => {
+        image.removeEventListener("load", scrollToBottom)
+        image.removeEventListener("error", scrollToBottom)
+      })
     }
   }, [latestMessageId])
 
@@ -1416,6 +1515,7 @@ export function ChatThread({
   showHeader = true,
   videoAction,
   detailsAction,
+  conversationListAction,
   welcomeParticipant,
 }: {
   conversationId: string
@@ -1426,6 +1526,7 @@ export function ChatThread({
   showHeader?: boolean
   videoAction?: ReactNode
   detailsAction?: ReactNode
+  conversationListAction?: ReactNode
   welcomeParticipant?: NonNullable<ReturnType<typeof getUser>> | null
 }) {
   const messages = useAppStore(
@@ -1435,6 +1536,26 @@ export function ChatThread({
     (state) =>
       getChatReadState(state, state.currentUserId, conversationId)
         ?.messageReadAtById ?? EMPTY_MESSAGE_READ_AT_BY_ID
+  )
+  const chatReadStates = useAppStore(
+    useShallow((state) =>
+      state.chatReadStates.filter(
+        (readState) => readState.conversationId === conversationId
+      )
+    )
+  )
+  const conversationReceiptContext = useAppStore(
+    useShallow((state) => {
+      const conversation = state.conversations.find(
+        (entry) => entry.id === conversationId
+      )
+
+      return {
+        participantIds: conversation?.participantIds ?? EMPTY_PARTICIPANT_IDS,
+        supportsMessageReadReceipts:
+          supportsChatMessageReadReceipts(conversation),
+      }
+    })
   )
   const { canCurrentUserSend, conversationScopeType, conversationScopeId } =
     useChatThreadScope(conversationId)
@@ -1459,6 +1580,15 @@ export function ChatThread({
     key: 0,
   })
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
+  const fileContents = useMemo(
+    () =>
+      messages.map((message) => ({
+        content: message.content,
+        createdAt: message.createdAt,
+      })),
+    [messages]
+  )
   const [deleteMessage, setDeleteMessage] = useState<ChatThreadMessage | null>(
     null
   )
@@ -1520,14 +1650,57 @@ export function ChatThread({
     () => formatTypingIndicatorLabel(typingUsers.map((user) => user.name)),
     [typingUsers]
   )
+  const seenMessageIds = useMemo(
+    () => {
+      if (!conversationReceiptContext.supportsMessageReadReceipts) {
+        return EMPTY_SEEN_MESSAGE_IDS
+      }
+
+      return getSeenChatMessageIds({
+        conversationId,
+        currentUserId,
+        messages,
+        participantIds:
+          conversationReceiptContext.participantIds.length > 0
+            ? conversationReceiptContext.participantIds
+            : members.map((member) => member.id),
+        readStates: chatReadStates,
+      })
+    },
+    [
+      chatReadStates,
+      conversationId,
+      conversationReceiptContext,
+      currentUserId,
+      members,
+      messages,
+    ]
+  )
   const latestMessageId = messages[messages.length - 1]?.id ?? null
   const readableMessageIds = useMemo(
-    () =>
-      messages
-        .filter((message) => !message.deletedAt)
+    () => {
+      if (!conversationReceiptContext.supportsMessageReadReceipts) {
+        return EMPTY_MESSAGE_IDS
+      }
+
+      const unreadMessageIds = messages
         .filter((message) => !messageReadAtById[message.id])
-        .map((message) => message.id),
-    [messageReadAtById, messages]
+        .map((message) => message.id)
+
+      return getReadableChatMessageReceiptIds({
+        conversationId,
+        currentUserId,
+        messages,
+        messageIds: unreadMessageIds,
+      })
+    },
+    [
+      conversationId,
+      conversationReceiptContext.supportsMessageReadReceipts,
+      currentUserId,
+      messageReadAtById,
+      messages,
+    ]
   )
   const { messagesEndRef, scrollRef } =
     useChatMessagesAutoScroll(latestMessageId)
@@ -1610,56 +1783,70 @@ export function ChatThread({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {showHeader ? (
         <ChatThreadHeader
+          conversationListAction={conversationListAction}
           description={description}
           detailsAction={detailsAction}
           membersCount={members.length}
+          tabs={
+            <ConversationTabBar
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+            />
+          }
           title={title}
           videoAction={videoAction}
         />
       ) : null}
 
-      <ChatMessagesPane
-        canCurrentUserWrite={canCurrentUserSend}
-        currentUserId={currentUserId}
-        emptyStateDescription={emptyStateDescription}
-        getMembershipState={getWorkspaceMembershipState}
-        loaded={loaded}
-        messages={messages}
-        messageReadAtById={messageReadAtById}
-        messagesEndRef={messagesEndRef}
-        onDeleteMessage={setDeleteMessage}
-        onEditMessage={handleEditMessage}
-        onQuoteMessage={handleQuoteMessage}
-        scrollRef={scrollRef}
-        showWelcomeIntro={Boolean(showWelcomeIntro)}
-        title={title}
-        usersById={usersById}
-        welcomeParticipant={welcomeParticipant}
-        welcomeParticipantView={welcomeParticipantView}
-      />
+      {activeTab === "files" ? (
+        <ConversationFilesPanel entries={fileContents} />
+      ) : (
+        <>
+          <ChatMessagesPane
+            canCurrentUserWrite={canCurrentUserSend}
+            currentUserId={currentUserId}
+            emptyStateDescription={emptyStateDescription}
+            getMembershipState={getWorkspaceMembershipState}
+            loaded={loaded}
+            messages={messages}
+            seenMessageIds={seenMessageIds}
+            messagesEndRef={messagesEndRef}
+            onDeleteMessage={setDeleteMessage}
+            onEditMessage={handleEditMessage}
+            onQuoteMessage={handleQuoteMessage}
+            scrollRef={scrollRef}
+            showWelcomeIntro={Boolean(showWelcomeIntro)}
+            title={title}
+            usersById={usersById}
+            welcomeParticipant={welcomeParticipant}
+            welcomeParticipantView={welcomeParticipantView}
+            workspaceId={currentWorkspaceId}
+          />
 
-      <ChatTypingIndicator
-        label={typingIndicatorLabel}
-        typingUsers={typingUsers}
-      />
+          <ChatTypingIndicator
+            label={typingIndicatorLabel}
+            typingUsers={typingUsers}
+          />
 
-      <ChatComposerPanel
-        composerDisabledReason={composerDisabledReason}
-        composerEditable={composerEditable}
-        conversationId={conversationId}
-        currentUserId={currentUserId}
-        draftContent={composerDraft.content}
-        draftKey={composerDraft.key}
-        editingMessageId={editingMessageId}
-        hideComposer={hideComposer}
-        messageableMembers={messageableMembers}
-        messagesLength={messages.length}
-        onCancelEdit={handleCancelEdit}
-        onSaveEdit={handleSaveEdit}
-        onTypingChange={setTyping}
-        title={title}
-        typingUsersCount={typingUsers.length}
-      />
+          <ChatComposerPanel
+            composerDisabledReason={composerDisabledReason}
+            composerEditable={composerEditable}
+            conversationId={conversationId}
+            currentUserId={currentUserId}
+            draftContent={composerDraft.content}
+            draftKey={composerDraft.key}
+            editingMessageId={editingMessageId}
+            hideComposer={hideComposer}
+            messageableMembers={messageableMembers}
+            messagesLength={messages.length}
+            onCancelEdit={handleCancelEdit}
+            onSaveEdit={handleSaveEdit}
+            onTypingChange={setTyping}
+            title={title}
+            typingUsersCount={typingUsers.length}
+          />
+        </>
+      )}
       <ConfirmDialog
         open={Boolean(deleteMessage)}
         onOpenChange={(open) => {

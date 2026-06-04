@@ -1,15 +1,21 @@
 import type { Editor } from "@tiptap/react"
 
-import { escapeHtml } from "@/lib/html"
+import {
+  getAttachmentFileKind,
+  isImageAttachmentFile,
+} from "@/lib/domain/file-uploads"
 
 export type UploadedAttachment = {
   fileName: string
   fileUrl: string | null
 }
 
+export type RichTextAttachmentInsertMode = "auto" | "preview" | "reference"
+
 export function insertUploadedAttachment(input: {
   currentEditor: Editor
   file: File
+  insertMode?: RichTextAttachmentInsertMode
   uploaded: UploadedAttachment
   position?: number | null
 }) {
@@ -30,7 +36,10 @@ export function insertUploadedAttachment(input: {
     chain.setTextSelection(safePosition)
   }
 
-  if (input.file.type.startsWith("image/")) {
+  if (
+    input.insertMode !== "reference" &&
+    isImageAttachmentFile(input.file.name, input.file.type)
+  ) {
     chain
       .insertContent([
         {
@@ -51,8 +60,22 @@ export function insertUploadedAttachment(input: {
   }
 
   chain
-    .insertContent(
-      `<p><a href="${escapeHtml(input.uploaded.fileUrl)}" target="_blank" rel="noreferrer">${escapeHtml(input.uploaded.fileName)}</a></p>`
-    )
+    .insertContent([
+      {
+        type: "attachmentReference",
+        attrs: {
+          href: input.uploaded.fileUrl,
+          fileName: input.uploaded.fileName,
+          attachmentKind: getAttachmentFileKind(
+            input.file.name,
+            input.file.type
+          ),
+        },
+      },
+      {
+        type: "text",
+        text: " ",
+      },
+    ])
     .run()
 }

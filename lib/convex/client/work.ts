@@ -445,18 +445,6 @@ export function syncShiftTimelineItem(itemId: string, nextStartDate: string) {
   })
 }
 
-export function syncUpdateDocumentContent(
-  _currentUserId: string,
-  documentId: string,
-  content: string,
-  expectedUpdatedAt?: string
-) {
-  return syncUpdateDocument(documentId, {
-    content,
-    expectedUpdatedAt,
-  })
-}
-
 export function syncUpdateDocument(
   documentId: string,
   patch: {

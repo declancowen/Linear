@@ -6,6 +6,7 @@ import {
   type MentionEmail,
 } from "../../lib/email/builders"
 import { getPlainTextContent } from "../../lib/utils"
+import { deleteContentReferencedAttachments } from "./cleanup"
 import {
   requireEditableTeamAccess,
   requireEditableWorkspaceAccess,
@@ -1233,7 +1234,6 @@ export async function sendChatMessageHandler(
     userId: args.currentUserId,
     conversationId: conversation.id,
     now,
-    messageIds: [draft.messageId],
   })
   await markChatUnreadForUsers(ctx, {
     conversationId: conversation.id,
@@ -1397,6 +1397,11 @@ export async function deleteChatMessageHandler(
     reactions: [],
     editedAt: null,
     deletedAt: now,
+  })
+  await deleteContentReferencedAttachments(ctx, {
+    targetType: "conversation",
+    targetId: conversation.id,
+    contents: [message.content],
   })
   await ctx.db.patch(conversation._id, {
     updatedAt: now,
@@ -1969,6 +1974,11 @@ export async function deleteChannelPostHandler(
   }
 
   await ctx.db.delete(post._id)
+  await deleteContentReferencedAttachments(ctx, {
+    targetType: "conversation",
+    targetId: conversation.id,
+    contents: [post.content, ...comments.map((comment) => comment.content)],
+  })
 
   await ctx.db.patch(conversation._id, {
     updatedAt: getNow(),
@@ -2072,6 +2082,11 @@ export async function deleteChannelPostCommentHandler(
   )
 
   await ctx.db.delete(comment._id)
+  await deleteContentReferencedAttachments(ctx, {
+    targetType: "conversation",
+    targetId: conversation.id,
+    contents: [comment.content],
+  })
   await touchChannelPostCommentThread(ctx, {
     conversation,
     now: getNow(),

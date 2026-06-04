@@ -529,6 +529,79 @@ function createCollapsedChildSelectionData() {
   }
 }
 
+type SelectionRangeViewComponent = (props: {
+  data: AppData
+  editable: boolean
+  items: WorkItem[]
+  view: ViewDefinition
+}) => ReactNode
+
+function renderCollapsedChildSelectionView(
+  ViewComponent: SelectionRangeViewComponent,
+  layout: ViewDefinition["layout"]
+) {
+  const { data } = createCollapsedChildSelectionData()
+
+  render(
+    <ViewComponent
+      data={data}
+      items={data.workItems}
+      view={createView(layout, ["status"], {
+        showChildItems: true,
+      })}
+      editable
+    />
+  )
+}
+
+function expectCollapsedChildExcludedFromSelectionRange() {
+  expect(screen.queryByText("Hidden collapsed child")).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByLabelText("Select TES-1"))
+  fireEvent.click(screen.getByText("Second parent"), { shiftKey: true })
+
+  const target = screen.getByTestId("issue-context-targets-first_parent")
+  expect(target).toHaveTextContent("first_parent,second_parent")
+  expect(target).not.toHaveTextContent("hidden_collapsed_child")
+}
+
+function renderParentGroupedView(
+  ViewComponent: SelectionRangeViewComponent,
+  layout: ViewDefinition["layout"]
+) {
+  const data = createEpicGroupedCreateData()
+
+  render(
+    <ViewComponent
+      data={data}
+      items={data.workItems}
+      view={createView(layout, ["priority"], {
+        grouping: "parent",
+        showChildItems: true,
+      })}
+      editable
+    />
+  )
+}
+
+function expectEditableParentGroupHeader() {
+  const parentSummary = screen.getByTestId("parent-group-summary-epic-parent")
+  expect(within(parentSummary).getByText("Parent epic")).toBeInTheDocument()
+  expect(
+    within(parentSummary).getByRole("link", {
+      name: "Open parent Parent epic",
+    })
+  ).toBeInTheDocument()
+  expect(screen.getAllByRole("link", { name: "Open Parent epic" })).toHaveLength(
+    1
+  )
+  expect(screen.getByText("Grouped feature")).toBeInTheDocument()
+  expect(screen.queryByText("No parent")).not.toBeInTheDocument()
+
+  fireEvent.click(within(parentSummary).getByRole("button", { name: "Medium" }))
+  expect(screen.getByText("Urgent")).toBeInTheDocument()
+}
+
 function createCreateDefaultData(): AppData {
   return {
     ...createEditableData(),
@@ -2502,30 +2575,8 @@ describe("BoardView", () => {
   })
 
   it("excludes collapsed child cards from board selection ranges", () => {
-    const { data } = createCollapsedChildSelectionData()
-
-    render(
-      <BoardView
-        data={data}
-        items={data.workItems}
-        view={createView("board", ["status"], {
-          showChildItems: true,
-        })}
-        editable
-      />
-    )
-
-    expect(screen.queryByText("Hidden collapsed child")).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByLabelText("Select TES-1"))
-    fireEvent.click(screen.getByText("Second parent"), { shiftKey: true })
-
-    expect(
-      screen.getByTestId("issue-context-targets-first_parent")
-    ).toHaveTextContent("first_parent,second_parent")
-    expect(
-      screen.getByTestId("issue-context-targets-first_parent")
-    ).not.toHaveTextContent("hidden_collapsed_child")
+    renderCollapsedChildSelectionView(BoardView, "board")
+    expectCollapsedChildExcludedFromSelectionRange()
   })
 })
 
@@ -2800,30 +2851,8 @@ describe("ListView", () => {
   })
 
   it("excludes collapsed child rows from list selection ranges", () => {
-    const { data } = createCollapsedChildSelectionData()
-
-    render(
-      <ListView
-        data={data}
-        items={data.workItems}
-        view={createView("list", ["status"], {
-          showChildItems: true,
-        })}
-        editable
-      />
-    )
-
-    expect(screen.queryByText("Hidden collapsed child")).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByLabelText("Select TES-1"))
-    fireEvent.click(screen.getByText("Second parent"), { shiftKey: true })
-
-    expect(
-      screen.getByTestId("issue-context-targets-first_parent")
-    ).toHaveTextContent("first_parent,second_parent")
-    expect(
-      screen.getByTestId("issue-context-targets-first_parent")
-    ).not.toHaveTextContent("hidden_collapsed_child")
+    renderCollapsedChildSelectionView(ListView, "list")
+    expectCollapsedChildExcludedFromSelectionRange()
   })
 
   it("does not show bulk selection controls in read-only list rows", () => {
@@ -3445,74 +3474,16 @@ describe("ListView", () => {
   })
 
   it("promotes parent groups into board headers with editable properties", () => {
-    const data = createEpicGroupedCreateData()
-
-    render(
-      <BoardView
-        data={data}
-        items={data.workItems}
-        view={createView("board", ["priority"], {
-          grouping: "parent",
-          showChildItems: true,
-        })}
-        editable
-      />
-    )
-
-    const parentSummary = screen.getByTestId("parent-group-summary-epic-parent")
-    expect(within(parentSummary).getByText("Parent epic")).toBeInTheDocument()
-    expect(
-      within(parentSummary).getByRole("link", {
-        name: "Open parent Parent epic",
-      })
-    ).toBeInTheDocument()
-    expect(
-      screen.getAllByRole("link", { name: "Open Parent epic" })
-    ).toHaveLength(1)
-    expect(screen.getByText("Grouped feature")).toBeInTheDocument()
-    expect(screen.queryByText("No parent")).not.toBeInTheDocument()
-
-    fireEvent.click(
-      within(parentSummary).getByRole("button", { name: "Medium" })
-    )
-    expect(screen.getByText("Urgent")).toBeInTheDocument()
+    renderParentGroupedView(BoardView, "board")
+    expectEditableParentGroupHeader()
   })
 
   it("promotes parent groups into list headers with editable properties", () => {
-    const data = createEpicGroupedCreateData()
-
-    render(
-      <ListView
-        data={data}
-        items={data.workItems}
-        view={createView("list", ["priority"], {
-          grouping: "parent",
-          showChildItems: true,
-        })}
-        editable
-      />
-    )
-
-    const parentSummary = screen.getByTestId("parent-group-summary-epic-parent")
-    expect(within(parentSummary).getByText("Parent epic")).toBeInTheDocument()
-    expect(
-      within(parentSummary).getByRole("link", {
-        name: "Open parent Parent epic",
-      })
-    ).toBeInTheDocument()
-    expect(
-      screen.getAllByRole("link", { name: "Open Parent epic" })
-    ).toHaveLength(1)
-    expect(screen.getByText("Grouped feature")).toBeInTheDocument()
-    expect(screen.queryByText("No parent")).not.toBeInTheDocument()
-
-    fireEvent.click(
-      within(parentSummary).getByRole("button", { name: "Medium" })
-    )
-    expect(screen.getByText("Urgent")).toBeInTheDocument()
+    renderParentGroupedView(ListView, "list")
+    expectEditableParentGroupHeader()
   })
 
-  it("labels empty parent board lanes from the active hierarchy", () => {
+  it("promotes a parentless container issue into its own parent lane", () => {
     const issueExperience = "issue-analysis" as const
     const issueTeam = createTeam()
     const data = {
@@ -3535,6 +3506,12 @@ describe("ListView", () => {
           type: "issue",
           title: "Parentless issue",
         }),
+        createWorkItem({
+          id: "sub-issue-loose",
+          key: "BUG-2",
+          type: "sub-issue",
+          title: "Loose sub-issue",
+        }),
       ],
     }
 
@@ -3551,6 +3528,12 @@ describe("ListView", () => {
       />
     )
 
+    const parentLane = screen.getByTestId(
+      "parent-group-summary-issue-parentless"
+    )
+    expect(within(parentLane).getByText("Parentless issue")).toBeInTheDocument()
+    // A parentless leaf (no allowed children) still falls under the
+    // experience-labelled empty parent lane.
     expect(screen.getByText("No issue")).toBeInTheDocument()
   })
 

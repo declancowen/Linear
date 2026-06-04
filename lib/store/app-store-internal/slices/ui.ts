@@ -33,7 +33,9 @@ type UiSlice = Pick<
   | "protectedDocumentIds"
   | "pendingDocumentContentSyncs"
   | "pendingWorkItemSyncsById"
+  | "pendingCommentSyncsById"
   | "pendingChatMessageSyncsById"
+  | "pendingChannelPostCommentSyncsById"
   | "pendingViewConfigById"
   | "setDocumentBodyProtection"
   | "replaceDomainData"
@@ -521,6 +523,93 @@ function pruneScopedDomain(
   })
 }
 
+function getScopedPruningProtectedKeys(
+  state: AppStore,
+  domainKey: ArrayDomainKey
+) {
+  if (domainKey === "workItems") {
+    return new Set(Object.keys(state.pendingWorkItemSyncsById ?? {}))
+  }
+
+  if (domainKey === "comments") {
+    return new Set(Object.keys(state.pendingCommentSyncsById ?? {}))
+  }
+
+  if (domainKey === "chatMessages") {
+    return new Set(Object.keys(state.pendingChatMessageSyncsById ?? {}))
+  }
+
+  if (domainKey === "channelPostComments") {
+    return new Set(
+      Object.keys(state.pendingChannelPostCommentSyncsById ?? {})
+    )
+  }
+
+  return undefined
+}
+
+function shouldSkipScopedPruningDomain(
+  instruction: ScopedReadModelReplaceInstruction,
+  domainKey: ArrayDomainKey
+) {
+  return instruction.kind === "conversation-list" && domainKey === "chatMessages"
+}
+
+function pruneScopedReadModelDomain(
+  state: AppStore,
+  data: Partial<AppData>,
+  scopedSelection: ScopedReadModelPatch,
+  domainKey: ArrayDomainKey
+) {
+  const incomingDomain = data[domainKey]
+  const scopedDomain = scopedSelection[domainKey]
+
+  if (!Array.isArray(incomingDomain) || !Array.isArray(scopedDomain)) {
+    return state
+  }
+
+  const keyResolver = domainKeyResolvers[domainKey]
+
+  return {
+    ...state,
+    [domainKey]: pruneScopedDomain(
+      state[domainKey] as ArrayDomainEntry[],
+      scopedDomain as ArrayDomainEntry[],
+      incomingDomain as ArrayDomainEntry[],
+      keyResolver as (value: ArrayDomainEntry) => string,
+      getScopedPruningProtectedKeys(state, domainKey)
+    ) as AppData[typeof domainKey],
+  }
+}
+
+function applyScopedReadModelInstructionPruning(
+  state: AppStore,
+  data: Partial<AppData>,
+  instruction: ScopedReadModelReplaceInstruction
+) {
+  const scopedSelection = selectReadModelForInstruction(
+    state,
+    instruction
+  ) as ScopedReadModelPatch | null
+
+  if (!scopedSelection) {
+    return state
+  }
+
+  return (Object.keys(domainKeyResolvers) as ArrayDomainKey[]).reduce(
+    (nextState, domainKey) =>
+      shouldSkipScopedPruningDomain(instruction, domainKey)
+        ? nextState
+        : pruneScopedReadModelDomain(
+            nextState,
+            data,
+            scopedSelection,
+            domainKey
+          ),
+    state
+  )
+}
+
 function applyScopedReadModelPruning(
   state: AppStore,
   data: Partial<AppData>,
@@ -530,58 +619,82 @@ function applyScopedReadModelPruning(
     return state
   }
 
-  let nextState = state
+  return replaceInstructions.reduce(
+    (nextState, instruction) =>
+      applyScopedReadModelInstructionPruning(nextState, data, instruction),
+    state
+  )
+}
 
-  for (const instruction of replaceInstructions) {
-    const scopedSelection = selectReadModelForInstruction(
-      nextState,
-      instruction
-    ) as ScopedReadModelPatch | null
-
-    if (!scopedSelection) {
-      continue
-    }
-
-    for (const domainKey of Object.keys(
-      domainKeyResolvers
-    ) as ArrayDomainKey[]) {
-      const keyResolver = domainKeyResolvers[domainKey]
-      const incomingDomain = data[domainKey]
-      const scopedDomain = scopedSelection[domainKey]
-      const protectedKeys =
-        domainKey === "workItems"
-          ? new Set(Object.keys(nextState.pendingWorkItemSyncsById ?? {}))
-          : domainKey === "chatMessages"
-            ? new Set(Object.keys(nextState.pendingChatMessageSyncsById ?? {}))
-            : undefined
-
-      if (!Array.isArray(incomingDomain) || !Array.isArray(scopedDomain)) {
-        continue
-      }
-
-      nextState = {
-        ...nextState,
-        [domainKey]: pruneScopedDomain(
-          nextState[domainKey] as ArrayDomainEntry[],
-          scopedDomain as ArrayDomainEntry[],
-          incomingDomain as ArrayDomainEntry[],
-          keyResolver as (value: ArrayDomainEntry) => string,
-          protectedKeys
-        ) as AppData[typeof domainKey],
-      }
-    }
+function getPendingDomainIds(state: AppStore) {
+  return {
+    channelPostCommentIds: new Set(
+      Object.keys(state.pendingChannelPostCommentSyncsById ?? {})
+    ),
+    chatMessageIds: new Set(Object.keys(state.pendingChatMessageSyncsById ?? {})),
+    commentIds: new Set(Object.keys(state.pendingCommentSyncsById ?? {})),
+    workItemIds: new Set(Object.keys(state.pendingWorkItemSyncsById ?? {})),
   }
+}
 
-  return nextState
+function buildReplacedDomainPatch(
+  state: AppStore,
+  data: Partial<AppData>,
+  input: {
+    pendingIds: ReturnType<typeof getPendingDomainIds>
+    reconciledViews: ReturnType<typeof reconcilePendingViews>
+  }
+) {
+  return {
+    ...data,
+    channelPostComments: normalizeChannelPostComments(
+      replaceByKeyPreservingExisting(
+        state.channelPostComments,
+        data.channelPostComments,
+        (value) => value.id,
+        input.pendingIds.channelPostCommentIds
+      )
+    ),
+    chatMessages: normalizeChatMessages(
+      replaceByKeyPreservingExisting(
+        state.chatMessages,
+        data.chatMessages,
+        (value) => value.id,
+        input.pendingIds.chatMessageIds
+      )
+    ),
+    chatReadStates: data.chatReadStates ?? state.chatReadStates,
+    comments: normalizeComments(
+      replaceByKeyPreservingExisting(
+        state.comments,
+        data.comments,
+        (value) => value.id,
+        input.pendingIds.commentIds
+      )
+    ),
+    documents: mergeProtectedDocuments(
+      state.documents,
+      data.documents,
+      state.protectedDocumentIds,
+      state.pendingDocumentContentSyncs ?? {}
+    ),
+    notifications: normalizeNotifications(
+      data.notifications
+        ? preserveLocalNotificationReadState(state.notifications, data.notifications)
+        : state.notifications
+    ),
+    users: normalizeUsers(data.users ?? state.users),
+    views: input.reconciledViews.views,
+    workItems: replaceByKeyPreservingExisting(
+      state.workItems,
+      data.workItems,
+      (value) => value.id,
+      input.pendingIds.workItemIds
+    ),
+  }
 }
 
 function applyReplacedDomainData(state: AppStore, data: Partial<AppData>) {
-  const pendingWorkItemIds = new Set(
-    Object.keys(state.pendingWorkItemSyncsById ?? {})
-  )
-  const pendingChatMessageIds = new Set(
-    Object.keys(state.pendingChatMessageSyncsById ?? {})
-  )
   const reconciledViews = reconcilePendingViews(
     state.views,
     data.views,
@@ -593,49 +706,20 @@ function applyReplacedDomainData(state: AppStore, data: Partial<AppData>) {
 
   return {
     ...state,
-    ...data,
+    ...buildReplacedDomainPatch(state, data, {
+      pendingIds: getPendingDomainIds(state),
+      reconciledViews,
+    }),
     protectedDocumentIds: state.protectedDocumentIds,
     pendingDocumentContentSyncs: state.pendingDocumentContentSyncs ?? {},
     pendingWorkItemSyncsById: state.pendingWorkItemSyncsById ?? {},
+    pendingCommentSyncsById: state.pendingCommentSyncsById ?? {},
     pendingChatMessageSyncsById: state.pendingChatMessageSyncsById ?? {},
+    pendingChannelPostCommentSyncsById:
+      state.pendingChannelPostCommentSyncsById ?? {},
     pendingViewConfigById: reconciledViews.pendingViewConfigById,
-    workItems: replaceByKeyPreservingExisting(
-      state.workItems,
-      data.workItems,
-      (value) => value.id,
-      pendingWorkItemIds
-    ),
-    documents: mergeProtectedDocuments(
-      state.documents,
-      data.documents,
-      state.protectedDocumentIds,
-      state.pendingDocumentContentSyncs ?? {}
-    ),
-    views: reconciledViews.views,
-    users: normalizeUsers(data.users ?? state.users),
-    notifications: normalizeNotifications(
-      data.notifications
-        ? preserveLocalNotificationReadState(
-            state.notifications,
-            data.notifications
-          )
-        : state.notifications
-    ),
-    comments: normalizeComments(data.comments ?? state.comments),
-    chatMessages: normalizeChatMessages(
-      replaceByKeyPreservingExisting(
-        state.chatMessages,
-        data.chatMessages,
-        (value) => value.id,
-        pendingChatMessageIds
-      )
-    ),
-    chatReadStates: data.chatReadStates ?? state.chatReadStates,
     channelPosts: normalizeChannelPosts(
       data.channelPosts ?? state.channelPosts
-    ),
-    channelPostComments: normalizeChannelPostComments(
-      data.channelPostComments ?? state.channelPostComments
     ),
     ui: {
       ...state.ui,
@@ -661,8 +745,14 @@ function applyMergedReadModelData(
   const pendingWorkItemIds = new Set(
     Object.keys(prunedState.pendingWorkItemSyncsById ?? {})
   )
+  const pendingCommentIds = new Set(
+    Object.keys(prunedState.pendingCommentSyncsById ?? {})
+  )
   const pendingChatMessageIds = new Set(
     Object.keys(prunedState.pendingChatMessageSyncsById ?? {})
+  )
+  const pendingChannelPostCommentIds = new Set(
+    Object.keys(prunedState.pendingChannelPostCommentSyncsById ?? {})
   )
   const currentWorkspaceId = shouldApplyIncomingCurrentWorkspaceId(
     replaceInstructions
@@ -735,12 +825,17 @@ function applyMergedReadModelData(
     ),
     pendingDocumentContentSyncs: prunedState.pendingDocumentContentSyncs ?? {},
     pendingWorkItemSyncsById: prunedState.pendingWorkItemSyncsById ?? {},
+    pendingCommentSyncsById: prunedState.pendingCommentSyncsById ?? {},
     pendingChatMessageSyncsById:
       prunedState.pendingChatMessageSyncsById ?? {},
+    pendingChannelPostCommentSyncsById:
+      prunedState.pendingChannelPostCommentSyncsById ?? {},
     pendingViewConfigById: reconciledViews.pendingViewConfigById,
     views: reconciledViews.views,
     comments: normalizeComments(
-      mergeByKey(prunedState.comments, data.comments, (value) => value.id)
+      mergeByKey(prunedState.comments, data.comments, (value) => value.id, {
+        preserveExistingKeys: pendingCommentIds,
+      })
     ),
     attachments: mergeByKey(
       prunedState.attachments,
@@ -794,7 +889,8 @@ function applyMergedReadModelData(
       mergeByKey(
         prunedState.channelPostComments,
         data.channelPostComments,
-        (value) => value.id
+        (value) => value.id,
+        { preserveExistingKeys: pendingChannelPostCommentIds }
       )
     ),
     ui: {
@@ -816,7 +912,9 @@ export function createUiSlice(
     protectedDocumentIds: [],
     pendingDocumentContentSyncs: {},
     pendingWorkItemSyncsById: {},
+    pendingCommentSyncsById: {},
     pendingChatMessageSyncsById: {},
+    pendingChannelPostCommentSyncsById: {},
     pendingViewConfigById: {},
     replaceDomainData(data) {
       set((state) => applyReplacedDomainData(state, data))

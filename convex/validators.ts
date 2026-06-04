@@ -178,6 +178,7 @@ const commentTargetTypeLiterals = [
 const attachmentTargetTypeLiterals = [
   v.literal("workItem"),
   v.literal("document"),
+  v.literal("conversation"),
 ] as const
 
 const documentKindLiterals = [
@@ -842,13 +843,17 @@ const channelPostReactionValidator = v.object({
   userIds: v.array(v.string()),
 })
 
+const channelContentInteractionFields = {
+  mentionUserIds: v.optional(v.array(v.string())),
+  reactions: v.optional(v.array(channelPostReactionValidator)),
+}
+
 export const channelPostFields = {
   id: v.string(),
   conversationId: v.string(),
   title: v.string(),
   content: v.string(),
-  mentionUserIds: v.optional(v.array(v.string())),
-  reactions: v.optional(v.array(channelPostReactionValidator)),
+  ...channelContentInteractionFields,
   createdBy: v.string(),
   createdAt: v.string(),
   updatedAt: v.string(),
@@ -859,8 +864,7 @@ export const channelPostCommentFields = {
   id: v.string(),
   postId: v.string(),
   content: v.string(),
-  mentionUserIds: v.optional(v.array(v.string())),
-  reactions: v.optional(v.array(channelPostReactionValidator)),
+  ...channelContentInteractionFields,
   createdBy: v.string(),
   createdAt: v.string(),
   editedAt: v.optional(nullableString),

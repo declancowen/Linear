@@ -4,9 +4,11 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 
 import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
 import { getChatWelcomeIntroDisplay } from "@/components/app/collaboration-screens/chat-welcome-display"
-import { formatTimestamp } from "@/components/app/collaboration-screens/utils"
+import { formatChatMessageTime } from "@/components/app/collaboration-screens/utils"
 import { useAppStore } from "@/lib/store/app-store"
 import {
+  createTestTeam,
+  createTestTeamMembership,
   createTestWorkspaceMembership,
   createTestUser,
   createTestWorkspaceShellData,
@@ -124,13 +126,43 @@ function createReactionMessage() {
   }
 }
 
-function renderDirectChatThread() {
+function setSingleMessageReadReceiptState(createdBy: string) {
+  const readAt = "2026-04-15T12:05:00.000Z"
+
+  useAppStore.setState({
+    chatMessages: [
+      {
+        ...createReactionMessage(),
+        createdBy,
+      },
+    ],
+    chatReadStates: [
+      {
+        id: "chat_read_state_user_current_conversation_1",
+        userId: currentUser.id,
+        conversationId: "conversation_1",
+        readAt,
+        unreadAt: null,
+        messageReadAtById: {
+          message_1: readAt,
+        },
+        createdAt: readAt,
+        updatedAt: readAt,
+      },
+    ],
+  })
+}
+
+function renderDirectChatThread(
+  props: Partial<Parameters<typeof ChatThread>[0]> = {}
+) {
   render(
     <ChatThread
       conversationId="conversation_1"
       title="Declan Cowen"
       description=""
       members={[currentUser, formerUser]}
+      {...props}
     />
   )
 }
@@ -296,6 +328,13 @@ describe("ChatThread", () => {
           content: "<p>Follow up</p>",
           createdAt: "2026-04-15T12:05:00.000Z",
         },
+        {
+          ...createReactionMessage(),
+          id: "message_self",
+          content: "<p>Sent by me</p>",
+          createdBy: currentUser.id,
+          createdAt: "2026-04-15T12:06:00.000Z",
+        },
       ],
     })
     markChatReadMock.mockClear()
@@ -308,24 +347,25 @@ describe("ChatThread", () => {
     ])
   })
 
-  it("renders compact right-side read and edited metadata", () => {
-    const createdAt = "2026-04-15T12:00:00.000Z"
-    const readAt = "2026-04-15T12:05:00.000Z"
-    const editedAt = "2026-04-15T12:07:00.000Z"
+  it("renders seen, sent, and edited metadata in order without receipt timestamps", () => {
+    const createdAt = "2026-04-15T19:04:00.000Z"
+    const readAt = "2026-04-15T19:05:00.000Z"
+    const editedAt = "2026-04-15T19:07:00.000Z"
 
     act(() => {
       useAppStore.setState({
         chatMessages: [
           {
             ...createReactionMessage(),
+            createdBy: currentUser.id,
             createdAt,
             editedAt,
           },
         ],
         chatReadStates: [
           {
-            id: "chat_read_state_user_current_conversation_1",
-            userId: currentUser.id,
+            id: "chat_read_state_user_former_conversation_1",
+            userId: formerUser.id,
             conversationId: "conversation_1",
             readAt,
             unreadAt: null,
@@ -341,13 +381,160 @@ describe("ChatThread", () => {
 
     renderDirectChatThread()
 
-    expect(screen.getByText(formatTimestamp(createdAt))).toBeInTheDocument()
+    const sentTimestamp = screen.getByText(formatChatMessageTime(createdAt))
+    const metadata = sentTimestamp.parentElement
+
+    expect(screen.getByLabelText("Seen")).toBeInTheDocument()
+    expect(sentTimestamp).toBeInTheDocument()
+    expect(screen.getByLabelText("Edited")).toBeInTheDocument()
+    expect(metadata?.children[0]).toHaveAttribute("aria-label", "Seen")
+    expect(metadata?.children[1]).toHaveTextContent("·")
+    expect(metadata?.children[2]).toHaveAttribute("aria-label", "Edited")
+    expect(metadata?.children[3]).toHaveTextContent("·")
+    expect(metadata?.children[4]).toHaveTextContent(
+      formatChatMessageTime(createdAt)
+    )
+    expect(metadata?.parentElement).toHaveStyle({
+      gridTemplateColumns: "minmax(0, 1fr) max-content",
+    })
+    expect(sentTimestamp).not.toHaveTextContent(/AM|PM/)
+    expect(sentTimestamp).not.toHaveTextContent("/")
     expect(
-      screen.getByLabelText(`Read ${formatTimestamp(readAt)}`)
-    ).toBeInTheDocument()
-    expect(screen.getByText("Edited")).toBeInTheDocument()
-    expect(screen.queryByText(/Read Apr 15/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(formatTimestamp(editedAt))).not.toBeInTheDocument()
+      screen.queryByText(formatChatMessageTime(readAt))
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(formatChatMessageTime(editedAt))
+    ).not.toBeInTheDocument()
+  })
+
+  it("derives seen from conversation participants when member records are incomplete", () => {
+    const readAt = "2026-04-15T12:05:00.000Z"
+
+    useAppStore.setState({
+      chatMessages: [
+        {
+          ...createReactionMessage(),
+          createdBy: currentUser.id,
+        },
+      ],
+      chatReadStates: [
+        {
+          id: "chat_read_state_user_former_conversation_1",
+          userId: formerUser.id,
+          conversationId: "conversation_1",
+          readAt,
+          unreadAt: null,
+          messageReadAtById: {
+            message_1: readAt,
+          },
+          createdAt: readAt,
+          updatedAt: readAt,
+        },
+      ],
+    })
+
+    renderDirectChatThread({
+      members: [currentUser],
+    })
+
+    expect(screen.getByLabelText("Seen")).toBeInTheDocument()
+  })
+
+  it("renders the conversation list action before the display name", () => {
+    renderDirectChatThread({
+      conversationListAction: (
+        <button type="button" aria-label="Toggle conversation list" />
+      ),
+    })
+
+    const action = screen.getByRole("button", {
+      name: "Toggle conversation list",
+    })
+    const title = screen.getByText("Declan Cowen")
+
+    expect(
+      action.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it("hides seen on messages sent by someone else", () => {
+    setSingleMessageReadReceiptState(formerUser.id)
+
+    renderDirectChatThread()
+
+    expect(screen.queryByLabelText("Seen")).not.toBeInTheDocument()
+  })
+
+  it("hides seen when only the sender's own read state contains their sent message", () => {
+    setSingleMessageReadReceiptState(currentUser.id)
+
+    renderDirectChatThread()
+
+    expect(screen.queryByLabelText("Seen")).not.toBeInTheDocument()
+  })
+
+  it("hides seen and sends no message receipts in team chats", () => {
+    const readAt = "2026-04-15T12:05:00.000Z"
+
+    useAppStore.setState({
+      teams: [createTestTeam()],
+      teamMemberships: [
+        createTestTeamMembership({
+          userId: currentUser.id,
+          role: "member",
+        }),
+        createTestTeamMembership({
+          userId: formerUser.id,
+          role: "member",
+        }),
+      ],
+      conversations: [
+        {
+          id: "conversation_1",
+          kind: "chat",
+          scopeType: "team",
+          scopeId: "team_1",
+          variant: "team",
+          title: "Platform",
+          description: "",
+          participantIds: [currentUser.id, formerUser.id],
+          roomId: null,
+          roomName: null,
+          createdBy: currentUser.id,
+          createdAt: "2026-04-15T12:00:00.000Z",
+          updatedAt: "2026-04-15T12:00:00.000Z",
+          lastActivityAt: "2026-04-15T12:00:00.000Z",
+        },
+      ],
+      chatMessages: [
+        {
+          ...createReactionMessage(),
+          createdBy: currentUser.id,
+        },
+      ],
+      chatReadStates: [
+        {
+          id: "chat_read_state_user_former_conversation_1",
+          userId: formerUser.id,
+          conversationId: "conversation_1",
+          readAt,
+          unreadAt: null,
+          messageReadAtById: {
+            message_1: readAt,
+          },
+          createdAt: readAt,
+          updatedAt: readAt,
+        },
+      ],
+    })
+
+    renderDirectChatThread({
+      title: "Platform",
+      members: [currentUser, formerUser],
+    })
+
+    expect(screen.queryByLabelText("Seen")).not.toBeInTheDocument()
+    expect(markChatReadMock).toHaveBeenLastCalledWith("conversation_1", [])
   })
 
   it("does not synthesize a read timestamp when no message receipt exists", () => {
@@ -368,6 +555,7 @@ describe("ChatThread", () => {
 
     renderDirectChatThread()
 
+    expect(screen.queryByLabelText("Seen")).not.toBeInTheDocument()
     expect(screen.queryByText(/Read Apr 15/i)).not.toBeInTheDocument()
   })
 
@@ -446,7 +634,7 @@ describe("ChatThread", () => {
     expect(screen.getAllByText("Current User")).toHaveLength(2)
   })
 
-  it("renders only linked message text as a blue underlined link", () => {
+  it("unwraps stale non-url chat links while preserving visible URL links", () => {
     useAppStore.setState({
       chatMessages: [
         {
@@ -454,7 +642,7 @@ describe("ChatThread", () => {
           conversationId: "conversation_1",
           kind: "text",
           content:
-            '<p>Open <a href="https://example.com">launch plan</a> today</p>',
+            '<p>Open <a href="https://example.com">launch plan</a> today</p><p><a href="https://example.com">https://example.com</a></p>',
           callId: null,
           mentionUserIds: [],
           reactions: [],
@@ -473,11 +661,14 @@ describe("ChatThread", () => {
       />
     )
 
-    const link = screen.getByRole("link", { name: "launch plan" })
+    expect(
+      screen.queryByRole("link", { name: "launch plan" })
+    ).not.toBeInTheDocument()
 
+    const link = screen.getByRole("link", { name: "https://example.com" })
     expect(link).toHaveAttribute("href", "https://example.com")
-    expect(link).toHaveTextContent("launch plan")
-    expect(link.parentElement).toHaveTextContent("Open launch plan today")
+    expect(link).toHaveTextContent("https://example.com")
+    expect(container.textContent).toContain("Open launch plan today")
     expect(container.querySelector(".tiptap")?.className).toContain(
       "[&_a]:underline"
     )

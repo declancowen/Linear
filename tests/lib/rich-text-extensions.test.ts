@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
+import { Editor } from "@tiptap/core"
 
 import { getMentionRenderLabel } from "@/lib/rich-text/mention-label"
+import { createRichTextBaseExtensions } from "@/lib/rich-text/extensions"
 import {
   renderMentionHTML,
   renderMentionText,
@@ -65,5 +67,24 @@ describe("rich text extension helpers", () => {
         },
       })
     ).toEqual(["span", { class: "editor-mention" }, "@Sam"])
+  })
+
+  it("keeps typed text after an existing URL link outside the link mark", () => {
+    const editor = new Editor({
+      extensions: createRichTextBaseExtensions({
+        includeCharacterCount: false,
+      }),
+      content:
+        '<p><a href="https://example.com">https://example.com</a></p>',
+    })
+
+    editor.commands.focus("end")
+    editor.commands.insertContent(" after")
+
+    expect(editor.getHTML()).toContain(
+      '<a target="_blank" rel="noopener noreferrer nofollow" href="https://example.com">https://example.com</a> after'
+    )
+
+    editor.destroy()
   })
 })

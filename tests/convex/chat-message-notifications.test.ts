@@ -48,20 +48,27 @@ vi.mock("@/convex/app/core", () => ({
   getNow: getNowMock,
 }))
 
-vi.mock("@/convex/app/data", () => ({
-  getCallDoc: getCallDocMock,
-  getChannelPostDoc: getChannelPostDocMock,
-  getChatReadStateDoc: getChatReadStateDocMock,
-  getChatMessageDoc: getChatMessageDocMock,
-  getConversationDoc: getConversationDocMock,
-  getTeamMembershipDoc: getTeamMembershipDocMock,
-  getTeamDoc: vi.fn(),
-  getWorkspaceEditRole: getWorkspaceEditRoleMock,
-  listChatMessagesByConversation: listChatMessagesByConversationMock,
-  getWorkspaceDoc: vi.fn(),
-  listNotificationsByEntity: listNotificationsByEntityMock,
-  listUsersByIds: listUsersByIdsMock,
-}))
+vi.mock("@/convex/app/data", async () => {
+  const { createEmptyConvexRelationshipDataMocks } = await import(
+    "@/tests/lib/fixtures/convex"
+  )
+
+  return {
+    ...createEmptyConvexRelationshipDataMocks(),
+    getCallDoc: getCallDocMock,
+    getChannelPostDoc: getChannelPostDocMock,
+    getChatReadStateDoc: getChatReadStateDocMock,
+    getChatMessageDoc: getChatMessageDocMock,
+    getConversationDoc: getConversationDocMock,
+    getTeamMembershipDoc: getTeamMembershipDocMock,
+    getTeamDoc: vi.fn(),
+    getWorkspaceDoc: vi.fn(),
+    getWorkspaceEditRole: getWorkspaceEditRoleMock,
+    listChatMessagesByConversation: listChatMessagesByConversationMock,
+    listNotificationsByEntity: listNotificationsByEntityMock,
+    listUsersByIds: listUsersByIdsMock,
+  }
+})
 
 vi.mock("@/convex/app/notifications", () => ({
   getChannelConversationPath: getChannelConversationPathMock,
@@ -98,6 +105,16 @@ function createConversation(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function createWorkspaceDirectConversation(overrides: Record<string, unknown> = {}) {
+  return createConversation({
+    scopeType: "workspace",
+    scopeId: "workspace_1",
+    variant: "direct",
+    participantIds: ["user_1", "user_2"],
+    ...overrides,
+  })
+}
+
 function createUser(id: string, name: string) {
   return {
     id,
@@ -117,6 +134,39 @@ function createUser(id: string, name: string) {
       theme: "system",
     },
   }
+}
+
+type InsertCapture = Array<[string, unknown]>
+type QueryMock = ReturnType<typeof vi.fn>
+
+function createInsertCaptureCtx(
+  inserts: InsertCapture,
+  patch = vi.fn(),
+  query?: QueryMock
+) {
+  return {
+    db: {
+      insert: vi.fn(async (table: string, value: unknown) => {
+        inserts.push([table, value])
+      }),
+      patch,
+      ...(query ? { query } : {}),
+    },
+  } as never
+}
+
+function getInsertedRecords(inserts: InsertCapture, tableName: string) {
+  return inserts
+    .filter(([table]) => table === tableName)
+    .map(([, record]) => record)
+}
+
+function getInsertedChatReadStates(inserts: InsertCapture) {
+  return getInsertedRecords(inserts, "chatReadStates")
+}
+
+function getInsertedNotifications(inserts: InsertCapture) {
+  return getInsertedRecords(inserts, "notifications")
 }
 
 describe("chat message notifications", () => {
@@ -219,21 +269,14 @@ describe("chat message notifications", () => {
   })
 
   it("marks chat recipients unread without creating inbox message notifications", async () => {
-    const inserts: Array<[string, unknown]> = []
+    const inserts: InsertCapture = []
     const patchMock = vi.fn()
     const { sendChatMessageHandler } = await import(
       "@/convex/app/collaboration_handlers"
     )
 
     await sendChatMessageHandler(
-      {
-        db: {
-          insert: vi.fn(async (table: string, value: unknown) => {
-            inserts.push([table, value])
-          }),
-          patch: patchMock,
-        },
-      } as never,
+      createInsertCaptureCtx(inserts, patchMock),
       {
         serverToken: "server_token",
         currentUserId: "user_1",
@@ -243,20 +286,14 @@ describe("chat message notifications", () => {
       }
     )
 
-    expect(inserts.filter(([table]) => table === "notifications")).toEqual([])
-    expect(
-      inserts
-        .filter(([table]) => table === "chatReadStates")
-        .map(([, readState]) => readState)
-    ).toEqual([
+    expect(getInsertedNotifications(inserts)).toEqual([])
+    expect(getInsertedChatReadStates(inserts)).toEqual([
       expect.objectContaining({
         userId: "user_1",
         conversationId: "conversation_1",
         readAt: "2026-04-18T11:00:00.000Z",
         unreadAt: null,
-        messageReadAtById: {
-          chat_message_1: "2026-04-18T11:00:00.000Z",
-        },
+        messageReadAtById: {},
       }),
       expect.objectContaining({
         userId: "user_2",
@@ -283,6 +320,7 @@ describe("chat message notifications", () => {
       "@/convex/app/chat_read_states"
     )
 
+    getConversationDocMock.mockResolvedValueOnce(createWorkspaceDirectConversation())
     getChatReadStateDocMock.mockResolvedValueOnce({
       _id: "chat_read_state_doc",
       id: "chat_read_state_user_1_conversation_1",
@@ -296,6 +334,29 @@ describe("chat message notifications", () => {
       createdAt: "2026-04-18T10:30:00.000Z",
       updatedAt: "2026-04-18T10:45:00.000Z",
     })
+    listChatMessagesByConversationMock.mockResolvedValueOnce([
+      {
+        id: "message_old",
+        conversationId: "conversation_1",
+        createdBy: "user_2",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        deletedAt: null,
+      },
+      {
+        id: "message_new",
+        conversationId: "conversation_1",
+        createdBy: "user_2",
+        createdAt: "2026-04-18T10:01:00.000Z",
+        deletedAt: null,
+      },
+      {
+        id: "message_self",
+        conversationId: "conversation_1",
+        createdBy: "user_1",
+        createdAt: "2026-04-18T10:02:00.000Z",
+        deletedAt: null,
+      },
+    ])
 
     await markChatConversationRead(
       {
@@ -307,7 +368,7 @@ describe("chat message notifications", () => {
         userId: "user_1",
         conversationId: "conversation_1",
         now: "2026-04-18T11:00:00.000Z",
-        messageIds: ["message_old", "message_new"],
+        messageIds: ["message_old", "message_new", "message_self"],
       }
     )
 
@@ -328,6 +389,7 @@ describe("chat message notifications", () => {
       "@/convex/app/chat_read_states"
     )
 
+    getConversationDocMock.mockResolvedValueOnce(createWorkspaceDirectConversation())
     getChatReadStateDocMock.mockResolvedValueOnce({
       _id: "chat_read_state_doc",
       id: "chat_read_state_user_1_conversation_1",
@@ -341,6 +403,15 @@ describe("chat message notifications", () => {
       createdAt: "2026-04-18T10:30:00.000Z",
       updatedAt: "2026-04-18T10:30:00.000Z",
     })
+    listChatMessagesByConversationMock.mockResolvedValueOnce([
+      {
+        id: "message_old",
+        conversationId: "conversation_1",
+        createdBy: "user_2",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        deletedAt: null,
+      },
+    ])
 
     await markChatConversationRead(
       {
@@ -442,11 +513,12 @@ describe("chat message notifications", () => {
   })
 
   it("filters chat read receipt ids to readable messages in the conversation", async () => {
-    const inserts: Array<[string, unknown]> = []
+    const inserts: InsertCapture = []
     const { updateChatReadStateHandler } = await import(
       "@/convex/app/chat_read_states"
     )
 
+    getConversationDocMock.mockResolvedValueOnce(createWorkspaceDirectConversation())
     listChatMessagesByConversationMock.mockResolvedValueOnce([
       {
         id: "message_visible",
@@ -469,17 +541,17 @@ describe("chat message notifications", () => {
         createdAt: "2026-04-18T10:03:00.000Z",
         deletedAt: "2026-04-18T10:04:00.000Z",
       },
+      {
+        id: "message_self",
+        conversationId: "conversation_1",
+        createdBy: "user_1",
+        createdAt: "2026-04-18T10:05:00.000Z",
+        deletedAt: null,
+      },
     ])
 
     await updateChatReadStateHandler(
-      {
-        db: {
-          insert: vi.fn(async (table: string, value: unknown) => {
-            inserts.push([table, value])
-          }),
-          patch: vi.fn(),
-        },
-      } as never,
+      createInsertCaptureCtx(inserts),
       {
         serverToken: "server_token",
         currentUserId: "user_1",
@@ -489,40 +561,64 @@ describe("chat message notifications", () => {
           "message_visible",
           "message_deleted_other",
           "message_deleted_self",
+          "message_self",
           "message_unknown",
         ],
       }
     )
 
-    expect(
-      inserts
-        .filter(([table]) => table === "chatReadStates")
-        .map(([, readState]) => readState)
-    ).toEqual([
+    expect(getInsertedChatReadStates(inserts)).toEqual([
       expect.objectContaining({
         messageReadAtById: {
           message_visible: "2026-04-18T11:00:00.000Z",
-          message_deleted_self: "2026-04-18T11:00:00.000Z",
         },
       }),
     ])
   })
 
+  it("keeps team chat read state conversation-level when message ids are provided", async () => {
+    const inserts: InsertCapture = []
+    const { updateChatReadStateHandler } = await import(
+      "@/convex/app/chat_read_states"
+    )
+
+    listChatMessagesByConversationMock.mockResolvedValueOnce([
+      {
+        id: "message_visible",
+        conversationId: "conversation_1",
+        createdBy: "user_2",
+        createdAt: "2026-04-18T10:00:00.000Z",
+        deletedAt: null,
+      },
+    ])
+
+    await updateChatReadStateHandler(
+      createInsertCaptureCtx(inserts),
+      {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        conversationId: "conversation_1",
+        action: "read",
+        messageIds: ["message_visible"],
+      }
+    )
+
+    expect(getInsertedChatReadStates(inserts)).toEqual([
+      expect.objectContaining({
+        messageReadAtById: {},
+      }),
+    ])
+    expect(listChatMessagesByConversationMock).not.toHaveBeenCalled()
+  })
+
   it("creates mention notifications without duplicate generic message notifications", async () => {
-    const inserts: Array<[string, unknown]> = []
+    const inserts: InsertCapture = []
     const { sendChatMessageHandler } = await import(
       "@/convex/app/collaboration_handlers"
     )
 
     await sendChatMessageHandler(
-      {
-        db: {
-          insert: vi.fn(async (table: string, value: unknown) => {
-            inserts.push([table, value])
-          }),
-          patch: vi.fn(),
-        },
-      } as never,
+      createInsertCaptureCtx(inserts),
       {
         serverToken: "server_token",
         currentUserId: "user_1",
@@ -533,9 +629,7 @@ describe("chat message notifications", () => {
       }
     )
 
-    const notifications = inserts
-      .filter(([table]) => table === "notifications")
-      .map(([, notification]) => notification)
+    const notifications = getInsertedNotifications(inserts)
 
     expect(notifications).toEqual([
       expect.objectContaining({
@@ -548,11 +642,7 @@ describe("chat message notifications", () => {
         (notification) => (notification as { type: string }).type === "message"
       )
     ).toEqual([])
-    expect(
-      inserts
-        .filter(([table]) => table === "chatReadStates")
-        .map(([, readState]) => readState)
-    ).toEqual([
+    expect(getInsertedChatReadStates(inserts)).toEqual([
       expect.objectContaining({
         userId: "user_1",
         readAt: "2026-04-18T11:00:00.000Z",
@@ -576,7 +666,7 @@ describe("chat message notifications", () => {
       .mockReset()
       .mockReturnValueOnce("notification_mention")
       .mockReturnValueOnce("notification_audience")
-    const inserts: Array<[string, unknown]> = []
+    const inserts: InsertCapture = []
     const patchMock = vi.fn()
     const { createChannelPostHandler } = await import(
       "@/convex/app/collaboration_handlers"
@@ -593,14 +683,7 @@ describe("chat message notifications", () => {
     )
 
     await createChannelPostHandler(
-      {
-        db: {
-          insert: vi.fn(async (table: string, value: unknown) => {
-            inserts.push([table, value])
-          }),
-          patch: patchMock,
-        },
-      } as never,
+      createInsertCaptureCtx(inserts, patchMock),
       {
         serverToken: "server_token",
         currentUserId: "user_1",
@@ -613,9 +696,7 @@ describe("chat message notifications", () => {
       }
     )
 
-    const notifications = inserts
-      .filter(([table]) => table === "notifications")
-      .map(([, notification]) => notification)
+    const notifications = getInsertedNotifications(inserts)
 
     expect(notifications).toEqual([
       expect.objectContaining({
@@ -708,8 +789,20 @@ describe("chat message notifications", () => {
       .mockReturnValueOnce("comment_1")
       .mockReturnValueOnce("notification_mention")
       .mockReturnValueOnce("notification_follower")
-    const inserts: Array<[string, unknown]> = []
+    const inserts: InsertCapture = []
     const patchMock = vi.fn()
+    const queryMock = vi.fn(() => ({
+      withIndex: () => ({
+        collect: vi.fn().mockResolvedValue([
+          {
+            createdBy: "user_2",
+          },
+          {
+            createdBy: "user_3",
+          },
+        ]),
+      }),
+    }))
     const { addChannelPostCommentHandler } = await import(
       "@/convex/app/collaboration_handlers"
     )
@@ -737,26 +830,7 @@ describe("chat message notifications", () => {
     )
 
     const result = await addChannelPostCommentHandler(
-      {
-        db: {
-          insert: vi.fn(async (table: string, value: unknown) => {
-            inserts.push([table, value])
-          }),
-          patch: patchMock,
-          query: vi.fn(() => ({
-            withIndex: () => ({
-              collect: vi.fn().mockResolvedValue([
-                {
-                  createdBy: "user_2",
-                },
-                {
-                  createdBy: "user_3",
-                },
-              ]),
-            }),
-          })),
-        },
-      } as never,
+      createInsertCaptureCtx(inserts, patchMock, queryMock),
       {
         serverToken: "server_token",
         currentUserId: "user_1",
@@ -767,9 +841,7 @@ describe("chat message notifications", () => {
       }
     )
 
-    const notifications = inserts
-      .filter(([table]) => table === "notifications")
-      .map(([, notification]) => notification)
+    const notifications = getInsertedNotifications(inserts)
 
     expect(result).toMatchObject({
       commentId: "comment_1",

@@ -102,6 +102,7 @@ describe("Forum post display primitives", () => {
           }}
           currentUserId="user_current"
           mentionCandidates={[]}
+          onUploadAttachment={vi.fn()}
           usersById={usersById}
           workspaceId="workspace_1"
         />

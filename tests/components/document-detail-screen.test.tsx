@@ -377,6 +377,53 @@ const mentionedUser = {
   },
 }
 
+function createBootstrapDocumentContent(text = "Boot content") {
+  return {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            text,
+          },
+        ],
+      },
+    ],
+  }
+}
+
+function mockBootstrappingDocumentCollaboration(
+  bootstrapContent = createBootstrapDocumentContent()
+) {
+  useDocumentCollaborationMock.mockReturnValue({
+    bootstrapContent,
+    editorCollaboration: {
+      binding: {
+        doc: {},
+        provider: {},
+      },
+      localUser: {
+        userId: "user_1",
+        sessionId: "session_1",
+        name: "Alex",
+        avatarUrl: null,
+        color: "#000000",
+        typing: false,
+        activeBlockId: null,
+        cursor: null,
+        selection: null,
+        cursorSide: null,
+      },
+    },
+    collaboration: null,
+    flush: flushCollaborationMock,
+    lifecycle: "bootstrapping",
+    viewers: [],
+  })
+}
+
 function queueMentionAfterSync(syncButtonName: string) {
   fireEvent.click(screen.getByRole("button", { name: syncButtonName }))
   expect(screen.queryByText("Send mention notifications")).toBeNull()
@@ -685,46 +732,7 @@ describe("DocumentDetailScreen", () => {
   })
 
   it("locks collaborative documents into a stable preview shell while bootstrapping", async () => {
-    const bootstrapContent = {
-      type: "doc",
-      content: [
-        {
-          type: "paragraph",
-          content: [
-            {
-              type: "text",
-              text: "Boot content",
-            },
-          ],
-        },
-      ],
-    }
-
-    useDocumentCollaborationMock.mockReturnValue({
-      bootstrapContent,
-      editorCollaboration: {
-        binding: {
-          doc: {},
-          provider: {},
-        },
-        localUser: {
-          userId: "user_1",
-          sessionId: "session_1",
-          name: "Alex",
-          avatarUrl: null,
-          color: "#000000",
-          typing: false,
-          activeBlockId: null,
-          cursor: null,
-          selection: null,
-          cursorSide: null,
-        },
-      },
-      collaboration: null,
-      flush: flushCollaborationMock,
-      lifecycle: "bootstrapping",
-      viewers: [],
-    })
+    mockBootstrappingDocumentCollaboration()
 
     render(<DocumentDetailScreen documentId="doc_1" />)
 
@@ -766,44 +774,7 @@ describe("DocumentDetailScreen", () => {
         },
       ],
     })
-    useDocumentCollaborationMock.mockReturnValue({
-      bootstrapContent: {
-        type: "doc",
-        content: [
-          {
-            type: "paragraph",
-            content: [
-              {
-                type: "text",
-                text: "Boot content",
-              },
-            ],
-          },
-        ],
-      },
-      editorCollaboration: {
-        binding: {
-          doc: {},
-          provider: {},
-        },
-        localUser: {
-          userId: "user_1",
-          sessionId: "session_1",
-          name: "Alex",
-          avatarUrl: null,
-          color: "#000000",
-          typing: false,
-          activeBlockId: null,
-          cursor: null,
-          selection: null,
-          cursorSide: null,
-        },
-      },
-      collaboration: null,
-      flush: flushCollaborationMock,
-      lifecycle: "bootstrapping",
-      viewers: [],
-    })
+    mockBootstrappingDocumentCollaboration()
 
     render(<DocumentDetailScreen documentId="doc_1" />)
 

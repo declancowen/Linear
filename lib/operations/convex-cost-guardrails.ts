@@ -23,7 +23,7 @@ export type ConvexEnvAuditInput = {
   productionEnv?: Record<string, string | undefined>
 }
 
-export type ConvexEnvAuditFinding = {
+type ConvexEnvAuditFinding = {
   code:
     | "CONVEX_LOCAL_TARGET_DIFFERS_FROM_PRODUCTION"
     | "CONVEX_LOCAL_URL_DEPLOYMENT_MISMATCH"

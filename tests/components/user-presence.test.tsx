@@ -7,6 +7,7 @@ import { getSurfaceSidebarHeroDisplay } from "@/components/app/collaboration-scr
 import { UserHoverCard, UserStatusDot } from "@/components/app/user-presence"
 import { useAppStore } from "@/lib/store/app-store"
 import {
+  createTestWorkspaceMembership,
   createTestUser,
   createTestWorkspaceShellData,
 } from "@/tests/lib/fixtures/app-data"
@@ -31,11 +32,17 @@ vi.mock("@/components/ui/hover-card", () => ({
   HoverCardContent: ({
     children,
     className,
+    portalled,
   }: {
     children: ReactNode
     className?: string
+    portalled?: boolean
   }) => (
-    <div data-testid="hover-card-content" className={className}>
+    <div
+      data-testid="hover-card-content"
+      data-portalled={String(portalled)}
+      className={className}
+    >
       {children}
     </div>
   ),
@@ -71,6 +78,15 @@ const offlineUser = createTestUser({
   status: "offline",
   statusMessage: "",
   hasExplicitStatus: false,
+})
+
+const longEmailUser = createTestUser({
+  id: "user_long_email",
+  name: "Long Email User",
+  handle: "long-email-user",
+  email: "long.email.address.with.multiple.sections@example-very-long-domain-name.com",
+  title: "Principal Systems Designer With A Very Long Title",
+  hasExplicitStatus: true,
 })
 
 beforeEach(() => {
@@ -137,7 +153,7 @@ describe("workspace former-member presence", () => {
     expect(screen.queryByText("Product Owner")).not.toBeInTheDocument()
     expect(screen.queryByText("Out of office")).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("link", { name: "Email" })
+      screen.queryByRole("button", { name: "Chat" })
     ).not.toBeInTheDocument()
   })
 
@@ -195,7 +211,60 @@ describe("workspace former-member presence", () => {
       </UserHoverCard>
     )
 
-    expect(screen.getByTestId("hover-card-content")).toHaveClass("z-[80]")
+    expect(screen.getByTestId("hover-card-content")).toHaveClass("z-[120]")
+    expect(screen.getByTestId("hover-card-content")).toHaveAttribute(
+      "data-portalled",
+      "true"
+    )
+  })
+
+  it("keeps sidebar member profile hover cards in the top-level portal", () => {
+    render(
+      <SurfaceSidebarContent
+        title="Direct chat"
+        description="Chat details"
+        members={[formerUser]}
+      />
+    )
+
+    expect(screen.getByTestId("hover-card-content")).toHaveAttribute(
+      "data-portalled",
+      "true"
+    )
+  })
+
+  it("truncates long hero emails without pushing out the copy action", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      users: [...state.users, longEmailUser],
+      workspaceMemberships: [
+        createTestWorkspaceMembership({
+          workspaceId: "workspace_1",
+          userId: longEmailUser.id,
+          role: "member",
+        }),
+      ],
+    }))
+
+    render(
+      <SurfaceSidebarContent
+        title="Direct chat"
+        description="Chat details"
+        members={[longEmailUser]}
+        heroMember={longEmailUser}
+      />
+    )
+
+    const email = screen.getByTitle(longEmailUser.email)
+    const copyButton = email.parentElement?.querySelector(
+      'button[aria-label="Copy email"]'
+    )
+
+    expect(email).toHaveClass("overflow-hidden", "text-ellipsis")
+    expect(email.parentElement).toHaveStyle({
+      gridTemplateColumns: "auto minmax(0, 1fr) auto",
+    })
+    expect(copyButton).toHaveClass("shrink-0")
   })
 
   it("uses a plain offline indicator without an X glyph", () => {
@@ -205,6 +274,7 @@ describe("workspace former-member presence", () => {
 
     expect(dot).not.toBeNull()
     expect(dot?.querySelector("svg")).toBeNull()
+    expect(dot).not.toHaveClass("ring-1")
   })
 
   it("opens the workspace profile from the hover card profile action", () => {
@@ -233,11 +303,49 @@ describe("workspace former-member presence", () => {
     expect(
       screen.queryByRole("button", { name: "Message" })
     ).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "Profile" }))
 
     expect(routerPushMock).toHaveBeenCalledWith(
       `/workspace/people/${formerUser.id}`
     )
+  })
+
+  it("opens or creates a direct chat from the hover card chat action", () => {
+    const createWorkspaceChat = vi.fn().mockReturnValue("chat_direct")
+
+    useAppStore.setState((state) => ({
+      ...state,
+      createWorkspaceChat: createWorkspaceChat as never,
+      workspaceMemberships: [
+        {
+          workspaceId: "workspace_1",
+          userId: formerUser.id,
+          role: "member",
+        },
+      ],
+    }))
+
+    render(
+      <UserHoverCard
+        user={formerUser}
+        userId={formerUser.id}
+        currentUserId={currentUser.id}
+        workspaceId="workspace_1"
+      >
+        <button type="button">Open profile</button>
+      </UserHoverCard>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }))
+
+    expect(createWorkspaceChat).toHaveBeenCalledWith({
+      participantIds: [formerUser.id],
+      workspaceId: "workspace_1",
+      title: "",
+      description: "",
+    })
+    expect(routerPushMock).toHaveBeenCalledWith("/chats?chatId=chat_direct")
   })
 })

@@ -24,8 +24,10 @@ import {
   getCustomPropertyScopeType,
   getLabelScopeType,
 } from "@/lib/domain/labels"
+import { supportsChatMessageReadReceipts } from "@/lib/domain/chat-read-state"
 import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 import { isWorkspaceMembershipInvite } from "@/lib/scoped-sync/invite-selection"
+import { collectNotificationInboxEntityIds } from "@/lib/scoped-sync/notification-inbox"
 import { shouldShowNotificationInInbox } from "@/lib/domain/notification-visibility"
 
 import {
@@ -131,17 +133,25 @@ type ScopedReadModelSelector<TKind extends ScopedReadModelReplaceKind> = (
   instruction: Extract<ScopedReadModelReplaceInstruction, { kind: TKind }>
 ) => ScopedReadModelPatch | null
 
-function collectCommentUserIds(targetComments: Comment[]) {
+type ReactableContentRecord = {
+  createdBy: string
+  mentionUserIds?: string[] | null
+  reactions?: Array<{ userIds: string[] }> | null
+}
+
+function collectReactableContentUserIds(
+  records: Iterable<ReactableContentRecord>
+) {
   const userIds = new Set<string>()
 
-  for (const comment of targetComments) {
-    userIds.add(comment.createdBy)
+  for (const record of records) {
+    userIds.add(record.createdBy)
 
-    for (const mentionUserId of comment.mentionUserIds ?? []) {
+    for (const mentionUserId of record.mentionUserIds ?? []) {
       userIds.add(mentionUserId)
     }
 
-    for (const reaction of comment.reactions ?? []) {
+    for (const reaction of record.reactions ?? []) {
       for (const reactionUserId of reaction.userIds) {
         userIds.add(reactionUserId)
       }
@@ -149,6 +159,10 @@ function collectCommentUserIds(targetComments: Comment[]) {
   }
 
   return userIds
+}
+
+function collectCommentUserIds(targetComments: Comment[]) {
+  return collectReactableContentUserIds(targetComments)
 }
 
 function collectAttachmentUserIds(targetAttachments: Attachment[]) {
@@ -687,23 +701,7 @@ function getScopedConversationIds(
 }
 
 function collectChatMessageUserIds(messages: ChatMessage[]) {
-  const userIds = new Set<string>()
-
-  for (const message of messages) {
-    userIds.add(message.createdBy)
-
-    for (const mentionUserId of message.mentionUserIds ?? []) {
-      userIds.add(mentionUserId)
-    }
-
-    for (const reaction of message.reactions ?? []) {
-      for (const reactionUserId of reaction.userIds) {
-        userIds.add(reactionUserId)
-      }
-    }
-  }
-
-  return userIds
+  return collectReactableContentUserIds(messages)
 }
 
 function collectCallUserIds(calls: AppSnapshot["calls"]) {
@@ -725,43 +723,11 @@ function collectCallUserIds(calls: AppSnapshot["calls"]) {
 }
 
 function collectChannelPostUserIds(posts: ChannelPost[]) {
-  const userIds = new Set<string>()
-
-  for (const post of posts) {
-    userIds.add(post.createdBy)
-
-    for (const mentionUserId of post.mentionUserIds ?? []) {
-      userIds.add(mentionUserId)
-    }
-
-    for (const reaction of post.reactions ?? []) {
-      for (const reactionUserId of reaction.userIds) {
-        userIds.add(reactionUserId)
-      }
-    }
-  }
-
-  return userIds
+  return collectReactableContentUserIds(posts)
 }
 
 function collectChannelPostCommentUserIds(comments: ChannelPostComment[]) {
-  const userIds = new Set<string>()
-
-  for (const comment of comments) {
-    userIds.add(comment.createdBy)
-
-    for (const mentionUserId of comment.mentionUserIds ?? []) {
-      userIds.add(mentionUserId)
-    }
-
-    for (const reaction of comment.reactions ?? []) {
-      for (const reactionUserId of reaction.userIds) {
-        userIds.add(reactionUserId)
-      }
-    }
-  }
-
-  return userIds
+  return collectReactableContentUserIds(comments)
 }
 
 function collectNotificationUserIds(notifications: Notification[]) {
@@ -864,17 +830,27 @@ function selectChatReadStatesForConversations(
 
 function selectChatReadStatesForConversationThread(
   snapshot: AppSnapshot,
-  userId: string,
-  conversationIds: Iterable<string>
+  conversation: Conversation
 ) {
-  return selectChatReadStatesForConversations(
-    snapshot,
-    userId,
-    conversationIds,
-    {
-      includeMessageReceipts: true,
-    }
+  const participantIds = new Set(conversation.participantIds)
+  const participantReadStates = snapshot.chatReadStates.filter(
+    (state) =>
+      state.conversationId === conversation.id && participantIds.has(state.userId)
   )
+
+  if (supportsChatMessageReadReceipts(conversation)) {
+    return participantReadStates
+  }
+
+  return participantReadStates
+    .filter((state) => state.userId === snapshot.currentUserId)
+    .map((state) => {
+      const readState = { ...state }
+
+      delete readState.messageReadAtById
+
+      return readState
+    })
 }
 
 function isChatMessageVisibleToCurrentUser(
@@ -1750,7 +1726,7 @@ export function selectViewCatalogReadModel(
   }
 }
 
-export function selectNotificationInboxReadModel(
+function selectNotificationInboxReadModel(
   snapshot: AppSnapshot,
   userId: string
 ): ScopedReadModelPatch {
@@ -1766,21 +1742,8 @@ export function selectNotificationInboxReadModel(
         notification.entityId === invite.id
     )
   )
-  const conversationIds = new Set(
-    notifications
-      .filter((notification) => notification.entityType === "chat")
-      .map((notification) => notification.entityId)
-  )
-  const postIds = new Set(
-    notifications
-      .filter((notification) => notification.entityType === "channelPost")
-      .map((notification) => notification.entityId)
-  )
-  const projectIds = new Set(
-    notifications
-      .filter((notification) => notification.entityType === "project")
-      .map((notification) => notification.entityId)
-  )
+  const { conversationIds, postIds, projectIds } =
+    collectNotificationInboxEntityIds(notifications)
   const conversations = snapshot.conversations.filter((conversation) =>
     conversationIds.has(conversation.id)
   )
@@ -2020,14 +1983,13 @@ export function selectConversationThreadReadModel(
       chatMessages: messages,
       chatReadStates: selectChatReadStatesForConversationThread(
         snapshot,
-        snapshot.currentUserId,
-        [conversationId]
+        scope.conversation
       ),
     },
   })
 }
 
-export function selectChannelFeedReadModel(
+function selectChannelFeedReadModel(
   snapshot: AppSnapshot,
   conversationId: string
 ): ScopedReadModelPatch | null {
@@ -2060,7 +2022,7 @@ export function selectChannelFeedReadModel(
   })
 }
 
-export function selectSearchSeedReadModel(
+function selectSearchSeedReadModel(
   snapshot: AppSnapshot,
   workspaceId: string
 ): ScopedReadModelPatch {

@@ -396,6 +396,36 @@ describe("view item levels", () => {
     ])
   })
 
+  it("promotes a childless parent-capable item into its own parent lane", () => {
+    const state = createEmptyState()
+    const container = createTestWorkItem("container-task", {
+      key: "PLA-2",
+      title: "Container task",
+      type: "task",
+    })
+    const looseLeaf = createTestWorkItem("loose-subtask", {
+      key: "PLA-3",
+      title: "Loose sub-task",
+      type: "sub-task",
+    })
+
+    state.workItems = [container, looseLeaf]
+
+    const groups = buildItemGroupsWithEmptyGroups(
+      state,
+      // The work surface removes promoted parent headers from the row list.
+      [looseLeaf],
+      createView({ grouping: "parent" }),
+      { sourceItems: state.workItems }
+    )
+
+    expect([...groups.keys()]).toEqual(["No parent", "PLA-2 · Container task"])
+    // The childless container becomes a header-only (empty) lane, not "No parent".
+    expect([...(groups.get("PLA-2 · Container task")?.values() ?? [])]).toEqual(
+      []
+    )
+  })
+
   it("does not force timeline views back to top-level items when a level is set", () => {
     const state = createEmptyState()
     const items = [

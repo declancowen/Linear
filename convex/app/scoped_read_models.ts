@@ -43,11 +43,18 @@ import {
   type ScopedReadModelPatch,
   type ScopedReadModelReplaceInstruction,
 } from "../../lib/scoped-sync/read-models"
+import { collectNotificationInboxEntityIds } from "../../lib/scoped-sync/notification-inbox"
+import type {
+  ScopedReadModelInstruction,
+  ScopedReadModelScopeKeyTarget,
+} from "../../lib/scoped-sync/read-model-instructions"
 import {
   createScopedCollectionScopeId,
   parseReadModelScopeKey,
   READ_MODEL_SCOPE_KINDS,
+  type ReadModelScopeKind,
 } from "../../lib/scoped-sync/scope-keys"
+import { supportsChatMessageReadReceipts } from "../../lib/domain/chat-read-state"
 import {
   requireReadableDocumentAccess,
   requireReadableTeamAccess,
@@ -73,6 +80,7 @@ import {
   listChannelPostCommentsByPosts,
   listChannelPostsByConversation,
   listChatMessagesByConversation,
+  listChatReadStatesByConversation,
   listLatestReadableChatMessagesByConversations,
   listChatReadStatesByUser,
   listCommentsByTargets,
@@ -90,18 +98,15 @@ import {
   listProjectsByScope,
   listTeamDocuments,
   listTeamMembershipsByTeams,
-  listTeamMembershipsByUser,
-  listTeamsByIds,
   listUsersByIds,
   listViewsByScope,
   listViewsByScopeEntity,
   listWorkItemActivitiesByWorkItems,
   listWorkItemsByTeam,
+  loadUserWorkspaceAccessSummary,
   listWorkspaceDocuments,
-  listWorkspaceMembershipsByUser,
   listWorkspaceMembershipsByWorkspaces,
   listWorkspacesByIds,
-  listWorkspacesOwnedByUser,
   resolvePreferredWorkspaceId,
 } from "./data"
 import {
@@ -217,37 +222,6 @@ export const scopedReadModelScopeKeyTargetValidator = v.union(
   })
 )
 
-type ScopedReadModelInstruction =
-  | { kind: "document-detail"; documentId: string }
-  | {
-      kind: "document-index"
-      scopeType: "team" | "workspace"
-      scopeId: string
-    }
-  | { kind: "work-item-detail"; itemId: string }
-  | {
-      kind: "work-index"
-      scopeType: "personal" | "team" | "workspace"
-      scopeId: string
-    }
-  | { kind: "project-detail"; projectId: string }
-  | {
-      kind: "project-index"
-      scopeType: "team" | "workspace"
-      scopeId: string
-    }
-  | { kind: "workspace-people"; workspaceId: string }
-  | {
-      kind: "view-catalog"
-      scopeType: "team" | "workspace"
-      scopeId: string
-    }
-  | { kind: "notification-inbox" }
-  | { kind: "conversation-list" }
-  | { kind: "conversation-thread"; conversationId: string }
-  | { kind: "channel-feed"; conversationId: string }
-  | { kind: "search-seed"; workspaceId: string }
-
 type ScopedReadModelArgs = {
   serverToken: string
   workosUserId?: string
@@ -256,23 +230,17 @@ type ScopedReadModelArgs = {
   instruction: ScopedReadModelInstruction
 }
 
-type ScopedReadModelScopeKeyTarget =
-  | { kind: "document"; documentId: string }
-  | { kind: "work-item"; itemId: string }
-  | { kind: "custom-property-definition"; teamId: string }
-  | { kind: "project"; projectId: string }
-  | { kind: "view"; viewId: string }
-  | { kind: "conversation"; conversationId: string }
-  | { kind: "channel-post"; postId: string }
-  | { kind: "chat-message"; messageId: string }
-  | { kind: "user-workspace-membership"; userId: string }
-
 type ScopedReadModelScopeKeyArgs = {
   serverToken: string
   workosUserId?: string
   email?: string
   selectedWorkspaceId?: string | null
   target: ScopedReadModelScopeKeyTarget
+}
+
+type ScopedReadModelScopeKeySnapshot = {
+  context: ScopedUserContext
+  snapshot: AppSnapshot
 }
 
 type AuthorizeScopedReadModelScopeKeysArgs = {
@@ -363,27 +331,18 @@ async function loadScopedUserContext(
 
   const currentUserId = user.id
   const currentUserEmail = user.email
-  const [
-    userAppState,
-    workspaceMemberships,
-    teamMemberships,
-    ownedWorkspaces,
-  ] = await Promise.all([
+  const [userAppState, accessSummary] = await Promise.all([
     getUserAppState(ctx, currentUserId),
-    listWorkspaceMembershipsByUser(ctx, currentUserId),
-    listTeamMembershipsByUser(ctx, currentUserId),
-    listWorkspacesOwnedByUser(ctx, currentUserId),
+    loadUserWorkspaceAccessSummary(ctx, currentUserId),
   ])
-  const teams = await listTeamsByIds(
-    ctx,
-    teamMemberships.map((membership) => membership.teamId)
-  )
-  const accessibleWorkspaceIds = new Set<string>([
-    ...workspaceMemberships.map((membership) => membership.workspaceId),
-    ...teams.map((team) => team.workspaceId),
-    ...ownedWorkspaces.map((workspace) => workspace.id),
-  ])
-  const accessibleTeamIds = new Set(teams.map((team) => team.id))
+  const {
+    accessibleTeamIds,
+    accessibleWorkspaceIds,
+    ownedWorkspaces,
+    teamMemberships,
+    teams,
+    workspaceMemberships,
+  } = accessSummary
   const workspaces = dedupeById([
     ...ownedWorkspaces,
     ...(await listWorkspacesByIds(ctx, accessibleWorkspaceIds)),
@@ -1103,8 +1062,22 @@ async function loadConversationCollections(
     const [messages, calls, chatReadStates] = await Promise.all([
       listChatMessagesByConversation(ctx, conversation.id),
       listCallsByConversation(ctx, conversation.id),
-      listChatReadStatesByUser(ctx, context.currentUserId),
+      listChatReadStatesByConversation(ctx, conversation.id),
     ])
+    const participantReadStates = (
+      chatReadStates as AppSnapshot["chatReadStates"]
+    ).filter((readState) => conversation.participantIds.includes(readState.userId))
+    const visibleReadStates = supportsChatMessageReadReceipts(conversation)
+      ? participantReadStates
+      : participantReadStates
+          .filter((readState) => readState.userId === context.currentUserId)
+          .map((readState) => {
+            const readStateWithoutReceipts = { ...readState }
+
+            delete readStateWithoutReceipts.messageReadAtById
+
+            return readStateWithoutReceipts
+          })
 
     return {
       calls: calls as Call[],
@@ -1112,7 +1085,7 @@ async function loadConversationCollections(
         (message) =>
           !message.deletedAt || message.createdBy === context.currentUserId
       ),
-      chatReadStates: chatReadStates as AppSnapshot["chatReadStates"],
+      chatReadStates: visibleReadStates,
       conversations: [conversation],
       teams,
     }
@@ -1179,26 +1152,8 @@ async function loadNotificationInboxCollections(
     ctx,
     context.currentUserId
   )) as Notification[]
-  const inviteIds = new Set(
-    notifications
-      .filter((notification) => notification.entityType === "invite")
-      .map((notification) => notification.entityId)
-  )
-  const conversationIds = new Set(
-    notifications
-      .filter((notification) => notification.entityType === "chat")
-      .map((notification) => notification.entityId)
-  )
-  const postIds = new Set(
-    notifications
-      .filter((notification) => notification.entityType === "channelPost")
-      .map((notification) => notification.entityId)
-  )
-  const projectIds = new Set(
-    notifications
-      .filter((notification) => notification.entityType === "project")
-      .map((notification) => notification.entityId)
-  )
+  const { conversationIds, inviteIds, postIds, projectIds } =
+    collectNotificationInboxEntityIds(notifications)
   const [
     allInviteCandidates,
     conversationCandidates,
@@ -1263,6 +1218,20 @@ async function loadNotificationInboxCollections(
   }
 }
 
+function getWorkspaceScopedTeams(context: ScopedUserContext, workspaceId: string) {
+  return context.teams.filter((team) => team.workspaceId === workspaceId)
+}
+
+function getWorkspaceAndTeamProjectScopes(
+  workspaceId: string,
+  teams: Team[]
+) {
+  return [
+    { scopeType: "workspace" as const, scopeId: workspaceId },
+    ...teams.map((team) => ({ scopeType: "team" as const, scopeId: team.id })),
+  ]
+}
+
 async function loadWorkspacePeopleCollections(
   ctx: QueryCtx,
   context: ScopedUserContext,
@@ -1272,7 +1241,7 @@ async function loadWorkspacePeopleCollections(
     return { workspaces: [] }
   }
 
-  const teams = context.teams.filter((team) => team.workspaceId === workspaceId)
+  const teams = getWorkspaceScopedTeams(context, workspaceId)
   const workItems = await loadWorkItemsForScope(
     ctx,
     context,
@@ -1282,10 +1251,10 @@ async function loadWorkspacePeopleCollections(
   const documents = (
     (await listWorkspaceDocuments(ctx, workspaceId)) as Document[]
   ).filter((document) => isReadableScopedDocument(document, context))
-  const projects = await loadProjectsByScopes(ctx, [
-    { scopeType: "workspace", scopeId: workspaceId },
-    ...teams.map((team) => ({ scopeType: "team" as const, scopeId: team.id })),
-  ])
+  const projects = await loadProjectsByScopes(
+    ctx,
+    getWorkspaceAndTeamProjectScopes(workspaceId, teams)
+  )
   const [comments, projectUpdates, conversations] = await Promise.all([
     Promise.all([
       listCommentsByTargets(ctx, {
@@ -1339,14 +1308,11 @@ async function loadSearchSeedCollections(
     return { workspaces: [] }
   }
 
-  const teams = context.teams.filter((team) => team.workspaceId === workspaceId)
+  const teams = getWorkspaceScopedTeams(context, workspaceId)
   const [workItems, documents, projects] = await Promise.all([
     loadWorkItemsForScope(ctx, context, "workspace", workspaceId),
     loadDocumentsForScope(ctx, context, "workspace", workspaceId),
-    loadProjectsByScopes(ctx, [
-      { scopeType: "workspace", scopeId: workspaceId },
-      ...teams.map((team) => ({ scopeType: "team" as const, scopeId: team.id })),
-    ]),
+    loadProjectsByScopes(ctx, getWorkspaceAndTeamProjectScopes(workspaceId, teams)),
   ])
 
   return {
@@ -1418,12 +1384,25 @@ function collectCustomPropertyValueUserIds(
     .map((value) => value.value as string)
 }
 
-function collectUserIds(input: ScopedCollections) {
-  return compactStringIds([
+function collectBasicUserIds(input: ScopedCollections) {
+  return [
     ...(input.users ?? []).map((user) => user.id),
     ...(input.workspaces ?? []).map((workspace) => workspace.createdBy),
+    ...(input.attachments ?? []).map((attachment) => attachment.uploadedBy),
+    ...(input.invites ?? []).map((invite) => invite.invitedBy),
+    ...(input.projectUpdates ?? []).map((update) => update.createdBy),
+  ]
+}
+
+function collectMembershipUserIds(input: ScopedCollections) {
+  return [
     ...(input.workspaceMemberships ?? []).map((membership) => membership.userId),
     ...(input.teamMemberships ?? []).map((membership) => membership.userId),
+  ]
+}
+
+function collectWorkEntityUserIds(input: ScopedCollections) {
+  return [
     ...(input.projects ?? []).flatMap((project) => [
       project.leadId,
       ...project.memberIds,
@@ -1439,6 +1418,15 @@ function collectUserIds(input: ScopedCollections) {
       document.createdBy,
       document.updatedBy,
     ]),
+    ...collectCustomPropertyValueUserIds(
+      input.customPropertyDefinitions ?? [],
+      input.customPropertyValues ?? []
+    ),
+  ]
+}
+
+function collectViewAndNotificationUserIds(input: ScopedCollections) {
+  return [
     ...(input.views ?? []).flatMap((view) => [
       ...(view.scopeType === "personal" ? [view.scopeId] : []),
       ...view.filters.assigneeIds,
@@ -1446,26 +1434,19 @@ function collectUserIds(input: ScopedCollections) {
       ...(view.filters.updatedByIds ?? []),
       ...view.filters.leadIds,
     ]),
-    ...(input.comments ?? []).flatMap((comment) => [
-      comment.createdBy,
-      ...(comment.mentionUserIds ?? []),
-      ...(comment.reactions ?? []).flatMap((reaction) => reaction.userIds),
-    ]),
-    ...(input.attachments ?? []).map((attachment) => attachment.uploadedBy),
     ...(input.notifications ?? []).flatMap((notification) => [
       notification.userId,
       notification.actorId,
     ]),
-    ...(input.invites ?? []).map((invite) => invite.invitedBy),
-    ...(input.projectUpdates ?? []).map((update) => update.createdBy),
-    ...(input.conversations ?? []).flatMap((conversation) => [
-      conversation.createdBy,
-      ...conversation.participantIds,
-    ]),
-    ...(input.calls ?? []).flatMap((call) => [
-      call.startedBy,
-      call.lastJoinedBy,
-      ...(call.participantUserIds ?? []),
+  ]
+}
+
+function collectThreadContentUserIds(input: ScopedCollections) {
+  return [
+    ...(input.comments ?? []).flatMap((comment) => [
+      comment.createdBy,
+      ...(comment.mentionUserIds ?? []),
+      ...(comment.reactions ?? []).flatMap((reaction) => reaction.userIds),
     ]),
     ...(input.chatMessages ?? []).flatMap((message) => [
       message.createdBy,
@@ -1482,10 +1463,31 @@ function collectUserIds(input: ScopedCollections) {
       ...(comment.mentionUserIds ?? []),
       ...(comment.reactions ?? []).flatMap((reaction) => reaction.userIds),
     ]),
-    ...collectCustomPropertyValueUserIds(
-      input.customPropertyDefinitions ?? [],
-      input.customPropertyValues ?? []
-    ),
+  ]
+}
+
+function collectConversationUserIds(input: ScopedCollections) {
+  return [
+    ...(input.conversations ?? []).flatMap((conversation) => [
+      conversation.createdBy,
+      ...conversation.participantIds,
+    ]),
+    ...(input.calls ?? []).flatMap((call) => [
+      call.startedBy,
+      call.lastJoinedBy,
+      ...(call.participantUserIds ?? []),
+    ]),
+  ]
+}
+
+function collectUserIds(input: ScopedCollections) {
+  return compactStringIds([
+    ...collectBasicUserIds(input),
+    ...collectMembershipUserIds(input),
+    ...collectWorkEntityUserIds(input),
+    ...collectViewAndNotificationUserIds(input),
+    ...collectThreadContentUserIds(input),
+    ...collectConversationUserIds(input),
   ])
 }
 
@@ -1528,11 +1530,18 @@ async function resolveAttachmentSnapshots(
   )
 }
 
-async function materializeScopedSnapshot(
+type ScopedSnapshotMaterialization = {
+  normalizedTeams: AppSnapshot["teams"]
+  teams: Team[]
+  userCollections: ScopedCollections
+  workspaces: Workspace[]
+}
+
+async function loadScopedSnapshotMaterialization(
   ctx: QueryCtx,
   context: ScopedUserContext,
   collections: ScopedCollections
-): Promise<AppSnapshot> {
+): Promise<ScopedSnapshotMaterialization> {
   const teams = dedupeById([...(collections.teams ?? []), ...context.teams])
   const teamIds = new Set(teams.map((team) => team.id))
   const workspaceIds = new Set([
@@ -1567,27 +1576,110 @@ async function materializeScopedSnapshot(
     ]),
     workspaces,
   }
+
+  return {
+    normalizedTeams: teams.map((team) =>
+      normalizeTeam(team)
+    ) as AppSnapshot["teams"],
+    teams,
+    userCollections,
+    workspaces,
+  }
+}
+
+function normalizeScopedComments(comments: ScopedCollections["comments"]) {
+  return (comments ?? []).map((comment) => ({
+    ...comment,
+    mentionUserIds: comment.mentionUserIds ?? [],
+    reactions: comment.reactions ?? [],
+  }))
+}
+
+function normalizeScopedNotifications(
+  notifications: ScopedCollections["notifications"]
+) {
+  return (notifications ?? []).map((notification) => ({
+    ...notification,
+    archivedAt: notification.archivedAt ?? null,
+  }))
+}
+
+function normalizeScopedChannelContent<T extends {
+  mentionUserIds?: string[]
+  reactions?: unknown[]
+}>(entries: T[] | undefined) {
+  return (entries ?? []).map((entry) => ({
+    ...entry,
+    mentionUserIds: entry.mentionUserIds ?? [],
+    reactions: entry.reactions ?? [],
+  }))
+}
+
+async function resolveScopedWorkspaceSnapshots(
+  ctx: QueryCtx,
+  workspaces: Workspace[]
+): Promise<AppSnapshot["workspaces"]> {
+  return Promise.all(
+    workspaces.map((workspace) => resolveWorkspaceSnapshot(ctx, workspace))
+  )
+}
+
+async function resolveScopedUserSnapshots(
+  ctx: QueryCtx,
+  context: ScopedUserContext,
+  userCollections: ScopedCollections
+): Promise<AppSnapshot["users"]> {
   const users = await listUsersByIds(ctx, [
     context.currentUserId,
     ...collectUserIds(userCollections),
   ])
-  const normalizedTeams = teams.map((team) =>
-    normalizeTeam(team)
-  ) as AppSnapshot["teams"]
 
+  return Promise.all(users.map((user) => resolveUserSnapshot(ctx, user)))
+}
+
+function getVisibleScopedLabels(
+  labels: ScopedCollections["labels"],
+  currentUserId: string
+): AppSnapshot["labels"] {
+  return (
+    labels?.filter((label) => isLabelVisibleToUser(label, currentUserId)) ?? []
+  )
+}
+
+function materializeScopedMembershipData(
+  context: ScopedUserContext,
+  userCollections: ScopedCollections,
+  normalizedTeams: AppSnapshot["teams"]
+): Pick<
+  AppSnapshot,
+  "workspaceMemberships" | "teams" | "teamMemberships" | "labels"
+> {
   return {
-    currentUserId: context.currentUserId,
-    currentWorkspaceId: context.currentWorkspaceId,
-    workspaces: await Promise.all(
-      workspaces.map((workspace) => resolveWorkspaceSnapshot(ctx, workspace))
-    ),
     workspaceMemberships: userCollections.workspaceMemberships ?? [],
     teams: normalizedTeams,
     teamMemberships: userCollections.teamMemberships ?? [],
-    users: await Promise.all(users.map((user) => resolveUserSnapshot(ctx, user))),
-    labels: userCollections.labels?.filter((label) =>
-      isLabelVisibleToUser(label, context.currentUserId)
-    ) ?? [],
+    labels: getVisibleScopedLabels(
+      userCollections.labels,
+      context.currentUserId
+    ),
+  }
+}
+
+function materializeScopedWorkData(
+  collections: ScopedCollections,
+  normalizedTeams: AppSnapshot["teams"]
+): Pick<
+  AppSnapshot,
+  | "projects"
+  | "milestones"
+  | "workItems"
+  | "workItemActivities"
+  | "customPropertyDefinitions"
+  | "customPropertyValues"
+  | "documents"
+  | "views"
+> {
+  return {
     projects: dedupeById(collections.projects ?? []),
     milestones: collections.milestones ?? [],
     workItems: dedupeById(collections.workItems ?? []).map((item) =>
@@ -1602,19 +1694,35 @@ async function materializeScopedSnapshot(
     views: dedupeById(collections.views ?? []).map((view) =>
       normalizeViewDefinition(view, normalizedTeams)
     ),
-    comments: (collections.comments ?? []).map((comment) => ({
-      ...comment,
-      mentionUserIds: comment.mentionUserIds ?? [],
-      reactions: comment.reactions ?? [],
-    })),
+  }
+}
+
+async function materializeScopedCollaborationData(
+  ctx: QueryCtx,
+  collections: ScopedCollections
+): Promise<
+  Pick<
+    AppSnapshot,
+    | "comments"
+    | "attachments"
+    | "notifications"
+    | "invites"
+    | "projectUpdates"
+    | "conversations"
+    | "calls"
+    | "chatMessages"
+    | "chatReadStates"
+    | "channelPosts"
+    | "channelPostComments"
+  >
+> {
+  return {
+    comments: normalizeScopedComments(collections.comments),
     attachments: await resolveAttachmentSnapshots(
       ctx,
       collections.attachments ?? []
     ),
-    notifications: (collections.notifications ?? []).map((notification) => ({
-      ...notification,
-      archivedAt: notification.archivedAt ?? null,
-    })),
+    notifications: normalizeScopedNotifications(collections.notifications),
     invites: collections.invites ?? [],
     projectUpdates: collections.projectUpdates ?? [],
     conversations: (collections.conversations ?? []).map(normalizeConversation),
@@ -1623,18 +1731,39 @@ async function materializeScopedSnapshot(
       normalizeBootstrapChatMessage(message as never)
     ) as AppSnapshot["chatMessages"],
     chatReadStates: collections.chatReadStates ?? [],
-    channelPosts: (collections.channelPosts ?? []).map((post) => ({
-      ...post,
-      mentionUserIds: post.mentionUserIds ?? [],
-      reactions: post.reactions ?? [],
-    })),
-    channelPostComments: (collections.channelPostComments ?? []).map(
-      (comment) => ({
-        ...comment,
-        mentionUserIds: comment.mentionUserIds ?? [],
-        reactions: comment.reactions ?? [],
-      })
+    channelPosts: normalizeScopedChannelContent(collections.channelPosts),
+    channelPostComments: normalizeScopedChannelContent(
+      collections.channelPostComments
     ),
+  }
+}
+
+async function materializeScopedSnapshot(
+  ctx: QueryCtx,
+  context: ScopedUserContext,
+  collections: ScopedCollections
+): Promise<AppSnapshot> {
+  const { normalizedTeams, userCollections, workspaces } =
+    await loadScopedSnapshotMaterialization(ctx, context, collections)
+  const [workspaceSnapshots, userSnapshots, collaborationData] =
+    await Promise.all([
+      resolveScopedWorkspaceSnapshots(ctx, workspaces),
+      resolveScopedUserSnapshots(ctx, context, userCollections),
+      materializeScopedCollaborationData(ctx, collections),
+    ])
+
+  return {
+    currentUserId: context.currentUserId,
+    currentWorkspaceId: context.currentWorkspaceId,
+    workspaces: workspaceSnapshots,
+    users: userSnapshots,
+    ...materializeScopedMembershipData(
+      context,
+      userCollections,
+      normalizedTeams
+    ),
+    ...materializeScopedWorkData(collections, normalizedTeams),
+    ...collaborationData,
   }
 }
 
@@ -1690,161 +1819,200 @@ async function loadSnapshotForInstruction(
   return { context, snapshot }
 }
 
-async function getScopedSnapshotForScopeKeyTarget(
+async function loadConversationListContext(
   ctx: QueryCtx,
   args: ScopedReadModelScopeKeyArgs
 ) {
-  switch (args.target.kind) {
+  return loadScopedUserContext(ctx, {
+    serverToken: args.serverToken,
+    workosUserId: args.workosUserId,
+    email: args.email,
+    selectedWorkspaceId: args.selectedWorkspaceId,
+    instruction: { kind: "conversation-list" },
+  })
+}
+
+async function loadEmptyScopeKeySnapshot(
+  ctx: QueryCtx,
+  args: ScopedReadModelScopeKeyArgs,
+  collections: ScopedCollections = {}
+) {
+  const context = await loadConversationListContext(ctx, args)
+  const snapshot = await materializeScopedSnapshot(ctx, context, collections)
+
+  return { context, snapshot }
+}
+
+function instructionForConversationTarget(
+  conversation: Conversation,
+  conversationId: string
+): ScopedReadModelInstruction {
+  return {
+    kind:
+      conversation.kind === "channel" ? "channel-feed" : "conversation-thread",
+    conversationId,
+  }
+}
+
+function instructionForSimpleScopeKeyTarget(
+  target: ScopedReadModelScopeKeyArgs["target"]
+): ScopedReadModelInstruction | null {
+  switch (target.kind) {
     case "document":
-      return loadSnapshotForInstruction(ctx, args, {
-        kind: "document-detail",
-        documentId: args.target.documentId,
-      })
+      return { kind: "document-detail", documentId: target.documentId }
     case "work-item":
-      return loadSnapshotForInstruction(ctx, args, {
-        kind: "work-item-detail",
-        itemId: args.target.itemId,
-      })
+      return { kind: "work-item-detail", itemId: target.itemId }
     case "custom-property-definition":
-      return loadSnapshotForInstruction(ctx, args, {
+      return {
         kind: "work-index",
         scopeType: "team",
-        scopeId: args.target.teamId,
-      })
+        scopeId: target.teamId,
+      }
     case "project":
-      return loadSnapshotForInstruction(ctx, args, {
-        kind: "project-detail",
-        projectId: args.target.projectId,
-      })
-    case "conversation": {
-      const context = await loadScopedUserContext(ctx, {
-        serverToken: args.serverToken,
-        workosUserId: args.workosUserId,
-        email: args.email,
-        selectedWorkspaceId: args.selectedWorkspaceId,
-        instruction: { kind: "conversation-list" },
-      })
-      const conversation = await getConversationDoc(
-        ctx,
-        args.target.conversationId
-      )
-      if (!conversation) {
-        const snapshot = await materializeScopedSnapshot(ctx, context, {})
-        return { context, snapshot }
-      }
+      return { kind: "project-detail", projectId: target.projectId }
+    default:
+      return null
+  }
+}
 
-      await requireConversationAccess(ctx, conversation, context.currentUserId)
+async function loadConversationTargetSnapshot(
+  ctx: QueryCtx,
+  args: ScopedReadModelScopeKeyArgs,
+  target: Extract<ScopedReadModelScopeKeyTarget, { kind: "conversation" }>
+): Promise<ScopedReadModelScopeKeySnapshot> {
+  const conversation = await getConversationDoc(ctx, target.conversationId)
 
-      return loadSnapshotForInstruction(ctx, args, {
-        kind:
-          conversation.kind === "channel"
-            ? "channel-feed"
-            : "conversation-thread",
-        conversationId: args.target.conversationId,
-      })
-    }
-    case "channel-post": {
-      const post = await getChannelPostDoc(ctx, args.target.postId)
-      if (!post) {
-        const context = await loadScopedUserContext(ctx, {
-          serverToken: args.serverToken,
-          workosUserId: args.workosUserId,
-          email: args.email,
-          selectedWorkspaceId: args.selectedWorkspaceId,
-          instruction: { kind: "conversation-list" },
-        })
-        const snapshot = await materializeScopedSnapshot(ctx, context, {})
-        return { context, snapshot }
-      }
+  if (!conversation) {
+    return loadEmptyScopeKeySnapshot(ctx, args)
+  }
 
-      return loadSnapshotForInstruction(ctx, args, {
+  const context = await loadConversationListContext(ctx, args)
+  await requireConversationAccess(ctx, conversation, context.currentUserId)
+
+  return loadSnapshotForInstruction(
+    ctx,
+    args,
+    instructionForConversationTarget(conversation, target.conversationId)
+  )
+}
+
+async function loadChannelPostTargetSnapshot(
+  ctx: QueryCtx,
+  args: ScopedReadModelScopeKeyArgs,
+  target: Extract<ScopedReadModelScopeKeyTarget, { kind: "channel-post" }>
+): Promise<ScopedReadModelScopeKeySnapshot> {
+  const post = await getChannelPostDoc(ctx, target.postId)
+
+  return post
+    ? loadSnapshotForInstruction(ctx, args, {
         kind: "channel-feed",
         conversationId: post.conversationId,
       })
-    }
-    case "chat-message": {
-      const message = await getChatMessageDoc(ctx, args.target.messageId)
-      if (!message) {
-        const context = await loadScopedUserContext(ctx, {
-          serverToken: args.serverToken,
-          workosUserId: args.workosUserId,
-          email: args.email,
-          selectedWorkspaceId: args.selectedWorkspaceId,
-          instruction: { kind: "conversation-list" },
-        })
-        const snapshot = await materializeScopedSnapshot(ctx, context, {})
-        return { context, snapshot }
-      }
+    : loadEmptyScopeKeySnapshot(ctx, args)
+}
 
-      return loadSnapshotForInstruction(ctx, args, {
+async function loadChatMessageTargetSnapshot(
+  ctx: QueryCtx,
+  args: ScopedReadModelScopeKeyArgs,
+  target: Extract<ScopedReadModelScopeKeyTarget, { kind: "chat-message" }>
+): Promise<ScopedReadModelScopeKeySnapshot> {
+  const message = await getChatMessageDoc(ctx, target.messageId)
+
+  return message
+    ? loadSnapshotForInstruction(ctx, args, {
         kind: "conversation-thread",
         conversationId: message.conversationId,
       })
+    : loadEmptyScopeKeySnapshot(ctx, args)
+}
+
+async function loadViewTargetSnapshot(
+  ctx: QueryCtx,
+  args: ScopedReadModelScopeKeyArgs,
+  target: Extract<ScopedReadModelScopeKeyTarget, { kind: "view" }>
+): Promise<ScopedReadModelScopeKeySnapshot> {
+  const context = await loadConversationListContext(ctx, args)
+  const view = (await getViewDoc(ctx, target.viewId)) as ViewDefinition | null
+
+  if (!view || view.containerType) {
+    const snapshot = await materializeScopedSnapshot(ctx, context, {
+      views: view ? [view] : [],
+    })
+    return { context, snapshot }
+  }
+
+  if (view.scopeType === "team") {
+    await requireReadableTeamAccess(ctx, view.scopeId, context.currentUserId)
+  } else if (view.scopeType === "workspace") {
+    await requireReadableWorkspaceAccess(ctx, view.scopeId, context.currentUserId)
+  }
+
+  const snapshot = await materializeScopedSnapshot(ctx, context, {
+    views: [view],
+  })
+  return { context, snapshot }
+}
+
+async function loadUserWorkspaceMembershipTargetSnapshot(
+  ctx: QueryCtx,
+  args: ScopedReadModelScopeKeyArgs,
+  target: Extract<
+    ScopedReadModelScopeKeyTarget,
+    { kind: "user-workspace-membership" }
+  >
+): Promise<ScopedReadModelScopeKeySnapshot> {
+  const context = await loadScopedUserContext(ctx, {
+    serverToken: args.serverToken,
+    workosUserId: args.workosUserId,
+    email: args.email,
+      selectedWorkspaceId: args.selectedWorkspaceId,
+      instruction: { kind: "conversation-list" },
+    })
+  const {
+    accessibleWorkspaceIds,
+    teamMemberships,
+    teams,
+    workspaceMemberships,
+  } = await loadUserWorkspaceAccessSummary(ctx, target.userId)
+  const workspaces = await listWorkspacesByIds(ctx, accessibleWorkspaceIds)
+  const snapshot = await materializeScopedSnapshot(ctx, context, {
+    teamMemberships: teamMemberships as TeamMembership[],
+    teams: teams as Team[],
+    workspaceMemberships: workspaceMemberships as WorkspaceMembership[],
+    workspaces: workspaces as Workspace[],
+  })
+
+  return { context, snapshot }
+}
+
+async function getScopedSnapshotForScopeKeyTarget(
+  ctx: QueryCtx,
+  args: ScopedReadModelScopeKeyArgs
+): Promise<ScopedReadModelScopeKeySnapshot> {
+  const simpleInstruction = instructionForSimpleScopeKeyTarget(args.target)
+
+  if (simpleInstruction) {
+    return loadSnapshotForInstruction(ctx, args, simpleInstruction)
+  }
+
+  switch (args.target.kind) {
+    case "conversation":
+      return loadConversationTargetSnapshot(ctx, args, args.target)
+    case "channel-post": {
+      return loadChannelPostTargetSnapshot(ctx, args, args.target)
+    }
+    case "chat-message": {
+      return loadChatMessageTargetSnapshot(ctx, args, args.target)
     }
     case "view": {
-      const context = await loadScopedUserContext(ctx, {
-        serverToken: args.serverToken,
-        workosUserId: args.workosUserId,
-        email: args.email,
-        selectedWorkspaceId: args.selectedWorkspaceId,
-        instruction: { kind: "conversation-list" },
-      })
-      const view = (await getViewDoc(ctx, args.target.viewId)) as ViewDefinition | null
-
-      if (!view || view.containerType) {
-        const snapshot = await materializeScopedSnapshot(ctx, context, {
-          views: view ? [view] : [],
-        })
-        return { context, snapshot }
-      }
-
-      if (view.scopeType === "team") {
-        await requireReadableTeamAccess(ctx, view.scopeId, context.currentUserId)
-      } else if (view.scopeType === "workspace") {
-        await requireReadableWorkspaceAccess(
-          ctx,
-          view.scopeId,
-          context.currentUserId
-        )
-      }
-
-      const snapshot = await materializeScopedSnapshot(ctx, context, {
-        views: [view],
-      })
-      return { context, snapshot }
+      return loadViewTargetSnapshot(ctx, args, args.target)
     }
     case "user-workspace-membership": {
-      const context = await loadScopedUserContext(ctx, {
-        serverToken: args.serverToken,
-        workosUserId: args.workosUserId,
-        email: args.email,
-        selectedWorkspaceId: args.selectedWorkspaceId,
-        instruction: { kind: "conversation-list" },
-      })
-      const [workspaceMemberships, teamMemberships, ownedWorkspaces] =
-        await Promise.all([
-          listWorkspaceMembershipsByUser(ctx, args.target.userId),
-          listTeamMembershipsByUser(ctx, args.target.userId),
-          listWorkspacesOwnedByUser(ctx, args.target.userId),
-        ])
-      const teams = await listTeamsByIds(
-        ctx,
-        teamMemberships.map((membership) => membership.teamId)
-      )
-      const workspaces = await listWorkspacesByIds(ctx, [
-        ...workspaceMemberships.map((membership) => membership.workspaceId),
-        ...teams.map((team) => team.workspaceId),
-        ...ownedWorkspaces.map((workspace) => workspace.id),
-      ])
-      const snapshot = await materializeScopedSnapshot(ctx, context, {
-        teamMemberships: teamMemberships as TeamMembership[],
-        teams: teams as Team[],
-        workspaceMemberships: workspaceMemberships as WorkspaceMembership[],
-        workspaces: workspaces as Workspace[],
-      })
-      return { context, snapshot }
+      return loadUserWorkspaceMembershipTargetSnapshot(ctx, args, args.target)
     }
   }
+
+  throw new Error(`Unsupported read model scope key target: ${args.target.kind}`)
 }
 
 export async function resolveScopedReadModelScopeKeysHandler(
@@ -1976,10 +2144,14 @@ function contextAuthorizesCollectionScope(
   return context.accessibleWorkspaceIds.has(collectionScope.scopeId)
 }
 
-function instructionFromScopeKey(
-  descriptor: NonNullable<ReturnType<typeof parseReadModelScopeKey>>,
+type ParsedScopeKeyDescriptor = NonNullable<
+  ReturnType<typeof parseReadModelScopeKey>
+>
+
+function userOwnedInstructionFromScopeKey(
+  descriptor: ParsedScopeKeyDescriptor,
   currentUserId: string
-): ScopedReadModelInstruction | null {
+): ScopedReadModelInstruction | null | undefined {
   if (descriptor.kind === READ_MODEL_SCOPE_KINDS.notificationInbox) {
     return descriptor.parts[0] === currentUserId
       ? { kind: "notification-inbox" }
@@ -1992,58 +2164,100 @@ function instructionFromScopeKey(
       : null
   }
 
-  if (descriptor.kind === READ_MODEL_SCOPE_KINDS.workspacePeople) {
-    return descriptor.parts[0]
-      ? { kind: "workspace-people", workspaceId: descriptor.parts[0] }
-      : null
+  return undefined
+}
+
+function searchInstructionFromScopeKey(
+  descriptor: ParsedScopeKeyDescriptor,
+  currentUserId: string
+): ScopedReadModelInstruction | null | undefined {
+  if (
+    descriptor.kind !== READ_MODEL_SCOPE_KINDS.searchSeed &&
+    descriptor.kind !== READ_MODEL_SCOPE_KINDS.privateSearchSeed &&
+    descriptor.kind !== READ_MODEL_SCOPE_KINDS.privateDocumentIndex
+  ) {
+    return undefined
   }
 
   if (
-    descriptor.kind === READ_MODEL_SCOPE_KINDS.searchSeed ||
-    descriptor.kind === READ_MODEL_SCOPE_KINDS.privateSearchSeed ||
-    descriptor.kind === READ_MODEL_SCOPE_KINDS.privateDocumentIndex
+    (descriptor.kind === READ_MODEL_SCOPE_KINDS.privateSearchSeed ||
+      descriptor.kind === READ_MODEL_SCOPE_KINDS.privateDocumentIndex) &&
+    descriptor.parts[1] !== currentUserId
   ) {
-    if (
-      (descriptor.kind === READ_MODEL_SCOPE_KINDS.privateSearchSeed ||
-        descriptor.kind === READ_MODEL_SCOPE_KINDS.privateDocumentIndex) &&
-      descriptor.parts[1] !== currentUserId
-    ) {
-      return null
-    }
-
-    return descriptor.parts[0]
-      ? { kind: "search-seed", workspaceId: descriptor.parts[0] }
-      : null
+    return null
   }
 
-  if (descriptor.kind === READ_MODEL_SCOPE_KINDS.documentDetail) {
-    return descriptor.parts[0]
-      ? { kind: "document-detail", documentId: descriptor.parts[0] }
-      : null
+  return descriptor.parts[0]
+    ? { kind: "search-seed", workspaceId: descriptor.parts[0] }
+    : null
+}
+
+type DetailInstructionFactory = (id: string) => ScopedReadModelInstruction
+
+const detailInstructionFactories: Partial<
+  Record<ReadModelScopeKind, DetailInstructionFactory>
+> = {
+  [READ_MODEL_SCOPE_KINDS.workspacePeople]: (workspaceId) => ({
+    kind: "workspace-people",
+    workspaceId,
+  }),
+  [READ_MODEL_SCOPE_KINDS.documentDetail]: (documentId) => ({
+    kind: "document-detail",
+    documentId,
+  }),
+  [READ_MODEL_SCOPE_KINDS.workItemDetail]: (itemId) => ({
+    kind: "work-item-detail",
+    itemId,
+  }),
+  [READ_MODEL_SCOPE_KINDS.projectDetail]: (projectId) => ({
+    kind: "project-detail",
+    projectId,
+  }),
+  [READ_MODEL_SCOPE_KINDS.conversationThread]: (conversationId) => ({
+    kind: "conversation-thread",
+    conversationId,
+  }),
+  [READ_MODEL_SCOPE_KINDS.channelFeed]: (conversationId) => ({
+    kind: "channel-feed",
+    conversationId,
+  }),
+}
+
+function detailInstructionFromScopeKey(
+  descriptor: ParsedScopeKeyDescriptor
+): ScopedReadModelInstruction | null | undefined {
+  const createInstruction = detailInstructionFactories[descriptor.kind]
+  const id = descriptor.parts[0]
+
+  return createInstruction ? (id ? createInstruction(id) : null) : undefined
+}
+
+function instructionFromScopeKey(
+  descriptor: ParsedScopeKeyDescriptor,
+  currentUserId: string
+): ScopedReadModelInstruction | null {
+  const userOwnedInstruction = userOwnedInstructionFromScopeKey(
+    descriptor,
+    currentUserId
+  )
+
+  if (userOwnedInstruction !== undefined) {
+    return userOwnedInstruction
   }
 
-  if (descriptor.kind === READ_MODEL_SCOPE_KINDS.workItemDetail) {
-    return descriptor.parts[0]
-      ? { kind: "work-item-detail", itemId: descriptor.parts[0] }
-      : null
+  const searchInstruction = searchInstructionFromScopeKey(
+    descriptor,
+    currentUserId
+  )
+
+  if (searchInstruction !== undefined) {
+    return searchInstruction
   }
 
-  if (descriptor.kind === READ_MODEL_SCOPE_KINDS.projectDetail) {
-    return descriptor.parts[0]
-      ? { kind: "project-detail", projectId: descriptor.parts[0] }
-      : null
-  }
+  const detailInstruction = detailInstructionFromScopeKey(descriptor)
 
-  if (descriptor.kind === READ_MODEL_SCOPE_KINDS.conversationThread) {
-    return descriptor.parts[0]
-      ? { kind: "conversation-thread", conversationId: descriptor.parts[0] }
-      : null
-  }
-
-  if (descriptor.kind === READ_MODEL_SCOPE_KINDS.channelFeed) {
-    return descriptor.parts[0]
-      ? { kind: "channel-feed", conversationId: descriptor.parts[0] }
-      : null
+  if (detailInstruction !== undefined) {
+    return detailInstruction
   }
 
   return collectionInstructionFromScopeKey(descriptor)
@@ -2086,6 +2300,98 @@ function readModelDataAuthorizesScope(
   return true
 }
 
+function requireParsedScopeKey(scopeKey: string): ParsedScopeKeyDescriptor {
+  const descriptor = parseReadModelScopeKey(scopeKey)
+
+  if (!descriptor) {
+    throw new Error(`Invalid scoped read model key: ${scopeKey}`)
+  }
+
+  return descriptor
+}
+
+function authorizeWorkspaceMembershipScopeKey(
+  descriptor: ParsedScopeKeyDescriptor,
+  context: ScopedUserContext,
+  scopeKey: string
+) {
+  if (descriptor.kind !== READ_MODEL_SCOPE_KINDS.workspaceMembership) {
+    return false
+  }
+
+  if (
+    descriptor.parts.length !== 1 ||
+    !context.accessibleWorkspaceIds.has(descriptor.parts[0])
+  ) {
+    throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
+  }
+
+  return true
+}
+
+function resolveScopeKeyAuthorizationInstruction(
+  descriptor: ParsedScopeKeyDescriptor,
+  context: ScopedUserContext,
+  scopeKey: string
+): ScopedReadModelInstruction | null {
+  if (descriptor.kind === READ_MODEL_SCOPE_KINDS.shellContext) {
+    return null
+  }
+
+  if (authorizeWorkspaceMembershipScopeKey(descriptor, context, scopeKey)) {
+    return null
+  }
+
+  const instruction = instructionFromScopeKey(
+    descriptor,
+    context.currentUserId
+  )
+
+  if (!instruction) {
+    throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
+  }
+
+  if (!isCollectionReadModelScopeKind(descriptor.kind)) {
+    return instruction
+  }
+
+  if (!contextAuthorizesCollectionScope(descriptor, context)) {
+    throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
+  }
+
+  return null
+}
+
+async function authorizeScopedReadModelScopeKey(
+  ctx: QueryCtx,
+  args: AuthorizeScopedReadModelScopeKeysArgs,
+  context: ScopedUserContext,
+  scopeKey: string
+) {
+  const descriptor = requireParsedScopeKey(scopeKey)
+  const instruction = resolveScopeKeyAuthorizationInstruction(
+    descriptor,
+    context,
+    scopeKey
+  )
+
+  if (!instruction) {
+    return
+  }
+
+  const data = await getScopedReadModelHandler(ctx, {
+    serverToken: args.serverToken,
+    workosUserId: args.workosUserId,
+    email: args.email,
+    selectedWorkspaceId: args.selectedWorkspaceId,
+    instruction,
+  })
+
+  if (!readModelDataAuthorizesScope(scopeKey, data)) {
+    throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
+  }
+}
+
 export async function authorizeScopedReadModelScopeKeysHandler(
   ctx: QueryCtx,
   args: AuthorizeScopedReadModelScopeKeysArgs
@@ -2099,52 +2405,6 @@ export async function authorizeScopedReadModelScopeKeysHandler(
   })
 
   for (const scopeKey of args.scopeKeys) {
-    const descriptor = parseReadModelScopeKey(scopeKey)
-
-    if (!descriptor) {
-      throw new Error(`Invalid scoped read model key: ${scopeKey}`)
-    }
-
-    if (descriptor.kind === READ_MODEL_SCOPE_KINDS.shellContext) {
-      continue
-    }
-
-    if (descriptor.kind === READ_MODEL_SCOPE_KINDS.workspaceMembership) {
-      if (
-        descriptor.parts.length !== 1 ||
-        !context.accessibleWorkspaceIds.has(descriptor.parts[0])
-      ) {
-        throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
-      }
-      continue
-    }
-
-    const instruction = instructionFromScopeKey(
-      descriptor,
-      context.currentUserId
-    )
-
-    if (!instruction) {
-      throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
-    }
-
-    if (isCollectionReadModelScopeKind(descriptor.kind)) {
-      if (!contextAuthorizesCollectionScope(descriptor, context)) {
-        throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
-      }
-      continue
-    }
-
-    const data = await getScopedReadModelHandler(ctx, {
-      serverToken: args.serverToken,
-      workosUserId: args.workosUserId,
-      email: args.email,
-      selectedWorkspaceId: args.selectedWorkspaceId,
-      instruction,
-    })
-
-    if (!readModelDataAuthorizesScope(scopeKey, data)) {
-      throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)
-    }
+    await authorizeScopedReadModelScopeKey(ctx, args, context, scopeKey)
   }
 }

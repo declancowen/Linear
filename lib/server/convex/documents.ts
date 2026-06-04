@@ -1,7 +1,11 @@
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { prepareRichTextForStorage } from "@/lib/content/rich-text-security"
-import type { DocumentPresenceViewer } from "@/lib/domain/types"
+import { commentContentConstraints } from "@/lib/domain/input-constraints"
+import type {
+  AttachmentTargetType,
+  DocumentPresenceViewer,
+} from "@/lib/domain/types"
 import { coerceApplicationError } from "@/lib/server/application-errors"
 
 import {
@@ -142,6 +146,11 @@ const ITEM_DESCRIPTION_MENTION_NOTIFICATION_ERROR_MAPPINGS = [
 
 const ADD_COMMENT_ERROR_MAPPINGS = [
   {
+    match: "Comment cannot be empty",
+    status: 400,
+    code: "COMMENT_EMPTY",
+  },
+  {
     match: "Comment id already exists",
     status: 409,
     code: "COMMENT_ID_CONFLICT",
@@ -214,6 +223,11 @@ const TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS = [
 
 const MUTATE_COMMENT_ERROR_MAPPINGS = [
   ...TOGGLE_COMMENT_REACTION_ERROR_MAPPINGS,
+  {
+    match: "Comment cannot be empty",
+    status: 400,
+    code: "COMMENT_EMPTY",
+  },
   {
     match: "Your current role is read-only",
     status: 403,
@@ -551,9 +565,15 @@ export async function addCommentServer(input: {
   parentCommentId?: string | null
   content: string
 }) {
-  const preparedContent = prepareRichTextForStorage(input.content)
+  const preparedContent = prepareRichTextForStorage(input.content, {
+    minPlainTextCharacters: commentContentConstraints.min,
+  })
 
   try {
+    if (!preparedContent.isMeaningful) {
+      throw new Error("Comment cannot be empty")
+    }
+
     const origin = await resolveServerOrigin()
 
     return await getConvexServerClient().mutation(
@@ -595,9 +615,15 @@ export async function updateCommentServer(input: {
   commentId: string
   content: string
 }) {
-  const preparedContent = prepareRichTextForStorage(input.content)
+  const preparedContent = prepareRichTextForStorage(input.content, {
+    minPlainTextCharacters: commentContentConstraints.min,
+  })
 
   try {
+    if (!preparedContent.isMeaningful) {
+      throw new Error("Comment cannot be empty")
+    }
+
     return await getConvexServerClient().mutation(
       api.app.updateComment,
       withServerToken({
@@ -630,7 +656,7 @@ export async function deleteCommentServer(input: {
 
 export async function generateAttachmentUploadUrlServer(input: {
   currentUserId: string
-  targetType: "workItem" | "document"
+  targetType: AttachmentTargetType
   targetId: string
 }) {
   try {
@@ -648,7 +674,7 @@ export async function generateAttachmentUploadUrlServer(input: {
 
 export async function createAttachmentServer(input: {
   currentUserId: string
-  targetType: "workItem" | "document"
+  targetType: AttachmentTargetType
   targetId: string
   storageId: string
   fileName: string

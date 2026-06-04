@@ -10,7 +10,7 @@ import {
   type RichTextReferenceContext,
 } from "./rich-text-references"
 
-export type RichTextReferenceRelationships = {
+type RichTextReferenceRelationships = {
   documentIds: string[]
   projectIds: string[]
   viewIds: string[]
@@ -46,7 +46,7 @@ function idsForType(
     .map((reference) => reference.id)
 }
 
-export function getRichTextReferenceRelationships(
+function getRichTextReferenceRelationships(
   data: AppData,
   context: RichTextReferenceContext,
   content: string

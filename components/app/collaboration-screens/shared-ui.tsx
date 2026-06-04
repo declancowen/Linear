@@ -188,7 +188,7 @@ function SurfaceSidebarHeroDetailsCard({
   }
 
   return (
-    <div className="mt-3 flex w-full flex-col gap-1.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left shadow-xs dark:bg-surface-3">
+    <div className="mt-3 flex w-full min-w-0 max-w-full flex-col gap-1.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left shadow-xs dark:bg-surface-3">
       {showPresence ? (
         <SurfaceSidebarHeroDetailsPresence heroView={heroView} />
       ) : null}
@@ -199,14 +199,22 @@ function SurfaceSidebarHeroDetailsCard({
 
 function SurfaceSidebarHeroDetailsEmail({ email }: { email: string }) {
   return (
-    <div className="group flex items-center gap-2 text-[12px] text-fg-3">
+    <div
+      className="group grid w-full min-w-0 max-w-full items-center gap-2 text-[12px] text-fg-3"
+      style={{ gridTemplateColumns: "auto minmax(0, 1fr) auto" }}
+    >
       <EnvelopeSimple className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate">{email}</span>
+      <span
+        className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+        title={email}
+      >
+        {email}
+      </span>
       <Button
         type="button"
         variant="ghost"
         size="icon-xs"
-        className="size-5 shrink-0 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+        className="size-5 shrink-0 text-fg-3 transition-colors hover:text-foreground"
         onClick={() => void copySurfaceSidebarEmail(email)}
         aria-label="Copy email"
         title="Copy email"
@@ -355,7 +363,6 @@ function SurfaceSidebarMemberRow({
       userId={member.id}
       currentUserId={context.currentUserId}
       workspaceId={context.currentWorkspaceId}
-      portalled={false}
     >
       <div className="flex items-center gap-2.5 rounded-md px-1.5 py-1 text-[12.5px] transition-colors hover:bg-surface-2">
         <div className="shrink-0">

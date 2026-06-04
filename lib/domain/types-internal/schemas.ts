@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { isValidCalendarDateString } from "@/lib/calendar-date"
+import { MAX_ATTACHMENT_UPLOAD_SIZE_BYTES } from "@/lib/domain/file-uploads"
 import { isValidTimeValue, isValidTimeZone } from "@/lib/time-zone"
 import {
   channelPostCommentContentConstraints,
@@ -717,7 +718,7 @@ export const attachmentSchema = z.object({
     .number()
     .int()
     .min(1)
-    .max(25 * 1024 * 1024),
+    .max(MAX_ATTACHMENT_UPLOAD_SIZE_BYTES),
 })
 
 const teamTemplateConfigSchema = z.object({

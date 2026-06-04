@@ -747,17 +747,7 @@ function allTargetsAllowTeamProperties(targetItems: WorkItem[]) {
   )
 }
 
-function IssueActionMenuContent({
-  data,
-  displayProps,
-  item,
-  kind,
-  onEditItem,
-  onOpenItem,
-  requestConfirmedBulkWorkItemUpdate,
-  requestConfirmedWorkItemUpdate,
-  targetItems: targetItemsInput,
-}: {
+type IssueActionMenuContentProps = {
   data: AppData
   displayProps?: DisplayProperty[]
   item: WorkItem
@@ -771,7 +761,18 @@ function IssueActionMenuContent({
     typeof useWorkItemProjectCascadeConfirmation
   >["requestBulkUpdate"]
   targetItems?: WorkItem[]
-}) {
+}
+
+function getIssueActionMenuModel({
+  data,
+  displayProps,
+  item,
+  kind,
+  targetItems: targetItemsInput,
+}: Pick<
+  IssueActionMenuContentProps,
+  "data" | "displayProps" | "item" | "kind" | "targetItems"
+>) {
   const team = getTeam(data, item.teamId)
   const targetItems = getUniqueTargetItems(item, targetItemsInput)
   const isBulkMenu = targetItems.length > 1
@@ -779,10 +780,6 @@ function IssueActionMenuContent({
   const editable = targetItems.every((target) =>
     canEditWorkItemFromMenu(data, target)
   )
-  const itemLabel = getDisplayLabelForWorkItemType(
-    item.type,
-    isPrivateItem ? "project-management" : team?.settings.experience
-  ).toLowerCase()
   const targetItemsShareTeam = allTargetsUseSameTeam(targetItems)
   const targetItemsAllowTeamProperties =
     allTargetsAllowTeamProperties(targetItems)
@@ -792,141 +789,216 @@ function IssueActionMenuContent({
       : team
         ? getTeamMembers(data, team.id)
         : []
-  const currentUser = getUser(data, data.currentUserId) ?? null
-  const assigneeMenuMembers = teamMembers.filter(
-    (member) => member.id !== data.currentUserId
+  const itemLabel = getDisplayLabelForWorkItemType(
+    item.type,
+    isPrivateItem ? "project-management" : team?.settings.experience
+  ).toLowerCase()
+
+  return {
+    assigneeMenuMembers: teamMembers.filter(
+      (member) => member.id !== data.currentUserId
+    ),
+    customPropertyDefinitions: getVisibleCustomPropertyDefinitions({
+      data,
+      displayProps,
+      targetItems,
+    }),
+    currentUser: getUser(data, data.currentUserId) ?? null,
+    deleteActionLabel: isBulkMenu ? "Delete selected items" : `Delete ${itemLabel}`,
+    deleteDialogDescription: isBulkMenu
+      ? "These work items will be permanently removed. This can't be undone."
+      : "This work item will be permanently removed. This can't be undone.",
+    deleteDialogTitle: isBulkMenu
+      ? `Delete ${targetItems.length} selected items`
+      : `Delete ${item.key}`,
+    editable,
+    isBulkMenu,
+    labelOptions: displayProps?.includes("labels")
+      ? getBulkAssignableLabels(data, targetItems)
+      : [],
+    menu: getWorkItemMenuComponents(kind),
+    statusOptions: getStatusOrderForTeam(team),
+    targetItems,
+    targetItemsAllowTeamProperties,
+    targetItemsShareTeam,
+    teamProjects: getTeamProjectOptions(data, team?.id, item.primaryProjectId),
+  }
+}
+
+function IssueActionMenuPropertySections({
+  data,
+  displayProps,
+  item,
+  model,
+  requestConfirmedBulkWorkItemUpdate,
+  requestConfirmedWorkItemUpdate,
+}: Pick<
+  IssueActionMenuContentProps,
+  | "data"
+  | "displayProps"
+  | "item"
+  | "requestConfirmedBulkWorkItemUpdate"
+  | "requestConfirmedWorkItemUpdate"
+> & {
+  model: ReturnType<typeof getIssueActionMenuModel>
+}) {
+  return (
+    <>
+      {hasVisibleMenuProperty(displayProps, "status") ? (
+        <WorkItemStatusMenuSection
+          editable={model.editable}
+          item={item}
+          menu={model.menu}
+          statusOptions={model.statusOptions}
+          targetItems={model.targetItems}
+        />
+      ) : null}
+      {hasVisibleMenuProperty(displayProps, "priority") ? (
+        <WorkItemPriorityMenuSection
+          editable={model.editable}
+          item={item}
+          menu={model.menu}
+          targetItems={model.targetItems}
+        />
+      ) : null}
+      {hasVisibleMenuProperty(displayProps, "assignee") &&
+      model.targetItemsShareTeam &&
+      model.targetItemsAllowTeamProperties ? (
+        <WorkItemAssigneeMenuSection
+          assigneeMenuMembers={model.assigneeMenuMembers}
+          currentUser={model.currentUser}
+          currentUserId={data.currentUserId}
+          editable={model.editable}
+          item={item}
+          menu={model.menu}
+          targetItems={model.targetItems}
+        />
+      ) : null}
+      {hasVisibleMenuProperty(displayProps, "project") &&
+      model.targetItemsShareTeam &&
+      model.targetItemsAllowTeamProperties ? (
+        <WorkItemProjectMenuSection
+          editable={model.editable}
+          item={item}
+          menu={model.menu}
+          requestConfirmedBulkWorkItemUpdate={
+            requestConfirmedBulkWorkItemUpdate
+          }
+          requestConfirmedWorkItemUpdate={requestConfirmedWorkItemUpdate}
+          targetItems={model.targetItems}
+          teamProjects={model.teamProjects}
+        />
+      ) : null}
+      <WorkItemLabelsMenuSection
+        editable={model.editable}
+        labels={model.labelOptions}
+        menu={model.menu}
+        targetItems={model.targetItems}
+      />
+      {model.customPropertyDefinitions.map((definition) => (
+        <WorkItemCustomPropertyMenuSection
+          key={definition.id}
+          data={data}
+          definition={definition}
+          editable={model.editable}
+          menu={model.menu}
+          targetItems={model.targetItems}
+        />
+      ))}
+    </>
   )
-  const teamProjects = getTeamProjectOptions(
-    data,
-    team?.id,
-    item.primaryProjectId
+}
+
+function IssueActionMenuDeleteAction({
+  model,
+  onOpenDeleteDialog,
+}: {
+  model: ReturnType<typeof getIssueActionMenuModel>
+  onOpenDeleteDialog: () => void
+}) {
+  const { MenuItem, MenuSeparator } = model.menu
+
+  if (!model.editable) {
+    return null
+  }
+
+  return (
+    <>
+      <MenuSeparator />
+      <MenuItem
+        variant="destructive"
+        onSelect={(event: Event) => {
+          event.preventDefault()
+          onOpenDeleteDialog()
+        }}
+      >
+        <Trash className="size-4" />
+        {model.deleteActionLabel}
+      </MenuItem>
+    </>
   )
-  const statusOptions = getStatusOrderForTeam(team)
-  const labelOptions = displayProps?.includes("labels")
-    ? getBulkAssignableLabels(data, targetItems)
-    : []
-  const customPropertyDefinitions = getVisibleCustomPropertyDefinitions({
+}
+
+function IssueActionMenuContent({
+  data,
+  displayProps,
+  item,
+  kind,
+  onEditItem,
+  onOpenItem,
+  requestConfirmedBulkWorkItemUpdate,
+  requestConfirmedWorkItemUpdate,
+  targetItems: targetItemsInput,
+}: IssueActionMenuContentProps) {
+  const model = getIssueActionMenuModel({
     data,
     displayProps,
-    targetItems,
+    item,
+    kind,
+    targetItems: targetItemsInput,
   })
-  const menu = getWorkItemMenuComponents(kind)
-  const { MenuItem, MenuLabel, MenuSeparator } = menu
+  const { MenuLabel, MenuSeparator } = model.menu
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   async function handleDelete() {
-    for (const target of getDeleteTargetItems(data, targetItems)) {
+    for (const target of getDeleteTargetItems(data, model.targetItems)) {
       await useAppStore.getState().deleteWorkItem(target.id)
     }
 
     setDeleteDialogOpen(false)
   }
 
-  const deleteActionLabel = isBulkMenu
-    ? "Delete selected items"
-    : `Delete ${itemLabel}`
-  const deleteDialogTitle = isBulkMenu
-    ? `Delete ${targetItems.length} selected items`
-    : `Delete ${item.key}`
-  const deleteDialogDescription = isBulkMenu
-    ? "These work items will be permanently removed. This can't be undone."
-    : "This work item will be permanently removed. This can't be undone."
-
   return (
     <>
       <MenuLabel>
-        {isBulkMenu ? `${targetItems.length} selected` : item.key}
+        {model.isBulkMenu ? `${model.targetItems.length} selected` : item.key}
       </MenuLabel>
       <MenuSeparator />
-      {kind === "context" && !isBulkMenu ? (
+      {kind === "context" && !model.isBulkMenu ? (
         <WorkItemContextActions
           itemId={item.id}
-          menu={menu}
+          menu={model.menu}
           onEditItem={onEditItem}
           onOpenItem={onOpenItem}
         />
       ) : null}
-      {hasVisibleMenuProperty(displayProps, "status") ? (
-        <WorkItemStatusMenuSection
-          editable={editable}
-          item={item}
-          menu={menu}
-          statusOptions={statusOptions}
-          targetItems={targetItems}
-        />
-      ) : null}
-      {hasVisibleMenuProperty(displayProps, "priority") ? (
-        <WorkItemPriorityMenuSection
-          editable={editable}
-          item={item}
-          menu={menu}
-          targetItems={targetItems}
-        />
-      ) : null}
-      {hasVisibleMenuProperty(displayProps, "assignee") &&
-      targetItemsShareTeam &&
-      targetItemsAllowTeamProperties ? (
-        <WorkItemAssigneeMenuSection
-          assigneeMenuMembers={assigneeMenuMembers}
-          currentUser={currentUser}
-          currentUserId={data.currentUserId}
-          editable={editable}
-          item={item}
-          menu={menu}
-          targetItems={targetItems}
-        />
-      ) : null}
-      {hasVisibleMenuProperty(displayProps, "project") &&
-      targetItemsShareTeam &&
-      targetItemsAllowTeamProperties ? (
-        <WorkItemProjectMenuSection
-          editable={editable}
-          item={item}
-          menu={menu}
-          requestConfirmedBulkWorkItemUpdate={
-            requestConfirmedBulkWorkItemUpdate
-          }
-          requestConfirmedWorkItemUpdate={requestConfirmedWorkItemUpdate}
-          targetItems={targetItems}
-          teamProjects={teamProjects}
-        />
-      ) : null}
-      <WorkItemLabelsMenuSection
-        editable={editable}
-        labels={labelOptions}
-        menu={menu}
-        targetItems={targetItems}
+      <IssueActionMenuPropertySections
+        data={data}
+        displayProps={displayProps}
+        item={item}
+        model={model}
+        requestConfirmedBulkWorkItemUpdate={requestConfirmedBulkWorkItemUpdate}
+        requestConfirmedWorkItemUpdate={requestConfirmedWorkItemUpdate}
       />
-      {customPropertyDefinitions.map((definition) => (
-        <WorkItemCustomPropertyMenuSection
-          key={definition.id}
-          data={data}
-          definition={definition}
-          editable={editable}
-          menu={menu}
-          targetItems={targetItems}
-        />
-      ))}
-      {editable ? (
-        <>
-          <MenuSeparator />
-          <MenuItem
-            variant="destructive"
-            onSelect={(event: Event) => {
-              event.preventDefault()
-              setDeleteDialogOpen(true)
-            }}
-          >
-            <Trash className="size-4" />
-            {deleteActionLabel}
-          </MenuItem>
-        </>
-      ) : null}
+      <IssueActionMenuDeleteAction
+        model={model}
+        onOpenDeleteDialog={() => setDeleteDialogOpen(true)}
+      />
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
-        title={deleteDialogTitle}
-        description={deleteDialogDescription}
+        title={model.deleteDialogTitle}
+        description={model.deleteDialogDescription}
         confirmLabel="Delete"
         variant="destructive"
         onConfirm={() => void handleDelete()}

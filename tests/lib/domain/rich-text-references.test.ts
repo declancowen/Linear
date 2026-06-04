@@ -153,6 +153,22 @@ function referenceAnchor(type: string, id: string) {
   return `<a data-type="entity-reference" data-reference-type="${type}" data-reference-id="${id}" href="#">${id}</a>`
 }
 
+function referenceHtml(references: Array<[type: string, id: string]>) {
+  return references.map(([type, id]) => referenceAnchor(type, id)).join("")
+}
+
+function expectReferenceRelationships(
+  actual: unknown,
+  expected: {
+    documentIds: string[]
+    projectIds: string[]
+    viewIds: string[]
+    workItemIds: string[]
+  }
+) {
+  expect(actual).toEqual(expected)
+}
+
 describe("rich text reference selectors", () => {
   it("builds access-filtered document editor candidates across allowed entity types", () => {
     const data = createReferenceCandidateData()
@@ -242,71 +258,74 @@ describe("rich text reference selectors", () => {
     const data = createReferenceCandidateData()
     const document = data.documents.find((entry) => entry.id === "doc_current")!
 
-    expect(
+    expectReferenceRelationships(
       getDocumentRichTextReferenceRelationships(
         data,
         document,
-        [
-          referenceAnchor("workItem", "item_visible"),
-          referenceAnchor("workItem", "item_hidden_team"),
-          referenceAnchor("document", "doc_workspace"),
-          referenceAnchor("project", "project_team"),
-          referenceAnchor("view", "view_workspace"),
-        ].join("")
-      )
-    ).toEqual({
-      documentIds: ["doc_workspace"],
-      projectIds: ["project_team"],
-      viewIds: ["view_workspace"],
-      workItemIds: ["item_visible"],
-    })
+        referenceHtml([
+          ["workItem", "item_visible"],
+          ["workItem", "item_hidden_team"],
+          ["document", "doc_workspace"],
+          ["project", "project_team"],
+          ["view", "view_workspace"],
+        ])
+      ),
+      {
+        documentIds: ["doc_workspace"],
+        projectIds: ["project_team"],
+        viewIds: ["view_workspace"],
+        workItemIds: ["item_visible"],
+      }
+    )
   })
 
   it("derives work item description links without private or self references", () => {
     const data = createReferenceCandidateData()
     const item = data.workItems.find((entry) => entry.id === "item_current")!
 
-    expect(
+    expectReferenceRelationships(
       getWorkItemDescriptionRichTextReferenceRelationships(
         data,
         item,
-        [
-          referenceAnchor("workItem", "item_visible"),
-          referenceAnchor("workItem", "item_current"),
-          referenceAnchor("document", "doc_team"),
-          referenceAnchor("document", "doc_private"),
-          referenceAnchor("project", "project_workspace"),
-          referenceAnchor("view", "view_team"),
-        ].join("")
-      )
-    ).toEqual({
-      documentIds: ["doc_team"],
-      projectIds: ["project_workspace"],
-      viewIds: ["view_team"],
-      workItemIds: ["item_visible"],
-    })
+        referenceHtml([
+          ["workItem", "item_visible"],
+          ["workItem", "item_current"],
+          ["document", "doc_team"],
+          ["document", "doc_private"],
+          ["project", "project_workspace"],
+          ["view", "view_team"],
+        ])
+      ),
+      {
+        documentIds: ["doc_team"],
+        projectIds: ["project_workspace"],
+        viewIds: ["view_team"],
+        workItemIds: ["item_visible"],
+      }
+    )
   })
 
   it("derives work item comment links across allowed reference types", () => {
     const data = createReferenceCandidateData()
     const item = data.workItems.find((entry) => entry.id === "item_current")!
 
-    expect(
+    expectReferenceRelationships(
       getWorkItemCommentRichTextReferenceRelationships(
         data,
         item,
-        [
-          referenceAnchor("workItem", "item_current"),
-          referenceAnchor("document", "doc_workspace"),
-          referenceAnchor("project", "project_team"),
-          referenceAnchor("view", "view_workspace"),
-        ].join("")
-      )
-    ).toEqual({
-      documentIds: ["doc_workspace"],
-      projectIds: ["project_team"],
-      viewIds: ["view_workspace"],
-      workItemIds: ["item_current"],
-    })
+        referenceHtml([
+          ["workItem", "item_current"],
+          ["document", "doc_workspace"],
+          ["project", "project_team"],
+          ["view", "view_workspace"],
+        ])
+      ),
+      {
+        documentIds: ["doc_workspace"],
+        projectIds: ["project_team"],
+        viewIds: ["view_workspace"],
+        workItemIds: ["item_current"],
+      }
+    )
   })
 })

@@ -108,7 +108,6 @@ export {
   syncUnarchiveNotifications,
   syncUpdateComment,
   syncUpdateDocument,
-  syncUpdateDocumentContent,
   syncUpdateCustomPropertyDefinition,
   syncUpdateItemDescription,
   syncUpdateProject,

@@ -30,7 +30,7 @@ export const DEFAULT_DESKTOP_DOWNLOAD_URLS: DesktopDownloadUrlMap = {
 export const DEFAULT_DESKTOP_MAC_DOWNLOAD_URL =
   DEFAULT_DESKTOP_MAC_ARM64_DOWNLOAD_URL
 
-export function getDefaultDesktopDownloadUrl(target: DesktopDownloadTarget) {
+function getDefaultDesktopDownloadUrl(target: DesktopDownloadTarget) {
   return (
     DEFAULT_DESKTOP_DOWNLOAD_URLS[target.platform][target.architecture] ??
     DEFAULT_DESKTOP_MAC_DOWNLOAD_URL

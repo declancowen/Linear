@@ -138,7 +138,15 @@ async function getUserAgentDataArchitecture(
   }
 }
 
-export async function getSupportedDesktopDownloadTarget(): Promise<DesktopDownloadTarget | null> {
+type DesktopDownloadBrowserContext = {
+  maxTouchPoints: number
+  navigatorPlatform: string
+  platform: string
+  userAgent: string
+  userAgentData?: UserAgentDataWithArchitecture
+}
+
+function getDesktopDownloadBrowserContext(): DesktopDownloadBrowserContext | null {
   if (typeof window === "undefined" || window.electronApp?.isElectron) {
     return null
   }
@@ -148,48 +156,69 @@ export async function getSupportedDesktopDownloadTarget(): Promise<DesktopDownlo
   }
   const userAgentData = navigatorWithUserAgentData.userAgentData
   const navigatorPlatform = window.navigator.platform ?? ""
-  const platform = userAgentData?.platform ?? navigatorPlatform
-  const userAgent = window.navigator.userAgent
+  return {
+    maxTouchPoints: window.navigator.maxTouchPoints,
+    navigatorPlatform,
+    platform: userAgentData?.platform ?? navigatorPlatform,
+    userAgent: window.navigator.userAgent,
+    userAgentData,
+  }
+}
 
-  if (
-    !isMacPlatform(platform, userAgent) ||
-    isAppleMobileTablet({
-      maxTouchPoints: window.navigator.maxTouchPoints,
+function supportsDesktopDownloadBrowserPlatform({
+  maxTouchPoints,
+  platform,
+  userAgent,
+  userAgentData,
+}: DesktopDownloadBrowserContext) {
+  const macSupported =
+    isMacPlatform(platform, userAgent) &&
+    !isAppleMobileTablet({
+      maxTouchPoints,
       platform,
       userAgent,
       userAgentData,
     })
-  ) {
-    if (!isWindowsPlatform(platform, userAgent) || isWindowsPhone(userAgent)) {
-      return null
-    }
-  }
 
-  const highEntropyValues = await getUserAgentDataArchitecture(userAgentData)
-  const highEntropyPlatform = highEntropyValues?.platform ?? platform
+  return (
+    macSupported ||
+    (isWindowsPlatform(platform, userAgent) && !isWindowsPhone(userAgent))
+  )
+}
 
-  if (isMacPlatform(highEntropyPlatform, userAgent)) {
-    const detectedArchitecture =
-      (highEntropyValues
-        ? normalizeHighEntropyArchitecture(highEntropyValues)
-        : null) ??
-      getUserAgentMacArchitecture(userAgent) ??
-      (navigatorPlatform === "MacIntel" ? "x64" : null)
-    const architecture =
-      detectedArchitecture === "ia32" ? "x64" : detectedArchitecture
+function resolveMacDesktopDownloadTarget({
+  highEntropyValues,
+  navigatorPlatform,
+  userAgent,
+}: {
+  highEntropyValues: UserAgentDataHighEntropyValues | null
+  navigatorPlatform: string
+  userAgent: string
+}): DesktopDownloadTarget | null {
+  const detectedArchitecture =
+    (highEntropyValues
+      ? normalizeHighEntropyArchitecture(highEntropyValues)
+      : null) ??
+    getUserAgentMacArchitecture(userAgent) ??
+    (navigatorPlatform === "MacIntel" ? "x64" : null)
+  const architecture =
+    detectedArchitecture === "ia32" ? "x64" : detectedArchitecture
 
-    return architecture
-      ? {
-          architecture,
-          platform: "mac",
-        }
-      : null
-  }
+  return architecture
+    ? {
+        architecture,
+        platform: "mac",
+      }
+    : null
+}
 
-  if (!isWindowsPlatform(highEntropyPlatform, userAgent)) {
-    return null
-  }
-
+function resolveWindowsDesktopDownloadTarget({
+  highEntropyValues,
+  userAgent,
+}: {
+  highEntropyValues: UserAgentDataHighEntropyValues | null
+  userAgent: string
+}): DesktopDownloadTarget {
   const architecture =
     (highEntropyValues
       ? normalizeHighEntropyArchitecture(highEntropyValues)
@@ -201,6 +230,39 @@ export async function getSupportedDesktopDownloadTarget(): Promise<DesktopDownlo
     architecture,
     platform: "windows",
   }
+}
+
+export async function getSupportedDesktopDownloadTarget(): Promise<DesktopDownloadTarget | null> {
+  const browserContext = getDesktopDownloadBrowserContext()
+
+  if (
+    !browserContext ||
+    !supportsDesktopDownloadBrowserPlatform(browserContext)
+  ) {
+    return null
+  }
+
+  const highEntropyValues = await getUserAgentDataArchitecture(
+    browserContext.userAgentData
+  )
+  const highEntropyPlatform = highEntropyValues?.platform ?? browserContext.platform
+
+  if (isMacPlatform(highEntropyPlatform, browserContext.userAgent)) {
+    return resolveMacDesktopDownloadTarget({
+      highEntropyValues,
+      navigatorPlatform: browserContext.navigatorPlatform,
+      userAgent: browserContext.userAgent,
+    })
+  }
+
+  if (!isWindowsPlatform(highEntropyPlatform, browserContext.userAgent)) {
+    return null
+  }
+
+  return resolveWindowsDesktopDownloadTarget({
+    highEntropyValues,
+    userAgent: browserContext.userAgent,
+  })
 }
 
 export async function isSupportedMacDesktopDownloadBrowser() {

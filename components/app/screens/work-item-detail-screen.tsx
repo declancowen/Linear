@@ -7,6 +7,11 @@ import {
   type AppRouter,
   useAppRouter,
 } from "@/lib/browser/app-navigation"
+import {
+  getCurrentHashTargetId,
+  getHashTargetElement,
+  scheduleScrollElementIntoCenteredView,
+} from "@/lib/browser/url-hash-target"
 import { getAppOrigin } from "@/lib/auth-routing"
 import {
   useCallback,
@@ -91,6 +96,7 @@ import {
   workItemMatchesView,
 } from "@/lib/domain/selectors"
 import {
+  flattenCommentReplies,
   getRootComments,
   groupCommentsByParentId,
 } from "@/lib/domain/comment-threads"
@@ -168,6 +174,7 @@ import { useLegacyPresenceHeartbeat } from "./legacy-presence-heartbeat"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
 import { IssueContextMenu } from "./work-item-menus"
 import {
+  getWorkItemSelectionContextItems,
   useWorkItemSelection,
   WorkItemSelectionCheckbox,
   type WorkItemSelectionController,
@@ -199,7 +206,11 @@ import {
   WorkItemCommentComposerActions,
   WorkItemTypeBadge,
 } from "./work-item-ui"
-import { useCommentComposer } from "./use-comment-composer"
+import {
+  flushPendingCommentContentAttachments,
+  getCommentContentLimitState,
+  useCommentComposer,
+} from "./use-comment-composer"
 import { useWorkItemProjectCascadeConfirmation } from "./use-work-item-project-cascade-confirmation"
 import {
   formatWorkItemDetailDate,
@@ -867,10 +878,11 @@ function DetailChildWorkItemRow({
   const childDone = item.status === "done"
   const selectedDisplayProps = getDetailChildDisplayProps(displayProps, variant)
   const selected = selection?.isSelected(item.id) ?? false
-  const targetItems = selection
-    ?.getContextItemIds(item.id)
-    .map((itemId) => getWorkItem(data, itemId))
-    .filter((entry): entry is WorkItem => entry !== null) ?? [item]
+  const targetItems = getWorkItemSelectionContextItems({
+    data,
+    item,
+    selection,
+  })
 
   const row = (
     <div
@@ -936,6 +948,7 @@ function DetailSidebarComment({
   currentUserId,
   editable,
   mentionCandidates,
+  onUploadAttachment,
   referenceCandidates,
   usersById,
   depth = 0,
@@ -946,12 +959,19 @@ function DetailSidebarComment({
   currentUserId: string
   editable: boolean
   mentionCandidates: AppData["users"]
+  onUploadAttachment: DetailUploadAttachmentHandler
   referenceCandidates: DetailReferenceCandidates
   usersById: ReadonlyMap<string, AppData["users"][number]>
   depth?: number
 }) {
   const author = getUser(data, comment.createdBy)
-  const replies = repliesByParentId[comment.id] ?? []
+  const replies =
+    depth === 0
+      ? flattenCommentReplies(
+          repliesByParentId[comment.id] ?? [],
+          repliesByParentId
+        )
+      : []
   const [repliesOpen, setRepliesOpen] = useState(false)
   const editState = useWorkItemCommentEditState({
     comment,
@@ -1006,6 +1026,7 @@ function DetailSidebarComment({
                 editEditorRef={editState.editEditorRef}
                 editLimitState={editState.editLimitState}
                 mentionCandidates={mentionCandidates}
+                onUploadAttachment={onUploadAttachment}
                 referenceCandidates={referenceCandidates}
                 onCancel={editState.cancelEditComposer}
                 onEditContentChange={editState.setEditContent}
@@ -1013,6 +1034,7 @@ function DetailSidebarComment({
               />
             ) : (
               <RichTextContent
+                attachmentDisplay="inline"
                 content={comment.content}
                 referenceCandidates={referenceCandidates}
                 className="[&_p]:my-0 [&_p+p]:mt-1"
@@ -1069,6 +1091,7 @@ function DetailSidebarComment({
               currentUserId={currentUserId}
               editable={editable}
               mentionCandidates={mentionCandidates}
+              onUploadAttachment={onUploadAttachment}
               referenceCandidates={referenceCandidates}
               usersById={usersById}
               depth={depth + 1}
@@ -1206,24 +1229,28 @@ function useMainActivityReplyState(
   const [replyOpen, setReplyOpen] = useState(false)
   const [replyContent, setReplyContent] = useState("")
   const replyEditorRef = useRef<Editor | null>(null)
-  const replyLimitState = getTextInputLimitState(
-    replyContent,
-    commentContentConstraints,
-    {
-      plainText: true,
-    }
-  )
+  const replyLimitState = getCommentContentLimitState(replyContent)
 
-  function handleReply() {
+  async function handleReply() {
     if (!replyLimitState.canSubmit) {
       return
     }
 
+    const outgoingContent = await flushPendingCommentContentAttachments({
+      content: replyContent,
+      targetId: comment.targetId,
+      targetType: comment.targetType,
+    })
+
+    if (outgoingContent === null) {
+      return
+    }
+
     useAppStore.getState().addComment({
-      targetType: "workItem",
+      targetType: comment.targetType,
       targetId: comment.targetId,
       parentCommentId: comment.id,
-      content: replyContent,
+      content: outgoingContent,
     })
     setReplyContent("")
     setReplyOpen(false)
@@ -1259,13 +1286,7 @@ function useWorkItemCommentEditState({
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [editContent, setEditContent] = useState(comment.content)
   const editEditorRef = useRef<Editor | null>(null)
-  const editLimitState = getTextInputLimitState(
-    editContent,
-    commentContentConstraints,
-    {
-      plainText: true,
-    }
-  )
+  const editLimitState = getCommentContentLimitState(editContent)
   const canMutateComment = editable && comment.createdBy === currentUserId
 
   function openEditComposer() {
@@ -1278,13 +1299,23 @@ function useWorkItemCommentEditState({
     setEditOpen(false)
   }
 
-  function handleEditComment() {
+  async function handleEditComment() {
     if (!editLimitState.canSubmit) {
       return
     }
 
-    useAppStore.getState().updateComment(comment.id, {
+    const outgoingContent = await flushPendingCommentContentAttachments({
       content: editContent,
+      targetId: comment.targetId,
+      targetType: comment.targetType,
+    })
+
+    if (outgoingContent === null) {
+      return
+    }
+
+    useAppStore.getState().updateComment(comment.id, {
+      content: outgoingContent,
     })
     setEditOpen(false)
   }
@@ -1314,12 +1345,10 @@ function DetailSidebarActivity({
   data,
   currentUserId,
   item,
-  editable,
 }: {
   data: AppData
   currentUserId: string
   item: WorkItem
-  editable: boolean
 }) {
   const {
     assigneeEvents,
@@ -1331,14 +1360,8 @@ function DetailSidebarActivity({
     statusEvents,
     usersById,
   } = getWorkItemActivityContext({ currentUserId, data, item })
-  const {
-    commentEditorRef,
-    commentLimitState,
-    content,
-    handleComment,
-    setContent,
-  } = useWorkItemCommentComposer(item.id)
-  const canComment = !isPrivateWorkItem(item)
+  const handleUploadAttachment: DetailUploadAttachmentHandler = (file) =>
+    useAppStore.getState().uploadAttachment("workItem", item.id, file)
 
   const activityEvents = [
     {
@@ -1390,57 +1413,13 @@ function DetailSidebarActivity({
           comment={comment}
           repliesByParentId={repliesByParentId}
           currentUserId={currentUserId}
-          editable={editable}
+          editable={false}
           mentionCandidates={mentionCandidates}
+          onUploadAttachment={handleUploadAttachment}
           referenceCandidates={referenceCandidates}
           usersById={usersById}
         />
       ))}
-
-      {canComment ? (
-        <div className="rounded-[var(--radius)] border border-line bg-surface px-3 py-2.5 transition-colors focus-within:border-fg-3">
-          <RichTextEditor
-            content={content}
-            onChange={setContent}
-            editable={editable}
-            compact
-            allowSlashCommands={false}
-            showToolbar={false}
-            showStats={false}
-            placeholder="Leave a comment or mention a teammate with @handle..."
-            editorInstanceRef={commentEditorRef}
-            mentionCandidates={mentionCandidates}
-            referenceCandidates={referenceCandidates}
-            minPlainTextCharacters={commentContentConstraints.min}
-            maxPlainTextCharacters={commentContentConstraints.max}
-            enforcePlainTextLimit
-            onSubmitShortcut={handleComment}
-            submitOnEnter
-            className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
-          />
-          <div className="mt-1.5 border-t border-dashed border-line pt-1.5">
-            <FieldCharacterLimit
-              state={commentLimitState}
-              limit={commentContentConstraints.max}
-              className="mt-0 mb-1.5"
-            />
-            <div className="flex items-center justify-end gap-2">
-              <ShortcutKeys
-                keys={["Enter"]}
-                keyClassName="h-[18px] min-w-0 rounded-[4px] border-line bg-surface-2 px-1 text-[10.5px] text-fg-3 shadow-none"
-              />
-              <Button
-                size="sm"
-                disabled={!editable || !commentLimitState.canSubmit}
-                onClick={handleComment}
-              >
-                <PaperPlaneTilt className="size-3.5" />
-                Comment
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -1520,6 +1499,7 @@ function MainActivityCommentCard({
   currentUserId,
   editable,
   mentionCandidates,
+  onUploadAttachment,
   referenceCandidates,
   usersById,
 }: {
@@ -1529,6 +1509,7 @@ function MainActivityCommentCard({
   currentUserId: string
   editable: boolean
   mentionCandidates: AppData["users"]
+  onUploadAttachment: DetailUploadAttachmentHandler
   referenceCandidates: DetailReferenceCandidates
   usersById: ReadonlyMap<string, AppData["users"][number]>
 }) {
@@ -1548,54 +1529,57 @@ function MainActivityCommentCard({
   return (
     <article
       id={comment.id}
-      className="group/comment relative scroll-mt-6 rounded-xl border border-line bg-surface shadow-[0_1px_0_0_var(--line-soft)] transition-colors target:ring-2 target:ring-ring/45"
+      className="relative scroll-mt-6 rounded-xl border border-line bg-surface shadow-[0_1px_0_0_var(--line-soft)] transition-colors target:ring-2 target:ring-ring/45"
     >
-      <MessageHoverActionBar
-        canDelete={editState.canMutateComment}
-        canEdit={editState.canMutateComment}
-        canQuote={editable}
-        canReact={editable}
-        className="top-0 right-3 -translate-y-1/2 group-hover/comment:flex focus-within:flex"
-        deleteLabel="Delete comment"
-        editLabel="Edit comment"
-        onDelete={() => editState.setDeleteOpen(true)}
-        onEdit={editState.openEditComposer}
-        onQuote={replyState.openReply}
-        portalContainer={portalContainer}
-        quoteAction="reply"
-        quoteLabel="Reply"
-        onReact={(emoji) => {
-          useAppStore.getState().toggleCommentReaction(comment.id, emoji)
-        }}
-      />
-      <MainActivityCommentHeader author={author} comment={comment} />
-      <div className="px-3.5 pt-1 pb-3">
-        {editState.editOpen ? (
-          <MainActivityCommentEditComposer
-            editable={editable}
-            editContent={editState.editContent}
-            editEditorRef={editState.editEditorRef}
-            editLimitState={editState.editLimitState}
-            mentionCandidates={mentionCandidates}
-            referenceCandidates={referenceCandidates}
-            onCancel={editState.cancelEditComposer}
-            onEditContentChange={editState.setEditContent}
-            onSave={editState.handleEditComment}
-          />
-        ) : (
-          <RichTextContent
-            content={comment.content}
-            referenceCandidates={referenceCandidates}
-            className="text-[13px] leading-[1.6] text-fg-2 [&_p]:my-0 [&_p+p]:mt-2 [&_ul]:my-1 [&_ul]:ml-4 [&_ul]:list-disc"
-          />
-        )}
+      <div className="group/comment relative">
+        <MessageHoverActionBar
+          canDelete={editState.canMutateComment}
+          canEdit={editState.canMutateComment}
+          canQuote={editable}
+          canReact={editable}
+          className="top-0 right-3 -translate-y-1/2 group-hover/comment:flex focus-within:flex"
+          deleteLabel="Delete comment"
+          editLabel="Edit comment"
+          onDelete={() => editState.setDeleteOpen(true)}
+          onEdit={editState.openEditComposer}
+          onQuote={replyState.openReply}
+          portalContainer={portalContainer}
+          quoteAction="reply"
+          quoteLabel="Reply"
+          onReact={(emoji) => {
+            useAppStore.getState().toggleCommentReaction(comment.id, emoji)
+          }}
+        />
+        <MainActivityCommentHeader author={author} comment={comment} />
+        <div className="px-3.5 pt-1 pb-3">
+          {editState.editOpen ? (
+            <MainActivityCommentEditComposer
+              editable={editable}
+              editContent={editState.editContent}
+              editEditorRef={editState.editEditorRef}
+              editLimitState={editState.editLimitState}
+              mentionCandidates={mentionCandidates}
+              onUploadAttachment={onUploadAttachment}
+              referenceCandidates={referenceCandidates}
+              onCancel={editState.cancelEditComposer}
+              onEditContentChange={editState.setEditContent}
+              onSave={editState.handleEditComment}
+            />
+          ) : (
+            <RichTextContent
+              content={comment.content}
+              referenceCandidates={referenceCandidates}
+              className="text-[13px] leading-[1.6] text-fg-2 [&_p]:my-0 [&_p+p]:mt-2 [&_ul]:my-1 [&_ul]:ml-4 [&_ul]:list-disc"
+            />
+          )}
+        </div>
+        <MainActivityCommentFooter
+          comment={comment}
+          currentUserId={currentUserId}
+          editable={editable}
+          usersById={usersById}
+        />
       </div>
-      <MainActivityCommentFooter
-        comment={comment}
-        currentUserId={currentUserId}
-        editable={editable}
-        usersById={usersById}
-      />
       <MainActivityCommentReplies
         data={data}
         replies={replies}
@@ -1603,16 +1587,19 @@ function MainActivityCommentCard({
         currentUserId={currentUserId}
         editable={editable}
         mentionCandidates={mentionCandidates}
+        onUploadAttachment={onUploadAttachment}
         referenceCandidates={referenceCandidates}
         usersById={usersById}
         open={repliesOpen}
         onToggle={() => setRepliesOpen((current) => !current)}
+        onReplyToThread={replyState.openReply}
       />
 
       {replyState.replyOpen ? (
         <MainActivityReplyComposer
           editable={editable}
           mentionCandidates={mentionCandidates}
+          onUploadAttachment={onUploadAttachment}
           referenceCandidates={referenceCandidates}
           replyContent={replyState.replyContent}
           replyEditorRef={replyState.replyEditorRef}
@@ -1669,6 +1656,7 @@ function MainActivityCommentEditComposer({
   editEditorRef,
   editLimitState,
   mentionCandidates,
+  onUploadAttachment,
   referenceCandidates,
   onCancel,
   onEditContentChange,
@@ -1679,6 +1667,7 @@ function MainActivityCommentEditComposer({
   editEditorRef: MutableRefObject<Editor | null>
   editLimitState: ReturnType<typeof getTextInputLimitState>
   mentionCandidates: AppData["users"]
+  onUploadAttachment: DetailUploadAttachmentHandler
   referenceCandidates: DetailReferenceCandidates
   onCancel: () => void
   onEditContentChange: (content: string) => void
@@ -1704,6 +1693,8 @@ function MainActivityCommentEditComposer({
           maxPlainTextCharacters={commentContentConstraints.max}
           enforcePlainTextLimit
           onSubmitShortcut={onSave}
+          onUploadAttachment={onUploadAttachment}
+          deferAttachmentUpload
           submitOnEnter
           className="[&_.ProseMirror]:min-h-[2.5rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
         />
@@ -1715,6 +1706,7 @@ function MainActivityCommentEditComposer({
           emojiButtonClassName="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
           emojiIconClassName="size-3.5"
           limitState={editLimitState}
+          onUploadAttachment={onUploadAttachment}
         >
           <div className="flex items-center gap-2">
             <Button size="sm" variant="ghost" onClick={onCancel}>
@@ -1768,10 +1760,12 @@ function MainActivityCommentReplies({
   currentUserId,
   editable,
   mentionCandidates,
+  onUploadAttachment,
   referenceCandidates,
   usersById,
   open,
   onToggle,
+  onReplyToThread,
 }: {
   data: AppData
   replies: AppData["comments"]
@@ -1779,16 +1773,18 @@ function MainActivityCommentReplies({
   currentUserId: string
   editable: boolean
   mentionCandidates: AppData["users"]
+  onUploadAttachment: DetailUploadAttachmentHandler
   referenceCandidates: DetailReferenceCandidates
   usersById: ReadonlyMap<string, AppData["users"][number]>
   open: boolean
   onToggle: () => void
+  onReplyToThread: () => void
 }) {
   if (replies.length === 0) {
     return null
   }
 
-  const flatReplies = flattenReplyThread(replies, repliesByParentId)
+  const flatReplies = flattenCommentReplies(replies, repliesByParentId)
 
   return (
     <div className="border-t border-line-soft">
@@ -1804,8 +1800,10 @@ function MainActivityCommentReplies({
           currentUserId={currentUserId}
           editable={editable}
           mentionCandidates={mentionCandidates}
+          onUploadAttachment={onUploadAttachment}
           referenceCandidates={referenceCandidates}
           usersById={usersById}
+          onReplyToThread={onReplyToThread}
         />
       ) : null}
     </div>
@@ -1848,16 +1846,20 @@ function MainActivityCommentRepliesList({
   currentUserId,
   editable,
   mentionCandidates,
+  onUploadAttachment,
   referenceCandidates,
   usersById,
+  onReplyToThread,
 }: {
   data: AppData
   replies: AppData["comments"]
   currentUserId: string
   editable: boolean
   mentionCandidates: AppData["users"]
+  onUploadAttachment: DetailUploadAttachmentHandler
   referenceCandidates: DetailReferenceCandidates
   usersById: ReadonlyMap<string, AppData["users"][number]>
+  onReplyToThread: () => void
 }) {
   return (
     <ul className="flex flex-col divide-y divide-line-soft border-t border-line-soft px-3.5">
@@ -1869,39 +1871,14 @@ function MainActivityCommentRepliesList({
             currentUserId={currentUserId}
             editable={editable}
             mentionCandidates={mentionCandidates}
+            onUploadAttachment={onUploadAttachment}
             referenceCandidates={referenceCandidates}
             usersById={usersById}
+            onReplyToThread={onReplyToThread}
           />
         </li>
       ))}
     </ul>
-  )
-}
-
-function flattenReplyThread(
-  replies: AppData["comments"],
-  repliesByParentId: Record<string, AppData["comments"]>
-) {
-  const flat: AppData["comments"] = []
-  const seen = new Set<string>()
-
-  function visit(list: AppData["comments"]) {
-    for (const reply of list) {
-      if (seen.has(reply.id)) {
-        continue
-      }
-      seen.add(reply.id)
-      flat.push(reply)
-      const children = repliesByParentId[reply.id] ?? []
-      if (children.length > 0) {
-        visit(children)
-      }
-    }
-  }
-
-  visit(replies)
-  return flat.sort((left, right) =>
-    left.createdAt.localeCompare(right.createdAt)
   )
 }
 
@@ -1911,19 +1888,22 @@ function MainActivityCommentReplyRow({
   currentUserId,
   editable,
   mentionCandidates,
+  onUploadAttachment,
   referenceCandidates,
   usersById,
+  onReplyToThread,
 }: {
   data: AppData
   comment: AppData["comments"][number]
   currentUserId: string
   editable: boolean
   mentionCandidates: AppData["users"]
+  onUploadAttachment: DetailUploadAttachmentHandler
   referenceCandidates: DetailReferenceCandidates
   usersById: ReadonlyMap<string, AppData["users"][number]>
+  onReplyToThread: () => void
 }) {
   const author = getUser(data, comment.createdBy)
-  const replyState = useMainActivityReplyState(comment)
   const editState = useWorkItemCommentEditState({
     comment,
     currentUserId,
@@ -1946,7 +1926,7 @@ function MainActivityCommentReplyRow({
         editLabel="Edit comment"
         onDelete={() => editState.setDeleteOpen(true)}
         onEdit={editState.openEditComposer}
-        onQuote={replyState.openReply}
+        onQuote={onReplyToThread}
         portalContainer={portalContainer}
         quoteAction="reply"
         quoteLabel="Reply"
@@ -1988,6 +1968,7 @@ function MainActivityCommentReplyRow({
               editEditorRef={editState.editEditorRef}
               editLimitState={editState.editLimitState}
               mentionCandidates={mentionCandidates}
+              onUploadAttachment={onUploadAttachment}
               referenceCandidates={referenceCandidates}
               onCancel={editState.cancelEditComposer}
               onEditContentChange={editState.setEditContent}
@@ -2011,25 +1992,6 @@ function MainActivityCommentReplyRow({
             />
           </div>
         ) : null}
-        {replyState.replyOpen ? (
-          <div className="mt-2">
-            <MainActivityReplyComposer
-              framed={false}
-              editable={editable}
-              mentionCandidates={mentionCandidates}
-              referenceCandidates={referenceCandidates}
-              replyContent={replyState.replyContent}
-              replyEditorRef={replyState.replyEditorRef}
-              replyLimitState={replyState.replyLimitState}
-              onCancel={() => {
-                replyState.setReplyContent("")
-                replyState.setReplyOpen(false)
-              }}
-              onReply={replyState.handleReply}
-              onReplyContentChange={replyState.setReplyContent}
-            />
-          </div>
-        ) : null}
         <ConfirmDialog
           open={editState.deleteOpen}
           onOpenChange={editState.setDeleteOpen}
@@ -2048,6 +2010,7 @@ function MainActivityReplyComposer({
   editable,
   framed = true,
   mentionCandidates,
+  onUploadAttachment,
   referenceCandidates,
   replyContent,
   replyEditorRef,
@@ -2059,6 +2022,7 @@ function MainActivityReplyComposer({
   editable: boolean
   framed?: boolean
   mentionCandidates: AppData["users"]
+  onUploadAttachment: DetailUploadAttachmentHandler
   referenceCandidates: DetailReferenceCandidates
   replyContent: string
   replyEditorRef: MutableRefObject<Editor | null>
@@ -2087,6 +2051,8 @@ function MainActivityReplyComposer({
           maxPlainTextCharacters={commentContentConstraints.max}
           enforcePlainTextLimit
           onSubmitShortcut={onReply}
+          onUploadAttachment={onUploadAttachment}
+          deferAttachmentUpload
           submitOnEnter
           className="[&_.ProseMirror]:min-h-[2.5rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
         />
@@ -2098,6 +2064,7 @@ function MainActivityReplyComposer({
           emojiButtonClassName="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
           emojiIconClassName="size-3.5"
           limitState={replyLimitState}
+          onUploadAttachment={onUploadAttachment}
         >
           <div className="flex items-center gap-2">
             <ShortcutKeys
@@ -2273,6 +2240,7 @@ function MainActivityCommentEntry({
   currentUserId,
   editable,
   mentionCandidates,
+  onUploadAttachment,
   referenceCandidates,
   repliesByParentId,
   usersById,
@@ -2282,6 +2250,7 @@ function MainActivityCommentEntry({
   currentUserId: string
   editable: boolean
   mentionCandidates: AppData["users"]
+  onUploadAttachment: DetailUploadAttachmentHandler
   referenceCandidates: DetailReferenceCandidates
   repliesByParentId: Record<string, AppData["comments"]>
   usersById: ReadonlyMap<string, AppData["users"][number]>
@@ -2312,6 +2281,7 @@ function MainActivityCommentEntry({
         currentUserId={currentUserId}
         editable={editable}
         mentionCandidates={mentionCandidates}
+        onUploadAttachment={onUploadAttachment}
         referenceCandidates={referenceCandidates}
         usersById={usersById}
       />
@@ -2325,6 +2295,7 @@ function MainActivityTimelineEntryItem({
   currentUserId,
   editable,
   mentionCandidates,
+  onUploadAttachment,
   referenceCandidates,
   repliesByParentId,
   usersById,
@@ -2334,6 +2305,7 @@ function MainActivityTimelineEntryItem({
   currentUserId: string
   editable: boolean
   mentionCandidates: AppData["users"]
+  onUploadAttachment: DetailUploadAttachmentHandler
   referenceCandidates: DetailReferenceCandidates
   repliesByParentId: Record<string, AppData["comments"]>
   usersById: ReadonlyMap<string, AppData["users"][number]>
@@ -2349,6 +2321,7 @@ function MainActivityTimelineEntryItem({
       currentUserId={currentUserId}
       editable={editable}
       mentionCandidates={mentionCandidates}
+      onUploadAttachment={onUploadAttachment}
       referenceCandidates={referenceCandidates}
       repliesByParentId={repliesByParentId}
       usersById={usersById}
@@ -2385,6 +2358,8 @@ function MainActivityTimeline({
     handleComment,
     setContent,
   } = useWorkItemCommentComposer(item.id)
+  const handleUploadAttachment: DetailUploadAttachmentHandler = (file) =>
+    useAppStore.getState().uploadAttachment("workItem", item.id, file)
   const canComment = !isPrivateWorkItem(item)
   const entries = getMainActivityTimelineEntries({
     assigneeEvents,
@@ -2404,6 +2379,7 @@ function MainActivityTimeline({
           currentUserId={currentUserId}
           editable={editable}
           mentionCandidates={mentionCandidates}
+          onUploadAttachment={handleUploadAttachment}
           referenceCandidates={referenceCandidates}
           repliesByParentId={repliesByParentId}
           usersById={usersById}
@@ -2448,6 +2424,8 @@ function MainActivityTimeline({
                 maxPlainTextCharacters={commentContentConstraints.max}
                 enforcePlainTextLimit
                 onSubmitShortcut={handleComment}
+                onUploadAttachment={handleUploadAttachment}
+                deferAttachmentUpload
                 submitOnEnter
                 className="[&_.ProseMirror]:min-h-[3rem] [&_.ProseMirror]:text-[13px] [&_.ProseMirror]:leading-[1.55]"
               />
@@ -2458,6 +2436,7 @@ function MainActivityTimeline({
                 editorRef={commentEditorRef}
                 emojiButtonClassName="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:text-fg-4 disabled:hover:bg-transparent"
                 limitState={commentLimitState}
+                onUploadAttachment={handleUploadAttachment}
               >
                 <div className="flex items-center gap-2">
                   <ShortcutKeys
@@ -3501,18 +3480,6 @@ function getCurrentRoutePath() {
   }
 
   return `${window.location.pathname}${window.location.search}${window.location.hash}`
-}
-
-function getCurrentHashTargetId() {
-  if (typeof window === "undefined" || !window.location.hash) {
-    return ""
-  }
-
-  try {
-    return decodeURIComponent(window.location.hash.slice(1))
-  } catch {
-    return window.location.hash.slice(1)
-  }
 }
 
 function getCopyableCurrentItemLink() {
@@ -6092,7 +6059,6 @@ function WorkItemDetailSidebar({
                 data={data}
                 currentUserId={currentUserId}
                 item={currentItem}
-                editable={editable}
               />
             </DetailSidebarSection>
           </>
@@ -6211,6 +6177,83 @@ export function WorkItemDetailSidebarSurface({
   )
 }
 
+function useProtectedWorkItemDescriptionBody({
+  documentId,
+  editing,
+  lifecycle,
+}: {
+  documentId: string | null
+  editing: boolean
+  lifecycle: WorkItemCollaborationLifecycle
+}) {
+  const protectedDocumentId = documentId
+  const protectingBody = Boolean(
+    protectedDocumentId &&
+      (editing || lifecycle === "bootstrapping" || lifecycle === "attached")
+  )
+
+  useEffect(() => {
+    if (!protectedDocumentId) {
+      return
+    }
+
+    useAppStore
+      .getState()
+      .setDocumentBodyProtection(protectedDocumentId, protectingBody)
+
+    return () => {
+      useAppStore
+        .getState()
+        .setDocumentBodyProtection(protectedDocumentId, false)
+    }
+  }, [protectedDocumentId, protectingBody])
+}
+
+function useCancelActiveDescriptionSync(
+  activeItemId: string | null,
+  lifecycle: WorkItemCollaborationLifecycle
+) {
+  useEffect(() => {
+    if (!activeItemId || lifecycle === "legacy" || lifecycle === "degraded") {
+      return
+    }
+
+    useAppStore.getState().cancelItemDescriptionSync(activeItemId)
+  }, [activeItemId, lifecycle])
+}
+
+function useResetWorkItemChildComposers(
+  itemId: string,
+  setMainChildComposerOpen: (open: boolean) => void,
+  setSidebarChildComposerOpen: (open: boolean) => void
+) {
+  useEffect(() => {
+    setMainChildComposerOpen(false)
+    setSidebarChildComposerOpen(false)
+  }, [itemId, setMainChildComposerOpen, setSidebarChildComposerOpen])
+}
+
+function useScrollCurrentWorkItemHashTarget(
+  itemId: string,
+  commentCount: number
+) {
+  useEffect(() => {
+    const hashTargetId = getCurrentHashTargetId()
+
+    if (!hashTargetId) {
+      return
+    }
+
+    const target = getHashTargetElement(hashTargetId)
+
+    if (!target) {
+      return
+    }
+
+    return scheduleScrollElementIntoCenteredView(target)
+  }, [itemId, commentCount])
+}
+
 export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const router = useAppRouter()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
@@ -6294,46 +6337,12 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const collaborationDescriptionContent = mainSection.mainDraftDescription
   const protectedDescriptionDocumentId =
     activeDescriptionDocumentId ?? stableDescriptionDocumentId
-  const isProtectingDescriptionBody = Boolean(
-    protectedDescriptionDocumentId &&
-    (isEditingCurrentItem ||
-      isCollaborationBootstrapping ||
-      isCollaborationAttached)
-  )
-
-  useEffect(() => {
-    if (!protectedDescriptionDocumentId) {
-      return
-    }
-
-    useAppStore
-      .getState()
-      .setDocumentBodyProtection(
-        protectedDescriptionDocumentId,
-        isProtectingDescriptionBody
-      )
-
-    return () => {
-      useAppStore
-        .getState()
-        .setDocumentBodyProtection(protectedDescriptionDocumentId, false)
-    }
-  }, [protectedDescriptionDocumentId, isProtectingDescriptionBody])
-
-  useEffect(() => {
-    if (!activePresenceItemId) {
-      return
-    }
-
-    if (
-      collaborationLifecycle === "legacy" ||
-      collaborationLifecycle === "degraded"
-    ) {
-      return
-    }
-
-    useAppStore.getState().cancelItemDescriptionSync(activePresenceItemId)
-  }, [activePresenceItemId, collaborationLifecycle])
+  useProtectedWorkItemDescriptionBody({
+    documentId: protectedDescriptionDocumentId,
+    editing: isEditingCurrentItem,
+    lifecycle: collaborationLifecycle,
+  })
+  useCancelActiveDescriptionSync(activePresenceItemId, collaborationLifecycle)
 
   const {
     handleLegacyActiveBlockChange,
@@ -6346,31 +6355,12 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     isEditingCurrentItem,
   })
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- switching items closes stale child composers.
-    setMainChildComposerOpen(false)
-    setSidebarChildComposerOpen(false)
-  }, [itemId])
-
-  useEffect(() => {
-    const hashTargetId = getCurrentHashTargetId()
-
-    if (!hashTargetId) {
-      return
-    }
-
-    const target = document.getElementById(hashTargetId)
-
-    if (!target) {
-      return
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      target.scrollIntoView({ block: "center" })
-    })
-
-    return () => window.cancelAnimationFrame(frame)
-  }, [itemId, data.comments.length])
+  useResetWorkItemChildComposers(
+    itemId,
+    setMainChildComposerOpen,
+    setSidebarChildComposerOpen
+  )
+  useScrollCurrentWorkItemHashTarget(itemId, data.comments.length)
 
   const hasLiveDescriptionPresence = collaborationLifecycle === "attached"
   const activeDescriptionViewers = getActiveDescriptionViewers({
@@ -6383,12 +6373,9 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const otherDescriptionViewers = activeDescriptionViewers.filter(
     (viewer) => viewer.userId !== currentUserId
   )
-  const detailSidebarTitle =
-    item &&
-    mainSection.isMainEditing &&
-    mainSection.mainDraftTitle.trim().length > 0
-      ? mainSection.mainDraftTitle
-      : (item?.title ?? "")
+  const detailSidebarTitle = item
+    ? getWorkItemSidebarTitle({ currentItem: item, mainSection })
+    : ""
   const detailModel = useMemo(
     () =>
       item

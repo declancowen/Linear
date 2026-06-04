@@ -22,12 +22,23 @@ import {
 } from "@/lib/domain/input-constraints"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn } from "@/lib/utils"
+import {
+  getCurrentHashTargetId,
+  getHashTargetElement,
+  scheduleScrollElementIntoCenteredView,
+} from "@/lib/browser/url-hash-target"
 import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { MessageHoverActionBar } from "@/components/app/message-hover-action-bar"
 import { ReactionUsersHoverCard } from "@/components/app/reaction-users-hover-card"
 import { RichTextContent } from "@/components/app/rich-text-content"
 import { RichTextEditor } from "@/components/app/rich-text-editor"
+import { RichTextUploadButton } from "@/components/app/rich-text-editor/upload-button"
+import type { RichTextAttachmentUploader } from "@/components/app/rich-text-editor/attachment-upload-one"
+import {
+  flushPendingAttachmentUploads,
+  hasPendingAttachments,
+} from "@/components/app/rich-text-editor/pending-attachments"
 import {
   ShortcutKeys,
   useShortcutModifierLabel,
@@ -46,18 +57,6 @@ type ForumPostRecord = AppState["channelPosts"][number]
 type ForumPostComment = AppState["channelPostComments"][number]
 type ForumUser = AppState["users"][number]
 type UsersById = Map<string, ForumUser>
-
-function getCurrentHashTargetId() {
-  if (typeof window === "undefined" || !window.location.hash) {
-    return ""
-  }
-
-  try {
-    return decodeURIComponent(window.location.hash.slice(1))
-  } catch {
-    return window.location.hash.slice(1)
-  }
-}
 
 function useCurrentHashTargetId() {
   const [hashTargetId, setHashTargetId] = useState("")
@@ -181,6 +180,7 @@ function ForumPostCommentList({
   mentionCandidates,
   onDeleteComment,
   onEditComment,
+  onUploadAttachment,
   onReplyComment,
   usersById,
   workspaceId,
@@ -190,6 +190,7 @@ function ForumPostCommentList({
   mentionCandidates: ForumUser[]
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
+  onUploadAttachment: RichTextAttachmentUploader
   onReplyComment: (comment: ForumPostComment) => void
   usersById: UsersById
   workspaceId: string | null
@@ -210,6 +211,7 @@ function ForumPostCommentList({
           mentionCandidates={mentionCandidates}
           onDelete={() => onDeleteComment(comment)}
           onEdit={onEditComment}
+          onUploadAttachment={onUploadAttachment}
           onReply={() => onReplyComment(comment)}
           onReact={(commentId, emoji) => {
             useAppStore
@@ -236,6 +238,7 @@ function ForumPostReplyComposer({
   replyLimitState,
   onCancel,
   onInsertEmoji,
+  onUploadAttachment,
   onReply,
   onReplyChange,
 }: {
@@ -246,6 +249,7 @@ function ForumPostReplyComposer({
   replyLimitState: ReturnType<typeof getTextInputLimitState>
   onCancel: () => void
   onInsertEmoji: (emoji: string) => void
+  onUploadAttachment: RichTextAttachmentUploader
   onReply: () => void
   onReplyChange: (value: string) => void
 }) {
@@ -266,6 +270,8 @@ function ForumPostReplyComposer({
           maxPlainTextCharacters={channelPostCommentContentConstraints.max}
           enforcePlainTextLimit
           onSubmitShortcut={onReply}
+          onUploadAttachment={onUploadAttachment}
+          deferAttachmentUpload
           submitOnEnter
           className="[&_.ProseMirror]:min-h-[2.25rem] [&_.ProseMirror]:text-[13px]"
         />
@@ -290,6 +296,14 @@ function ForumPostReplyComposer({
                   <Smiley className="size-4" />
                 </button>
               }
+            />
+            <RichTextUploadButton
+              className="rounded-md p-1 text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+              deferUpload
+              editorRef={replyEditorRef}
+              iconClassName="size-4"
+              insertMode="auto"
+              onUploadAttachment={onUploadAttachment}
             />
             <span className="text-[11.5px] text-fg-3">
               Use `@` to mention people. Press Enter to send.
@@ -383,17 +397,13 @@ function useForumPostCardController(postId: string) {
       return
     }
 
-    const target = document.getElementById(hashTargetId)
+    const target = getHashTargetElement(hashTargetId)
 
     if (!target) {
       return
     }
 
-    const frame = window.requestAnimationFrame(() => {
-      target.scrollIntoView({ block: "center" })
-    })
-
-    return () => window.cancelAnimationFrame(frame)
+    return scheduleScrollElementIntoCenteredView(target)
   }, [comments, hashTargetId, post?.id, showReplies])
 
   if (!post) return null
@@ -407,6 +417,10 @@ function useForumPostCardController(postId: string) {
   )
   const canDeletePost = post.createdBy === currentUserId
   const canEditPost = post.createdBy === currentUserId
+  const handleUploadAttachment: RichTextAttachmentUploader = (file) =>
+    useAppStore
+      .getState()
+      .uploadAttachment("conversation", post.conversationId, file)
   const editContentLimitState = getTextInputLimitState(
     editContent,
     channelPostContentConstraints,
@@ -419,11 +433,20 @@ function useForumPostCardController(postId: string) {
     channelPostTitleConstraints
   )
 
-  const handleReply = () => {
+  const handleReply = async () => {
     if (!replyLimitState.canSubmit) return
+    let outgoingContent = reply
+    if (hasPendingAttachments(reply)) {
+      const flushedContent = await flushPendingAttachmentUploads(
+        reply,
+        handleUploadAttachment
+      )
+      if (flushedContent === null) return
+      outgoingContent = flushedContent
+    }
     useAppStore.getState().addChannelPostComment({
       postId: post.id,
-      content: reply,
+      content: outgoingContent,
     })
     setReply("")
     setReplyOpen(false)
@@ -438,14 +461,24 @@ function useForumPostCardController(postId: string) {
     setEditContent(post.content)
     setEditOpen(true)
   }
-  const handleEditPost = () => {
+  const handleEditPost = async () => {
     if (!editTitleLimitState.canSubmit || !editContentLimitState.canSubmit) {
       return
     }
 
+    let outgoingContent = editContent
+    if (hasPendingAttachments(editContent)) {
+      const flushedContent = await flushPendingAttachmentUploads(
+        editContent,
+        handleUploadAttachment
+      )
+      if (flushedContent === null) return
+      outgoingContent = flushedContent
+    }
+
     useAppStore.getState().updateChannelPost(post.id, {
       title: editTitle,
-      content: editContent,
+      content: outgoingContent,
     })
     setEditOpen(false)
   }
@@ -457,9 +490,18 @@ function useForumPostCardController(postId: string) {
     useAppStore.getState().deleteChannelPostComment(post.id, deleteComment.id)
     setDeleteComment(null)
   }
-  const handleEditComment = (commentId: string, content: string) => {
+  const handleEditComment = async (commentId: string, content: string) => {
+    let outgoingContent = content
+    if (hasPendingAttachments(content)) {
+      const flushedContent = await flushPendingAttachmentUploads(
+        content,
+        handleUploadAttachment
+      )
+      if (flushedContent === null) return
+      outgoingContent = flushedContent
+    }
     useAppStore.getState().updateChannelPostComment(post.id, commentId, {
-      content,
+      content: outgoingContent,
     })
   }
   const openReply = () => {
@@ -500,6 +542,7 @@ function useForumPostCardController(postId: string) {
     handleReplyComment,
     handleReplyPost,
     handleInsertReplyEmoji,
+    handleUploadAttachment,
     handleReply,
     hiddenCount,
     mentionCandidates,
@@ -571,6 +614,7 @@ function EarlierForumPostComments({
   mentionCandidates,
   onDeleteComment,
   onEditComment,
+  onUploadAttachment,
   onReplyComment,
   showReplies,
   usersById,
@@ -586,6 +630,7 @@ function EarlierForumPostComments({
 > & {
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
+  onUploadAttachment: RichTextAttachmentUploader
   onReplyComment: (comment: ForumPostComment) => void
 }) {
   if (!showReplies || hiddenCount <= 0) {
@@ -600,6 +645,7 @@ function EarlierForumPostComments({
         mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
+        onUploadAttachment={onUploadAttachment}
         onReplyComment={onReplyComment}
         usersById={usersById}
         workspaceId={currentWorkspaceId}
@@ -646,6 +692,7 @@ function ForumPostRepliesSection({
   onInsertEmoji,
   onDeleteComment,
   onEditComment,
+  onUploadAttachment,
   onReplyComment,
   onReply,
   onReplyChange,
@@ -669,6 +716,7 @@ function ForumPostRepliesSection({
   onInsertEmoji: (emoji: string) => void
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
+  onUploadAttachment: RichTextAttachmentUploader
   onReplyComment: (comment: ForumPostComment) => void
   onReply: () => void
   onReplyChange: (value: string) => void
@@ -699,6 +747,7 @@ function ForumPostRepliesSection({
         mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
+        onUploadAttachment={onUploadAttachment}
         onReplyComment={onReplyComment}
         showReplies={showReplies}
         usersById={usersById}
@@ -710,6 +759,7 @@ function ForumPostRepliesSection({
         mentionCandidates={mentionCandidates}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
+        onUploadAttachment={onUploadAttachment}
         onReplyComment={onReplyComment}
         usersById={usersById}
         workspaceId={currentWorkspaceId}
@@ -724,6 +774,7 @@ function ForumPostRepliesSection({
           replyLimitState={replyLimitState}
           onCancel={handleCancelReply}
           onInsertEmoji={onInsertEmoji}
+          onUploadAttachment={onUploadAttachment}
           onReply={onReply}
           onReplyChange={onReplyChange}
         />
@@ -737,104 +788,63 @@ function ForumPostRepliesSection({
   )
 }
 
-function ForumPostCardLayout({
-  author,
-  canEditPost,
-  canDeletePost,
-  currentUserId,
-  currentWorkspaceId,
-  deletePostOpen,
-  deleteComment,
-  editContent,
-  editContentLimitState,
-  editEditorRef,
-  editOpen,
-  editTitle,
-  editTitleLimitState,
-  earlierComments,
-  handleDeletePost,
-  handleConfirmDeleteComment,
-  handleEditComment,
-  handleEditPost,
-  handleOpenEditPost,
-  handleReplyComment,
-  handleReplyPost,
-  handleInsertReplyEmoji,
-  handleReply,
-  hiddenCount,
-  mentionCandidates,
-  post,
-  previewComments,
-  reply,
-  replyEditorRef,
-  replyLimitState,
-  replyOpen,
-  setDeletePostOpen,
-  setDeleteComment,
-  setEditContent,
-  setEditOpen,
-  setEditTitle,
-  setReply,
-  setReplyOpen,
-  setShowReplies,
-  showReplies,
-  usersById,
-}: ForumPostCardController) {
+function ForumPostCardLayout(controller: ForumPostCardController) {
   return (
     <div
-      id={post.id}
-      className="group/post relative z-0 grid scroll-mt-6 gap-2.5 border-b border-line-soft px-[18px] py-2.5 transition-colors target:ring-2 target:ring-ring/45 hover:bg-surface-2"
+      id={controller.post.id}
+      className="relative z-0 grid scroll-mt-6 gap-2.5 border-b border-line-soft px-[18px] py-2.5 transition-colors target:ring-2 target:ring-ring/45 hover:bg-surface-2"
       style={{ gridTemplateColumns: "24px 1fr" }}
     >
-      <ForumPostAvatar author={author} />
+      <ForumPostAvatar author={controller.author} />
       <ForumPostBody
-        author={author}
-        canEditPost={canEditPost}
-        canDeletePost={canDeletePost}
-        currentUserId={currentUserId}
-        currentWorkspaceId={currentWorkspaceId}
-        editContent={editContent}
-        editContentLimitState={editContentLimitState}
-        editEditorRef={editEditorRef}
-        editOpen={editOpen}
-        editTitle={editTitle}
-        editTitleLimitState={editTitleLimitState}
-        earlierComments={earlierComments}
-        hiddenCount={hiddenCount}
-        mentionCandidates={mentionCandidates}
-        post={post}
-        previewComments={previewComments}
-        reply={reply}
-        replyEditorRef={replyEditorRef}
-        replyLimitState={replyLimitState}
-        replyOpen={replyOpen}
-        showReplies={showReplies}
-        usersById={usersById}
-        onDelete={() => setDeletePostOpen(true)}
-        onDeleteComment={setDeleteComment}
-        onEditComment={handleEditComment}
-        onReplyComment={handleReplyComment}
-        onEditPost={handleEditPost}
-        onOpenEditPost={handleOpenEditPost}
-        onReplyPost={handleReplyPost}
-        onInsertReplyEmoji={handleInsertReplyEmoji}
-        onEditContentChange={setEditContent}
-        onEditOpenChange={setEditOpen}
-        onEditTitleChange={setEditTitle}
-        onReply={handleReply}
-        onReplyChange={setReply}
-        onReplyOpenChange={setReplyOpen}
-        onShowRepliesChange={setShowReplies}
+        author={controller.author}
+        canEditPost={controller.canEditPost}
+        canDeletePost={controller.canDeletePost}
+        currentUserId={controller.currentUserId}
+        currentWorkspaceId={controller.currentWorkspaceId}
+        editContent={controller.editContent}
+        editContentLimitState={controller.editContentLimitState}
+        editEditorRef={controller.editEditorRef}
+        editOpen={controller.editOpen}
+        editTitle={controller.editTitle}
+        editTitleLimitState={controller.editTitleLimitState}
+        earlierComments={controller.earlierComments}
+        hiddenCount={controller.hiddenCount}
+        mentionCandidates={controller.mentionCandidates}
+        post={controller.post}
+        previewComments={controller.previewComments}
+        reply={controller.reply}
+        replyEditorRef={controller.replyEditorRef}
+        replyLimitState={controller.replyLimitState}
+        replyOpen={controller.replyOpen}
+        showReplies={controller.showReplies}
+        usersById={controller.usersById}
+        onDelete={() => controller.setDeletePostOpen(true)}
+        onDeleteComment={controller.setDeleteComment}
+        onEditComment={controller.handleEditComment}
+        onUploadAttachment={controller.handleUploadAttachment}
+        onReplyComment={controller.handleReplyComment}
+        onEditPost={controller.handleEditPost}
+        onOpenEditPost={controller.handleOpenEditPost}
+        onReplyPost={controller.handleReplyPost}
+        onInsertReplyEmoji={controller.handleInsertReplyEmoji}
+        onEditContentChange={controller.setEditContent}
+        onEditOpenChange={controller.setEditOpen}
+        onEditTitleChange={controller.setEditTitle}
+        onReply={controller.handleReply}
+        onReplyChange={controller.setReply}
+        onReplyOpenChange={controller.setReplyOpen}
+        onShowRepliesChange={controller.setShowReplies}
       />
       <ForumPostDeleteDialog
-        deletePostOpen={deletePostOpen}
-        setDeletePostOpen={setDeletePostOpen}
-        onDeletePost={handleDeletePost}
+        deletePostOpen={controller.deletePostOpen}
+        setDeletePostOpen={controller.setDeletePostOpen}
+        onDeletePost={controller.handleDeletePost}
       />
       <ForumPostCommentDeleteDialog
-        deleteComment={deleteComment}
-        setDeleteComment={setDeleteComment}
-        onDeleteComment={handleConfirmDeleteComment}
+        deleteComment={controller.deleteComment}
+        setDeleteComment={controller.setDeleteComment}
+        onDeleteComment={controller.handleConfirmDeleteComment}
       />
     </div>
   )
@@ -853,6 +863,7 @@ function ForumPostEditComposer({
   contentLimitState,
   editorRef,
   mentionCandidates,
+  onUploadAttachment,
   title,
   titleLimitState,
   onCancel,
@@ -864,6 +875,7 @@ function ForumPostEditComposer({
   contentLimitState: ReturnType<typeof getTextInputLimitState>
   editorRef: RefObject<Editor | null>
   mentionCandidates: ForumUser[]
+  onUploadAttachment: RichTextAttachmentUploader
   title: string
   titleLimitState: ReturnType<typeof getTextInputLimitState>
   onCancel: () => void
@@ -899,6 +911,8 @@ function ForumPostEditComposer({
         maxPlainTextCharacters={channelPostContentConstraints.max}
         enforcePlainTextLimit
         onSubmitShortcut={onSave}
+        onUploadAttachment={onUploadAttachment}
+        deferAttachmentUpload
         className="min-w-0 [&_.ProseMirror]:min-h-[2.625rem] [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
       />
       <FieldCharacterLimit
@@ -922,6 +936,13 @@ function ForumPostEditComposer({
               <Smiley className="size-[13px]" />
             </button>
           }
+        />
+        <RichTextUploadButton
+          deferUpload
+          editorRef={editorRef}
+          iconClassName="size-[13px]"
+          insertMode="auto"
+          onUploadAttachment={onUploadAttachment}
         />
         <span className="flex-1" />
         <button
@@ -971,6 +992,7 @@ function ForumPostBody({
   onDelete,
   onDeleteComment,
   onEditComment,
+  onUploadAttachment,
   onReplyComment,
   onEditPost,
   onOpenEditPost,
@@ -1011,6 +1033,7 @@ function ForumPostBody({
   onDelete: () => void
   onDeleteComment: (comment: ForumPostComment) => void
   onEditComment: (commentId: string, content: string) => void
+  onUploadAttachment: RichTextAttachmentUploader
   onReplyComment: (comment: ForumPostComment) => void
   onEditPost: () => void
   onOpenEditPost: () => void
@@ -1025,61 +1048,64 @@ function ForumPostBody({
   onShowRepliesChange: (show: boolean) => void
 }) {
   return (
-    <div className="relative min-w-0 pr-12">
-      <div className="flex min-w-0 items-baseline gap-2">
-        <ForumPostAuthorLine
-          author={author}
-          createdAt={post.createdAt}
+    <div className="min-w-0">
+      <div className="group/post relative pr-12">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <ForumPostAuthorLine
+            author={author}
+            createdAt={post.createdAt}
+            currentUserId={currentUserId}
+            editedAt={post.editedAt}
+            workspaceId={currentWorkspaceId}
+          />
+        </div>
+        <ForumPostActionBar
+          canEditPost={canEditPost}
+          canDeletePost={canDeletePost}
+          postId={post.id}
+          onDelete={onDelete}
+          onEdit={onOpenEditPost}
+          onReply={onReplyPost}
+        />
+
+        {editOpen ? (
+          <ForumPostEditComposer
+            content={editContent}
+            contentLimitState={editContentLimitState}
+            editorRef={editEditorRef}
+            mentionCandidates={mentionCandidates}
+            onUploadAttachment={onUploadAttachment}
+            title={editTitle}
+            titleLimitState={editTitleLimitState}
+            onCancel={() => {
+              onEditTitleChange(post.title)
+              onEditContentChange(post.content)
+              onEditOpenChange(false)
+            }}
+            onContentChange={onEditContentChange}
+            onSave={onEditPost}
+            onTitleChange={onEditTitleChange}
+          />
+        ) : (
+          <>
+            <ForumPostTitle title={post.title} />
+
+            <RichTextContent
+              content={post.content}
+              className={cn(
+                "text-[13.5px] leading-[1.55] text-foreground [&_p]:leading-[1.55]",
+                post.title ? "mt-1.5" : "mt-2"
+              )}
+            />
+          </>
+        )}
+
+        <ForumPostReactions
           currentUserId={currentUserId}
-          editedAt={post.editedAt}
-          workspaceId={currentWorkspaceId}
+          post={post}
+          usersById={usersById}
         />
       </div>
-      <ForumPostActionBar
-        canEditPost={canEditPost}
-        canDeletePost={canDeletePost}
-        postId={post.id}
-        onDelete={onDelete}
-        onEdit={onOpenEditPost}
-        onReply={onReplyPost}
-      />
-
-      {editOpen ? (
-        <ForumPostEditComposer
-          content={editContent}
-          contentLimitState={editContentLimitState}
-          editorRef={editEditorRef}
-          mentionCandidates={mentionCandidates}
-          title={editTitle}
-          titleLimitState={editTitleLimitState}
-          onCancel={() => {
-            onEditTitleChange(post.title)
-            onEditContentChange(post.content)
-            onEditOpenChange(false)
-          }}
-          onContentChange={onEditContentChange}
-          onSave={onEditPost}
-          onTitleChange={onEditTitleChange}
-        />
-      ) : (
-        <>
-          <ForumPostTitle title={post.title} />
-
-          <RichTextContent
-            content={post.content}
-            className={cn(
-              "text-[13.5px] leading-[1.55] text-foreground [&_p]:leading-[1.55]",
-              post.title ? "mt-1.5" : "mt-2"
-            )}
-          />
-        </>
-      )}
-
-      <ForumPostReactions
-        currentUserId={currentUserId}
-        post={post}
-        usersById={usersById}
-      />
 
       <ForumPostRepliesSection
         currentUserId={currentUserId}
@@ -1096,6 +1122,7 @@ function ForumPostBody({
         usersById={usersById}
         onDeleteComment={onDeleteComment}
         onEditComment={onEditComment}
+        onUploadAttachment={onUploadAttachment}
         onReplyComment={onReplyComment}
         onInsertEmoji={onInsertReplyEmoji}
         onReply={onReply}
@@ -1190,12 +1217,21 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
   )
   const shortcutModifierLabel = useShortcutModifierLabel()
 
-  const handlePost = () => {
+  const handlePost = async () => {
     if (!contentLimitState.canSubmit || !titleLimitState.canSubmit) return
+    let outgoingContent = content
+    if (hasPendingAttachments(content)) {
+      const flushedContent = await flushPendingAttachmentUploads(
+        content,
+        handleUploadAttachment
+      )
+      if (flushedContent === null) return
+      outgoingContent = flushedContent
+    }
     useAppStore.getState().createChannelPost({
       conversationId: channelId,
       title: title.trim(),
-      content,
+      content: outgoingContent,
     })
     setTitle("")
     setContent("")
@@ -1204,6 +1240,8 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
   const handleInsertPostEmoji = (emoji: string) => {
     editorInstanceRef.current?.chain().focus().insertContent(emoji).run()
   }
+  const handleUploadAttachment: RichTextAttachmentUploader = (file) =>
+    useAppStore.getState().uploadAttachment("conversation", channelId, file)
 
   if (!open) {
     return (
@@ -1253,6 +1291,8 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
         maxPlainTextCharacters={channelPostContentConstraints.max}
         enforcePlainTextLimit
         onSubmitShortcut={handlePost}
+        onUploadAttachment={handleUploadAttachment}
+        deferAttachmentUpload
         className="min-w-0 [&_.ProseMirror]:min-h-[2.625rem] [&_.ProseMirror]:bg-transparent [&_.ProseMirror]:text-[13.5px] [&_.ProseMirror]:leading-[1.55] [&_.ProseMirror]:outline-none"
       />
       <FieldCharacterLimit
@@ -1274,6 +1314,13 @@ export function NewPostComposer({ channelId }: { channelId: string }) {
               <Smiley className="size-[13px]" />
             </button>
           }
+        />
+        <RichTextUploadButton
+          deferUpload
+          editorRef={editorInstanceRef}
+          iconClassName="size-[13px]"
+          insertMode="auto"
+          onUploadAttachment={handleUploadAttachment}
         />
         <span className="flex-1" />
         <ShortcutKeys

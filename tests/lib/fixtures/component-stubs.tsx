@@ -68,11 +68,17 @@ export function DocumentPresenceAvatarGroupStub({
 }
 
 export function createRichTextContentStub(
-  renderMock: (props: { content: string | Record<string, unknown> }) => void
+  renderMock: (
+    props: Record<string, unknown> & {
+      content: string | Record<string, unknown>
+    }
+  ) => void
 ) {
-  return function RichTextContentStub(props: {
-    content: string | Record<string, unknown>
-  }) {
+  return function RichTextContentStub(
+    props: Record<string, unknown> & {
+      content: string | Record<string, unknown>
+    }
+  ) {
     renderMock(props)
     return <div data-testid="rich-text-content" />
   }

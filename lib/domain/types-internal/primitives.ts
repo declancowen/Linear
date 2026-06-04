@@ -48,8 +48,7 @@ export type WorkItemType = (typeof workItemTypes)[number]
 export const workItemVisibilities = ["team", "private"] as const
 export type WorkItemVisibility = (typeof workItemVisibilities)[number]
 
-export const labelScopeTypes = ["workspace", "private"] as const
-export type LabelScopeType = (typeof labelScopeTypes)[number]
+export type LabelScopeType = "workspace" | "private"
 
 export type LegacyWorkItemType = "bug"
 export type StoredWorkItemType = WorkItemType | LegacyWorkItemType
@@ -106,11 +105,6 @@ export type NotificationType =
   | "message"
   | "invite"
   | "status-change"
-
-export type WorkItemActivityType =
-  | "status-change"
-  | "label-change"
-  | "assignee-change"
 
 export type NotificationEntityType =
   | "workItem"
@@ -266,7 +260,11 @@ export type ThemePreference = (typeof themePreferences)[number]
 export const commentTargetTypes = ["workItem", "document"] as const
 export type CommentTargetType = (typeof commentTargetTypes)[number]
 
-export const attachmentTargetTypes = ["workItem", "document"] as const
+export const attachmentTargetTypes = [
+  "workItem",
+  "document",
+  "conversation",
+] as const
 export type AttachmentTargetType = (typeof attachmentTargetTypes)[number]
 
 export type DocumentKind =
