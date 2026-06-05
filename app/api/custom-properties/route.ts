@@ -181,21 +181,54 @@ async function requireCustomPropertyCreateContext(
 
 async function createCustomProperty(context: CustomPropertyCreateContext) {
   try {
-    const result = await createCustomPropertyDefinitionServer({
+    const commonInput = {
       currentUserId: context.currentUserId,
-      teamId: context.parsed.teamId,
-      scopeType: "team",
       targetType: context.parsed.targetType,
       name: context.parsed.name,
       icon: context.parsed.icon,
       type: context.parsed.type,
       options: context.parsed.options,
-    })
+    }
+    const result =
+      context.parsed.scopeType === "private"
+        ? await createCustomPropertyDefinitionServer({
+            ...commonInput,
+            scopeType: "private",
+            workspaceId: context.parsed.workspaceId,
+          })
+        : context.parsed.scopeType === "workspace"
+          ? await createCustomPropertyDefinitionServer({
+              ...commonInput,
+              scopeType: "workspace",
+              workspaceId: context.parsed.workspaceId,
+            })
+          : await createCustomPropertyDefinitionServer({
+              ...commonInput,
+              scopeType: "team",
+              teamId: context.parsed.teamId,
+            })
     const scopeKeys =
-      await resolveCustomPropertyDefinitionReadModelScopeKeysServer(
-        context.session,
-        context.parsed.teamId
-      )
+      context.parsed.scopeType === "private"
+        ? await resolveCustomPropertyDefinitionReadModelScopeKeysServer(
+            context.session,
+            {
+              scopeType: "private",
+              ownerId: context.currentUserId,
+              workspaceId: context.parsed.workspaceId,
+            }
+          )
+        : context.parsed.scopeType === "workspace"
+          ? await resolveCustomPropertyDefinitionReadModelScopeKeysServer(
+              context.session,
+              {
+                scopeType: "workspace",
+                workspaceId: context.parsed.workspaceId,
+              }
+            )
+        : await resolveCustomPropertyDefinitionReadModelScopeKeysServer(
+            context.session,
+            context.parsed.teamId
+          )
     await bumpScopedReadModelVersionsServer({
       scopeKeys,
     })

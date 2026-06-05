@@ -32,7 +32,23 @@ export type ScopedReadModelInstruction =
 export type ScopedReadModelScopeKeyTarget =
   | { kind: "document"; documentId: string }
   | { kind: "work-item"; itemId: string }
-  | { kind: "custom-property-definition"; teamId: string }
+  | { kind: "private-label"; ownerId: string; workspaceId: string }
+  | {
+      kind: "custom-property-definition"
+      scopeType?: "team"
+      teamId: string
+    }
+  | {
+      kind: "custom-property-definition"
+      scopeType: "workspace"
+      workspaceId: string
+    }
+  | {
+      kind: "custom-property-definition"
+      scopeType: "private"
+      ownerId: string
+      workspaceId: string
+    }
   | { kind: "project"; projectId: string }
   | { kind: "view"; viewId: string }
   | { kind: "conversation"; conversationId: string }

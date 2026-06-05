@@ -295,6 +295,61 @@ function spyOnCreateWorkItem() {
     .mockReturnValue("item_new")
 }
 
+async function expectParentProjectInheritedOnCreate(input: {
+  defaultProjectId?: string | null
+  defaultValues: NonNullable<
+    Parameters<typeof CreateWorkItemDialog>[0]["defaultValues"]
+  >
+  title: string
+  expectParentKeyHidden?: boolean
+}) {
+  const createWorkItemSpy = spyOnCreateWorkItem()
+
+  try {
+    render(
+      <CreateWorkItemDialog
+        open
+        onOpenChange={vi.fn()}
+        defaultTeamId="team_1"
+        defaultProjectId={input.defaultProjectId}
+        initialType="requirement"
+        defaultValues={input.defaultValues}
+      />
+    )
+
+    const inheritedProjectButton = await screen.findByRole("button", {
+      name: /Parent project/i,
+    })
+
+    expect(inheritedProjectButton).toBeDisabled()
+    expect(
+      within(inheritedProjectButton).getByTestId("project-icon-glyph")
+    ).toHaveAttribute("data-project-icon", "target")
+
+    if (input.expectParentKeyHidden) {
+      expect(screen.queryByText("FEAT-1 · child")).not.toBeInTheDocument()
+    }
+
+    fireEvent.change(screen.getByPlaceholderText(/title/i), {
+      target: { value: input.title },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: /Create /i }))
+
+    await waitFor(() =>
+      expect(createWorkItemSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "requirement",
+          parentId: "feature_parent",
+          primaryProjectId: "project_parent",
+        })
+      )
+    )
+  } finally {
+    createWorkItemSpy.mockRestore()
+  }
+}
+
 function spyOnUpdateItemDescription() {
   return vi
     .spyOn(useAppStore.getState(), "updateItemDescription")
@@ -561,7 +616,9 @@ describe("create dialogs", () => {
       expect(
         screen.queryByRole("button", { name: /Project/i })
       ).not.toBeInTheDocument()
-      expect(screen.queryByText("Add label")).not.toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Add label" })
+      ).toBeInTheDocument()
 
       fireEvent.change(screen.getByPlaceholderText("Task title"), {
         target: { value: "Private follow-up" },
@@ -965,49 +1022,26 @@ describe("create dialogs", () => {
   it("still inherits the parent project when no explicit lane project default is provided", async () => {
     seedParentFeatureProject()
 
-    const createWorkItemSpy = spyOnCreateWorkItem()
+    await expectParentProjectInheritedOnCreate({
+      defaultValues: {
+        parentId: "feature_parent",
+      },
+      expectParentKeyHidden: true,
+      title: "Inherited child",
+    })
+  })
 
-    try {
-      render(
-        <CreateWorkItemDialog
-          open
-          onOpenChange={vi.fn()}
-          defaultTeamId="team_1"
-          initialType="requirement"
-          defaultValues={{
-            parentId: "feature_parent",
-          }}
-        />
-      )
+  it("inherits the parent project when a preselected parent has a null project default", async () => {
+    seedParentFeatureProject()
 
-      const inheritedProjectButton = await screen.findByRole("button", {
-        name: /Parent project/i,
-      })
-
-      expect(inheritedProjectButton).toBeDisabled()
-      expect(
-        within(inheritedProjectButton).getByTestId("project-icon-glyph")
-      ).toHaveAttribute("data-project-icon", "target")
-      expect(screen.queryByText("FEAT-1 · child")).not.toBeInTheDocument()
-
-      fireEvent.change(screen.getByPlaceholderText(/title/i), {
-        target: { value: "Inherited child" },
-      })
-
-      fireEvent.click(screen.getByRole("button", { name: /Create /i }))
-
-      await waitFor(() =>
-        expect(createWorkItemSpy).toHaveBeenCalledWith(
-          expect.objectContaining({
-            type: "requirement",
-            parentId: "feature_parent",
-            primaryProjectId: "project_parent",
-          })
-        )
-      )
-    } finally {
-      createWorkItemSpy.mockRestore()
-    }
+    await expectParentProjectInheritedOnCreate({
+      defaultProjectId: null,
+      defaultValues: {
+        parentId: "feature_parent",
+        primaryProjectId: null,
+      },
+      title: "Inherited null-default child",
+    })
   })
 
   it("renders the project create dialog without recursive store updates", () => {

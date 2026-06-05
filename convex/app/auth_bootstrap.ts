@@ -5,7 +5,11 @@ import {
   createDefaultTeamWorkflowSettings,
   type TeamExperienceType,
 } from "../../lib/domain/types"
-import { isLabelVisibleToUser } from "../../lib/domain/labels"
+import {
+  getLabelScopeType,
+  isCustomPropertyDefinitionForWorkItem,
+  isLabelVisibleToUser,
+} from "../../lib/domain/labels"
 import {
   assertServerToken,
   createHandle,
@@ -35,6 +39,7 @@ import {
   listConversationsByScopes,
   listCustomPropertyDefinitionsByTeams,
   listCustomPropertyValuesByWorkItems,
+  listPrivateCustomPropertyDefinitionsByWorkspacesOwner,
   getTeamDoc,
   getUserAppState,
   getUserByEmail,
@@ -456,9 +461,7 @@ async function buildWorkspaceMembershipBootstrap(
     workspaceMemberships,
     teams,
     teamMemberships,
-    labels: labels.filter((label) =>
-      isLabelVisibleToUser(label, input.currentUserId)
-    ),
+    labels: labels.filter((label) => getLabelScopeType(label) === "workspace"),
     users,
     invites,
   }
@@ -1525,11 +1528,25 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   const visibleWorkItemDescriptionDocIds = new Set(
     visibleWorkItems.map((workItem) => workItem.descriptionDocId)
   )
-  const [visibleCustomPropertyDefinitions, visibleCustomPropertyValues] =
-    await Promise.all([
-      listCustomPropertyDefinitionsByTeams(ctx, accessibleTeamIdList),
-      listCustomPropertyValuesByWorkItems(ctx, visibleWorkItemIds),
-    ])
+  const [
+    visibleTeamCustomPropertyDefinitions,
+    visiblePrivateCustomPropertyDefinitions,
+    visibleCustomPropertyValues,
+  ] = await Promise.all([
+    listCustomPropertyDefinitionsByTeams(ctx, accessibleTeamIdList),
+    currentUserId
+      ? listPrivateCustomPropertyDefinitionsByWorkspacesOwner(
+          ctx,
+          accessibleWorkspaceIdList,
+          currentUserId
+        )
+      : Promise.resolve([]),
+    listCustomPropertyValuesByWorkItems(ctx, visibleWorkItemIds),
+  ])
+  const visibleCustomPropertyDefinitions = [
+    ...visibleTeamCustomPropertyDefinitions,
+    ...visiblePrivateCustomPropertyDefinitions,
+  ]
   const visibleDocuments = await loadVisibleBootstrapDocuments(ctx, {
     accessibleTeamIdList,
     accessibleTeamIds,
@@ -1632,6 +1649,15 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
   const returnedCustomPropertyDefinitionIds = new Set(
     returnedCustomPropertyDefinitions.map((definition) => definition.id)
   )
+  const returnedCustomPropertyDefinitionsById = new Map(
+    returnedCustomPropertyDefinitions.map((definition) => [
+      definition.id,
+      definition,
+    ])
+  )
+  const visibleWorkItemsById = new Map(
+    visibleWorkItems.map((workItem) => [workItem.id, workItem])
+  )
 
   collectSnapshotVisibleUserIds({
     visibleUserIds,
@@ -1670,9 +1696,10 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
         resolveUserSnapshot(ctx, user)
       )
     ),
-    labels: (
-      await listLabelsByWorkspaces(ctx, accessibleWorkspaceIdList)
-    ).filter((label) => isLabelVisibleToUser(label, currentUserId)),
+    labels: filterVisibleSnapshotLabels(
+      await listLabelsByWorkspaces(ctx, accessibleWorkspaceIdList),
+      currentUserId
+    ),
     projects: visibleProjects,
     milestones: await listMilestonesByProjects(ctx, visibleProjectIds),
     workItems: visibleWorkItems.map((item) =>
@@ -1680,11 +1707,34 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     ),
     workItemActivities: visibleWorkItemActivities,
     customPropertyDefinitions: returnedCustomPropertyDefinitions,
-    customPropertyValues: visibleCustomPropertyValues.filter(
-      (value) =>
-        visibleWorkItemIds.has(value.workItemId) &&
-        returnedCustomPropertyDefinitionIds.has(value.propertyId)
-    ),
+    customPropertyValues: visibleCustomPropertyValues.filter((value) => {
+      const definition = returnedCustomPropertyDefinitionsById.get(
+        value.propertyId
+      )
+      const targetType = value.targetType ?? "workItem"
+      const targetId = value.targetId ?? value.workItemId
+      const workItem =
+        targetType === "workItem" && targetId
+          ? visibleWorkItemsById.get(targetId)
+          : null
+
+      if (
+        targetType !== "workItem" ||
+        !targetId ||
+        !visibleWorkItemIds.has(targetId) ||
+        !returnedCustomPropertyDefinitionIds.has(value.propertyId) ||
+        !definition ||
+        !workItem
+      ) {
+        return false
+      }
+
+      return isCustomPropertyDefinitionForWorkItem(
+        definition,
+        workItem,
+        currentUserId
+      )
+    }),
     documents: visibleDocuments,
     views: visibleViews.map((view) =>
       normalizeViewDefinition(view, normalizedVisibleTeams)
@@ -1701,6 +1751,21 @@ export async function getSnapshotHandler(ctx: QueryCtx, args: ServerUserArgs) {
     channelPosts: visibleChannelPosts,
     channelPostComments: visibleChannelPostComments,
   }
+}
+
+function filterVisibleSnapshotLabels(
+  labels: Awaited<ReturnType<typeof listLabelsByWorkspaces>>,
+  currentUserId: string
+) {
+  return labels.filter((label) => {
+    const scopeType = getLabelScopeType(label)
+
+    if (scopeType === "workspace") {
+      return true
+    }
+
+    return scopeType === "private" && isLabelVisibleToUser(label, currentUserId)
+  })
 }
 
 export async function getWorkspaceMembershipBootstrapHandler(

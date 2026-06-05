@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  createCanonicalContentJson,
+  prepareCanonicalCollaborationContent,
+} from "@/lib/collaboration/canonical-content"
+import {
   getNormalizedStyleValue,
   normalizeCanonicalUrl,
 } from "@/lib/collaboration/canonical-content-normalization"
@@ -12,11 +16,13 @@ describe("canonical collaboration content helpers", () => {
     expect(
       normalizeCanonicalUrl(" HTTPS://example.com/doc ", allowedSchemes)
     ).toBe("HTTPS://example.com/doc")
-    expect(normalizeCanonicalUrl("mailto:alex@example.com", allowedSchemes)).toBe(
-      "mailto:alex@example.com"
-    )
+    expect(
+      normalizeCanonicalUrl("mailto:alex@example.com", allowedSchemes)
+    ).toBe("mailto:alex@example.com")
     expect(normalizeCanonicalUrl("/relative/path", allowedSchemes)).toBeNull()
-    expect(normalizeCanonicalUrl("javascript:alert(1)", allowedSchemes)).toBeNull()
+    expect(
+      normalizeCanonicalUrl("javascript:alert(1)", allowedSchemes)
+    ).toBeNull()
     expect(normalizeCanonicalUrl(" ", allowedSchemes)).toBeNull()
   })
 
@@ -49,5 +55,23 @@ describe("canonical collaboration content helpers", () => {
         propertyValue: "sideways",
       })
     ).toBeNull()
+  })
+
+  it("preserves only validated chat quote source metadata through canonical normalization", () => {
+    const valid = prepareCanonicalCollaborationContent(
+      createCanonicalContentJson(
+        '<blockquote data-chat-source-message-id="message_1"><p>Quote</p></blockquote>'
+      )
+    )
+    const invalid = prepareCanonicalCollaborationContent(
+      createCanonicalContentJson(
+        '<blockquote data-chat-source-message-id="bad id"><p>Quote</p></blockquote>'
+      )
+    )
+
+    expect(valid.contentHtml).toContain(
+      'data-chat-source-message-id="message_1"'
+    )
+    expect(invalid.contentHtml).not.toContain("data-chat-source-message-id")
   })
 })

@@ -9,6 +9,8 @@ import {
   getConversationRelatedScopeKeys,
   getProjectDetailScopeKeys,
   getProjectRelatedScopeKeys,
+  getPrivateCustomPropertyDefinitionScopeKeys,
+  getPrivateLabelScopeKeys,
   getWorkItemDetailScopeKeys,
   getWorkspacePeopleScopeKeys,
   selectConversationListReadModel,
@@ -514,6 +516,21 @@ describe("scoped read model selectors", () => {
   it("filters custom property values to definitions visible in the read model", () => {
     const snapshot = createSnapshotFixture()
 
+    snapshot.workItems.push({
+      ...snapshot.workItems[0],
+      id: "item_private_own",
+      key: "PRIVATE-1",
+      teamId: null,
+      workspaceId: "workspace_1",
+      visibility: "private",
+      creatorId: "user_1",
+      assigneeId: null,
+      primaryProjectId: null,
+      linkedProjectIds: [],
+      linkedDocumentIds: [],
+      labelIds: [],
+      milestoneId: null,
+    } as never)
     snapshot.customPropertyDefinitions = [
       {
         id: "property_team",
@@ -533,7 +550,7 @@ describe("scoped read model selectors", () => {
       {
         id: "property_private_own",
         workspaceId: "workspace_1",
-        teamId: "team_1",
+        teamId: null,
         scopeType: "private",
         ownerId: "user_1",
         targetType: "workItem",
@@ -549,7 +566,7 @@ describe("scoped read model selectors", () => {
       {
         id: "property_private_other",
         workspaceId: "workspace_1",
-        teamId: "team_1",
+        teamId: null,
         scopeType: "private",
         ownerId: "user_2",
         targetType: "workItem",
@@ -579,7 +596,7 @@ describe("scoped read model selectors", () => {
       {
         id: "value_private_own",
         workspaceId: "workspace_1",
-        teamId: "team_1",
+        teamId: null,
         workItemId: "item_1",
         propertyId: "property_private_own",
         value: "mine",
@@ -589,9 +606,33 @@ describe("scoped read model selectors", () => {
         updatedAt: "2026-04-22T00:00:00.000Z",
       },
       {
+        id: "value_private_own_private_item",
+        workspaceId: "workspace_1",
+        teamId: null,
+        workItemId: "item_private_own",
+        propertyId: "property_private_own",
+        value: "mine",
+        createdBy: "user_1",
+        updatedBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
+        id: "value_team_private_item",
+        workspaceId: "workspace_1",
+        teamId: null,
+        workItemId: "item_private_own",
+        propertyId: "property_team",
+        value: "hidden",
+        createdBy: "user_1",
+        updatedBy: "user_1",
+        createdAt: "2026-04-22T00:00:00.000Z",
+        updatedAt: "2026-04-22T00:00:00.000Z",
+      },
+      {
         id: "value_private_other",
         workspaceId: "workspace_1",
-        teamId: "team_1",
+        teamId: null,
         workItemId: "item_1",
         propertyId: "property_private_other",
         value: "hidden",
@@ -607,21 +648,36 @@ describe("scoped read model selectors", () => {
       "personal",
       "user_1"
     )
+    const teamWorkIndex = selectWorkIndexReadModel(snapshot, "team", "team_1")
     const workItemDetail = selectWorkItemDetailReadModel(snapshot, "item_1")
+    const privateWorkItemDetail = selectWorkItemDetailReadModel(
+      snapshot,
+      "item_private_own"
+    )
 
     expect(
       personalWorkIndex.customPropertyDefinitions?.map((entry) => entry.id)
-    ).toEqual(["property_team"])
+    ).toEqual(["property_team", "property_private_own"])
     expect(
       personalWorkIndex.customPropertyValues?.map((entry) => entry.id)
+    ).toEqual(["value_team", "value_private_own_private_item"])
+    expect(
+      teamWorkIndex.customPropertyDefinitions?.map((entry) => entry.id)
+    ).toEqual(["property_team"])
+    expect(
+      teamWorkIndex.customPropertyValues?.map((entry) => entry.id)
     ).toEqual(["value_team"])
     expect(
       workItemDetail?.customPropertyValues?.map((entry) => entry.id)
     ).toEqual(["value_team"])
+    expect(
+      privateWorkItemDetail?.customPropertyValues?.map((entry) => entry.id)
+    ).toEqual(["value_private_own_private_item"])
   })
 
   it("scopes private work indexes and invalidations to the creator", () => {
     const snapshot = createSnapshotFixture()
+    addCrossWorkspaceTeamFixture(snapshot)
 
     snapshot.workItems.push(
       {
@@ -630,8 +686,11 @@ describe("scoped read model selectors", () => {
         key: "PRV-1",
         title: "Owned private task",
         descriptionDocId: "doc_private_own",
+        teamId: null,
+        workspaceId: "workspace_1",
         assigneeId: null,
         creatorId: "user_1",
+        labelIds: ["label_private_own"],
         visibility: "private",
       },
       {
@@ -640,20 +699,119 @@ describe("scoped read model selectors", () => {
         key: "PRV-2",
         title: "Assigned private task",
         descriptionDocId: "doc_private_assigned_by_other",
+        teamId: null,
+        workspaceId: "workspace_1",
         assigneeId: "user_1",
         creatorId: "user_2",
+        labelIds: ["label_private_other"],
         visibility: "private",
       }
     )
+    snapshot.labels.push(
+      {
+        id: "label_private_own",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_1",
+        name: "Focus",
+        color: "violet",
+      },
+      {
+        id: "label_private_other",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_2",
+        name: "Hidden",
+        color: "slate",
+      },
+      {
+        id: "label_private_without_item",
+        workspaceId: "workspace_2",
+        scopeType: "private",
+        ownerId: "user_1",
+        name: "No item",
+        color: "gray",
+      }
+    )
+    const personalWorkIndex = selectWorkIndexReadModel(
+      snapshot,
+      "personal",
+      "user_1"
+    )
 
+    expect(personalWorkIndex.workItems?.map((entry) => entry.id)).toEqual([
+      "item_1",
+      "item_private_own",
+    ])
+    expect(personalWorkIndex.labels?.map((entry) => entry.id)).toEqual([
+      "label_1",
+      "label_private_own",
+      "label_private_without_item",
+    ])
     expect(
-      selectWorkIndexReadModel(snapshot, "personal", "user_1").workItems?.map(
+      selectWorkIndexReadModel(
+        snapshot,
+        "workspace",
+        "workspace_1"
+      ).labels?.map((entry) => entry.id)
+    ).toEqual(["label_1"])
+    expect(
+      selectWorkItemDetailReadModel(snapshot, "item_private_own")?.labels?.map(
         (entry) => entry.id
       )
-    ).toEqual(["item_1", "item_private_own"])
+    ).toEqual(["label_1", "label_private_own"])
     expect(getWorkItemDetailScopeKeys(snapshot, "item_private_own")).toEqual([
       "work-item-detail:item_private_own",
       "work-index:personal_user_1",
+      "private-search-seed:workspace_1:user_1",
+    ])
+    expect(
+      getPrivateLabelScopeKeys(snapshot, {
+        ownerId: "user_1",
+        workspaceId: "workspace_1",
+      })
+    ).toEqual([
+      "work-index:personal_user_1",
+      "private-document-index:workspace_1:user_1",
+      "work-item-detail:item_private_own",
+    ])
+  })
+
+  it("invalidates private document surfaces for private custom properties", () => {
+    const snapshot = createSnapshotFixture()
+    snapshot.documents.push({
+      ...snapshot.documents[0],
+      id: "doc_private_own",
+      kind: "private-document",
+      teamId: null,
+      linkedProjectIds: [],
+      linkedWorkItemIds: [],
+      createdBy: "user_1",
+    })
+    snapshot.workItems.push({
+      ...snapshot.workItems[0],
+      id: "item_private_own",
+      key: "PRV-1",
+      teamId: null,
+      workspaceId: "workspace_1",
+      visibility: "private",
+      creatorId: "user_1",
+      parentId: null,
+      primaryProjectId: null,
+      linkedProjectIds: [],
+      linkedDocumentIds: [],
+    } as never)
+
+    expect(
+      getPrivateCustomPropertyDefinitionScopeKeys(snapshot, {
+        ownerId: "user_1",
+        workspaceId: "workspace_1",
+      }).sort()
+    ).toEqual([
+      "document-detail:doc_private_own",
+      "private-document-index:workspace_1:user_1",
+      "work-index:personal_user_1",
+      "work-item-detail:item_private_own",
     ])
   })
 
@@ -839,9 +997,7 @@ describe("scoped read model selectors", () => {
     })
     expect(listPatch.chatReadStates?.[0]?.messageReadAtById).toBeUndefined()
     expect(
-      threadPatch?.chatReadStates
-        ?.map((readState) => readState.userId)
-        .sort()
+      threadPatch?.chatReadStates?.map((readState) => readState.userId).sort()
     ).toEqual(["user_1", "user_2"])
     expect(
       threadPatch?.chatReadStates?.find(
@@ -866,9 +1022,9 @@ describe("scoped read model selectors", () => {
 
     const threadPatch = selectConversationThreadReadModel(snapshot, "chat_1")
 
-    expect(threadPatch?.chatReadStates?.map((readState) => readState.id)).toEqual([
-      "chat_read_state_user_1_chat_1",
-    ])
+    expect(
+      threadPatch?.chatReadStates?.map((readState) => readState.id)
+    ).toEqual(["chat_read_state_user_1_chat_1"])
     expect(threadPatch?.chatReadStates?.[0]?.messageReadAtById).toBeUndefined()
   })
 
@@ -878,6 +1034,9 @@ describe("scoped read model selectors", () => {
     expect(
       getCustomPropertyDefinitionScopeKeys(snapshot, "team_1").sort()
     ).toEqual([
+      "document-detail:doc_1",
+      "document-detail:doc_linked",
+      "document-index:team_team_1",
       "project-detail:project_1",
       "project-index:team_team_1",
       "project-index:workspace_workspace_1",

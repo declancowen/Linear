@@ -53,12 +53,14 @@ import {
   getTeamDoc,
   getWorkspaceMembershipDoc,
   getUserDoc,
+  getLabelDoc,
   getWorkspaceBySlug,
   getWorkspaceDoc,
   listAttachmentsByTargets,
   listCommentsByTargets,
   listDocumentPresenceByDocuments,
   listLabelsByWorkspace,
+  listPrivateLabelsByWorkspaceOwner,
   listNotificationsByEntities,
   listTeamMembershipsByTeams,
   listTeamsByIds,
@@ -1483,7 +1485,7 @@ export async function createLabelHandler(
     workspaceId: string
     name: string
     color?: string
-    scopeType?: "workspace"
+    scopeType?: "workspace" | "private"
   }
 ) {
   assertServerToken(args.serverToken)
@@ -1500,17 +1502,33 @@ export async function createLabelHandler(
     throw new Error("Workspace not found")
   }
 
-  await requireEditableWorkspaceAccess(
-    ctx,
-    args.workspaceId,
-    args.currentUserId
-  )
+  const scopeType = args.scopeType ?? "workspace"
+  const ownerId = scopeType === "private" ? args.currentUserId : null
+
+  if (scopeType === "private") {
+    await requireReadableWorkspaceAccess(
+      ctx,
+      args.workspaceId,
+      args.currentUserId
+    )
+  } else {
+    await requireEditableWorkspaceAccess(
+      ctx,
+      args.workspaceId,
+      args.currentUserId
+    )
+  }
 
   const normalizedName = normalizeLabelNameInput(args.name)
-  const scopeType = "workspace" as const
-  const ownerId = null
 
-  const existingLabels = await listLabelsByWorkspace(ctx, args.workspaceId)
+  const existingLabels =
+    scopeType === "private"
+      ? await listPrivateLabelsByWorkspaceOwner(
+          ctx,
+          args.workspaceId,
+          args.currentUserId
+        )
+      : await listLabelsByWorkspace(ctx, args.workspaceId)
   const existingLabel = findExistingWorkspaceLabel(
     existingLabels,
     normalizedName,
@@ -1536,6 +1554,82 @@ export async function createLabelHandler(
   return label
 }
 
+export async function updateLabelHandler(
+  ctx: MutationCtx,
+  args: ServerAccessArgs & {
+    currentUserId: string
+    labelId: string
+    name: string
+  }
+) {
+  assertServerToken(args.serverToken)
+
+  const user = await getUserDoc(ctx, args.currentUserId)
+
+  if (!user) {
+    throw new Error("User not found")
+  }
+
+  const label = await getLabelDoc(ctx, args.labelId)
+
+  if (!label) {
+    throw new Error("Label not found")
+  }
+
+  const scopeType = label.scopeType ?? "workspace"
+  const ownerId = label.ownerId ?? null
+
+  if (scopeType === "private") {
+    if (ownerId !== args.currentUserId) {
+      throw new Error("You can only edit your own labels")
+    }
+
+    await requireReadableWorkspaceAccess(
+      ctx,
+      label.workspaceId,
+      args.currentUserId
+    )
+  } else {
+    await requireEditableWorkspaceAccess(
+      ctx,
+      label.workspaceId,
+      args.currentUserId
+    )
+  }
+
+  const normalizedName = normalizeLabelNameInput(args.name)
+
+  const existingLabels =
+    scopeType === "private"
+      ? await listPrivateLabelsByWorkspaceOwner(
+          ctx,
+          label.workspaceId,
+          args.currentUserId
+        )
+      : await listLabelsByWorkspace(ctx, label.workspaceId)
+  const duplicate = findExistingWorkspaceLabel(
+    existingLabels,
+    normalizedName,
+    scopeType,
+    ownerId
+  )
+
+  if (duplicate && duplicate.id !== label.id) {
+    throw new Error("A label with this name already exists")
+  }
+
+  await ctx.db.patch(label._id, { name: normalizedName })
+
+  return {
+    id: label.id,
+    workspaceId: label.workspaceId,
+    scopeType,
+    ownerId,
+    name: normalizedName,
+    color: label.color,
+  }
+}
+
 function normalizeLabelNameInput(name: string) {
   const normalizedName = name.trim()
 
@@ -1549,7 +1643,7 @@ function normalizeLabelNameInput(name: string) {
 function findExistingWorkspaceLabel(
   labels: Awaited<ReturnType<typeof listLabelsByWorkspace>>,
   normalizedName: string,
-  scopeType: "workspace",
+  scopeType: "workspace" | "private",
   ownerId: string | null
 ) {
   return (

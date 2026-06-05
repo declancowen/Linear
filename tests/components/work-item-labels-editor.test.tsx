@@ -175,4 +175,57 @@ describe("WorkItemLabelsEditor", () => {
       container.querySelectorAll('[data-label-color="blue"]')
     ).toHaveLength(2)
   })
+
+  it("uses private label scope for private task labels", () => {
+    useAppStore.setState((state) => ({
+      labels: [
+        ...state.labels,
+        {
+          id: "label_private",
+          workspaceId: "workspace_1",
+          scopeType: "private",
+          ownerId: "user_1",
+          name: "Focus",
+          color: "violet",
+        },
+        {
+          id: "label_other_private",
+          workspaceId: "workspace_1",
+          scopeType: "private",
+          ownerId: "user_2",
+          name: "Hidden",
+          color: "slate",
+        },
+      ],
+      workItems: state.workItems.map((item) => ({
+        ...item,
+        teamId: null,
+        workspaceId: "workspace_1",
+        visibility: "private",
+        labelIds: ["label_private"],
+      })),
+    }))
+    const item = useAppStore.getState().workItems[0]
+
+    if (!item) {
+      throw new Error("Expected seeded work item")
+    }
+
+    render(<WorkItemLabelsEditor item={item} editable />)
+
+    expect(screen.getAllByText("Focus").length).toBeGreaterThan(0)
+    expect(screen.queryByText("Existing")).not.toBeInTheDocument()
+    expect(screen.queryByText("Hidden")).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByPlaceholderText("Add label"), {
+      target: { value: "Deep work" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Create" }))
+
+    expect(useAppStore.getState().createLabel).toHaveBeenCalledWith(
+      "Deep work",
+      "workspace_1",
+      { scopeType: "private" }
+    )
+  })
 })

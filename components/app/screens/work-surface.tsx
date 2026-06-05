@@ -69,6 +69,7 @@ import {
   type CalendarWeekDayCount,
   type CalendarWeekStart,
 } from "@/components/app/screens/work-surface-view"
+import { WorkItemDetailSidebarSurface } from "@/components/app/screens/work-item-detail-screen"
 import { cn } from "@/lib/utils"
 
 type WorkSurfaceChildDisplayMode = "direct" | "assigned-descendants"
@@ -498,6 +499,7 @@ function WorkSurfaceViewbar({
   onResetViewerView,
   onCreateWorkItem,
   calendar,
+  compactControls,
 }: {
   view: ViewDefinition
   filterPopoverItems: WorkItem[]
@@ -517,6 +519,7 @@ function WorkSurfaceViewbar({
   onResetViewerView: () => void
   onCreateWorkItem: () => void
   calendar: WorkSurfaceCalendarState
+  compactControls?: boolean
 }) {
   return (
     <Viewbar
@@ -535,20 +538,32 @@ function WorkSurfaceViewbar({
         hiddenFilters={hiddenFilters}
         groupingExperience={groupingExperience}
         variant="chip"
+        showLabel={!compactControls}
         onToggleFilterValue={onToggleViewerFilterValue}
         onUpdateView={onUpdateViewerView}
         onClearFilters={onClearViewerFilters}
       />
-      <LevelChipPopover view={view} onUpdateView={onUpdateViewerView} />
+      <LevelChipPopover
+        view={view}
+        showLabel={!compactControls}
+        onUpdateView={onUpdateViewerView}
+      />
       <GroupChipPopover
         view={view}
         groupOptions={groupOptions}
         groupingExperience={groupingExperience}
+        showLabel={!compactControls}
         onUpdateView={onUpdateViewerView}
       />
-      <SortChipPopover view={view} onUpdateView={onUpdateViewerView} />
+      <SortChipPopover
+        view={view}
+        showLabel={!compactControls}
+        showValue={!compactControls}
+        onUpdateView={onUpdateViewerView}
+      />
       <PropertiesChipPopover
         view={view}
+        showLabel={!compactControls}
         onToggleDisplayProperty={onToggleViewerDisplayProperty}
         onReorderDisplayProperties={onReorderViewerDisplayProperties}
         onClearDisplayProperties={onClearViewerDisplayProperties}
@@ -558,22 +573,30 @@ function WorkSurfaceViewbar({
           <WorkSurfaceCalendarSettingsButton calendar={calendar} />
         ) : null}
         <Button
-          size="sm"
+          size={compactControls ? "icon-sm" : "sm"}
           variant="outline"
-          className="h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
+          aria-label="Reset view"
+          className={cn(
+            "h-7 shrink-0 text-[12px]",
+            compactControls ? "w-7 px-0" : "gap-1.5 px-2.5"
+          )}
           onClick={onResetViewerView}
         >
           <ArrowCounterClockwise className="size-3.5" />
-          Reset
+          {compactControls ? null : "Reset"}
         </Button>
         <Button
-          size="sm"
+          size={compactControls ? "icon-sm" : "sm"}
           variant="default"
-          className="h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
+          aria-label="New work item"
+          className={cn(
+            "h-7 shrink-0 text-[12px]",
+            compactControls ? "w-7 px-0" : "gap-1.5 px-2.5"
+          )}
           onClick={onCreateWorkItem}
         >
           <Plus className="size-3.5" />
-          New
+          {compactControls ? null : "New"}
         </Button>
       </div>
     </Viewbar>
@@ -596,6 +619,8 @@ function WorkSurfaceContent({
   calendar,
   onCreateWorkItem,
   onToggleHiddenValue,
+  selectedItemId,
+  onSelectedItemIdChange,
 }: {
   data: ReturnType<typeof selectAppDataSnapshot>
   view: ViewDefinition | null
@@ -612,6 +637,8 @@ function WorkSurfaceContent({
   calendar: WorkSurfaceCalendarState
   onCreateWorkItem: () => void
   onToggleHiddenValue: (key: "groups" | "subgroups", value: string) => void
+  selectedItemId?: string | null
+  onSelectedItemIdChange?: (itemId: string | null) => void
 }) {
   const contentClassName = getWorkSurfaceContentClassName(view)
 
@@ -630,9 +657,11 @@ function WorkSurfaceContent({
           resolvedCreateTeamId={resolvedCreateTeamId}
           scopedItems={scopedItems}
           view={view}
-          calendar={calendar}
-          onToggleHiddenValue={onToggleHiddenValue}
-        />
+	          calendar={calendar}
+	          onToggleHiddenValue={onToggleHiddenValue}
+	          selectedItemId={selectedItemId}
+	          onSelectedItemIdChange={onSelectedItemIdChange}
+	        />
       ) : (
         <WorkSurfaceEmptyState
           emptyLabel={emptyLabel}
@@ -720,6 +749,8 @@ function WorkSurfaceActiveContent({
   view,
   calendar,
   onToggleHiddenValue,
+  selectedItemId,
+  onSelectedItemIdChange,
 }: {
   childDisplayMode: WorkSurfaceChildDisplayMode
   createContext?: WorkSurfaceCreateContext
@@ -732,6 +763,8 @@ function WorkSurfaceActiveContent({
   view: ViewDefinition
   calendar: WorkSurfaceCalendarState
   onToggleHiddenValue: (key: "groups" | "subgroups", value: string) => void
+  selectedItemId?: string | null
+  onSelectedItemIdChange?: (itemId: string | null) => void
 }) {
   const resolvedCreateContext = getResolvedWorkSurfaceCreateContext(
     createContext,
@@ -750,9 +783,11 @@ function WorkSurfaceActiveContent({
         editable={editable}
         groupingExperience={groupingExperience}
         childDisplayMode={childDisplayMode}
-        createContext={resolvedCreateContext}
-        onToggleHiddenValue={hiddenValueHandler}
-      />
+	        createContext={resolvedCreateContext}
+	        onToggleHiddenValue={hiddenValueHandler}
+	        selectedItemId={selectedItemId}
+	        onSelectedItemIdChange={onSelectedItemIdChange}
+	      />
     )
   }
 
@@ -766,9 +801,11 @@ function WorkSurfaceActiveContent({
         editable={editable}
         groupingExperience={groupingExperience}
         childDisplayMode={childDisplayMode}
-        createContext={resolvedCreateContext}
-        onToggleHiddenValue={hiddenValueHandler}
-      />
+	        createContext={resolvedCreateContext}
+	        onToggleHiddenValue={hiddenValueHandler}
+	        selectedItemId={selectedItemId}
+	        onSelectedItemIdChange={onSelectedItemIdChange}
+	      />
     )
   }
 
@@ -1065,6 +1102,9 @@ export function WorkSurface({
   const [localFallbackViewId, setLocalFallbackViewId] = useState<string | null>(
     null
   )
+  const [selectedInlineItemId, setSelectedInlineItemId] = useState<string | null>(
+    null
+  )
   const calendar = useWorkSurfaceCalendarState(data)
   const usingFallbackViews = views.length === 0 && localFallbackViews.length > 0
   const activeBaseView = getActiveBaseWorkSurfaceView({
@@ -1164,6 +1204,40 @@ export function WorkSurface({
     shouldMatchAssignedItems,
     view: compatibleActiveView,
   })
+  const selectedInlineItem =
+    selectedInlineItemId && compatibleActiveView?.layout !== "calendar"
+      ? (visibleItems.find((item) => item.id === selectedInlineItemId) ??
+        data.workItems.find((item) => item.id === selectedInlineItemId) ??
+        null)
+      : null
+  const inlineSidebarOpen = Boolean(selectedInlineItem)
+
+  useEffect(() => {
+    if (!selectedInlineItemId) {
+      return
+    }
+
+    if (
+      !compatibleActiveView ||
+      (compatibleActiveView.layout !== "list" &&
+        compatibleActiveView.layout !== "board") ||
+      !data.workItems.some((item) => item.id === selectedInlineItemId)
+    ) {
+      setSelectedInlineItemId(null)
+    }
+  }, [compatibleActiveView, data.workItems, selectedInlineItemId])
+
+  function toggleInlineItemSidebar(itemId: string | null) {
+    if (!itemId) {
+      setSelectedInlineItemId(null)
+      return
+    }
+
+    setSelectedInlineItemId((currentItemId) =>
+      currentItemId === itemId ? null : itemId
+    )
+  }
+
   function updateLocalFallbackView(
     viewId: string,
     updateView: (view: ViewDefinition) => ViewDefinition
@@ -1252,50 +1326,68 @@ export function WorkSurface({
         }
       />
 
-      {compatibleActiveView ? (
-        <WorkSurfaceViewbar
-          view={compatibleActiveView}
-          filterPopoverItems={filterPopoverItems}
-          groupingExperience={effectiveGroupingExperience}
-          hiddenFilters={hiddenFilters}
-          groupOptions={compatibleGroupOptions}
-          onUpdateViewerView={viewerViewActions.updateViewerActiveView}
-          onToggleViewerFilterValue={
-            viewerViewActions.toggleViewerActiveViewFilterValue
-          }
-          onClearViewerFilters={viewerViewActions.clearViewerActiveViewFilters}
-          onToggleViewerDisplayProperty={
-            viewerViewActions.toggleViewerActiveDisplayProperty
-          }
-          onReorderViewerDisplayProperties={
-            viewerViewActions.reorderViewerActiveDisplayProperties
-          }
-          onClearViewerDisplayProperties={
-            viewerViewActions.clearViewerActiveDisplayProperties
-          }
-          onResetViewerView={viewerViewActions.resetViewerActiveView}
-          calendar={calendar}
-          onCreateWorkItem={handleCreateWorkItem}
-        />
-      ) : null}
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {compatibleActiveView ? (
+            <WorkSurfaceViewbar
+              view={compatibleActiveView}
+              filterPopoverItems={filterPopoverItems}
+              groupingExperience={effectiveGroupingExperience}
+              hiddenFilters={hiddenFilters}
+              groupOptions={compatibleGroupOptions}
+              onUpdateViewerView={viewerViewActions.updateViewerActiveView}
+              onToggleViewerFilterValue={
+                viewerViewActions.toggleViewerActiveViewFilterValue
+              }
+              onClearViewerFilters={viewerViewActions.clearViewerActiveViewFilters}
+              onToggleViewerDisplayProperty={
+                viewerViewActions.toggleViewerActiveDisplayProperty
+              }
+              onReorderViewerDisplayProperties={
+                viewerViewActions.reorderViewerActiveDisplayProperties
+              }
+              onClearViewerDisplayProperties={
+                viewerViewActions.clearViewerActiveDisplayProperties
+              }
+              onResetViewerView={viewerViewActions.resetViewerActiveView}
+              calendar={calendar}
+              compactControls={inlineSidebarOpen}
+              onCreateWorkItem={handleCreateWorkItem}
+            />
+          ) : null}
 
-      <WorkSurfaceContent
-        data={data}
-        view={compatibleActiveView}
-        visibleItems={visibleItems}
-        scopedItems={items}
-        editable={editable}
-        groupingExperience={effectiveGroupingExperience}
-        childDisplayMode={childDisplayMode}
-        createContext={createContext}
-        resolvedCreateTeamId={resolvedCreateTeamId}
-        isLoading={isLoading}
-        loadingLabel={loadingLabel}
-        emptyLabel={emptyLabel}
-        calendar={calendar}
-        onCreateWorkItem={handleCreateWorkItem}
-        onToggleHiddenValue={viewerViewActions.toggleViewerActiveHiddenValue}
-      />
-    </div>
-  )
-}
+          <WorkSurfaceContent
+            data={data}
+            view={compatibleActiveView}
+            visibleItems={visibleItems}
+            scopedItems={items}
+            editable={editable}
+            groupingExperience={effectiveGroupingExperience}
+            childDisplayMode={childDisplayMode}
+            createContext={createContext}
+            resolvedCreateTeamId={resolvedCreateTeamId}
+            isLoading={isLoading}
+            loadingLabel={loadingLabel}
+            emptyLabel={emptyLabel}
+            calendar={calendar}
+            onCreateWorkItem={handleCreateWorkItem}
+            onToggleHiddenValue={viewerViewActions.toggleViewerActiveHiddenValue}
+            selectedItemId={selectedInlineItemId}
+            onSelectedItemIdChange={toggleInlineItemSidebar}
+          />
+        </div>
+        {selectedInlineItem ? (
+          <div className="flex h-full min-h-0 w-[26.25rem] shrink-0 overflow-hidden">
+            <WorkItemDetailSidebarSurface
+              data={data}
+              currentItem={selectedInlineItem}
+              editable={editable}
+              variant="inline"
+              onClose={() => setSelectedInlineItemId(null)}
+            />
+          </div>
+        ) : null}
+      </div>
+	    </div>
+	  )
+	}

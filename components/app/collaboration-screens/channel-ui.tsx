@@ -140,7 +140,10 @@ function ForumPostReactions({
   }
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+    <div
+      data-channel-post-reactions={post.id}
+      className="mt-2 mb-2 flex flex-wrap items-center gap-1.5 pt-0.5"
+    >
       {reactions.map((reaction) => {
         const active = reaction.userIds.includes(currentUserId)
 
@@ -1049,7 +1052,13 @@ function ForumPostBody({
 }) {
   return (
     <div className="min-w-0">
-      <div className="group/post relative pr-12">
+      <div
+        data-channel-post-body={post.id}
+        className={cn(
+          "group/post relative overflow-visible pr-12",
+          (post.reactions?.length ?? 0) > 0 && "pb-2"
+        )}
+      >
         <div className="flex min-w-0 items-baseline gap-2">
           <ForumPostAuthorLine
             author={author}

@@ -488,7 +488,9 @@ function renderWorkItemDetail(itemId = "item_1") {
 
 function renderWorkItemBreadcrumbAfterStatePatch(
   itemId: string,
-  patchState: (state: ReturnType<typeof useAppStore.getState>) => Partial<AppData>
+  patchState: (
+    state: ReturnType<typeof useAppStore.getState>
+  ) => Partial<AppData>
 ) {
   act(() => {
     useAppStore.setState((state) => ({
@@ -938,7 +940,8 @@ describe("work item detail screen", () => {
 
     expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled()
 
-    const renderCountAfterDirtyTransition = richTextEditorRenderMock.mock.calls.length
+    const renderCountAfterDirtyTransition =
+      richTextEditorRenderMock.mock.calls.length
 
     updateDescriptionEditor("<p>Draft two</p>")
     updateDescriptionEditor("<p>Draft three</p>")
@@ -961,7 +964,8 @@ describe("work item detail screen", () => {
 
     expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled()
 
-    const renderCountAfterDirtyTransition = richTextEditorRenderMock.mock.calls.length
+    const renderCountAfterDirtyTransition =
+      richTextEditorRenderMock.mock.calls.length
 
     fireEvent.change(screen.getByDisplayValue("Plan launch draft one"), {
       target: {
@@ -1038,7 +1042,9 @@ describe("work item detail screen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Done" }))
 
     await waitFor(() => expect(flushMock).toHaveBeenCalled())
-    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledTimes(1)
+    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledTimes(
+      1
+    )
     expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledWith(
       "item_1",
       "<p>Live draft two</p>"
@@ -1059,7 +1065,9 @@ describe("work item detail screen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }))
 
-    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledTimes(1)
+    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledTimes(
+      1
+    )
     expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledWith(
       "item_1",
       "<p>Close draft two</p>"
@@ -1703,8 +1711,8 @@ describe("work item detail screen", () => {
       screen.queryByRole("button", { name: "Project" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Manage labels" })
-    ).not.toBeInTheDocument()
+      screen.getByRole("button", { name: "Manage labels" })
+    ).toBeInTheDocument()
     expect(screen.getAllByText("Activity").length).toBeGreaterThan(0)
     expect(screen.queryByLabelText(/Leave a comment/i)).not.toBeInTheDocument()
   })
@@ -2110,6 +2118,53 @@ describe("work item detail screen", () => {
     expect(
       screen.queryByRole("button", { name: /^Properties/ })
     ).not.toBeInTheDocument()
+  })
+
+  it("creates private custom properties from the private task sidebar", async () => {
+    const createCustomPropertyDefinitionMock = vi.fn().mockResolvedValue({
+      id: "property_private",
+    })
+    const data = createTestAppData({
+      workItems: [
+        createTestWorkItem("private_item", {
+          key: "PRIVATE-1",
+          teamId: null,
+          workspaceId: "workspace_1",
+          visibility: "private",
+          creatorId: "user_1",
+        }),
+      ],
+    })
+    const item = data.workItems[0]
+
+    useAppStore.setState({
+      ...data,
+      createCustomPropertyDefinition: createCustomPropertyDefinitionMock,
+    } as Partial<ReturnType<typeof useAppStore.getState>>)
+
+    render(
+      <WorkItemDetailSidebarSurface data={data} currentItem={item} editable />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add property" }))
+    fireEvent.change(screen.getByPlaceholderText("Property name"), {
+      target: {
+        value: "Focus",
+      },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Create property" }))
+
+    await waitFor(() => {
+      expect(createCustomPropertyDefinitionMock).toHaveBeenCalledWith({
+        scopeType: "private",
+        workspaceId: "workspace_1",
+        targetType: "workItem",
+        name: "Focus",
+        icon: "TextAa",
+        type: "text",
+        options: [],
+      })
+    })
   })
 
   it("uses the child type label for the sidebar child section", () => {

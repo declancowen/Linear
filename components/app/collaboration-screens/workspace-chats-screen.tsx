@@ -20,11 +20,7 @@ import {
   getWorkspaceChats,
 } from "@/lib/domain/selectors"
 import { isChatConversationUnread } from "@/lib/domain/chat-read-state"
-import type {
-  Conversation,
-  UserProfile,
-  Workspace,
-} from "@/lib/domain/types"
+import type { Conversation, UserProfile, Workspace } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { UserAvatar } from "@/components/app/user-presence"
@@ -198,7 +194,8 @@ function SingleWorkspaceConversationAvatar({
       name={avatar.name}
       avatarImageUrl={avatar.avatarImageUrl}
       avatarUrl={avatar.avatarUrl}
-      showStatus={false}
+      status={avatar.status}
+      showStatus={avatar.showStatus}
       size="sm"
     />
   )
@@ -220,6 +217,8 @@ function getSingleWorkspaceConversationAvatarProps({
       name: fallbackName,
       avatarImageUrl: undefined,
       avatarUrl: undefined,
+      showStatus: false,
+      status: undefined,
     }
   }
 
@@ -227,6 +226,8 @@ function getSingleWorkspaceConversationAvatarProps({
     name: participantView.name ?? fallbackName,
     avatarImageUrl: participantView.avatarImageUrl,
     avatarUrl: participantView.avatarUrl,
+    showStatus: !participantView.isFormerMember,
+    status: participantView.status ?? undefined,
   }
 }
 
@@ -471,8 +472,7 @@ export function WorkspaceChatsScreen() {
   const users = useAppStore((state) => state.users)
   const [dialogOpen, setDialogOpen] = useState(false)
   const storedConversationListWidth = useStoredWorkspaceChatListWidth()
-  const storedConversationListCollapsed =
-    useStoredWorkspaceChatListCollapsed()
+  const storedConversationListCollapsed = useStoredWorkspaceChatListCollapsed()
   const [conversationListWidthOverride, setConversationListWidthOverride] =
     useState<WorkspaceChatListWidth | undefined>(undefined)
   const [conversationListResizing, setConversationListResizing] =

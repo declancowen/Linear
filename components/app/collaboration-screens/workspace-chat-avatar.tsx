@@ -1,8 +1,6 @@
 "use client"
 
-import {
-  hasWorkspaceAccessInCollections,
-} from "@/lib/domain/selectors"
+import { hasWorkspaceAccessInCollections } from "@/lib/domain/selectors"
 import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
 import type { AppData, UserProfile, Workspace } from "@/lib/domain/types"
 import { UserAvatar } from "@/components/app/user-presence"
@@ -58,7 +56,8 @@ export function WorkspaceChatParticipantAvatar({
       name={participantView?.name ?? participant.name}
       avatarImageUrl={participantView?.avatarImageUrl}
       avatarUrl={participantView?.avatarUrl}
-      showStatus={false}
+      status={participantView?.status ?? undefined}
+      showStatus={!participantView?.isFormerMember}
       size="sm"
     />
   )

@@ -6,6 +6,10 @@ import {
   getNormalizedStyleValue,
   normalizeCanonicalUrl,
 } from "@/lib/collaboration/canonical-content-normalization"
+import {
+  CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE,
+  normalizeChatQuoteSourceMessageId,
+} from "@/lib/content/chat-message-quote-metadata"
 import { extractDocumentTitleFromContent } from "@/lib/content/document-title"
 import { createRichTextBaseExtensions } from "@/lib/rich-text/extensions"
 
@@ -348,6 +352,15 @@ const styledBlockTagNames = new Set(["col", "p", "h1", "h2", "h3", "td", "th"])
 
 const attributeCollectors: Record<string, AttributeCollector> = {
   a: (_tagName, element, target) => collectAnchorAttributes(element, target),
+  blockquote: (_tagName, element, target) => {
+    const sourceMessageId = normalizeChatQuoteSourceMessageId(
+      element.getAttribute(CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE)
+    )
+
+    if (sourceMessageId) {
+      target.set(CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE, sourceMessageId)
+    }
+  },
   div: (tagName, element, target) =>
     setTrimmedAttribute(target, element, getDataAttributeForTag(tagName)),
   img: (_tagName, element, target) => collectImageAttributes(element, target),

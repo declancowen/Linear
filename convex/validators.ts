@@ -570,13 +570,23 @@ export const customPropertyValueValidator = v.union(
   v.null()
 )
 
+export const customPropertyValueInputFields = {
+  targetType: v.optional(v.union(v.literal("workItem"), v.literal("document"))),
+  targetId: v.optional(v.string()),
+  workItemId: v.optional(v.string()),
+  propertyId: v.string(),
+  value: customPropertyValueValidator,
+}
+
 export const customPropertyDefinitionFields = {
   id: v.string(),
   workspaceId: v.string(),
-  teamId: v.string(),
-  scopeType: v.optional(v.union(v.literal("team"), v.literal("private"))),
+  teamId: nullableString,
+  scopeType: v.optional(
+    v.union(v.literal("team"), v.literal("workspace"), v.literal("private"))
+  ),
   ownerId: v.optional(nullableString),
-  targetType: v.literal("workItem"),
+  targetType: v.union(v.literal("workItem"), v.literal("document")),
   name: v.string(),
   icon: v.string(),
   type: customPropertyTypeValidator,
@@ -590,10 +600,8 @@ export const customPropertyDefinitionFields = {
 export const customPropertyValueFields = {
   id: v.string(),
   workspaceId: v.string(),
-  teamId: v.string(),
-  workItemId: v.string(),
-  propertyId: v.string(),
-  value: customPropertyValueValidator,
+  teamId: nullableString,
+  ...customPropertyValueInputFields,
   createdBy: v.string(),
   updatedBy: v.string(),
   createdAt: v.string(),

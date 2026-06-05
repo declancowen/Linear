@@ -134,7 +134,11 @@ export function ForumPostCommentItem({
   return (
     <div
       id={comment.id}
-      className="group/comment relative grid scroll-mt-6 items-start gap-x-2 rounded-md px-1.5 py-1 pr-10 transition-colors hover:bg-surface-2 target:ring-2 target:ring-ring/45"
+      data-channel-comment-item={comment.id}
+      className={cn(
+        "group/comment relative grid scroll-mt-6 items-start gap-x-2 overflow-visible rounded-md px-1.5 py-1 pr-10 transition-colors target:ring-2 target:ring-ring/45 hover:bg-surface-2",
+        reactions.length > 0 && "pb-2"
+      )}
       style={{ gridTemplateColumns: "24px minmax(0,1fr)" }}
     >
       <MessageHoverActionBar
@@ -263,7 +267,10 @@ export function ForumPostCommentItem({
           />
         )}
         {reactions.length > 0 ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <div
+            data-channel-comment-reactions={comment.id}
+            className="mt-1.5 mb-1.5 flex flex-wrap items-center gap-1 pt-0.5"
+          >
             {reactions.map((reaction) => {
               const active = reaction.userIds.includes(currentUserId)
 

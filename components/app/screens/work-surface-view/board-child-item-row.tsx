@@ -4,6 +4,7 @@ import type {
   DraggableAttributes,
   DraggableSyntheticListeners,
 } from "@dnd-kit/core"
+import { SidebarSimple } from "@phosphor-icons/react"
 
 import { StatusRing } from "@/components/ui/template-primitives"
 import type { AppData, WorkItem } from "@/lib/domain/types"
@@ -29,6 +30,7 @@ export function BoardChildItemRow({
   dragAttributes,
   dragListeners,
   selection,
+  onOpenProperties,
 }: {
   item: WorkItem
   assignee: AppData["users"][number] | null
@@ -38,9 +40,10 @@ export function BoardChildItemRow({
   dragAttributes?: DraggableAttributes
   dragListeners?: DraggableSyntheticListeners
   selection?: BoardChildItemSelectionProps
+  onOpenProperties?: (itemId: string) => void
 }) {
   const className = cn(
-    "relative flex cursor-grab touch-none items-center gap-2 rounded-md px-1.5 py-1 text-[12px] transition-colors hover:bg-surface-3 active:cursor-grabbing",
+    "group/child-row relative flex cursor-grab touch-none items-center gap-2 rounded-md px-1.5 py-1 text-[12px] transition-colors hover:bg-surface-3 active:cursor-grabbing",
     selection?.checked && "bg-surface-2",
     isDropTarget && "bg-surface-3"
   )
@@ -60,6 +63,22 @@ export function BoardChildItemRow({
       <span className="min-w-0 flex-1 truncate text-fg-2">{item.title}</span>
       {assignee ? (
         <WorkItemAssigneeAvatar user={assignee} className="size-4" />
+      ) : null}
+      {onOpenProperties ? (
+        <button
+          type="button"
+          aria-label={`Open properties for ${item.title}`}
+          title="Open properties"
+          className="pointer-events-auto grid size-5 shrink-0 place-items-center rounded-sm text-fg-3 opacity-0 transition-opacity hover:bg-surface-3 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none group-hover/child-row:opacity-100"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onOpenProperties(item.id)
+          }}
+        >
+          <SidebarSimple className="size-4" />
+        </button>
       ) : null}
     </>
   )

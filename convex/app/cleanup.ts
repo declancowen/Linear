@@ -25,6 +25,7 @@ import {
   listChatMessagesByConversations,
   listCommentsByTargets,
   listConversationsByScope,
+  listCustomPropertyValuesByProperty,
   listDocumentPresenceByDocuments,
   listDocumentsByIds,
   listDocumentPresenceByUser,
@@ -33,6 +34,9 @@ import {
   listMilestonesByProjects,
   listNotificationsByEntities,
   listPersonalViewsByUsers,
+  listPrivateCustomPropertyDefinitionsByWorkspaceOwner,
+  listPrivateLabelsByWorkspaceOwner,
+  listPrivateWorkItemsByCreator,
   listProjectsByScope,
   listProjectsByScopes,
   listProjectUpdatesByProjects,
@@ -641,7 +645,9 @@ async function selectUnreferencedAttachmentStorageIds(
     }
   }
 
-  return [...storageIds].filter((storageId) => !referencedStorageIds.has(storageId))
+  return [...storageIds].filter(
+    (storageId) => !referencedStorageIds.has(storageId)
+  )
 }
 
 /**
@@ -1398,6 +1404,105 @@ export async function cleanupUserAppStateForRemovedWorkspaceAccess(
   await ctx.db.delete(userAppState._id)
 }
 
+async function cleanupRemovedUserPrivateLabels(
+  ctx: MutationCtx,
+  input: {
+    removedUserId: string
+    workspaceId: string
+  }
+) {
+  const labels = await listPrivateLabelsByWorkspaceOwner(
+    ctx,
+    input.workspaceId,
+    input.removedUserId
+  )
+
+  if (labels.length === 0) {
+    return []
+  }
+
+  const deletedLabelIds = new Set(labels.map((label) => label.id))
+  const privateWorkItems = (
+    await listPrivateWorkItemsByCreator(ctx, input.removedUserId)
+  ).filter((workItem) => workItem.workspaceId === input.workspaceId)
+
+  for (const workItem of privateWorkItems) {
+    const nextLabelIds = filterRemovedIds(workItem.labelIds, deletedLabelIds)
+
+    if (nextLabelIds.length === workItem.labelIds.length) {
+      continue
+    }
+
+    await ctx.db.patch(workItem._id, {
+      labelIds: nextLabelIds,
+      updatedAt: getNow(),
+    })
+  }
+
+  for (const label of labels) {
+    await ctx.db.delete(label._id)
+  }
+
+  return [...deletedLabelIds]
+}
+
+async function cleanupRemovedUserPrivateCustomProperties(
+  ctx: MutationCtx,
+  input: {
+    removedUserId: string
+    workspaceId: string
+  }
+) {
+  const definitions =
+    await listPrivateCustomPropertyDefinitionsByWorkspaceOwner(
+      ctx,
+      input.workspaceId,
+      input.removedUserId
+    )
+
+  if (definitions.length === 0) {
+    return []
+  }
+
+  const propertyIds = new Set(definitions.map((definition) => definition.id))
+  const values = (
+    await Promise.all(
+      definitions.map((definition) =>
+        listCustomPropertyValuesByProperty(ctx, definition.id)
+      )
+    )
+  ).flat()
+  const personalViews = await listViewsByScope(
+    ctx,
+    "personal",
+    input.removedUserId
+  )
+
+  for (const view of personalViews) {
+    const nextDisplayProps = view.displayProps.filter((property) => {
+      if (!property.startsWith("custom:")) {
+        return true
+      }
+
+      return !propertyIds.has(property.slice("custom:".length))
+    })
+
+    if (nextDisplayProps.length === view.displayProps.length) {
+      continue
+    }
+
+    await ctx.db.patch(view._id, {
+      displayProps: nextDisplayProps,
+      updatedAt: getNow(),
+    })
+  }
+
+  await deleteDocs(ctx, values)
+  await deleteDocs(ctx, definitions)
+
+  return [...propertyIds]
+}
+
 export async function cleanupUserAccessRemoval(
   ctx: MutationCtx,
   input: {
@@ -1472,6 +1577,14 @@ export async function cleanupUserAccessRemoval(
   })
 
   if (!hasWorkspaceAccess) {
+    await cleanupRemovedUserPrivateLabels(ctx, {
+      removedUserId: input.removedUserId,
+      workspaceId: input.workspaceId,
+    })
+    await cleanupRemovedUserPrivateCustomProperties(ctx, {
+      removedUserId: input.removedUserId,
+      workspaceId: input.workspaceId,
+    })
     await cleanupRemovedUserWorkspaceState(ctx, {
       removedUserId: input.removedUserId,
       workspaceId: input.workspaceId,
@@ -1529,6 +1642,8 @@ async function getUnreferencedUserReferenceSnapshot(ctx: MutationCtx) {
     documents,
     views,
     comments,
+    customPropertyDefinitions,
+    customPropertyValues,
     attachments,
     notifications,
     workItemActivities,
@@ -1549,6 +1664,8 @@ async function getUnreferencedUserReferenceSnapshot(ctx: MutationCtx) {
     ctx.db.query("documents").collect(),
     ctx.db.query("views").collect(),
     ctx.db.query("comments").collect(),
+    ctx.db.query("customPropertyDefinitions").collect(),
+    ctx.db.query("customPropertyValues").collect(),
     ctx.db.query("attachments").collect(),
     ctx.db.query("notifications").collect(),
     ctx.db.query("workItemActivities").collect(),
@@ -1568,6 +1685,8 @@ async function getUnreferencedUserReferenceSnapshot(ctx: MutationCtx) {
     channelPosts,
     chatMessages,
     comments,
+    customPropertyDefinitions,
+    customPropertyValues,
     conversations,
     documents,
     invites,
@@ -1592,6 +1711,30 @@ type UserReferencePredicate = (
   snapshot: UserReferenceSnapshot,
   userId: string
 ) => boolean
+
+function hasCustomPropertyUserReference(
+  snapshot: UserReferenceSnapshot,
+  userId: string
+) {
+  const personPropertyIds = new Set(
+    snapshot.customPropertyDefinitions
+      .filter((definition) => definition.type === "person")
+      .map((definition) => definition.id)
+  )
+
+  return (
+    snapshot.customPropertyDefinitions.some(
+      (definition) =>
+        definition.createdBy === userId || definition.ownerId === userId
+    ) ||
+    snapshot.customPropertyValues.some(
+      (value) =>
+        value.createdBy === userId ||
+        value.updatedBy === userId ||
+        (personPropertyIds.has(value.propertyId) && value.value === userId)
+    )
+  )
+}
 
 const USER_REFERENCE_PREDICATES: UserReferencePredicate[] = [
   (snapshot, userId) =>
@@ -1634,6 +1777,7 @@ const USER_REFERENCE_PREDICATES: UserReferencePredicate[] = [
         comment.createdBy === userId ||
         (comment.mentionUserIds ?? []).includes(userId)
     ),
+  hasCustomPropertyUserReference,
   (snapshot, userId) =>
     snapshot.attachments.some((attachment) => attachment.uploadedBy === userId),
   (snapshot, userId) =>

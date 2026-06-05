@@ -38,7 +38,6 @@ import {
 import {
   attachmentTargetTypes,
   commentTargetTypes,
-  customPropertyScopeTypes,
   customPropertyTargetTypes,
   customPropertyTypes,
   displayProperties,
@@ -170,9 +169,14 @@ export const nullableTimeZoneSchema = z
 
 export const labelCreateSchema = z.object({
   workspaceId: z.string().trim().min(1).optional(),
-  scopeType: z.literal("workspace").optional(),
+  scopeType: z.enum(["workspace", "private"]).optional(),
   name: boundedTrimmedStringSchema(labelNameConstraints),
   color: z.string().trim().min(1).max(24).optional(),
+})
+
+export const labelUpdateSchema = z.object({
+  labelId: z.string().trim().min(1),
+  name: boundedTrimmedStringSchema(labelNameConstraints),
 })
 
 export const inviteSchema = z.object({
@@ -519,15 +523,37 @@ const customPropertyOptionSchema = z.object({
   color: z.string().trim().min(1).max(32),
 })
 
-const customPropertyDefinitionBaseSchema = z.object({
-  teamId: z.string().trim().min(1),
-  scopeType: z.enum(customPropertyScopeTypes).optional(),
+const customPropertyDefinitionShape = {
   targetType: z.enum(customPropertyTargetTypes).default("workItem"),
   name: z.string().trim().min(1).max(64),
   icon: z.string().trim().min(1).max(80),
   type: z.enum(customPropertyTypes),
   options: z.array(customPropertyOptionSchema).default([]),
+}
+
+const teamCustomPropertyDefinitionSchema = z.object({
+  teamId: z.string().trim().min(1),
+  scopeType: z.literal("team").optional(),
+  ...customPropertyDefinitionShape,
 })
+
+const workspaceCustomPropertyDefinitionSchema = z.object({
+  workspaceId: z.string().trim().min(1),
+  scopeType: z.literal("workspace"),
+  ...customPropertyDefinitionShape,
+})
+
+const privateCustomPropertyDefinitionSchema = z.object({
+  workspaceId: z.string().trim().min(1),
+  scopeType: z.literal("private"),
+  ...customPropertyDefinitionShape,
+})
+
+const customPropertyDefinitionBaseSchema = z.union([
+  teamCustomPropertyDefinitionSchema,
+  workspaceCustomPropertyDefinitionSchema,
+  privateCustomPropertyDefinitionSchema,
+])
 
 function addCustomPropertyOptionValidationIssues(
   value: {
@@ -584,14 +610,17 @@ const customPropertyDefinitionPatchBaseSchema = z.object({
 })
 
 export const customPropertyDefinitionSchema =
-  customPropertyDefinitionBaseSchema
-    .superRefine((value, ctx) => {
-      addCustomPropertyOptionValidationIssues(value, ctx)
-    })
-    .refine((value) => (value.scopeType ?? "team") === "team", {
-      path: ["scopeType"],
-      message: "Private custom properties are not supported",
-    })
+  customPropertyDefinitionBaseSchema.superRefine((value, ctx) => {
+    if (value.scopeType === "workspace" && value.targetType === "workItem") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["targetType"],
+        message: "Workspace properties can only target documents",
+      })
+    }
+
+    addCustomPropertyOptionValidationIssues(value, ctx)
+  })
 
 export const customPropertyDefinitionPatchSchema =
   customPropertyDefinitionPatchBaseSchema
@@ -714,11 +743,7 @@ export const attachmentSchema = z.object({
   storageId: z.string().min(1),
   fileName: z.string().trim().min(1).max(180),
   contentType: z.string().trim().min(1).max(120),
-  size: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_ATTACHMENT_UPLOAD_SIZE_BYTES),
+  size: z.number().int().min(1).max(MAX_ATTACHMENT_UPLOAD_SIZE_BYTES),
 })
 
 const teamTemplateConfigSchema = z.object({

@@ -471,6 +471,7 @@ function ParentPicker({
                     key={parentOption.id}
                     selected={selected}
                     onClick={() => onParentChange(parentOption.id)}
+                    className="h-auto min-h-9 py-1.5"
                     trailing={
                       selected ? (
                         <Check className="size-[14px] text-foreground" />
@@ -478,9 +479,13 @@ function ParentPicker({
                     }
                   >
                     <TreeStructure className="size-[14px] shrink-0 text-fg-3" />
-                    <span className="truncate">
-                      <span className="text-fg-3">{parentOption.key}</span>{" "}
-                      <span>{parentOption.title}</span>
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-[11px] leading-none text-fg-3">
+                        {parentOption.key}
+                      </span>
+                      <span className="truncate leading-4 text-foreground">
+                        {parentOption.title}
+                      </span>
                     </span>
                   </PropertyPopoverItem>
                 )
@@ -629,6 +634,7 @@ function LabelsPicker({
   onToggleLabel,
   onClearLabels,
   onCreateLabel,
+  canCreateLabel,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -645,6 +651,7 @@ function LabelsPicker({
   onToggleLabel: (labelId: string) => void
   onClearLabels: () => void
   onCreateLabel: () => void
+  canCreateLabel: boolean
 }) {
   const labelsTriggerText = getLabelsTriggerText(selectedLabels)
   const { matched, selected, unselected } = getMatchedLabelGroups({
@@ -671,7 +678,7 @@ function LabelsPicker({
             chipTriggerClass,
             selectedLabels.length === 0 && chipTriggerDashedClass
           )}
-          disabled={!team}
+          disabled={!canCreateLabel}
         >
           <Tag className="size-[13px]" />
           <span
@@ -724,6 +731,7 @@ function LabelsPicker({
           />
           <NewLabelInput
             creatingLabel={creatingLabel}
+            canCreateLabel={canCreateLabel}
             labelNameLimitState={labelNameLimitState}
             newLabelName={newLabelName}
             team={team}
@@ -791,6 +799,7 @@ function CreateWorkItemPropertiesRow({
   selectedParentId,
   onParentChange,
   labelsPickerOpen,
+  canCreateLabel,
   setLabelsPickerOpen,
   labelQuery,
   setLabelQuery,
@@ -856,6 +865,7 @@ function CreateWorkItemPropertiesRow({
   selectedParentId: string
   onParentChange: (parentId: string) => void
   labelsPickerOpen: boolean
+  canCreateLabel: boolean
   setLabelsPickerOpen: Dispatch<SetStateAction<boolean>>
   labelQuery: string
   setLabelQuery: Dispatch<SetStateAction<string>>
@@ -971,6 +981,7 @@ function CreateWorkItemPropertiesRow({
           onNewLabelNameChange={setNewLabelName}
           labelNameLimitState={labelNameLimitState}
           creatingLabel={creatingLabel}
+          canCreateLabel={canCreateLabel}
           onToggleLabel={onToggleLabel}
           onClearLabels={onClearLabels}
           onCreateLabel={onCreateLabel}
@@ -1136,6 +1147,14 @@ function getHasExplicitProjectDefault(
   defaultValues: CreateWorkItemDefaultValues | undefined,
   defaultProjectId: string | null | undefined
 ) {
+  if (
+    defaultValues?.parentId &&
+    defaultValues.primaryProjectId == null &&
+    defaultProjectId == null
+  ) {
+    return false
+  }
+
   return (
     defaultValues?.primaryProjectId !== undefined ||
     defaultProjectId !== undefined
@@ -1373,20 +1392,18 @@ function getInitialCreateWorkItemState({
 }
 
 function getLabelsForTeam({
+  currentUserId,
   labels,
   team,
   visibility,
   workspaceId,
 }: {
+  currentUserId: string
   labels: Label[]
   team: Team | null
   visibility: WorkItemVisibility
   workspaceId: string | null
 }) {
-  if (visibility === "private") {
-    return []
-  }
-
   const resolvedWorkspaceId = team?.workspaceId ?? workspaceId
 
   if (!resolvedWorkspaceId) {
@@ -1396,6 +1413,13 @@ function getLabelsForTeam({
   return labels.filter((label) => {
     if (label.workspaceId !== resolvedWorkspaceId) {
       return false
+    }
+
+    if (visibility === "private") {
+      return (
+        getLabelScopeType(label) === "private" &&
+        label.ownerId === currentUserId
+      )
     }
 
     return getLabelScopeType(label) === "workspace"
@@ -1946,7 +1970,7 @@ function createWorkItemFromDialogState({
     parentId: selectedParentItem?.id ?? null,
     priority,
     status,
-    labelIds: visibility === "private" ? [] : selectedLabelIds,
+    labelIds: selectedLabelIds,
     visibility,
     assigneeId:
       visibility === "private" ? null : (effectiveAssigneeIds[0] ?? null),
@@ -2099,12 +2123,13 @@ export function CreateWorkItemDialog({
   const labels = useMemo(
     () =>
       getLabelsForTeam({
+        currentUserId,
         labels: allLabels,
         team,
         visibility,
         workspaceId: selectedWorkspaceId,
       }),
-    [allLabels, selectedWorkspaceId, team, visibility]
+    [allLabels, currentUserId, selectedWorkspaceId, team, visibility]
   )
   const teamMembers = useMemo(
     () => getTeamMembers(users, teamMemberships, selectedTeamId),
@@ -2314,15 +2339,11 @@ export function CreateWorkItemDialog({
   }
 
   async function handleCreateLabel() {
-    if (privateTaskMode) {
-      return
-    }
-
     await createLabelAndSelect({
       newLabelName,
       creatingLabel,
       canSubmit: labelNameLimitState.canSubmit,
-      scopeType: "workspace",
+      scopeType: privateTaskMode ? "private" : "workspace",
       workspaceId: selectedWorkspaceId,
       setCreatingLabel,
       setNewLabelName,
@@ -2480,7 +2501,7 @@ export function CreateWorkItemDialog({
 
         <CreateWorkItemPropertiesRow
           showAssignee={!privateTaskMode}
-          showLabels={!privateTaskMode}
+          showLabels
           showProject={!privateTaskMode}
           team={team}
           status={status}
@@ -2530,6 +2551,7 @@ export function CreateWorkItemDialog({
           selectedParentId={selectedParentId}
           onParentChange={handleParentChange}
           labelsPickerOpen={labelsPickerOpen}
+          canCreateLabel={Boolean(selectedWorkspaceId)}
           setLabelsPickerOpen={setLabelsPickerOpen}
           labelQuery={labelQuery}
           setLabelQuery={setLabelQuery}

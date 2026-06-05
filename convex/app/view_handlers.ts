@@ -18,6 +18,7 @@ import {
   requireEditableTeamAccess,
   requireEditableWorkspaceAccess,
   requireReadableTeamAccess,
+  requireReadableWorkspaceAccess,
 } from "./access"
 import { normalizeTeam } from "./normalization"
 import {
@@ -65,6 +66,16 @@ type ViewOrdering =
   | "title"
   | "count"
 type ViewDisplayProperty = string
+type CustomDisplayPropertyViewContext = {
+  scopeType: "personal" | "team" | "workspace"
+  scopeId: string
+  entityKind: "items" | "projects" | "docs"
+  filters?: Pick<ViewDefinition["filters"], "visibility">
+  isShared?: boolean
+}
+type CustomPropertyDefinitionDoc = NonNullable<
+  Awaited<ReturnType<typeof getCustomPropertyDefinitionDoc>>
+>
 
 type ViewConfigArgs = ServerAccessArgs & {
   currentUserId: string
@@ -246,24 +257,22 @@ function assertCreateViewRoute(args: CreateViewArgs, teamSlug: string | null) {
   }
 }
 
-async function assertCustomDisplayPropertyAllowed(
-  ctx: MutationCtx,
-  currentUserId: string,
-  view: {
-    scopeType: "personal" | "team" | "workspace"
-    scopeId: string
-    entityKind: "items" | "projects" | "docs"
-  },
-  property: ViewDisplayProperty
-) {
-  if (!property.startsWith("custom:")) {
-    return
-  }
+function throwCustomDisplayPropertyUnavailable(): never {
+  throw new Error("Custom property is not available in this view scope")
+}
 
+function assertViewSupportsCustomDisplayProperties(
+  view: CustomDisplayPropertyViewContext
+) {
   if (view.entityKind !== "items" || view.scopeType === "workspace") {
     throw new Error("Custom properties are only available on work views")
   }
+}
 
+async function loadAvailableCustomDisplayPropertyDefinition(
+  ctx: MutationCtx,
+  property: ViewDisplayProperty
+) {
   const propertyId = property.slice("custom:".length)
   const definition = await getCustomPropertyDefinitionDoc(ctx, propertyId)
 
@@ -272,37 +281,128 @@ async function assertCustomDisplayPropertyAllowed(
     definition.isArchived ||
     definition.targetType !== "workItem"
   ) {
-    throw new Error("Custom property is not available in this view scope")
+    throwCustomDisplayPropertyUnavailable()
   }
 
-  if (
-    view.scopeType === "team" &&
-    (definition.teamId !== view.scopeId ||
-      getCustomPropertyScopeType(definition) !== "team")
-  ) {
-    throw new Error("Custom property is not available in this view scope")
-  }
+  return definition
+}
 
+function isOwnerPrivateTaskView(
+  view: CustomDisplayPropertyViewContext,
+  currentUserId: string
+) {
+  return (
+    view.scopeId === currentUserId &&
+    !view.isShared &&
+    view.filters?.visibility?.length === 1 &&
+    view.filters.visibility[0] === "private"
+  )
+}
+
+async function assertTeamCustomDisplayPropertyAllowed(
+  ctx: MutationCtx,
+  currentUserId: string,
+  view: CustomDisplayPropertyViewContext,
+  definition: CustomPropertyDefinitionDoc
+) {
   if (
-    view.scopeType === "personal" &&
+    definition.teamId !== view.scopeId ||
     getCustomPropertyScopeType(definition) !== "team"
   ) {
-    throw new Error("Custom property is not available in this view scope")
+    throwCustomDisplayPropertyUnavailable()
+  }
+
+  await requireReadableTeamAccess(ctx, definition.teamId, currentUserId)
+}
+
+async function assertPrivateCustomDisplayPropertyAllowed(
+  ctx: MutationCtx,
+  currentUserId: string,
+  privateTaskView: boolean,
+  definition: CustomPropertyDefinitionDoc
+) {
+  if (
+    !privateTaskView ||
+    (definition.ownerId ?? definition.createdBy) !== currentUserId
+  ) {
+    throwCustomDisplayPropertyUnavailable()
+  }
+
+  await requireReadableWorkspaceAccess(
+    ctx,
+    definition.workspaceId,
+    currentUserId
+  )
+}
+
+async function assertPersonalCustomDisplayPropertyAllowed(
+  ctx: MutationCtx,
+  currentUserId: string,
+  view: CustomDisplayPropertyViewContext,
+  definition: CustomPropertyDefinitionDoc
+) {
+  const privateTaskView = isOwnerPrivateTaskView(view, currentUserId)
+
+  if (getCustomPropertyScopeType(definition) === "private") {
+    await assertPrivateCustomDisplayPropertyAllowed(
+      ctx,
+      currentUserId,
+      privateTaskView,
+      definition
+    )
+    return
+  }
+
+  if (privateTaskView || !definition.teamId) {
+    throwCustomDisplayPropertyUnavailable()
+  }
+
+  await requireReadableTeamAccess(ctx, definition.teamId, currentUserId)
+}
+
+async function assertCustomDisplayPropertyAllowed(
+  ctx: MutationCtx,
+  currentUserId: string,
+  view: CustomDisplayPropertyViewContext,
+  property: ViewDisplayProperty
+) {
+  if (!property.startsWith("custom:")) {
+    return
+  }
+
+  assertViewSupportsCustomDisplayProperties(view)
+  const definition = await loadAvailableCustomDisplayPropertyDefinition(
+    ctx,
+    property
+  )
+
+  if (view.scopeType === "team") {
+    await assertTeamCustomDisplayPropertyAllowed(
+      ctx,
+      currentUserId,
+      view,
+      definition
+    )
+    return
   }
 
   if (view.scopeType === "personal") {
-    await requireReadableTeamAccess(ctx, definition.teamId, currentUserId)
+    await assertPersonalCustomDisplayPropertyAllowed(
+      ctx,
+      currentUserId,
+      view,
+      definition
+    )
+    return
   }
+
+  throwCustomDisplayPropertyUnavailable()
 }
 
 async function assertDisplayPropertiesAllowed(
   ctx: MutationCtx,
   currentUserId: string,
-  view: {
-    scopeType: "personal" | "team" | "workspace"
-    scopeId: string
-    entityKind: "items" | "projects" | "docs"
-  },
+  view: CustomDisplayPropertyViewContext,
   displayProps: ViewDisplayProperty[]
 ) {
   await Promise.all(
@@ -581,8 +681,15 @@ export async function toggleViewFilterValueHandler(
   const next = current.includes(args.value)
     ? current.filter((entry) => entry !== args.value)
     : [...current, args.value]
+  const nextFilters = {
+    ...view.filters,
+    [args.key]: next,
+  }
 
-  if (args.key === "labelIds" && next.length > 0) {
+  if (
+    (args.key === "labelIds" || args.key === "visibility") &&
+    (nextFilters.labelIds ?? []).length > 0
+  ) {
     const workspaceId = await resolveViewWorkspaceId(
       ctx,
       view,
@@ -595,17 +702,32 @@ export async function toggleViewFilterValueHandler(
 
     await assertViewLabelIds(ctx, {
       currentUserId: args.currentUserId,
-      labelIds: next,
-      view,
+      labelIds: nextFilters.labelIds ?? [],
+      view: {
+        ...view,
+        filters: nextFilters,
+      },
       workspaceId,
     })
   }
 
+  if (
+    args.key === "visibility" &&
+    (view.displayProps ?? []).some((property) => property.startsWith("custom:"))
+  ) {
+    await assertDisplayPropertiesAllowed(
+      ctx,
+      args.currentUserId,
+      {
+        ...view,
+        filters: nextFilters,
+      },
+      view.displayProps
+    )
+  }
+
   await ctx.db.patch(view._id, {
-    filters: {
-      ...view.filters,
-      [args.key]: next,
-    },
+    filters: nextFilters,
     updatedAt: getNow(),
   })
 }
@@ -620,9 +742,24 @@ export async function clearViewFiltersHandler(
     args.viewId,
     args.currentUserId
   )
+  const nextFilters = clearViewFilterSelections(view.filters as ViewFilters)
+
+  if (
+    (view.displayProps ?? []).some((property) => property.startsWith("custom:"))
+  ) {
+    await assertDisplayPropertiesAllowed(
+      ctx,
+      args.currentUserId,
+      {
+        ...view,
+        filters: nextFilters,
+      },
+      view.displayProps
+    )
+  }
 
   await ctx.db.patch(view._id, {
-    filters: clearViewFilterSelections(view.filters as ViewFilters),
+    filters: nextFilters,
     updatedAt: getNow(),
   })
 }

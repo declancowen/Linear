@@ -6,6 +6,7 @@ import type { AppStore, AppStoreGet, AppStoreSet } from "../types"
 export type WorkSlice = Pick<
   AppStore,
   | "createLabel"
+  | "updateLabel"
   | "updateWorkItem"
   | "setWorkItemSubscription"
   | "deleteWorkItem"

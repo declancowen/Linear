@@ -4,9 +4,11 @@ import { isValidCalendarDateString } from "../../lib/calendar-date"
 import { isAllowedPhosphorIconName } from "../../lib/domain/phosphor-icon-options"
 import {
   getCustomPropertyScopeType,
+  isCustomPropertyDefinitionForDocument,
   isCustomPropertyDefinitionForWorkItem,
 } from "../../lib/domain/labels"
 import type {
+  Document,
   CustomPropertyOption,
   CustomPropertyType,
   CustomPropertyValue,
@@ -14,17 +16,23 @@ import type {
 import { assertServerToken, createId, getNow } from "./core"
 import {
   getCustomPropertyDefinitionDoc,
-  getCustomPropertyValueDoc,
+  getCustomPropertyValueDocByTarget,
+  getDocumentDoc,
   getTeamMembershipDoc,
   getUserDoc,
   getWorkItemDoc,
   listCustomPropertyDefinitionsByTeam,
+  listPrivateCustomPropertyDefinitionsByWorkspaceOwner,
+  listWorkspaceCustomPropertyDefinitionsByWorkspace,
   listCustomPropertyValuesByProperty,
 } from "./data"
 import {
+  requireEditableDocumentAccess,
   requireEditableTeamAccess,
   requireEditableTeamDoc,
+  requireEditableWorkspaceAccess,
   requireEditableWorkItemAccess,
+  requireReadableWorkspaceAccess,
 } from "./access"
 
 type ServerAccessArgs = {
@@ -32,9 +40,10 @@ type ServerAccessArgs = {
 }
 
 type CustomPropertyDefinitionInput = {
-  teamId: string
-  scopeType?: "team"
-  targetType?: "workItem"
+  teamId?: string
+  workspaceId?: string
+  scopeType?: "team" | "workspace" | "private"
+  targetType?: "workItem" | "document"
   name: string
   icon: string
   type: CustomPropertyType
@@ -49,7 +58,12 @@ type CreateCustomPropertyDefinitionArgs = ServerAccessArgs &
 type UpdateCustomPropertyDefinitionArgs = ServerAccessArgs & {
   currentUserId: string
   propertyId: string
-  patch: Partial<Omit<CustomPropertyDefinitionInput, "teamId" | "targetType">>
+  patch: Partial<
+    Omit<
+      CustomPropertyDefinitionInput,
+      "scopeType" | "teamId" | "targetType" | "workspaceId"
+    >
+  >
 }
 
 type ArchiveCustomPropertyDefinitionArgs = ServerAccessArgs & {
@@ -59,7 +73,9 @@ type ArchiveCustomPropertyDefinitionArgs = ServerAccessArgs & {
 
 type SetCustomPropertyValueArgs = ServerAccessArgs & {
   currentUserId: string
-  workItemId: string
+  targetType?: "workItem" | "document"
+  targetId?: string
+  workItemId?: string
   propertyId: string
   value: CustomPropertyValue
 }
@@ -67,8 +83,23 @@ type SetCustomPropertyValueArgs = ServerAccessArgs & {
 type CustomPropertyValueDefinition = {
   type: CustomPropertyType
   options: CustomPropertyOption[]
-  teamId: string
+  teamId: string | null
+  workspaceId: string
+  scopeType?: "team" | "workspace" | "private"
 }
+
+type CustomPropertyValueTarget =
+  | {
+      targetType: "workItem"
+      targetId: string
+      workItemId: string
+      item: NonNullable<Awaited<ReturnType<typeof getWorkItemDoc>>>
+    }
+  | {
+      targetType: "document"
+      targetId: string
+      document: Document
+    }
 
 type CustomPropertyValueValidator = (
   ctx: MutationCtx,
@@ -158,18 +189,42 @@ async function assertUniquePropertyName(input: {
   ctx: MutationCtx
   exceptPropertyId?: string
   name: string
-  teamId: string
+  targetType: "workItem" | "document"
+  scope:
+    | {
+        type: "team"
+        teamId: string
+      }
+    | {
+        type: "workspace"
+        workspaceId: string
+      }
+    | {
+        type: "private"
+        ownerId: string
+        workspaceId: string
+      }
 }) {
   const normalized = input.name.toLowerCase()
-  const definitions = await listCustomPropertyDefinitionsByTeam(
-    input.ctx,
-    input.teamId
-  )
+  const definitions =
+    input.scope.type === "team"
+      ? await listCustomPropertyDefinitionsByTeam(input.ctx, input.scope.teamId)
+      : input.scope.type === "workspace"
+        ? await listWorkspaceCustomPropertyDefinitionsByWorkspace(
+            input.ctx,
+            input.scope.workspaceId
+          )
+        : await listPrivateCustomPropertyDefinitionsByWorkspaceOwner(
+            input.ctx,
+            input.scope.workspaceId,
+            input.scope.ownerId
+          )
   const duplicate = definitions.find(
     (definition) =>
       !definition.isArchived &&
       definition.id !== input.exceptPropertyId &&
-      getCustomPropertyScopeType(definition) === "team" &&
+      definition.targetType === input.targetType &&
+      getCustomPropertyScopeType(definition) === input.scope.type &&
       definition.name.trim().toLowerCase() === normalized
   )
 
@@ -189,10 +244,33 @@ async function requireEditableDefinition(
     throw new Error("Custom property not found")
   }
 
-  if (getCustomPropertyScopeType(definition) !== "team") {
-    throw new Error("Custom property not found")
+  if (getCustomPropertyScopeType(definition) === "private") {
+    if ((definition.ownerId ?? definition.createdBy) !== currentUserId) {
+      throw new Error("Custom property not found")
+    }
+
+    await requireReadableWorkspaceAccess(
+      ctx,
+      definition.workspaceId,
+      currentUserId
+    )
+
+    return definition
   }
 
+  if (getCustomPropertyScopeType(definition) === "workspace") {
+    await requireEditableWorkspaceAccess(
+      ctx,
+      definition.workspaceId,
+      currentUserId
+    )
+
+    return definition
+  }
+
+  if (!definition.teamId) {
+    throw new Error("Custom property not found")
+  }
   await requireEditableTeamAccess(ctx, definition.teamId, currentUserId)
 
   return definition
@@ -312,7 +390,7 @@ function assertCheckboxValue(
 
 async function assertPersonValue(
   ctx: MutationCtx,
-  teamId: string,
+  definition: CustomPropertyValueDefinition,
   value: CustomPropertyValue
 ) {
   if (typeof value !== "string") {
@@ -324,7 +402,21 @@ async function assertPersonValue(
     throw new Error("Person value must reference an existing user")
   }
 
-  const membership = await getTeamMembershipDoc(ctx, teamId, value)
+  if (getCustomPropertyScopeType(definition) === "private") {
+    try {
+      await requireReadableWorkspaceAccess(ctx, definition.workspaceId, value)
+    } catch {
+      throw new Error("Person value must reference a workspace member")
+    }
+
+    return
+  }
+
+  if (!definition.teamId) {
+    throw new Error("Person value must reference a team member")
+  }
+
+  const membership = await getTeamMembershipDoc(ctx, definition.teamId, value)
   if (!membership) {
     throw new Error("Person value must reference a team member")
   }
@@ -343,8 +435,7 @@ const valueValidators: Record<
   url: assertUrlValue,
   email: assertEmailValue,
   phone: assertPhoneValue,
-  person: (ctx, definition, value) =>
-    assertPersonValue(ctx, definition.teamId, value),
+  person: (ctx, definition, value) => assertPersonValue(ctx, definition, value),
   select: (_ctx, definition, value) => assertChoiceValue(definition, value),
   multiSelect: (_ctx, definition, value) =>
     assertChoiceValue(definition, value),
@@ -455,18 +546,129 @@ async function requireCustomPropertyTeamForCreate(
   args: CreateCustomPropertyDefinitionArgs
 ) {
   assertServerToken(args.serverToken)
+  if (!args.teamId) {
+    throw new Error("Team not found")
+  }
+
   return requireEditableTeamDoc(ctx, args.teamId, args.currentUserId)
+}
+
+async function requireCustomPropertyWorkspaceForPrivateCreate(
+  ctx: MutationCtx,
+  args: CreateCustomPropertyDefinitionArgs
+) {
+  assertServerToken(args.serverToken)
+  if (!args.workspaceId) {
+    throw new Error("Workspace not found")
+  }
+
+  await requireReadableWorkspaceAccess(
+    ctx,
+    args.workspaceId,
+    args.currentUserId
+  )
+
+  return args.workspaceId
+}
+
+async function requireCustomPropertyWorkspaceForWorkspaceCreate(
+  ctx: MutationCtx,
+  args: CreateCustomPropertyDefinitionArgs
+) {
+  assertServerToken(args.serverToken)
+  if (!args.workspaceId) {
+    throw new Error("Workspace not found")
+  }
+
+  await requireEditableWorkspaceAccess(
+    ctx,
+    args.workspaceId,
+    args.currentUserId
+  )
+
+  return args.workspaceId
+}
+
+function assertCustomPropertyCreateTargetAllowed(
+  scopeType: NonNullable<CreateCustomPropertyDefinitionArgs["scopeType"]>,
+  targetType: NonNullable<CreateCustomPropertyDefinitionArgs["targetType"]>
+) {
+  if (scopeType === "workspace" && targetType === "workItem") {
+    throw new Error("Workspace properties can only target documents")
+  }
+}
+
+async function resolveCustomPropertyCreateScope(
+  ctx: MutationCtx,
+  args: CreateCustomPropertyDefinitionArgs,
+  scopeType: NonNullable<CreateCustomPropertyDefinitionArgs["scopeType"]>
+) {
+  if (scopeType === "team") {
+    const team = await requireCustomPropertyTeamForCreate(ctx, args)
+
+    return { workspaceId: team.workspaceId }
+  }
+
+  if (scopeType === "private") {
+    return {
+      workspaceId: await requireCustomPropertyWorkspaceForPrivateCreate(
+        ctx,
+        args
+      ),
+    }
+  }
+
+  return {
+    workspaceId: await requireCustomPropertyWorkspaceForWorkspaceCreate(
+      ctx,
+      args
+    ),
+  }
+}
+
+function getCustomPropertyCreateUniqueNameScope({
+  args,
+  scopeType,
+  workspaceId,
+}: {
+  args: CreateCustomPropertyDefinitionArgs
+  scopeType: NonNullable<CreateCustomPropertyDefinitionArgs["scopeType"]>
+  workspaceId: string
+}) {
+  if (scopeType === "private") {
+    return {
+      type: "private" as const,
+      ownerId: args.currentUserId,
+      workspaceId,
+    }
+  }
+
+  if (scopeType === "workspace") {
+    return {
+      type: "workspace" as const,
+      workspaceId,
+    }
+  }
+
+  return {
+    type: "team" as const,
+    teamId: args.teamId ?? "",
+  }
 }
 
 export async function createCustomPropertyDefinitionHandler(
   ctx: MutationCtx,
   args: CreateCustomPropertyDefinitionArgs
 ) {
-  if ((args.scopeType as string | undefined) === "private") {
-    throw new Error("Private custom properties are not supported")
-  }
+  const scopeType = args.scopeType ?? "team"
+  const targetType = args.targetType ?? "workItem"
+  assertCustomPropertyCreateTargetAllowed(scopeType, targetType)
 
-  const team = await requireCustomPropertyTeamForCreate(ctx, args)
+  const { workspaceId } = await resolveCustomPropertyCreateScope(
+    ctx,
+    args,
+    scopeType
+  )
   const name = normalizeName(args.name)
 
   if (!name) {
@@ -477,17 +679,22 @@ export async function createCustomPropertyDefinitionHandler(
   await assertUniquePropertyName({
     ctx,
     name,
-    teamId: args.teamId,
+    targetType,
+    scope: getCustomPropertyCreateUniqueNameScope({
+      args,
+      scopeType,
+      workspaceId,
+    }),
   })
 
   const now = getNow()
   const definition = {
     id: createId("property"),
-    workspaceId: team.workspaceId,
-    teamId: args.teamId,
-    scopeType: "team" as const,
-    ownerId: null,
-    targetType: "workItem" as const,
+    workspaceId,
+    teamId: scopeType === "team" ? (args.teamId ?? null) : null,
+    scopeType,
+    ownerId: scopeType === "private" ? args.currentUserId : null,
+    targetType,
     name,
     icon: args.icon,
     type: args.type,
@@ -626,7 +833,23 @@ export async function updateCustomPropertyDefinitionHandler(
     ctx,
     exceptPropertyId: definition.id,
     name: nextName,
-    teamId: definition.teamId,
+    targetType: definition.targetType ?? "workItem",
+    scope:
+      getCustomPropertyScopeType(definition) === "private"
+        ? {
+            type: "private",
+            ownerId: definition.ownerId ?? definition.createdBy,
+            workspaceId: definition.workspaceId,
+          }
+        : getCustomPropertyScopeType(definition) === "workspace"
+          ? {
+              type: "workspace",
+              workspaceId: definition.workspaceId,
+            }
+        : {
+            type: "team",
+            teamId: definition.teamId ?? "",
+          },
   })
 
   await assertPropertyShapeChangeAllowed({
@@ -677,7 +900,50 @@ async function requireCustomPropertyValueTarget(
   ctx: MutationCtx,
   args: SetCustomPropertyValueArgs
 ) {
-  const item = await getWorkItemDoc(ctx, args.workItemId)
+  const targetType = args.targetType ?? "workItem"
+  const targetId = args.targetId ?? args.workItemId
+
+  if (!targetId) {
+    throw new Error(
+      targetType === "document" ? "Document not found" : "Work item not found"
+    )
+  }
+
+  if (targetType === "document") {
+    const documentDoc = await getDocumentDoc(ctx, targetId)
+
+    if (!documentDoc?.workspaceId) {
+      throw new Error("Document not found")
+    }
+
+    const document = documentDoc as Document
+    await requireEditableDocumentAccess(ctx, documentDoc, args.currentUserId)
+    const definition = await getCustomPropertyDefinitionDoc(
+      ctx,
+      args.propertyId
+    )
+
+    if (
+      !canUsePropertyDefinitionForDocument(
+        definition,
+        document,
+        args.currentUserId
+      )
+    ) {
+      throw new Error("Custom property not found")
+    }
+
+    return {
+      definition,
+      target: {
+        targetType,
+        targetId,
+        document,
+      },
+    }
+  }
+
+  const item = await getWorkItemDoc(ctx, targetId)
 
   if (!item) {
     throw new Error("Work item not found")
@@ -692,7 +958,12 @@ async function requireCustomPropertyValueTarget(
 
   return {
     definition,
-    item,
+    target: {
+      targetType,
+      targetId,
+      workItemId: item.id,
+      item,
+    },
   }
 }
 
@@ -707,15 +978,27 @@ function canUsePropertyDefinitionForItem(
   )
 }
 
+function canUsePropertyDefinitionForDocument(
+  definition: Awaited<ReturnType<typeof getCustomPropertyDefinitionDoc>>,
+  document: Document,
+  currentUserId: string
+): definition is CustomPropertyDefinitionDoc {
+  return (
+    !!definition &&
+    isCustomPropertyDefinitionForDocument(definition, document, currentUserId)
+  )
+}
+
 async function writeCustomPropertyValue(
   ctx: MutationCtx,
   args: SetCustomPropertyValueArgs,
   definition: CustomPropertyDefinitionDoc,
-  itemId: string
+  target: CustomPropertyValueTarget
 ) {
-  const existing = await getCustomPropertyValueDoc(
+  const existing = await getCustomPropertyValueDocByTarget(
     ctx,
-    args.workItemId,
+    target.targetType,
+    target.targetId,
     args.propertyId
   )
 
@@ -724,13 +1007,13 @@ async function writeCustomPropertyValue(
     return { ok: true, value: null }
   }
 
-  await upsertCustomPropertyValue(ctx, args, definition, existing, itemId)
+  await upsertCustomPropertyValue(ctx, args, definition, existing, target)
   return { ok: true }
 }
 
 async function deleteCustomPropertyValueIfPresent(
   ctx: MutationCtx,
-  existing: Awaited<ReturnType<typeof getCustomPropertyValueDoc>>
+  existing: Awaited<ReturnType<typeof getCustomPropertyValueDocByTarget>>
 ) {
   if (existing) {
     await ctx.db.delete(existing._id)
@@ -743,8 +1026,8 @@ async function upsertCustomPropertyValue(
   definition: NonNullable<
     Awaited<ReturnType<typeof getCustomPropertyDefinitionDoc>>
   >,
-  existing: Awaited<ReturnType<typeof getCustomPropertyValueDoc>>,
-  itemId: string
+  existing: Awaited<ReturnType<typeof getCustomPropertyValueDocByTarget>>,
+  target: CustomPropertyValueTarget
 ) {
   const now = getNow()
 
@@ -761,7 +1044,11 @@ async function upsertCustomPropertyValue(
     id: createId("property_value"),
     workspaceId: definition.workspaceId,
     teamId: definition.teamId,
-    workItemId: itemId,
+    targetType: target.targetType,
+    targetId: target.targetId,
+    ...(target.targetType === "workItem"
+      ? { workItemId: target.workItemId }
+      : {}),
     propertyId: definition.id,
     value: args.value,
     createdBy: args.currentUserId,
@@ -776,8 +1063,11 @@ export async function setCustomPropertyValueHandler(
   args: SetCustomPropertyValueArgs
 ) {
   assertServerToken(args.serverToken)
-  const { definition, item } = await requireCustomPropertyValueTarget(ctx, args)
+  const { definition, target } = await requireCustomPropertyValueTarget(
+    ctx,
+    args
+  )
 
   await validateCustomPropertyValue(ctx, definition, args.value)
-  return writeCustomPropertyValue(ctx, args, definition, item.id)
+  return writeCustomPropertyValue(ctx, args, definition, target)
 }

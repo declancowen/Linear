@@ -16,7 +16,7 @@ import {
   entityKindValidator,
   customPropertyOptionValidator,
   customPropertyTypeValidator,
-  customPropertyValueValidator,
+  customPropertyValueInputFields,
   groupFieldValidator,
   nullableStringValidator,
   orderingFieldValidator,
@@ -181,6 +181,7 @@ import {
 } from "./app/work_item_handlers"
 import {
   createLabelHandler,
+  updateLabelHandler,
   createTeamHandler,
   createWorkspaceHandler,
   deleteTeamHandler,
@@ -897,9 +898,21 @@ export const createLabel = mutation({
     workspaceId: v.string(),
     name: v.string(),
     color: v.optional(v.string()),
-    scopeType: v.optional(v.literal("workspace")),
+    scopeType: v.optional(
+      v.union(v.literal("workspace"), v.literal("private"))
+    ),
   },
   handler: createLabelHandler,
+})
+
+export const updateLabel = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    labelId: v.string(),
+    name: v.string(),
+  },
+  handler: updateLabelHandler,
 })
 
 export const updateTeamDetails = mutation({
@@ -962,9 +975,12 @@ export const createCustomPropertyDefinition = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
-    teamId: v.string(),
-    scopeType: v.optional(v.literal("team")),
-    targetType: v.optional(v.literal("workItem")),
+    teamId: v.optional(v.string()),
+    workspaceId: v.optional(v.string()),
+    scopeType: v.optional(
+      v.union(v.literal("team"), v.literal("workspace"), v.literal("private"))
+    ),
+    targetType: v.optional(v.union(v.literal("workItem"), v.literal("document"))),
     name: v.string(),
     icon: v.string(),
     type: customPropertyTypeValidator,
@@ -1001,9 +1017,7 @@ export const setCustomPropertyValue = mutation({
   args: {
     ...serverAccessArgs,
     currentUserId: v.string(),
-    workItemId: v.string(),
-    propertyId: v.string(),
-    value: customPropertyValueValidator,
+    ...customPropertyValueInputFields,
   },
   handler: setCustomPropertyValueHandler,
 })

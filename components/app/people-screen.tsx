@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, type MouseEvent, type ReactNode } from "react"
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react"
 import {
   CaretRight,
   CopySimple,
@@ -18,17 +18,20 @@ import {
   getProjectHref,
   getWorkspacePeople,
   getWorkspacePerson,
+  getWorkspacePersonAssignedWork,
   getWorkspacePersonActivity,
   hasWorkspaceAccess,
   type PersonActivity,
 } from "@/lib/domain/selectors"
 import {
+  priorityMeta,
   resolveUserStatus,
   statusMeta,
   userStatusMeta,
   type AppData,
   type UserProfile,
   type UserStatus,
+  type WorkItem,
 } from "@/lib/domain/types"
 import { getWorkspacePeopleScopeKeys } from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
@@ -38,10 +41,11 @@ import { formatTimestamp } from "@/components/app/collaboration-screens/utils"
 import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
 import {
   MissingState,
+  PriorityDot,
   SCREEN_HEADER_CLASS_NAME,
   ScreenHeader,
+  StatusIcon,
 } from "@/components/app/screens/shared"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { cn, getPlainTextContent } from "@/lib/utils"
@@ -53,12 +57,42 @@ type WorkspacePersonMeta = {
   teamSummary: string
 }
 
+type ProfileTab = "activity" | "assigned"
+
 const STATUS_ACCENT_CLASSES: Record<UserStatus, string> = {
   active: "bg-emerald-500",
   away: "bg-amber-500",
   busy: "bg-rose-500",
   "out-of-office": "bg-violet-500",
   offline: "bg-zinc-400 dark:bg-zinc-500",
+}
+
+function ProfilePill({
+  children,
+  className,
+}: {
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 text-[11px] leading-none font-medium text-fg-2",
+        className
+      )}
+    >
+      {children}
+    </span>
+  )
+}
+
+function StatusPill({ status }: { status: UserStatus }) {
+  return (
+    <ProfilePill>
+      <UserStatusDot status={status} />
+      {userStatusMeta[status].label}
+    </ProfilePill>
+  )
 }
 
 function formatRoleLabel(role: string) {
@@ -225,20 +259,12 @@ function PersonCard({
           </div>
         </div>
 
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-[11px] font-medium text-fg-2">
-          <UserStatusDot status={resolvedStatus} />
-          {userStatusMeta[resolvedStatus].label}
-        </span>
-
-        {meta.roleLabels.length > 0 ? (
-          <div className="flex flex-wrap justify-center gap-1.5">
-            {meta.roleLabels.map((label) => (
-              <Badge key={label} variant="outline" className="font-normal">
-                {label}
-              </Badge>
-            ))}
-          </div>
-        ) : null}
+        <div className="flex flex-wrap justify-center gap-1.5">
+          <StatusPill status={resolvedStatus} />
+          {meta.roleLabels.map((label) => (
+            <ProfilePill key={label}>{label}</ProfilePill>
+          ))}
+        </div>
       </div>
 
       {canEmail || canMessage ? (
@@ -499,6 +525,20 @@ const ACTIVITY_CATEGORY_CLASSES: Record<string, string> = {
   Projects: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
 }
 
+const ACTIVITY_CATEGORY_DOT_CLASSES: Record<string, string> = {
+  Work: "bg-blue-500",
+  Docs: "bg-violet-500",
+  Channel: "bg-amber-500",
+  Projects: "bg-emerald-500",
+}
+
+const COMMENT_PREVIEW_ACTIVITY_TYPES = new Set<PersonActivity["type"]>([
+  "workItemCommented",
+  "documentCommented",
+  "channelPostCommented",
+  "projectUpdatePosted",
+])
+
 function ActivityRow({
   activity,
   data,
@@ -507,39 +547,52 @@ function ActivityRow({
   data: AppData
 }) {
   const presentation = getActivityPresentation(data, activity)
+  const isCommentPreview = COMMENT_PREVIEW_ACTIVITY_TYPES.has(activity.type)
 
   return (
     <AppLink
       href={presentation.href}
-      className="group relative flex items-start gap-4 rounded-md px-3 py-2.5 transition-colors hover:bg-surface-3"
+      className="group relative flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-surface-3"
     >
       <span
         aria-hidden
         className={cn(
-          "mt-0.5 inline-flex shrink-0 rounded-md px-1.5 py-0.5 text-[9.5px] leading-4 font-semibold tracking-wide uppercase",
-          ACTIVITY_CATEGORY_CLASSES[presentation.category] ??
-            "bg-muted text-muted-foreground"
+          "mt-[7px] inline-flex size-1.5 shrink-0 rounded-full",
+          ACTIVITY_CATEGORY_DOT_CLASSES[presentation.category] ??
+            "bg-muted-foreground/40"
         )}
-      >
-        {presentation.category}
-      </span>
+      />
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] leading-5 text-fg-2">
-          {presentation.label}
-          <span className="px-1.5 text-muted-foreground/50">·</span>
-          <span className="font-medium text-foreground group-hover:underline">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] leading-5">
+          <span className="text-fg-2">{presentation.label}</span>
+          <span className="truncate font-medium text-foreground group-hover:underline">
             {activity.title}
+          </span>
+          <span
+            className={cn(
+              "inline-flex shrink-0 rounded px-1.5 py-px text-[9.5px] leading-4 font-semibold tracking-wide uppercase",
+              ACTIVITY_CATEGORY_CLASSES[presentation.category] ??
+                "bg-muted text-muted-foreground"
+            )}
+          >
+            {presentation.category}
           </span>
         </div>
         {presentation.detail ? (
-          <div className="mt-0.5 line-clamp-2 text-[11.5px] leading-4 text-muted-foreground">
+          <div
+            className={cn(
+              "mt-1 line-clamp-2 text-[12px] leading-5 text-muted-foreground",
+              isCommentPreview && "border-l-2 border-line pl-2.5 italic"
+            )}
+          >
             {presentation.detail}
           </div>
         ) : null}
       </div>
       <time
-        className="shrink-0 text-xs text-muted-foreground"
+        className="shrink-0 text-xs text-muted-foreground tabular-nums"
         dateTime={activity.createdAt}
+        title={new Date(activity.createdAt).toLocaleString()}
       >
         {formatTimestamp(activity.createdAt)}
       </time>
@@ -659,6 +712,13 @@ export function PeopleProfileScreen({ userId }: { userId: string }) {
         : [],
     [data, person, workspace]
   )
+  const assignedWork = useMemo(
+    () =>
+      workspace && person
+        ? getWorkspacePersonAssignedWork(data, workspace.id, person.id)
+        : [],
+    [data, person, workspace]
+  )
 
   return (
     <PeopleReadModelBoundary>
@@ -675,6 +735,7 @@ export function PeopleProfileScreen({ userId }: { userId: string }) {
         ) : (
           <PersonProfileContent
             activity={activity}
+            assignedWork={assignedWork}
             data={data}
             onMessage={() => {
               const conversationId = startMessageWithPerson(
@@ -727,188 +788,142 @@ function ProfileHero({
 
   return (
     <section className="border-b border-line bg-background">
-      <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-6 px-6 py-7 md:flex-row md:items-start md:justify-between">
-        <div className="flex min-w-0 items-start gap-5">
-          <UserAvatar
-            name={person.name}
-            avatarImageUrl={person.avatarImageUrl}
-            avatarUrl={person.avatarUrl}
-            status={person.status}
-            size="lg"
-            className="size-20 shrink-0 ring-4 ring-background ring-offset-0"
-            badgeClassName="size-3.5"
-          />
+      <div className="mx-auto w-full max-w-[1100px] px-6 py-7">
+        <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+          <div className="flex min-w-0 items-start gap-5">
+            <span className="relative shrink-0">
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute -inset-1 rounded-full opacity-20 blur-[2px]",
+                  STATUS_ACCENT_CLASSES[resolvedStatus]
+                )}
+              />
+              <UserAvatar
+                name={person.name}
+                avatarImageUrl={person.avatarImageUrl}
+                avatarUrl={person.avatarUrl}
+                status={person.status}
+                size="lg"
+                className="relative size-20 ring-2 ring-line-soft ring-offset-2 ring-offset-background"
+                badgeClassName="size-4 ring-2 ring-background"
+              />
+            </span>
 
-          <div className="min-w-0">
-            <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">
-              {getPersonName(person)}
-            </h1>
-            <div className="mt-1 truncate text-sm text-muted-foreground">
-              {getPersonTitle(person)}
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">
+                {getPersonName(person)}
+              </h1>
+              <div className="mt-1 truncate text-sm text-muted-foreground">
+                {getPersonTitle(person)}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                <StatusPill status={resolvedStatus} />
+                {meta.roleLabels.map((label) => (
+                  <ProfilePill key={label}>{label}</ProfilePill>
+                ))}
+              </div>
+              {person.statusMessage.trim() ? (
+                <p className="mt-3 max-w-2xl text-sm text-foreground italic">
+                  “{person.statusMessage}”
+                </p>
+              ) : null}
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 font-medium text-fg-2">
-                <UserStatusDot status={resolvedStatus} />
-                {userStatusMeta[resolvedStatus].label}
-              </span>
-              {meta.roleLabels.map((label) => (
-                <Badge key={label} variant="outline" className="font-normal">
-                  {label}
-                </Badge>
-              ))}
+          </div>
+
+          {canEmail || canMessage ? (
+            <div className="flex shrink-0 gap-2">
+              {canMessage ? (
+                <Button size="sm" onClick={onMessage}>
+                  Message
+                </Button>
+              ) : null}
+              {canEmail ? (
+                <Button asChild variant="outline" size="sm">
+                  <a href={`mailto:${person.email}`}>Email</a>
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <dl className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-line-soft pt-5 sm:grid-cols-3">
+          <div className="min-w-0">
+            <dt className="text-[11px] font-semibold tracking-wide text-fg-3 uppercase">
+              Email
+            </dt>
+            <dd className="mt-1 flex min-w-0 items-center gap-1 text-[13px] text-fg-2">
               {person.email ? (
-                <span className="inline-flex items-center gap-1">
+                <>
                   <a
                     href={`mailto:${person.email}`}
-                    className="truncate hover:text-foreground hover:underline"
+                    className="min-w-0 truncate hover:text-foreground hover:underline"
                   >
                     {person.email}
                   </a>
-                  <Button
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    className="shrink-0"
                     aria-label="Copy email"
                     title="Copy email"
+                    className="inline-grid size-5 shrink-0 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
                     onClick={() => void handleCopyEmail()}
                   >
                     <CopySimple className="size-3.5" />
-                  </Button>
-                </span>
-              ) : null}
-            </div>
-            {person.statusMessage.trim() ? (
-              <p className="mt-3 max-w-2xl text-sm text-foreground italic">
-                “{person.statusMessage}”
-              </p>
-            ) : null}
-          </div>
-        </div>
-
-        {canEmail || canMessage ? (
-          <div className="flex shrink-0 gap-2">
-            {canMessage ? (
-              <Button size="sm" onClick={onMessage}>
-                Message
-              </Button>
-            ) : null}
-            {canEmail ? (
-              <Button asChild variant="outline" size="sm">
-                <a href={`mailto:${person.email}`}>Email</a>
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </section>
-  )
-}
-
-function SectionCardHeader({
-  title,
-  meta,
-}: {
-  title: string
-  meta?: ReactNode
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
-      <h3 className="text-[11px] font-semibold tracking-wide text-fg-3 uppercase">
-        {title}
-      </h3>
-      {meta}
-    </div>
-  )
-}
-
-function ProfileSidebar({
-  meta,
-  person,
-}: {
-  meta: WorkspacePersonMeta
-  person: UserProfile
-}) {
-  const resolvedStatus = resolveUserStatus(person.status)
-
-  return (
-    <aside className="flex flex-col gap-4">
-      <div className="flex flex-col rounded-xl border border-line bg-background">
-        <SectionCardHeader title="About" />
-        <dl className="grid grid-cols-1 gap-x-4 gap-y-4 px-5 py-4 text-sm">
-          <div>
-            <dt className="text-xs text-muted-foreground">Status</dt>
-            <dd className="mt-1 inline-flex items-center gap-1.5 text-fg-2">
-              <UserStatusDot status={resolvedStatus} />
-              {userStatusMeta[resolvedStatus].label}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Email</dt>
-            <dd className="mt-1 truncate text-fg-2">
-              {person.email ? (
-                <a
-                  href={`mailto:${person.email}`}
-                  className="hover:text-foreground hover:underline"
-                >
-                  {person.email}
-                </a>
+                  </button>
+                </>
               ) : (
                 "—"
               )}
             </dd>
           </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Handle</dt>
-            <dd className="mt-1 truncate text-fg-2">
+          <div className="min-w-0">
+            <dt className="text-[11px] font-semibold tracking-wide text-fg-3 uppercase">
+              Handle
+            </dt>
+            <dd className="mt-1 truncate text-[13px] text-fg-2">
               {person.handle ? `@${person.handle}` : "—"}
             </dd>
           </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Title</dt>
-            <dd className="mt-1 truncate text-fg-2">
-              {getPersonTitle(person)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">
-              {meta.teamNames.length > 0
-                ? `Teams: ${meta.teamSummary}`
-                : "Teams"}
+          <div className="min-w-0">
+            <dt className="text-[11px] font-semibold tracking-wide text-fg-3 uppercase">
+              Teams
             </dt>
             <dd className="mt-1 flex flex-wrap gap-1.5">
               {meta.teamNames.length === 0 ? (
-                <span className="text-fg-3">No teams</span>
+                <span className="text-[13px] text-fg-3">No teams</span>
               ) : (
                 meta.teamNames.map((teamName) => (
-                  <Badge
-                    key={teamName}
-                    variant="outline"
-                    className="font-normal"
-                  >
-                    {teamName}
-                  </Badge>
+                  <ProfilePill key={teamName}>{teamName}</ProfilePill>
                 ))
               )}
             </dd>
           </div>
-          {meta.roleLabels.length > 0 ? (
-            <div>
-              <dt className="text-xs text-muted-foreground">Roles</dt>
-              <dd className="mt-1 flex flex-wrap gap-1.5">
-                {meta.roleLabels.map((label) => (
-                  <Badge key={label} variant="outline" className="font-normal">
-                    {label}
-                  </Badge>
-                ))}
-              </dd>
-            </div>
-          ) : null}
         </dl>
       </div>
-    </aside>
+    </section>
   )
 }
+
+function ViewMoreButton({
+  remaining,
+  onClick,
+}: {
+  remaining: number
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-line-soft py-2 text-[12.5px] font-medium text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground"
+    >
+      View more
+      <span className="text-fg-4">({remaining})</span>
+    </button>
+  )
+}
+
+const PROFILE_LIST_PAGE_SIZE = 10
 
 function ActivityFeed({
   activity,
@@ -917,62 +932,199 @@ function ActivityFeed({
   activity: PersonActivity[]
   data: AppData
 }) {
-  const groups = useMemo(() => groupActivityByDay(activity), [activity])
+  const [visibleCount, setVisibleCount] = useState(PROFILE_LIST_PAGE_SIZE)
+  const groups = useMemo(
+    () => groupActivityByDay(activity.slice(0, visibleCount)),
+    [activity, visibleCount]
+  )
+
+  if (activity.length === 0) {
+    return (
+      <div className="rounded-lg border border-line-soft px-5 py-12 text-center text-sm text-muted-foreground">
+        No visible activity yet.
+      </div>
+    )
+  }
 
   return (
-    <section className="flex min-w-0 flex-col rounded-xl border border-line bg-background">
-      <SectionCardHeader
-        title="Activity"
-        meta={
-          <span className="text-xs text-muted-foreground">
-            {activity.length} {activity.length === 1 ? "entry" : "entries"}
+    <div className="flex flex-col">
+      {groups.map((group, groupIndex) => (
+        <div
+          key={group.dayKey}
+          className={cn(groupIndex > 0 && "mt-2 border-t border-line-soft pt-2")}
+        >
+          <div className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-fg-3 uppercase">
+            {formatActivityDayLabel(group.dayKey)}
+          </div>
+          <div className="flex flex-col">
+            {group.entries.map((entry) => (
+              <ActivityRow
+                key={getActivityKey(entry)}
+                activity={entry}
+                data={data}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+      {activity.length > visibleCount ? (
+        <ViewMoreButton
+          remaining={activity.length - visibleCount}
+          onClick={() =>
+            setVisibleCount((count) => count + PROFILE_LIST_PAGE_SIZE)
+          }
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function getAssignedWorkTeamName(data: AppData, item: WorkItem) {
+  return data.teams.find((team) => team.id === item.teamId)?.name ?? "Team"
+}
+
+function AssignedWorkRow({ data, item }: { data: AppData; item: WorkItem }) {
+  const teamName = getAssignedWorkTeamName(data, item)
+
+  return (
+    <AppLink
+      href={`/items/${item.id}`}
+      className="group flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-surface-3"
+    >
+      <span className="mt-0.5 shrink-0">
+        <StatusIcon status={item.status} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-[11px] font-medium tracking-tight text-fg-3 tabular-nums">
+            {item.key}
           </span>
-        }
-      />
-      {activity.length === 0 ? (
-        <div className="px-5 py-10 text-center text-sm text-muted-foreground">
-          No visible activity yet.
+          <span className="truncate text-[13px] font-medium text-foreground group-hover:underline">
+            {item.title.trim() || "Untitled work item"}
+          </span>
         </div>
-      ) : (
-        <div>
-          {groups.map((group, groupIndex) => (
-            <div
-              key={group.dayKey}
-              className={cn(groupIndex > 0 && "border-t border-line")}
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <PriorityDot priority={item.priority} />
+            {priorityMeta[item.priority].label}
+          </span>
+          <span aria-hidden className="text-muted-foreground/50">
+            ·
+          </span>
+          <span>{statusMeta[item.status].label}</span>
+          <span aria-hidden className="text-muted-foreground/50">
+            ·
+          </span>
+          <span>{teamName}</span>
+        </div>
+      </div>
+      <time
+        className="shrink-0 self-start text-xs text-muted-foreground tabular-nums"
+        dateTime={item.updatedAt}
+        title={new Date(item.updatedAt).toLocaleString()}
+      >
+        {formatTimestamp(item.updatedAt)}
+      </time>
+    </AppLink>
+  )
+}
+
+function AssignedWorkList({
+  assignedWork,
+  data,
+}: {
+  assignedWork: WorkItem[]
+  data: AppData
+}) {
+  const [visibleCount, setVisibleCount] = useState(PROFILE_LIST_PAGE_SIZE)
+
+  if (assignedWork.length === 0) {
+    return (
+      <div className="rounded-lg border border-line-soft px-5 py-12 text-center text-sm text-muted-foreground">
+        No visible assigned work in shared team spaces.
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col">
+      {assignedWork.slice(0, visibleCount).map((item) => (
+        <AssignedWorkRow key={item.id} data={data} item={item} />
+      ))}
+      {assignedWork.length > visibleCount ? (
+        <ViewMoreButton
+          remaining={assignedWork.length - visibleCount}
+          onClick={() =>
+            setVisibleCount((count) => count + PROFILE_LIST_PAGE_SIZE)
+          }
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function ProfileTabs({
+  value,
+  onValueChange,
+  options,
+}: {
+  value: ProfileTab
+  onValueChange: (value: ProfileTab) => void
+  options: Array<{ value: ProfileTab; label: string; count: number }>
+}) {
+  return (
+    <div role="tablist" className="flex items-center gap-1 border-b border-line">
+      {options.map((option) => {
+        const active = option.value === value
+
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onValueChange(option.value)}
+            className={cn(
+              "relative -mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium transition-colors",
+              active
+                ? "border-foreground text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <span>{option.label}</span>
+            <span
+              className={cn(
+                "rounded-full px-1.5 py-px text-[10.5px] tabular-nums",
+                active
+                  ? "bg-surface-3 text-foreground"
+                  : "bg-surface-2 text-muted-foreground"
+              )}
             >
-              <div className="px-5 pt-3 pb-1 text-[11px] font-semibold tracking-wide text-fg-3 uppercase">
-                {formatActivityDayLabel(group.dayKey)}
-              </div>
-              <div className="flex flex-col px-2 pt-1 pb-3">
-                {group.entries.map((entry) => (
-                  <ActivityRow
-                    key={getActivityKey(entry)}
-                    activity={entry}
-                    data={data}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
+              {option.count}
+            </span>
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
 function PersonProfileContent({
   activity,
+  assignedWork,
   data,
   onMessage,
   person,
   workspaceId,
 }: {
   activity: PersonActivity[]
+  assignedWork: WorkItem[]
   data: AppData
   onMessage: () => void
   person: UserProfile
   workspaceId: string
 }) {
+  const [activeTab, setActiveTab] = useState<ProfileTab>("activity")
   const meta = getWorkspacePersonMeta(data, workspaceId, person)
   const canMessage =
     !meta.isSelf && hasWorkspaceAccess(data, workspaceId, person.id)
@@ -987,9 +1139,26 @@ function PersonProfileContent({
         onMessage={onMessage}
         person={person}
       />
-      <div className="mx-auto grid w-full max-w-[1100px] grid-cols-1 items-start gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <ActivityFeed activity={activity} data={data} />
-        <ProfileSidebar meta={meta} person={person} />
+      <div className="mx-auto w-full max-w-[1100px] px-6 py-6">
+        <ProfileTabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          options={[
+            { value: "activity", label: "Activity", count: activity.length },
+            {
+              value: "assigned",
+              label: "Assigned work",
+              count: assignedWork.length,
+            },
+          ]}
+        />
+        <div className="mt-4">
+          {activeTab === "activity" ? (
+            <ActivityFeed activity={activity} data={data} />
+          ) : (
+            <AssignedWorkList assignedWork={assignedWork} data={data} />
+          )}
+        </div>
       </div>
     </div>
   )

@@ -8,6 +8,7 @@ import { createTestNotificationRecord } from "@/tests/lib/fixtures/convex"
 
 const buildAccessChangeEmailJobsMock = vi.fn()
 const requireEditableWorkspaceAccessMock = vi.fn()
+const requireReadableWorkspaceAccessMock = vi.fn()
 const requireTeamAdminAccessMock = vi.fn()
 const requireWorkspaceOwnerAccessMock = vi.fn()
 const cascadeDeleteTeamDataMock = vi.fn()
@@ -27,6 +28,7 @@ const getTeamByJoinCodeMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const getTeamMembershipDocMock = vi.fn()
 const getUserDocMock = vi.fn()
+const getLabelDocMock = vi.fn()
 const getWorkspaceDocMock = vi.fn()
 const getWorkspaceMembershipDocMock = vi.fn()
 const listActiveTeamUsersMock = vi.fn()
@@ -40,6 +42,7 @@ const listCommentsByTargetsMock = vi.fn()
 const listConversationsByScopeMock = vi.fn()
 const listDocumentPresenceByDocumentsMock = vi.fn()
 const listLabelsByWorkspaceMock = vi.fn()
+const listPrivateLabelsByWorkspaceOwnerMock = vi.fn()
 const listMilestonesByProjectsMock = vi.fn()
 const listNotificationsByEntitiesMock = vi.fn()
 const listProjectsByScopeMock = vi.fn()
@@ -75,6 +78,7 @@ vi.mock("@/lib/email/builders", () => ({
 
 vi.mock("@/convex/app/access", () => ({
   requireEditableWorkspaceAccess: requireEditableWorkspaceAccessMock,
+  requireReadableWorkspaceAccess: requireReadableWorkspaceAccessMock,
   requireTeamAdminAccess: requireTeamAdminAccessMock,
   requireWorkspaceOwnerAccess: requireWorkspaceOwnerAccessMock,
 }))
@@ -112,6 +116,7 @@ vi.mock("@/convex/app/data", () => ({
   getTeamDoc: getTeamDocMock,
   getTeamMembershipDoc: getTeamMembershipDocMock,
   getUserDoc: getUserDocMock,
+  getLabelDoc: getLabelDocMock,
   getWorkspaceDoc: getWorkspaceDocMock,
   getWorkspaceMembershipDoc: getWorkspaceMembershipDocMock,
   listActiveTeamUsers: listActiveTeamUsersMock,
@@ -125,6 +130,7 @@ vi.mock("@/convex/app/data", () => ({
   listConversationsByScope: listConversationsByScopeMock,
   listDocumentPresenceByDocuments: listDocumentPresenceByDocumentsMock,
   listLabelsByWorkspace: listLabelsByWorkspaceMock,
+  listPrivateLabelsByWorkspaceOwner: listPrivateLabelsByWorkspaceOwnerMock,
   listMilestonesByProjects: listMilestonesByProjectsMock,
   listNotificationsByEntities: listNotificationsByEntitiesMock,
   listProjectsByScope: listProjectsByScopeMock,
@@ -220,10 +226,27 @@ function expectWorkspaceMemberDeletedAndResynced(
   )
 }
 
+function mockWorkspaceLabelUpdate({
+  labels,
+}: {
+  labels: Array<{ color: string; id: string; name: string }>
+}) {
+  getUserDocMock.mockResolvedValue({ id: "user_1" })
+  getLabelDocMock.mockResolvedValue({
+    _id: "label_doc_1",
+    id: "label_1",
+    workspaceId: "workspace_1",
+    name: "Bug",
+    color: "red",
+  })
+  listLabelsByWorkspaceMock.mockResolvedValueOnce(labels)
+}
+
 describe("workspace and team deletion handlers", () => {
   beforeEach(() => {
     buildAccessChangeEmailJobsMock.mockReset()
     requireEditableWorkspaceAccessMock.mockReset()
+    requireReadableWorkspaceAccessMock.mockReset()
     requireTeamAdminAccessMock.mockReset()
     requireWorkspaceOwnerAccessMock.mockReset()
     cascadeDeleteTeamDataMock.mockReset()
@@ -243,6 +266,7 @@ describe("workspace and team deletion handlers", () => {
     getTeamDocMock.mockReset()
     getTeamMembershipDocMock.mockReset()
     getUserDocMock.mockReset()
+    getLabelDocMock.mockReset()
     getWorkspaceDocMock.mockReset()
     getWorkspaceMembershipDocMock.mockReset()
     listActiveTeamUsersMock.mockReset()
@@ -256,6 +280,7 @@ describe("workspace and team deletion handlers", () => {
     listConversationsByScopeMock.mockReset()
     listDocumentPresenceByDocumentsMock.mockReset()
     listLabelsByWorkspaceMock.mockReset()
+    listPrivateLabelsByWorkspaceOwnerMock.mockReset()
     listMilestonesByProjectsMock.mockReset()
     listNotificationsByEntitiesMock.mockReset()
     listProjectsByScopeMock.mockReset()
@@ -297,6 +322,7 @@ describe("workspace and team deletion handlers", () => {
     listConversationsByScopeMock.mockResolvedValue([])
     listDocumentPresenceByDocumentsMock.mockResolvedValue([])
     listLabelsByWorkspaceMock.mockResolvedValue([])
+    listPrivateLabelsByWorkspaceOwnerMock.mockResolvedValue([])
     listMilestonesByProjectsMock.mockResolvedValue([])
     listNotificationsByEntitiesMock.mockResolvedValue([])
     listProjectsByScopeMock.mockResolvedValue([])
@@ -479,6 +505,159 @@ describe("workspace and team deletion handlers", () => {
       name: "Feature",
       color: "blue",
     })
+  })
+
+  it("creates private labels with server-derived owner scope", async () => {
+    const { createLabelHandler } =
+      await import("@/convex/app/workspace_team_handlers")
+    const ctx = createCtx()
+    const existingLabel = {
+      id: "label_private_existing",
+      workspaceId: "workspace_1",
+      scopeType: "private",
+      ownerId: "user_1",
+      name: "Focus",
+      color: "violet",
+    }
+
+    getUserDocMock.mockResolvedValue({ id: "user_1" })
+    getWorkspaceDocMock.mockResolvedValue({ id: "workspace_1" })
+    listPrivateLabelsByWorkspaceOwnerMock.mockResolvedValueOnce([existingLabel])
+
+    await expect(
+      createLabelHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        name: " focus ",
+      })
+    ).resolves.toBe(existingLabel)
+    expect(listPrivateLabelsByWorkspaceOwnerMock).toHaveBeenCalledWith(
+      ctx,
+      "workspace_1",
+      "user_1"
+    )
+    expect(requireReadableWorkspaceAccessMock).toHaveBeenCalledWith(
+      ctx,
+      "workspace_1",
+      "user_1"
+    )
+    expect(requireEditableWorkspaceAccessMock).not.toHaveBeenCalled()
+
+    listPrivateLabelsByWorkspaceOwnerMock.mockResolvedValueOnce([])
+
+    await expect(
+      createLabelHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        name: "Deep work",
+      })
+    ).resolves.toEqual({
+      id: "label_generated",
+      workspaceId: "workspace_1",
+      scopeType: "private",
+      ownerId: "user_1",
+      name: "Deep work",
+      color: "slate",
+    })
+    expect(ctx.db.insert).toHaveBeenCalledWith("labels", {
+      id: "label_generated",
+      workspaceId: "workspace_1",
+      scopeType: "private",
+      ownerId: "user_1",
+      name: "Deep work",
+      color: "slate",
+    })
+  })
+
+  it("renames workspace labels with editable workspace access", async () => {
+    const { updateLabelHandler } =
+      await import("@/convex/app/workspace_team_handlers")
+    const ctx = createCtx()
+
+    mockWorkspaceLabelUpdate({
+      labels: [
+        { id: "label_1", name: "Bug", color: "red" },
+      ],
+    })
+
+    await expect(
+      updateLabelHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        labelId: "label_1",
+        name: "  Defect  ",
+      })
+    ).resolves.toEqual({
+      id: "label_1",
+      workspaceId: "workspace_1",
+      scopeType: "workspace",
+      ownerId: null,
+      name: "Defect",
+      color: "red",
+    })
+    expect(requireEditableWorkspaceAccessMock).toHaveBeenCalledWith(
+      ctx,
+      "workspace_1",
+      "user_1"
+    )
+    expect(ctx.db.patch).toHaveBeenCalledWith("label_doc_1", {
+      name: "Defect",
+    })
+  })
+
+  it("rejects renames that collide with another label", async () => {
+    const { updateLabelHandler } =
+      await import("@/convex/app/workspace_team_handlers")
+    const ctx = createCtx()
+
+    mockWorkspaceLabelUpdate({
+      labels: [
+        { id: "label_1", name: "Bug", color: "red" },
+        { id: "label_2", name: "Feature", color: "blue" },
+      ],
+    })
+
+    await expect(
+      updateLabelHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        labelId: "label_1",
+        name: "Feature",
+      })
+    ).rejects.toThrow("A label with this name already exists")
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("only lets the owner rename a private label", async () => {
+    const { updateLabelHandler } =
+      await import("@/convex/app/workspace_team_handlers")
+    const ctx = createCtx()
+
+    getUserDocMock.mockResolvedValue({ id: "user_2" })
+    getLabelDocMock.mockResolvedValue({
+      _id: "label_doc_private",
+      id: "label_private",
+      workspaceId: "workspace_1",
+      scopeType: "private",
+      ownerId: "user_1",
+      name: "Focus",
+      color: "violet",
+    })
+
+    await expect(
+      updateLabelHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_2",
+        labelId: "label_private",
+        name: "Deep work",
+      })
+    ).rejects.toThrow("You can only edit your own labels")
+    expect(requireReadableWorkspaceAccessMock).not.toHaveBeenCalled()
+    expect(ctx.db.patch).not.toHaveBeenCalled()
   })
 
   it("updates team details and ensures enabled collaboration/work views", async () => {

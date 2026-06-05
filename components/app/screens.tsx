@@ -111,6 +111,7 @@ export { ProjectDetailScreen } from "@/components/app/screens/project-detail-scr
 import {
   clearViewFiltersPreservingCompletion,
   createEmptyViewFilters,
+  canEditDocumentInUi,
   selectAppDataSnapshot,
   toggleDisplayPropertyValue,
   toggleViewFilterValue,
@@ -121,6 +122,7 @@ import {
   type DocsTab,
 } from "@/components/app/screens/docs-dialog-input"
 import { DocsContent } from "@/components/app/screens/docs-content"
+import { DocumentDetailSidebarSurface } from "@/components/app/screens/document-detail-sidebar"
 import {
   buildGroupedSections,
   type GroupedSection,
@@ -4555,6 +4557,9 @@ export function DocsScreen({
   const docLayoutState = useCollectionLayout(routeKey, docViews)
   const activeView = docLayoutState.activeView
   const activeTab = getActiveDocsTab(activeView)
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
+    null
+  )
   const baseDocuments = useMemo(
     () =>
       getDocsBaseDocuments({
@@ -4582,6 +4587,11 @@ export function DocsScreen({
   })
   const editable = useAppStore((state) => selectDocsEditable(state, team))
   const emptyTitle = getDocsEmptyTitle(isWorkspaceDocs, activeTab)
+  const selectedDocument =
+    selectedDocumentId !== null
+      ? (documents.find((document) => document.id === selectedDocumentId) ??
+        null)
+      : null
 
   if (isTeamDocsDisabled(team)) {
     return <MissingState title="Docs are disabled for this team" />
@@ -4600,32 +4610,46 @@ export function DocsScreen({
           views={docViews}
         />
       </Topbar>
-      <DocsTaskbar
-        activeView={activeView}
-        data={data}
-        documents={baseDocuments}
-        editable={editable}
-        layout={docLayoutState.layout}
-        onCreateDocument={() => setDialogOpen(true)}
-        onLayoutChange={docLayoutState.setLayout}
-        routeKey={routeKey}
-      />
       <CreateDocumentDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         input={dialogInput}
         disabled={!editable}
       />
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <DocsContent
-          data={data}
-          documents={documents}
-          displayProps={activeView?.displayProps}
-          emptyTitle={emptyTitle}
-          hasLoadedOnce={hasLoadedOnce}
-          layout={docLayoutState.layout}
-          sections={docSections}
-        />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <DocsTaskbar
+            activeView={activeView}
+            data={data}
+            documents={baseDocuments}
+            editable={editable}
+            layout={docLayoutState.layout}
+            onCreateDocument={() => setDialogOpen(true)}
+            onLayoutChange={docLayoutState.setLayout}
+            routeKey={routeKey}
+          />
+          <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <DocsContent
+              data={data}
+              documents={documents}
+              displayProps={activeView?.displayProps}
+              emptyTitle={emptyTitle}
+              hasLoadedOnce={hasLoadedOnce}
+              layout={docLayoutState.layout}
+              sections={docSections}
+              onOpenProperties={setSelectedDocumentId}
+            />
+          </div>
+        </div>
+        {selectedDocument ? (
+          <DocumentDetailSidebarSurface
+            data={data}
+            document={selectedDocument}
+            editable={canEditDocumentInUi(data, selectedDocument)}
+            open={Boolean(selectedDocument)}
+            onClose={() => setSelectedDocumentId(null)}
+          />
+        ) : null}
       </div>
     </div>
   )

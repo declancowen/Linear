@@ -655,7 +655,7 @@ function WorkItemCustomPropertyMenuSection({
     for (const target of targetItems) {
       useAppStore
         .getState()
-        .setCustomPropertyValue(target.id, definition.id, null)
+        .setCustomPropertyValue("workItem", target.id, definition.id, null)
     }
   }
 
@@ -669,6 +669,7 @@ function WorkItemCustomPropertyMenuSection({
 
     for (const target of targetItems) {
       useAppStore.getState().setCustomPropertyValue(
+        "workItem",
         target.id,
         definition.id,
         getNextCustomChoiceValue({

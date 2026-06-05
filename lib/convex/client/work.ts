@@ -282,15 +282,30 @@ export function syncClearViewFilters(viewId: string) {
   })
 }
 
-export function syncCreateCustomPropertyDefinition(input: {
-  teamId: string
-  scopeType?: "team"
-  targetType?: "workItem"
+type CreateCustomPropertyDefinitionRouteInput = {
+  targetType?: "workItem" | "document"
   name: string
   icon: string
   type: CustomPropertyType
   options?: CustomPropertyOption[]
-}) {
+} & (
+  | {
+      scopeType?: "team"
+      teamId: string
+    }
+  | {
+      scopeType: "workspace"
+      workspaceId: string
+    }
+  | {
+      scopeType: "private"
+      workspaceId: string
+    }
+)
+
+export function syncCreateCustomPropertyDefinition(
+  input: CreateCustomPropertyDefinitionRouteInput
+) {
   return runRouteMutation<{
     ok: true
     property: unknown
@@ -328,12 +343,18 @@ export function syncArchiveCustomPropertyDefinition(propertyId: string) {
 }
 
 export function syncSetCustomPropertyValue(
-  workItemId: string,
+  targetType: "workItem" | "document",
+  targetId: string,
   propertyId: string,
   value: CustomPropertyValue
 ) {
+  const path =
+    targetType === "document"
+      ? `/api/documents/${targetId}/custom-properties/${propertyId}`
+      : `/api/work-items/${targetId}/custom-properties/${propertyId}`
+
   return runRouteMutation(
-    `/api/work-items/${workItemId}/custom-properties/${propertyId}`,
+    path,
     {
       method: "PUT",
       headers: {
@@ -422,10 +443,20 @@ export function syncCreateLabel(input: {
   workspaceId?: string
   name: string
   color?: string
-  scopeType?: "workspace"
+  scopeType?: "workspace" | "private"
 }) {
   return runRouteMutation<unknown>("/api/labels", {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  }).then(normalizeCreateLabelResult)
+}
+
+export function syncUpdateLabel(input: { labelId: string; name: string }) {
+  return runRouteMutation<unknown>("/api/labels", {
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json",
     },

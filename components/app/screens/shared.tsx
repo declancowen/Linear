@@ -888,28 +888,21 @@ export function useWorkItemLabelEditorState({
   workspaceId: string | null | undefined
 }) {
   const [newLabelName, setNewLabelName] = useState("")
-  const isPrivateTask = (item.visibility ?? "team") === "private"
   const labelNameLimitState = getTextInputLimitState(
     newLabelName,
     labelNameConstraints
   )
   const currentUserId = useAppStore.getState().currentUserId
-  const availableLabels = isPrivateTask
-    ? []
-    : labels.filter((label) =>
-        workspaceId
-          ? isLabelAssignableToWorkItem(label, item, workspaceId, currentUserId)
-          : false
-      )
+  const availableLabels = labels.filter((label) =>
+    workspaceId
+      ? isLabelAssignableToWorkItem(label, item, workspaceId, currentUserId)
+      : false
+  )
   const selectedLabels = availableLabels.filter((label) =>
     item.labelIds.includes(label.id)
   )
 
   function toggleLabel(labelId: string) {
-    if (isPrivateTask) {
-      return
-    }
-
     const nextLabelIds = item.labelIds.includes(labelId)
       ? item.labelIds.filter((currentId) => currentId !== labelId)
       : [...item.labelIds, labelId]
@@ -920,10 +913,6 @@ export function useWorkItemLabelEditorState({
   }
 
   async function handleCreateLabel() {
-    if (isPrivateTask) {
-      return
-    }
-
     if (
       !canCreateWorkItemLabel({
         labelNameLimitState,
@@ -939,7 +928,8 @@ export function useWorkItemLabelEditorState({
     const created = await useAppStore
       .getState()
       .createLabel(newLabelName, workspaceId ?? null, {
-        scopeType: "workspace",
+        scopeType:
+          (item.visibility ?? "team") === "private" ? "private" : "workspace",
       })
 
     if (!created) {
@@ -1003,7 +993,6 @@ export function WorkItemLabelsEditor({
   item: WorkItem
   editable: boolean
 }) {
-  const isPrivateTask = (item.visibility ?? "team") === "private"
   const itemWorkspaceId = useAppStore((state) =>
     item.visibility === "private"
       ? (item.workspaceId ?? null)
@@ -1039,10 +1028,6 @@ export function WorkItemLabelsEditor({
     labels: labelPool,
     workspaceId: itemWorkspaceId,
   })
-
-  if (isPrivateTask) {
-    return null
-  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -1359,17 +1344,13 @@ function getItemWorkspaceId(data: AppData, item: WorkItem) {
 }
 
 function getLabelPatchPool(data: AppData, item: WorkItem) {
-  if ((item.visibility ?? "team") === "private") {
-    return []
-  }
-
   const workspaceId = getItemWorkspaceId(data, item)
 
   if (!workspaceId) {
     return []
   }
 
-  return getLabelsForTeamScope(data, item.teamId).filter((label) =>
+  return data.labels.filter((label) =>
     isLabelAssignableToWorkItem(label, item, workspaceId, data.currentUserId)
   )
 }

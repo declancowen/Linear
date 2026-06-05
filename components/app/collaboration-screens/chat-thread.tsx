@@ -2,11 +2,13 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
   type RefObject,
+  type MouseEvent as ReactMouseEvent,
 } from "react"
 import type { Editor } from "@tiptap/react"
 import {
@@ -33,6 +35,10 @@ import {
   getSeenChatMessageIds,
   supportsChatMessageReadReceipts,
 } from "@/lib/domain/chat-read-state"
+import {
+  CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE,
+  normalizeChatQuoteSourceMessageId,
+} from "@/lib/content/chat-message-quote-metadata"
 import { sanitizeRichTextMessageContent } from "@/lib/content/rich-text-security"
 import { chatMessageContentConstraints } from "@/lib/domain/input-constraints"
 import { buildWorkspaceUserPresenceView } from "@/lib/domain/workspace-user-presence"
@@ -76,6 +82,17 @@ const EMPTY_MESSAGE_READ_AT_BY_ID: Record<string, string> = {}
 const EMPTY_MESSAGE_IDS: string[] = []
 const EMPTY_PARTICIPANT_IDS: string[] = []
 const EMPTY_SEEN_MESSAGE_IDS = new Set<string>()
+const RICH_TEXT_MEDIA_OR_ATTACHMENT_PATTERN =
+  /<(?:img\b|a\b(?=[^>]*(?:href|data-type\s*=\s*["']attachment["'])))/i
+
+type MaybePromise<T> = T | Promise<T>
+
+function hasMeaningfulChatComposerContent(content: string) {
+  return (
+    getPlainTextContent(content).trim().length > 0 ||
+    RICH_TEXT_MEDIA_OR_ATTACHMENT_PATTERN.test(content)
+  )
+}
 
 function getLiveComposerContent(
   editorInstanceRef: RefObject<Editor | null>,
@@ -85,6 +102,20 @@ function getLiveComposerContent(
     editorInstanceRef.current?.getHTML() ??
     editorInstanceRef.current?.getText() ??
     fallbackContent
+  )
+}
+
+function getChatQuoteSourceMessageIdFromTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return null
+  }
+
+  const sourceQuote = target.closest(
+    `blockquote[${CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE}]`
+  )
+
+  return normalizeChatQuoteSourceMessageId(
+    sourceQuote?.getAttribute(CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE)
   )
 }
 
@@ -111,7 +142,7 @@ function ChatComposer({
   onTypingChange,
 }: {
   placeholder?: string
-  onSend: (content: string) => void
+  onSend: (content: string) => MaybePromise<void>
   mentionCandidates: ReturnType<typeof getConversationParticipants>
   currentUserId: string
   editable?: boolean
@@ -126,44 +157,85 @@ function ChatComposer({
   const [content, setContent] = useState(
     () => draftContent ?? EMPTY_COMPOSER_CONTENT
   )
+  const [sendInFlight, setSendInFlight] = useState(false)
   const [composerKey, setComposerKey] = useState(0)
   const editorInstanceRef = useRef<Editor | null>(null)
+  const sendInFlightRef = useRef(false)
+  const sendLockReleaseTimeoutRef = useRef<number | null>(null)
   const typingTimeoutRef = useRef<number | null>(null)
-  const contentText = getPlainTextContent(content).trim()
+  const hasComposerContent = hasMeaningfulChatComposerContent(content)
+  const controlsEditable = editable && !sendInFlight
+  const canSubmit = controlsEditable && hasComposerContent
   const filteredMentionCandidates = useMemo(
     () =>
       mentionCandidates.filter((candidate) => candidate.id !== currentUserId),
     [currentUserId, mentionCandidates]
   )
 
-  const handleSend = async () => {
-    const liveContent = getLiveComposerContent(editorInstanceRef, content)
-    const livePlainText = getPlainTextContent(liveContent).trim()
+  const releaseSendLock = (deferUntilComposerReset: boolean) => {
+    if (sendLockReleaseTimeoutRef.current !== null) {
+      window.clearTimeout(sendLockReleaseTimeoutRef.current)
+      sendLockReleaseTimeoutRef.current = null
+    }
 
-    if (!editable || livePlainText.length === 0) {
+    const release = () => {
+      sendInFlightRef.current = false
+      setSendInFlight(false)
+      sendLockReleaseTimeoutRef.current = null
+    }
+
+    if (deferUntilComposerReset) {
+      sendLockReleaseTimeoutRef.current = window.setTimeout(release, 0)
       return
     }
 
+    release()
+  }
+
+  const handleSend = async () => {
+    if (sendInFlightRef.current) {
+      return
+    }
+
+    const liveContent = getLiveComposerContent(editorInstanceRef, content)
+
+    if (!editable || !hasMeaningfulChatComposerContent(liveContent)) {
+      return
+    }
+
+    sendInFlightRef.current = true
+    setSendInFlight(true)
+
     let outgoingContent = liveContent
+    let sentSuccessfully = false
 
-    if (hasPendingAttachments(liveContent)) {
-      const flushedContent = await flushPendingAttachmentUploads(
-        liveContent,
-        onUploadAttachment
-      )
+    try {
+      if (hasPendingAttachments(liveContent)) {
+        const flushedContent = await flushPendingAttachmentUploads(
+          liveContent,
+          onUploadAttachment
+        )
 
-      if (flushedContent === null) {
+        if (flushedContent === null) {
+          return
+        }
+
+        outgoingContent = flushedContent
+      }
+
+      if (!hasMeaningfulChatComposerContent(outgoingContent)) {
         return
       }
 
-      outgoingContent = flushedContent
+      clearTypingTimeout(typingTimeoutRef)
+      onTypingChange?.(false)
+      await onSend(outgoingContent)
+      setContent(EMPTY_COMPOSER_CONTENT)
+      setComposerKey((current) => current + 1)
+      sentSuccessfully = true
+    } finally {
+      releaseSendLock(sentSuccessfully)
     }
-
-    clearTypingTimeout(typingTimeoutRef)
-    onTypingChange?.(false)
-    onSend(outgoingContent)
-    setContent(EMPTY_COMPOSER_CONTENT)
-    setComposerKey((current) => current + 1)
   }
 
   const handleCancelEdit = () => {
@@ -180,6 +252,10 @@ function ChatComposer({
     return () => {
       if (typingTimeoutRef.current !== null) {
         window.clearTimeout(typingTimeoutRef.current)
+      }
+
+      if (sendLockReleaseTimeoutRef.current !== null) {
+        window.clearTimeout(sendLockReleaseTimeoutRef.current)
       }
 
       onTypingChange?.(false)
@@ -220,7 +296,7 @@ function ChatComposer({
           key={composerKey}
           content={content}
           onChange={handleChange}
-          editable={editable}
+          editable={controlsEditable}
           compact
           allowSlashCommands={false}
           autoFocus={composerKey > 0}
@@ -247,23 +323,23 @@ function ChatComposer({
             trigger={
               <button
                 type="button"
-                disabled={!editable}
+                disabled={!controlsEditable}
                 aria-label="Emoji"
                 className="inline-grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-default disabled:opacity-60"
               >
                 <Smiley className="size-[13px]" />
               </button>
-          }
-        />
-        <RichTextUploadButton
-          deferUpload
-          disabled={!editable}
-          editorRef={editorInstanceRef}
-          iconClassName="size-[13px]"
-          insertMode="auto"
-          onUploadAttachment={onUploadAttachment}
-        />
-        <span className="flex-1" />
+            }
+          />
+          <RichTextUploadButton
+            deferUpload
+            disabled={!controlsEditable}
+            editorRef={editorInstanceRef}
+            iconClassName="size-[13px]"
+            insertMode="auto"
+            onUploadAttachment={onUploadAttachment}
+          />
+          <span className="flex-1" />
           <kbd className="mr-1 inline-flex h-[18px] items-center rounded-[4px] border border-line bg-surface-2 px-1 font-sans text-[10.5px] font-medium text-fg-3">
             ⏎
           </kbd>
@@ -273,6 +349,7 @@ function ChatComposer({
               size="sm"
               variant="ghost"
               onClick={handleCancelEdit}
+              disabled={sendInFlight}
               className="h-7 rounded-md px-2.5 text-[12px]"
             >
               Cancel
@@ -282,7 +359,7 @@ function ChatComposer({
             type="button"
             size="sm"
             onClick={handleSend}
-            disabled={!editable || !contentText}
+            disabled={!canSubmit}
             className="h-7 gap-1.5 rounded-md px-2.5 text-[12px]"
           >
             <ArrowUp className="size-3" weight="bold" />
@@ -552,11 +629,13 @@ function ChatMessageBody({
   content,
   deletedAt,
   isCurrentUser,
+  onNavigateToMessage,
 }: {
   callJoinHref: string | null
   content: string
   deletedAt?: string | null
   isCurrentUser: boolean
+  onNavigateToMessage: (messageId: string) => void
 }) {
   if (deletedAt) {
     return isCurrentUser ? (
@@ -580,11 +659,27 @@ function ChatMessageBody({
     )
   }
 
+  const handleContentClickCapture = (
+    event: ReactMouseEvent<HTMLDivElement>
+  ) => {
+    const sourceMessageId = getChatQuoteSourceMessageIdFromTarget(event.target)
+
+    if (!sourceMessageId) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    onNavigateToMessage(sourceMessageId)
+  }
+
   return (
-    <RichTextContent
-      content={sanitizeRichTextMessageContent(getChatMessageMarkup(content))}
-      className="max-w-full text-[13.5px] leading-[1.55] [overflow-wrap:anywhere] break-words text-foreground [&_.editor-mention]:rounded [&_.editor-mention]:bg-accent-bg [&_.editor-mention]:px-1 [&_.editor-mention]:font-medium [&_.editor-mention]:text-accent-fg [&_a]:break-all [&_a]:text-blue-600 [&_a]:underline dark:[&_a]:text-blue-400 [&_code]:rounded [&_code]:bg-surface-3 [&_code]:px-1.5 [&_code]:py-[1px] [&_code]:text-[12.5px] [&_p]:my-0 [&_p+p]:mt-1 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap"
-    />
+    <div onClickCapture={handleContentClickCapture}>
+      <RichTextContent
+        content={sanitizeRichTextMessageContent(getChatMessageMarkup(content))}
+        className="max-w-full text-[13.5px] leading-[1.55] [overflow-wrap:anywhere] break-words text-foreground [&_.editor-mention]:rounded [&_.editor-mention]:bg-accent-bg [&_.editor-mention]:px-1 [&_.editor-mention]:font-medium [&_.editor-mention]:text-accent-fg [&_a]:break-all [&_a]:text-blue-600 [&_a]:underline dark:[&_a]:text-blue-400 [&_code]:rounded [&_code]:bg-surface-3 [&_code]:px-1.5 [&_code]:py-[1px] [&_code]:text-[12.5px] [&_p]:my-0 [&_p+p]:mt-1 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap"
+      />
+    </div>
   )
 }
 
@@ -618,7 +713,8 @@ function ChatMessageReactionButton({
           active
             ? "border-primary/40 bg-primary/10 text-foreground"
             : "border-line bg-surface text-fg-2 hover:bg-surface-2 hover:text-foreground",
-          !canReact && "cursor-default opacity-70 hover:bg-surface hover:text-fg-2"
+          !canReact &&
+            "cursor-default opacity-70 hover:bg-surface hover:text-fg-2"
         )}
       >
         <span>{reaction.emoji}</span>
@@ -646,7 +742,10 @@ function ChatMessageReactions({
   }
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+    <div
+      data-chat-message-reactions={message.id}
+      className="mt-2 mb-1 flex flex-wrap items-center gap-1.5 pt-0.5"
+    >
       {reactions.map((reaction) => (
         <ChatMessageReactionButton
           key={`${message.id}-${reaction.emoji}`}
@@ -666,10 +765,12 @@ function ChatMessageRow({
   authorView,
   canCurrentUserWrite,
   currentUserId,
+  highlighted,
   index,
   message,
   onDeleteMessage,
   onEditMessage,
+  onNavigateToMessage,
   onQuoteMessage,
   previousMessage,
   seen,
@@ -680,10 +781,12 @@ function ChatMessageRow({
   authorView: WorkspaceUserPresenceView
   canCurrentUserWrite: boolean
   currentUserId: string
+  highlighted: boolean
   index: number
   message: ChatThreadMessage
   onDeleteMessage: (message: ChatThreadMessage) => void
   onEditMessage: (message: ChatThreadMessage) => void
+  onNavigateToMessage: (messageId: string) => void
   onQuoteMessage: (
     message: ChatThreadMessage,
     authorName: string | undefined
@@ -694,6 +797,7 @@ function ChatMessageRow({
   workspaceId: string | null
 }) {
   const isCurrentUser = message.createdBy === currentUserId
+  const hasReactions = (message.reactions?.length ?? 0) > 0
   const canMutateMessage =
     canCurrentUserWrite &&
     isCurrentUser &&
@@ -712,10 +816,14 @@ function ChatMessageRow({
         <ChatDayDivider createdAt={message.createdAt} index={index} />
       ) : null}
       <div
+        data-chat-message-id={message.id}
+        tabIndex={-1}
         className={cn(
-          "group/msg relative grid items-start gap-x-2.5 px-4 transition-colors hover:bg-surface-2",
+          "group/msg relative grid items-start gap-x-2.5 overflow-visible px-4 transition-colors hover:bg-surface-2",
           "py-0.5",
-          showTopMargin && "mt-3"
+          hasReactions && "pb-2",
+          showTopMargin && "mt-3",
+          highlighted && "bg-primary/10 ring-1 ring-primary/25 ring-inset"
         )}
         style={{ gridTemplateColumns: "24px 1fr" }}
       >
@@ -765,6 +873,7 @@ function ChatMessageRow({
               content={message.content}
               deletedAt={message.deletedAt}
               isCurrentUser={isCurrentUser}
+              onNavigateToMessage={onNavigateToMessage}
             />
             <ChatMessageReactions
               canReact={canCurrentUserWrite}
@@ -833,17 +942,20 @@ function ChatThreadHeader({
 function ChatMessageList({
   canCurrentUserWrite,
   currentUserId,
+  highlightedMessageId,
   getMembershipState,
   messages,
   seenMessageIds,
   onDeleteMessage,
   onEditMessage,
+  onNavigateToMessage,
   onQuoteMessage,
   usersById,
   workspaceId,
 }: {
   canCurrentUserWrite: boolean
   currentUserId: string
+  highlightedMessageId: string | null
   getMembershipState: (
     userId: string | null | undefined
   ) => WorkspaceMembershipState
@@ -851,6 +963,7 @@ function ChatMessageList({
   seenMessageIds: Set<string>
   onDeleteMessage: (message: ChatThreadMessage) => void
   onEditMessage: (message: ChatThreadMessage) => void
+  onNavigateToMessage: (messageId: string) => void
   onQuoteMessage: (
     message: ChatThreadMessage,
     authorName: string | undefined
@@ -879,10 +992,12 @@ function ChatMessageList({
             authorView={authorView}
             canCurrentUserWrite={canCurrentUserWrite}
             currentUserId={currentUserId}
+            highlighted={message.id === highlightedMessageId}
             index={idx}
             message={message}
             onDeleteMessage={onDeleteMessage}
             onEditMessage={onEditMessage}
+            onNavigateToMessage={onNavigateToMessage}
             onQuoteMessage={onQuoteMessage}
             previousMessage={previousMessage}
             seen={seenMessageIds.has(message.id)}
@@ -900,12 +1015,14 @@ function ChatMessagesPane({
   currentUserId,
   emptyStateDescription,
   getMembershipState,
+  highlightedMessageId,
   loaded,
   messages,
   seenMessageIds,
   messagesEndRef,
   onDeleteMessage,
   onEditMessage,
+  onNavigateToMessage,
   onQuoteMessage,
   scrollRef,
   showWelcomeIntro,
@@ -921,12 +1038,14 @@ function ChatMessagesPane({
   getMembershipState: (
     userId: string | null | undefined
   ) => WorkspaceMembershipState
+  highlightedMessageId: string | null
   loaded: boolean
   messages: ChatThreadMessage[]
   seenMessageIds: Set<string>
   messagesEndRef: RefObject<HTMLDivElement | null>
   onDeleteMessage: (message: ChatThreadMessage) => void
   onEditMessage: (message: ChatThreadMessage) => void
+  onNavigateToMessage: (messageId: string) => void
   onQuoteMessage: (
     message: ChatThreadMessage,
     authorName: string | undefined
@@ -973,15 +1092,21 @@ function ChatMessagesPane({
             canCurrentUserWrite={canCurrentUserWrite}
             currentUserId={currentUserId}
             getMembershipState={getMembershipState}
+            highlightedMessageId={highlightedMessageId}
             messages={messages}
             seenMessageIds={seenMessageIds}
             onDeleteMessage={onDeleteMessage}
             onEditMessage={onEditMessage}
+            onNavigateToMessage={onNavigateToMessage}
             onQuoteMessage={onQuoteMessage}
             usersById={usersById}
             workspaceId={workspaceId}
           />
-          <div ref={messagesEndRef} aria-hidden className="h-px shrink-0" />
+          <div
+            ref={messagesEndRef}
+            aria-hidden
+            className="h-px shrink-0"
+          />
         </>
       )}
     </div>
@@ -1457,11 +1582,18 @@ function toChatTypingUser(input: {
   }
 }
 
-function useChatMessagesAutoScroll(latestMessageId: string | null) {
+function useChatMessagesAutoScroll(
+  latestMessageKey: string | null,
+  enabled: boolean
+) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!enabled) {
+      return
+    }
+
     const el = scrollRef.current
     const messagesEnd = messagesEndRef.current
 
@@ -1478,9 +1610,22 @@ function useChatMessagesAutoScroll(latestMessageId: string | null) {
 
     scrollToBottom()
 
-    const frameId = window.requestAnimationFrame(() => {
-      scrollToBottom()
-    })
+    const frameIds: number[] = []
+    const scheduleFrameScroll = () => {
+      const frameId = window.requestAnimationFrame(() => {
+        scrollToBottom()
+      })
+      frameIds.push(frameId)
+    }
+
+    scheduleFrameScroll()
+    scheduleFrameScroll()
+
+    const timeoutIds = [50, 150, 300].map((delay) =>
+      window.setTimeout(() => {
+        scrollToBottom()
+      }, delay)
+    )
 
     const pendingImages = Array.from(el.querySelectorAll("img")).filter(
       (image) => !image.complete
@@ -1492,18 +1637,36 @@ function useChatMessagesAutoScroll(latestMessageId: string | null) {
     })
 
     return () => {
-      window.cancelAnimationFrame(frameId)
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId))
+      frameIds.forEach((frameId) => window.cancelAnimationFrame(frameId))
       pendingImages.forEach((image) => {
         image.removeEventListener("load", scrollToBottom)
         image.removeEventListener("error", scrollToBottom)
       })
     }
-  }, [latestMessageId])
+  }, [enabled, latestMessageKey])
 
   return {
     messagesEndRef,
     scrollRef,
   }
+}
+
+function getChatMessageLayoutKey(message: ChatThreadMessage | undefined) {
+  if (!message) {
+    return null
+  }
+
+  const reactionKey = (message.reactions ?? [])
+    .map((reaction) => `${reaction.emoji}:${reaction.userIds.length}`)
+    .join("|")
+
+  return [
+    message.id,
+    message.content,
+    message.deletedAt ?? "",
+    reactionKey,
+  ].join(":")
 }
 
 export function ChatThread({
@@ -1581,6 +1744,10 @@ export function ChatThread({
   })
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
+  const [highlightedMessageId, setHighlightedMessageId] = useState<
+    string | null
+  >(null)
+  const highlightTimeoutRef = useRef<number | null>(null)
   const fileContents = useMemo(
     () =>
       messages.map((message) => ({
@@ -1650,60 +1817,66 @@ export function ChatThread({
     () => formatTypingIndicatorLabel(typingUsers.map((user) => user.name)),
     [typingUsers]
   )
-  const seenMessageIds = useMemo(
-    () => {
-      if (!conversationReceiptContext.supportsMessageReadReceipts) {
-        return EMPTY_SEEN_MESSAGE_IDS
-      }
+  const seenMessageIds = useMemo(() => {
+    if (!conversationReceiptContext.supportsMessageReadReceipts) {
+      return EMPTY_SEEN_MESSAGE_IDS
+    }
 
-      return getSeenChatMessageIds({
-        conversationId,
-        currentUserId,
-        messages,
-        participantIds:
-          conversationReceiptContext.participantIds.length > 0
-            ? conversationReceiptContext.participantIds
-            : members.map((member) => member.id),
-        readStates: chatReadStates,
-      })
-    },
-    [
-      chatReadStates,
+    return getSeenChatMessageIds({
       conversationId,
-      conversationReceiptContext,
       currentUserId,
-      members,
       messages,
-    ]
+      participantIds:
+        conversationReceiptContext.participantIds.length > 0
+          ? conversationReceiptContext.participantIds
+          : members.map((member) => member.id),
+      readStates: chatReadStates,
+    })
+  }, [
+    chatReadStates,
+    conversationId,
+    conversationReceiptContext,
+    currentUserId,
+    members,
+    messages,
+  ])
+  const latestMessageLayoutKey = getChatMessageLayoutKey(
+    messages[messages.length - 1]
   )
-  const latestMessageId = messages[messages.length - 1]?.id ?? null
-  const readableMessageIds = useMemo(
-    () => {
-      if (!conversationReceiptContext.supportsMessageReadReceipts) {
-        return EMPTY_MESSAGE_IDS
-      }
+  const readableMessageIds = useMemo(() => {
+    if (!conversationReceiptContext.supportsMessageReadReceipts) {
+      return EMPTY_MESSAGE_IDS
+    }
 
-      const unreadMessageIds = messages
-        .filter((message) => !messageReadAtById[message.id])
-        .map((message) => message.id)
+    const unreadMessageIds = messages
+      .filter((message) => !messageReadAtById[message.id])
+      .map((message) => message.id)
 
-      return getReadableChatMessageReceiptIds({
-        conversationId,
-        currentUserId,
-        messages,
-        messageIds: unreadMessageIds,
-      })
-    },
-    [
+    return getReadableChatMessageReceiptIds({
       conversationId,
-      conversationReceiptContext.supportsMessageReadReceipts,
       currentUserId,
-      messageReadAtById,
       messages,
-    ]
+      messageIds: unreadMessageIds,
+    })
+  }, [
+    conversationId,
+    conversationReceiptContext.supportsMessageReadReceipts,
+    currentUserId,
+    messageReadAtById,
+    messages,
+  ])
+  const { messagesEndRef, scrollRef } = useChatMessagesAutoScroll(
+    latestMessageLayoutKey,
+    activeTab === "chat"
   )
-  const { messagesEndRef, scrollRef } =
-    useChatMessagesAutoScroll(latestMessageId)
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current !== null) {
+        window.clearTimeout(highlightTimeoutRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (!loaded) {
@@ -1724,7 +1897,31 @@ export function ChatThread({
     authorName: string | undefined
   ) => {
     setEditingMessageId(null)
-    seedComposer(createQuotedRichText(message.content, authorName))
+    seedComposer(createQuotedRichText(message.content, authorName, message.id))
+  }
+  const handleNavigateToMessage = (messageId: string) => {
+    const messageElement = Array.from(
+      scrollRef.current?.querySelectorAll<HTMLElement>(
+        "[data-chat-message-id]"
+      ) ?? []
+    ).find((element) => element.dataset.chatMessageId === messageId)
+
+    if (!messageElement) {
+      return
+    }
+
+    messageElement.scrollIntoView({ block: "center" })
+    messageElement.focus({ preventScroll: true })
+    setHighlightedMessageId(messageId)
+
+    if (highlightTimeoutRef.current !== null) {
+      window.clearTimeout(highlightTimeoutRef.current)
+    }
+
+    highlightTimeoutRef.current = window.setTimeout(() => {
+      setHighlightedMessageId(null)
+      highlightTimeoutRef.current = null
+    }, 1_800)
   }
   const handleEditMessage = (message: ChatThreadMessage) => {
     if (
@@ -1778,6 +1975,9 @@ export function ChatThread({
           getWorkspaceMembershipState(welcomeParticipant.id)
         )
       : null
+  const tabs = (
+    <ConversationTabBar activeTab={activeTab} onTabChange={setActiveTab} />
+  )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1787,16 +1987,15 @@ export function ChatThread({
           description={description}
           detailsAction={detailsAction}
           membersCount={members.length}
-          tabs={
-            <ConversationTabBar
-              activeTab={activeTab}
-              onTabChange={setActiveTab}
-            />
-          }
+          tabs={tabs}
           title={title}
           videoAction={videoAction}
         />
-      ) : null}
+      ) : (
+        <div className="flex h-10 shrink-0 items-center justify-end border-b border-line px-4">
+          {tabs}
+        </div>
+      )}
 
       {activeTab === "files" ? (
         <ConversationFilesPanel entries={fileContents} />
@@ -1807,12 +2006,14 @@ export function ChatThread({
             currentUserId={currentUserId}
             emptyStateDescription={emptyStateDescription}
             getMembershipState={getWorkspaceMembershipState}
+            highlightedMessageId={highlightedMessageId}
             loaded={loaded}
             messages={messages}
             seenMessageIds={seenMessageIds}
             messagesEndRef={messagesEndRef}
             onDeleteMessage={setDeleteMessage}
             onEditMessage={handleEditMessage}
+            onNavigateToMessage={handleNavigateToMessage}
             onQuoteMessage={handleQuoteMessage}
             scrollRef={scrollRef}
             showWelcomeIntro={Boolean(showWelcomeIntro)}

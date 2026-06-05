@@ -384,6 +384,57 @@ describe("work item menus", () => {
     expect(screen.queryByText("Roadmap")).not.toBeInTheDocument()
   })
 
+  it("shows owner-private label actions for private tasks", () => {
+    const { data, item } = createMenuData()
+    const privateItem = {
+      ...item,
+      teamId: null,
+      workspaceId: "workspace_1",
+      type: "task" as const,
+      visibility: "private" as const,
+    }
+    const privateData = {
+      ...data,
+      labels: [
+        {
+          id: "label_workspace",
+          workspaceId: "workspace_1",
+          scopeType: "workspace" as const,
+          ownerId: null,
+          name: "Workspace",
+          color: "blue",
+        },
+        {
+          id: "label_private",
+          workspaceId: "workspace_1",
+          scopeType: "private" as const,
+          ownerId: "user_1",
+          name: "Focus",
+          color: "violet",
+        },
+      ],
+    }
+
+    render(
+      <IssueActionMenu
+        data={privateData}
+        displayProps={["labels"]}
+        item={privateItem}
+      />
+    )
+
+    expect(screen.getByText("Labels")).toBeInTheDocument()
+    expect(screen.getByText("Focus")).toBeInTheDocument()
+    expect(screen.queryByText("Workspace")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("Focus"))
+
+    expect(useAppStore.getState().updateWorkItem).toHaveBeenCalledWith(
+      "item_1",
+      { labelIds: ["label_private"] }
+    )
+  })
+
   it("adds assignees without replacing existing assignees from the menu", () => {
     const { data, item } = createMenuData()
     const assignedItem = {
@@ -466,11 +517,13 @@ describe("work item menus", () => {
     fireEvent.click(screen.getByText("High"))
 
     expect(useAppStore.getState().setCustomPropertyValue).toHaveBeenCalledWith(
+      "workItem",
       "item_1",
       "property_1",
       "option_high"
     )
     expect(useAppStore.getState().setCustomPropertyValue).toHaveBeenCalledWith(
+      "workItem",
       "item_2",
       "property_1",
       "option_high"

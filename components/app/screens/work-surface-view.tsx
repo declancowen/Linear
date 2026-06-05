@@ -3,6 +3,7 @@
 import { AppLink, useAppRouter } from "@/lib/browser/app-navigation"
 import {
   memo,
+  useEffect,
   useMemo,
   useState,
   type Dispatch,
@@ -26,6 +27,7 @@ import {
   useSensors,
 } from "@dnd-kit/core"
 import {
+  ArrowSquareOut,
   Check,
   CaretDown,
   CaretRight,
@@ -139,6 +141,8 @@ const DRAG_HOLD_TOLERANCE_PX = 8
 const META_CHIP_CLASS =
   "inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-line bg-surface px-2 text-[11px] text-fg-2"
 const META_TEXT_CLASS = "shrink-0 text-[11.5px] text-fg-3 tabular-nums"
+const LIST_ROW_ACTION_RESERVED_CLASS = "pr-12"
+const LIST_ROW_ACTION_OFFSET_CLASS = "right-5"
 
 function useHoldToDragSensors() {
   return useSensors(
@@ -216,6 +220,26 @@ function toggleSetMember<T>(
 
     return next
   })
+}
+
+function useClearMissingSelectedItem({
+  items,
+  onSelectedItemIdChange,
+  selectedItemId,
+}: {
+  items: WorkItem[]
+  onSelectedItemIdChange?: (itemId: string | null) => void
+  selectedItemId?: string | null
+}) {
+  useEffect(() => {
+    if (!selectedItemId) {
+      return
+    }
+
+    if (!items.some((item) => item.id === selectedItemId)) {
+      onSelectedItemIdChange?.(null)
+    }
+  }, [items, onSelectedItemIdChange, selectedItemId])
 }
 
 function getWorkSurfaceGroups({
@@ -380,9 +404,7 @@ function isWorkItemStatus(
   return Boolean(value && workStatuses.includes(value as WorkItem["status"]))
 }
 
-function getCreateDefaultsFromFilters(
-  view: Pick<ViewDefinition, "filters">
-): {
+function getCreateDefaultsFromFilters(view: Pick<ViewDefinition, "filters">): {
   defaultTeamId?: string | null
   initialType?: WorkItemType | null
   patch: WorkSurfaceCreateDefaultPatch
@@ -407,7 +429,7 @@ function getCreateDefaultsFromFilters(
         : projectId
           ? { primaryProjectId: projectId }
           : {}),
-      ...(labelId && !createsPrivateWorkItem ? { labelIds: [labelId] } : {}),
+      ...(labelId ? { labelIds: [labelId] } : {}),
       ...(visibility ? { visibility } : {}),
     },
   }
@@ -483,7 +505,7 @@ function getCreateDefaultValues({
       : hasExplicitProjectDefault
         ? groupedPatch.primaryProjectId
         : createContext?.defaultProjectId,
-    labelIds: createsPrivateWorkItem ? [] : groupedPatch.labelIds,
+    labelIds: groupedPatch.labelIds,
     parentId: groupedPatch.parentId ?? null,
     visibility,
   }
@@ -609,6 +631,8 @@ type WorkSurfaceViewProps = {
   childDisplayMode?: ChildDisplayMode
   createContext?: WorkSurfaceCreateContext
   onToggleHiddenValue?: (key: "groups" | "subgroups", value: string) => void
+  selectedItemId?: string | null
+  onSelectedItemIdChange?: (itemId: string | null) => void
 }
 
 type OpenCreateForGroupInput = {
@@ -991,7 +1015,7 @@ function renderWorkItemLabelsProperty({
     )
   }
 
-  if ((item.visibility ?? "team") === "private" || item.labelIds.length === 0) {
+  if (item.labelIds.length === 0) {
     return null
   }
 
@@ -1068,10 +1092,6 @@ function WorkItemLabelsPropertyControl({
     variant === "board" ? 2 : 1
   )
 
-  if ((item.visibility ?? "team") === "private") {
-    return null
-  }
-
   return (
     <Popover
       open={open}
@@ -1119,7 +1139,6 @@ function WorkItemLabelsPropertyControl({
               +{selectedLabels.length - visibleSelectedLabels.length}
             </span>
           ) : null}
-          <CaretDown className="size-3 shrink-0 opacity-60" />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -1283,16 +1302,12 @@ function renderCustomWorkItemDisplayProperty(
 
   const value = getDisplayCustomPropertyValue(context, definition.id)
 
-  if (!value) {
-    return null
-  }
-
   return (
     <CustomPropertyValueControl
       data={context.data}
       definition={definition}
       item={context.item}
-      value={value}
+      value={value ?? null}
       editable
       variant="chip"
     />
@@ -1484,6 +1499,8 @@ export function BoardView({
   childDisplayMode = "direct",
   createContext,
   onToggleHiddenValue,
+  selectedItemId,
+  onSelectedItemIdChange,
 }: WorkSurfaceViewProps) {
   const groups = useMemoizedWorkSurfaceGroups({
     createContext,
@@ -1538,6 +1555,11 @@ export function BoardView({
       view,
     })
   )
+  useClearMissingSelectedItem({
+    items: data.workItems,
+    onSelectedItemIdChange,
+    selectedItemId,
+  })
 
   function toggleExpandedItem(itemId: string) {
     toggleSetMember(setExpandedItemIds, itemId)
@@ -1559,211 +1581,232 @@ export function BoardView({
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
-      <ScrollArea className="h-full w-full">
-        <div className="flex h-full min-w-max items-stretch gap-3 px-4 pt-3.5 pb-8">
-          {visibleGroups.map(([groupName, subgroups]) => {
-            const groupItems = Array.from(subgroups.values()).flat()
-            const groupCount = groupItems.length
-            const parentGroupItem = getParentGroupItem({
-              data,
-              field: view.grouping,
-              groupItems,
-              sourceItems,
-              value: groupName,
-            })
-            const groupLabel = getGroupValueLabel(view.grouping, groupName, {
-              view,
-              groupingExperience,
-            })
-            const groupAccentVar = getGroupAccentVar(view.grouping, groupName)
+      <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <ScrollArea className="h-full w-full">
+            <div className="flex h-full min-w-max items-stretch gap-3 px-4 pt-3.5 pb-8">
+              {visibleGroups.map(([groupName, subgroups]) => {
+                const groupItems = Array.from(subgroups.values()).flat()
+                const groupCount = groupItems.length
+                const parentGroupItem = getParentGroupItem({
+                  data,
+                  field: view.grouping,
+                  groupItems,
+                  sourceItems,
+                  value: groupName,
+                })
+                const groupLabel = getGroupValueLabel(
+                  view.grouping,
+                  groupName,
+                  {
+                    view,
+                    groupingExperience,
+                  }
+                )
+                const groupAccentVar = getGroupAccentVar(
+                  view.grouping,
+                  groupName
+                )
 
-            return (
-              <div
-                key={groupName}
-                className="flex w-[296px] shrink-0 flex-col rounded-xl border border-line-soft bg-bg-sunken"
-              >
-                <BoardGroupHeader
-                  id={`board-group::${groupName}`}
-                  accentVar={groupAccentVar}
-                  groupLabel={groupLabel}
-                  groupCount={groupCount}
-                  data={data}
-                  displayProps={view.displayProps}
-                  parentItem={parentGroupItem}
-                />
-                <div
-                  aria-hidden
-                  className="mx-3 h-0.5 rounded-full opacity-60"
-                  style={{
-                    background: groupAccentVar ?? "var(--text-3)",
-                  }}
-                />
-                <div className="no-scrollbar flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2">
-                  {Array.from(subgroups.entries()).map(
-                    ([subgroupName, subItems]) => {
-                      const hidden =
-                        view.hiddenState.subgroups.includes(subgroupName)
-                      if (hidden) return null
-                      const parentSubgroupItem = getParentGroupItem({
-                        data,
-                        field: view.subGrouping,
-                        groupItems: subItems,
-                        sourceItems,
-                        value: subgroupName,
-                      })
+                return (
+                  <div
+                    key={groupName}
+                    className="flex w-[296px] shrink-0 flex-col rounded-xl border border-line-soft bg-bg-sunken"
+                  >
+                    <BoardGroupHeader
+                      id={`board-group::${groupName}`}
+                      accentVar={groupAccentVar}
+                      groupLabel={groupLabel}
+                      groupCount={groupCount}
+                      data={data}
+                      displayProps={view.displayProps}
+                      parentItem={parentGroupItem}
+                      onOpenProperties={onSelectedItemIdChange}
+                    />
+                    <div
+                      aria-hidden
+                      className="mx-3 h-0.5 rounded-full opacity-60"
+                      style={{
+                        background: groupAccentVar ?? "var(--text-3)",
+                      }}
+                    />
+                    <div className="no-scrollbar flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2">
+                      {Array.from(subgroups.entries()).map(
+                        ([subgroupName, subItems]) => {
+                          const hidden =
+                            view.hiddenState.subgroups.includes(subgroupName)
+                          if (hidden) return null
+                          const parentSubgroupItem = getParentGroupItem({
+                            data,
+                            field: view.subGrouping,
+                            groupItems: subItems,
+                            sourceItems,
+                            value: subgroupName,
+                          })
 
-                      return (
-                        <div key={`${groupName}-${subgroupName}`}>
-                          {view.subGrouping ? (
-                            <BoardSubgroupHeader
-                              data={data}
-                              displayProps={view.displayProps}
-                              groupCount={subItems.length}
-                              groupLabel={getGroupValueLabel(
-                                view.subGrouping,
-                                subgroupName,
-                                {
-                                  view,
-                                  groupingExperience,
-                                }
-                              )}
-                              parentItem={parentSubgroupItem}
-                            />
-                          ) : null}
-                          <BoardDropLane
-                            id={`board::${groupName}::${subgroupName}`}
-                          >
-                            {getContainerItemsForDisplay(
-                              subItems,
-                              displayItems,
-                              showChildItems
-                            ).map((item) => {
-                              const childItems = showChildItems
-                                ? getDirectChildWorkItemsForDisplay(
-                                    data,
-                                    item,
-                                    view.ordering,
-                                    view,
-                                    scopedItems,
-                                    {
-                                      mode: childDisplayMode,
-                                    }
-                                  )
-                                : []
-
-                              return (
-                                <DraggableWorkCard
-                                  key={item.id}
-                                  item={item}
+                          return (
+                            <div key={`${groupName}-${subgroupName}`}>
+                              {view.subGrouping ? (
+                                <BoardSubgroupHeader
                                   data={data}
                                   displayProps={view.displayProps}
-                                  selection={editable ? selection : undefined}
-                                  childCountOverride={getDisplayedChildCountOverride(
-                                    childItems,
-                                    childDisplayMode
+                                  groupCount={subItems.length}
+                                  groupLabel={getGroupValueLabel(
+                                    view.subGrouping,
+                                    subgroupName,
+                                    {
+                                      view,
+                                      groupingExperience,
+                                    }
                                   )}
-                                  details={
-                                    showChildItems ? (
-                                      <WorkItemChildDisclosure
-                                        data={data}
-                                        item={item}
-                                        displayProps={view.displayProps}
-                                        childItems={childItems}
-                                        editable={editable}
-                                        expanded={expandedItemIds.has(item.id)}
-                                        selection={
-                                          editable ? selection : undefined
-                                        }
-                                        onToggle={() =>
-                                          toggleExpandedItem(item.id)
-                                        }
-                                      />
-                                    ) : null
-                                  }
+                                  parentItem={parentSubgroupItem}
+                                  onOpenProperties={onSelectedItemIdChange}
                                 />
-                              )
-                            })}
-                            {editable ? (
-                              <button
-                                type="button"
-                                className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-                                onClick={() =>
-                                  openCreateForGroup({
-                                    groupValue: groupName,
-                                    subgroupValue: subgroupName,
-                                    laneItems: subItems,
-                                  })
-                                }
+                              ) : null}
+                              <BoardDropLane
+                                id={`board::${groupName}::${subgroupName}`}
                               >
-                                <Plus className="size-3.5" />
-                                <span>Add item</span>
-                              </button>
-                            ) : null}
-                          </BoardDropLane>
-                        </div>
-                      )
-                    }
-                  )}
-                  {subgroups.size === 0 ? (
-                    editable ? (
-                      <BoardDropLane
-                        id={`board::${groupName}`}
-                        className="min-h-24 flex-1"
-                      >
-                        <button
-                          type="button"
-                          className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-                          onClick={() =>
-                            openCreateForGroup({
-                              groupValue: groupName,
-                              laneItems: groupItems,
-                            })
-                          }
-                        >
-                          <Plus className="size-3.5" />
-                          <span>Add item</span>
-                        </button>
-                      </BoardDropLane>
-                    ) : (
-                      <div className="rounded-[6px] border-[1.5px] border-dashed border-line px-3 py-3.5 text-center text-[12px] text-fg-4">
-                        No items
-                      </div>
-                    )
-                  ) : null}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </ScrollArea>
+                                {getContainerItemsForDisplay(
+                                  subItems,
+                                  displayItems,
+                                  showChildItems
+                                ).map((item) => {
+                                  const childItems = showChildItems
+                                    ? getDirectChildWorkItemsForDisplay(
+                                        data,
+                                        item,
+                                        view.ordering,
+                                        view,
+                                        scopedItems,
+                                        {
+                                          mode: childDisplayMode,
+                                        }
+                                      )
+                                    : []
 
-      {hiddenGroups.length > 0 ? (
-        <div className="border-t border-line-soft px-4 py-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              Hidden columns
-            </span>
-            {hiddenGroups.map(([groupName]) => (
-              <button
-                key={groupName}
-                className="rounded-md border border-line px-2 py-0.5 text-xs hover:bg-surface-3"
-                onClick={() =>
-                  onToggleHiddenValue
-                    ? onToggleHiddenValue("groups", groupName)
-                    : useAppStore
-                        .getState()
-                        .toggleViewHiddenValue(view.id, "groups", groupName)
-                }
-              >
-                {getGroupValueLabel(view.grouping, groupName, {
-                  view,
-                  groupingExperience,
-                })}
-              </button>
-            ))}
-          </div>
+                                  return (
+                                    <DraggableWorkCard
+                                      key={item.id}
+                                      item={item}
+                                      data={data}
+                                      displayProps={view.displayProps}
+                                      selection={
+                                        editable ? selection : undefined
+                                      }
+                                      childCountOverride={getDisplayedChildCountOverride(
+                                        childItems,
+                                        childDisplayMode
+                                      )}
+                                      onOpenProperties={onSelectedItemIdChange}
+                                      details={
+                                        showChildItems ? (
+                                          <WorkItemChildDisclosure
+                                            data={data}
+                                            item={item}
+                                            displayProps={view.displayProps}
+                                            childItems={childItems}
+                                            editable={editable}
+                                            expanded={expandedItemIds.has(
+                                              item.id
+                                            )}
+	                                            selection={
+	                                              editable ? selection : undefined
+	                                            }
+                                            onOpenProperties={
+                                              onSelectedItemIdChange
+                                            }
+	                                            onToggle={() =>
+                                              toggleExpandedItem(item.id)
+                                            }
+                                          />
+                                        ) : null
+                                      }
+                                    />
+                                  )
+                                })}
+                                {editable ? (
+                                  <button
+                                    type="button"
+                                    className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                                    onClick={() =>
+                                      openCreateForGroup({
+                                        groupValue: groupName,
+                                        subgroupValue: subgroupName,
+                                        laneItems: subItems,
+                                      })
+                                    }
+                                  >
+                                    <Plus className="size-3.5" />
+                                    <span>Add item</span>
+                                  </button>
+                                ) : null}
+                              </BoardDropLane>
+                            </div>
+                          )
+                        }
+                      )}
+                      {subgroups.size === 0 ? (
+                        editable ? (
+                          <BoardDropLane
+                            id={`board::${groupName}`}
+                            className="min-h-24 flex-1"
+                          >
+                            <button
+                              type="button"
+                              className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                              onClick={() =>
+                                openCreateForGroup({
+                                  groupValue: groupName,
+                                  laneItems: groupItems,
+                                })
+                              }
+                            >
+                              <Plus className="size-3.5" />
+                              <span>Add item</span>
+                            </button>
+                          </BoardDropLane>
+                        ) : (
+                          <div className="rounded-[6px] border-[1.5px] border-dashed border-line px-3 py-3.5 text-center text-[12px] text-fg-4">
+                            No items
+                          </div>
+                        )
+                      ) : null}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </ScrollArea>
+
+          {hiddenGroups.length > 0 ? (
+            <div className="border-t border-line-soft px-4 py-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  Hidden columns
+                </span>
+                {hiddenGroups.map(([groupName]) => (
+                  <button
+                    key={groupName}
+                    className="rounded-md border border-line px-2 py-0.5 text-xs hover:bg-surface-3"
+                    onClick={() =>
+                      onToggleHiddenValue
+                        ? onToggleHiddenValue("groups", groupName)
+                        : useAppStore
+                            .getState()
+                            .toggleViewHiddenValue(view.id, "groups", groupName)
+                    }
+                  >
+                    {getGroupValueLabel(view.grouping, groupName, {
+                      view,
+                      groupingExperience,
+                    })}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      </div>
 
       {confirmationDialog}
 
@@ -1807,6 +1850,8 @@ export function ListView({
   childDisplayMode = "direct",
   createContext,
   onToggleHiddenValue,
+  selectedItemId,
+  onSelectedItemIdChange,
 }: WorkSurfaceViewProps) {
   const groups = useMemoizedWorkSurfaceGroups({
     createContext,
@@ -1852,6 +1897,11 @@ export function ListView({
       view,
     })
   )
+  useClearMissingSelectedItem({
+    items: data.workItems,
+    onSelectedItemIdChange,
+    selectedItemId,
+  })
 
   function toggleGroup(groupName: string) {
     toggleSetMember(setCollapsedGroups, groupName)
@@ -1877,263 +1927,273 @@ export function ListView({
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex flex-col pb-10">
-        {groups.map(([groupName, subgroups]) => {
-          if (view.hiddenState.groups.includes(groupName)) {
-            return null
-          }
+      <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-10">
+          {groups.map(([groupName, subgroups]) => {
+            if (view.hiddenState.groups.includes(groupName)) {
+              return null
+            }
 
-          const groupItems = Array.from(subgroups.values()).flat()
-          const groupCount = groupItems.length
-          const parentGroupItem = getParentGroupItem({
-            data,
-            field: view.grouping,
-            groupItems,
-            sourceItems,
-            value: groupName,
-          })
-          const isExpandable = groupCount > 0 || editable
-          const isCollapsed = collapsedGroups.has(groupName)
-          const groupLabel = getGroupValueLabel(view.grouping, groupName, {
-            view,
-            groupingExperience,
-          })
-          const groupAdornment = getGroupValueAdornment(
-            view.grouping,
-            groupName
-          )
-          const groupAccentVar = getGroupAccentVar(view.grouping, groupName)
+            const groupItems = Array.from(subgroups.values()).flat()
+            const groupCount = groupItems.length
+            const parentGroupItem = getParentGroupItem({
+              data,
+              field: view.grouping,
+              groupItems,
+              sourceItems,
+              value: groupName,
+            })
+            const isExpandable = groupCount > 0 || editable
+            const isCollapsed = collapsedGroups.has(groupName)
+            const groupLabel = getGroupValueLabel(view.grouping, groupName, {
+              view,
+              groupingExperience,
+            })
+            const groupAdornment = getGroupValueAdornment(
+              view.grouping,
+              groupName
+            )
+            const groupAccentVar = getGroupAccentVar(view.grouping, groupName)
 
-          return (
-            <div key={groupName}>
-              <ListGroupHeader
-                id={`list-group::${groupName}`}
-                accentVar={groupAccentVar}
-                groupAdornment={groupAdornment}
-                groupCount={groupCount}
-                groupLabel={groupLabel}
-                data={data}
-                displayProps={view.displayProps}
-                isCollapsed={isCollapsed}
-                isExpandable={isExpandable}
-                parentItem={parentGroupItem}
-                onClick={() => {
-                  if (!isExpandable) {
-                    return
-                  }
+            return (
+              <div key={groupName}>
+                <ListGroupHeader
+                  id={`list-group::${groupName}`}
+                  accentVar={groupAccentVar}
+                  groupAdornment={groupAdornment}
+                  groupCount={groupCount}
+                  groupLabel={groupLabel}
+                  data={data}
+                  displayProps={view.displayProps}
+                  isCollapsed={isCollapsed}
+                  isExpandable={isExpandable}
+                  parentItem={parentGroupItem}
+                  onOpenProperties={onSelectedItemIdChange}
+                  onClick={() => {
+                    if (!isExpandable) {
+                      return
+                    }
 
-                  toggleGroup(groupName)
-                }}
-              />
+                    toggleGroup(groupName)
+                  }}
+                />
 
-              {isExpandable && !isCollapsed ? (
-                <div className="flex flex-col">
-                  {Array.from(subgroups.entries()).map(
-                    ([subgroupName, subItems]) => {
-                      if (view.hiddenState.subgroups.includes(subgroupName)) {
-                        return null
-                      }
-                      const parentSubgroupItem = getParentGroupItem({
-                        data,
-                        field: view.subGrouping,
-                        groupItems: subItems,
-                        sourceItems,
-                        value: subgroupName,
-                      })
+                {isExpandable && !isCollapsed ? (
+                  <div className="flex flex-col">
+                    {Array.from(subgroups.entries()).map(
+                      ([subgroupName, subItems]) => {
+                        if (view.hiddenState.subgroups.includes(subgroupName)) {
+                          return null
+                        }
+                        const parentSubgroupItem = getParentGroupItem({
+                          data,
+                          field: view.subGrouping,
+                          groupItems: subItems,
+                          sourceItems,
+                          value: subgroupName,
+                        })
 
-                      return (
-                        <div key={`${groupName}-${subgroupName}`}>
-                          {view.subGrouping ? (
-                            <ListSubgroupHeader
-                              data={data}
-                              displayProps={view.displayProps}
-                              groupCount={subItems.length}
-                              groupLabel={getGroupValueLabel(
-                                view.subGrouping,
-                                subgroupName,
-                                {
-                                  view,
-                                  groupingExperience,
-                                }
-                              )}
-                              parentItem={parentSubgroupItem}
-                            />
-                          ) : null}
-                          <ListDropLane
-                            id={`list::${groupName}::${subgroupName}`}
-                          >
-                            {getContainerItemsForDisplay(
-                              subItems,
-                              displayItems,
-                              showChildItems
-                            ).flatMap((item) => {
-                              const children = showChildItems
-                                ? getDirectChildWorkItemsForDisplay(
-                                    data,
-                                    item,
-                                    view.ordering,
+                        return (
+                          <div key={`${groupName}-${subgroupName}`}>
+                            {view.subGrouping ? (
+                              <ListSubgroupHeader
+                                data={data}
+                                displayProps={view.displayProps}
+                                groupCount={subItems.length}
+                                groupLabel={getGroupValueLabel(
+                                  view.subGrouping,
+                                  subgroupName,
+                                  {
                                     view,
-                                    scopedItems,
-                                    {
-                                      mode: childDisplayMode,
-                                    }
-                                  )
-                                : []
-                              const hasChildren = children.length > 0
-                              const isExpanded = expandedItemIds.has(item.id)
-                              const parentRow = editable ? (
-                                <DraggableListRow
-                                  key={item.id}
-                                  data={data}
-                                  item={item}
-                                  displayProps={view.displayProps}
-                                  selection={editable ? selection : undefined}
-                                  depth={0}
-                                  hasChildren={hasChildren}
-                                  childCountOverride={getDisplayedChildCountOverride(
-                                    children,
-                                    childDisplayMode
-                                  )}
-                                  expanded={isExpanded}
-                                  onToggleExpanded={() =>
-                                    toggleExpandedItem(item.id)
+                                    groupingExperience,
                                   }
-                                />
-                              ) : (
-                                <ListRow
-                                  key={item.id}
-                                  data={data}
-                                  item={item}
-                                  displayProps={view.displayProps}
-                                  selection={editable ? selection : undefined}
-                                  depth={0}
-                                  hasChildren={hasChildren}
-                                  childCountOverride={getDisplayedChildCountOverride(
-                                    children,
-                                    childDisplayMode
-                                  )}
-                                  expanded={isExpanded}
-                                  onToggleExpanded={() =>
-                                    toggleExpandedItem(item.id)
-                                  }
-                                />
-                              )
-
-                              if (!isExpanded || !hasChildren) {
-                                return [parentRow]
-                              }
-
-                              return [
-                                parentRow,
-                                ...children.map((child) =>
-                                  editable ? (
-                                    <DraggableListRow
-                                      key={child.id}
-                                      data={data}
-                                      item={child}
-                                      displayProps={view.displayProps}
-                                      selection={
-                                        editable ? selection : undefined
-                                      }
-                                      depth={1}
-                                    />
-                                  ) : (
-                                    <ListRow
-                                      key={child.id}
-                                      data={data}
-                                      item={child}
-                                      displayProps={view.displayProps}
-                                      selection={
-                                        editable ? selection : undefined
-                                      }
-                                      depth={1}
-                                    />
-                                  )
-                                ),
-                              ]
-                            })}
-                            {editable ? (
-                              <button
-                                type="button"
-                                className="flex items-center gap-2.5 py-2 pr-2.5 pl-[45px] text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-                                onClick={() =>
-                                  openCreateForGroup({
-                                    groupValue: groupName,
-                                    subgroupValue: subgroupName,
-                                    laneItems: subItems,
-                                  })
-                                }
-                              >
-                                <Plus className="size-3.5" />
-                                <span>Add item</span>
-                              </button>
+                                )}
+                                parentItem={parentSubgroupItem}
+                                onOpenProperties={onSelectedItemIdChange}
+                              />
                             ) : null}
-                          </ListDropLane>
+                            <ListDropLane
+                              id={`list::${groupName}::${subgroupName}`}
+                            >
+                              {getContainerItemsForDisplay(
+                                subItems,
+                                displayItems,
+                                showChildItems
+                              ).flatMap((item) => {
+                                const children = showChildItems
+                                  ? getDirectChildWorkItemsForDisplay(
+                                      data,
+                                      item,
+                                      view.ordering,
+                                      view,
+                                      scopedItems,
+                                      {
+                                        mode: childDisplayMode,
+                                      }
+                                    )
+                                  : []
+                                const hasChildren = children.length > 0
+                                const isExpanded = expandedItemIds.has(item.id)
+                                const parentRow = editable ? (
+                                  <DraggableListRow
+                                    key={item.id}
+                                    data={data}
+                                    item={item}
+                                    displayProps={view.displayProps}
+                                    selection={editable ? selection : undefined}
+                                    depth={0}
+                                    hasChildren={hasChildren}
+                                    childCountOverride={getDisplayedChildCountOverride(
+                                      children,
+                                      childDisplayMode
+                                    )}
+                                    expanded={isExpanded}
+                                    onOpenProperties={onSelectedItemIdChange}
+                                    onToggleExpanded={() =>
+                                      toggleExpandedItem(item.id)
+                                    }
+                                  />
+                                ) : (
+                                  <ListRow
+                                    key={item.id}
+                                    data={data}
+                                    item={item}
+                                    displayProps={view.displayProps}
+                                    selection={editable ? selection : undefined}
+                                    depth={0}
+                                    hasChildren={hasChildren}
+                                    childCountOverride={getDisplayedChildCountOverride(
+                                      children,
+                                      childDisplayMode
+                                    )}
+                                    expanded={isExpanded}
+                                    onOpenProperties={onSelectedItemIdChange}
+                                    onToggleExpanded={() =>
+                                      toggleExpandedItem(item.id)
+                                    }
+                                  />
+                                )
+
+                                if (!isExpanded || !hasChildren) {
+                                  return [parentRow]
+                                }
+
+                                return [
+                                  parentRow,
+                                  ...children.map((child) =>
+                                    editable ? (
+                                      <DraggableListRow
+                                        key={child.id}
+                                        data={data}
+                                        item={child}
+                                        displayProps={view.displayProps}
+                                        selection={
+                                          editable ? selection : undefined
+                                        }
+                                        depth={1}
+                                        onOpenProperties={onSelectedItemIdChange}
+                                      />
+                                    ) : (
+                                      <ListRow
+                                        key={child.id}
+                                        data={data}
+                                        item={child}
+                                        displayProps={view.displayProps}
+                                        selection={
+                                          editable ? selection : undefined
+                                        }
+                                        depth={1}
+                                        onOpenProperties={onSelectedItemIdChange}
+                                      />
+                                    )
+                                  ),
+                                ]
+                              })}
+                              {editable ? (
+                                <button
+                                  type="button"
+                                  className="flex items-center gap-2.5 py-2 pr-2.5 pl-[45px] text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                                  onClick={() =>
+                                    openCreateForGroup({
+                                      groupValue: groupName,
+                                      subgroupValue: subgroupName,
+                                      laneItems: subItems,
+                                    })
+                                  }
+                                >
+                                  <Plus className="size-3.5" />
+                                  <span>Add item</span>
+                                </button>
+                              ) : null}
+                            </ListDropLane>
+                          </div>
+                        )
+                      }
+                    )}
+                    {subgroups.size === 0 ? (
+                      editable ? (
+                        <ListDropLane
+                          id={`list::${groupName}`}
+                          className="min-h-10"
+                        >
+                          <button
+                            type="button"
+                            className="flex items-center gap-2.5 py-2 pr-2.5 pl-[45px] text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+                            onClick={() =>
+                              openCreateForGroup({
+                                groupValue: groupName,
+                                laneItems: groupItems,
+                              })
+                            }
+                          >
+                            <Plus className="size-3.5" />
+                            <span>Add item</span>
+                          </button>
+                        </ListDropLane>
+                      ) : (
+                        <div className="px-11 py-3 text-xs text-muted-foreground">
+                          No items
                         </div>
                       )
-                    }
-                  )}
-                  {subgroups.size === 0 ? (
-                    editable ? (
-                      <ListDropLane
-                        id={`list::${groupName}`}
-                        className="min-h-10"
-                      >
-                        <button
-                          type="button"
-                          className="flex items-center gap-2.5 py-2 pr-2.5 pl-[45px] text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-                          onClick={() =>
-                            openCreateForGroup({
-                              groupValue: groupName,
-                              laneItems: groupItems,
-                            })
-                          }
-                        >
-                          <Plus className="size-3.5" />
-                          <span>Add item</span>
-                        </button>
-                      </ListDropLane>
-                    ) : (
-                      <div className="px-11 py-3 text-xs text-muted-foreground">
-                        No items
-                      </div>
-                    )
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          )
-        })}
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
 
-        {view.hiddenState.groups.length > 0 ? (
-          <div className="border-t border-line-soft px-4 py-3">
-            <div className="mb-2 text-xs text-muted-foreground">
-              Hidden rows
+          {view.hiddenState.groups.length > 0 ? (
+            <div className="border-t border-line-soft px-4 py-3">
+              <div className="mb-2 text-xs text-muted-foreground">
+                Hidden rows
+              </div>
+              {view.hiddenState.groups.map((groupName) => (
+                <button
+                  key={groupName}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-3"
+                  onClick={() =>
+                    onToggleHiddenValue
+                      ? onToggleHiddenValue("groups", groupName)
+                      : useAppStore
+                          .getState()
+                          .toggleViewHiddenValue(view.id, "groups", groupName)
+                  }
+                >
+                  {getGroupValueAdornment(view.grouping, groupName)}
+                  <span>
+                    {getGroupValueLabel(view.grouping, groupName, {
+                      view,
+                      groupingExperience,
+                    })}
+                  </span>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    0
+                  </span>
+                </button>
+              ))}
             </div>
-            {view.hiddenState.groups.map((groupName) => (
-              <button
-                key={groupName}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-3"
-                onClick={() =>
-                  onToggleHiddenValue
-                    ? onToggleHiddenValue("groups", groupName)
-                    : useAppStore
-                        .getState()
-                        .toggleViewHiddenValue(view.id, "groups", groupName)
-                }
-              >
-                {getGroupValueAdornment(view.grouping, groupName)}
-                <span>
-                  {getGroupValueLabel(view.grouping, groupName, {
-                    view,
-                    groupingExperience,
-                  })}
-                </span>
-                <span className="ml-auto text-xs text-muted-foreground">0</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
 
       {confirmationDialog}
@@ -2167,6 +2227,7 @@ function ListGroupHeader({
   isExpandable,
   parentItem,
   onClick,
+  onOpenProperties,
 }: {
   id: string
   accentVar?: string | null
@@ -2179,6 +2240,7 @@ function ListGroupHeader({
   isExpandable: boolean
   parentItem?: WorkItem | null
   onClick: () => void
+  onOpenProperties?: (itemId: string) => void
 }) {
   const { isOver, setNodeRef } = useDroppable({ id })
 
@@ -2223,6 +2285,7 @@ function ListGroupHeader({
               displayProps={displayProps}
               groupCount={groupCount}
               item={parentItem}
+              onOpenProperties={onOpenProperties}
               variant="list"
             />
           </div>
@@ -2276,38 +2339,69 @@ function ListGroupHeader({
   )
 }
 
-function ListSubgroupHeader({
-  data,
-  displayProps,
-  groupCount,
-  groupLabel,
-  parentItem,
-}: {
+type WorkSurfaceSubgroupHeaderProps = {
   data: AppData
   displayProps: DisplayProperty[]
   groupCount: number
   groupLabel: string
+  onOpenProperties?: (itemId: string) => void
   parentItem?: WorkItem | null
+}
+
+function ParentSubgroupHeader({
+  className,
+  contentClassName,
+  data,
+  displayProps,
+  groupCount,
+  item,
+  onOpenProperties,
+  variant,
+}: {
+  className: string
+  contentClassName: string
+  data: AppData
+  displayProps: DisplayProperty[]
+  groupCount: number
+  item: WorkItem
+  onOpenProperties?: (itemId: string) => void
+  variant: "board" | "list"
 }) {
-  if (parentItem) {
-    return (
-      <div className="px-11 py-1.5">
-        <div className="flex min-h-9 min-w-0 items-center rounded-md border border-line-soft bg-surface px-3 py-1.5">
-          <ParentGroupItemSummary
-            data={data}
-            displayProps={displayProps}
-            groupCount={groupCount}
-            item={parentItem}
-            variant="list"
-          />
-        </div>
+  return (
+    <div className={className}>
+      <div className={contentClassName}>
+        <ParentGroupItemSummary
+          data={data}
+          displayProps={displayProps}
+          groupCount={groupCount}
+          item={item}
+          onOpenProperties={onOpenProperties}
+          variant={variant}
+        />
       </div>
+    </div>
+  )
+}
+
+function ListSubgroupHeader(props: WorkSurfaceSubgroupHeaderProps) {
+  if (props.parentItem) {
+    return (
+      <ParentSubgroupHeader
+        className="px-11 py-1.5"
+        contentClassName="flex min-h-9 min-w-0 items-center rounded-md border border-line-soft bg-surface px-3 py-1.5"
+        data={props.data}
+        displayProps={props.displayProps}
+        groupCount={props.groupCount}
+        item={props.parentItem}
+        onOpenProperties={props.onOpenProperties}
+        variant="list"
+      />
     )
   }
 
   return (
     <div className="px-11 py-1.5 text-[11px] font-medium tracking-[0.04em] text-fg-3 uppercase">
-      {groupLabel}
+      {props.groupLabel}
     </div>
   )
 }
@@ -2351,6 +2445,7 @@ type ListRowBodyProps = {
   dragAttributes?: DraggableBindings["attributes"]
   dragListeners?: DraggableBindings["listeners"]
   selection?: WorkItemSelectionController
+  onOpenProperties?: (itemId: string) => void
 }
 
 type ListRowProps = Omit<
@@ -2440,6 +2535,7 @@ function ParentGroupItemSummary({
   displayProps,
   groupCount,
   item,
+  onOpenProperties,
   variant,
 }: {
   accentVar?: string | null
@@ -2447,6 +2543,7 @@ function ParentGroupItemSummary({
   displayProps: DisplayProperty[]
   groupCount: number
   item: WorkItem
+  onOpenProperties?: (itemId: string) => void
   variant: "board" | "list"
 }) {
   const { idProperty, visibleProperties } = getWorkSurfaceItemDisplayState({
@@ -2456,15 +2553,85 @@ function ParentGroupItemSummary({
     variant,
   })
 
+  const propertyButton = onOpenProperties ? (
+    <button
+      type="button"
+      aria-label={`Open properties for ${item.title}`}
+      title="Open properties"
+      data-no-drag="true"
+      className="inline-grid size-6 shrink-0 place-items-center rounded-md text-fg-3 opacity-0 transition-opacity hover:bg-surface-3 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none group-hover/parent-summary:opacity-100"
+      onPointerDown={stopDragPropagation}
+      onMouseDown={stopDragPropagation}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onOpenProperties(item.id)
+      }}
+    >
+      <SidebarSimple className="size-4" />
+    </button>
+  ) : null
+
+  const actions = (
+    <div className="flex shrink-0 items-center gap-1">
+      <WorkItemChildCount count={groupCount} />
+      <AppLink
+        href={`/items/${item.id}`}
+        aria-label={`Open ${item.title}`}
+        title="Open"
+        className="inline-grid size-6 shrink-0 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
+      >
+        <ArrowSquareOut className="size-3.5" />
+      </AppLink>
+    </div>
+  )
+
+  if (variant === "board") {
+    return (
+      <div
+        data-testid={`parent-group-summary-${item.id}`}
+        className="group/parent-summary flex min-w-0 flex-1 flex-col gap-1.5"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            aria-hidden
+            className="inline-block size-2 shrink-0 rounded-full"
+            style={{ background: accentVar ?? "var(--text-3)" }}
+          />
+          <AppLink
+            href={`/items/${item.id}`}
+            aria-label={`Open parent ${item.title}`}
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
+          >
+            {idProperty}
+          </AppLink>
+          {propertyButton}
+          {actions}
+        </div>
+        <AppLink
+          href={`/items/${item.id}`}
+          aria-label={`Open parent title ${item.title}`}
+          className="block min-w-0 rounded-sm pl-4 text-[12.5px] font-medium text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
+        >
+          <span className="block truncate">{item.title}</span>
+        </AppLink>
+        {visibleProperties.length > 0 ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 pl-4 text-[11.5px] text-fg-3">
+            {visibleProperties.map(({ key, node }) => (
+              <span key={key} className="contents">
+                {node}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
   return (
     <div
       data-testid={`parent-group-summary-${item.id}`}
-      className={cn(
-        "min-w-0 flex-1",
-        variant === "board"
-          ? "flex flex-col gap-1.5"
-          : "flex items-center gap-2.5"
-      )}
+      className="group/parent-summary flex min-w-0 flex-1 items-center gap-2.5"
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <span
@@ -2479,32 +2646,17 @@ function ParentGroupItemSummary({
         >
           {idProperty}
           <span
-            className={cn(
-              "truncate font-medium text-foreground",
-              variant === "board" ? "text-[12.5px]" : "text-[13px]"
-            )}
+            className="truncate text-[13px] font-medium text-foreground"
           >
             {item.title}
           </span>
         </AppLink>
-        <AppLink
-          href={`/items/${item.id}`}
-          aria-label={`Open ${item.title}`}
-          className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-line bg-surface px-1.5 text-[10.5px] font-semibold tracking-[0.08em] text-fg-3 uppercase transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
-        >
-          <SidebarSimple className="size-3" />
-          <span>Open</span>
-        </AppLink>
-        <span className="shrink-0 text-[11.5px] font-normal text-fg-3 tabular-nums">
-          {groupCount}
-        </span>
+        {propertyButton}
+        {actions}
       </div>
       {visibleProperties.length > 0 ? (
         <div
-          className={cn(
-            "flex min-w-0 items-center gap-1.5 text-[11.5px] text-fg-3",
-            variant === "board" ? "flex-wrap pl-4" : "shrink-0 overflow-hidden"
-          )}
+          className="flex min-w-0 shrink-0 items-center gap-1.5 overflow-hidden text-[11.5px] text-fg-3"
         >
           {visibleProperties.map(({ key, node }) => (
             <span key={key} className="contents">
@@ -2555,48 +2707,60 @@ function ListRowDisclosure({
 
 function ListRowLinkedContent({
   idProperty,
+  interactive,
   item,
+  onOpenProperties,
   subCount,
 }: {
   idProperty: ReactNode
+  interactive: boolean
   item: WorkItem
+  onOpenProperties?: (itemId: string) => void
   subCount: number
 }) {
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2.5">
+  const content = (
+    <>
       {idProperty}
       <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
         <div className="truncate text-[13px] text-foreground">{item.title}</div>
         <WorkItemChildCount count={subCount} />
       </div>
-    </div>
+    </>
   )
-}
-
-function ListRowLinkSlot({
-  children,
-  interactive,
-  itemId,
-}: {
-  children: ReactNode
-  interactive: boolean
-  itemId: string
-}) {
-  if (!interactive) {
-    return (
-      <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-        {children}
-      </div>
-    )
-  }
 
   return (
-    <AppLink
-      href={`/items/${itemId}`}
-      className="flex min-w-0 flex-1 items-center overflow-hidden"
-    >
-      {children}
-    </AppLink>
+    <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2.5">
+      {interactive ? (
+        <AppLink
+          href={`/items/${item.id}`}
+          className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden"
+        >
+          {content}
+        </AppLink>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
+          {content}
+        </div>
+      )}
+      <div className="flex shrink-0 items-center gap-1">
+        {onOpenProperties ? (
+          <button
+            type="button"
+            aria-label={`Open properties for ${item.title}`}
+            title="Open properties"
+            className="grid size-5 shrink-0 place-items-center text-fg-3 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none group-hover/row:opacity-100"
+            onPointerDown={stopDragPropagation}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              onOpenProperties(item.id)
+            }}
+          >
+            <SidebarSimple className="size-4" />
+          </button>
+        ) : null}
+      </div>
+    </div>
   )
 }
 
@@ -2608,11 +2772,18 @@ function ListRowDisplayProperties({
   visibleProperties: ReturnType<typeof renderWorkItemDisplayProperties>
 }) {
   if (visibleProperties.length === 0) {
-    return interactive ? <div className="pr-10" /> : null
+    return interactive ? (
+      <div className={LIST_ROW_ACTION_RESERVED_CLASS} />
+    ) : null
   }
 
   return (
-    <div className="flex shrink-0 items-center gap-1.5 overflow-hidden pr-10">
+    <div
+      className={cn(
+        "flex shrink-0 items-center gap-1.5 overflow-hidden",
+        LIST_ROW_ACTION_RESERVED_CLASS
+      )}
+    >
       {visibleProperties.map(({ key, node }) => (
         <span key={key} className="contents">
           {node}
@@ -2636,7 +2807,12 @@ function ListRowHoverActions({
   }
 
   return (
-    <div className="absolute top-1/2 right-3.5 -translate-y-1/2 opacity-0 transition-opacity group-hover/row:opacity-100">
+    <div
+      className={cn(
+        "absolute top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover/row:opacity-100",
+        LIST_ROW_ACTION_OFFSET_CLASS
+      )}
+    >
       <IssueActionMenu
         data={data}
         item={item}
@@ -2697,6 +2873,7 @@ function ListRowBody({
   dragAttributes,
   dragListeners,
   selection,
+  onOpenProperties,
 }: ListRowBodyProps) {
   const { idProperty, subCount, visibleProperties } = getListRowDisplayState({
     childCountOverride,
@@ -2749,13 +2926,13 @@ function ListRowBody({
             <span aria-hidden className="size-4" />
           )}
         </div>
-        <ListRowLinkSlot interactive={interactive} itemId={item.id}>
-          <ListRowLinkedContent
-            idProperty={idProperty}
-            item={item}
-            subCount={subCount}
-          />
-        </ListRowLinkSlot>
+        <ListRowLinkedContent
+          idProperty={idProperty}
+          interactive={interactive}
+          item={item}
+          onOpenProperties={onOpenProperties}
+          subCount={subCount}
+        />
         <ListRowDisplayProperties
           interactive={interactive}
           visibleProperties={visibleProperties}
@@ -2856,6 +3033,7 @@ function BoardGroupHeader({
   displayProps,
   groupLabel,
   groupCount,
+  onOpenProperties,
   parentItem,
 }: {
   id: string
@@ -2864,6 +3042,7 @@ function BoardGroupHeader({
   displayProps: DisplayProperty[]
   groupLabel: string
   groupCount: number
+  onOpenProperties?: (itemId: string) => void
   parentItem?: WorkItem | null
 }) {
   const { isOver, setNodeRef } = useDroppable({ id })
@@ -2884,6 +3063,7 @@ function BoardGroupHeader({
             displayProps={displayProps}
             groupCount={groupCount}
             item={parentItem}
+            onOpenProperties={onOpenProperties}
             variant="board"
           />
         </div>
@@ -2904,38 +3084,25 @@ function BoardGroupHeader({
   )
 }
 
-function BoardSubgroupHeader({
-  data,
-  displayProps,
-  groupCount,
-  groupLabel,
-  parentItem,
-}: {
-  data: AppData
-  displayProps: DisplayProperty[]
-  groupCount: number
-  groupLabel: string
-  parentItem?: WorkItem | null
-}) {
-  if (parentItem) {
+function BoardSubgroupHeader(props: WorkSurfaceSubgroupHeaderProps) {
+  if (props.parentItem) {
     return (
-      <div className="px-1 pb-1">
-        <div className="flex rounded-md border border-line-soft bg-surface px-3 py-2">
-          <ParentGroupItemSummary
-            data={data}
-            displayProps={displayProps}
-            groupCount={groupCount}
-            item={parentItem}
-            variant="board"
-          />
-        </div>
-      </div>
+      <ParentSubgroupHeader
+        className="px-1 pb-1"
+        contentClassName="flex rounded-md border border-line-soft bg-surface px-3 py-2"
+        data={props.data}
+        displayProps={props.displayProps}
+        groupCount={props.groupCount}
+        item={props.parentItem}
+        onOpenProperties={props.onOpenProperties}
+        variant="board"
+      />
     )
   }
 
   return (
     <div className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">
-      {groupLabel}
+      {props.groupLabel}
     </div>
   )
 }
@@ -2972,6 +3139,7 @@ const DraggableWorkCard = memo(function DraggableWorkCard({
   selection,
   childCountOverride,
   details,
+  onOpenProperties,
 }: {
   data: AppData
   item: WorkItem
@@ -2979,6 +3147,7 @@ const DraggableWorkCard = memo(function DraggableWorkCard({
   selection?: WorkItemSelectionController
   childCountOverride?: number
   details?: ReactNode
+  onOpenProperties?: (itemId: string) => void
 }) {
   return (
     <DraggableWorkSurfaceItem
@@ -2996,6 +3165,7 @@ const DraggableWorkCard = memo(function DraggableWorkCard({
           isDropTarget={isDropTarget}
           dragAttributes={attributes}
           dragListeners={listeners}
+          onOpenProperties={onOpenProperties}
         />
       )}
     </DraggableWorkSurfaceItem>
@@ -3012,6 +3182,7 @@ const BoardCardBody = memo(function BoardCardBody({
   isDropTarget = false,
   dragAttributes,
   dragListeners,
+  onOpenProperties,
 }: {
   data: AppData
   item: WorkItem
@@ -3022,6 +3193,7 @@ const BoardCardBody = memo(function BoardCardBody({
   isDropTarget?: boolean
   dragAttributes?: DraggableBindings["attributes"]
   dragListeners?: DraggableBindings["listeners"]
+  onOpenProperties?: (itemId: string) => void
 }) {
   const router = useAppRouter()
   const { idProperty, subCount, visibleProperties } =
@@ -3072,7 +3244,7 @@ const BoardCardBody = memo(function BoardCardBody({
             <WorkItemSelectionCheckbox
               checked={selected}
               className={cn(
-                "pointer-events-auto mt-0.5 opacity-0 transition-opacity group-hover/card:opacity-100",
+                "pointer-events-auto mt-px opacity-0 transition-opacity group-hover/card:opacity-100",
                 selected && "opacity-100"
               )}
               label={`Select ${item.key}`}
@@ -3088,21 +3260,35 @@ const BoardCardBody = memo(function BoardCardBody({
                 <WorkItemChildCount count={subCount} />
               </div>
             ) : null}
-            <div className="min-w-0">
-              <div className="flex min-w-0 items-start gap-1.5">
-                <div className="min-w-0 text-[13px] leading-[1.35] font-medium text-foreground">
-                  {item.title}
-                </div>
-              </div>
-            </div>
-          </div>
+	            <div className="min-w-0">
+	              <div className="truncate text-[13px] leading-[1.35] font-medium text-foreground">
+	                {item.title}
+	              </div>
+	            </div>
+	          </div>
           <div
             className="pointer-events-auto opacity-0 transition-opacity group-hover/card:opacity-100"
             onPointerDown={stopDragPropagation}
             onClick={stopMenuEvent}
-          >
-            <div className="flex items-center gap-1">
-              <IssueActionMenu
+	          >
+	            <div className="flex items-center gap-1">
+              {onOpenProperties ? (
+                <button
+                  type="button"
+                  aria-label={`Open properties for ${item.title}`}
+                  title="Open properties"
+                  className="grid size-6 shrink-0 place-items-center rounded-sm text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
+                  onPointerDown={stopDragPropagation}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onOpenProperties(item.id)
+                  }}
+                >
+                  <SidebarSimple className="size-4" />
+                </button>
+              ) : null}
+	              <IssueActionMenu
                 data={data}
                 displayProps={displayProps}
                 item={item}
@@ -3144,6 +3330,7 @@ function WorkItemChildDisclosure({
   editable,
   expanded,
   selection,
+  onOpenProperties,
   onToggle,
 }: {
   data: AppData
@@ -3153,6 +3340,7 @@ function WorkItemChildDisclosure({
   editable: boolean
   expanded: boolean
   selection?: WorkItemSelectionController
+  onOpenProperties?: (itemId: string) => void
   onToggle: () => void
 }) {
   if (childItems.length === 0) {
@@ -3193,6 +3381,7 @@ function WorkItemChildDisclosure({
                 displayProps={displayProps}
                 assignee={childAssignee}
                 selection={selection}
+                onOpenProperties={onOpenProperties}
               />
             ) : (
               <AppLink
@@ -3228,12 +3417,14 @@ function DraggableBoardChildItem({
   displayProps,
   assignee,
   selection,
+  onOpenProperties,
 }: {
   data: AppData
   item: WorkItem
   displayProps: DisplayProperty[]
   assignee: ReturnType<typeof getUser> | null
   selection?: WorkItemSelectionController
+  onOpenProperties?: (itemId: string) => void
 }) {
   const {
     attributes,
@@ -3270,6 +3461,7 @@ function DraggableBoardChildItem({
       isDropTarget={isOver && !isDragging}
       dragAttributes={attributes}
       dragListeners={listeners}
+      onOpenProperties={onOpenProperties}
       selection={
         selection
           ? {

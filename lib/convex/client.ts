@@ -94,6 +94,7 @@ export {
   syncSetCustomPropertyValue,
   syncRemoveTeamMember,
   syncRenameDocument,
+  syncUpdateLabel,
   syncSendDocumentMentionNotifications,
   syncSendItemDescriptionMentionNotifications,
   syncSendInvite,

@@ -424,7 +424,7 @@ export function buildAssignedWorkViews(
           itemTypes: ["task", "sub-task"],
           visibility: ["private"],
         },
-        displayProps: ["id", "status", "priority", "dueDate"],
+        displayProps: ["id", "status", "priority", "labels", "dueDate"],
       },
     }),
     createViewDefinition({

@@ -487,14 +487,9 @@ function ChannelPostFeedPanel({
 }) {
   const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
   const postIds = useMemo(() => new Set(posts.map((post) => post.id)), [posts])
-  const commentEntries = useAppStore(
+  const channelPostComments = useAppStore(
     useShallow((state) =>
-      state.channelPostComments
-        .filter((comment) => postIds.has(comment.postId))
-        .map((comment) => ({
-          content: comment.content,
-          createdAt: comment.createdAt,
-        }))
+      state.channelPostComments.filter((comment) => postIds.has(comment.postId))
     )
   )
   const fileContents = useMemo(
@@ -503,9 +498,12 @@ function ChannelPostFeedPanel({
         content: post.content,
         createdAt: post.createdAt,
       })),
-      ...commentEntries,
+      ...channelPostComments.map((comment) => ({
+        content: comment.content,
+        createdAt: comment.createdAt,
+      })),
     ],
-    [posts, commentEntries]
+    [posts, channelPostComments]
   )
 
   return (

@@ -238,6 +238,7 @@ vi.mock("@/components/app/rich-text-content", async () => {
 vi.mock("@/components/app/screens/helpers", () => ({
   canEditDocumentInUi: () => true,
   getDocumentPresenceSessionId: () => "session_1",
+  selectAppDataSnapshot: (state: unknown) => state,
 }))
 
 async function withDocumentVisibilityState(
@@ -293,6 +294,11 @@ vi.mock("@/components/app/screens/shared", async () => {
   }
 })
 
+vi.mock("@/components/app/phosphor-icon-picker", () => ({
+  PhosphorIconPicker: () => null,
+  PhosphorIconGlyph: () => null,
+}))
+
 vi.mock("@/components/ui/button", async () => {
   const { ButtonStub } = await import("@/tests/lib/fixtures/component-stubs")
 
@@ -330,7 +336,18 @@ vi.mock("@/components/ui/confirm-dialog", () => ({
 
 vi.mock("@phosphor-icons/react", () => ({
   Bell: () => null,
+  CalendarBlank: () => null,
+  FileText: () => null,
+  Folder: () => null,
+  LinkSimple: () => null,
+  NotePencil: () => null,
+  Plus: () => null,
+  SidebarSimple: () => null,
+  TreeStructure: () => null,
   Trash: () => null,
+  UserCircle: () => null,
+  UsersThree: () => null,
+  X: () => null,
 }))
 
 const currentUser = {
@@ -678,8 +695,8 @@ describe("DocumentDetailScreen", () => {
       expect(richTextEditorRenderMock).toHaveBeenCalled()
     })
 
-    const editorCall = richTextEditorRenderMock.mock.calls.find(
-      ([props]) => Array.isArray(props.referenceCandidates)
+    const editorCall = richTextEditorRenderMock.mock.calls.find(([props]) =>
+      Array.isArray(props.referenceCandidates)
     )?.[0]
 
     expect(

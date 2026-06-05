@@ -5,6 +5,7 @@ import { toast } from "sonner"
 
 import {
   syncCreateLabel,
+  syncUpdateLabel,
   syncCreateWorkItem,
   syncDeleteWorkItem,
   syncShiftTimelineItem,
@@ -355,7 +356,7 @@ function buildOptimisticWorkItem(input: {
     primaryProjectId: isPrivate ? null : input.scope.resolvedPrimaryProjectId,
     linkedProjectIds: [],
     linkedDocumentIds: [],
-    labelIds: isPrivate ? [] : (input.parsedInput.labelIds ?? []),
+    labelIds: input.parsedInput.labelIds ?? [],
     visibility: input.parsedInput.visibility ?? "team",
     milestoneId: null,
     startDate: input.dates.startDate,
@@ -545,13 +546,11 @@ function getEffectiveLocalWorkItemPatch(
   const privatePatch = { ...rawLocalPatch }
   delete privatePatch.assigneeId
   delete privatePatch.assigneeIds
-  delete privatePatch.labelIds
   delete privatePatch.primaryProjectId
 
   return {
     ...privatePatch,
     ...getWorkItemAssigneeFields([]),
-    labelIds: [],
     primaryProjectId: null,
   }
 }
@@ -673,9 +672,7 @@ function getUpdatedWorkItemValidationInput(input: {
       existing,
       resolvedPrimaryProjectId
     ),
-    labelIds: isPrivate
-      ? []
-      : getPatchValue(localPatch.labelIds, existing.labelIds),
+    labelIds: getPatchValue(localPatch.labelIds, existing.labelIds),
     startDate: getPatchValue(localPatch.startDate, existing.startDate),
     targetDate: getPatchValue(localPatch.targetDate, existing.targetDate),
     startTime: getPatchValue(localPatch.startTime, existing.startTime),
@@ -1081,6 +1078,7 @@ export function createWorkItemActions({
 }: WorkSliceFactoryArgs): Pick<
   WorkSlice,
   | "createLabel"
+  | "updateLabel"
   | "updateWorkItem"
   | "setWorkItemSubscription"
   | "deleteWorkItem"
@@ -1106,7 +1104,8 @@ export function createWorkItemActions({
       const existing = getLabelsForWorkspace(get(), resolvedWorkspaceId).find(
         (label) =>
           (label.scopeType ?? "workspace") === scopeType &&
-          (label.ownerId ?? null) === null &&
+          (label.ownerId ?? null) ===
+            (scopeType === "private" ? get().currentUserId : null) &&
           label.name.toLowerCase() === normalizedName.toLowerCase()
       )
 
@@ -1138,6 +1137,58 @@ export function createWorkItemActions({
           error instanceof Error ? error.message : "Failed to create label"
         )
         return null
+      }
+    },
+    async updateLabel(labelId, name) {
+      const normalizedName = name.trim()
+
+      if (normalizedName.length === 0) {
+        toast.error("Label name is required")
+        return false
+      }
+
+      const existing = get().labels.find((label) => label.id === labelId)
+
+      if (!existing) {
+        toast.error("Label not found")
+        return false
+      }
+
+      if (existing.name === normalizedName) {
+        return true
+      }
+
+      set((state) => ({
+        labels: state.labels
+          .map((label) =>
+            label.id === labelId ? { ...label, name: normalizedName } : label
+          )
+          .sort((left, right) => left.name.localeCompare(right.name)),
+      }))
+
+      try {
+        const result = await syncUpdateLabel({ labelId, name: normalizedName })
+
+        if (!result?.label) {
+          throw new Error("Failed to update label")
+        }
+
+        return true
+      } catch (error) {
+        set((state) => ({
+          labels: state.labels
+            .map((label) =>
+              label.id === labelId
+                ? { ...label, name: existing.name }
+                : label
+            )
+            .sort((left, right) => left.name.localeCompare(right.name)),
+        }))
+        console.error(error)
+        toast.error(
+          error instanceof Error ? error.message : "Failed to update label"
+        )
+        return false
       }
     },
     updateWorkItem(itemId, patch, options) {

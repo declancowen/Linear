@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 
 import { getWorkspacePersonActivity } from "@/lib/domain/selectors"
-import type { AppData, Comment } from "@/lib/domain/types"
+import type {
+  AppData,
+  ChannelPost,
+  Comment,
+  Conversation,
+} from "@/lib/domain/types"
 import {
   createTestAppData,
   createTestDocument,
@@ -233,6 +238,51 @@ describe("people activity selectors", () => {
         type: "workItemCreated",
         itemId: "private_item",
         title: "Hidden private task",
+      },
+    ])
+  })
+
+  it("uses plain text for channel post activity titles", () => {
+    const conversation: Conversation = {
+      id: "channel_1",
+      kind: "channel",
+      scopeType: "workspace",
+      scopeId: "workspace_1",
+      variant: "team",
+      title: "Announcements",
+      description: "",
+      participantIds: [],
+      createdBy: "user_1",
+      createdAt: "2026-04-20T08:00:00.000Z",
+      updatedAt: "2026-04-20T08:00:00.000Z",
+      lastActivityAt: "2026-04-20T08:00:00.000Z",
+    }
+    const post: ChannelPost = {
+      id: "post_1",
+      conversationId: conversation.id,
+      title: "",
+      content: "<p>test</p>",
+      mentionUserIds: [],
+      reactions: [],
+      createdBy: "user_1",
+      createdAt: "2026-04-20T09:00:00.000Z",
+      updatedAt: "2026-04-20T09:00:00.000Z",
+    }
+    const data = createTestAppData({
+      currentUserId: "user_1",
+      workspaceMemberships: [createTestWorkspaceMembership()],
+      teamMemberships: [],
+      conversations: [conversation],
+      channelPosts: [post],
+    })
+
+    expect(
+      getWorkspacePersonActivity(data, "workspace_1", "user_1")
+    ).toMatchObject([
+      {
+        type: "channelPostCreated",
+        postId: "post_1",
+        title: "test",
       },
     ])
   })

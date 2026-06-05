@@ -35,10 +35,13 @@ import {
   getConversationRelatedScopeKeys,
   getCustomPropertyDefinitionScopeKeys,
   getDocumentRelatedScopeKeys,
+  getPrivateLabelScopeKeys,
+  getPrivateCustomPropertyDefinitionScopeKeys,
   getProjectRelatedScopeKeys,
   getUserWorkspaceMembershipScopeKeys,
   getViewRelatedScopeKeys,
   getWorkItemDetailScopeKeys,
+  getWorkspaceCustomPropertyDefinitionScopeKeys,
   selectReadModelForInstruction,
   type ScopedReadModelPatch,
   type ScopedReadModelReplaceInstruction,
@@ -62,10 +65,7 @@ import {
   requireReadableWorkspaceAccess,
 } from "./access"
 import { requireConversationAccess } from "./conversations"
-import {
-  assertServerToken,
-  normalizeEmailAddress,
-} from "./core"
+import { assertServerToken, normalizeEmailAddress } from "./core"
 import {
   getChannelPostDoc,
   getChatMessageDoc,
@@ -86,6 +86,7 @@ import {
   listCommentsByTargets,
   listConversationsByScope,
   listCustomPropertyDefinitionsByTeams,
+  listCustomPropertyValuesByTargets,
   listCustomPropertyValuesByWorkItems,
   listDocumentsByIds,
   listInvitesByNormalizedEmail,
@@ -93,9 +94,11 @@ import {
   listLabelsByWorkspaces,
   listMilestonesByProjects,
   listNotificationsByUser,
+  listPrivateCustomPropertyDefinitionsByWorkspacesOwner,
   listPrivateWorkItemsByCreator,
   listProjectUpdatesByProjects,
   listProjectsByScope,
+  listWorkspaceCustomPropertyDefinitionsByWorkspaces,
   listTeamDocuments,
   listTeamMembershipsByTeams,
   listUsersByIds,
@@ -109,9 +112,7 @@ import {
   listWorkspacesByIds,
   resolvePreferredWorkspaceId,
 } from "./data"
-import {
-  normalizeBootstrapChatMessage,
-} from "./auth_bootstrap"
+import { normalizeBootstrapChatMessage } from "./auth_bootstrap"
 import {
   normalizeDocument,
   normalizeTeam,
@@ -193,8 +194,25 @@ export const scopedReadModelScopeKeyTargetValidator = v.union(
     itemId: v.string(),
   }),
   v.object({
+    kind: v.literal("private-label"),
+    ownerId: v.string(),
+    workspaceId: v.string(),
+  }),
+  v.object({
     kind: v.literal("custom-property-definition"),
+    scopeType: v.optional(v.literal("team")),
     teamId: v.string(),
+  }),
+  v.object({
+    kind: v.literal("custom-property-definition"),
+    scopeType: v.literal("workspace"),
+    workspaceId: v.string(),
+  }),
+  v.object({
+    kind: v.literal("custom-property-definition"),
+    scopeType: v.literal("private"),
+    ownerId: v.string(),
+    workspaceId: v.string(),
   }),
   v.object({
     kind: v.literal("project"),
@@ -293,19 +311,24 @@ type ScopedCollections = Partial<{
 
 function dedupeById<T extends { id: string }>(entries: Iterable<T>) {
   return [
-    ...new Map([...entries].map((entry) => [entry.id, entry] as const)).values(),
+    ...new Map(
+      [...entries].map((entry) => [entry.id, entry] as const)
+    ).values(),
   ]
 }
 
-function dedupeMemberships<T extends { teamId?: string; workspaceId?: string; userId: string }>(
-  entries: Iterable<T>
-) {
+function dedupeMemberships<
+  T extends { teamId?: string; workspaceId?: string; userId: string },
+>(entries: Iterable<T>) {
   return [
     ...new Map(
-      [...entries].map((entry) => [
-        `${entry.teamId ?? entry.workspaceId ?? ""}:${entry.userId}`,
-        entry,
-      ] as const)
+      [...entries].map(
+        (entry) =>
+          [
+            `${entry.teamId ?? entry.workspaceId ?? ""}:${entry.userId}`,
+            entry,
+          ] as const
+      )
     ).values(),
   ]
 }
@@ -412,9 +435,7 @@ function isReadableScopedDocument(
   } = {}
 ) {
   if (document.kind === "item-description") {
-    return (
-      options.visibleWorkItemDescriptionDocIds?.has(document.id) ?? false
-    )
+    return options.visibleWorkItemDescriptionDocIds?.has(document.id) ?? false
   }
 
   if (document.kind === "team-document") {
@@ -443,8 +464,8 @@ function isReadableScopedWorkItem(item: WorkItem, context: ScopedUserContext) {
   if ((item.visibility ?? "team") === "private") {
     return Boolean(
       item.creatorId === context.currentUserId &&
-        item.workspaceId &&
-        context.accessibleWorkspaceIds.has(item.workspaceId)
+      item.workspaceId &&
+      context.accessibleWorkspaceIds.has(item.workspaceId)
     )
   }
 
@@ -500,10 +521,9 @@ async function loadProjectsByScopes(
 ) {
   const uniqueScopes = [
     ...new Map(
-      [...scopes].map((scope) => [
-        `${scope.scopeType}:${scope.scopeId}`,
-        scope,
-      ] as const)
+      [...scopes].map(
+        (scope) => [`${scope.scopeType}:${scope.scopeId}`, scope] as const
+      )
     ).values(),
   ]
 
@@ -518,14 +538,29 @@ async function loadProjectsByScopes(
 
 async function getProjectsByIds(ctx: QueryCtx, projectIds: Iterable<string>) {
   return (
-    await Promise.all([...new Set(projectIds)].map((id) => getProjectDoc(ctx, id)))
+    await Promise.all(
+      [...new Set(projectIds)].map((id) => getProjectDoc(ctx, id))
+    )
   ).filter(isPresent) as unknown as Project[]
 }
 
 async function getWorkItemsByIds(ctx: QueryCtx, itemIds: Iterable<string>) {
   return (
-    await Promise.all([...new Set(itemIds)].map((id) => getWorkItemDoc(ctx, id)))
+    await Promise.all(
+      [...new Set(itemIds)].map((id) => getWorkItemDoc(ctx, id))
+    )
   ).filter(isPresent) as unknown as WorkItem[]
+}
+
+function resolveScopedWorkItemWorkspaceId(
+  teamsById: ReadonlyMap<string, Team>,
+  item: WorkItem
+) {
+  if ((item.visibility ?? "team") === "private") {
+    return item.workspaceId ?? null
+  }
+
+  return item.teamId ? (teamsById.get(item.teamId)?.workspaceId ?? null) : null
 }
 
 async function getDocumentsByIds(ctx: QueryCtx, documentIds: Iterable<string>) {
@@ -594,6 +629,18 @@ async function loadDocumentsForScope(
   )
 }
 
+async function loadPrivateCustomPropertyDefinitionsForOwner(
+  ctx: QueryCtx,
+  context: ScopedUserContext,
+  workspaceIds: Iterable<string>
+) {
+  return listPrivateCustomPropertyDefinitionsByWorkspacesOwner(
+    ctx,
+    workspaceIds,
+    context.currentUserId
+  ) as Promise<CustomPropertyDefinition[]>
+}
+
 async function loadViewsForScope(
   ctx: QueryCtx,
   context: ScopedUserContext,
@@ -606,15 +653,17 @@ async function loadViewsForScope(
   }
 
   if (scopeType === "personal") {
-    return (await listViewsByScope(ctx, "personal", scopeId)) as ViewDefinition[]
+    return (await listViewsByScope(
+      ctx,
+      "personal",
+      scopeId
+    )) as ViewDefinition[]
   }
 
   if (entityKind) {
-    return ((await listViewsByScope(
-      ctx,
-      scopeType,
-      scopeId
-    )) as ViewDefinition[]).filter((view) => view.entityKind === entityKind)
+    return (
+      (await listViewsByScope(ctx, scopeType, scopeId)) as ViewDefinition[]
+    ).filter((view) => view.entityKind === entityKind)
   }
 
   const scopeViews = (await listViewsByScope(
@@ -624,13 +673,13 @@ async function loadViewsForScope(
   )) as ViewDefinition[]
   const personalWorkspaceViews =
     scopeType === "workspace" && scopeId === context.currentWorkspaceId
-      ? ((await listViewsByScope(
-          ctx,
-          "personal",
-          context.currentUserId
-        )) as ViewDefinition[]).filter((view) =>
-          view.route.startsWith("/workspace/")
-        )
+      ? (
+          (await listViewsByScope(
+            ctx,
+            "personal",
+            context.currentUserId
+          )) as ViewDefinition[]
+        ).filter((view) => view.route.startsWith("/workspace/"))
       : []
 
   return [...scopeViews, ...personalWorkspaceViews]
@@ -737,7 +786,8 @@ async function loadCollectionReadModelCollections(
     )
 
     return {
-      customPropertyDefinitions: customPropertyDefinitions as CustomPropertyDefinition[],
+      customPropertyDefinitions:
+        customPropertyDefinitions as CustomPropertyDefinition[],
       customPropertyValues: customPropertyValues as CustomPropertyValueRecord[],
       projects,
       teams,
@@ -766,7 +816,8 @@ async function loadCollectionReadModelCollections(
       await listCustomPropertyDefinitionsByTeams(ctx, teamIds)
 
     return {
-      customPropertyDefinitions: customPropertyDefinitions as CustomPropertyDefinition[],
+      customPropertyDefinitions:
+        customPropertyDefinitions as CustomPropertyDefinition[],
       teams,
       views,
       workspaces: context.workspaces.filter((workspace) =>
@@ -781,6 +832,13 @@ async function loadCollectionReadModelCollections(
     instruction.scopeType,
     instruction.scopeId
   )
+  const teamsById = new Map(teams.map((team) => [team.id, team] as const))
+  const customPropertyWorkspaceIds = new Set([
+    ...workspaceIds,
+    ...workItems
+      .map((item) => resolveScopedWorkItemWorkspaceId(teamsById, item))
+      .filter((workspaceId): workspaceId is string => Boolean(workspaceId)),
+  ])
   const projectScopes = [
     ...teams.map((team) => ({ scopeType: "team" as const, scopeId: team.id })),
     ...[...workspaceIds].map((workspaceId) => ({
@@ -793,8 +851,21 @@ async function loadCollectionReadModelCollections(
     ctx,
     projects.map((project) => project.id)
   )
-  const customPropertyDefinitions =
-    await listCustomPropertyDefinitionsByTeams(ctx, teamIds)
+  const [teamCustomPropertyDefinitions, privateCustomPropertyDefinitions] =
+    await Promise.all([
+      listCustomPropertyDefinitionsByTeams(ctx, teamIds),
+      instruction.scopeType === "personal"
+        ? loadPrivateCustomPropertyDefinitionsForOwner(
+            ctx,
+            context,
+            customPropertyWorkspaceIds
+          )
+        : Promise.resolve([]),
+    ])
+  const customPropertyDefinitions = [
+    ...teamCustomPropertyDefinitions,
+    ...privateCustomPropertyDefinitions,
+  ]
   const customPropertyValues = await listCustomPropertyValuesByWorkItems(
     ctx,
     workItems.map((item) => item.id)
@@ -808,7 +879,8 @@ async function loadCollectionReadModelCollections(
   )
 
   return {
-    customPropertyDefinitions: customPropertyDefinitions as CustomPropertyDefinition[],
+    customPropertyDefinitions:
+      customPropertyDefinitions as CustomPropertyDefinition[],
     customPropertyValues: customPropertyValues as CustomPropertyValueRecord[],
     milestones: milestones as Milestone[],
     projects,
@@ -829,9 +901,27 @@ async function loadDocumentDetailCollections(
     return { documents: [] }
   }
 
-  await requireReadableDocumentAccess(ctx, document as never, context.currentUserId)
+  await requireReadableDocumentAccess(
+    ctx,
+    document as never,
+    context.currentUserId
+  )
 
-  const [comments, attachments] = await Promise.all([
+  const documentWorkspaceIds = [document.workspaceId]
+  const documentTeamIds = document.teamId ? [document.teamId] : []
+  const privateDefinitionWorkspaceIds =
+    document.kind === "private-document" &&
+    document.createdBy === context.currentUserId
+      ? documentWorkspaceIds
+      : []
+  const [
+    comments,
+    attachments,
+    teamCustomPropertyDefinitions,
+    workspaceCustomPropertyDefinitions,
+    privateCustomPropertyDefinitions,
+    customPropertyValues,
+  ] = await Promise.all([
     listCommentsByTargets(ctx, {
       targetType: "document",
       targetIds: [document.id],
@@ -840,11 +930,30 @@ async function loadDocumentDetailCollections(
       targetType: "document",
       targetIds: [document.id],
     }),
+    listCustomPropertyDefinitionsByTeams(ctx, documentTeamIds),
+    listWorkspaceCustomPropertyDefinitionsByWorkspaces(
+      ctx,
+      documentWorkspaceIds
+    ),
+    loadPrivateCustomPropertyDefinitionsForOwner(
+      ctx,
+      context,
+      privateDefinitionWorkspaceIds
+    ),
+    listCustomPropertyValuesByTargets(ctx, "document", [document.id]),
   ])
+  const customPropertyDefinitions = [
+    ...teamCustomPropertyDefinitions,
+    ...workspaceCustomPropertyDefinitions,
+    ...privateCustomPropertyDefinitions,
+  ].filter((definition) => definition.targetType === "document")
 
   return {
     attachments: attachments as unknown as Attachment[],
     comments: comments as Comment[],
+    customPropertyDefinitions:
+      customPropertyDefinitions as CustomPropertyDefinition[],
+    customPropertyValues: customPropertyValues as CustomPropertyValueRecord[],
     documents: [document],
   }
 }
@@ -868,10 +977,12 @@ async function loadWorkItemDetailCollections(
     ""
   const workItems =
     (item.visibility ?? "team") === "private"
-      ? ((await listPrivateWorkItemsByCreator(
-          ctx,
-          item.creatorId
-        )) as WorkItem[]).filter(
+      ? (
+          (await listPrivateWorkItemsByCreator(
+            ctx,
+            item.creatorId
+          )) as WorkItem[]
+        ).filter(
           (candidate) =>
             (candidate.workspaceId ?? itemWorkspaceId) === itemWorkspaceId &&
             isReadableScopedWorkItem(candidate, context)
@@ -924,7 +1035,10 @@ async function loadWorkItemDetailCollections(
       : []),
   ]).filter((project) => isReadableScopedProject(project, context))
   const [milestones, comments, attachments, activities] = await Promise.all([
-    listMilestonesByProjects(ctx, projects.map((project) => project.id)),
+    listMilestonesByProjects(
+      ctx,
+      projects.map((project) => project.id)
+    ),
     listCommentsByTargets(ctx, {
       targetType: "workItem",
       targetIds: [item.id],
@@ -935,9 +1049,28 @@ async function loadWorkItemDetailCollections(
     }),
     listWorkItemActivitiesByWorkItems(ctx, [item.id]),
   ])
-  const teamIds = new Set(compactStringIds(workItems.map((entry) => entry.teamId)))
-  const customPropertyDefinitions =
-    await listCustomPropertyDefinitionsByTeams(ctx, teamIds)
+  const teamIds = new Set(
+    compactStringIds(workItems.map((entry) => entry.teamId))
+  )
+  const privateDefinitionWorkspaceIds =
+    (item.visibility ?? "team") === "private" &&
+    item.creatorId === context.currentUserId &&
+    itemWorkspaceId
+      ? [itemWorkspaceId]
+      : []
+  const [teamCustomPropertyDefinitions, privateCustomPropertyDefinitions] =
+    await Promise.all([
+      listCustomPropertyDefinitionsByTeams(ctx, teamIds),
+      loadPrivateCustomPropertyDefinitionsForOwner(
+        ctx,
+        context,
+        privateDefinitionWorkspaceIds
+      ),
+    ])
+  const customPropertyDefinitions = [
+    ...teamCustomPropertyDefinitions,
+    ...privateCustomPropertyDefinitions,
+  ]
   const customPropertyValues = await listCustomPropertyValuesByWorkItems(
     ctx,
     workItemIds
@@ -946,7 +1079,8 @@ async function loadWorkItemDetailCollections(
   return {
     attachments: attachments as unknown as Attachment[],
     comments: comments as Comment[],
-    customPropertyDefinitions: customPropertyDefinitions as CustomPropertyDefinition[],
+    customPropertyDefinitions:
+      customPropertyDefinitions as CustomPropertyDefinition[],
     customPropertyValues: customPropertyValues as CustomPropertyValueRecord[],
     documents,
     milestones: milestones as Milestone[],
@@ -991,12 +1125,16 @@ async function loadProjectDetailCollections(
         item.linkedProjectIds.includes(project.id) ||
         (item.referencedProjectIds ?? []).includes(project.id))
   )
-  const workspaceIds = new Set([
-    project.scopeType === "workspace" ? project.scopeId : null,
-    ...teams.map((team) => team.workspaceId),
-  ].filter((value): value is string => Boolean(value)))
+  const workspaceIds = new Set(
+    [
+      project.scopeType === "workspace" ? project.scopeId : null,
+      ...teams.map((team) => team.workspaceId),
+    ].filter((value): value is string => Boolean(value))
+  )
   const documents = (
-    await Promise.all([...workspaceIds].map((id) => listWorkspaceDocuments(ctx, id)))
+    await Promise.all(
+      [...workspaceIds].map((id) => listWorkspaceDocuments(ctx, id))
+    )
   )
     .flat()
     .filter(
@@ -1013,18 +1151,18 @@ async function loadProjectDetailCollections(
       listViewsByScopeEntity(ctx, project.scopeType, project.scopeId, "items"),
     ]).then((entries) => entries.flat()),
   ])
-  const customPropertyDefinitions =
-    await listCustomPropertyDefinitionsByTeams(
-      ctx,
-      teams.map((team) => team.id)
-    )
+  const customPropertyDefinitions = await listCustomPropertyDefinitionsByTeams(
+    ctx,
+    teams.map((team) => team.id)
+  )
   const customPropertyValues = await listCustomPropertyValuesByWorkItems(
     ctx,
     workItems.map((item) => item.id)
   )
 
   return {
-    customPropertyDefinitions: customPropertyDefinitions as CustomPropertyDefinition[],
+    customPropertyDefinitions:
+      customPropertyDefinitions as CustomPropertyDefinition[],
     customPropertyValues: customPropertyValues as CustomPropertyValueRecord[],
     documents,
     milestones: milestones as Milestone[],
@@ -1051,12 +1189,18 @@ async function loadConversationCollections(
     return { conversations: [] }
   }
 
-  await requireConversationAccess(ctx, conversation as never, context.currentUserId)
+  await requireConversationAccess(
+    ctx,
+    conversation as never,
+    context.currentUserId
+  )
 
   const teams =
     conversation.scopeType === "team"
       ? context.teams.filter((team) => team.id === conversation.scopeId)
-      : context.teams.filter((team) => team.workspaceId === conversation.scopeId)
+      : context.teams.filter(
+          (team) => team.workspaceId === conversation.scopeId
+        )
 
   if (kind === "chat") {
     const [messages, calls, chatReadStates] = await Promise.all([
@@ -1066,7 +1210,9 @@ async function loadConversationCollections(
     ])
     const participantReadStates = (
       chatReadStates as AppSnapshot["chatReadStates"]
-    ).filter((readState) => conversation.participantIds.includes(readState.userId))
+    ).filter((readState) =>
+      conversation.participantIds.includes(readState.userId)
+    )
     const visibleReadStates = supportsChatMessageReadReceipts(conversation)
       ? participantReadStates
       : participantReadStates
@@ -1174,9 +1320,9 @@ async function loadNotificationInboxCollections(
   const invites = (allInviteCandidates as Invite[]).filter((invite) =>
     inviteIds.has(invite.id)
   )
-  const directConversations = (conversationCandidates.filter(
-    isPresent
-  ) as unknown as Conversation[]).filter((conversation) =>
+  const directConversations = (
+    conversationCandidates.filter(isPresent) as unknown as Conversation[]
+  ).filter((conversation) =>
     isReadableScopedConversation(conversation, context)
   )
   const channelPosts = channelPostCandidates.filter(
@@ -1218,14 +1364,14 @@ async function loadNotificationInboxCollections(
   }
 }
 
-function getWorkspaceScopedTeams(context: ScopedUserContext, workspaceId: string) {
+function getWorkspaceScopedTeams(
+  context: ScopedUserContext,
+  workspaceId: string
+) {
   return context.teams.filter((team) => team.workspaceId === workspaceId)
 }
 
-function getWorkspaceAndTeamProjectScopes(
-  workspaceId: string,
-  teams: Team[]
-) {
+function getWorkspaceAndTeamProjectScopes(workspaceId: string, teams: Team[]) {
   return [
     { scopeType: "workspace" as const, scopeId: workspaceId },
     ...teams.map((team) => ({ scopeType: "team" as const, scopeId: team.id })),
@@ -1266,7 +1412,10 @@ async function loadWorkspacePeopleCollections(
         targetIds: documents.map((document) => document.id),
       }),
     ]).then((entries) => entries.flat()),
-    listProjectUpdatesByProjects(ctx, projects.map((project) => project.id)),
+    listProjectUpdatesByProjects(
+      ctx,
+      projects.map((project) => project.id)
+    ),
     Promise.all([
       listConversationsByScope(ctx, "workspace", workspaceId),
       ...teams.map((team) => listConversationsByScope(ctx, "team", team.id)),
@@ -1312,7 +1461,10 @@ async function loadSearchSeedCollections(
   const [workItems, documents, projects] = await Promise.all([
     loadWorkItemsForScope(ctx, context, "workspace", workspaceId),
     loadDocumentsForScope(ctx, context, "workspace", workspaceId),
-    loadProjectsByScopes(ctx, getWorkspaceAndTeamProjectScopes(workspaceId, teams)),
+    loadProjectsByScopes(
+      ctx,
+      getWorkspaceAndTeamProjectScopes(workspaceId, teams)
+    ),
   ])
 
   return {
@@ -1320,7 +1472,9 @@ async function loadSearchSeedCollections(
     projects,
     teams,
     workItems,
-    workspaces: context.workspaces.filter((workspace) => workspace.id === workspaceId),
+    workspaces: context.workspaces.filter(
+      (workspace) => workspace.id === workspaceId
+    ),
   }
 }
 
@@ -1342,7 +1496,11 @@ async function loadScopedCollections(
     case "project-detail":
       return loadProjectDetailCollections(ctx, context, instruction.projectId)
     case "workspace-people":
-      return loadWorkspacePeopleCollections(ctx, context, instruction.workspaceId)
+      return loadWorkspacePeopleCollections(
+        ctx,
+        context,
+        instruction.workspaceId
+      )
     case "notification-inbox":
       return loadNotificationInboxCollections(ctx, context)
     case "conversation-list":
@@ -1396,7 +1554,9 @@ function collectBasicUserIds(input: ScopedCollections) {
 
 function collectMembershipUserIds(input: ScopedCollections) {
   return [
-    ...(input.workspaceMemberships ?? []).map((membership) => membership.userId),
+    ...(input.workspaceMemberships ?? []).map(
+      (membership) => membership.userId
+    ),
     ...(input.teamMemberships ?? []).map((membership) => membership.userId),
   ]
 }
@@ -1604,10 +1764,12 @@ function normalizeScopedNotifications(
   }))
 }
 
-function normalizeScopedChannelContent<T extends {
-  mentionUserIds?: string[]
-  reactions?: unknown[]
-}>(entries: T[] | undefined) {
+function normalizeScopedChannelContent<
+  T extends {
+    mentionUserIds?: string[]
+    reactions?: unknown[]
+  },
+>(entries: T[] | undefined) {
   return (entries ?? []).map((entry) => ({
     ...entry,
     mentionUserIds: entry.mentionUserIds ?? [],
@@ -1862,7 +2024,29 @@ function instructionForSimpleScopeKeyTarget(
       return { kind: "document-detail", documentId: target.documentId }
     case "work-item":
       return { kind: "work-item-detail", itemId: target.itemId }
+    case "private-label":
+      return {
+        kind: "work-index",
+        scopeType: "personal",
+        scopeId: target.ownerId,
+      }
     case "custom-property-definition":
+      if (target.scopeType === "private") {
+        return {
+          kind: "work-index",
+          scopeType: "personal",
+          scopeId: target.ownerId,
+        }
+      }
+
+      if (target.scopeType === "workspace") {
+        return {
+          kind: "work-index",
+          scopeType: "workspace",
+          scopeId: target.workspaceId,
+        }
+      }
+
       return {
         kind: "work-index",
         scopeType: "team",
@@ -1944,7 +2128,11 @@ async function loadViewTargetSnapshot(
   if (view.scopeType === "team") {
     await requireReadableTeamAccess(ctx, view.scopeId, context.currentUserId)
   } else if (view.scopeType === "workspace") {
-    await requireReadableWorkspaceAccess(ctx, view.scopeId, context.currentUserId)
+    await requireReadableWorkspaceAccess(
+      ctx,
+      view.scopeId,
+      context.currentUserId
+    )
   }
 
   const snapshot = await materializeScopedSnapshot(ctx, context, {
@@ -1965,9 +2153,9 @@ async function loadUserWorkspaceMembershipTargetSnapshot(
     serverToken: args.serverToken,
     workosUserId: args.workosUserId,
     email: args.email,
-      selectedWorkspaceId: args.selectedWorkspaceId,
-      instruction: { kind: "conversation-list" },
-    })
+    selectedWorkspaceId: args.selectedWorkspaceId,
+    instruction: { kind: "conversation-list" },
+  })
   const {
     accessibleWorkspaceIds,
     teamMemberships,
@@ -2012,28 +2200,63 @@ async function getScopedSnapshotForScopeKeyTarget(
     }
   }
 
-  throw new Error(`Unsupported read model scope key target: ${args.target.kind}`)
+  throw new Error(
+    `Unsupported read model scope key target: ${args.target.kind}`
+  )
 }
 
 export async function resolveScopedReadModelScopeKeysHandler(
   ctx: QueryCtx,
   args: ScopedReadModelScopeKeyArgs
 ) {
-  const { snapshot } = await getScopedSnapshotForScopeKeyTarget(ctx, args)
+  const { context, snapshot } = await getScopedSnapshotForScopeKeyTarget(
+    ctx,
+    args
+  )
 
   switch (args.target.kind) {
     case "document":
       return getDocumentRelatedScopeKeys(snapshot, args.target.documentId)
     case "work-item":
       return getWorkItemDetailScopeKeys(snapshot, args.target.itemId)
+    case "private-label":
+      if (args.target.ownerId !== context.currentUserId) {
+        return []
+      }
+
+      return getPrivateLabelScopeKeys(snapshot, {
+        ownerId: args.target.ownerId,
+        workspaceId: args.target.workspaceId,
+      })
     case "custom-property-definition":
+      if (args.target.scopeType === "private") {
+        if (args.target.ownerId !== context.currentUserId) {
+          return []
+        }
+
+        return getPrivateCustomPropertyDefinitionScopeKeys(snapshot, {
+          ownerId: args.target.ownerId,
+          workspaceId: args.target.workspaceId,
+        })
+      }
+
+      if (args.target.scopeType === "workspace") {
+        return getWorkspaceCustomPropertyDefinitionScopeKeys(
+          snapshot,
+          args.target.workspaceId
+        )
+      }
+
       return getCustomPropertyDefinitionScopeKeys(snapshot, args.target.teamId)
     case "project":
       return getProjectRelatedScopeKeys(snapshot, args.target.projectId)
     case "view":
       return getViewRelatedScopeKeys(snapshot, args.target.viewId)
     case "conversation":
-      return getConversationRelatedScopeKeys(snapshot, args.target.conversationId)
+      return getConversationRelatedScopeKeys(
+        snapshot,
+        args.target.conversationId
+      )
     case "channel-post":
       return getChannelPostRelatedScopeKeys(snapshot, args.target.postId)
     case "chat-message":
@@ -2052,7 +2275,9 @@ function collectionInstructionFromScopeKey(
 
   if (
     !scopeId ||
-    (scopeType !== "personal" && scopeType !== "team" && scopeType !== "workspace")
+    (scopeType !== "personal" &&
+      scopeType !== "team" &&
+      scopeType !== "workspace")
   ) {
     return null
   }
@@ -2342,10 +2567,7 @@ function resolveScopeKeyAuthorizationInstruction(
     return null
   }
 
-  const instruction = instructionFromScopeKey(
-    descriptor,
-    context.currentUserId
-  )
+  const instruction = instructionFromScopeKey(descriptor, context.currentUserId)
 
   if (!instruction) {
     throw new Error(`Unauthorized scoped read model key: ${scopeKey}`)

@@ -114,6 +114,22 @@ describe("rich-text security", () => {
     ).toBe("<p>hey look at this link</p>")
   })
 
+  it("preserves only validated chat quote source metadata", () => {
+    const sanitized = sanitizeRichTextMessageContent(
+      [
+        '<blockquote data-chat-source-message-id="message_1" data-bad="x"><p>Quote</p></blockquote>',
+        '<blockquote data-chat-source-message-id="bad id"><p>Bad quote</p></blockquote>',
+      ].join("")
+    )
+
+    expect(sanitized).toContain(
+      '<blockquote data-chat-source-message-id="message_1"><p>Quote</p></blockquote>'
+    )
+    expect(sanitized).toContain("<blockquote><p>Bad quote</p></blockquote>")
+    expect(sanitized).not.toContain("data-bad")
+    expect(sanitized).not.toContain("bad id")
+  })
+
   it("trims trailing hard breaks and empty blocks from message content", () => {
     const trailingBreaks = prepareRichTextMessageForStorage(
       "<p>Hello<br><br></p>",

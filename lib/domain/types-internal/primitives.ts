@@ -281,12 +281,11 @@ export type ConversationVariant = "direct" | "group" | "team"
 
 export type ChatMessageKind = "text" | "call"
 
-export const customPropertyTargetTypes = ["workItem"] as const
+export const customPropertyTargetTypes = ["workItem", "document"] as const
 export type CustomPropertyTargetType =
   (typeof customPropertyTargetTypes)[number]
 
-export const customPropertyScopeTypes = ["team", "private"] as const
-export type CustomPropertyScopeType = (typeof customPropertyScopeTypes)[number]
+export type CustomPropertyScopeType = "team" | "workspace" | "private"
 
 export const customPropertyTypes = [
   "text",

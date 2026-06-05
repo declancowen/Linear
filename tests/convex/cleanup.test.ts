@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   cascadeDeleteTeamData,
   cleanupRemainingLinksAfterDelete,
+  cleanupUserAccessRemoval,
   deleteContentReferencedAttachments,
 } from "@/convex/app/cleanup"
 import { createMutableConvexTestCtx } from "@/tests/lib/convex/test-db"
@@ -16,6 +17,40 @@ function createCascadeDeleteTeamCtx() {
     chatMessages: [],
     comments: [],
     conversations: [],
+    customPropertyDefinitions: [
+      {
+        _id: "private_property_doc",
+        id: "private_property",
+        workspaceId: "workspace_1",
+        teamId: null,
+        scopeType: "private",
+        ownerId: "user_1",
+        targetType: "workItem",
+        name: "Private property",
+        icon: "TextAa",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "user_1",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      },
+    ],
+    customPropertyValues: [
+      {
+        _id: "private_property_value_doc",
+        id: "private_property_value",
+        workspaceId: "workspace_1",
+        teamId: null,
+        workItemId: "private_item",
+        propertyId: "private_property",
+        value: "private",
+        createdBy: "user_1",
+        updatedBy: "user_1",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      },
+    ],
     documentPresence: [],
     documents: [
       {
@@ -77,6 +112,8 @@ function createCascadeDeleteTeamCtx() {
         workspaceId: "workspace_1",
       },
     ],
+    userAppStates: [],
+    users: [],
     views: [],
     workItemActivities: [
       {
@@ -111,6 +148,7 @@ function createCascadeDeleteTeamCtx() {
         teamId: null,
         workspaceId: "workspace_1",
         descriptionDocId: "private_description",
+        creatorId: "user_1",
         visibility: "private",
         linkedDocumentIds: [],
         linkedProjectIds: [],
@@ -250,13 +288,17 @@ function createAttachmentCleanupCtx() {
     storage: {
       delete: vi.fn(),
       getUrl: vi.fn(async (storageId: string) =>
-        storageId === "storage_1" ? "https://assets.example.com/image.png" : null
+        storageId === "storage_1"
+          ? "https://assets.example.com/image.png"
+          : null
       ),
     },
   }
 }
 
-function getPrivateCleanupRecords(ctx: ReturnType<typeof createCascadeDeleteTeamCtx>) {
+function getPrivateCleanupRecords(
+  ctx: ReturnType<typeof createCascadeDeleteTeamCtx>
+) {
   return {
     privateDescription: ctx.tables.documents.find(
       (document) => document.id === "private_description"
@@ -381,9 +423,55 @@ describe("cleanup handlers", () => {
     ])
   })
 
+  it("deletes owner-private labels when workspace access is removed", async () => {
+    const ctx = createCascadeDeleteTeamCtx()
+
+    await cleanupUserAccessRemoval(ctx as never, {
+      currentUserId: "user_admin",
+      removedUserId: "user_1",
+      workspaceId: "workspace_1",
+      removedTeamIds: [],
+    })
+
+    expect(ctx.tables.labels).toEqual([])
+    expect(
+      ctx.tables.workItems.find((workItem) => workItem.id === "private_item")
+    ).toMatchObject({
+      labelIds: [],
+    })
+  })
+
+  it("deletes owner-private custom properties when workspace access is removed", async () => {
+    const ctx = createCascadeDeleteTeamCtx()
+
+    ;(ctx.tables.views as unknown[]).push({
+      _id: "personal_view_doc",
+      id: "personal_view",
+      scopeType: "personal",
+      scopeId: "user_1",
+      displayProps: ["status", "custom:private_property"],
+      filters: createViewFilters(),
+      updatedAt: "2026-05-01T00:00:00.000Z",
+    })
+
+    await cleanupUserAccessRemoval(ctx as never, {
+      currentUserId: "user_admin",
+      removedUserId: "user_1",
+      workspaceId: "workspace_1",
+      removedTeamIds: [],
+    })
+
+    expect(ctx.tables.customPropertyDefinitions).toEqual([])
+    expect(ctx.tables.customPropertyValues).toEqual([])
+    expect(ctx.tables.views[0]).toMatchObject({
+      displayProps: ["status"],
+    })
+  })
+
   it("clears deleted team view references when preserving private work items", async () => {
     const ctx = createCascadeDeleteTeamCtx()
-    const { privateDescription, privateWorkItem } = getPrivateCleanupRecords(ctx)
+    const { privateDescription, privateWorkItem } =
+      getPrivateCleanupRecords(ctx)
 
     Object.assign(privateDescription ?? {}, {
       linkedViewIds: ["team_view", "kept_view"],
@@ -428,7 +516,8 @@ describe("cleanup handlers", () => {
 
   it("clears deleted entity reference ids from persisted document, work item, and comment metadata", async () => {
     const ctx = createCascadeDeleteTeamCtx()
-    const { privateDescription, privateWorkItem } = getPrivateCleanupRecords(ctx)
+    const { privateDescription, privateWorkItem } =
+      getPrivateCleanupRecords(ctx)
 
     Object.assign(privateDescription ?? {}, {
       linkedProjectIds: ["deleted_project", "kept_project"],

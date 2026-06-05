@@ -20,6 +20,7 @@ const dataMocks = vi.hoisted(() => ({
   listCommentsByTargets: vi.fn(),
   listConversationsByScope: vi.fn(),
   listCustomPropertyDefinitionsByTeams: vi.fn(),
+  listPrivateCustomPropertyDefinitionsByWorkspacesOwner: vi.fn(),
   listCustomPropertyValuesByWorkItems: vi.fn(),
   listDocumentsByIds: vi.fn(),
   listInvitesByNormalizedEmail: vi.fn(),
@@ -192,9 +193,8 @@ function createNotification(overrides: Record<string, unknown> = {}) {
 }
 
 async function getScopedReadModel(instruction: Record<string, unknown>) {
-  const { getScopedReadModelHandler } = await import(
-    "@/convex/app/scoped_read_models"
-  )
+  const { getScopedReadModelHandler } =
+    await import("@/convex/app/scoped_read_models")
 
   return getScopedReadModelHandler(ctx as never, {
     serverToken: "server_token",
@@ -207,7 +207,9 @@ async function getWorkItemDetailReadModel(itemId: string) {
   return getScopedReadModel({ kind: "work-item-detail", itemId })
 }
 
-function getResultWorkItemIds(result: { workItems?: Array<{ id: string }> } | null) {
+function getResultWorkItemIds(
+  result: { workItems?: Array<{ id: string }> } | null
+) {
   return result?.workItems?.map((item) => item.id) ?? []
 }
 
@@ -343,22 +345,24 @@ describe("scoped read model Convex handlers", () => {
     dataMocks.listViewsByScopeEntity.mockResolvedValue([])
     dataMocks.listMilestonesByProjects.mockResolvedValue([])
     dataMocks.listCustomPropertyDefinitionsByTeams.mockResolvedValue([])
+    dataMocks.listPrivateCustomPropertyDefinitionsByWorkspacesOwner.mockResolvedValue(
+      []
+    )
     dataMocks.listCustomPropertyValuesByWorkItems.mockResolvedValue([])
     dataMocks.listPrivateWorkItemsByCreator.mockResolvedValue([])
     dataMocks.listConversationsByScope.mockResolvedValue([])
-    dataMocks.listLatestReadableChatMessagesByConversations.mockResolvedValue([])
+    dataMocks.listLatestReadableChatMessagesByConversations.mockResolvedValue(
+      []
+    )
     dataMocks.listChatReadStatesByConversation.mockResolvedValue([])
     dataMocks.listChatReadStatesByUser.mockResolvedValue([])
   })
 
   it("denies unauthorized team collection scopes before reading team data", async () => {
-    const {
-      createScopedCollectionScopeId,
-      createWorkIndexScopeKey,
-    } = await import("@/lib/scoped-sync/scope-keys")
-    const { authorizeScopedReadModelScopeKeysHandler } = await import(
-      "@/convex/app/scoped_read_models"
-    )
+    const { createScopedCollectionScopeId, createWorkIndexScopeKey } =
+      await import("@/lib/scoped-sync/scope-keys")
+    const { authorizeScopedReadModelScopeKeysHandler } =
+      await import("@/convex/app/scoped_read_models")
 
     await expect(
       authorizeScopedReadModelScopeKeysHandler(ctx as never, {
@@ -379,13 +383,10 @@ describe("scoped read model Convex handlers", () => {
   })
 
   it("authorizes accessible team collection scopes from scoped access", async () => {
-    const {
-      createScopedCollectionScopeId,
-      createWorkIndexScopeKey,
-    } = await import("@/lib/scoped-sync/scope-keys")
-    const { authorizeScopedReadModelScopeKeysHandler } = await import(
-      "@/convex/app/scoped_read_models"
-    )
+    const { createScopedCollectionScopeId, createWorkIndexScopeKey } =
+      await import("@/lib/scoped-sync/scope-keys")
+    const { authorizeScopedReadModelScopeKeysHandler } =
+      await import("@/convex/app/scoped_read_models")
 
     await authorizeScopedReadModelScopeKeysHandler(ctx as never, {
       serverToken: "server_token",
@@ -406,9 +407,8 @@ describe("scoped read model Convex handlers", () => {
       createProjectIndexScopeKey,
       createScopedCollectionScopeId,
     } = await import("@/lib/scoped-sync/scope-keys")
-    const { authorizeScopedReadModelScopeKeysHandler } = await import(
-      "@/convex/app/scoped_read_models"
-    )
+    const { authorizeScopedReadModelScopeKeysHandler } =
+      await import("@/convex/app/scoped_read_models")
 
     await authorizeScopedReadModelScopeKeysHandler(ctx as never, {
       serverToken: "server_token",
@@ -427,10 +427,148 @@ describe("scoped read model Convex handlers", () => {
     expect(dataMocks.listProjectsByScope).not.toHaveBeenCalled()
   })
 
-  it("filters document index linked targets through scoped access", async () => {
-    const { getScopedReadModelHandler } = await import(
-      "@/convex/app/scoped_read_models"
+  it("loads private custom properties for private item workspaces without accessible teams", async () => {
+    const workspaceOnly = {
+      ...workspace,
+      id: "workspace_2",
+      name: "Workspace 2",
+    }
+    const privateItem = createWorkItem({
+      id: "item_private_workspace_2",
+      key: "PRI-1",
+      teamId: null,
+      workspaceId: "workspace_2",
+      visibility: "private",
+      creatorId: "user_1",
+    })
+    const privateDefinition = {
+      id: "property_private_workspace_2",
+      workspaceId: "workspace_2",
+      teamId: null,
+      scopeType: "private",
+      ownerId: "user_1",
+      targetType: "workItem",
+      name: "Private focus",
+      icon: "TextAa",
+      type: "text",
+      options: [],
+      isArchived: false,
+      createdBy: "user_1",
+      createdAt: "2026-06-03T12:00:00.000Z",
+      updatedAt: "2026-06-03T12:00:00.000Z",
+    }
+
+    dataMocks.loadUserWorkspaceAccessSummary.mockResolvedValue({
+      accessibleTeamIds: new Set(["team_allowed"]),
+      accessibleWorkspaceIds: new Set(["workspace_1", "workspace_2"]),
+      ownedWorkspaces: [],
+      teamMemberships: [
+        { teamId: "team_allowed", userId: "user_1", role: "member" },
+      ],
+      teams: [team],
+      workspaceMemberships: [
+        { workspaceId: "workspace_1", userId: "user_1", role: "member" },
+        { workspaceId: "workspace_2", userId: "user_1", role: "member" },
+      ],
+    })
+    dataMocks.listWorkspacesByIds.mockResolvedValue([workspace, workspaceOnly])
+    dataMocks.listPrivateWorkItemsByCreator.mockResolvedValue([privateItem])
+    dataMocks.listPrivateCustomPropertyDefinitionsByWorkspacesOwner.mockImplementation(
+      async (_ctx, workspaceIds: Iterable<string>, ownerId: string) => {
+        expect([...workspaceIds].sort()).toEqual(["workspace_1", "workspace_2"])
+        expect(ownerId).toBe("user_1")
+
+        return [privateDefinition]
+      }
     )
+
+    const result = await getScopedReadModel({
+      kind: "work-index",
+      scopeType: "personal",
+      scopeId: "user_1",
+    })
+
+    expect(result?.workItems?.map((item) => item.id)).toContain(
+      "item_private_workspace_2"
+    )
+    expect(
+      result?.customPropertyDefinitions?.map((definition) => definition.id)
+    ).toContain("property_private_workspace_2")
+  })
+
+  it("does not resolve private custom property scope keys for another owner", async () => {
+    const { resolveScopedReadModelScopeKeysHandler } =
+      await import("@/convex/app/scoped_read_models")
+
+    await expect(
+      resolveScopedReadModelScopeKeysHandler(ctx as never, {
+        serverToken: "server_token",
+        workosUserId: "workos_user_1",
+        target: {
+          kind: "custom-property-definition",
+          scopeType: "private",
+          ownerId: "user_2",
+          workspaceId: "workspace_1",
+        },
+      })
+    ).resolves.toEqual([])
+  })
+
+  it("resolves private label scope keys for owner private task details", async () => {
+    const { resolveScopedReadModelScopeKeysHandler } =
+      await import("@/convex/app/scoped_read_models")
+    dataMocks.listPrivateWorkItemsByCreator.mockResolvedValue([
+      createWorkItem({
+        id: "item_private_mine",
+        creatorId: "user_1",
+        workspaceId: "workspace_1",
+        visibility: "private",
+      }),
+      createWorkItem({
+        id: "item_private_other_workspace",
+        creatorId: "user_1",
+        workspaceId: "workspace_2",
+        visibility: "private",
+      }),
+    ])
+
+    await expect(
+      resolveScopedReadModelScopeKeysHandler(ctx as never, {
+        serverToken: "server_token",
+        workosUserId: "workos_user_1",
+        target: {
+          kind: "private-label",
+          ownerId: "user_1",
+          workspaceId: "workspace_1",
+        },
+      })
+    ).resolves.toEqual([
+      "work-index:personal_user_1",
+      "private-document-index:workspace_1:user_1",
+      "work-item-detail:item_private_mine",
+    ])
+  })
+
+  it("does not resolve private label scope keys for another owner", async () => {
+    const { resolveScopedReadModelScopeKeysHandler } =
+      await import("@/convex/app/scoped_read_models")
+
+    await expect(
+      resolveScopedReadModelScopeKeysHandler(ctx as never, {
+        serverToken: "server_token",
+        workosUserId: "workos_user_1",
+        target: {
+          kind: "private-label",
+          ownerId: "user_2",
+          workspaceId: "workspace_1",
+        },
+      })
+    ).resolves.toEqual([])
+  })
+
+  it("filters document index linked targets through scoped access", async () => {
+    const { getScopedReadModelHandler } =
+      await import("@/convex/app/scoped_read_models")
     const documents = [
       createDocument({
         id: "doc_workspace",
@@ -587,9 +725,8 @@ describe("scoped read model Convex handlers", () => {
   })
 
   it("loads conversation list previews through bounded latest-message reads", async () => {
-    const { getScopedReadModelHandler } = await import(
-      "@/convex/app/scoped_read_models"
-    )
+    const { getScopedReadModelHandler } =
+      await import("@/convex/app/scoped_read_models")
     const conversation = {
       id: "chat_1",
       kind: "chat",
@@ -822,7 +959,21 @@ describe("scoped read model Convex handlers", () => {
     ])
     mockEmptyWorkItemDetailRelations()
     dataMocks.listCustomPropertyDefinitionsByTeams.mockResolvedValue([
-      { id: "property_1", teamId: "team_allowed", name: "Size" },
+      {
+        id: "property_1",
+        workspaceId: "workspace_1",
+        teamId: "team_allowed",
+        scopeType: "team",
+        targetType: "workItem",
+        name: "Size",
+        icon: "TextAa",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "user_1",
+        createdAt: "2026-06-03T12:00:00.000Z",
+        updatedAt: "2026-06-03T12:00:00.000Z",
+      },
     ])
     dataMocks.listCustomPropertyValuesByWorkItems.mockImplementation(
       async (_ctx, itemIds: Iterable<string>) =>
@@ -847,11 +998,9 @@ describe("scoped read model Convex handlers", () => {
       expect.arrayContaining(["item_open", "item_team_sibling"])
     )
     expect(customPropertyWorkItemIds).not.toContain("item_private_other")
-    expect(
-      [
-        ...dataMocks.listCustomPropertyValuesByWorkItems.mock.calls[0][1],
-      ]
-    ).not.toContain("item_private_other")
+    expect([
+      ...dataMocks.listCustomPropertyValuesByWorkItems.mock.calls[0][1],
+    ]).not.toContain("item_private_other")
   })
 
   it("filters unreadable linked projects from work item detail scopes", async () => {
@@ -913,9 +1062,8 @@ describe("scoped read model Convex handlers", () => {
   })
 
   it("filters unreadable linked documents from project detail scopes", async () => {
-    const { getScopedReadModelHandler } = await import(
-      "@/convex/app/scoped_read_models"
-    )
+    const { getScopedReadModelHandler } =
+      await import("@/convex/app/scoped_read_models")
     const project = {
       id: "project_1",
       name: "Launch",
@@ -1002,9 +1150,8 @@ describe("scoped read model Convex handlers", () => {
   })
 
   it("filters unreadable notification targets from inbox scopes", async () => {
-    const { getScopedReadModelHandler } = await import(
-      "@/convex/app/scoped_read_models"
-    )
+    const { getScopedReadModelHandler } =
+      await import("@/convex/app/scoped_read_models")
     const conversations = new Map(
       [
         {
@@ -1162,7 +1309,8 @@ describe("scoped read model Convex handlers", () => {
     const resultConversationIds =
       result?.conversations?.map((conversation) => conversation.id) ?? []
     const resultPostIds = result?.channelPosts?.map((post) => post.id) ?? []
-    const resultProjectIds = result?.projects?.map((project) => project.id) ?? []
+    const resultProjectIds =
+      result?.projects?.map((project) => project.id) ?? []
 
     expect(resultConversationIds).toEqual(["chat_allowed"])
     expect(resultConversationIds).not.toContain("chat_forbidden")

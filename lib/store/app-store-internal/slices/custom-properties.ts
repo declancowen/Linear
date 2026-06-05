@@ -8,8 +8,15 @@ import {
   syncSetCustomPropertyValue,
   syncUpdateCustomPropertyDefinition,
 } from "@/lib/convex/client"
-import { customPropertyDefinitionSchema } from "@/lib/domain/types"
-import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
+import {
+  customPropertyDefinitionSchema,
+  type CustomPropertyDefinition,
+} from "@/lib/domain/types"
+import {
+  isCustomPropertyDefinitionForDocument,
+  isCustomPropertyDefinitionForWorkItem,
+} from "@/lib/domain/labels"
+import { canEditWorkspace, hasWorkspaceAccess } from "@/lib/domain/selectors"
 
 import { createId, getNow } from "../helpers"
 import { createStoreRuntime } from "../runtime"
@@ -24,6 +31,43 @@ type CustomPropertySlice = Pick<
   | "setCustomPropertyValue"
 >
 
+type CreateCustomPropertyDefinitionData = {
+  icon: string
+  name: string
+  options: CustomPropertyDefinition["options"]
+  targetType?: CustomPropertyDefinition["targetType"]
+  type: CustomPropertyDefinition["type"]
+} & (
+  | {
+      scopeType: "private"
+      workspaceId: string
+    }
+  | {
+      scopeType: "workspace"
+      workspaceId: string
+    }
+  | {
+      scopeType?: "team"
+      teamId?: string
+    }
+)
+
+type CreateCustomPropertyDefinitionScope =
+  | {
+      ok: true
+      duplicateScope: Parameters<
+        typeof hasDuplicateCustomPropertyDefinition
+      >[0]["scope"]
+      ownerId: string | null
+      scopeType: "team" | "workspace" | "private"
+      teamId: string | null
+      workspaceId: string
+    }
+  | {
+      ok: false
+      message: string
+    }
+
 function canEditCustomProperties(
   state: AppStore,
   teamId: string | null | undefined
@@ -31,6 +75,15 @@ function canEditCustomProperties(
   const role = effectiveRole(state, teamId)
 
   return role === "admin" || role === "member"
+}
+
+function canEditPrivateCustomProperties(
+  state: AppStore,
+  workspaceId: string | null | undefined
+) {
+  return Boolean(
+    workspaceId && hasWorkspaceAccess(state, workspaceId, state.currentUserId)
+  )
 }
 
 function getEditableCustomPropertyDefinition(
@@ -45,26 +98,112 @@ function getEditableCustomPropertyDefinition(
     return { ok: false as const, message: "Property not found" }
   }
 
-  if (!canEditCustomProperties(state, definition.teamId)) {
+  const scopeType = definition.scopeType ?? "team"
+  const canEdit =
+    scopeType === "private"
+      ? (definition.ownerId ?? definition.createdBy) === state.currentUserId &&
+        canEditPrivateCustomProperties(state, definition.workspaceId)
+      : scopeType === "workspace"
+        ? canEditWorkspace(state, definition.workspaceId)
+        : canEditCustomProperties(state, definition.teamId)
+
+  if (!canEdit) {
     return { ok: false as const, message: "Your current role is read-only" }
   }
 
   return { ok: true as const, definition }
 }
 
-function getEditableCustomPropertyValueTarget(
-  state: AppStore,
-  workItemId: string,
-  propertyId: string
+function updateCustomPropertyDefinitionEntry(
+  current: AppStore,
+  propertyId: string,
+  patch: Partial<CustomPropertyDefinition>
 ) {
-  const item = state.workItems.find((entry) => entry.id === workItemId)
-  const definition = state.customPropertyDefinitions.find(
+  return {
+    customPropertyDefinitions: current.customPropertyDefinitions.map((entry) =>
+      entry.id === propertyId ? { ...entry, ...patch, updatedAt: getNow() } : entry
+    ),
+  }
+}
+
+function getActiveCustomPropertyDefinition(state: AppStore, propertyId: string) {
+  return state.customPropertyDefinitions.find(
     (entry) => entry.id === propertyId && !entry.isArchived
   )
+}
+
+function canEditDocumentCustomPropertyValue(
+  state: AppStore,
+  definition: CustomPropertyDefinition,
+  document: AppStore["documents"][number]
+) {
+  const scopeType = definition.scopeType ?? "team"
+
+  if (scopeType === "private") {
+    return (
+      document.createdBy === state.currentUserId &&
+      canEditPrivateCustomProperties(state, document.workspaceId)
+    )
+  }
+
+  if (scopeType === "workspace") {
+    return canEditWorkspace(state, document.workspaceId)
+  }
+
+  return canEditCustomProperties(state, document.teamId)
+}
+
+function canEditWorkItemCustomPropertyValue(
+  state: AppStore,
+  definition: CustomPropertyDefinition,
+  item: AppStore["workItems"][number]
+) {
+  const scopeType = definition.scopeType ?? "team"
+
+  if (scopeType === "private") {
+    return canEditPrivateCustomProperties(state, item.workspaceId)
+  }
+
+  if (scopeType === "workspace") {
+    return Boolean(item.workspaceId && canEditWorkspace(state, item.workspaceId))
+  }
+
+  return canEditCustomProperties(state, item.teamId)
+}
+
+function getEditableDocumentCustomPropertyValueTarget(
+  state: AppStore,
+  definition: CustomPropertyDefinition,
+  targetId: string
+) {
+  const document = state.documents.find((entry) => entry.id === targetId)
+  if (
+    !document ||
+    !isCustomPropertyDefinitionForDocument(
+      definition,
+      document,
+      state.currentUserId
+    )
+  ) {
+    return { ok: false as const, message: "Property not found" }
+  }
+
+  if (!canEditDocumentCustomPropertyValue(state, definition, document)) {
+    return { ok: false as const, message: "Your current role is read-only" }
+  }
+
+  return { ok: true as const, definition, targetId, targetType: "document" }
+}
+
+function getEditableWorkItemCustomPropertyValueTarget(
+  state: AppStore,
+  definition: CustomPropertyDefinition,
+  targetId: string
+) {
+  const item = state.workItems.find((entry) => entry.id === targetId)
 
   if (
     !item ||
-    !definition ||
     !isCustomPropertyDefinitionForWorkItem(
       definition,
       item,
@@ -74,27 +213,165 @@ function getEditableCustomPropertyValueTarget(
     return { ok: false as const, message: "Property not found" }
   }
 
-  if (!canEditCustomProperties(state, item.teamId)) {
+  if (!canEditWorkItemCustomPropertyValue(state, definition, item)) {
     return { ok: false as const, message: "Your current role is read-only" }
   }
 
-  return { ok: true as const, definition, item }
+  return {
+    ok: true as const,
+    definition,
+    targetId: item.id,
+    targetType: "workItem",
+  }
+}
+
+function getEditableCustomPropertyValueTarget(
+  state: AppStore,
+  targetType: "workItem" | "document",
+  targetId: string,
+  propertyId: string
+) {
+  const definition = getActiveCustomPropertyDefinition(state, propertyId)
+
+  if (!definition) {
+    return { ok: false as const, message: "Property not found" }
+  }
+
+  return targetType === "document"
+    ? getEditableDocumentCustomPropertyValueTarget(state, definition, targetId)
+    : getEditableWorkItemCustomPropertyValueTarget(state, definition, targetId)
 }
 
 function hasDuplicateCustomPropertyDefinition(input: {
   state: AppStore
-  teamId: string
+  scope:
+    | {
+        type: "team"
+        teamId: string
+      }
+    | {
+        type: "workspace"
+        workspaceId: string
+      }
+    | {
+        type: "private"
+        ownerId: string
+        workspaceId: string
+      }
   name: string
+  targetType: CustomPropertyDefinition["targetType"]
 }) {
   const normalizedName = input.name.trim().toLowerCase()
 
   return input.state.customPropertyDefinitions.some(
     (definition) =>
       !definition.isArchived &&
-      definition.teamId === input.teamId &&
-      (definition.scopeType ?? "team") === "team" &&
+      (definition.targetType ?? "workItem") === input.targetType &&
+      (definition.scopeType ?? "team") === input.scope.type &&
+      (input.scope.type === "team"
+        ? definition.teamId === input.scope.teamId
+        : input.scope.type === "workspace"
+          ? definition.workspaceId === input.scope.workspaceId
+          : definition.workspaceId === input.scope.workspaceId &&
+            (definition.ownerId ?? definition.createdBy) ===
+              input.scope.ownerId) &&
       definition.name.trim().toLowerCase() === normalizedName
   )
+}
+
+function resolveCreateCustomPropertyDefinitionScope(
+  state: AppStore,
+  input: CreateCustomPropertyDefinitionData
+): CreateCustomPropertyDefinitionScope {
+  if (input.scopeType === "private") {
+    if (!canEditPrivateCustomProperties(state, input.workspaceId)) {
+      return { ok: false, message: "Your current role is read-only" }
+    }
+
+    return {
+      ok: true,
+      duplicateScope: {
+        type: "private",
+        ownerId: state.currentUserId,
+        workspaceId: input.workspaceId,
+      },
+      ownerId: state.currentUserId,
+      scopeType: "private",
+      teamId: null,
+      workspaceId: input.workspaceId,
+    }
+  }
+
+  if (input.scopeType === "workspace") {
+    if (!canEditWorkspace(state, input.workspaceId)) {
+      return { ok: false, message: "Your current role is read-only" }
+    }
+
+    return {
+      ok: true,
+      duplicateScope: {
+        type: "workspace",
+        workspaceId: input.workspaceId,
+      },
+      ownerId: null,
+      scopeType: "workspace",
+      teamId: null,
+      workspaceId: input.workspaceId,
+    }
+  }
+
+  const teamIdInput = input.teamId
+
+  if (!teamIdInput) {
+    return { ok: false, message: "Property scope is invalid" }
+  }
+
+  const team = state.teams.find((entry) => entry.id === teamIdInput)
+
+  if (!team) {
+    return { ok: false, message: "Team not found" }
+  }
+
+  if (!canEditCustomProperties(state, team.id)) {
+    return { ok: false, message: "Your current role is read-only" }
+  }
+
+  return {
+    ok: true,
+    duplicateScope: {
+      type: "team",
+      teamId: team.id,
+    },
+    ownerId: null,
+    scopeType: "team",
+    teamId: team.id,
+    workspaceId: team.workspaceId,
+  }
+}
+
+function createOptimisticCustomPropertyDefinition(input: {
+  data: CreateCustomPropertyDefinitionData
+  scope: Extract<CreateCustomPropertyDefinitionScope, { ok: true }>
+  state: AppStore
+}): CustomPropertyDefinition {
+  const now = getNow()
+
+  return {
+    id: createId("property"),
+    workspaceId: input.scope.workspaceId,
+    teamId: input.scope.teamId,
+    scopeType: input.scope.scopeType,
+    ownerId: input.scope.ownerId,
+    targetType: input.data.targetType ?? "workItem",
+    name: input.data.name.trim(),
+    icon: input.data.icon,
+    type: input.data.type,
+    options: input.data.options,
+    isArchived: false,
+    createdBy: input.state.currentUserId,
+    createdAt: now,
+    updatedAt: now,
+  }
 }
 
 export function createCustomPropertySlice(
@@ -106,7 +383,7 @@ export function createCustomPropertySlice(
     async createCustomPropertyDefinition(input) {
       const parsed = customPropertyDefinitionSchema.safeParse({
         ...input,
-        targetType: "workItem",
+        targetType: input.targetType ?? "workItem",
         options: input.options ?? [],
       })
 
@@ -116,46 +393,33 @@ export function createCustomPropertySlice(
       }
 
       const state = get()
-      const team = state.teams.find((entry) => entry.id === parsed.data.teamId)
+      const scope = resolveCreateCustomPropertyDefinitionScope(
+        state,
+        parsed.data
+      )
 
-      if (!team) {
-        toast.error("Team not found")
-        return null
-      }
-
-      if (!canEditCustomProperties(state, team.id)) {
-        toast.error("Your current role is read-only")
+      if (!scope.ok) {
+        toast.error(scope.message)
         return null
       }
 
       if (
         hasDuplicateCustomPropertyDefinition({
           state,
-          teamId: team.id,
+          scope: scope.duplicateScope,
           name: parsed.data.name,
+          targetType: parsed.data.targetType,
         })
       ) {
         toast.error("A property with this name already exists")
         return null
       }
 
-      const now = getNow()
-      const optimisticDefinition = {
-        id: createId("property"),
-        workspaceId: team.workspaceId,
-        teamId: team.id,
-        scopeType: "team" as const,
-        ownerId: null,
-        targetType: "workItem" as const,
-        name: parsed.data.name.trim(),
-        icon: parsed.data.icon,
-        type: parsed.data.type,
-        options: parsed.data.options,
-        isArchived: false,
-        createdBy: state.currentUserId,
-        createdAt: now,
-        updatedAt: now,
-      }
+      const optimisticDefinition = createOptimisticCustomPropertyDefinition({
+        data: parsed.data,
+        scope,
+        state,
+      })
 
       set((current) => ({
         customPropertyDefinitions: [
@@ -165,11 +429,7 @@ export function createCustomPropertySlice(
       }))
 
       try {
-        const { scopeType, ...parsedProperty } = parsed.data
-        const result = await syncCreateCustomPropertyDefinition({
-          ...parsedProperty,
-          ...(scopeType === "team" ? { scopeType } : {}),
-        })
+        const result = await syncCreateCustomPropertyDefinition(parsed.data)
 
         if (result?.property && typeof result.property === "object") {
           await runtime.refreshFromServer()
@@ -198,18 +458,9 @@ export function createCustomPropertySlice(
         return false
       }
 
-      set((current) => ({
-        customPropertyDefinitions: current.customPropertyDefinitions.map(
-          (entry) =>
-            entry.id === propertyId
-              ? {
-                  ...entry,
-                  ...patch,
-                  updatedAt: getNow(),
-                }
-              : entry
-        ),
-      }))
+      set((current) =>
+        updateCustomPropertyDefinitionEntry(current, propertyId, patch)
+      )
 
       try {
         await syncUpdateCustomPropertyDefinition(propertyId, patch)
@@ -225,23 +476,18 @@ export function createCustomPropertySlice(
       }
     },
     async archiveCustomPropertyDefinition(propertyId) {
-      const definition = get().customPropertyDefinitions.find(
-        (entry) => entry.id === propertyId
-      )
+      const validation = getEditableCustomPropertyDefinition(get(), propertyId)
 
-      if (!definition) {
-        toast.error("Property not found")
+      if (!validation.ok) {
+        toast.error(validation.message)
         return false
       }
 
-      set((current) => ({
-        customPropertyDefinitions: current.customPropertyDefinitions.map(
-          (entry) =>
-            entry.id === propertyId
-              ? { ...entry, isArchived: true, updatedAt: getNow() }
-              : entry
-        ),
-      }))
+      set((current) =>
+        updateCustomPropertyDefinitionEntry(current, propertyId, {
+          isArchived: true,
+        })
+      )
 
       try {
         await syncArchiveCustomPropertyDefinition(propertyId)
@@ -256,10 +502,11 @@ export function createCustomPropertySlice(
         return false
       }
     },
-    setCustomPropertyValue(workItemId, propertyId, value) {
+    setCustomPropertyValue(targetType, targetId, propertyId, value) {
       const target = getEditableCustomPropertyValueTarget(
         get(),
-        workItemId,
+        targetType,
+        targetId,
         propertyId
       )
 
@@ -271,7 +518,9 @@ export function createCustomPropertySlice(
       set((current) => {
         const existing = current.customPropertyValues.find(
           (entry) =>
-            entry.workItemId === workItemId && entry.propertyId === propertyId
+            (entry.targetType ?? "workItem") === targetType &&
+            (entry.targetId ?? entry.workItemId) === targetId &&
+            entry.propertyId === propertyId
         )
 
         if (value === null) {
@@ -304,7 +553,9 @@ export function createCustomPropertySlice(
               id: createId("property_value"),
               workspaceId: target.definition.workspaceId,
               teamId: target.definition.teamId,
-              workItemId,
+              targetType,
+              targetId,
+              ...(targetType === "workItem" ? { workItemId: targetId } : {}),
               propertyId,
               value,
               createdBy: current.currentUserId,
@@ -318,7 +569,7 @@ export function createCustomPropertySlice(
       })
 
       runtime.syncInBackground(
-        syncSetCustomPropertyValue(workItemId, propertyId, value),
+        syncSetCustomPropertyValue(targetType, targetId, propertyId, value),
         "Failed to update property"
       )
     },

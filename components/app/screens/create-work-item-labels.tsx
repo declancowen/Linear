@@ -15,6 +15,7 @@ type TextLimitState = ReturnType<typeof getTextInputLimitState>
 
 export function NewLabelInput({
   creatingLabel,
+  canCreateLabel,
   labelNameLimitState,
   newLabelName,
   team,
@@ -22,6 +23,7 @@ export function NewLabelInput({
   onNewLabelNameChange,
 }: {
   creatingLabel: boolean
+  canCreateLabel?: boolean
   labelNameLimitState: TextLimitState
   newLabelName: string
   team: Team | null
@@ -29,6 +31,7 @@ export function NewLabelInput({
   onNewLabelNameChange: (name: string) => void
 }) {
   const trimmedNewLabelName = newLabelName.trim()
+  const canUseLabelScope = canCreateLabel ?? Boolean(team)
 
   return (
     <>
@@ -47,13 +50,15 @@ export function NewLabelInput({
             event.preventDefault()
             onCreateLabel()
           }}
-          disabled={!team || creatingLabel}
+          disabled={!canUseLabelScope || creatingLabel}
         />
         {trimmedNewLabelName.length > 0 ? (
           <button
             type="button"
             className="text-[11px] font-medium text-fg-2 transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={!team || creatingLabel || !labelNameLimitState.canSubmit}
+            disabled={
+              !canUseLabelScope || creatingLabel || !labelNameLimitState.canSubmit
+            }
             onClick={onCreateLabel}
           >
             Add
@@ -84,7 +89,7 @@ export async function createLabelAndSelect({
   newLabelName: string
   creatingLabel: boolean
   canSubmit: boolean
-  scopeType?: "workspace"
+  scopeType?: "workspace" | "private"
   workspaceId: string | null
   setCreatingLabel: Dispatch<SetStateAction<boolean>>
   setNewLabelName: Dispatch<SetStateAction<string>>

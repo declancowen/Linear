@@ -9,7 +9,9 @@ import type {
   WorkItem,
   WorkItemActivity,
 } from "../types"
+import { getWorkItemAssigneeIds } from "../work-item-assignees"
 import { getWorkspaceUsers, hasWorkspaceAccess } from "./core"
+import { getPlainTextContent } from "@/lib/utils"
 
 export type PersonActivity =
   | {
@@ -217,8 +219,8 @@ function getChannelPostInWorkspace(
 }
 
 function getChannelPostTitle(post: ChannelPost) {
-  const compactContent = (post.title || post.content)
-    ?.replace(/\s+/g, " ")
+  const compactContent = getPlainTextContent(post.title || post.content || "")
+    .replace(/\s+/g, " ")
     .trim()
   if (!compactContent) {
     return "Channel post"
@@ -257,6 +259,71 @@ export function getWorkspacePerson(
     getWorkspacePeople(data, workspaceId).find((user) => user.id === userId) ??
     null
   )
+}
+
+function getSharedWorkspaceTeamIds(
+  data: AppData,
+  workspaceId: string,
+  userId: string
+) {
+  const workspaceTeamIds = new Set(
+    data.teams
+      .filter((team) => team.workspaceId === workspaceId)
+      .map((team) => team.id)
+  )
+  const currentUserTeamIds = new Set(
+    data.teamMemberships
+      .filter(
+        (membership) =>
+          membership.userId === data.currentUserId &&
+          workspaceTeamIds.has(membership.teamId)
+      )
+      .map((membership) => membership.teamId)
+  )
+
+  return new Set(
+    data.teamMemberships
+      .filter(
+        (membership) =>
+          membership.userId === userId &&
+          currentUserTeamIds.has(membership.teamId)
+      )
+      .map((membership) => membership.teamId)
+  )
+}
+
+export function getWorkspacePersonAssignedWork(
+  data: AppData,
+  workspaceId: string,
+  userId: string
+) {
+  const sharedTeamIds = getSharedWorkspaceTeamIds(data, workspaceId, userId)
+
+  return data.workItems
+    .filter(
+      (item) =>
+        (item.visibility ?? "team") === "team" &&
+        Boolean(item.teamId) &&
+        sharedTeamIds.has(item.teamId ?? "") &&
+        getWorkItemAssigneeIds(item).includes(userId)
+    )
+    .sort((left, right) => {
+      const updatedCompare = right.updatedAt.localeCompare(left.updatedAt)
+
+      if (updatedCompare !== 0) {
+        return updatedCompare
+      }
+
+      const createdCompare = right.createdAt.localeCompare(left.createdAt)
+
+      if (createdCompare !== 0) {
+        return createdCompare
+      }
+
+      return left.title.localeCompare(right.title, undefined, {
+        sensitivity: "base",
+      })
+    })
 }
 
 function getWorkItemCreatedActivities(

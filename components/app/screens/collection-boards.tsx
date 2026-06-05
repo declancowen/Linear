@@ -8,6 +8,7 @@ import {
   CalendarBlank,
   FileText,
   Rows,
+  SidebarSimple,
   SquaresFour,
 } from "@phosphor-icons/react"
 
@@ -455,9 +456,11 @@ function hashDocumentId(id: string): number {
 export function DocumentBoard({
   data,
   documents,
+  onOpenProperties,
 }: {
   data: AppData
   documents: Document[]
+  onOpenProperties?: (documentId: string) => void
 }) {
   return (
     <div className="grid gap-4 px-7 py-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -472,40 +475,53 @@ export function DocumentBoard({
             data={data}
             document={document}
           >
-            <AppLink
-              className="group flex min-h-[228px] flex-col self-start overflow-hidden rounded-xl border border-line bg-surface transition-all hover:-translate-y-0.5 hover:border-fg-4 hover:shadow-md"
-              href={`/docs/${document.id}`}
-            >
-              <DocumentPreviewArt seed={seed} />
-              <div className="flex flex-1 flex-col gap-2 px-4 pt-3.5 pb-3">
-                <h3 className="line-clamp-2 text-[14.5px] leading-[1.3] font-semibold tracking-[-0.005em] text-foreground group-hover:underline">
-                  {document.title}
-                </h3>
-                {preview ? (
-                  <p className="line-clamp-3 text-[12.5px] leading-[1.5] text-fg-2">
-                    {preview}
-                  </p>
-                ) : (
-                  <p className="text-[12.5px] text-fg-4 italic">
-                    No content yet
-                  </p>
-                )}
-                <div className="mt-auto flex items-center gap-2 border-t border-dashed border-line pt-2.5 text-[11.5px] text-fg-3">
-                  <DocumentAuthorAvatar
-                    avatarImageUrl={author?.avatarImageUrl}
-                    avatarUrl={author?.avatarUrl}
-                    name={author?.name ?? "Unknown"}
-                    size="xs"
-                  />
-                  <span className="min-w-0 flex-1 truncate">
-                    {author?.name ?? "Unknown"}
-                  </span>
-                  <span className="shrink-0 tabular-nums">
-                    {format(new Date(document.updatedAt), "MMM d")}
-                  </span>
+            <div className="group relative flex min-h-[228px] flex-col self-start overflow-hidden rounded-xl border border-line bg-surface transition-all hover:-translate-y-0.5 hover:border-fg-4 hover:shadow-md">
+              <AppLink
+                className="flex min-h-[228px] flex-col"
+                href={`/docs/${document.id}`}
+              >
+                <DocumentPreviewArt seed={seed} />
+                <div className="flex flex-1 flex-col gap-2 px-4 pt-3.5 pb-3">
+                  <h3 className="line-clamp-2 text-[14.5px] leading-[1.3] font-semibold tracking-[-0.005em] text-foreground group-hover:underline">
+                    {document.title}
+                  </h3>
+                  {preview ? (
+                    <p className="line-clamp-3 text-[12.5px] leading-[1.5] text-fg-2">
+                      {preview}
+                    </p>
+                  ) : (
+                    <p className="text-[12.5px] text-fg-4 italic">
+                      No content yet
+                    </p>
+                  )}
+                  <div className="mt-auto flex items-center gap-2 border-t border-dashed border-line pt-2.5 text-[11.5px] text-fg-3">
+                    <DocumentAuthorAvatar
+                      avatarImageUrl={author?.avatarImageUrl}
+                      avatarUrl={author?.avatarUrl}
+                      name={author?.name ?? "Unknown"}
+                      size="xs"
+                    />
+                    <span className="min-w-0 flex-1 truncate">
+                      {author?.name ?? "Unknown"}
+                    </span>
+                    <span className="shrink-0 tabular-nums">
+                      {format(new Date(document.updatedAt), "MMM d")}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </AppLink>
+              </AppLink>
+              {onOpenProperties ? (
+                <button
+                  type="button"
+                  aria-label={`Open properties for ${document.title}`}
+                  title="Open properties"
+                  className="absolute top-3 right-3 grid size-7 place-items-center rounded-md border border-line bg-surface text-fg-3 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 hover:bg-surface-3 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
+                  onClick={() => onOpenProperties(document.id)}
+                >
+                  <SidebarSimple className="size-4" />
+                </button>
+              ) : null}
+            </div>
           </DocumentContextMenu>
         )
       })}

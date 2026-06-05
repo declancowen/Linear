@@ -122,7 +122,7 @@ vi.mock("@/components/app/screens/work-surface-view", () => ({
         ...(projectId && visibility !== "private"
           ? { primaryProjectId: projectId }
           : {}),
-        ...(labelId && visibility !== "private" ? { labelIds: [labelId] } : {}),
+        ...(labelId ? { labelIds: [labelId] } : {}),
         ...(visibility ? { visibility } : {}),
       },
     }
@@ -139,12 +139,17 @@ vi.mock("@/components/app/screens/work-surface-view", () => ({
   }) => <div>{`group:${view.grouping}/sub:${view.subGrouping ?? "none"}`}</div>,
 }))
 
-vi.mock("@phosphor-icons/react", () => ({
-  ArrowCounterClockwise: () => null,
-  CalendarBlank: () => null,
-  ChartBarHorizontal: () => null,
-  Plus: () => null,
-}))
+vi.mock("@phosphor-icons/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@phosphor-icons/react")>()
+
+  return {
+    ...actual,
+    ArrowCounterClockwise: () => null,
+    CalendarBlank: () => null,
+    ChartBarHorizontal: () => null,
+    Plus: () => null,
+  }
+})
 
 import { WorkSurface } from "@/components/app/screens/work-surface"
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
@@ -370,7 +375,7 @@ describe("WorkSurface", () => {
 
     renderEmptyTeamWorkSurfaceWithView(view)
 
-    fireEvent.click(screen.getByRole("button", { name: "New" }))
+    fireEvent.click(screen.getByRole("button", { name: "New work item" }))
 
     expect(openManagedCreateDialog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -401,7 +406,7 @@ describe("WorkSurface", () => {
 
     renderEmptyTeamWorkSurfaceWithView(view)
 
-    fireEvent.click(screen.getByRole("button", { name: "New" }))
+    fireEvent.click(screen.getByRole("button", { name: "New work item" }))
 
     const dialog = vi.mocked(openManagedCreateDialog).mock.calls[0]?.[0]
 

@@ -55,6 +55,7 @@ import {
 import { getStatusOrderForTeam, getTeam } from "@/lib/domain/selectors"
 import {
   getCustomPropertyScopeType,
+  getLabelScopeType,
   isCustomPropertyDefinitionVisibleToUser,
 } from "@/lib/domain/labels"
 import {
@@ -272,6 +273,7 @@ const ViewChipTrigger = forwardRef<
     <button
       ref={ref}
       type={type}
+      aria-label={showLabel ? undefined : label}
       className={cn(
         chipBase,
         "work-view-chip",
@@ -426,6 +428,7 @@ type FilterPopoverProps = {
   variant?: "icon" | "chip"
   chipTone?: ChipTone | "adaptive"
   label?: string
+  showLabel?: boolean
   triggerIcon?: ReactNode
   dashedWhenEmpty?: boolean
 }
@@ -577,7 +580,9 @@ function useWorkFilterOptions(
   const allWorkItems = useAppStore((state) => state.workItems)
   const projects = useAppStore((state) => state.projects)
   const labels = useAppStore((state) => state.labels)
+  const currentUserId = useAppStore((state) => state.currentUserId)
   const teams = useAppStore((state) => state.teams)
+  const privateTaskView = isPrivateTaskView(view)
   const userById = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
     [users]
@@ -604,8 +609,22 @@ function useWorkFilterOptions(
     [projectIds, projects]
   )
   const filteredLabels = useMemo(
-    () => labels.filter((entry) => labelIds.has(entry.id)),
-    [labelIds, labels]
+    () =>
+      labels.filter((entry) => {
+        if (!labelIds.has(entry.id)) {
+          return false
+        }
+
+        if (privateTaskView) {
+          return (
+            getLabelScopeType(entry) === "private" &&
+            entry.ownerId === currentUserId
+          )
+        }
+
+        return getLabelScopeType(entry) === "workspace"
+      }),
+    [currentUserId, labelIds, labels, privateTaskView]
   )
   const filteredTeams = useMemo(
     () => teams.filter((team) => teamIds.includes(team.id)),
@@ -722,19 +741,35 @@ const FilterTriggerButton = forwardRef<
     className?: string
     icon?: ReactNode
     label: string
+    showLabel?: boolean
     variant: "icon" | "chip"
   } & ComponentPropsWithoutRef<"button">
 >(function FilterTriggerButton(
-  { activeCount, className, icon, label, type = "button", variant, ...props },
+  {
+    activeCount,
+    className,
+    icon,
+    label,
+    showLabel = true,
+    type = "button",
+    variant,
+    ...props
+  },
   ref
 ) {
   if (variant === "chip") {
     return (
-      <button ref={ref} type={type} className={className} {...props}>
+      <button
+        ref={ref}
+        type={type}
+        aria-label={showLabel ? undefined : label}
+        className={className}
+        {...props}
+      >
         <span className="shrink-0">
           {icon ?? <FunnelSimple className="size-3.5" />}
         </span>
-        <span className="shrink-0">{label}</span>
+        {showLabel ? <span className="shrink-0">{label}</span> : null}
         {activeCount > 0 ? (
           <span className="ml-0.5 shrink-0 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
             {activeCount}
@@ -1286,6 +1321,7 @@ export function FilterPopover({
   variant = "icon",
   chipTone = "adaptive",
   label = "Filter",
+  showLabel = true,
   triggerIcon,
   dashedWhenEmpty = false,
 }: FilterPopoverProps) {
@@ -1331,6 +1367,7 @@ export function FilterPopover({
           )}
           icon={triggerIcon}
           label={label}
+          showLabel={showLabel}
           variant={variant}
         />
       </PopoverTrigger>
@@ -1980,21 +2017,25 @@ const ViewLayoutChipTrigger = forwardRef<
   HTMLButtonElement,
   ComponentPropsWithoutRef<"button"> & {
     activeOption: ViewLayoutOption | null
+    showLabel?: boolean
     tone: ChipTone
   }
 >(function ViewLayoutChipTrigger(
-  { activeOption, className, tone, ...props },
+  { activeOption, className, showLabel = true, tone, ...props },
   ref
 ) {
   return (
     <button
       ref={ref}
       type="button"
+      aria-label={showLabel ? undefined : (activeOption?.label ?? "Layout")}
       className={cn(chipBase, getChipToneClass(tone), className)}
       {...props}
     >
       <span className="shrink-0">{activeOption?.icon}</span>
-      <span className="shrink-0">{activeOption?.label ?? "Layout"}</span>
+      {showLabel ? (
+        <span className="shrink-0">{activeOption?.label ?? "Layout"}</span>
+      ) : null}
       <CaretDown className="size-3 shrink-0 opacity-70" />
     </button>
   )
@@ -2034,18 +2075,24 @@ function ViewLayoutChipPopover({
   onUpdateView,
   tone,
   options,
+  showLabel = true,
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
   tone: ChipTone
   options: ViewLayoutOption[]
+  showLabel?: boolean
 }) {
   const activeOption = getActiveViewLayoutOption(options, view.layout)
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <ViewLayoutChipTrigger activeOption={activeOption} tone={tone} />
+        <ViewLayoutChipTrigger
+          activeOption={activeOption}
+          showLabel={showLabel}
+          tone={tone}
+        />
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -2076,6 +2123,7 @@ function ViewSortChipPopover({
   onUpdateView,
   tone,
   label,
+  showLabel = true,
   showValue,
   options,
   contentWidthClassName,
@@ -2085,6 +2133,7 @@ function ViewSortChipPopover({
   onUpdateView?: (patch: ViewConfigPatch) => void
   tone: ChipTone
   label?: string
+  showLabel?: boolean
   showValue: boolean
   options: OrderingField[]
   contentWidthClassName: string
@@ -2096,6 +2145,7 @@ function ViewSortChipPopover({
         <ViewSortChipButton
           label={label}
           ordering={view.ordering}
+          showLabel={showLabel}
           showValue={showValue}
           tone={tone}
         />
@@ -2124,6 +2174,7 @@ const ViewSortChipButton = forwardRef<
   {
     label?: string
     ordering: OrderingField
+    showLabel?: boolean
     showValue: boolean
     tone: ChipTone
   } & ComponentPropsWithoutRef<"button">
@@ -2132,6 +2183,7 @@ const ViewSortChipButton = forwardRef<
     className,
     label,
     ordering,
+    showLabel = true,
     showValue,
     tone,
     type = "button",
@@ -2143,6 +2195,7 @@ const ViewSortChipButton = forwardRef<
     <button
       ref={ref}
       type={type}
+      aria-label={showLabel ? undefined : (label ?? ORDERING_LABELS[ordering])}
       className={cn(
         chipBase,
         "work-view-chip",
@@ -2152,7 +2205,9 @@ const ViewSortChipButton = forwardRef<
       {...props}
     >
       <SortAscending className="size-3.5 shrink-0" />
-      <span className="shrink-0">{label ?? ORDERING_LABELS[ordering]}</span>
+      {showLabel ? (
+        <span className="shrink-0">{label ?? ORDERING_LABELS[ordering]}</span>
+      ) : null}
       {showValue ? (
         <span className="work-view-chip-value font-semibold">
           {label ? `· ${ORDERING_LABELS[ordering]}` : null}
@@ -2244,10 +2299,12 @@ export function ProjectLayoutChipPopover({
   view,
   onUpdateView,
   tone = "default",
+  showLabel = true,
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
   tone?: ChipTone
+  showLabel?: boolean
 }) {
   return (
     <ViewLayoutChipPopover
@@ -2255,6 +2312,7 @@ export function ProjectLayoutChipPopover({
       onUpdateView={onUpdateView}
       tone={tone}
       options={PROJECT_LAYOUT_OPTIONS}
+      showLabel={showLabel}
     />
   )
 }
@@ -2264,6 +2322,7 @@ type SortChipPopoverProps = {
   onUpdateView?: (patch: ViewConfigPatch) => void
   tone?: ChipTone
   label?: string
+  showLabel?: boolean
   showValue?: boolean
 }
 
@@ -2275,6 +2334,7 @@ function SortChipPopoverWithOptions({
   onUpdateView,
   tone = "default",
   label,
+  showLabel = true,
   showValue = true,
 }: SortChipPopoverProps & {
   contentWidthClassName: string
@@ -2287,6 +2347,7 @@ function SortChipPopoverWithOptions({
       onUpdateView={onUpdateView}
       tone={tone}
       label={label}
+      showLabel={showLabel}
       showValue={showValue}
       options={options}
       contentWidthClassName={contentWidthClassName}
@@ -2326,10 +2387,12 @@ export function LayoutChipPopover({
   view,
   onUpdateView,
   tone = "default",
+  showLabel = true,
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
   tone?: ChipTone
+  showLabel?: boolean
 }) {
   return (
     <ViewLayoutChipPopover
@@ -2337,6 +2400,7 @@ export function LayoutChipPopover({
       onUpdateView={onUpdateView}
       tone={tone}
       options={WORK_LAYOUT_OPTIONS}
+      showLabel={showLabel}
     />
   )
 }
@@ -2347,6 +2411,7 @@ export function GroupChipPopover({
   onUpdateView,
   tone = "default",
   showValue = false,
+  showLabel = true,
   label = "Group",
   showSubGrouping = true,
   getOptionLabel,
@@ -2357,6 +2422,7 @@ export function GroupChipPopover({
   onUpdateView?: (patch: ViewConfigPatch) => void
   tone?: ChipTone
   showValue?: boolean
+  showLabel?: boolean
   label?: string
   showSubGrouping?: boolean
   getOptionLabel?: (field: GroupField) => string
@@ -2381,10 +2447,11 @@ export function GroupChipPopover({
         <ViewChipTrigger
           icon={<TreeStructure className="size-3.5" />}
           label={label}
+          showLabel={showLabel}
           showValue={showValue}
           tone={tone}
           value={resolveOptionLabel(view.grouping)}
-          valuePrefix={label === "Group" ? "· " : ""}
+          valuePrefix={showLabel && label === "Group" ? "· " : ""}
         />
       </PopoverTrigger>
       <PopoverContent
@@ -2515,10 +2582,20 @@ const PropertiesChipTrigger = forwardRef<
     dashedWhenEmpty: boolean
     label: string
     showCount: boolean
+    showLabel?: boolean
     tone: ChipTone | "adaptive"
   } & ComponentPropsWithoutRef<"button">
 >(function PropertiesChipTrigger(
-  { className, count, dashedWhenEmpty, label, showCount, tone, ...props },
+  {
+    className,
+    count,
+    dashedWhenEmpty,
+    label,
+    showCount,
+    showLabel = true,
+    tone,
+    ...props
+  },
   ref
 ) {
   return (
@@ -2526,6 +2603,7 @@ const PropertiesChipTrigger = forwardRef<
       {...props}
       ref={ref}
       type="button"
+      aria-label={showLabel ? undefined : label}
       className={cn(
         getPropertiesChipClassName({
           count,
@@ -2537,7 +2615,7 @@ const PropertiesChipTrigger = forwardRef<
       )}
     >
       <Eye className="size-3.5 shrink-0" />
-      <span className="shrink-0">{label}</span>
+      {showLabel ? <span className="shrink-0">{label}</span> : null}
       {showCount ? (
         <span className="ml-0.5 shrink-0 rounded-full bg-background/40 px-1 text-[10px] tabular-nums">
           {count}
@@ -2564,6 +2642,7 @@ export function PropertiesChipPopover({
   onClearDisplayProperties,
   tone = "adaptive",
   showCount = true,
+  showLabel = true,
   label = "Properties",
   propertyOptions = displayPropertyOptions,
   dashedWhenEmpty = false,
@@ -2575,6 +2654,7 @@ export function PropertiesChipPopover({
   onClearDisplayProperties?: () => void
   tone?: ChipTone | "adaptive"
   showCount?: boolean
+  showLabel?: boolean
   label?: string
   propertyOptions?: DisplayProperty[]
   dashedWhenEmpty?: boolean
@@ -2585,6 +2665,7 @@ export function PropertiesChipPopover({
     (state) => state.customPropertyDefinitions
   )
   const currentUserId = useAppStore((state) => state.currentUserId)
+  const privateTaskView = isPrivateTaskView(view)
   const customDefinitions = useMemo(() => {
     if (view.entityKind !== "items") {
       return []
@@ -2594,6 +2675,7 @@ export function PropertiesChipPopover({
       return allCustomDefinitions.filter(
         (definition) =>
           !definition.isArchived &&
+          (definition.targetType ?? "workItem") === "workItem" &&
           getCustomPropertyScopeType(definition) === "team" &&
           definition.teamId === view.scopeId
       )
@@ -2603,6 +2685,11 @@ export function PropertiesChipPopover({
       return allCustomDefinitions.filter(
         (definition) =>
           !definition.isArchived &&
+          (definition.targetType ?? "workItem") === "workItem" &&
+          (privateTaskView
+            ? getCustomPropertyScopeType(definition) === "private" &&
+              (definition.ownerId ?? definition.createdBy) === currentUserId
+            : getCustomPropertyScopeType(definition) === "team") &&
           isCustomPropertyDefinitionVisibleToUser(definition, currentUserId)
       )
     }
@@ -2611,6 +2698,7 @@ export function PropertiesChipPopover({
   }, [
     allCustomDefinitions,
     currentUserId,
+    privateTaskView,
     view.entityKind,
     view.scopeId,
     view.scopeType,
@@ -2748,6 +2836,7 @@ export function PropertiesChipPopover({
           dashedWhenEmpty={dashedWhenEmpty}
           label={label}
           showCount={showCount}
+          showLabel={showLabel}
           tone={tone}
         />
       </PopoverTrigger>

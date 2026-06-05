@@ -158,6 +158,7 @@ describe("buildAssignedWorkViews", () => {
     ])
     expect(views.every((view) => view.route === "/assigned")).toBe(true)
     expect(views.every((view) => view.scopeType === "personal")).toBe(true)
+    expect(views[0]?.displayProps).toContain("labels")
   })
 
   it("keeps mixed-template personal fallback views generic", () => {

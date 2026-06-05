@@ -1,14 +1,44 @@
+import {
+  CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE,
+  normalizeChatQuoteSourceMessageId,
+} from "@/lib/content/chat-message-quote-metadata"
+import { parseHtmlDocument } from "@/lib/content/html-parsing"
+import { sanitizeRichTextMessageContent } from "@/lib/content/rich-text-security"
 import { escapeHtml } from "@/lib/html"
 import { getPlainTextContent } from "@/lib/utils"
 
-export function createQuotedRichText(content: string, authorName?: string) {
-  const quoteText = getPlainTextContent(content).trim()
+function hasQuotableRichTextContent(contentHtml: string) {
+  if (getPlainTextContent(contentHtml).trim().length > 0) {
+    return true
+  }
 
-  if (!quoteText) {
+  const document = parseHtmlDocument(contentHtml)
+  return Boolean(
+    document.body.querySelector(
+      'img.editor-image, a[data-type="attachment"], a[href]'
+    )
+  )
+}
+
+export function createQuotedRichText(
+  content: string,
+  authorName?: string,
+  sourceMessageId?: string
+) {
+  const quotedContent = sanitizeRichTextMessageContent(content).trim()
+
+  if (!hasQuotableRichTextContent(quotedContent)) {
     return "<p></p>"
   }
 
-  const attributedText = authorName ? `${authorName}: ${quoteText}` : quoteText
+  const normalizedSourceMessageId =
+    normalizeChatQuoteSourceMessageId(sourceMessageId)
+  const sourceAttribute = normalizedSourceMessageId
+    ? ` ${CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE}="${escapeHtml(normalizedSourceMessageId)}"`
+    : ""
+  const attribution = authorName?.trim()
+    ? `<p>${escapeHtml(authorName.trim())}:</p>`
+    : ""
 
-  return `<blockquote><p>${escapeHtml(attributedText).replace(/\r?\n/g, "<br />")}</p></blockquote><p></p>`
+  return `<blockquote${sourceAttribute}>${attribution}${quotedContent}</blockquote><p></p>`
 }

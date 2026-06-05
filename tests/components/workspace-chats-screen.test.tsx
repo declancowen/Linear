@@ -50,14 +50,28 @@ vi.mock("@/components/app/collaboration-screens/chat-thread", () => ({
 }))
 
 vi.mock("@/components/app/user-presence", () => ({
-  UserAvatar: ({ name }: { name?: string }) => <span>{name ?? "Unknown"}</span>,
+  UserAvatar: ({
+    name,
+    showStatus,
+    status,
+  }: {
+    name?: string
+    showStatus?: boolean
+    status?: string | null
+  }) => (
+    <span
+      data-show-status={String(Boolean(showStatus))}
+      data-status={status ?? ""}
+    >
+      {name ?? "Unknown"}
+    </span>
+  ),
 }))
 
 vi.mock("@/components/app/collaboration-screens/workspace-chat-ui", () => ({
   WORKSPACE_CHAT_LIST_DEFAULT_WIDTH: 256,
   WORKSPACE_CHAT_LIST_DEFAULT_WIDTH_PERCENTAGE: "25%",
-  WORKSPACE_CHAT_LIST_COLLAPSED_STORAGE_KEY:
-    "workspace-chat-list-collapsed:v1",
+  WORKSPACE_CHAT_LIST_COLLAPSED_STORAGE_KEY: "workspace-chat-list-collapsed:v1",
   WORKSPACE_CHAT_LIST_WIDTH_STORAGE_KEY: "workspace-chat-list-width:v2",
   clampWorkspaceChatListWidth: (value: number) => value,
   ConversationList: ({
@@ -226,6 +240,10 @@ describe("workspace chat display helpers", () => {
     fireEvent.click(screen.getByRole("button", { name: /Planning/ }))
 
     expect(screen.getByText("Maya Patel")).toBeInTheDocument()
+    expect(screen.getByText("Maya Patel")).toHaveAttribute(
+      "data-show-status",
+      "true"
+    )
     expect(
       screen.getByRole("button", { name: /Latest update/ })
     ).toBeInTheDocument()
@@ -385,5 +403,66 @@ describe("WorkspaceChatsScreen", () => {
     expect(
       screen.getByRole("button", { name: "Expand conversation list" })
     ).toBeInTheDocument()
+  })
+
+  it("shows status indicators on direct conversation list avatars", () => {
+    useScopedReadModelRefreshMock.mockReturnValue({
+      error: null,
+      hasLoadedOnce: true,
+      refreshing: false,
+    })
+    const participant = createTestUser({
+      id: "user_2",
+      name: "Maya Patel",
+      status: "out-of-office",
+      hasExplicitStatus: true,
+    })
+
+    useAppStore.setState((state) => ({
+      ...state,
+      users: [...state.users, participant],
+      workspaceMemberships: [
+        createTestWorkspaceMembership({
+          workspaceId: "workspace_1",
+          userId: "user_1",
+          role: "member",
+        }),
+        createTestWorkspaceMembership({
+          workspaceId: "workspace_1",
+          userId: participant.id,
+          role: "member",
+        }),
+      ],
+      conversations: [
+        {
+          id: "chat_1",
+          kind: "chat",
+          scopeType: "workspace",
+          scopeId: "workspace_1",
+          variant: "direct",
+          title: "Maya Patel",
+          description: "",
+          participantIds: ["user_1", participant.id],
+          roomId: null,
+          roomName: null,
+          createdBy: "user_1",
+          createdAt: "2026-04-18T10:00:00.000Z",
+          updatedAt: "2026-04-18T10:00:00.000Z",
+          lastActivityAt: "2026-04-18T10:00:00.000Z",
+        },
+      ],
+    }))
+
+    render(<WorkspaceChatsScreen />)
+
+    const avatar = screen
+      .getAllByText("Maya Patel")
+      .find(
+        (element) => element.getAttribute("data-show-status") === "true"
+      ) as HTMLElement | undefined
+
+    expect(avatar).toBeDefined()
+    expect(avatar).toHaveAttribute("data-show-status", "true")
+    expect(avatar).toHaveAttribute("data-status", "out-of-office")
   })
 })

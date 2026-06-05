@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
 import { getChatWelcomeIntroDisplay } from "@/components/app/collaboration-screens/chat-welcome-display"
 import { formatChatMessageTime } from "@/components/app/collaboration-screens/utils"
+import { registerPendingAttachment } from "@/components/app/rich-text-editor/pending-attachments"
 import { useAppStore } from "@/lib/store/app-store"
 import {
   createTestTeam,
@@ -19,24 +20,68 @@ const useChatPresenceMock = vi.hoisted(() => vi.fn())
 vi.mock("@/components/app/rich-text-editor", () => ({
   RichTextEditor: ({
     content,
+    editable = true,
+    editorInstanceRef,
+    onSubmitShortcut,
     placeholder,
     onChange,
   }: {
     content?: string
+    editable?: boolean
+    editorInstanceRef?: {
+      current: {
+        getHTML: () => string
+        getText: () => string
+        chain: () => {
+          focus: () => {
+            insertContent: () => {
+              run: () => void
+            }
+          }
+        }
+      } | null
+    }
     placeholder?: string
     onChange?: (value: string) => void
+    onSubmitShortcut?: () => void | Promise<void>
   }) => {
     const plainContent =
       typeof content === "string" ? content.replace(/<[^>]+>/g, "").trim() : ""
 
+    if (editorInstanceRef) {
+      editorInstanceRef.current = {
+        getHTML: () => content ?? "<p></p>",
+        getText: () => plainContent,
+        chain: () => ({
+          focus: () => ({
+            insertContent: () => ({
+              run: () => undefined,
+            }),
+          }),
+        }),
+      }
+    }
+
     return (
       <input
         data-testid="mock-rich-text-editor"
+        data-content={content}
         aria-label={placeholder}
         defaultValue={plainContent}
+        disabled={!editable}
         onChange={(event) =>
-          onChange?.(`<p>${(event.target as HTMLInputElement).value}</p>`)
+          onChange?.(
+            (event.target as HTMLInputElement).value.trim().startsWith("<")
+              ? (event.target as HTMLInputElement).value
+              : `<p>${(event.target as HTMLInputElement).value}</p>`
+          )
         }
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault()
+            void onSubmitShortcut?.()
+          }
+        }}
       />
     )
   },
@@ -106,6 +151,8 @@ const zoeUser = createTestUser({
 const toggleChatMessageReactionMock = vi.fn()
 const updateChatMessageMock = vi.fn()
 const markChatReadMock = vi.fn()
+const sendChatMessageMock = vi.fn()
+const uploadAttachmentMock = vi.fn()
 
 function createReactionMessage() {
   return {
@@ -156,7 +203,7 @@ function setSingleMessageReadReceiptState(createdBy: string) {
 function renderDirectChatThread(
   props: Partial<Parameters<typeof ChatThread>[0]> = {}
 ) {
-  render(
+  return render(
     <ChatThread
       conversationId="conversation_1"
       title="Declan Cowen"
@@ -167,10 +214,48 @@ function renderDirectChatThread(
   )
 }
 
+function withMockedAutoScroll(
+  callback: (scrollIntoViewMock: ReturnType<typeof vi.fn>) => void
+) {
+  const scrollIntoViewMock = vi.fn()
+  const requestAnimationFrameSpy = vi
+    .spyOn(window, "requestAnimationFrame")
+    .mockImplementation((nextFrame) => {
+      nextFrame(0)
+      return 1
+    })
+  const cancelAnimationFrameSpy = vi
+    .spyOn(window, "cancelAnimationFrame")
+    .mockImplementation(() => {})
+  const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: scrollIntoViewMock,
+  })
+
+  try {
+    callback(scrollIntoViewMock)
+  } finally {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: originalScrollIntoView,
+    })
+    requestAnimationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+  }
+}
+
 beforeEach(() => {
   toggleChatMessageReactionMock.mockReset()
   updateChatMessageMock.mockReset()
   markChatReadMock.mockReset()
+  sendChatMessageMock.mockReset()
+  uploadAttachmentMock.mockReset()
+  uploadAttachmentMock.mockResolvedValue({
+    fileName: "attachment.png",
+    fileUrl: "https://files.example.com/attachment.png",
+  })
   useChatPresenceMock.mockReset()
   useChatPresenceMock.mockReturnValue({
     participants: [],
@@ -201,8 +286,10 @@ beforeEach(() => {
     ],
     chatMessages: [],
     markChatRead: markChatReadMock,
+    sendChatMessage: sendChatMessageMock,
     toggleChatMessageReaction: toggleChatMessageReactionMock,
     updateChatMessage: updateChatMessageMock,
+    uploadAttachment: uploadAttachmentMock,
   })
 })
 
@@ -256,6 +343,27 @@ describe("ChatThread", () => {
 
     expect(screen.getByText("Loading messages...")).toBeInTheDocument()
     expect(screen.queryByText("No messages yet")).not.toBeInTheDocument()
+  })
+
+  it("shows chat and files tabs when the full header is hidden", () => {
+    useAppStore.setState({
+      chatMessages: [
+        {
+          ...createReactionMessage(),
+          content:
+            '<p><a href="https://files.example.com/spec.pdf" data-type="attachment" data-attachment-kind="pdf" data-file-name="spec.pdf">spec.pdf</a></p>',
+        },
+      ],
+    })
+
+    renderDirectChatThread({ showHeader: false })
+
+    expect(screen.getByRole("button", { name: "chat" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "files" }))
+
+    expect(
+      screen.getByRole("button", { name: "Open spec.pdf" })
+    ).toBeInTheDocument()
   })
 
   it("hides the composer when the other participants have left the workspace", () => {
@@ -731,11 +839,70 @@ describe("ChatThread", () => {
 
     const reactionButton = screen.getByRole("button", { name: /👍\s*1/ })
     const actionsRow = reactionButton.parentElement
+    const reactionsRow = reactionButton.closest(
+      '[data-chat-message-reactions="message_1"]'
+    )
+    const messageRow = reactionsRow?.closest(
+      '[data-chat-message-id="message_1"]'
+    )
 
     expect(actionsRow).toBeTruthy()
     expect(actionsRow?.children).toHaveLength(1)
+    expect(reactionsRow).toHaveClass("mb-1", "pt-0.5")
+    expect(messageRow).toHaveClass("overflow-visible", "pb-2")
     expect(screen.queryByLabelText("React")).not.toBeInTheDocument()
     expect(screen.getByLabelText("More reactions")).toBeInTheDocument()
+  })
+
+  it("keeps only a minimal bottom scroll sentinel after the last message", () => {
+    useAppStore.setState({
+      chatMessages: [
+        {
+          ...createReactionMessage(),
+          reactions: [],
+        },
+      ],
+    })
+
+    const { container } = renderDirectChatThread()
+    const bottomSpacer = container.querySelector(
+      '[aria-hidden="true"].h-px.shrink-0'
+    )
+
+    expect(bottomSpacer).toHaveClass("h-px", "shrink-0")
+  })
+
+  it("uses only the minimal bottom scroll sentinel when the last message has reactions", () => {
+    useAppStore.setState({
+      chatMessages: [createReactionMessage()],
+    })
+
+    const { container } = renderDirectChatThread()
+    const bottomSpacer = container.querySelector(
+      '[aria-hidden="true"].h-px.shrink-0'
+    )
+
+    expect(bottomSpacer).toHaveClass("h-px", "shrink-0")
+  })
+
+  it("uses only the minimal bottom scroll sentinel after a deleted last visible message", () => {
+    useAppStore.setState({
+      chatMessages: [
+        {
+          ...createReactionMessage(),
+          createdBy: currentUser.id,
+          deletedAt: "2026-04-15T12:01:00.000Z",
+        },
+      ],
+    })
+
+    const { container } = renderDirectChatThread()
+    const bottomSpacer = container.querySelector(
+      '[aria-hidden="true"].h-px.shrink-0'
+    )
+
+    expect(screen.getByText("You deleted a message")).toBeInTheDocument()
+    expect(bottomSpacer).toHaveClass("h-px", "shrink-0")
   })
 
   it("renders a typing indicator for remote chat participants", () => {
@@ -1011,6 +1178,244 @@ describe("ChatThread", () => {
     ).toHaveValue("")
   })
 
+  it("blocks duplicate sends while a pending image attachment is flushing", async () => {
+    const pendingBlobUrl = "blob:http://local/pending-image"
+    const originalCreateObjectURL = URL.createObjectURL
+    const originalRevokeObjectURL = URL.revokeObjectURL
+    let resolveUpload: (uploaded: {
+      fileName: string
+      fileUrl: string
+    }) => void = () => undefined
+    const uploadPromise = new Promise<{
+      fileName: string
+      fileUrl: string
+    }>((resolve) => {
+      resolveUpload = resolve
+    })
+
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => pendingBlobUrl),
+    })
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    })
+
+    try {
+      uploadAttachmentMock.mockReturnValue(uploadPromise)
+      useAppStore.setState((state) => ({
+        ...state,
+        workspaceMemberships: [
+          createTestWorkspaceMembership({
+            workspaceId: "workspace_1",
+            userId: currentUser.id,
+            role: "member",
+          }),
+          createTestWorkspaceMembership({
+            workspaceId: "workspace_1",
+            userId: formerUser.id,
+            role: "member",
+          }),
+        ],
+      }))
+
+      const pendingUrl = registerPendingAttachment(
+        new File(["image"], "photo.png", { type: "image/png" })
+      )
+
+      renderDirectChatThread()
+
+      fireEvent.change(screen.getByTestId("mock-rich-text-editor"), {
+        target: {
+          value: `<p><img src="${pendingUrl}" alt="" class="editor-image" /></p>`,
+        },
+      })
+
+      const sendButton = screen.getByRole("button", { name: "Send" })
+
+      await act(async () => {
+        fireEvent.click(sendButton)
+        await Promise.resolve()
+      })
+
+      expect(uploadAttachmentMock).toHaveBeenCalledTimes(1)
+      expect(sendButton).toBeDisabled()
+
+      fireEvent.click(sendButton)
+
+      expect(sendChatMessageMock).not.toHaveBeenCalled()
+
+      await act(async () => {
+        resolveUpload({
+          fileName: "photo.png",
+          fileUrl: "https://files.example.com/photo.png",
+        })
+        await uploadPromise
+        await Promise.resolve()
+      })
+
+      expect(sendChatMessageMock).toHaveBeenCalledTimes(1)
+      expect(sendChatMessageMock).toHaveBeenCalledWith({
+        conversationId: "conversation_1",
+        content:
+          '<p><img src="https://files.example.com/photo.png" alt="" class="editor-image" /></p>',
+      })
+    } finally {
+      if (originalCreateObjectURL) {
+        Object.defineProperty(URL, "createObjectURL", {
+          configurable: true,
+          value: originalCreateObjectURL,
+        })
+      } else {
+        Reflect.deleteProperty(URL, "createObjectURL")
+      }
+
+      if (originalRevokeObjectURL) {
+        Object.defineProperty(URL, "revokeObjectURL", {
+          configurable: true,
+          value: originalRevokeObjectURL,
+        })
+      } else {
+        Reflect.deleteProperty(URL, "revokeObjectURL")
+      }
+    }
+  })
+
+  it("blocks duplicate synchronous sends before the composer reset commits", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      workspaceMemberships: [
+        createTestWorkspaceMembership({
+          workspaceId: "workspace_1",
+          userId: currentUser.id,
+          role: "member",
+        }),
+        createTestWorkspaceMembership({
+          workspaceId: "workspace_1",
+          userId: formerUser.id,
+          role: "member",
+        }),
+      ],
+    }))
+
+    renderDirectChatThread()
+
+    fireEvent.change(screen.getByTestId("mock-rich-text-editor"), {
+      target: {
+        value: "Hello",
+      },
+    })
+
+    const sendButton = screen.getByRole("button", { name: "Send" })
+
+    fireEvent.click(sendButton)
+    fireEvent.click(sendButton)
+
+    expect(sendChatMessageMock).toHaveBeenCalledTimes(1)
+    expect(sendChatMessageMock).toHaveBeenCalledWith({
+      conversationId: "conversation_1",
+      content: "<p>Hello</p>",
+    })
+  })
+
+  it("quotes image messages with source metadata and preserves the image markup", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      workspaceMemberships: [
+        createTestWorkspaceMembership({
+          workspaceId: "workspace_1",
+          userId: currentUser.id,
+          role: "member",
+        }),
+        createTestWorkspaceMembership({
+          workspaceId: "workspace_1",
+          userId: formerUser.id,
+          role: "member",
+        }),
+      ],
+      chatMessages: [
+        {
+          ...createReactionMessage(),
+          id: "message_image",
+          content:
+            '<p><img src="https://files.example.com/photo.jpg" alt="photo.jpg" class="editor-image" /></p>',
+        },
+      ],
+    }))
+
+    renderDirectChatThread()
+
+    fireEvent.click(screen.getByRole("button", { name: "Quote message" }))
+
+    const quotedContent =
+      screen
+        .getByTestId("mock-rich-text-editor")
+        .getAttribute("data-content") ?? ""
+
+    expect(quotedContent).toContain(
+      'data-chat-source-message-id="message_image"'
+    )
+    expect(quotedContent).toContain(
+      '<img src="https://files.example.com/photo.jpg" alt="photo.jpg" class="editor-image">'
+    )
+  })
+
+  it("scrolls and highlights the original message when a quoted source is clicked", () => {
+    const scrollIntoViewMock = vi.fn()
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    })
+
+    try {
+      useAppStore.setState((state) => ({
+        ...state,
+        chatMessages: [
+          {
+            ...createReactionMessage(),
+            id: "message_original",
+            content: "<p>Original source</p>",
+            createdBy: formerUser.id,
+          },
+          {
+            ...createReactionMessage(),
+            id: "message_reply",
+            content:
+              '<blockquote data-chat-source-message-id="message_original"><p>Declan Cowen:</p><p><img src="https://files.example.com/photo.jpg" alt="photo.jpg" class="editor-image" /></p></blockquote><p>Reply</p>',
+            createdBy: currentUser.id,
+            createdAt: "2026-04-15T12:05:00.000Z",
+          },
+        ],
+      }))
+
+      const { container } = render(
+        <ChatThread
+          conversationId="conversation_1"
+          title="Declan Cowen"
+          description=""
+          members={[currentUser, formerUser]}
+        />
+      )
+
+      scrollIntoViewMock.mockClear()
+
+      fireEvent.click(screen.getByAltText("photo.jpg"))
+
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({ block: "center" })
+      expect(
+        container.querySelector('[data-chat-message-id="message_original"]')
+      ).toHaveClass("bg-primary/10")
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      })
+    }
+  })
+
   it("removes deleted chat messages for other participants", () => {
     useAppStore.setState((state) => ({
       ...state,
@@ -1056,24 +1461,7 @@ describe("ChatThread", () => {
   })
 
   it("scrolls the newest message fully into view when a message is added", () => {
-    const scrollIntoViewMock = vi.fn()
-    const requestAnimationFrameSpy = vi
-      .spyOn(window, "requestAnimationFrame")
-      .mockImplementation((callback) => {
-        callback(0)
-        return 1
-      })
-    const cancelAnimationFrameSpy = vi
-      .spyOn(window, "cancelAnimationFrame")
-      .mockImplementation(() => {})
-    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
-
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoViewMock,
-    })
-
-    try {
+    withMockedAutoScroll((scrollIntoViewMock) => {
       render(
         <ChatThread
           conversationId="conversation_1"
@@ -1105,13 +1493,56 @@ describe("ChatThread", () => {
 
       expect(scrollIntoViewMock).toHaveBeenCalled()
       expect(scrollIntoViewMock).toHaveBeenLastCalledWith({ block: "end" })
-    } finally {
-      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-        configurable: true,
-        value: originalScrollIntoView,
+    })
+  })
+
+  it("scrolls the latest message fully into view when its reactions change", () => {
+    withMockedAutoScroll((scrollIntoViewMock) => {
+      useAppStore.setState({
+        chatMessages: [
+          {
+            ...createReactionMessage(),
+            reactions: [],
+          },
+        ],
       })
-      requestAnimationFrameSpy.mockRestore()
-      cancelAnimationFrameSpy.mockRestore()
-    }
+
+      renderDirectChatThread()
+
+      scrollIntoViewMock.mockClear()
+
+      act(() => {
+        useAppStore.setState({
+          chatMessages: [createReactionMessage()],
+        })
+      })
+
+      expect(scrollIntoViewMock).toHaveBeenCalled()
+      expect(scrollIntoViewMock).toHaveBeenLastCalledWith({ block: "end" })
+    })
+  })
+
+  it("scrolls to the latest message when returning from Files to Chat", () => {
+    withMockedAutoScroll((scrollIntoViewMock) => {
+      useAppStore.setState({
+        chatMessages: [
+          {
+            ...createReactionMessage(),
+            content:
+              '<p><a href="https://files.example.com/spec.pdf" data-type="attachment" data-attachment-kind="pdf" data-file-name="spec.pdf">spec.pdf</a></p>',
+          },
+        ],
+      })
+
+      renderDirectChatThread()
+
+      scrollIntoViewMock.mockClear()
+
+      fireEvent.click(screen.getByRole("button", { name: "files" }))
+      fireEvent.click(screen.getByRole("button", { name: "chat" }))
+
+      expect(scrollIntoViewMock).toHaveBeenCalled()
+      expect(scrollIntoViewMock).toHaveBeenLastCalledWith({ block: "end" })
+    })
   })
 })

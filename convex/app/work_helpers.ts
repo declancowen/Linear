@@ -751,14 +751,38 @@ export async function assertViewLabelIds(
   input: {
     currentUserId: string
     labelIds: Iterable<string> | null | undefined
-    view: Pick<ViewDefinition, "entityKind" | "scopeId" | "scopeType">
+    view: Pick<
+      ViewDefinition,
+      "entityKind" | "isShared" | "scopeId" | "scopeType"
+    > & {
+      filters?: Pick<ViewDefinition["filters"], "visibility">
+    }
     workspaceId: string
   }
 ) {
+  const privateTaskLabelView =
+    input.view.entityKind === "items" &&
+    input.view.scopeType === "personal" &&
+    input.view.scopeId === input.currentUserId &&
+    !input.view.isShared &&
+    input.view.filters?.visibility?.length === 1 &&
+    input.view.filters.visibility[0] === "private"
+
   await assertLabelIds(ctx, input, (label) => {
+    if (!label || label.workspaceId !== input.workspaceId) {
+      return true
+    }
+
+    if (privateTaskLabelView) {
+      return !isLabelAssignableToWorkItem(
+        label,
+        { visibility: "private" },
+        input.workspaceId,
+        input.currentUserId
+      )
+    }
+
     return (
-      !label ||
-      label.workspaceId !== input.workspaceId ||
       getLabelScopeType(label) !== "workspace"
     )
   })
@@ -777,10 +801,6 @@ export async function assertWorkItemLabelIds(
 
   if (uniqueLabelIds.length === 0) {
     return
-  }
-
-  if ((input.visibility ?? "team") === "private") {
-    throw new Error("Private tasks do not support labels")
   }
 
   await assertLabelIds(ctx, input, (label) => {

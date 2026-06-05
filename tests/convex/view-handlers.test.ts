@@ -4,6 +4,7 @@ const assertServerTokenMock = vi.fn()
 const requireEditableTeamAccessMock = vi.fn()
 const requireReadableTeamAccessMock = vi.fn()
 const requireEditableWorkspaceAccessMock = vi.fn()
+const requireReadableWorkspaceAccessMock = vi.fn()
 const getCustomPropertyDefinitionDocMock = vi.fn()
 const getTeamDocMock = vi.fn()
 const normalizeTeamMock = vi.fn()
@@ -22,6 +23,7 @@ vi.mock("@/convex/app/access", () => ({
   requireEditableTeamAccess: requireEditableTeamAccessMock,
   requireReadableTeamAccess: requireReadableTeamAccessMock,
   requireEditableWorkspaceAccess: requireEditableWorkspaceAccessMock,
+  requireReadableWorkspaceAccess: requireReadableWorkspaceAccessMock,
 }))
 
 vi.mock("@/convex/app/data", () => ({
@@ -57,22 +59,36 @@ function mockPersonalWorkView() {
     scopeType: "personal",
     scopeId: "user_1",
     entityKind: "items",
+    filters: { visibility: ["team"] },
+    isShared: false,
     displayProps: ["status"],
   })
 }
 
-function mockWorkItemCustomPropertyDefinition(
-  overrides: {
-    scopeType: "private" | "team"
-    ownerId: string | null
-  }
-) {
+function mockPrivatePersonalWorkView(overrides: Record<string, unknown> = {}) {
+  requireViewMutationAccessMock.mockResolvedValue({
+    _id: "view_doc_1",
+    scopeType: "personal",
+    scopeId: "user_1",
+    entityKind: "items",
+    filters: { visibility: ["private"] },
+    isShared: false,
+    displayProps: ["status"],
+    ...overrides,
+  })
+}
+
+function mockWorkItemCustomPropertyDefinition(overrides: {
+  scopeType: "private" | "team"
+  ownerId: string | null
+}) {
   getCustomPropertyDefinitionDocMock.mockResolvedValue({
     id: "property_1",
     teamId: "team_1",
     targetType: "workItem",
     isArchived: false,
     createdBy: "user_2",
+    workspaceId: "workspace_1",
     ...overrides,
   })
 }
@@ -83,6 +99,7 @@ describe("view handlers", () => {
     requireEditableTeamAccessMock.mockReset()
     requireReadableTeamAccessMock.mockReset()
     requireEditableWorkspaceAccessMock.mockReset()
+    requireReadableWorkspaceAccessMock.mockReset()
     getCustomPropertyDefinitionDocMock.mockReset()
     getTeamDocMock.mockReset()
     normalizeTeamMock.mockReset()
@@ -142,6 +159,7 @@ describe("view handlers", () => {
       scopeType: "personal",
       scopeId: "user_1",
       entityKind: "items",
+      isShared: false,
       filters: {
         labelIds: ["label_1", "label_2"],
         status: ["todo"],
@@ -192,11 +210,56 @@ describe("view handlers", () => {
         scopeType: "personal",
         scopeId: "user_1",
         entityKind: "items",
+        isShared: false,
         filters: {
-          labelIds: ["label_1", "label_2"],
+          labelIds: ["label_1", "label_2", "label_3"],
           status: ["todo"],
         },
       },
+      workspaceId: "workspace_1",
+    })
+  })
+
+  it("revalidates existing label filters when visibility changes", async () => {
+    const { toggleViewFilterValueHandler } =
+      await import("@/convex/app/view_handlers")
+    const ctx = createCtx()
+
+    requireViewMutationAccessMock.mockResolvedValue({
+      _id: "view_doc_1",
+      scopeType: "personal",
+      scopeId: "user_1",
+      entityKind: "items",
+      isShared: false,
+      filters: {
+        labelIds: ["label_private"],
+        status: ["todo"],
+        visibility: [],
+      },
+    })
+    resolveViewWorkspaceIdMock.mockResolvedValue("workspace_1")
+
+    await toggleViewFilterValueHandler(
+      ctx as never,
+      {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        viewId: "view_1",
+        key: "visibility",
+        value: "private",
+      } as never
+    )
+
+    expect(assertViewLabelIdsMock).toHaveBeenCalledWith(ctx, {
+      currentUserId: "user_1",
+      labelIds: ["label_private"],
+      view: expect.objectContaining({
+        filters: {
+          labelIds: ["label_private"],
+          status: ["todo"],
+          visibility: ["private"],
+        },
+      }),
       workspaceId: "workspace_1",
     })
   })
@@ -231,7 +294,36 @@ describe("view handlers", () => {
     })
   })
 
-  it("rejects legacy private custom properties in personal work views", async () => {
+  it("allows owner private custom properties in private personal work views", async () => {
+    const { toggleViewDisplayPropertyHandler } =
+      await import("@/convex/app/view_handlers")
+    const ctx = createCtx()
+
+    mockPrivatePersonalWorkView()
+    mockWorkItemCustomPropertyDefinition({
+      scopeType: "private",
+      ownerId: "user_1",
+    })
+
+    await toggleViewDisplayPropertyHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      viewId: "view_1",
+      property: "custom:property_1",
+    })
+
+    expect(requireReadableWorkspaceAccessMock).toHaveBeenCalledWith(
+      ctx,
+      "workspace_1",
+      "user_1"
+    )
+    expect(ctx.db.patch).toHaveBeenCalledWith("view_doc_1", {
+      displayProps: ["status", "custom:property_1"],
+      updatedAt: "2026-04-21T09:00:00.000Z",
+    })
+  })
+
+  it("rejects private custom properties in mixed personal work views", async () => {
     const { toggleViewDisplayPropertyHandler } =
       await import("@/convex/app/view_handlers")
     const ctx = createCtx()
@@ -248,6 +340,57 @@ describe("view handlers", () => {
         currentUserId: "user_1",
         viewId: "view_1",
         property: "custom:property_1",
+      })
+    ).rejects.toThrow("Custom property is not available in this view scope")
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("revalidates private custom display properties when visibility changes", async () => {
+    const { toggleViewFilterValueHandler } =
+      await import("@/convex/app/view_handlers")
+    const ctx = createCtx()
+
+    mockPrivatePersonalWorkView({
+      displayProps: ["status", "custom:property_1"],
+    })
+    mockWorkItemCustomPropertyDefinition({
+      scopeType: "private",
+      ownerId: "user_1",
+    })
+
+    await expect(
+      toggleViewFilterValueHandler(
+        ctx as never,
+        {
+          serverToken: "server_token",
+          currentUserId: "user_1",
+          viewId: "view_1",
+          key: "visibility",
+          value: "team",
+        } as never
+      )
+    ).rejects.toThrow("Custom property is not available in this view scope")
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("revalidates private custom display properties when filters are cleared", async () => {
+    const { clearViewFiltersHandler } =
+      await import("@/convex/app/view_handlers")
+    const ctx = createCtx()
+
+    mockPrivatePersonalWorkView({
+      displayProps: ["status", "custom:property_1"],
+    })
+    mockWorkItemCustomPropertyDefinition({
+      scopeType: "private",
+      ownerId: "user_1",
+    })
+
+    await expect(
+      clearViewFiltersHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        viewId: "view_1",
       })
     ).rejects.toThrow("Custom property is not available in this view scope")
     expect(ctx.db.patch).not.toHaveBeenCalled()

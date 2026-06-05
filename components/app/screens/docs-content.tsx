@@ -1,5 +1,7 @@
+import type { ReactNode } from "react"
+
 import { AppLink } from "@/lib/browser/app-navigation"
-import { FileText } from "@phosphor-icons/react"
+import { FileText, SidebarSimple } from "@phosphor-icons/react"
 import { format } from "date-fns"
 
 import {
@@ -49,40 +51,55 @@ function DocumentListRow({
   data,
   displayProps,
   document,
+  onOpenProperties,
 }: {
   data: AppData
   displayProps: DisplayProperty[]
   document: AppDocument
+  onOpenProperties?: (documentId: string) => void
 }) {
   const meta = getDocumentListRowMeta(data, document)
 
   return (
     <DocumentContextMenu data={data} document={document}>
-      <AppLink
-        className="group flex items-start gap-3 border-b border-line-soft px-7 py-3 transition-colors hover:bg-surface-2"
-        href={`/docs/${document.id}`}
-      >
-        <DocumentIconTile />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <span className="truncate text-[13.5px] leading-[1.3] font-medium text-foreground group-hover:underline">
-                {document.title}
-              </span>
-              <DocumentListPreview preview={meta.preview} />
+      <div className="group flex items-start gap-3 border-b border-line-soft px-7 py-3 transition-colors hover:bg-surface-2">
+        <AppLink
+          className="flex min-w-0 flex-1 items-start gap-3"
+          href={`/docs/${document.id}`}
+        >
+          <DocumentIconTile />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <span className="truncate text-[13.5px] leading-[1.3] font-medium text-foreground group-hover:underline">
+                  {document.title}
+                </span>
+                <DocumentListPreview preview={meta.preview} />
+              </div>
+              <div className="ml-auto flex shrink-0 flex-col items-end gap-1">
+                <DocumentDisplayProperties
+                  data={data}
+                  displayProps={displayProps}
+                  document={document}
+                />
+                <DocumentListDesktopMeta meta={meta} />
+              </div>
             </div>
-            <div className="ml-auto flex shrink-0 flex-col items-end gap-1">
-              <DocumentDisplayProperties
-                data={data}
-                displayProps={displayProps}
-                document={document}
-              />
-              <DocumentListDesktopMeta meta={meta} />
-            </div>
+            <DocumentListMobileMeta meta={meta} />
           </div>
-          <DocumentListMobileMeta meta={meta} />
-        </div>
-      </AppLink>
+        </AppLink>
+        {onOpenProperties ? (
+          <button
+            type="button"
+            aria-label={`Open properties for ${document.title}`}
+            title="Open properties"
+            className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md text-fg-3 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-surface-3 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
+            onClick={() => onOpenProperties(document.id)}
+          >
+            <SidebarSimple className="size-4" />
+          </button>
+        ) : null}
+      </div>
     </DocumentContextMenu>
   )
 }
@@ -231,10 +248,12 @@ function DocumentList({
   data,
   displayProps,
   documents,
+  onOpenProperties,
 }: {
   data: AppData
   displayProps: DisplayProperty[]
   documents: AppDocument[]
+  onOpenProperties?: (documentId: string) => void
 }) {
   return (
     <div className="flex flex-col pb-6">
@@ -244,6 +263,7 @@ function DocumentList({
           data={data}
           displayProps={displayProps}
           document={document}
+          onOpenProperties={onOpenProperties}
         />
       ))}
     </div>
@@ -270,39 +290,60 @@ function DocumentSectionHeader({
 function DocumentListSections({
   data,
   displayProps,
+  onOpenProperties,
   sections,
 }: {
   data: AppData
   displayProps: DisplayProperty[]
+  onOpenProperties?: (documentId: string) => void
   sections: GroupedSection<AppDocument>[]
 }) {
   return (
-    <div className="flex flex-col pb-6">
-      {sections.map((section) => (
-        <section key={section.key}>
-          <DocumentSectionHeader
-            count={section.items.length}
-            label={section.label}
+    <DocumentSections
+      sections={sections}
+      renderSection={(section) =>
+        section.items.map((document) => (
+          <DocumentListRow
+            key={document.id}
+            data={data}
+            displayProps={displayProps}
+            document={document}
+            onOpenProperties={onOpenProperties}
           />
-          {section.items.map((document) => (
-            <DocumentListRow
-              key={document.id}
-              data={data}
-              displayProps={displayProps}
-              document={document}
-            />
-          ))}
-        </section>
-      ))}
-    </div>
+        ))
+      }
+    />
   )
 }
 
 function DocumentBoardSections({
   data,
+  onOpenProperties,
   sections,
 }: {
   data: AppData
+  onOpenProperties?: (documentId: string) => void
+  sections: GroupedSection<AppDocument>[]
+}) {
+  return (
+    <DocumentSections
+      sections={sections}
+      renderSection={(section) => (
+        <DocumentBoard
+          data={data}
+          documents={section.items}
+          onOpenProperties={onOpenProperties}
+        />
+      )}
+    />
+  )
+}
+
+function DocumentSections({
+  renderSection,
+  sections,
+}: {
+  renderSection: (section: GroupedSection<AppDocument>) => ReactNode
   sections: GroupedSection<AppDocument>[]
 }) {
   return (
@@ -313,7 +354,7 @@ function DocumentBoardSections({
             count={section.items.length}
             label={section.label}
           />
-          <DocumentBoard data={data} documents={section.items} />
+          {renderSection(section)}
         </section>
       ))}
     </div>
@@ -327,6 +368,7 @@ export function DocsContent({
   emptyTitle,
   hasLoadedOnce,
   layout,
+  onOpenProperties,
   sections,
 }: {
   data: AppData
@@ -335,6 +377,7 @@ export function DocsContent({
   emptyTitle: string
   hasLoadedOnce: boolean
   layout: "list" | "board"
+  onOpenProperties?: (documentId: string) => void
   sections?: GroupedSection<AppDocument>[]
 }) {
   if (!hasLoadedOnce && documents.length === 0) {
@@ -359,10 +402,22 @@ export function DocsContent({
 
   if (layout === "board") {
     if (visibleSections && visibleSections.length > 1) {
-      return <DocumentBoardSections data={data} sections={visibleSections} />
+      return (
+        <DocumentBoardSections
+          data={data}
+          sections={visibleSections}
+          onOpenProperties={onOpenProperties}
+        />
+      )
     }
 
-    return <DocumentBoard data={data} documents={documents} />
+    return (
+      <DocumentBoard
+        data={data}
+        documents={documents}
+        onOpenProperties={onOpenProperties}
+      />
+    )
   }
 
   if (visibleSections && visibleSections.length > 1) {
@@ -371,6 +426,7 @@ export function DocsContent({
         data={data}
         displayProps={effectiveDisplayProps}
         sections={visibleSections}
+        onOpenProperties={onOpenProperties}
       />
     )
   }
@@ -380,6 +436,7 @@ export function DocsContent({
       data={data}
       displayProps={effectiveDisplayProps}
       documents={documents}
+      onOpenProperties={onOpenProperties}
     />
   )
 }

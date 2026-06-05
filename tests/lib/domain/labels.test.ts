@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  isLabelVisibleToUser,
   isCustomPropertyDefinitionForWorkItem,
   isLabelAssignableToWorkItem,
 } from "@/lib/domain/labels"
 
 describe("label and custom property scope helpers", () => {
-  it("keeps labels assignable only to team work items", () => {
+  it("keeps labels assignable to their matching workspace or private owner scope", () => {
     const workspaceLabel = {
       id: "label_workspace",
       workspaceId: "workspace_1",
@@ -43,6 +44,14 @@ describe("label and custom property scope helpers", () => {
         "workspace_1",
         "user_1"
       )
+    ).toBe(true)
+    expect(
+      isLabelAssignableToWorkItem(
+        privateLabel,
+        { visibility: "private" },
+        "workspace_1",
+        "user_2"
+      )
     ).toBe(false)
     expect(
       isLabelAssignableToWorkItem(
@@ -54,10 +63,29 @@ describe("label and custom property scope helpers", () => {
     ).toBe(false)
   })
 
-  it("keeps custom properties team-scoped and unavailable to private tasks", () => {
+  it("shows private labels only to their owner", () => {
+    expect(
+      isLabelVisibleToUser(
+        { scopeType: "private", ownerId: "user_1" },
+        "user_1"
+      )
+    ).toBe(true)
+    expect(
+      isLabelVisibleToUser(
+        { scopeType: "private", ownerId: "user_1" },
+        "user_2"
+      )
+    ).toBe(false)
+    expect(
+      isLabelVisibleToUser({ scopeType: "workspace", ownerId: null }, "user_2")
+    ).toBe(true)
+  })
+
+  it("scopes custom properties to team work or owner private tasks", () => {
     const teamDefinition = {
       id: "property_team",
       teamId: "team_1",
+      workspaceId: "workspace_1",
       scopeType: "team" as const,
       ownerId: null,
       createdBy: "user_1",
@@ -66,7 +94,8 @@ describe("label and custom property scope helpers", () => {
     }
     const privateDefinition = {
       id: "property_private",
-      teamId: "team_1",
+      teamId: null,
+      workspaceId: "workspace_1",
       scopeType: "private" as const,
       ownerId: "user_1",
       createdBy: "user_1",
@@ -77,28 +106,60 @@ describe("label and custom property scope helpers", () => {
     expect(
       isCustomPropertyDefinitionForWorkItem(
         teamDefinition,
-        { teamId: "team_1", visibility: "team" },
+        {
+          creatorId: "user_2",
+          teamId: "team_1",
+          visibility: "team",
+          workspaceId: "workspace_1",
+        },
         "user_1"
       )
     ).toBe(true)
     expect(
       isCustomPropertyDefinitionForWorkItem(
         teamDefinition,
-        { teamId: "team_1", visibility: "private" },
+        {
+          creatorId: "user_1",
+          teamId: null,
+          visibility: "private",
+          workspaceId: "workspace_1",
+        },
         "user_1"
       )
     ).toBe(false)
     expect(
       isCustomPropertyDefinitionForWorkItem(
         privateDefinition,
-        { teamId: null, visibility: "private" },
+        {
+          creatorId: "user_1",
+          teamId: null,
+          visibility: "private",
+          workspaceId: "workspace_1",
+        },
+        "user_1"
+      )
+    ).toBe(true)
+    expect(
+      isCustomPropertyDefinitionForWorkItem(
+        privateDefinition,
+        {
+          creatorId: "user_1",
+          teamId: "team_1",
+          visibility: "team",
+          workspaceId: "workspace_1",
+        },
         "user_1"
       )
     ).toBe(false)
     expect(
       isCustomPropertyDefinitionForWorkItem(
         privateDefinition,
-        { teamId: "team_1", visibility: "team" },
+        {
+          creatorId: "user_2",
+          teamId: null,
+          visibility: "private",
+          workspaceId: "workspace_1",
+        },
         "user_1"
       )
     ).toBe(false)

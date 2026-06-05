@@ -14,6 +14,7 @@ const generateAttachmentUploadUrlServerMock = vi.fn()
 const createAttachmentServerMock = vi.fn()
 const deleteAttachmentServerMock = vi.fn()
 const createLabelServerMock = vi.fn()
+const updateLabelServerMock = vi.fn()
 const createInviteServerMock = vi.fn()
 const cancelInviteServerMock = vi.fn()
 const getInviteByTokenServerMock = vi.fn()
@@ -29,6 +30,7 @@ const logProviderErrorMock = vi.fn()
 const reconcileAuthenticatedAppContextMock = vi.fn()
 const bumpDocumentIndexReadModelScopesServerMock = vi.fn()
 const bumpPrivateDocumentIndexReadModelScopesServerMock = vi.fn()
+const bumpPrivateLabelReadModelScopesServerMock = vi.fn()
 const bumpPrivateSearchSeedReadModelScopesServerMock = vi.fn()
 const bumpSearchSeedReadModelScopesServerMock = vi.fn()
 const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
@@ -44,6 +46,7 @@ vi.mock("@/lib/server/convex", () => ({
   createAttachmentServer: createAttachmentServerMock,
   deleteAttachmentServer: deleteAttachmentServerMock,
   createLabelServer: createLabelServerMock,
+  updateLabelServer: updateLabelServerMock,
   createInviteServer: createInviteServerMock,
   cancelInviteServer: cancelInviteServerMock,
   getInviteByTokenServer: getInviteByTokenServerMock,
@@ -74,6 +77,8 @@ vi.mock("@/lib/server/scoped-read-models", () => ({
     bumpDocumentIndexReadModelScopesServerMock,
   bumpPrivateDocumentIndexReadModelScopesServer:
     bumpPrivateDocumentIndexReadModelScopesServerMock,
+  bumpPrivateLabelReadModelScopesServer:
+    bumpPrivateLabelReadModelScopesServerMock,
   bumpPrivateSearchSeedReadModelScopesServer:
     bumpPrivateSearchSeedReadModelScopesServerMock,
   bumpSearchSeedReadModelScopesServer:
@@ -120,6 +125,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     createAttachmentServerMock.mockReset()
     deleteAttachmentServerMock.mockReset()
     createLabelServerMock.mockReset()
+    updateLabelServerMock.mockReset()
     createInviteServerMock.mockReset()
     cancelInviteServerMock.mockReset()
     getInviteByTokenServerMock.mockReset()
@@ -135,6 +141,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     reconcileAuthenticatedAppContextMock.mockReset()
     bumpDocumentIndexReadModelScopesServerMock.mockReset()
     bumpPrivateDocumentIndexReadModelScopesServerMock.mockReset()
+    bumpPrivateLabelReadModelScopesServerMock.mockReset()
     bumpPrivateSearchSeedReadModelScopesServerMock.mockReset()
     bumpSearchSeedReadModelScopesServerMock.mockReset()
     bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
@@ -167,6 +174,7 @@ describe("asset, notification, invite, and document route contracts", () => {
     reconcileAuthenticatedAppContextMock.mockResolvedValue(undefined)
     bumpDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
     bumpPrivateDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
+    bumpPrivateLabelReadModelScopesServerMock.mockResolvedValue(undefined)
     bumpPrivateSearchSeedReadModelScopesServerMock.mockResolvedValue(undefined)
     bumpSearchSeedReadModelScopesServerMock.mockResolvedValue(undefined)
     bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(undefined)
@@ -272,6 +280,88 @@ describe("asset, notification, invite, and document route contracts", () => {
       message: "User not found",
       code: "ACCOUNT_NOT_FOUND",
     })
+  })
+
+  it("creates private labels without bumping broad workspace membership read models", async () => {
+    const labelRoute = await import("@/app/api/labels/route")
+
+    createLabelServerMock.mockResolvedValue({
+      id: "label_private",
+      workspaceId: "workspace_1",
+      scopeType: "private",
+      ownerId: "user_1",
+      name: "Focus",
+      color: "violet",
+    })
+
+    const response = await labelRoute.POST(
+      new Request("http://localhost/api/labels", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          scopeType: "private",
+          ownerId: "user_2",
+          name: "Focus",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    expect(createLabelServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      workspaceId: "workspace_1",
+      scopeType: "private",
+      name: "Focus",
+    })
+    expect(bumpPrivateLabelReadModelScopesServerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: expect.objectContaining({ id: "workos_1" }),
+      }),
+      "user_1",
+      "workspace_1"
+    )
+    expect(
+      bumpWorkspaceMembershipReadModelScopesServerMock
+    ).not.toHaveBeenCalled()
+  })
+
+  it("renames labels through PATCH and bumps the owning workspace read model", async () => {
+    const labelRoute = await import("@/app/api/labels/route")
+
+    updateLabelServerMock.mockResolvedValue({
+      id: "label_1",
+      workspaceId: "workspace_1",
+      scopeType: "workspace",
+      ownerId: null,
+      name: "Defect",
+      color: "red",
+    })
+
+    const response = await labelRoute.PATCH(
+      new Request("http://localhost/api/labels", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          labelId: "label_1",
+          name: "Defect",
+        }),
+      }) as never
+    )
+
+    expect(response.status).toBe(200)
+    expect(updateLabelServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      labelId: "label_1",
+      name: "Defect",
+    })
+    expect(
+      bumpWorkspaceMembershipReadModelScopesServerMock
+    ).toHaveBeenCalledWith("workspace_1")
+    expect(bumpPrivateLabelReadModelScopesServerMock).not.toHaveBeenCalled()
   })
 
   it("maps invite failures to typed error responses", async () => {

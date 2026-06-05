@@ -16,9 +16,7 @@ import {
   getWorkspaceMembershipScopeKeys,
 } from "@/lib/scoped-sync/read-models"
 
-async function getScopedReadModelServerIdentity(
-  session: AuthenticatedSession
-) {
+async function getScopedReadModelServerIdentity(session: AuthenticatedSession) {
   return {
     workosUserId: session.user.id,
     email: session.user.email ?? undefined,
@@ -100,6 +98,20 @@ export async function bumpWorkspaceMembershipReadModelScopesServer(
   })
 }
 
+export async function bumpPrivateLabelReadModelScopesServer(
+  session: AuthenticatedSession,
+  userId: string,
+  workspaceId: string
+) {
+  await bumpResolvedScopedReadModelScopeKeys(
+    resolveScopedReadModelScopeKeysForSession(session, {
+      kind: "private-label",
+      ownerId: userId,
+      workspaceId,
+    })
+  )
+}
+
 export async function bumpUserWorkspaceMembershipReadModelScopesServer(
   session: AuthenticatedSession,
   userId: string
@@ -133,11 +145,42 @@ export async function resolveWorkItemReadModelScopeKeysServer(
 
 export async function resolveCustomPropertyDefinitionReadModelScopeKeysServer(
   session: AuthenticatedSession,
-  teamId: string
+  target:
+    | string
+    | {
+        scopeType?: "team"
+        teamId: string
+      }
+    | {
+        scopeType: "workspace"
+        workspaceId: string
+      }
+    | {
+        scopeType: "private"
+        ownerId: string
+        workspaceId: string
+      }
 ) {
+  if (typeof target !== "string" && target.scopeType === "private") {
+    return resolveScopedReadModelScopeKeysForSession(session, {
+      kind: "custom-property-definition",
+      scopeType: "private",
+      ownerId: target.ownerId,
+      workspaceId: target.workspaceId,
+    })
+  }
+
+  if (typeof target !== "string" && target.scopeType === "workspace") {
+    return resolveScopedReadModelScopeKeysForSession(session, {
+      kind: "custom-property-definition",
+      scopeType: "workspace",
+      workspaceId: target.workspaceId,
+    })
+  }
+
   return resolveScopedReadModelScopeKeysForSession(session, {
     kind: "custom-property-definition",
-    teamId,
+    teamId: typeof target === "string" ? target : target.teamId,
   })
 }
 

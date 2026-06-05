@@ -144,7 +144,7 @@ export interface Project {
 export interface CustomPropertyDefinition {
   id: string
   workspaceId: string
-  teamId: string
+  teamId: string | null
   scopeType?: CustomPropertyScopeType
   ownerId?: string | null
   targetType: CustomPropertyTargetType
@@ -161,8 +161,10 @@ export interface CustomPropertyDefinition {
 export interface CustomPropertyValueRecord {
   id: string
   workspaceId: string
-  teamId: string
-  workItemId: string
+  teamId: string | null
+  targetType?: CustomPropertyTargetType
+  targetId?: string
+  workItemId?: string
   propertyId: string
   value: CustomPropertyValue
   createdBy: string

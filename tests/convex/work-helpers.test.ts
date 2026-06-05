@@ -5,7 +5,10 @@ import {
   buildTeamWorkViews,
   buildWorkspaceProjectViews,
 } from "@/lib/domain/default-views"
-import { createDefaultTeamFeatureSettings } from "@/lib/domain/types"
+import {
+  createDefaultTeamFeatureSettings,
+  type ViewDefinition,
+} from "@/lib/domain/types"
 
 const getTeamDocMock = vi.fn()
 const getUserAppStateMock = vi.fn()
@@ -67,6 +70,26 @@ function createTeam(
       experience: "software-development" as const,
       features,
     },
+  }
+}
+
+type LabelValidationView = Pick<
+  ViewDefinition,
+  "entityKind" | "isShared" | "scopeId" | "scopeType"
+> & {
+  filters?: Pick<ViewDefinition["filters"], "visibility">
+}
+
+function createPrivatePersonalItemView(
+  overrides: Partial<LabelValidationView> = {}
+): LabelValidationView {
+  return {
+    scopeType: "personal",
+    scopeId: "user_1",
+    entityKind: "items",
+    isShared: false,
+    filters: { visibility: ["private"] },
+    ...overrides,
   }
 }
 
@@ -305,7 +328,7 @@ describe("work helpers", () => {
     )
   })
 
-  it("rejects private labels in personal item view filters", async () => {
+  it("allows private labels only in private personal item view filters", async () => {
     const { assertViewLabelIds } = await import("@/convex/app/work_helpers")
     const ctx = createCtx()
 
@@ -338,6 +361,7 @@ describe("work helpers", () => {
           scopeType: "personal",
           scopeId: "user_1",
           entityKind: "items",
+          isShared: false,
         },
         workspaceId: "workspace_1",
       })
@@ -351,6 +375,7 @@ describe("work helpers", () => {
           scopeType: "personal",
           scopeId: "user_1",
           entityKind: "items",
+          isShared: false,
         },
         workspaceId: "workspace_1",
       })
@@ -359,12 +384,35 @@ describe("work helpers", () => {
     await expect(
       assertViewLabelIds(ctx as never, {
         currentUserId: "user_1",
+        labelIds: ["label_workspace"],
+        view: createPrivatePersonalItemView(),
+        workspaceId: "workspace_1",
+      })
+    ).rejects.toThrow("One or more labels are invalid")
+
+    await expect(
+      assertViewLabelIds(ctx as never, {
+        currentUserId: "user_1",
+        labelIds: ["label_private"],
+        view: createPrivatePersonalItemView(),
+        workspaceId: "workspace_1",
+      })
+    ).resolves.toBeUndefined()
+
+    await expect(
+      assertViewLabelIds(ctx as never, {
+        currentUserId: "user_1",
         labelIds: ["label_other_private"],
-        view: {
-          scopeType: "personal",
-          scopeId: "user_1",
-          entityKind: "items",
-        },
+        view: createPrivatePersonalItemView(),
+        workspaceId: "workspace_1",
+      })
+    ).rejects.toThrow("One or more labels are invalid")
+
+    await expect(
+      assertViewLabelIds(ctx as never, {
+        currentUserId: "user_1",
+        labelIds: ["label_private"],
+        view: createPrivatePersonalItemView({ isShared: true }),
         workspaceId: "workspace_1",
       })
     ).rejects.toThrow("One or more labels are invalid")
@@ -391,6 +439,7 @@ describe("work helpers", () => {
           scopeType: "team",
           scopeId: "team_1",
           entityKind: "items",
+          isShared: true,
         },
         workspaceId: "workspace_1",
       })
@@ -404,6 +453,7 @@ describe("work helpers", () => {
           scopeType: "personal",
           scopeId: "user_1",
           entityKind: "projects",
+          isShared: false,
         },
         workspaceId: "workspace_1",
       })

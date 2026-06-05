@@ -1,5 +1,9 @@
 import { parseHTML } from "linkedom"
 
+import {
+  CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE,
+  normalizeChatQuoteSourceMessageId,
+} from "@/lib/content/chat-message-quote-metadata"
 import { isRichTextEntityReferenceType } from "@/lib/content/rich-text-references"
 import { getPlainTextContent } from "@/lib/utils"
 
@@ -70,6 +74,7 @@ const RICH_TEXT_ALLOWED_ATTRIBUTES: Record<string, readonly string[]> = {
     "data-attachment-kind",
     "data-file-name",
   ],
+  blockquote: [CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE],
   col: ["style"],
   div: ["data-type"],
   h1: ["style"],
@@ -373,8 +378,7 @@ function normalizeAnchorAttributes(attributes: Record<string, string>) {
   }
 
   const entityReferenceAttributes = getEntityReferenceAttributes(attributes)
-  const safeHref =
-    getSafeAnchorHref(href, entityReferenceAttributes)
+  const safeHref = getSafeAnchorHref(href, entityReferenceAttributes)
   const relValues = getAnchorRelValues(attributes.rel, target)
 
   return {
@@ -409,6 +413,13 @@ function sanitizeAttribute(
 
   if (attributeName === "class") {
     return sanitizeClassAttribute(tagName, value)
+  }
+
+  if (
+    tagName === "blockquote" &&
+    attributeName === CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE
+  ) {
+    return normalizeChatQuoteSourceMessageId(value)
   }
 
   if (!isSafeUrlAttribute(tagName, attributeName, value)) {

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 
 import { customPropertyDefinitionPatchSchema } from "@/lib/domain/types"
+import { getCustomPropertyScopeType } from "@/lib/domain/labels"
 import {
   archiveCustomPropertyDefinitionServer,
   bumpScopedReadModelVersionsServer,
@@ -14,34 +15,70 @@ import { parseJsonBody } from "@/lib/server/route-body"
 import { isRouteResponse, jsonOk } from "@/lib/server/route-response"
 import { resolveCustomPropertyDefinitionReadModelScopeKeysServer } from "@/lib/server/scoped-read-models"
 
-async function resolvePropertyTeamId(
+type CustomPropertyReadModelTarget =
+  | {
+      scopeType: "team"
+      teamId: string
+    }
+  | {
+      scopeType: "workspace"
+      workspaceId: string
+    }
+  | {
+      scopeType: "private"
+      ownerId: string
+      workspaceId: string
+    }
+
+async function resolvePropertyReadModelTarget(
   session: Exclude<Awaited<ReturnType<typeof requireSession>>, Response>,
   propertyId: string
-) {
+): Promise<CustomPropertyReadModelTarget | null> {
   const snapshot = (await getSnapshotServer({
     workosUserId: session.user.id,
     email: session.user.email ?? undefined,
   })) as AppSnapshot
-
-  return (
+  const definition =
     (snapshot.customPropertyDefinitions ?? []).find(
-      (definition) => definition.id === propertyId
-    )?.teamId ?? null
-  )
+      (entry) => entry.id === propertyId
+    ) ?? null
+
+  if (!definition) {
+    return null
+  }
+
+  if (getCustomPropertyScopeType(definition) === "private") {
+    return {
+      scopeType: "private",
+      ownerId: definition.ownerId ?? definition.createdBy,
+      workspaceId: definition.workspaceId,
+    }
+  }
+
+  if (getCustomPropertyScopeType(definition) === "workspace") {
+    return {
+      scopeType: "workspace",
+      workspaceId: definition.workspaceId,
+    }
+  }
+
+  return definition.teamId
+    ? { scopeType: "team", teamId: definition.teamId }
+    : null
 }
 
 async function bumpPropertyReadModel(
   session: Exclude<Awaited<ReturnType<typeof requireSession>>, Response>,
-  teamId: string | null
+  target: CustomPropertyReadModelTarget | null
 ) {
-  if (!teamId) {
+  if (!target) {
     return
   }
 
   const scopeKeys =
     await resolveCustomPropertyDefinitionReadModelScopeKeysServer(
       session,
-      teamId
+      target
     )
 
   await bumpScopedReadModelVersionsServer({
@@ -69,9 +106,12 @@ async function runPropertyMutation({
       return appContext
     }
 
-    const teamId = await resolvePropertyTeamId(session, propertyId)
+    const readModelTarget = await resolvePropertyReadModelTarget(
+      session,
+      propertyId
+    )
     await mutate(appContext.ensuredUser.userId)
-    await bumpPropertyReadModel(session, teamId)
+    await bumpPropertyReadModel(session, readModelTarget)
 
     return jsonOk({ ok: true })
   } catch (error) {

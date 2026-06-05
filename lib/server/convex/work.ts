@@ -322,11 +322,28 @@ export async function createLabelServer(input: {
   workspaceId: string
   name: string
   color?: string
-  scopeType?: "workspace"
+  scopeType?: "workspace" | "private"
 }) {
   try {
     return await getConvexServerClient().mutation(
       api.app.createLabel,
+      withServerToken(input)
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...LABEL_MUTATION_ERROR_MAPPINGS]) ?? error
+    )
+  }
+}
+
+export async function updateLabelServer(input: {
+  currentUserId: string
+  labelId: string
+  name: string
+}) {
+  try {
+    return await getConvexServerClient().mutation(
+      api.app.updateLabel,
       withServerToken(input)
     )
   } catch (error) {
@@ -434,16 +451,31 @@ export async function createViewServer(
   }
 }
 
-export async function createCustomPropertyDefinitionServer(input: {
+type CreateCustomPropertyDefinitionServerInput = {
   currentUserId: string
-  teamId: string
-  scopeType?: "team"
-  targetType?: "workItem"
+  targetType?: "workItem" | "document"
   name: string
   icon: string
   type: CustomPropertyType
   options?: CustomPropertyOption[]
-}) {
+} & (
+  | {
+      scopeType?: "team"
+      teamId: string
+    }
+  | {
+      scopeType: "workspace"
+      workspaceId: string
+    }
+  | {
+      scopeType: "private"
+      workspaceId: string
+    }
+)
+
+export async function createCustomPropertyDefinitionServer(
+  input: CreateCustomPropertyDefinitionServerInput
+) {
   try {
     return await getConvexServerClient().mutation(
       api.app.createCustomPropertyDefinition,
@@ -502,7 +534,9 @@ export async function archiveCustomPropertyDefinitionServer(input: {
 
 export async function setCustomPropertyValueServer(input: {
   currentUserId: string
-  workItemId: string
+  targetType?: "workItem" | "document"
+  targetId?: string
+  workItemId?: string
   propertyId: string
   value: CustomPropertyValue
 }) {

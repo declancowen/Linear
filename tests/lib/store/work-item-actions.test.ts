@@ -11,6 +11,7 @@ import {
 import { withLosAngelesFakeSystemTime } from "@/tests/lib/fixtures/store"
 
 const syncCreateLabelMock = vi.fn()
+const syncUpdateLabelMock = vi.fn()
 const syncCreateWorkItemMock = vi.fn()
 const syncDeleteWorkItemMock = vi.fn()
 const syncShiftTimelineItemMock = vi.fn()
@@ -27,6 +28,7 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/convex/client", () => ({
   syncCreateLabel: syncCreateLabelMock,
+  syncUpdateLabel: syncUpdateLabelMock,
   syncCreateWorkItem: syncCreateWorkItemMock,
   syncDeleteWorkItem: syncDeleteWorkItemMock,
   syncShiftTimelineItem: syncShiftTimelineItemMock,
@@ -83,6 +85,7 @@ async function createWorkItemActionsHarness(state = createState()) {
 describe("work item actions", () => {
   beforeEach(() => {
     syncCreateLabelMock.mockReset()
+    syncUpdateLabelMock.mockReset()
     syncCreateWorkItemMock.mockReset()
     syncDeleteWorkItemMock.mockReset()
     syncShiftTimelineItemMock.mockReset()
@@ -388,6 +391,86 @@ describe("work item actions", () => {
     ])
   })
 
+  it("creates private labels without client-supplied owner ids", async () => {
+    const state = createState()
+
+    syncCreateLabelMock.mockResolvedValue({
+      label: {
+        id: "label_private",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_1",
+        name: "Focus",
+        color: "violet",
+      },
+    })
+    const harness = await createWorkItemActionsHarness(state)
+
+    const created = await harness.actions.createLabel("Focus", "workspace_1", {
+      scopeType: "private",
+    })
+
+    expect(created).toMatchObject({
+      id: "label_private",
+      ownerId: "user_1",
+      scopeType: "private",
+    })
+    expect(syncCreateLabelMock).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      scopeType: "private",
+      name: "Focus",
+    })
+  })
+
+  it("renames labels optimistically and re-sorts by name", async () => {
+    const state = createState()
+    state.labels = [
+      { id: "label_1", workspaceId: "workspace_1", name: "Zeta", color: "red" },
+      {
+        id: "label_2",
+        workspaceId: "workspace_1",
+        name: "Beta",
+        color: "blue",
+      },
+    ]
+    syncUpdateLabelMock.mockResolvedValue({
+      label: {
+        id: "label_1",
+        workspaceId: "workspace_1",
+        name: "Alpha",
+        color: "red",
+      },
+    })
+    const harness = await createWorkItemActionsHarness(state)
+
+    const updated = await harness.actions.updateLabel("label_1", "  Alpha  ")
+
+    expect(updated).toBe(true)
+    expect(syncUpdateLabelMock).toHaveBeenCalledWith({
+      labelId: "label_1",
+      name: "Alpha",
+    })
+    expect(harness.state.labels.map((label) => label.name)).toEqual([
+      "Alpha",
+      "Beta",
+    ])
+  })
+
+  it("rolls back the optimistic rename when the sync fails", async () => {
+    const state = createState()
+    state.labels = [
+      { id: "label_1", workspaceId: "workspace_1", name: "Bug", color: "red" },
+    ]
+    syncUpdateLabelMock.mockRejectedValue(new Error("nope"))
+    const harness = await createWorkItemActionsHarness(state)
+
+    const updated = await harness.actions.updateLabel("label_1", "Defect")
+
+    expect(updated).toBe(false)
+    expect(harness.state.labels[0]?.name).toBe("Bug")
+    expect(toastErrorMock).toHaveBeenCalled()
+  })
+
   it("notifies assigned users for assignment and status changes", async () => {
     const harness = await createWorkItemActionsHarness(
       createTestAppData({
@@ -531,7 +614,6 @@ describe("work item actions", () => {
       {
         assigneeId: null,
         assigneeIds: [],
-        labelIds: [],
         primaryProjectId: null,
         status: "done",
       }
@@ -613,7 +695,7 @@ describe("work item actions", () => {
     })
   })
 
-  it("rejects private work item creation with labels", async () => {
+  it("rejects workspace labels on private work item creation", async () => {
     const harness = await createWorkItemActionsHarness(createState())
 
     const createdItemId = harness.actions.createWorkItem({
@@ -629,9 +711,43 @@ describe("work item actions", () => {
     })
 
     expect(createdItemId).toBeNull()
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      "Private tasks do not support labels"
-    )
+    expect(toastErrorMock).toHaveBeenCalledWith("One or more labels are invalid")
+  })
+
+  it("preserves owner-private labels on private work item creation", async () => {
+    const state = createState()
+    state.labels = [
+      ...state.labels,
+      {
+        id: "label_private",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_1",
+        name: "Deep work",
+        color: "violet",
+      },
+    ]
+    const harness = await createWorkItemActionsHarness(state)
+
+    const createdItemId = harness.actions.createWorkItem({
+      teamId: null,
+      workspaceId: "workspace_1",
+      type: "task",
+      title: "Tagged private note",
+      primaryProjectId: null,
+      assigneeId: null,
+      labelIds: ["label_private"],
+      priority: "medium",
+      visibility: "private",
+    })
+
+    expect(createdItemId).toBeTruthy()
+    expect(toastErrorMock).not.toHaveBeenCalled()
+    expect(harness.state.workItems[0]).toMatchObject({
+      id: createdItemId,
+      labelIds: ["label_private"],
+      visibility: "private",
+    })
   })
 
   it("creates work items with selected schedule dates", async () => {

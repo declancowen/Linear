@@ -198,9 +198,9 @@ export function WorkItemSelectionCheckbox({
       <span
         aria-hidden
         className={cn(
-          "grid size-3.5 place-items-center rounded-[3px] border-0 bg-surface-3 text-transparent transition-colors",
+          "grid size-3.5 place-items-center rounded-[3px] border border-fg-4 bg-surface-3 text-transparent transition-colors",
           "peer-focus-visible:ring-2 peer-focus-visible:ring-[color:var(--brand)] peer-focus-visible:outline-none",
-          "peer-checked:bg-surface-3 peer-checked:text-foreground"
+          "peer-checked:border-transparent peer-checked:bg-surface-3 peer-checked:text-foreground"
         )}
       >
         <Check className="size-3 text-current" weight="bold" />

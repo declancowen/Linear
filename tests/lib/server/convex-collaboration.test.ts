@@ -68,7 +68,7 @@ describe("convex collaboration server wrappers", () => {
 
     expect(mutationMock).toHaveBeenCalledTimes(3)
     expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
-      content: "<p>Hello <a>bad</a></p>",
+      content: "<p>Hello bad</p>",
     })
     expect(mutationMock.mock.calls[1]?.[1]).toMatchObject({
       content:

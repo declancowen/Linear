@@ -1,4 +1,4 @@
-import { Node, mergeAttributes } from "@tiptap/core"
+import { Extension, Node, mergeAttributes } from "@tiptap/core"
 import CharacterCount from "@tiptap/extension-character-count"
 import Highlight from "@tiptap/extension-highlight"
 import Image from "@tiptap/extension-image"
@@ -14,6 +14,10 @@ import Underline from "@tiptap/extension-underline"
 import type { Extensions } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 
+import {
+  CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE,
+  normalizeChatQuoteSourceMessageId,
+} from "@/lib/content/chat-message-quote-metadata"
 import { isRichTextEntityReferenceType } from "@/lib/content/rich-text-references"
 import {
   renderMentionHTML,
@@ -104,6 +108,40 @@ const NonInclusiveLink = Link.extend({
   },
 })
 
+const ChatQuoteSourceMetadata = Extension.create({
+  name: "chatQuoteSourceMetadata",
+
+  addGlobalAttributes() {
+    return [
+      {
+        types: ["blockquote"],
+        attributes: {
+          chatSourceMessageId: {
+            default: null,
+            parseHTML: (element) =>
+              normalizeChatQuoteSourceMessageId(
+                element.getAttribute(CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE)
+              ),
+            renderHTML: (attributes) => {
+              const sourceMessageId = normalizeChatQuoteSourceMessageId(
+                typeof attributes.chatSourceMessageId === "string"
+                  ? attributes.chatSourceMessageId
+                  : null
+              )
+
+              return sourceMessageId
+                ? {
+                    [CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE]: sourceMessageId,
+                  }
+                : {}
+            },
+          },
+        },
+      },
+    ]
+  },
+})
+
 const AttachmentReference = Node.create({
   name: "attachmentReference",
   group: "inline",
@@ -183,6 +221,7 @@ export function createRichTextBaseExtensions(options?: {
       underline: false,
       undoRedo: options?.collaboration ? false : undefined,
     }),
+    ChatQuoteSourceMetadata,
     TableKit.configure({
       table: {
         resizable: true,

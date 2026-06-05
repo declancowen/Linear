@@ -12,6 +12,7 @@ const deleteChannelPostCommentServerMock = vi.fn()
 const toggleChatMessageReactionServerMock = vi.fn()
 const toggleChannelPostReactionServerMock = vi.fn()
 const bumpScopedReadModelVersionsServerMock = vi.fn()
+const bumpScopedReadModelScopeKeysServerMock = vi.fn()
 const resolveChannelPostReadModelScopeKeysServerMock = vi.fn()
 const resolveChatMessageReadModelScopeKeysServerMock = vi.fn()
 const loadScopedReadModelSnapshotForSessionMock = vi.fn()
@@ -38,6 +39,7 @@ vi.mock("@/lib/server/convex", () => ({
 }))
 
 vi.mock("@/lib/server/scoped-read-models", () => ({
+  bumpScopedReadModelScopeKeysServer: bumpScopedReadModelScopeKeysServerMock,
   loadScopedReadModelSnapshotForSession:
     loadScopedReadModelSnapshotForSessionMock,
   resolveChannelPostReadModelScopeKeysServer:
@@ -159,6 +161,7 @@ describe("platform route contracts", () => {
     toggleChatMessageReactionServerMock.mockReset()
     toggleChannelPostReactionServerMock.mockReset()
     bumpScopedReadModelVersionsServerMock.mockReset()
+    bumpScopedReadModelScopeKeysServerMock.mockReset()
     resolveChannelPostReadModelScopeKeysServerMock.mockReset()
     resolveChatMessageReadModelScopeKeysServerMock.mockReset()
     loadScopedReadModelSnapshotForSessionMock.mockReset()
@@ -200,6 +203,7 @@ describe("platform route contracts", () => {
       currentUserId: "user_1",
     })
     bumpScopedReadModelVersionsServerMock.mockResolvedValue(undefined)
+    bumpScopedReadModelScopeKeysServerMock.mockResolvedValue(undefined)
     resolveChannelPostReadModelScopeKeysServerMock.mockResolvedValue([
       "channel-feed:conversation_1",
       "conversation-list:user_1",
@@ -315,13 +319,13 @@ describe("platform route contracts", () => {
       postId: "post_1",
       commentId: "comment_1",
     })
-    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
-      scopeKeys: expect.arrayContaining([
+    expect(bumpScopedReadModelScopeKeysServerMock).toHaveBeenCalledWith(
+      expect.arrayContaining([
         "channel-feed:conversation_1",
         "conversation-list:user_1",
         "notification-inbox:user_1",
-      ]),
-    })
+      ])
+    )
   })
 
   it("treats already-deleted channel-post comments as idempotent success", async () => {
@@ -338,6 +342,7 @@ describe("platform route contracts", () => {
     })
     expect(resolveChannelPostReadModelScopeKeysServerMock).not.toHaveBeenCalled()
     expect(bumpScopedReadModelVersionsServerMock).not.toHaveBeenCalled()
+    expect(bumpScopedReadModelScopeKeysServerMock).not.toHaveBeenCalled()
   })
 
   it("maps snapshot failures to typed error responses", async () => {

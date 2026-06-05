@@ -714,7 +714,6 @@ function buildPersistedWorkItemPatch(
   if (isPrivate) {
     delete persistedPatch.assigneeId
     delete persistedPatch.assigneeIds
-    delete persistedPatch.labelIds
     delete persistedPatch.primaryProjectId
   }
 
@@ -723,7 +722,6 @@ function buildPersistedWorkItemPatch(
   return {
     ...persistedPatch,
     ...(assigneeIds !== null ? getWorkItemAssigneeFields(assigneeIds) : {}),
-    ...(isPrivate ? { labelIds: [] } : {}),
     title: input.nextTitle,
     primaryProjectId: isPrivate ? null : input.resolvedPrimaryProjectId,
     updatedAt: input.now,
@@ -1960,7 +1958,7 @@ function getCreatedWorkItemScopeFields(
   if (visibility === "private") {
     return {
       teamId: null,
-      labelIds: [],
+      labelIds: getNullishCreateInputValue(args.labelIds, []),
       subscriberIds: [],
     }
   }

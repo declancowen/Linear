@@ -111,12 +111,34 @@ function createPeopleTestData(): AppData {
     workspaceId: workspace.id,
     name: "Design",
   })
+  const support = createTestTeam({
+    id: "team_3",
+    workspaceId: workspace.id,
+    name: "Support",
+  })
   const workItem = createTestWorkItem("item_created", {
     creatorId: maya.id,
     title: "Export CSV",
     createdAt: "2026-04-18T09:00:00.000Z",
   })
+  const assignedSharedItem = createTestWorkItem("item_assigned_shared", {
+    assigneeId: maya.id,
+    assigneeIds: [maya.id],
+    creatorId: currentUser.id,
+    title: "Shared assigned task",
+    updatedAt: "2026-04-18T11:10:00.000Z",
+  })
+  const assignedNonSharedItem = createTestWorkItem("item_assigned_support", {
+    teamId: support.id,
+    assigneeId: maya.id,
+    assigneeIds: [maya.id],
+    creatorId: currentUser.id,
+    title: "Support-only assigned task",
+    updatedAt: "2026-04-18T11:20:00.000Z",
+  })
   const hiddenPrivateItem = createTestWorkItem("item_private", {
+    assigneeId: maya.id,
+    assigneeIds: [maya.id],
     creatorId: maya.id,
     title: "Hidden private task",
     visibility: "private",
@@ -215,7 +237,7 @@ function createPeopleTestData(): AppData {
         role: "member",
       }),
     ],
-    teams: [platform, design],
+    teams: [platform, design, support],
     teamMemberships: [
       createTestTeamMembership({
         teamId: platform.id,
@@ -224,6 +246,11 @@ function createPeopleTestData(): AppData {
       }),
       createTestTeamMembership({
         teamId: platform.id,
+        userId: maya.id,
+        role: "member",
+      }),
+      createTestTeamMembership({
+        teamId: support.id,
         userId: maya.id,
         role: "member",
       }),
@@ -242,7 +269,12 @@ function createPeopleTestData(): AppData {
         color: "#0ea5e9",
       },
     ],
-    workItems: [workItem, hiddenPrivateItem],
+    workItems: [
+      workItem,
+      assignedSharedItem,
+      assignedNonSharedItem,
+      hiddenPrivateItem,
+    ],
     workItemActivities: [
       {
         id: "activity_status",
@@ -314,9 +346,7 @@ describe("people workspace screens", () => {
     expect(screen.getByRole("heading", { name: "People" })).toBeInTheDocument()
     const grid = screen.getByTestId("people-grid")
 
-    expect(grid).toHaveClass(
-      "grid-cols-[repeat(auto-fill,minmax(320px,1fr))]"
-    )
+    expect(grid).toHaveClass("grid-cols-[repeat(auto-fill,minmax(320px,1fr))]")
     expect(grid.className).not.toContain("auto-fit")
     expect(screen.getByText("Maya Singh")).toBeInTheDocument()
     expect(screen.getAllByText("Product Designer").length).toBeGreaterThan(0)
@@ -341,7 +371,8 @@ describe("people workspace screens", () => {
       screen.getByRole("heading", { name: "Maya Singh" })
     ).toBeInTheDocument()
     expect(screen.getAllByText("Product Designer").length).toBeGreaterThan(0)
-    expect(screen.getByText("Teams: Platform")).toBeInTheDocument()
+    expect(screen.getAllByText("Platform").length).toBeGreaterThan(0)
+    expect(screen.getByText("Support")).toBeInTheDocument()
     expect(screen.getByText("Created work item")).toBeInTheDocument()
     expect(screen.getByText("Changed work item status")).toBeInTheDocument()
     expect(screen.getByText("Status: To-Do to Done")).toBeInTheDocument()
@@ -359,6 +390,16 @@ describe("people workspace screens", () => {
     expect(screen.getAllByText("Shipping notes").length).toBeGreaterThan(0)
     expect(screen.queryByText("Hidden private task")).not.toBeInTheDocument()
     expect(screen.queryByText("secret direct chat")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("tab", { name: /Assigned work/ }))
+
+    expect(screen.getByText("Shared assigned task")).toBeInTheDocument()
+    expect(screen.getByText("PLA-item_assigned_shared")).toBeInTheDocument()
+    expect(screen.getAllByText("Platform").length).toBeGreaterThan(0)
+    expect(
+      screen.queryByText("Support-only assigned task")
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Hidden private task")).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "Message" }))
 

@@ -46,7 +46,6 @@ import {
   SidebarSimple,
   Trash,
   TreeStructure,
-  X,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
@@ -100,7 +99,10 @@ import {
   getRootComments,
   groupCommentsByParentId,
 } from "@/lib/domain/comment-threads"
-import { isCustomPropertyDefinitionForWorkItem } from "@/lib/domain/labels"
+import {
+  isCustomPropertyDefinitionForWorkItem,
+  isLabelAssignableToWorkItem,
+} from "@/lib/domain/labels"
 import {
   getAllowedChildWorkItemTypesForItem,
   getChildWorkItemCopy,
@@ -139,6 +141,9 @@ import {
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import { DetailSidebarLabelsRow } from "@/components/app/screens/detail-sidebar-labels-row"
 import {
+  DetailRelationLink,
+  DetailSidebarAddPropertyRow,
+  DetailSidebarCustomPropertyRow,
   detailChipClassName,
   renderDetailSidebarTerm,
   renderDetailSidebarValueButton,
@@ -153,7 +158,6 @@ import {
   CustomPropertyDefinitionDialog,
   CustomPropertyValueControl,
 } from "@/components/app/screens/custom-property-controls"
-import { PhosphorIconGlyph } from "@/components/app/phosphor-icon-picker"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2896,66 +2900,43 @@ function WorkItemSidebarCustomPropertyRows({
   customPropertyDefinitions,
   data,
   editable,
+  onEditProperty,
 }: {
   currentItem: WorkItem
   customPropertyDefinitions: AppData["customPropertyDefinitions"]
   data: AppData
   editable: boolean
+  onEditProperty: (
+    definition: AppData["customPropertyDefinitions"][number]
+  ) => void
 }) {
-  return customPropertyDefinitions.map((definition) => (
-    <div key={definition.id} className="contents">
-      {renderDetailSidebarTerm(
-        definition.name,
-        <PhosphorIconGlyph icon={definition.icon} className="size-[13px]" />
-      )}
-      <dd className="flex min-w-0 items-center">
-        <CustomPropertyValueControl
-          data={data}
-          definition={definition}
-          item={currentItem}
-          value={
-            data.customPropertyValues.find(
-              (entry) =>
-                entry.workItemId === currentItem.id &&
-                entry.propertyId === definition.id
-            ) ?? null
-          }
-          editable={editable}
-        />
-      </dd>
-    </div>
-  ))
-}
-
-function WorkItemSidebarAddPropertyRow({
-  disabled,
-  team,
-  onOpen,
-}: {
-  disabled: boolean
-  team: Team | null
-  onOpen: () => void
-}) {
-  if (!team) {
-    return null
-  }
-
-  return (
-    <div className="contents">
-      {renderDetailSidebarTerm("Properties", <Plus className="size-[13px]" />)}
-      <dd>
-        <button
-          type="button"
-          disabled={disabled}
-          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-dashed border-line px-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:opacity-60"
-          onClick={onOpen}
-        >
-          <Plus className="size-3.5" />
-          Add property
-        </button>
-      </dd>
-    </div>
+  const archiveCustomPropertyDefinition = useAppStore(
+    (state) => state.archiveCustomPropertyDefinition
   )
+
+  return customPropertyDefinitions.map((definition) => (
+    <DetailSidebarCustomPropertyRow
+      key={definition.id}
+      definition={definition}
+      editable={editable}
+      onEditProperty={() => onEditProperty(definition)}
+      onRemoveProperty={() => void archiveCustomPropertyDefinition(definition.id)}
+    >
+      <CustomPropertyValueControl
+        data={data}
+        definition={definition}
+        item={currentItem}
+        value={
+          data.customPropertyValues.find(
+            (entry) =>
+              entry.workItemId === currentItem.id &&
+              entry.propertyId === definition.id
+          ) ?? null
+        }
+        editable={editable}
+      />
+    </DetailSidebarCustomPropertyRow>
+  ))
 }
 
 type DetailChildProgress = ReturnType<typeof getWorkItemChildProgress>
@@ -3101,7 +3082,14 @@ function getAvailableWorkItemLabels(
   }
 
   return data.labels
-    .filter((label) => label.workspaceId === workspaceId)
+    .filter((label) =>
+      isLabelAssignableToWorkItem(
+        label,
+        currentItem,
+        workspaceId,
+        data.currentUserId
+      )
+    )
     .sort((left, right) => left.name.localeCompare(right.name))
 }
 
@@ -3219,9 +3207,7 @@ function getWorkItemDetailModel({
   const allowedChildTypes = getAllowedChildWorkItemTypesForItem(currentItem)
 
   return {
-    availableLabels: privateTask
-      ? []
-      : getAvailableWorkItemLabels(data, currentItem, team),
+    availableLabels: getAvailableWorkItemLabels(data, currentItem, team),
     canCreateChildItem: editable && allowedChildTypes.length > 0,
     cascadeMessage: getWorkItemDeleteCascadeMessage({
       data,
@@ -5390,6 +5376,9 @@ function WorkItemSidebarProperties({
 } & DetailPropertyChangeHandlers) {
   const [customPropertyDialogOpen, setCustomPropertyDialogOpen] =
     useState(false)
+  const [editingCustomProperty, setEditingCustomProperty] = useState<
+    AppData["customPropertyDefinitions"][number] | null
+  >(null)
   const customPropertyDefinitions = getWorkItemSidebarCustomPropertyDefinitions(
     data,
     currentItem
@@ -5487,19 +5476,41 @@ function WorkItemSidebarProperties({
           customPropertyDefinitions={customPropertyDefinitions}
           data={data}
           editable={sidebarEditable}
+          onEditProperty={(definition) => {
+            setEditingCustomProperty(definition)
+            setCustomPropertyDialogOpen(true)
+          }}
         />
-        <WorkItemSidebarAddPropertyRow
+        <DetailSidebarAddPropertyRow
+          canCreate={Boolean(
+            team ||
+            ((currentItem.visibility ?? "team") === "private" && workspaceId)
+          )}
           disabled={!sidebarEditable}
-          team={team}
-          onOpen={() => setCustomPropertyDialogOpen(true)}
+          onOpen={() => {
+            setEditingCustomProperty(null)
+            setCustomPropertyDialogOpen(true)
+          }}
         />
       </dl>
-      {team ? (
+      {team ||
+      ((currentItem.visibility ?? "team") === "private" && workspaceId) ? (
         <CustomPropertyDefinitionDialog
           open={customPropertyDialogOpen}
-          scopeType="team"
-          teamId={team.id}
-          onOpenChange={setCustomPropertyDialogOpen}
+          definition={editingCustomProperty}
+          scopeType={
+            (currentItem.visibility ?? "team") === "private"
+              ? "private"
+              : "team"
+          }
+          teamId={team?.id ?? null}
+          workspaceId={workspaceId}
+          onOpenChange={(open) => {
+            setCustomPropertyDialogOpen(open)
+            if (!open) {
+              setEditingCustomProperty(null)
+            }
+          }}
         />
       ) : null}
     </>
@@ -5724,26 +5735,22 @@ function WorkItemRelationsSection({
     <DetailSidebarSection title="Relations">
       <div className="flex flex-col gap-1.5">
         {linkedDocuments.map((document) => (
-          <AppLink
+          <DetailRelationLink
             key={document.id}
             href={`/docs/${document.id}`}
-            className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
-          >
-            <LinkSimple className="size-3" />
-            <span>Linked doc</span>
-            <b className="font-medium text-foreground">{document.title}</b>
-          </AppLink>
+            icon={<LinkSimple className="size-3" />}
+            label="Linked doc"
+            title={document.title}
+          />
         ))}
         {linkedItems.map((item) => (
-          <AppLink
+          <DetailRelationLink
             key={item.id}
             href={`/items/${item.id}`}
-            className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
-          >
-            <TreeStructure className="size-3" />
-            <span>Linked item</span>
-            <b className="font-medium text-foreground">{item.title}</b>
-          </AppLink>
+            icon={<TreeStructure className="size-3" />}
+            label="Linked item"
+            title={item.title}
+          />
         ))}
       </div>
     </DetailSidebarSection>
@@ -5847,7 +5854,7 @@ function WorkItemDetailSidebarHeader({
             aria-label="Close item details"
             onClick={onClose}
           >
-            <X className="size-[14px]" />
+            <SidebarSimple className="size-[14px]" />
           </button>
         ) : null}
       </div>
@@ -6189,7 +6196,7 @@ function useProtectedWorkItemDescriptionBody({
   const protectedDocumentId = documentId
   const protectingBody = Boolean(
     protectedDocumentId &&
-      (editing || lifecycle === "bootstrapping" || lifecycle === "attached")
+    (editing || lifecycle === "bootstrapping" || lifecycle === "attached")
   )
 
   useEffect(() => {

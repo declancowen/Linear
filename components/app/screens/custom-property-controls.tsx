@@ -1,6 +1,6 @@
 "use client"
 
-import { type ReactNode, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import {
   CalendarBlank,
   CaretDown,
@@ -46,6 +46,7 @@ import {
   type CustomPropertyOption,
   type CustomPropertyType,
   type CustomPropertyValue,
+  type Document as AppDocument,
   type WorkItem,
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
@@ -214,15 +215,88 @@ function getNextChoiceValue(
     : getNextSingleSelectValue(selectedIds, optionId)
 }
 
+type CustomPropertyDefinitionDialogDraft = {
+  icon: string
+  name: string
+  options: CustomPropertyOption[]
+  requiresOptions: boolean
+  type: CustomPropertyType
+}
+
+type CustomPropertyDefinitionCreatePayload = {
+  icon: string
+  name: string
+  options: CustomPropertyOption[]
+  targetType: "workItem" | "document"
+  type: CustomPropertyType
+} & (
+  | {
+      scopeType: "private" | "workspace"
+      workspaceId: string
+    }
+  | {
+      scopeType: "team"
+      teamId: string
+    }
+)
+
+function getSavedCustomPropertyOptions(
+  draft: CustomPropertyDefinitionDialogDraft
+) {
+  return draft.requiresOptions ? draft.options : []
+}
+
+function getCustomPropertyDefinitionPatch(
+  draft: CustomPropertyDefinitionDialogDraft
+) {
+  return {
+    name: draft.name.trim(),
+    icon: draft.icon,
+    type: draft.type,
+    options: getSavedCustomPropertyOptions(draft),
+  }
+}
+
+function getCustomPropertyDefinitionCreatePayload({
+  draft,
+  scopeType,
+  targetType,
+  teamId,
+  workspaceId,
+}: {
+  draft: CustomPropertyDefinitionDialogDraft
+  scopeType: "team" | "workspace" | "private"
+  targetType: "workItem" | "document"
+  teamId?: string | null
+  workspaceId?: string | null
+}): CustomPropertyDefinitionCreatePayload | null {
+  const base = {
+    ...getCustomPropertyDefinitionPatch(draft),
+    targetType,
+  }
+
+  if (scopeType === "team") {
+    return teamId ? { ...base, scopeType, teamId } : null
+  }
+
+  return workspaceId ? { ...base, scopeType, workspaceId } : null
+}
+
 export function CustomPropertyDefinitionDialog({
   open,
   scopeType = "team",
+  targetType = "workItem",
   teamId,
+  workspaceId,
+  definition,
   onOpenChange,
 }: {
   open: boolean
-  scopeType?: "team"
-  teamId: string
+  scopeType?: "team" | "workspace" | "private"
+  targetType?: "workItem" | "document"
+  teamId?: string | null
+  workspaceId?: string | null
+  definition?: CustomPropertyDefinition | null
   onOpenChange: (open: boolean) => void
 }) {
   const [name, setName] = useState("")
@@ -234,6 +308,40 @@ export function CustomPropertyDefinitionDialog({
   const createCustomPropertyDefinition = useAppStore(
     (state) => state.createCustomPropertyDefinition
   )
+  const updateCustomPropertyDefinition = useAppStore(
+    (state) => state.updateCustomPropertyDefinition
+  )
+  const definitionRef = useRef(definition)
+  const isEditing = Boolean(definition)
+  const targetLabel = targetType === "document" ? "documents" : "work items"
+
+  useEffect(() => {
+    definitionRef.current = definition
+  }, [definition])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const current = definitionRef.current
+
+    if (current) {
+      setName(current.name)
+      setIcon(current.icon)
+      setType(current.type)
+      setOptions(
+        current.options.length > 0 ? current.options : [createOption("Option 1")]
+      )
+      return
+    }
+
+    setName("")
+    setIcon("TextAa")
+    setType("text")
+    setOptions([createOption("Option 1")])
+  }, [open])
+
   const requiresOptions = type === "select" || type === "multiSelect"
   const canSave =
     name.trim().length > 0 &&
@@ -245,50 +353,88 @@ export function CustomPropertyDefinitionDialog({
       return
     }
 
-    const result = await createCustomPropertyDefinition({
-      teamId,
-      scopeType,
-      name: name.trim(),
+    const draft = {
       icon,
+      name,
+      options,
+      requiresOptions,
       type,
-      options: requiresOptions ? options : [],
+    }
+    const editing = definitionRef.current
+
+    if (editing) {
+      const updated = await updateCustomPropertyDefinition(
+        editing.id,
+        getCustomPropertyDefinitionPatch(draft)
+      )
+
+      if (updated) {
+        onOpenChange(false)
+      }
+
+      return
+    }
+
+    const payload = getCustomPropertyDefinitionCreatePayload({
+      draft,
+      scopeType,
+      targetType,
+      teamId,
+      workspaceId,
     })
 
+    if (!payload) {
+      return
+    }
+
+    const result = await createCustomPropertyDefinition(payload)
+
     if (result) {
-      setName("")
-      setIcon("TextAa")
-      setType("text")
-      setOptions([createOption("Option 1")])
       onOpenChange(false)
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 sm:max-w-[520px]">
-        <DialogHeader className="border-b border-line-soft px-4 py-3">
-          <DialogTitle className="text-sm">New work property</DialogTitle>
-          <DialogDescription>
-            Add a typed property for work items in this team space.
+      <DialogContent className="gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 sm:max-w-[480px]">
+        <DialogHeader className="space-y-1 border-b border-line-soft px-5 py-4">
+          <DialogTitle className="text-[15px] font-semibold tracking-tight">
+            {isEditing ? "Edit property" : "New property"}
+          </DialogTitle>
+          <DialogDescription className="text-[12.5px] text-muted-foreground">
+            {isEditing
+              ? "Update this property’s name, icon, type, and options."
+              : `Add a typed property for ${targetLabel} in this scope.`}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 px-4 py-4">
-          <div className="grid grid-cols-[88px_minmax(0,1fr)] items-center gap-3">
-            <span className="text-[12.5px] text-fg-3">Name</span>
-            <Input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Property name"
-              maxLength={64}
-            />
-            <span className="text-[12.5px] text-fg-3">Icon</span>
-            <PhosphorIconPicker value={icon} onValueChange={setIcon} />
-            <span className="text-[12.5px] text-fg-3">Type</span>
+        <div className="space-y-5 px-5 py-5">
+          <div className="space-y-1.5">
+            <label className="text-[11.5px] font-semibold tracking-wide text-fg-3 uppercase">
+              Name
+            </label>
+            <div className="flex items-center gap-2">
+              <PhosphorIconPicker value={icon} onValueChange={setIcon} />
+              <Input
+                autoFocus
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Property name"
+                maxLength={64}
+                className="h-9"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[11.5px] font-semibold tracking-wide text-fg-3 uppercase">
+              Type
+            </label>
             <Select
               value={type}
+              disabled={isEditing}
               onValueChange={(value) => setType(value as CustomPropertyType)}
             >
-              <SelectTrigger className="h-8">
+              <SelectTrigger className="h-9 w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -299,12 +445,19 @@ export function CustomPropertyDefinitionDialog({
                 ))}
               </SelectContent>
             </Select>
+            {isEditing ? (
+              <p className="text-[11.5px] text-fg-3">
+                Type can’t be changed after a property is created.
+              </p>
+            ) : null}
           </div>
 
           {requiresOptions ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[12.5px] text-fg-3">Options</span>
+                <label className="text-[11.5px] font-semibold tracking-wide text-fg-3 uppercase">
+                  Options
+                </label>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -316,19 +469,24 @@ export function CustomPropertyDefinitionDialog({
                   }
                 >
                   <Plus className="size-3.5" />
-                  Add
+                  Add option
                 </Button>
               </div>
               <div className="space-y-1.5">
                 {options.map((option) => (
-                  <div key={option.id} className="flex items-center gap-2">
+                  <div
+                    key={option.id}
+                    className="flex items-center gap-2 rounded-md border border-line-soft bg-background px-2 py-1.5"
+                  >
                     <span
                       aria-hidden
-                      className="size-2.5 rounded-full"
+                      className="size-2.5 shrink-0 rounded-full"
                       style={{ background: option.color }}
                     />
                     <Input
                       value={option.label}
+                      placeholder="Option label"
+                      className="h-7 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
                       onChange={(event) =>
                         setOptions((current) =>
                           current.map((entry) =>
@@ -342,7 +500,8 @@ export function CustomPropertyDefinitionDialog({
                     <button
                       type="button"
                       aria-label="Remove option"
-                      className="inline-grid size-8 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+                      disabled={options.length <= 1}
+                      className="inline-grid size-7 shrink-0 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                       onClick={() =>
                         setOptions((current) =>
                           current.length > 1
@@ -351,7 +510,7 @@ export function CustomPropertyDefinitionDialog({
                         )
                       }
                     >
-                      <Trash className="size-4" />
+                      <Trash className="size-3.5" />
                     </button>
                   </div>
                 ))}
@@ -359,12 +518,12 @@ export function CustomPropertyDefinitionDialog({
             </div>
           ) : null}
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-line-soft px-4 py-3">
+        <div className="flex items-center justify-end gap-2 border-t border-line-soft px-5 py-3.5">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button size="sm" disabled={!canSave} onClick={handleSave}>
-            Create property
+            {isEditing ? "Save changes" : "Create property"}
           </Button>
         </div>
       </DialogContent>
@@ -534,6 +693,18 @@ function CustomPropertyCheckboxControl({
   )
 }
 
+function resolveCustomPropertyPersonUsers(
+  users: AppData["users"],
+  memberships: Array<{ userId: string }>
+) {
+  return memberships
+    .map(
+      (membership) =>
+        users.find((user) => user.id === membership.userId) ?? null
+    )
+    .filter((user): user is AppData["users"][number] => user !== null)
+}
+
 const CUSTOM_PROPERTY_VALUE_CONTROLS = {
   checkbox: CustomPropertyCheckboxControl,
   date: CustomPropertyTextControl,
@@ -552,6 +723,7 @@ const CUSTOM_PROPERTY_VALUE_CONTROLS = {
 
 export function CustomPropertyValueControl({
   data,
+  document,
   definition,
   item,
   value,
@@ -559,8 +731,9 @@ export function CustomPropertyValueControl({
   variant = "row",
 }: {
   data: AppData
+  document?: AppDocument | null
   definition: CustomPropertyDefinition
-  item: WorkItem
+  item?: WorkItem | null
   value?: AppData["customPropertyValues"][number] | null
   editable: boolean
   variant?: CustomPropertyControlVariant
@@ -569,20 +742,44 @@ export function CustomPropertyValueControl({
     (state) => state.setCustomPropertyValue
   )
   const currentValue = normalizeValueForType(definition.type, value?.value)
-  const users = useMemo(
-    () =>
-      data.teamMemberships
-        .filter((membership) => membership.teamId === item.teamId)
-        .map(
-          (membership) =>
-            data.users.find((user) => user.id === membership.userId) ?? null
+  const { teamMemberships, users: availableUsers, workspaceMemberships } = data
+  const workspaceId =
+    item?.workspaceId ?? document?.workspaceId ?? definition.workspaceId
+  const teamId = item?.teamId ?? document?.teamId ?? definition.teamId
+  const users = useMemo(() => {
+    const workspaceProperty = (definition.scopeType ?? "team") !== "team"
+
+    if (workspaceProperty) {
+      return resolveCustomPropertyPersonUsers(
+        availableUsers,
+        workspaceMemberships.filter(
+          (membership) => membership.workspaceId === workspaceId
         )
-        .filter((user): user is AppData["users"][number] => user !== null),
-    [data.teamMemberships, data.users, item.teamId]
-  )
+      )
+    }
+
+    return resolveCustomPropertyPersonUsers(
+      availableUsers,
+      teamMemberships.filter((membership) => membership.teamId === teamId)
+    )
+  }, [
+    availableUsers,
+    definition.scopeType,
+    teamId,
+    teamMemberships,
+    workspaceId,
+    workspaceMemberships,
+  ])
 
   function commit(nextValue: CustomPropertyValue) {
-    setCustomPropertyValue(item.id, definition.id, nextValue)
+    if (document) {
+      setCustomPropertyValue("document", document.id, definition.id, nextValue)
+      return
+    }
+
+    if (item) {
+      setCustomPropertyValue("workItem", item.id, definition.id, nextValue)
+    }
   }
 
   const ValueControl = CUSTOM_PROPERTY_VALUE_CONTROLS[definition.type]

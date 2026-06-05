@@ -328,6 +328,64 @@ describe("NewPostComposer", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("reserves layout space for post and comment reaction rows", () => {
+    useAppStore.setState({
+      channelPosts: [
+        {
+          id: "post_1",
+          conversationId: "channel_1",
+          title: "Roadmap",
+          content: "<p>Post</p>",
+          mentionUserIds: [],
+          reactions: [
+            {
+              emoji: "👍",
+              userIds: ["user_1"],
+            },
+          ],
+          createdBy: "user_1",
+          createdAt: "2026-04-18T10:00:00.000Z",
+          updatedAt: "2026-04-18T10:00:00.000Z",
+        },
+      ],
+      channelPostComments: [
+        {
+          id: "comment_1",
+          postId: "post_1",
+          content: "<p>Comment</p>",
+          mentionUserIds: [],
+          reactions: [
+            {
+              emoji: "✅",
+              userIds: ["user_1"],
+            },
+          ],
+          createdBy: "user_1",
+          createdAt: "2026-04-18T10:05:00.000Z",
+        },
+      ],
+    })
+
+    const { container } = render(<ForumPostCard postId="post_1" />)
+    const postBody = container.querySelector(
+      '[data-channel-post-body="post_1"]'
+    )
+    const postReactions = container.querySelector(
+      '[data-channel-post-reactions="post_1"]'
+    )
+    const commentItem = container.querySelector(
+      '[data-channel-comment-item="comment_1"]'
+    )
+    const commentReactions = container.querySelector(
+      '[data-channel-comment-reactions="comment_1"]'
+    )
+
+    expect(postBody).toHaveClass("overflow-visible", "pb-2")
+    expect(postReactions).toHaveClass("mb-2", "pt-0.5")
+    expect(commentItem).toHaveClass("overflow-visible", "pb-2")
+    expect(commentReactions).toHaveClass("mb-1.5", "pt-0.5")
+  })
+
   it("confirms owned comment deletion before deleting it", () => {
     const deleteChannelPostCommentMock = vi.fn()
 

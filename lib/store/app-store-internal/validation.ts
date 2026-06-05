@@ -24,7 +24,10 @@ import {
   resolveWorkItemProjectLinkUpdate,
   type WorkItemProjectLinkResolution,
 } from "@/lib/domain/work-item-project-links"
-import { isLabelAssignableToWorkItem } from "@/lib/domain/labels"
+import {
+  getLabelScopeType,
+  isLabelAssignableToWorkItem,
+} from "@/lib/domain/labels"
 import { getResolvedWorkItemMutationAssigneeIds } from "@/lib/domain/work-item-assignees"
 import { isValidTimeValue, isValidTimeZone } from "@/lib/time-zone"
 import type { CreateProjectInput } from "@/lib/domain/project-inputs"
@@ -107,7 +110,9 @@ export function getProjectCreationValidationMessage(
   }
 
   const availableLabelIds = new Set(
-    getLabelsForTeamScope(state, team.id).map((label) => label.id)
+    getLabelsForTeamScope(state, team.id)
+      .filter((label) => getLabelScopeType(label) === "workspace")
+      .map((label) => label.id)
   )
 
   if (
@@ -183,10 +188,6 @@ function getWorkItemLabelValidationMessage(
 
   if (!labelIds) {
     return null
-  }
-
-  if (input.visibility === "private") {
-    return labelIds.length > 0 ? "Private tasks do not support labels" : null
   }
 
   const workspaceId = getWorkItemLabelWorkspaceId(state, input)

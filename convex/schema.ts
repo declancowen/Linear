@@ -80,7 +80,8 @@ export default defineSchema({
     .index("by_email", ["email"]),
   labels: defineTable(labelFields)
     .index("by_domain_id", ["id"])
-    .index("by_workspace", ["workspaceId"]),
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_scope_owner", ["workspaceId", "scopeType", "ownerId"]),
   projects: defineTable(projectFields)
     .index("by_domain_id", ["id"])
     .index("by_scope", ["scopeType", "scopeId"]),
@@ -97,9 +98,12 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_team", ["teamId"])
     .index("by_workspace_team", ["workspaceId", "teamId"])
+    .index("by_workspace_scope_owner", ["workspaceId", "scopeType", "ownerId"])
     .index("by_team_target_archived", ["teamId", "targetType", "isArchived"]),
   customPropertyValues: defineTable(customPropertyValueFields)
     .index("by_domain_id", ["id"])
+    .index("by_target", ["targetType", "targetId"])
+    .index("by_target_property", ["targetType", "targetId", "propertyId"])
     .index("by_work_item", ["workItemId"])
     .index("by_property", ["propertyId"])
     .index("by_team_work_item", ["teamId", "workItemId"])

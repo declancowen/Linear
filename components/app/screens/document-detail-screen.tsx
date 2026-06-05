@@ -17,7 +17,7 @@ import {
   type RefObject,
 } from "react"
 import { useShallow } from "zustand/react/shallow"
-import { Bell, Trash } from "@phosphor-icons/react"
+import { Bell, SidebarSimple, Trash } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import {
@@ -46,7 +46,7 @@ import {
   getRichTextReferenceCandidates,
   getWorkspaceUsers,
 } from "@/lib/domain/selectors"
-import type { DocumentPresenceViewer } from "@/lib/domain/types"
+import type { AppData, DocumentPresenceViewer } from "@/lib/domain/types"
 import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
 import { useInitialCollaborationSyncPreview } from "@/hooks/use-initial-collaboration-sync-preview"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
@@ -71,11 +71,17 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { cn } from "@/lib/utils"
 
 import { CollaborationSyncDialog } from "./collaboration-sync-dialog"
+import { DocumentDetailSidebarSurface } from "./document-detail-sidebar"
 import { DocumentPresenceAvatarGroup } from "./document-ui"
 import { useLegacyPresenceHeartbeat } from "./legacy-presence-heartbeat"
-import { canEditDocumentInUi, getDocumentPresenceSessionId } from "./helpers"
+import {
+  canEditDocumentInUi,
+  getDocumentPresenceSessionId,
+  selectAppDataSnapshot,
+} from "./helpers"
 import { MissingState } from "./shared"
 
 const DOCUMENT_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
@@ -246,7 +252,31 @@ function saveDocumentTitle({
   const normalizedTitle = draftTitle.trim() || "Untitled document"
   setIsEditingTitle(false)
   setDraftTitle(normalizedTitle)
+  persistDocumentTitleChange({
+    flushCollaboration,
+    isCollaborationAttached,
+    isCollaborationBootstrapping,
+    loadedDocument,
+    loadedDocumentId,
+    normalizedTitle,
+  })
+}
 
+function persistDocumentTitleChange({
+  flushCollaboration,
+  isCollaborationAttached,
+  isCollaborationBootstrapping,
+  loadedDocument,
+  loadedDocumentId,
+  normalizedTitle,
+}: {
+  flushCollaboration: ReturnType<typeof useDocumentCollaboration>["flush"]
+  isCollaborationAttached: boolean
+  isCollaborationBootstrapping: boolean
+  loadedDocument: AppState["documents"][number] | null
+  loadedDocumentId: string
+  normalizedTitle: string
+}) {
   if (normalizedTitle === (loadedDocument?.title ?? "")) {
     return
   }
@@ -365,10 +395,12 @@ function DocumentDetailHeader({
   titleInputRef,
   documentStats,
   otherDocumentViewers,
+  propertiesOpen,
   onDraftTitleChange,
   onSaveTitle,
   onStartEditingTitle,
   onDelete,
+  onToggleProperties,
 }: {
   backHref: string
   documentTitle: string
@@ -383,10 +415,12 @@ function DocumentDetailHeader({
     characters: number
   }
   otherDocumentViewers: DocumentPresenceViewer[]
+  propertiesOpen: boolean
   onDraftTitleChange: (title: string) => void
   onSaveTitle: () => void
   onStartEditingTitle: () => void
   onDelete: () => void
+  onToggleProperties: () => void
 }) {
   return (
     <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b bg-background px-4 py-2">
@@ -456,6 +490,15 @@ function DocumentDetailHeader({
             Delete
           </Button>
         ) : null}
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label={propertiesOpen ? "Hide properties" : "Open properties"}
+          className={cn(!propertiesOpen && "text-muted-foreground")}
+          onClick={onToggleProperties}
+        >
+          <SidebarSimple className="size-4" />
+        </Button>
       </div>
     </div>
   )
@@ -720,6 +763,7 @@ function DocumentDetailLoadedView({
   collaborationEditorContent,
   collaborationPreviewContent,
   currentUserId,
+  data,
   deleteDialogOpen,
   deletingDocument,
   document,
@@ -739,6 +783,7 @@ function DocumentDetailLoadedView({
   referenceCandidates,
   otherDocumentViewers,
   pendingMentionSummary,
+  propertiesOpen,
   sendingMentionNotifications,
   showCollaborationBootPreview,
   titleInputRef,
@@ -755,6 +800,8 @@ function DocumentDetailLoadedView({
   onSkipAndExit,
   onStartEditingTitle,
   onStatsChange,
+  onToggleProperties,
+  onRenameTitle,
   onUploadAttachment,
 }: {
   backHref: string
@@ -762,6 +809,7 @@ function DocumentDetailLoadedView({
   collaborationEditorContent: string
   collaborationPreviewContent: string
   currentUserId: string
+  data: AppData
   deleteDialogOpen: boolean
   deletingDocument: boolean
   document: AppState["documents"][number]
@@ -785,6 +833,7 @@ function DocumentDetailLoadedView({
   >["referenceCandidates"]
   otherDocumentViewers: DocumentPresenceViewer[]
   pendingMentionSummary: ReturnType<typeof summarizePendingDocumentMentions>
+  propertiesOpen: boolean
   sendingMentionNotifications: boolean
   showCollaborationBootPreview: boolean
   titleInputRef: RefObject<HTMLInputElement | null>
@@ -804,51 +853,66 @@ function DocumentDetailLoadedView({
   onSkipAndExit: () => void
   onStartEditingTitle: () => void
   onStatsChange: (stats: { words: number; characters: number }) => void
+  onToggleProperties: () => void
+  onRenameTitle: (title: string) => void
   onUploadAttachment: ComponentProps<
     typeof RichTextEditor
   >["onUploadAttachment"]
 }) {
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col bg-background">
-        <DocumentDetailHeader
-          backHref={backHref}
-          documentTitle={document.title}
-          editable={editable}
-          isEditingTitle={isEditingTitle}
-          isCollaborationBootstrapping={isCollaborationBootstrapping}
-          draftTitle={draftTitle}
-          draftTitleLimitState={draftTitleLimitState}
-          titleInputRef={titleInputRef}
-          documentStats={documentStats}
-          otherDocumentViewers={otherDocumentViewers}
-          onDraftTitleChange={onDraftTitleChange}
-          onSaveTitle={onSaveTitle}
-          onStartEditingTitle={onStartEditingTitle}
-          onDelete={onDelete}
-        />
+      <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
+        <div className="flex min-h-0 flex-1 flex-col bg-background">
+          <DocumentDetailHeader
+            backHref={backHref}
+            documentTitle={document.title}
+            editable={editable}
+            isEditingTitle={isEditingTitle}
+            isCollaborationBootstrapping={isCollaborationBootstrapping}
+            draftTitle={draftTitle}
+            draftTitleLimitState={draftTitleLimitState}
+            titleInputRef={titleInputRef}
+            documentStats={documentStats}
+            otherDocumentViewers={otherDocumentViewers}
+            propertiesOpen={propertiesOpen}
+            onDraftTitleChange={onDraftTitleChange}
+            onSaveTitle={onSaveTitle}
+            onStartEditingTitle={onStartEditingTitle}
+            onDelete={onDelete}
+            onToggleProperties={onToggleProperties}
+          />
 
-        <DocumentEditorPane
-          showCollaborationBootPreview={showCollaborationBootPreview}
-          fullPageCanvasWidth={fullPageCanvasWidth}
-          collaborationPreviewContent={collaborationPreviewContent}
-          collaborationEditorContent={collaborationEditorContent}
-          isCollaborationAttached={isCollaborationAttached}
-          isCollaborationBootstrapping={isCollaborationBootstrapping}
-          editorCollaboration={editorCollaboration}
-          collaboration={collaboration}
-          currentUserId={currentUserId}
+          <DocumentEditorPane
+            showCollaborationBootPreview={showCollaborationBootPreview}
+            fullPageCanvasWidth={fullPageCanvasWidth}
+            collaborationPreviewContent={collaborationPreviewContent}
+            collaborationEditorContent={collaborationEditorContent}
+            isCollaborationAttached={isCollaborationAttached}
+            isCollaborationBootstrapping={isCollaborationBootstrapping}
+            editorCollaboration={editorCollaboration}
+            collaboration={collaboration}
+            currentUserId={currentUserId}
+            editable={editable}
+            editorInstanceRef={editorInstanceRef}
+            mentionCandidates={mentionCandidates}
+            referenceCandidates={referenceCandidates}
+            otherDocumentViewers={otherDocumentViewers}
+            documentKind={document.kind}
+            onMentionCountsChange={onMentionCountsChange}
+            onStatsChange={onStatsChange}
+            onChange={onChange}
+            onActiveBlockChange={onActiveBlockChange}
+            onUploadAttachment={onUploadAttachment}
+          />
+        </div>
+
+        <DocumentDetailSidebarSurface
+          data={data}
+          document={document}
           editable={editable}
-          editorInstanceRef={editorInstanceRef}
-          mentionCandidates={mentionCandidates}
-          referenceCandidates={referenceCandidates}
-          otherDocumentViewers={otherDocumentViewers}
-          documentKind={document.kind}
-          onMentionCountsChange={onMentionCountsChange}
-          onStatsChange={onStatsChange}
-          onChange={onChange}
-          onActiveBlockChange={onActiveBlockChange}
-          onUploadAttachment={onUploadAttachment}
+          open={propertiesOpen}
+          onClose={onToggleProperties}
+          onRenameTitle={onRenameTitle}
         />
       </div>
 
@@ -1582,6 +1646,7 @@ function useDocumentEditorContentLifecycle({
 
 export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const router = useAppRouter()
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
   const { currentWorkspaceId, currentUser, currentUserId, document, team } =
     useDocumentDetailStoreSelection(documentId)
   const editable = useDocumentEditable(document)
@@ -1602,6 +1667,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const [exitDialogOpen, setExitDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
+  const [propertiesOpen, setPropertiesOpen] = useState(true)
   const editorInstanceRef = useRef<Editor | null>(null)
   const allowHistoryExitRef = useRef(false)
   const currentDocumentId = document?.id ?? null
@@ -1817,6 +1883,20 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     })
   }
 
+  function renameTitle(title: string) {
+    const normalizedTitle = title.trim() || "Untitled document"
+
+    setDraftTitle(normalizedTitle)
+    persistDocumentTitleChange({
+      flushCollaboration,
+      isCollaborationAttached,
+      isCollaborationBootstrapping,
+      loadedDocument,
+      loadedDocumentId,
+      normalizedTitle,
+    })
+  }
+
   async function handleDeleteDocument() {
     setDeletingDocument(true)
     clearPendingMentionBatch()
@@ -1890,6 +1970,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       collaborationEditorContent={collaborationEditorContent}
       collaborationPreviewContent={collaborationPreviewContent}
       currentUserId={currentUserId}
+      data={data}
       deleteDialogOpen={deleteDialogOpen}
       deletingDocument={deletingDocument}
       document={loadedDocument}
@@ -1909,6 +1990,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       referenceCandidates={referenceCandidates}
       otherDocumentViewers={otherDocumentViewers}
       pendingMentionSummary={pendingMentionSummary}
+      propertiesOpen={propertiesOpen}
       sendingMentionNotifications={sendingMentionNotifications}
       showCollaborationBootPreview={showCollaborationBootPreview}
       titleInputRef={titleInputRef}
@@ -1935,6 +2017,8 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
         setIsEditingTitle(true)
       }}
       onStatsChange={setDocumentStats}
+      onToggleProperties={() => setPropertiesOpen((current) => !current)}
+      onRenameTitle={renameTitle}
       onUploadAttachment={handleDocumentAttachmentUpload}
     />
   )

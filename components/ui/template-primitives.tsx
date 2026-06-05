@@ -264,7 +264,7 @@ export function PropertyPopoverList({
   return (
     <div
       className={cn(
-        "no-scrollbar flex max-h-[320px] flex-col overflow-y-auto p-1",
+        "no-scrollbar flex max-h-[320px] min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-1",
         className
       )}
     >
@@ -342,4 +342,4 @@ export function PropertyPopoverFoot({
 }
 
 export const PROPERTY_POPOVER_CLASS =
-  "w-[240px] overflow-hidden rounded-lg border border-line bg-surface p-0 text-foreground shadow-lg"
+  "max-h-[min(360px,var(--radix-popover-content-available-height))] w-[240px] overflow-hidden rounded-lg border border-line bg-surface p-0 text-foreground shadow-lg"

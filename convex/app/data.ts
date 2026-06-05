@@ -455,6 +455,22 @@ export async function listLabelsByWorkspace(ctx: AppCtx, workspaceId: string) {
     .collect()
 }
 
+export async function listPrivateLabelsByWorkspaceOwner(
+  ctx: AppCtx,
+  workspaceId: string,
+  ownerId: string
+) {
+  return ctx.db
+    .query("labels")
+    .withIndex("by_workspace_scope_owner", (q) =>
+      q
+        .eq("workspaceId", workspaceId)
+        .eq("scopeType", "private")
+        .eq("ownerId", ownerId)
+    )
+    .collect()
+}
+
 export async function listLabelsByWorkspaces(
   ctx: AppCtx,
   workspaceIds: Iterable<string>
@@ -540,6 +556,27 @@ export async function getCustomPropertyValueDoc(
   return values.find((value) => value.propertyId === propertyId) ?? null
 }
 
+export async function getCustomPropertyValueDocByTarget(
+  ctx: AppCtx,
+  targetType: "workItem" | "document",
+  targetId: string,
+  propertyId: string
+) {
+  if (targetType === "workItem") {
+    return getCustomPropertyValueDoc(ctx, targetId, propertyId)
+  }
+
+  return ctx.db
+    .query("customPropertyValues")
+    .withIndex("by_target_property", (q) =>
+      q
+        .eq("targetType", targetType)
+        .eq("targetId", targetId)
+        .eq("propertyId", propertyId)
+    )
+    .unique()
+}
+
 export async function listCustomPropertyDefinitionsByTeam(
   ctx: AppCtx,
   teamId: string
@@ -548,6 +585,60 @@ export async function listCustomPropertyDefinitionsByTeam(
     .query("customPropertyDefinitions")
     .withIndex("by_team", (q) => q.eq("teamId", teamId))
     .collect()
+}
+
+export async function listPrivateCustomPropertyDefinitionsByWorkspaceOwner(
+  ctx: AppCtx,
+  workspaceId: string,
+  ownerId: string
+) {
+  return ctx.db
+    .query("customPropertyDefinitions")
+    .withIndex("by_workspace_scope_owner", (q) =>
+      q
+        .eq("workspaceId", workspaceId)
+        .eq("scopeType", "private")
+        .eq("ownerId", ownerId)
+    )
+    .collect()
+}
+
+export async function listWorkspaceCustomPropertyDefinitionsByWorkspace(
+  ctx: AppCtx,
+  workspaceId: string
+) {
+  return ctx.db
+    .query("customPropertyDefinitions")
+    .withIndex("by_workspace_scope_owner", (q) =>
+      q
+        .eq("workspaceId", workspaceId)
+        .eq("scopeType", "workspace")
+        .eq("ownerId", null)
+    )
+    .collect()
+}
+
+export async function listWorkspaceCustomPropertyDefinitionsByWorkspaces(
+  ctx: AppCtx,
+  workspaceIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(workspaceIds)], (workspaceId) =>
+    listWorkspaceCustomPropertyDefinitionsByWorkspace(ctx, workspaceId)
+  )
+}
+
+export async function listPrivateCustomPropertyDefinitionsByWorkspacesOwner(
+  ctx: AppCtx,
+  workspaceIds: Iterable<string>,
+  ownerId: string
+) {
+  return flatMapInBatches([...new Set(workspaceIds)], (workspaceId) =>
+    listPrivateCustomPropertyDefinitionsByWorkspaceOwner(
+      ctx,
+      workspaceId,
+      ownerId
+    )
+  )
 }
 
 export async function listCustomPropertyDefinitionsByTeams(
@@ -567,6 +658,33 @@ export async function listCustomPropertyValuesByWorkItem(
     .query("customPropertyValues")
     .withIndex("by_work_item", (q) => q.eq("workItemId", workItemId))
     .collect()
+}
+
+export async function listCustomPropertyValuesByTarget(
+  ctx: AppCtx,
+  targetType: "workItem" | "document",
+  targetId: string
+) {
+  if (targetType === "workItem") {
+    return listCustomPropertyValuesByWorkItem(ctx, targetId)
+  }
+
+  return ctx.db
+    .query("customPropertyValues")
+    .withIndex("by_target", (q) =>
+      q.eq("targetType", targetType).eq("targetId", targetId)
+    )
+    .collect()
+}
+
+export async function listCustomPropertyValuesByTargets(
+  ctx: AppCtx,
+  targetType: "workItem" | "document",
+  targetIds: Iterable<string>
+) {
+  return flatMapInBatches([...new Set(targetIds)], (targetId) =>
+    listCustomPropertyValuesByTarget(ctx, targetType, targetId)
+  )
 }
 
 export async function listCustomPropertyValuesByProperty(
@@ -1027,7 +1145,10 @@ export async function listAttachmentsByTarget(
     .collect()
 }
 
-export async function listAttachmentsByStorageId(ctx: AppCtx, storageId: string) {
+export async function listAttachmentsByStorageId(
+  ctx: AppCtx,
+  storageId: string
+) {
   return ctx.db
     .query("attachments")
     .withIndex("by_storage", (q) => q.eq("storageId", storageId as never))

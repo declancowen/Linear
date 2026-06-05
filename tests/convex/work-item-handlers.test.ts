@@ -19,6 +19,7 @@ const getTeamDocMock = vi.fn()
 const getUserDocMock = vi.fn()
 const getViewDocMock = vi.fn()
 const getWorkItemDocMock = vi.fn()
+const listLabelsByWorkspaceMock = vi.fn()
 const listPrivateWorkItemsByCreatorMock = vi.fn()
 const listWorkItemActivitiesByWorkItemsMock = vi.fn()
 const normalizeTeamMock = vi.fn()
@@ -51,6 +52,7 @@ vi.mock("@/convex/app/data", () => ({
   getUserDoc: getUserDocMock,
   getViewDoc: getViewDocMock,
   getWorkItemDoc: getWorkItemDocMock,
+  listLabelsByWorkspace: listLabelsByWorkspaceMock,
   listPrivateWorkItemsByCreator: listPrivateWorkItemsByCreatorMock,
   listWorkItemActivitiesByWorkItems: listWorkItemActivitiesByWorkItemsMock,
 }))
@@ -97,6 +99,30 @@ function createCtx() {
   }
 }
 
+function createPrivateWorkItemDoc() {
+  return {
+    _id: "db_item_1",
+    id: "item_1",
+    teamId: null,
+    workspaceId: "workspace_1",
+    type: "task",
+    title: "Private task",
+    updatedAt: "2026-04-20T22:00:00.000Z",
+    parentId: null,
+    primaryProjectId: null,
+    startDate: null,
+    targetDate: null,
+    descriptionDocId: "doc_1",
+    assigneeId: null,
+    assigneeIds: [],
+    creatorId: "user_1",
+    subscriberIds: [],
+    status: "todo",
+    visibility: "private",
+    labelIds: [],
+  }
+}
+
 describe("work item handlers", () => {
   beforeEach(() => {
     assertServerTokenMock.mockReset()
@@ -113,6 +139,7 @@ describe("work item handlers", () => {
     getUserDocMock.mockReset()
     getViewDocMock.mockReset()
     getWorkItemDocMock.mockReset()
+    listLabelsByWorkspaceMock.mockReset()
     listPrivateWorkItemsByCreatorMock.mockReset()
     listWorkItemActivitiesByWorkItemsMock.mockReset()
     normalizeTeamMock.mockReset()
@@ -174,6 +201,7 @@ describe("work item handlers", () => {
       resolvedPrimaryProjectId: null,
       shouldCascadeProjectLink: false,
     })
+    listLabelsByWorkspaceMock.mockResolvedValue([])
     listPrivateWorkItemsByCreatorMock.mockResolvedValue([])
     listWorkItemActivitiesByWorkItemsMock.mockResolvedValue([])
     getClampedNotifiedMentionCountsMock.mockReturnValue({})
@@ -271,10 +299,18 @@ describe("work item handlers", () => {
     expect(ctx.db.insert).not.toHaveBeenCalled()
   })
 
-  it("rejects labels on private creates before inserting", async () => {
+  it("rejects workspace labels on private creates before inserting", async () => {
     const { createWorkItemHandler } =
       await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
+    listLabelsByWorkspaceMock.mockResolvedValue([
+      {
+        id: "label_1",
+        workspaceId: "workspace_1",
+        scopeType: "workspace",
+        ownerId: null,
+      },
+    ])
 
     await expect(
       createWorkItemHandler(ctx as never, {
@@ -291,10 +327,47 @@ describe("work item handlers", () => {
         priority: "medium",
         visibility: "private",
       })
-    ).rejects.toThrow("Private tasks do not support labels")
+    ).rejects.toThrow("One or more labels are invalid")
 
     expect(validateWorkItemParentMock).not.toHaveBeenCalled()
     expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
+  it("stores owner-private labels on private creates", async () => {
+    const { createWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    listLabelsByWorkspaceMock.mockResolvedValue([
+      {
+        id: "label_private",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_1",
+      },
+    ])
+
+    await createWorkItemHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+      teamId: null,
+      workspaceId: "workspace_1",
+      type: "task",
+      title: "Private task with label",
+      primaryProjectId: null,
+      assigneeId: null,
+      labelIds: ["label_private"],
+      priority: "medium",
+      visibility: "private",
+    })
+
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "workItems",
+      expect.objectContaining({
+        labelIds: ["label_private"],
+        visibility: "private",
+      })
+    )
   })
 
   it("drops assignees from private creates before storing or notifying", async () => {
@@ -567,7 +640,6 @@ describe("work item handlers", () => {
       expect.objectContaining({
         assigneeId: null,
         assigneeIds: [],
-        labelIds: [],
         primaryProjectId: null,
         status: "done",
         title: "Private task",
@@ -576,31 +648,20 @@ describe("work item handlers", () => {
     expect(createNotificationMock).not.toHaveBeenCalled()
   })
 
-  it("rejects labels on private work item updates", async () => {
+  it("rejects workspace labels on private work item updates", async () => {
     const { updateWorkItemHandler } =
       await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
 
-    getWorkItemDocMock.mockResolvedValue({
-      _id: "db_item_1",
-      id: "item_1",
-      teamId: null,
-      workspaceId: "workspace_1",
-      type: "task",
-      title: "Private task",
-      updatedAt: "2026-04-20T22:00:00.000Z",
-      parentId: null,
-      primaryProjectId: null,
-      startDate: null,
-      targetDate: null,
-      descriptionDocId: "doc_1",
-      assigneeId: null,
-      assigneeIds: [],
-      creatorId: "user_1",
-      subscriberIds: [],
-      status: "todo",
-      visibility: "private",
-    })
+    getWorkItemDocMock.mockResolvedValue(createPrivateWorkItemDoc())
+    listLabelsByWorkspaceMock.mockResolvedValue([
+      {
+        id: "label_1",
+        workspaceId: "workspace_1",
+        scopeType: "workspace",
+        ownerId: null,
+      },
+    ])
 
     await expect(
       updateWorkItemHandler(ctx as never, {
@@ -612,9 +673,43 @@ describe("work item handlers", () => {
           labelIds: ["label_1"],
         },
       })
-    ).rejects.toThrow("Private tasks do not support labels")
+    ).rejects.toThrow("One or more labels are invalid")
 
     expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("updates owner-private labels on private work items", async () => {
+    const { updateWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    getWorkItemDocMock.mockResolvedValue(createPrivateWorkItemDoc())
+    listLabelsByWorkspaceMock.mockResolvedValue([
+      {
+        id: "label_private",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_1",
+      },
+    ])
+
+    await updateWorkItemHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+      itemId: "item_1",
+      patch: {
+        labelIds: ["label_private"],
+      },
+    })
+
+    expect(ctx.db.patch).toHaveBeenCalledWith(
+      "db_item_1",
+      expect.objectContaining({
+        labelIds: ["label_private"],
+        primaryProjectId: null,
+      })
+    )
   })
 
   it("updates private subtasks without revalidating an unchanged parent through a team", async () => {

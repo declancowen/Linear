@@ -27,7 +27,20 @@ vi.mock("@/components/ui/scroll-area", () => ({
 }))
 
 vi.mock("@/components/app/screens/work-item-menus", () => ({
-  IssueActionMenu: () => null,
+  IssueActionMenu: ({
+    item,
+    triggerClassName,
+  }: {
+    item: { id: string }
+    triggerClassName?: string
+  }) => (
+    <button
+      type="button"
+      data-testid={`issue-action-${item.id}`}
+      className={triggerClassName}
+      aria-label={`Actions for ${item.id}`}
+    />
+  ),
   IssueContextMenu: ({
     children,
     displayProps,
@@ -2651,7 +2664,11 @@ describe("ListView", () => {
       />
     )
 
-    fireEvent.click(screen.getByRole("button", { name: "Labels: CX" }))
+    const labelTrigger = screen.getByRole("button", { name: "Labels: CX" })
+
+    expect(labelTrigger.querySelector("svg")).toBeNull()
+
+    fireEvent.click(labelTrigger)
     fireEvent.click(screen.getByRole("button", { name: "Ops" }))
 
     expect(updateWorkItemSpy).toHaveBeenCalledWith("item_1", {
@@ -2659,12 +2676,12 @@ describe("ListView", () => {
     })
   })
 
-  it("does not expose label dropdowns for private task rows", () => {
+  it("opens private label properties as editable list dropdowns", () => {
     const item = createWorkItem({
       id: "private_item",
       key: "TES-1",
       title: "Private follow-up",
-      labelIds: ["label_cx"],
+      labelIds: ["label_private"],
       visibility: "private",
       workspaceId: "workspace_1",
       teamId: null,
@@ -2678,9 +2695,26 @@ describe("ListView", () => {
           name: "CX",
           color: "#34d399",
         },
+        {
+          id: "label_private",
+          workspaceId: "workspace_1",
+          scopeType: "private" as const,
+          ownerId: "user_1",
+          name: "Focus",
+          color: "#a78bfa",
+        },
+        {
+          id: "label_other_private",
+          workspaceId: "workspace_1",
+          scopeType: "private" as const,
+          ownerId: "user_2",
+          name: "Hidden",
+          color: "#94a3b8",
+        },
       ],
       workItems: [item],
     }
+    useAppStore.setState(data)
 
     render(
       <ListView
@@ -2696,8 +2730,11 @@ describe("ListView", () => {
       />
     )
 
-    expect(screen.queryByRole("button", { name: /Labels:/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Label" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Labels: Focus" }))
+
+    expect(screen.getAllByText("Focus").length).toBeGreaterThan(0)
+    expect(screen.queryByText("CX")).not.toBeInTheDocument()
+    expect(screen.queryByText("Hidden")).not.toBeInTheDocument()
   })
 
   it("passes selected visible list rows into the work item context menu", () => {
@@ -2737,6 +2774,35 @@ describe("ListView", () => {
       "data-display-props",
       "status"
     )
+  })
+
+  it("keeps list row actions aligned with reserved row padding", () => {
+    const item = createWorkItem({
+      id: "item_1",
+      key: "TES-1",
+      title: "Aligned action row",
+      status: "todo",
+    })
+    const data = {
+      ...createEditableData(),
+      workItems: [item],
+    }
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", ["status"])}
+        editable
+      />
+    )
+
+    const actionButton = screen.getByTestId("issue-action-item_1")
+    const actionSlot = actionButton.parentElement
+    const reservedProperties = actionSlot?.previousElementSibling
+
+    expect(actionSlot).toHaveClass("right-5")
+    expect(reservedProperties).toHaveClass("pr-12")
   })
 
   it("places list selection after disclosure next to the identity cluster", () => {
@@ -2780,6 +2846,22 @@ describe("ListView", () => {
     ).toBeTruthy()
   })
 
+  it("renders unchecked checkboxes with darker contrast", () => {
+    render(
+      <WorkItemSelectionCheckbox
+        checked={false}
+        label="Select TES-1"
+        onChange={vi.fn()}
+      />
+    )
+
+    const checkbox = screen.getByLabelText("Select TES-1")
+    const visualBox = checkbox.nextElementSibling
+
+    expect(visualBox).toHaveClass("border", "border-fg-4", "bg-surface-3")
+    expect(visualBox).toHaveClass("peer-checked:border-transparent")
+  })
+
   it("renders selected checkboxes as gray boxes with a black tick", () => {
     render(
       <WorkItemSelectionCheckbox
@@ -2792,7 +2874,8 @@ describe("ListView", () => {
     const checkbox = screen.getByLabelText("Select TES-1")
     const visualBox = checkbox.nextElementSibling
 
-    expect(visualBox).toHaveClass("border-0", "bg-surface-3")
+    expect(visualBox).toHaveClass("bg-surface-3")
+    expect(visualBox).toHaveClass("peer-checked:border-transparent")
     expect(visualBox).toHaveClass("peer-checked:text-foreground")
   })
 
@@ -2934,6 +3017,57 @@ describe("ListView", () => {
         defaultTeamId: "team_1",
         defaultValues: expect.objectContaining({
           labelIds: ["label_cx"],
+        }),
+      })
+    )
+  })
+
+  it("prepopulates private labels when adding from private label-filtered lanes", () => {
+    const data = {
+      ...createCreateDefaultData(),
+      labels: [
+        ...createCreateDefaultData().labels,
+        {
+          id: "label_private",
+          workspaceId: "workspace_1",
+          scopeType: "private" as const,
+          ownerId: "user_1",
+          name: "Focus",
+          color: "#a78bfa",
+        },
+      ],
+      workItems: [],
+    }
+    const view = createView("list", [], {
+      filters: {
+        ...createDefaultViewFilters(),
+        labelIds: ["label_private"],
+        visibility: ["private"],
+      },
+      grouping: "label",
+    })
+
+    render(
+      <ListView
+        data={data}
+        items={[]}
+        view={view}
+        editable
+        createContext={{
+          defaultTeamId: "team_1",
+          defaultVisibility: "private",
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }))
+
+    expect(openManagedCreateDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultProjectId: null,
+        defaultValues: expect.objectContaining({
+          labelIds: ["label_private"],
+          visibility: "private",
         }),
       })
     )

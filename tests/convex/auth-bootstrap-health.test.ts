@@ -161,6 +161,15 @@ function createBootstrapCtx() {
         name: "Bug",
         color: "red",
       },
+      {
+        _id: "label_private_workspace_2_doc",
+        id: "label_private_workspace_2",
+        workspaceId: "workspace_2",
+        scopeType: "private",
+        ownerId: "user_1",
+        name: "Private workspace 2",
+        color: "violet",
+      },
     ],
     invites: [
       {
@@ -307,14 +316,17 @@ describe("auth bootstrap handlers", () => {
   it("builds workspace membership bootstrap inventories", async () => {
     const ctx = createBootstrapCtx()
 
-    await expect(
-      getWorkspaceMembershipBootstrapHandler(ctx as never, {
+    const bootstrap = await getWorkspaceMembershipBootstrapHandler(
+      ctx as never,
+      {
         serverToken: "server_token",
         workosUserId: "workos_1",
         email: "alex@example.com",
         workspaceId: "workspace_2",
-      })
-    ).resolves.toMatchObject({
+      }
+    )
+
+    expect(bootstrap).toMatchObject({
       currentUserId: "user_1",
       currentWorkspaceId: "workspace_2",
       workspaces: [
@@ -338,17 +350,13 @@ describe("auth bootstrap handlers", () => {
           userId: "user_1",
         }),
       ],
-      labels: [
-        expect.objectContaining({
-          id: "label_1",
-        }),
-      ],
       invites: [
         expect.objectContaining({
           id: "invite_1",
         }),
       ],
     })
+    expect(bootstrap.labels.map((label) => label.id)).toEqual(["label_1"])
   })
 
   it("upserts bootstrap workspaces and teams without changing ownership", async () => {
@@ -642,13 +650,13 @@ describe("auth bootstrap handlers", () => {
       updatedAt: "2026-05-01T00:00:00.000Z",
     } as never)
 
-    await expect(
-      getSnapshotHandler(ctx as never, {
-        serverToken: "server_token",
-        workosUserId: "workos_1",
-        email: "alex@example.com",
-      })
-    ).resolves.toMatchObject({
+    const snapshot = await getSnapshotHandler(ctx as never, {
+      serverToken: "server_token",
+      workosUserId: "workos_1",
+      email: "alex@example.com",
+    })
+
+    expect(snapshot).toMatchObject({
       currentUserId: "user_1",
       currentWorkspaceId: "workspace_2",
       projects: [expect.objectContaining({ id: "project_1" })],
@@ -678,11 +686,35 @@ describe("auth bootstrap handlers", () => {
         }),
       ],
     })
+    expect(snapshot.labels.map((label) => label.id)).toEqual([
+      "label_1",
+      "label_private_workspace_2",
+    ])
   })
 
   it("omits other users' private work item data from full snapshots", async () => {
     const ctx = createBootstrapCtx()
 
+    ctx.tables.labels.push(
+      {
+        _id: "label_private_own_doc",
+        id: "label_private_own",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "user_1",
+        name: "Focus",
+        color: "violet",
+      } as never,
+      {
+        _id: "label_private_other_doc",
+        id: "label_private_other",
+        workspaceId: "workspace_1",
+        scopeType: "private",
+        ownerId: "owner_1",
+        name: "Hidden",
+        color: "slate",
+      } as never
+    )
     ctx.tables.workItems.push(
       createBootstrapWorkItem({
         id: "item_team",
@@ -798,10 +830,27 @@ describe("auth bootstrap handlers", () => {
         updatedAt: "2026-05-01T00:00:00.000Z",
       } as never,
       {
+        _id: "custom_property_definition_private_own_doc",
+        id: "property_private_own",
+        workspaceId: "workspace_1",
+        teamId: null,
+        scopeType: "private",
+        ownerId: "user_1",
+        targetType: "workItem",
+        name: "Own private property",
+        icon: "TextAa",
+        type: "text",
+        options: [],
+        isArchived: false,
+        createdBy: "user_1",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      } as never,
+      {
         _id: "custom_property_definition_private_other_doc",
         id: "property_private_other",
         workspaceId: "workspace_2",
-        teamId: "team_2",
+        teamId: null,
         scopeType: "private",
         ownerId: "owner_1",
         targetType: "workItem",
@@ -828,10 +877,21 @@ describe("auth bootstrap handlers", () => {
         updatedAt: "2026-05-01T00:00:00.000Z",
       } as never,
       {
+        _id: "custom_property_value_private_own_doc",
+        id: "custom_property_value_private_own",
+        workspaceId: "workspace_1",
+        teamId: null,
+        workItemId: "item_private_own",
+        propertyId: "property_private_own",
+        value: "visible private",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      } as never,
+      {
         _id: "custom_property_value_private_other_visible_item_doc",
         id: "custom_property_value_private_other_visible_item",
         workspaceId: "workspace_2",
-        teamId: "team_2",
+        teamId: null,
         workItemId: "item_team",
         propertyId: "property_private_other",
         value: "hidden",
@@ -861,6 +921,11 @@ describe("auth bootstrap handlers", () => {
       "item_private_own",
       "item_team",
     ])
+    expect(snapshot.labels.map((label) => label.id).sort()).toEqual([
+      "label_1",
+      "label_private_own",
+      "label_private_workspace_2",
+    ])
     expect(snapshot.documents.map((document) => document.id).sort()).toEqual([
       "doc_private_own",
       "doc_team_item",
@@ -873,8 +938,11 @@ describe("auth bootstrap handlers", () => {
     ])
     expect(
       snapshot.customPropertyDefinitions.map((definition) => definition.id)
-    ).toEqual(["property_1"])
-    expect(snapshot.customPropertyValues.map((value) => value.id)).toEqual([
+    ).toEqual(["property_1", "property_private_own"])
+    expect(
+      snapshot.customPropertyValues.map((value) => value.id).sort()
+    ).toEqual([
+      "custom_property_value_private_own",
       "custom_property_value_team",
     ])
   })

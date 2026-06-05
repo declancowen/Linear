@@ -71,14 +71,27 @@ export type ProjectPatch = {
 
 export type CreateWorkItemInput = CreateStoreWorkItemInput
 
-export type CreateCustomPropertyInput = {
-  teamId: string
-  scopeType?: "team"
+type BaseCreateCustomPropertyInput = {
+  targetType?: "workItem" | "document"
   name: string
   icon: string
   type: CustomPropertyType
   options?: CustomPropertyOption[]
 }
+
+export type CreateCustomPropertyInput =
+  | (BaseCreateCustomPropertyInput & {
+      scopeType?: "team"
+      teamId: string
+    })
+  | (BaseCreateCustomPropertyInput & {
+      scopeType: "workspace"
+      workspaceId: string
+    })
+  | (BaseCreateCustomPropertyInput & {
+      scopeType: "private"
+      workspaceId: string
+    })
 
 export type UpdateCustomPropertyInput = Partial<{
   name: string
@@ -361,8 +374,9 @@ export type AppStore = AppData & {
   createLabel: (
     name: string,
     workspaceId?: string | null,
-    options?: { scopeType?: "workspace" }
+    options?: { scopeType?: "workspace" | "private" }
   ) => Promise<Label | null>
+  updateLabel: (labelId: string, name: string) => Promise<boolean>
   updateWorkItem: (
     itemId: string,
     patch: WorkItemPatch,
@@ -378,7 +392,8 @@ export type AppStore = AppData & {
   ) => Promise<boolean>
   archiveCustomPropertyDefinition: (propertyId: string) => Promise<boolean>
   setCustomPropertyValue: (
-    workItemId: string,
+    targetType: "workItem" | "document",
+    targetId: string,
     propertyId: string,
     value: CustomPropertyValue
   ) => void
