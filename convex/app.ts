@@ -18,9 +18,11 @@ import {
   customPropertyTypeValidator,
   customPropertyValueInputFields,
   groupFieldValidator,
+  hiddenStateValidator,
   nullableStringValidator,
   orderingFieldValidator,
   priorityValidator,
+  projectPresentationMutationValidator,
   projectStatusValidator,
   roleValidator,
   scopeTypeValidator,
@@ -208,7 +210,7 @@ const viewConfigMutationArgs = {
   layout: v.optional(viewLayoutValidator),
   itemLevel: v.optional(v.union(workItemTypeValidator, v.null())),
   showChildItems: v.optional(v.boolean()),
-  grouping: v.optional(groupFieldValidator),
+  grouping: v.optional(v.union(groupFieldValidator, v.null())),
   subGrouping: v.optional(v.union(groupFieldValidator, v.null())),
   ordering: v.optional(orderingFieldValidator),
 }
@@ -217,6 +219,7 @@ const viewConfigPatchMutationArgs = {
   ...viewConfigMutationArgs,
   showCompleted: v.optional(v.boolean()),
   showEmptyGroups: v.optional(v.boolean()),
+  hiddenState: v.optional(hiddenStateValidator),
   description: v.optional(v.string()),
   containerType: v.optional(v.union(v.literal("project-items"), v.null())),
   containerId: v.optional(v.union(v.string(), v.null())),
@@ -1038,12 +1041,7 @@ export const createView = mutation({
     ...viewConfigMutationArgs,
     filters: v.optional(viewFiltersValidator),
     displayProps: v.optional(v.array(displayPropertyValidator)),
-    hiddenState: v.optional(
-      v.object({
-        groups: v.array(v.string()),
-        subgroups: v.array(v.string()),
-      })
-    ),
+    hiddenState: v.optional(hiddenStateValidator),
   },
   handler: createViewHandler,
 })
@@ -1092,7 +1090,11 @@ export const toggleViewHiddenValue = mutation({
     ...serverAccessArgs,
     currentUserId: v.string(),
     viewId: v.string(),
-    key: v.union(v.literal("groups"), v.literal("subgroups")),
+    key: v.union(
+      v.literal("groups"),
+      v.literal("subgroups"),
+      v.literal("includedGroups")
+    ),
     value: v.string(),
   },
   handler: toggleViewHiddenValueHandler,
@@ -1482,15 +1484,7 @@ export const joinTeamByCode = mutation({
 })
 
 const projectPresentationMutationArg = v.optional(
-  v.object({
-    itemLevel: v.optional(v.union(workItemTypeValidator, v.null())),
-    showChildItems: v.optional(v.boolean()),
-    layout: viewLayoutValidator,
-    grouping: groupFieldValidator,
-    ordering: orderingFieldValidator,
-    displayProps: v.array(displayPropertyValidator),
-    filters: viewFiltersValidator,
-  })
+  projectPresentationMutationValidator
 )
 
 export const createProject = mutation({

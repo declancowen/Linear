@@ -186,6 +186,117 @@ export function getAllowedTemplateTypesForTeamExperience(
   return [...ALLOWED_TEMPLATES_BY_EXPERIENCE[resolveTeamExperience(experience)]]
 }
 
+export type WorkItemLevelTaxonomyGroup = {
+  key: TeamExperienceType
+  label: string
+  options: WorkItemType[]
+}
+
+const WORK_ITEM_LEVEL_TAXONOMY_BY_EXPERIENCE: Record<
+  Exclude<TeamExperienceType, "community">,
+  WorkItemLevelTaxonomyGroup
+> = {
+  "software-development": {
+    key: "software-development",
+    label: "Software development",
+    options: getAllowedWorkItemTypesForTemplate("software-delivery"),
+  },
+  "issue-analysis": {
+    key: "issue-analysis",
+    label: "Issues",
+    options: getAllowedWorkItemTypesForTemplate("bug-tracking"),
+  },
+  "project-management": {
+    key: "project-management",
+    label: "Project management",
+    options: getAllowedWorkItemTypesForTemplate("project-management"),
+  },
+}
+
+const WORK_ITEM_LEVEL_TAXONOMY_BY_TEMPLATE: Record<
+  TemplateType,
+  WorkItemLevelTaxonomyGroup
+> = {
+  "software-delivery":
+    WORK_ITEM_LEVEL_TAXONOMY_BY_EXPERIENCE["software-development"],
+  "bug-tracking": WORK_ITEM_LEVEL_TAXONOMY_BY_EXPERIENCE["issue-analysis"],
+  "project-management":
+    WORK_ITEM_LEVEL_TAXONOMY_BY_EXPERIENCE["project-management"],
+}
+
+function cloneWorkItemLevelTaxonomyGroup(
+  group: WorkItemLevelTaxonomyGroup
+): WorkItemLevelTaxonomyGroup {
+  return {
+    ...group,
+    options: [...group.options],
+  }
+}
+
+export function getWorkItemLevelTaxonomyGroups({
+  personal,
+  privateOnly,
+  teamExperience,
+  templateType,
+}: {
+  personal?: boolean
+  privateOnly?: boolean
+  teamExperience?: TeamExperienceType | null
+  templateType?: TemplateType | null
+}): WorkItemLevelTaxonomyGroup[] {
+  if (privateOnly) {
+    return [
+      cloneWorkItemLevelTaxonomyGroup(
+        WORK_ITEM_LEVEL_TAXONOMY_BY_EXPERIENCE["project-management"]
+      ),
+    ]
+  }
+
+  if (templateType) {
+    return [
+      cloneWorkItemLevelTaxonomyGroup(
+        WORK_ITEM_LEVEL_TAXONOMY_BY_TEMPLATE[templateType]
+      ),
+    ]
+  }
+
+  if (personal || teamExperience === null || teamExperience === undefined) {
+    return [
+      cloneWorkItemLevelTaxonomyGroup(
+        WORK_ITEM_LEVEL_TAXONOMY_BY_EXPERIENCE["software-development"]
+      ),
+      cloneWorkItemLevelTaxonomyGroup(
+        WORK_ITEM_LEVEL_TAXONOMY_BY_EXPERIENCE["issue-analysis"]
+      ),
+      cloneWorkItemLevelTaxonomyGroup(
+        WORK_ITEM_LEVEL_TAXONOMY_BY_EXPERIENCE["project-management"]
+      ),
+    ]
+  }
+
+  const resolvedTemplate = getWorkItemTemplateForTeamExperience(teamExperience)
+
+  if (resolvedTemplate) {
+    return [
+      cloneWorkItemLevelTaxonomyGroup(
+        WORK_ITEM_LEVEL_TAXONOMY_BY_TEMPLATE[resolvedTemplate]
+      ),
+    ]
+  }
+
+  return []
+}
+
+export function getWorkItemLevelTaxonomyOptions(
+  input: Parameters<typeof getWorkItemLevelTaxonomyGroups>[0]
+): WorkItemType[] {
+  return [
+    ...new Set(
+      getWorkItemLevelTaxonomyGroups(input).flatMap((group) => group.options)
+    ),
+  ]
+}
+
 function isTeamIconToken(value: string): value is TeamIconToken {
   return (teamIconTokens as readonly string[]).includes(value)
 }

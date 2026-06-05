@@ -26,6 +26,7 @@ import {
 } from "@/lib/domain/default-views"
 import {
   clearViewFilterSelections,
+  normalizeHiddenState,
   viewNameMaxLength,
   viewNameMinLength,
   viewSchema,
@@ -624,17 +625,19 @@ export function createViewSlice(
             return view
           }
 
-          const values = view.hiddenState[key]
+          const hiddenState = normalizeHiddenState(view.hiddenState)
+          const values = hiddenState[key] ?? []
           const nextValues = values.includes(value)
             ? values.filter((entry) => entry !== value)
             : [...values, value]
+          const nextHiddenState = normalizeHiddenState({
+            ...hiddenState,
+            [key]: nextValues,
+          })
 
           return {
             ...view,
-            hiddenState: {
-              ...view.hiddenState,
-              [key]: nextValues,
-            },
+            hiddenState: nextHiddenState,
             updatedAt: getNow(),
           }
         }),

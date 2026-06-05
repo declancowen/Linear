@@ -50,6 +50,7 @@ type PendingViewConfigState = AppData & {
       token: string
       patch: {
         layout?: "list" | "board" | "timeline"
+        grouping?: AppData["views"][number]["grouping"]
       }
     }
   >
@@ -213,6 +214,28 @@ describe("view slice", () => {
 
     expect(refreshFromServerMock).not.toHaveBeenCalled()
     expect(toastSuccessMock).toHaveBeenCalledWith("View created")
+  })
+
+  it("preserves no primary grouping when creating optimistic views", async () => {
+    mockCreateViewSuccessWithInputId()
+    const harness = await createViewSliceHarness()
+
+    const createdViewId = harness.slice.createView(
+      createDeliveryViewInput({
+        grouping: null,
+      })
+    )
+
+    expect(harness.state.views[0]).toMatchObject({
+      id: createdViewId,
+      grouping: null,
+    })
+    expect(syncCreateViewMock).toHaveBeenCalledWith(
+      "user_1",
+      expect.objectContaining({
+        grouping: null,
+      })
+    )
   })
 
   it("derives the default item level from the team experience for optimistic item views", async () => {
@@ -385,6 +408,34 @@ describe("view slice", () => {
     expect(syncUpdateViewConfigMock).toHaveBeenCalledWith("view_1", {
       layout: "list",
       showCompleted: false,
+    })
+    expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("persists no primary grouping when updating view config", async () => {
+    const state = createViewTestState()
+    seedSharedView(state, {
+      grouping: "status",
+      subGrouping: "priority",
+    })
+    const syncInBackgroundMock = vi.fn()
+    const harness = await createViewSliceHarness({
+      state,
+      syncInBackground: syncInBackgroundMock,
+    })
+
+    harness.slice.updateViewConfig("view_1", {
+      grouping: null,
+      subGrouping: null,
+    })
+
+    expect(state.views[0]).toMatchObject({
+      grouping: null,
+      subGrouping: null,
+    })
+    expect(syncUpdateViewConfigMock).toHaveBeenCalledWith("view_1", {
+      grouping: null,
+      subGrouping: null,
     })
     expect(syncInBackgroundMock).toHaveBeenCalledTimes(1)
   })

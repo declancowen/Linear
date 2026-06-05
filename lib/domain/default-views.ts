@@ -4,6 +4,7 @@ import {
   getDefaultShowChildItemsForItemLevel,
   getDefaultViewItemLevelForTeamExperience,
   getWorkSurfaceCopy,
+  normalizeHiddenState,
   type EntityKind,
   type TeamExperienceType,
   type ViewContainerType,
@@ -235,8 +236,11 @@ function getViewDefinitionConfigFields(input: CreateViewDefinitionInput) {
     layout: input.overrides?.layout ?? "list",
     filters: cloneViewFilters(input.overrides?.filters),
     grouping:
-      input.overrides?.grouping ??
-      (input.entityKind === "docs" ? "kind" : "status"),
+      input.overrides?.grouping === undefined
+        ? input.entityKind === "docs"
+          ? "kind"
+          : "status"
+        : input.overrides.grouping,
     subGrouping: input.overrides?.subGrouping ?? null,
     ordering:
       input.overrides?.ordering ??
@@ -312,16 +316,13 @@ function cloneHiddenState(
   hiddenState: ViewConfigOverrides["hiddenState"] | undefined
 ) {
   if (hiddenState) {
-    return {
-      groups: [...hiddenState.groups],
-      subgroups: [...hiddenState.subgroups],
-    }
+    return normalizeHiddenState(hiddenState)
   }
 
-  return {
+  return normalizeHiddenState({
     groups: [],
     subgroups: entityKind === "items" ? ["cancelled", "duplicate"] : [],
-  }
+  })
 }
 
 export function buildTeamWorkViews(

@@ -2985,6 +2985,25 @@ describe("ListView", () => {
     )
   })
 
+  it("keeps no-group list add controls aligned with the row content lane", () => {
+    const data = createEditableData()
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", [], { grouping: null })}
+        editable
+      />
+    )
+
+    const addButton = screen.getByRole("button", { name: "Add item" })
+
+    expect(addButton).toHaveStyle({ paddingLeft: "14px" })
+    expect(addButton).toHaveClass("gap-2.5")
+    expect(addButton).not.toHaveClass("pl-[45px]")
+  })
+
   it("prepopulates labels when adding from an empty label-filtered lane", () => {
     const data = {
       ...createCreateDefaultData(),

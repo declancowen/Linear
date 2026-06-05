@@ -9,6 +9,7 @@ import type {
   GroupField,
   OrderingField,
   ViewContainerType,
+  ViewDefinition,
   ViewLayout,
   WorkItemType,
 } from "@/lib/domain/types"
@@ -377,13 +378,14 @@ export async function updateViewConfigServer(input: {
   currentUserId: string
   viewId: string
   layout?: ViewLayout
-  grouping?: GroupField
+  grouping?: GroupField | null
   subGrouping?: GroupField | null
   ordering?: OrderingField
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
   showCompleted?: boolean
   showEmptyGroups?: boolean
+  hiddenState?: ViewDefinition["hiddenState"]
   description?: string
   containerType?: ViewContainerType | null
   containerId?: string | null
@@ -591,7 +593,7 @@ export async function reorderViewDisplayPropertiesServer(input: {
 export async function toggleViewHiddenValueServer(input: {
   currentUserId: string
   viewId: string
-  key: "groups" | "subgroups"
+  key: "groups" | "subgroups" | "includedGroups"
   value: string
 }) {
   try {

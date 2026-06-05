@@ -31,7 +31,15 @@ vi.mock("@/components/app/screens/shared", () => ({
 vi.mock("@/components/app/screens/work-surface-controls", () => ({
   FilterPopover: () => null,
   GroupChipPopover: () => null,
-  LayoutTabs: () => null,
+  LayoutTabs: ({
+    onUpdateView,
+  }: {
+    onUpdateView?: (patch: { layout?: "list" | "board" | "timeline" }) => void
+  }) => (
+    <button type="button" onClick={() => onUpdateView?.({ layout: "list" })}>
+      Switch layout
+    </button>
+  ),
   LevelChipPopover: ({ showLabel }: { showLabel?: boolean }) => (
     <div>{showLabel === false ? "level:value-only" : "level:label"}</div>
   ),

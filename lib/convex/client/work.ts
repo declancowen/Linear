@@ -218,7 +218,7 @@ export function syncReorderViewDisplayProperties(
 
 export function syncToggleViewHiddenValue(
   viewId: string,
-  key: "groups" | "subgroups",
+  key: "groups" | "subgroups" | "includedGroups",
   value: string
 ) {
   return runRouteMutation(`/api/views/${viewId}`, {

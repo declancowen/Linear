@@ -2902,7 +2902,7 @@ type ProjectDraftViewSetters = {
   setProjectFilters: (
     resolveNextFilters: (current: ProjectDraftFilters) => ProjectDraftFilters
   ) => void
-  setProjectGrouping: (grouping: GroupField) => void
+  setProjectGrouping: (grouping: GroupField | null) => void
   setProjectOrdering: (ordering: ViewDefinition["ordering"]) => void
   setProjectSubGrouping: (grouping: GroupField | null) => void
 }
@@ -2925,8 +2925,8 @@ function applyProjectDraftGroupingPatch(
     "setProjectGrouping" | "setProjectSubGrouping"
   >
 ) {
-  if (patch.grouping) {
-    setters.setProjectGrouping(patch.grouping)
+  if ("grouping" in patch) {
+    setters.setProjectGrouping(patch.grouping ?? null)
   }
 
   if ("subGrouping" in patch) {
@@ -3059,7 +3059,9 @@ function useProjectDraftViewState({
   const [projectFilters, setProjectFilters] = useState(() =>
     createEmptyViewFilters()
   )
-  const [projectGrouping, setProjectGrouping] = useState<GroupField>("status")
+  const [projectGrouping, setProjectGrouping] = useState<GroupField | null>(
+    "status"
+  )
   const [projectSubGrouping, setProjectSubGrouping] =
     useState<GroupField | null>(null)
   const [projectOrdering, setProjectOrdering] =
@@ -3177,12 +3179,15 @@ function useEffectiveProjectView({
 }
 
 function getProjectViewGrouping(view: ViewDefinition) {
-  return PROJECT_GROUP_OPTIONS.includes(view.grouping)
+  return view.grouping === null || PROJECT_GROUP_OPTIONS.includes(view.grouping)
     ? view.grouping
     : "status"
 }
 
-function getProjectViewSubGrouping(view: ViewDefinition, grouping: GroupField) {
+function getProjectViewSubGrouping(
+  view: ViewDefinition,
+  grouping: GroupField | null
+) {
   if (!view.subGrouping || view.subGrouping === grouping) {
     return null
   }

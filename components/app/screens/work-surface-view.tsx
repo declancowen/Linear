@@ -42,9 +42,11 @@ import {
   buildItemGroups,
   buildItemGroupsWithEmptyGroups,
   getDirectChildWorkItemsForDisplay,
+  getHiddenItemGroupEntries,
   getParentGroupHeaderIds,
   getTeam,
   getUser,
+  getVisibleItemGroupEntries,
   getWorkItem,
   getWorkItemChildProgress,
 } from "@/lib/domain/selectors"
@@ -294,7 +296,9 @@ function getParentGroupedDisplayItems(
     return items
   }
 
-  return items.filter((item) => !parentIds.has(item.id))
+  const displayPool = view.showChildItems ? sourceItems : items
+
+  return displayPool.filter((item) => !parentIds.has(item.id))
 }
 
 function getParentGroupValueForItem(item: WorkItem) {
@@ -663,6 +667,39 @@ function createWorkSurfaceGroupCreateHandler(input: {
       subgroupValue,
       view: input.view,
     })
+  }
+}
+
+function getWorkSurfaceLaneControls({
+  createContext,
+  data,
+  items,
+  scopedItems,
+  setExpandedItemIds,
+  view,
+  visibleGroups,
+}: {
+  createContext?: WorkSurfaceCreateContext
+  data: AppData
+  items: WorkItem[]
+  scopedItems?: WorkItem[]
+  setExpandedItemIds: Dispatch<SetStateAction<Set<string>>>
+  view: ViewDefinition
+  visibleGroups: Array<[string, Map<string, WorkItem[]>]>
+}) {
+  return {
+    openCreateForGroup: createWorkSurfaceGroupCreateHandler({
+      createContext,
+      data,
+      items,
+      scopedItems,
+      view,
+    }),
+    toggleExpandedItem: (itemId: string) =>
+      toggleSetMember(setExpandedItemIds, itemId),
+    ungroupedLaneItems: !view.grouping
+      ? getUngroupedLaneItems(visibleGroups)
+      : [],
   }
 }
 
@@ -1489,6 +1526,503 @@ function getVisibleWorkSurfaceSelectionIds(
   )
 }
 
+function useGroupedWorkSurfaceViewState({
+  createContext,
+  data,
+  editable,
+  items,
+  scopedItems,
+  view,
+}: Pick<
+  WorkSurfaceViewProps,
+  "createContext" | "data" | "editable" | "items" | "scopedItems" | "view"
+>) {
+  const groups = useMemoizedWorkSurfaceGroups({
+    createContext,
+    data,
+    editable,
+    items,
+    scopedItems,
+    view,
+  })
+  const sourceItems = scopedItems ?? items
+  const displayItems = getParentGroupedDisplayItems(items, sourceItems, view)
+
+  return {
+    displayItems,
+    hiddenGroups: getHiddenItemGroupEntries(groups, view.hiddenState),
+    showChildItems: Boolean(view.showChildItems),
+    sourceItems,
+    visibleGroups: getVisibleItemGroupEntries(groups, view.hiddenState),
+  }
+}
+
+function getWorkSurfaceGroupHeaderMeta({
+  data,
+  groupName,
+  groupingExperience,
+  sourceItems,
+  subgroups,
+  view,
+}: {
+  data: AppData
+  groupName: string
+  groupingExperience?: TeamExperienceType | null
+  sourceItems: WorkItem[]
+  subgroups: Map<string, WorkItem[]>
+  view: ViewDefinition
+}) {
+  const groupItems = Array.from(subgroups.values()).flat()
+
+  return {
+    groupAccentVar: getGroupAccentVar(view.grouping, groupName),
+    groupAdornment: getGroupValueAdornment(view.grouping, groupName),
+    groupCount: groupItems.length,
+    groupItems,
+    groupLabel: getGroupValueLabel(view.grouping, groupName, {
+      view,
+      groupingExperience,
+    }),
+    parentGroupItem: getParentGroupItem({
+      data,
+      field: view.grouping,
+      groupItems,
+      sourceItems,
+      value: groupName,
+    }),
+  }
+}
+
+function getUngroupedLaneItems(
+  groups: Array<[string, Map<string, WorkItem[]>]>
+) {
+  return groups.flatMap(([, subgroups]) =>
+    Array.from(subgroups.values()).flat()
+  )
+}
+
+function getVisibleSubgroupEntries(
+  view: ViewDefinition,
+  subgroups: Map<string, WorkItem[]>
+) {
+  return Array.from(subgroups.entries()).filter(
+    ([subgroupName]) => !view.hiddenState.subgroups.includes(subgroupName)
+  )
+}
+
+function getParentSubgroupItem({
+  data,
+  sourceItems,
+  subgroupItems,
+  subgroupName,
+  view,
+}: {
+  data: AppData
+  sourceItems: WorkItem[]
+  subgroupItems: WorkItem[]
+  subgroupName: string
+  view: ViewDefinition
+}) {
+  return getParentGroupItem({
+    data,
+    field: view.subGrouping,
+    groupItems: subgroupItems,
+    sourceItems,
+    value: subgroupName,
+  })
+}
+
+type WorkSurfaceSubgroupSectionsProps = {
+  className: string
+  data: AppData
+  groupName: string
+  groupingExperience?: TeamExperienceType | null
+  footer?: ReactNode
+  onOpenProperties?: (itemId: string | null) => void
+  renderLane: (subgroupName: string, subItems: WorkItem[]) => ReactNode
+  sourceItems: WorkItem[]
+  subgroups: Map<string, WorkItem[]>
+  variant: "board" | "list"
+  view: ViewDefinition
+}
+
+function WorkSurfaceSubgroupSections({
+  className,
+  data,
+  groupName,
+  groupingExperience,
+  footer,
+  onOpenProperties,
+  renderLane,
+  sourceItems,
+  subgroups,
+  variant,
+  view,
+}: WorkSurfaceSubgroupSectionsProps) {
+  const HeaderComponent =
+    variant === "board" ? BoardSubgroupHeader : ListSubgroupHeader
+
+  return (
+    <div className={className}>
+      {getVisibleSubgroupEntries(view, subgroups).map(
+        ([subgroupName, subItems]) => {
+          const parentSubgroupItem = getParentSubgroupItem({
+            data,
+            sourceItems,
+            subgroupItems: subItems,
+            subgroupName,
+            view,
+          })
+
+          return (
+            <div key={`${groupName}-${subgroupName}`}>
+              {view.subGrouping ? (
+                <HeaderComponent
+                  data={data}
+                  displayProps={view.displayProps}
+                  groupCount={subItems.length}
+                  groupLabel={getGroupValueLabel(
+                    view.subGrouping,
+                    subgroupName,
+                    {
+                      view,
+                      groupingExperience,
+                    }
+                  )}
+                  parentItem={parentSubgroupItem}
+                  onOpenProperties={onOpenProperties}
+                />
+              ) : null}
+              {renderLane(subgroupName, subItems)}
+            </div>
+          )
+        }
+      )}
+      {footer}
+    </div>
+  )
+}
+
+type WorkSurfaceItemLaneProps = {
+  addButtonAlignment?: "grouped" | "ungrouped"
+  childDisplayMode: ChildDisplayMode
+  data: AppData
+  displayItems: WorkItem[]
+  displayProps: DisplayProperty[]
+  editable: boolean
+  expandedItemIds: Set<string>
+  id: string
+  laneItems: WorkItem[]
+  onCreateItem?: () => void
+  onOpenProperties?: (itemId: string | null) => void
+  onToggleExpandedItem: (itemId: string) => void
+  reserveSelectionSlot?: boolean
+  rowAlignment?: "grouped" | "ungrouped"
+  scopedItems?: WorkItem[]
+  selection?: WorkItemSelectionController
+  showChildItems: boolean
+  view: ViewDefinition
+  className?: string
+}
+
+function getLaneContainerItems({
+  displayItems,
+  laneItems,
+  showChildItems,
+}: Pick<
+  WorkSurfaceItemLaneProps,
+  "displayItems" | "laneItems" | "showChildItems"
+>) {
+  return getContainerItemsForDisplay(laneItems, displayItems, showChildItems)
+}
+
+function BoardItemLane(props: WorkSurfaceItemLaneProps) {
+  const {
+    childDisplayMode,
+    data,
+    displayProps,
+    editable,
+    expandedItemIds,
+    id,
+    onCreateItem,
+    onOpenProperties,
+    onToggleExpandedItem,
+    scopedItems,
+    selection,
+    showChildItems,
+    view,
+    className,
+  } = props
+  const containerItems = getLaneContainerItems(props)
+
+  return (
+    <BoardDropLane id={id} className={className}>
+      {containerItems.map((item) => {
+        const childItems = showChildItems
+          ? getDirectChildWorkItemsForDisplay(
+              data,
+              item,
+              view.ordering,
+              view,
+              scopedItems,
+              {
+                mode: childDisplayMode,
+              }
+            )
+          : []
+
+        return (
+          <DraggableWorkCard
+            key={item.id}
+            item={item}
+            data={data}
+            displayProps={displayProps}
+            selection={selection}
+            childCountOverride={getDisplayedChildCountOverride(
+              childItems,
+              childDisplayMode
+            )}
+            onOpenProperties={onOpenProperties}
+            details={
+              showChildItems ? (
+                <WorkItemChildDisclosure
+                  data={data}
+                  item={item}
+                  displayProps={displayProps}
+                  childItems={childItems}
+                  editable={editable}
+                  expanded={expandedItemIds.has(item.id)}
+                  selection={selection}
+                  onOpenProperties={onOpenProperties}
+                  onToggle={() => onToggleExpandedItem(item.id)}
+                />
+              ) : null
+            }
+          />
+        )
+      })}
+      {editable && onCreateItem ? (
+        <button
+          type="button"
+          className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+          onClick={onCreateItem}
+        >
+          <Plus className="size-3.5" />
+          <span>Add item</span>
+        </button>
+      ) : null}
+      {!editable && containerItems.length === 0 ? (
+        <div className="rounded-[6px] border-[1.5px] border-dashed border-line px-3 py-3.5 text-center text-[12px] text-fg-4">
+          No items
+        </div>
+      ) : null}
+    </BoardDropLane>
+  )
+}
+
+function BoardUngroupedLane({
+  childDisplayMode,
+  data,
+  displayItems,
+  editable,
+  expandedItemIds,
+  laneItems,
+  onCreateForGroup,
+  onOpenProperties,
+  onToggleExpandedItem,
+  scopedItems,
+  selection,
+  showChildItems,
+  view,
+}: {
+  childDisplayMode: ChildDisplayMode
+  data: AppData
+  displayItems: WorkItem[]
+  editable: boolean
+  expandedItemIds: Set<string>
+  laneItems: WorkItem[]
+  onCreateForGroup: (input: OpenCreateForGroupInput) => void
+  onOpenProperties?: (itemId: string | null) => void
+  onToggleExpandedItem: (itemId: string) => void
+  scopedItems?: WorkItem[]
+  selection?: WorkItemSelectionController
+  showChildItems: boolean
+  view: ViewDefinition
+}) {
+  return (
+    <div className="flex w-[520px] max-w-[calc(100vw-2rem)] shrink-0 flex-col">
+      <BoardItemLane
+        id="board::all"
+        className="min-h-24 flex-1"
+        childDisplayMode={childDisplayMode}
+        data={data}
+        displayItems={displayItems}
+        displayProps={view.displayProps}
+        editable={editable}
+        expandedItemIds={expandedItemIds}
+        laneItems={laneItems}
+        onCreateItem={
+          editable
+            ? () =>
+                onCreateForGroup({
+                  groupValue: "all",
+                  laneItems,
+                })
+            : undefined
+        }
+        onOpenProperties={onOpenProperties}
+        onToggleExpandedItem={onToggleExpandedItem}
+        scopedItems={scopedItems}
+        selection={selection}
+        showChildItems={showChildItems}
+        view={view}
+      />
+    </div>
+  )
+}
+
+function BoardGroupColumn({
+  childDisplayMode,
+  data,
+  displayItems,
+  editable,
+  expandedItemIds,
+  groupName,
+  groupingExperience,
+  onCreateForGroup,
+  onOpenProperties,
+  onToggleExpandedItem,
+  scopedItems,
+  selection,
+  showChildItems,
+  sourceItems,
+  subgroups,
+  view,
+}: {
+  childDisplayMode: ChildDisplayMode
+  data: AppData
+  displayItems: WorkItem[]
+  editable: boolean
+  expandedItemIds: Set<string>
+  groupName: string
+  groupingExperience?: TeamExperienceType | null
+  onCreateForGroup: (input: OpenCreateForGroupInput) => void
+  onOpenProperties?: (itemId: string | null) => void
+  onToggleExpandedItem: (itemId: string) => void
+  scopedItems?: WorkItem[]
+  selection?: WorkItemSelectionController
+  showChildItems: boolean
+  sourceItems: WorkItem[]
+  subgroups: Map<string, WorkItem[]>
+  view: ViewDefinition
+}) {
+  const {
+    groupAccentVar,
+    groupCount,
+    groupItems,
+    groupLabel,
+    parentGroupItem,
+  } = getWorkSurfaceGroupHeaderMeta({
+    data,
+    groupName,
+    groupingExperience,
+    sourceItems,
+    subgroups,
+    view,
+  })
+
+  return (
+    <div className="flex w-[296px] shrink-0 flex-col rounded-xl border border-line-soft bg-bg-sunken">
+      <BoardGroupHeader
+        id={`board-group::${groupName}`}
+        accentVar={groupAccentVar}
+        groupLabel={groupLabel}
+        groupCount={groupCount}
+        data={data}
+        displayProps={view.displayProps}
+        parentItem={parentGroupItem}
+        onOpenProperties={onOpenProperties}
+      />
+      <div
+        aria-hidden
+        className="mx-3 h-0.5 rounded-full opacity-60"
+        style={{
+          background: groupAccentVar ?? "var(--text-3)",
+        }}
+      />
+      <WorkSurfaceSubgroupSections
+        className="no-scrollbar flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2"
+        data={data}
+        groupName={groupName}
+        groupingExperience={groupingExperience}
+        onOpenProperties={onOpenProperties}
+        renderLane={(subgroupName, subItems) => (
+          <BoardItemLane
+            id={`board::${groupName}::${subgroupName}`}
+            childDisplayMode={childDisplayMode}
+            data={data}
+            displayItems={displayItems}
+            displayProps={view.displayProps}
+            editable={editable}
+            expandedItemIds={expandedItemIds}
+            laneItems={subItems}
+            onCreateItem={
+              editable
+                ? () =>
+                    onCreateForGroup({
+                      groupValue: groupName,
+                      subgroupValue: subgroupName,
+                      laneItems: subItems,
+                    })
+                : undefined
+            }
+            onOpenProperties={onOpenProperties}
+            onToggleExpandedItem={onToggleExpandedItem}
+            scopedItems={scopedItems}
+            selection={selection}
+            showChildItems={showChildItems}
+            view={view}
+          />
+        )}
+        sourceItems={sourceItems}
+        subgroups={subgroups}
+        variant="board"
+        view={view}
+        footer={
+          subgroups.size === 0 ? (
+            <BoardItemLane
+              id={`board::${groupName}`}
+              className="min-h-24 flex-1"
+              childDisplayMode={childDisplayMode}
+              data={data}
+              displayItems={displayItems}
+              displayProps={view.displayProps}
+              editable={editable}
+              expandedItemIds={expandedItemIds}
+              laneItems={groupItems}
+              onCreateItem={
+                editable
+                  ? () =>
+                      onCreateForGroup({
+                        groupValue: groupName,
+                        laneItems: groupItems,
+                      })
+                  : undefined
+              }
+              onOpenProperties={onOpenProperties}
+              onToggleExpandedItem={onToggleExpandedItem}
+              scopedItems={scopedItems}
+              selection={selection}
+              showChildItems={showChildItems}
+              view={view}
+            />
+          ) : null
+        }
+      />
+    </div>
+  )
+}
+
 export function BoardView({
   data,
   items,
@@ -1502,7 +2036,13 @@ export function BoardView({
   selectedItemId,
   onSelectedItemIdChange,
 }: WorkSurfaceViewProps) {
-  const groups = useMemoizedWorkSurfaceGroups({
+  const {
+    displayItems,
+    hiddenGroups,
+    showChildItems,
+    sourceItems,
+    visibleGroups,
+  } = useGroupedWorkSurfaceViewState({
     createContext,
     data,
     editable,
@@ -1534,15 +2074,6 @@ export function BoardView({
     scope: "board",
     view,
   })
-  const hiddenGroups = groups.filter(([groupName]) =>
-    view.hiddenState.groups.includes(groupName)
-  )
-  const visibleGroups = groups.filter(
-    ([groupName]) => !view.hiddenState.groups.includes(groupName)
-  )
-  const showChildItems = Boolean(view.showChildItems)
-  const sourceItems = scopedItems ?? items
-  const displayItems = getParentGroupedDisplayItems(items, sourceItems, view)
   const selection = useWorkItemSelection(
     getVisibleWorkSurfaceSelectionIds({
       childDisplayMode,
@@ -1561,17 +2092,16 @@ export function BoardView({
     selectedItemId,
   })
 
-  function toggleExpandedItem(itemId: string) {
-    toggleSetMember(setExpandedItemIds, itemId)
-  }
-
-  const openCreateForGroup = createWorkSurfaceGroupCreateHandler({
+  const { openCreateForGroup, toggleExpandedItem, ungroupedLaneItems } =
+    getWorkSurfaceLaneControls({
     createContext,
     data,
     items,
     scopedItems,
+      setExpandedItemIds,
     view,
-  })
+      visibleGroups,
+    })
 
   return (
     <DndContext
@@ -1585,200 +2115,49 @@ export function BoardView({
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <ScrollArea className="h-full w-full">
             <div className="flex h-full min-w-max items-stretch gap-3 px-4 pt-3.5 pb-8">
-              {visibleGroups.map(([groupName, subgroups]) => {
-                const groupItems = Array.from(subgroups.values()).flat()
-                const groupCount = groupItems.length
-                const parentGroupItem = getParentGroupItem({
-                  data,
-                  field: view.grouping,
-                  groupItems,
-                  sourceItems,
-                  value: groupName,
-                })
-                const groupLabel = getGroupValueLabel(
-                  view.grouping,
-                  groupName,
-                  {
-                    view,
-                    groupingExperience,
-                  }
-                )
-                const groupAccentVar = getGroupAccentVar(
-                  view.grouping,
-                  groupName
-                )
-
-                return (
-                  <div
+              {!view.grouping ? (
+                <BoardUngroupedLane
+                  childDisplayMode={childDisplayMode}
+                  data={data}
+                  displayItems={displayItems}
+                  editable={editable}
+                  expandedItemIds={expandedItemIds}
+                  laneItems={ungroupedLaneItems}
+                  onCreateForGroup={openCreateForGroup}
+                  onOpenProperties={onSelectedItemIdChange}
+                  onToggleExpandedItem={toggleExpandedItem}
+                  scopedItems={scopedItems}
+                  selection={editable ? selection : undefined}
+                  showChildItems={showChildItems}
+                  view={view}
+                />
+              ) : (
+                visibleGroups.map(([groupName, subgroups]) => (
+                  <BoardGroupColumn
                     key={groupName}
-                    className="flex w-[296px] shrink-0 flex-col rounded-xl border border-line-soft bg-bg-sunken"
-                  >
-                    <BoardGroupHeader
-                      id={`board-group::${groupName}`}
-                      accentVar={groupAccentVar}
-                      groupLabel={groupLabel}
-                      groupCount={groupCount}
-                      data={data}
-                      displayProps={view.displayProps}
-                      parentItem={parentGroupItem}
-                      onOpenProperties={onSelectedItemIdChange}
-                    />
-                    <div
-                      aria-hidden
-                      className="mx-3 h-0.5 rounded-full opacity-60"
-                      style={{
-                        background: groupAccentVar ?? "var(--text-3)",
-                      }}
-                    />
-                    <div className="no-scrollbar flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2">
-                      {Array.from(subgroups.entries()).map(
-                        ([subgroupName, subItems]) => {
-                          const hidden =
-                            view.hiddenState.subgroups.includes(subgroupName)
-                          if (hidden) return null
-                          const parentSubgroupItem = getParentGroupItem({
-                            data,
-                            field: view.subGrouping,
-                            groupItems: subItems,
-                            sourceItems,
-                            value: subgroupName,
-                          })
-
-                          return (
-                            <div key={`${groupName}-${subgroupName}`}>
-                              {view.subGrouping ? (
-                                <BoardSubgroupHeader
-                                  data={data}
-                                  displayProps={view.displayProps}
-                                  groupCount={subItems.length}
-                                  groupLabel={getGroupValueLabel(
-                                    view.subGrouping,
-                                    subgroupName,
-                                    {
-                                      view,
-                                      groupingExperience,
-                                    }
-                                  )}
-                                  parentItem={parentSubgroupItem}
-                                  onOpenProperties={onSelectedItemIdChange}
-                                />
-                              ) : null}
-                              <BoardDropLane
-                                id={`board::${groupName}::${subgroupName}`}
-                              >
-                                {getContainerItemsForDisplay(
-                                  subItems,
-                                  displayItems,
-                                  showChildItems
-                                ).map((item) => {
-                                  const childItems = showChildItems
-                                    ? getDirectChildWorkItemsForDisplay(
-                                        data,
-                                        item,
-                                        view.ordering,
-                                        view,
-                                        scopedItems,
-                                        {
-                                          mode: childDisplayMode,
-                                        }
-                                      )
-                                    : []
-
-                                  return (
-                                    <DraggableWorkCard
-                                      key={item.id}
-                                      item={item}
-                                      data={data}
-                                      displayProps={view.displayProps}
-                                      selection={
-                                        editable ? selection : undefined
-                                      }
-                                      childCountOverride={getDisplayedChildCountOverride(
-                                        childItems,
-                                        childDisplayMode
-                                      )}
-                                      onOpenProperties={onSelectedItemIdChange}
-                                      details={
-                                        showChildItems ? (
-                                          <WorkItemChildDisclosure
-                                            data={data}
-                                            item={item}
-                                            displayProps={view.displayProps}
-                                            childItems={childItems}
-                                            editable={editable}
-                                            expanded={expandedItemIds.has(
-                                              item.id
-                                            )}
-	                                            selection={
-	                                              editable ? selection : undefined
-	                                            }
-                                            onOpenProperties={
-                                              onSelectedItemIdChange
-                                            }
-	                                            onToggle={() =>
-                                              toggleExpandedItem(item.id)
-                                            }
-                                          />
-                                        ) : null
-                                      }
-                                    />
-                                  )
-                                })}
-                                {editable ? (
-                                  <button
-                                    type="button"
-                                    className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-                                    onClick={() =>
-                                      openCreateForGroup({
-                                        groupValue: groupName,
-                                        subgroupValue: subgroupName,
-                                        laneItems: subItems,
-                                      })
-                                    }
-                                  >
-                                    <Plus className="size-3.5" />
-                                    <span>Add item</span>
-                                  </button>
-                                ) : null}
-                              </BoardDropLane>
-                            </div>
-                          )
-                        }
-                      )}
-                      {subgroups.size === 0 ? (
-                        editable ? (
-                          <BoardDropLane
-                            id={`board::${groupName}`}
-                            className="min-h-24 flex-1"
-                          >
-                            <button
-                              type="button"
-                              className="flex items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-                              onClick={() =>
-                                openCreateForGroup({
-                                  groupValue: groupName,
-                                  laneItems: groupItems,
-                                })
-                              }
-                            >
-                              <Plus className="size-3.5" />
-                              <span>Add item</span>
-                            </button>
-                          </BoardDropLane>
-                        ) : (
-                          <div className="rounded-[6px] border-[1.5px] border-dashed border-line px-3 py-3.5 text-center text-[12px] text-fg-4">
-                            No items
-                          </div>
-                        )
-                      ) : null}
-                    </div>
-                  </div>
-                )
-              })}
+                    childDisplayMode={childDisplayMode}
+                    data={data}
+                    displayItems={displayItems}
+                    editable={editable}
+                    expandedItemIds={expandedItemIds}
+                    groupName={groupName}
+                    groupingExperience={groupingExperience}
+                    onCreateForGroup={openCreateForGroup}
+                    onOpenProperties={onSelectedItemIdChange}
+                    onToggleExpandedItem={toggleExpandedItem}
+                    scopedItems={scopedItems}
+                    selection={editable ? selection : undefined}
+                    showChildItems={showChildItems}
+                    sourceItems={sourceItems}
+                    subgroups={subgroups}
+                    view={view}
+                  />
+                ))
+              )}
             </div>
           </ScrollArea>
 
-          {hiddenGroups.length > 0 ? (
+          {view.grouping && hiddenGroups.length > 0 ? (
             <div className="border-t border-line-soft px-4 py-2">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">
@@ -1840,27 +2219,161 @@ export function BoardView({
   )
 }
 
-export function ListView({
-  data,
-  items,
-  scopedItems,
-  view,
-  editable,
-  groupingExperience,
-  childDisplayMode = "direct",
-  createContext,
-  onToggleHiddenValue,
-  selectedItemId,
-  onSelectedItemIdChange,
-}: WorkSurfaceViewProps) {
-  const groups = useMemoizedWorkSurfaceGroups({
-    createContext,
+function ListItemLane(props: WorkSurfaceItemLaneProps) {
+  const {
+    addButtonAlignment = "grouped",
+    childDisplayMode,
     data,
+    displayProps,
     editable,
-    items,
+    expandedItemIds,
+    id,
+    onCreateItem,
+    onOpenProperties,
+    onToggleExpandedItem,
+    reserveSelectionSlot = true,
+    rowAlignment = "grouped",
     scopedItems,
+    selection,
+    showChildItems,
     view,
-  })
+    className,
+  } = props
+  const containerItems = getLaneContainerItems(props)
+
+  return (
+    <ListDropLane id={id} className={className}>
+      {containerItems.flatMap((item) => {
+        const children = showChildItems
+          ? getDirectChildWorkItemsForDisplay(
+              data,
+              item,
+              view.ordering,
+              view,
+              scopedItems,
+              {
+                mode: childDisplayMode,
+              }
+            )
+          : []
+        const hasChildren = children.length > 0
+        const isExpanded = expandedItemIds.has(item.id)
+        const RowComponent = editable ? DraggableListRow : ListRow
+        const parentRow = (
+          <RowComponent
+            key={item.id}
+            data={data}
+            item={item}
+            displayProps={displayProps}
+            selection={selection}
+            depth={0}
+            hasChildren={hasChildren}
+            childCountOverride={getDisplayedChildCountOverride(
+              children,
+              childDisplayMode
+            )}
+            expanded={isExpanded}
+            onOpenProperties={onOpenProperties}
+            reserveSelectionSlot={reserveSelectionSlot}
+            rowAlignment={rowAlignment}
+            onToggleExpanded={() => onToggleExpandedItem(item.id)}
+          />
+        )
+
+        if (!isExpanded || !hasChildren) {
+          return [parentRow]
+        }
+
+        return [
+          parentRow,
+          ...children.map((child) => {
+            const ChildRowComponent = editable ? DraggableListRow : ListRow
+
+            return (
+              <ChildRowComponent
+                key={child.id}
+                data={data}
+                item={child}
+                displayProps={displayProps}
+                selection={selection}
+                depth={1}
+                onOpenProperties={onOpenProperties}
+                reserveSelectionSlot={reserveSelectionSlot}
+                rowAlignment={rowAlignment}
+              />
+            )
+          }),
+        ]
+      })}
+      {editable && onCreateItem ? (
+        <ListAddItemButton
+          alignment={addButtonAlignment}
+          onClick={onCreateItem}
+        />
+      ) : null}
+      {!editable && containerItems.length === 0 ? (
+        <div className="px-11 py-3 text-xs text-muted-foreground">
+          No items
+        </div>
+      ) : null}
+    </ListDropLane>
+  )
+}
+
+function ListAddItemButton({
+  alignment,
+  onClick,
+}: {
+  alignment: "grouped" | "ungrouped"
+  onClick: () => void
+}) {
+  if (alignment === "grouped") {
+    return (
+      <button
+        type="button"
+        className="flex items-center gap-2.5 py-2 pr-2.5 pl-[45px] text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+        onClick={onClick}
+      >
+        <Plus className="size-3.5" />
+        <span>Add item</span>
+      </button>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      className="flex min-h-[34px] items-center gap-2.5 pr-2.5 text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
+      style={{ paddingLeft: 14 }}
+      onClick={onClick}
+    >
+      <span aria-hidden className="size-5 shrink-0" />
+      <span className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2.5">
+        <Plus className="size-3.5 shrink-0" />
+        <span>Add item</span>
+      </span>
+    </button>
+  )
+}
+
+export function ListView(props: WorkSurfaceViewProps) {
+  const data = props.data
+  const items = props.items
+  const scopedItems = props.scopedItems
+  const view = props.view
+  const editable = props.editable
+  const groupingExperience = props.groupingExperience
+  const childDisplayMode = props.childDisplayMode ?? "direct"
+  const createContext = props.createContext
+  const onToggleHiddenValue = props.onToggleHiddenValue
+  const selectedItemId = props.selectedItemId
+  const onSelectedItemIdChange = props.onSelectedItemIdChange
+  const groupedState = useGroupedWorkSurfaceViewState(props)
+  const displayItems = groupedState.displayItems
+  const hiddenGroups = groupedState.hiddenGroups
+  const showChildItems = groupedState.showChildItems
+  const sourceItems = groupedState.sourceItems
+  const visibleGroups = groupedState.visibleGroups
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const {
     activeItem,
@@ -1878,12 +2391,6 @@ export function ListView({
     scope: "list",
     view,
   })
-  const showChildItems = Boolean(view.showChildItems)
-  const sourceItems = scopedItems ?? items
-  const displayItems = getParentGroupedDisplayItems(items, sourceItems, view)
-  const visibleSelectionGroups = groups.filter(
-    ([groupName]) => !view.hiddenState.groups.includes(groupName)
-  )
   const selection = useWorkItemSelection(
     getVisibleWorkSurfaceSelectionIds({
       childDisplayMode,
@@ -1891,7 +2398,7 @@ export function ListView({
       data,
       displayItems,
       expandedItemIds,
-      groups: visibleSelectionGroups,
+      groups: visibleGroups,
       scopedItems,
       showChildItems,
       view,
@@ -1907,17 +2414,16 @@ export function ListView({
     toggleSetMember(setCollapsedGroups, groupName)
   }
 
-  function toggleExpandedItem(itemId: string) {
-    toggleSetMember(setExpandedItemIds, itemId)
-  }
-
-  const openCreateForGroup = createWorkSurfaceGroupCreateHandler({
+  const { openCreateForGroup, toggleExpandedItem, ungroupedLaneItems } =
+    getWorkSurfaceLaneControls({
     createContext,
     data,
     items,
     scopedItems,
+      setExpandedItemIds,
     view,
-  })
+      visibleGroups,
+    })
 
   return (
     <DndContext
@@ -1929,31 +2435,54 @@ export function ListView({
     >
       <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-10">
-          {groups.map(([groupName, subgroups]) => {
-            if (view.hiddenState.groups.includes(groupName)) {
-              return null
-            }
-
-            const groupItems = Array.from(subgroups.values()).flat()
-            const groupCount = groupItems.length
-            const parentGroupItem = getParentGroupItem({
-              data,
-              field: view.grouping,
+          {!view.grouping ? (
+            <ListItemLane
+              id="list::all"
+              addButtonAlignment="ungrouped"
+              childDisplayMode={childDisplayMode}
+              data={data}
+              displayItems={displayItems}
+              displayProps={view.displayProps}
+              editable={editable}
+              expandedItemIds={expandedItemIds}
+              laneItems={ungroupedLaneItems}
+              onCreateItem={
+                editable
+                  ? () =>
+                      openCreateForGroup({
+                        groupValue: "all",
+                        laneItems: ungroupedLaneItems,
+                      })
+                  : undefined
+              }
+              onOpenProperties={onSelectedItemIdChange}
+              onToggleExpandedItem={toggleExpandedItem}
+              reserveSelectionSlot={false}
+              rowAlignment="ungrouped"
+              scopedItems={scopedItems}
+              selection={editable ? selection : undefined}
+              showChildItems={showChildItems}
+              view={view}
+            />
+          ) : (
+            visibleGroups.map(([groupName, subgroups]) => {
+            const {
+              groupAccentVar,
+              groupAdornment,
+              groupCount,
               groupItems,
+              groupLabel,
+              parentGroupItem,
+            } = getWorkSurfaceGroupHeaderMeta({
+              data,
+              groupName,
+              groupingExperience,
               sourceItems,
-              value: groupName,
+              subgroups,
+              view,
             })
             const isExpandable = groupCount > 0 || editable
             const isCollapsed = collapsedGroups.has(groupName)
-            const groupLabel = getGroupValueLabel(view.grouping, groupName, {
-              view,
-              groupingExperience,
-            })
-            const groupAdornment = getGroupValueAdornment(
-              view.grouping,
-              groupName
-            )
-            const groupAccentVar = getGroupAccentVar(view.grouping, groupName)
 
             return (
               <div key={groupName}>
@@ -1979,195 +2508,87 @@ export function ListView({
                 />
 
                 {isExpandable && !isCollapsed ? (
-                  <div className="flex flex-col">
-                    {Array.from(subgroups.entries()).map(
-                      ([subgroupName, subItems]) => {
-                        if (view.hiddenState.subgroups.includes(subgroupName)) {
-                          return null
+                  <WorkSurfaceSubgroupSections
+                    className="flex flex-col"
+                    data={data}
+                    groupName={groupName}
+                    groupingExperience={groupingExperience}
+                    onOpenProperties={onSelectedItemIdChange}
+                    renderLane={(subgroupName, subItems) => (
+                      <ListItemLane
+                        id={`list::${groupName}::${subgroupName}`}
+                        childDisplayMode={childDisplayMode}
+                        data={data}
+                        displayItems={displayItems}
+                        displayProps={view.displayProps}
+                        editable={editable}
+                        expandedItemIds={expandedItemIds}
+                        laneItems={subItems}
+                        onCreateItem={
+                          editable
+                            ? () =>
+                                openCreateForGroup({
+                                  groupValue: groupName,
+                                  subgroupValue: subgroupName,
+                                  laneItems: subItems,
+                                })
+                            : undefined
                         }
-                        const parentSubgroupItem = getParentGroupItem({
-                          data,
-                          field: view.subGrouping,
-                          groupItems: subItems,
-                          sourceItems,
-                          value: subgroupName,
-                        })
-
-                        return (
-                          <div key={`${groupName}-${subgroupName}`}>
-                            {view.subGrouping ? (
-                              <ListSubgroupHeader
-                                data={data}
-                                displayProps={view.displayProps}
-                                groupCount={subItems.length}
-                                groupLabel={getGroupValueLabel(
-                                  view.subGrouping,
-                                  subgroupName,
-                                  {
-                                    view,
-                                    groupingExperience,
-                                  }
-                                )}
-                                parentItem={parentSubgroupItem}
-                                onOpenProperties={onSelectedItemIdChange}
-                              />
-                            ) : null}
-                            <ListDropLane
-                              id={`list::${groupName}::${subgroupName}`}
-                            >
-                              {getContainerItemsForDisplay(
-                                subItems,
-                                displayItems,
-                                showChildItems
-                              ).flatMap((item) => {
-                                const children = showChildItems
-                                  ? getDirectChildWorkItemsForDisplay(
-                                      data,
-                                      item,
-                                      view.ordering,
-                                      view,
-                                      scopedItems,
-                                      {
-                                        mode: childDisplayMode,
-                                      }
-                                    )
-                                  : []
-                                const hasChildren = children.length > 0
-                                const isExpanded = expandedItemIds.has(item.id)
-                                const parentRow = editable ? (
-                                  <DraggableListRow
-                                    key={item.id}
-                                    data={data}
-                                    item={item}
-                                    displayProps={view.displayProps}
-                                    selection={editable ? selection : undefined}
-                                    depth={0}
-                                    hasChildren={hasChildren}
-                                    childCountOverride={getDisplayedChildCountOverride(
-                                      children,
-                                      childDisplayMode
-                                    )}
-                                    expanded={isExpanded}
-                                    onOpenProperties={onSelectedItemIdChange}
-                                    onToggleExpanded={() =>
-                                      toggleExpandedItem(item.id)
-                                    }
-                                  />
-                                ) : (
-                                  <ListRow
-                                    key={item.id}
-                                    data={data}
-                                    item={item}
-                                    displayProps={view.displayProps}
-                                    selection={editable ? selection : undefined}
-                                    depth={0}
-                                    hasChildren={hasChildren}
-                                    childCountOverride={getDisplayedChildCountOverride(
-                                      children,
-                                      childDisplayMode
-                                    )}
-                                    expanded={isExpanded}
-                                    onOpenProperties={onSelectedItemIdChange}
-                                    onToggleExpanded={() =>
-                                      toggleExpandedItem(item.id)
-                                    }
-                                  />
-                                )
-
-                                if (!isExpanded || !hasChildren) {
-                                  return [parentRow]
-                                }
-
-                                return [
-                                  parentRow,
-                                  ...children.map((child) =>
-                                    editable ? (
-                                      <DraggableListRow
-                                        key={child.id}
-                                        data={data}
-                                        item={child}
-                                        displayProps={view.displayProps}
-                                        selection={
-                                          editable ? selection : undefined
-                                        }
-                                        depth={1}
-                                        onOpenProperties={onSelectedItemIdChange}
-                                      />
-                                    ) : (
-                                      <ListRow
-                                        key={child.id}
-                                        data={data}
-                                        item={child}
-                                        displayProps={view.displayProps}
-                                        selection={
-                                          editable ? selection : undefined
-                                        }
-                                        depth={1}
-                                        onOpenProperties={onSelectedItemIdChange}
-                                      />
-                                    )
-                                  ),
-                                ]
-                              })}
-                              {editable ? (
-                                <button
-                                  type="button"
-                                  className="flex items-center gap-2.5 py-2 pr-2.5 pl-[45px] text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-                                  onClick={() =>
-                                    openCreateForGroup({
-                                      groupValue: groupName,
-                                      subgroupValue: subgroupName,
-                                      laneItems: subItems,
-                                    })
-                                  }
-                                >
-                                  <Plus className="size-3.5" />
-                                  <span>Add item</span>
-                                </button>
-                              ) : null}
-                            </ListDropLane>
-                          </div>
-                        )
-                      }
+                        onOpenProperties={onSelectedItemIdChange}
+                        onToggleExpandedItem={toggleExpandedItem}
+                        scopedItems={scopedItems}
+                        selection={editable ? selection : undefined}
+                        showChildItems={showChildItems}
+                        view={view}
+                      />
                     )}
-                    {subgroups.size === 0 ? (
-                      editable ? (
-                        <ListDropLane
+                    sourceItems={sourceItems}
+                    subgroups={subgroups}
+                    variant="list"
+                    view={view}
+                    footer={
+                      subgroups.size === 0 ? (
+                        <ListItemLane
                           id={`list::${groupName}`}
                           className="min-h-10"
-                        >
-                          <button
-                            type="button"
-                            className="flex items-center gap-2.5 py-2 pr-2.5 pl-[45px] text-[12px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-foreground"
-                            onClick={() =>
-                              openCreateForGroup({
-                                groupValue: groupName,
-                                laneItems: groupItems,
-                              })
-                            }
-                          >
-                            <Plus className="size-3.5" />
-                            <span>Add item</span>
-                          </button>
-                        </ListDropLane>
-                      ) : (
-                        <div className="px-11 py-3 text-xs text-muted-foreground">
-                          No items
-                        </div>
-                      )
-                    ) : null}
-                  </div>
+                          childDisplayMode={childDisplayMode}
+                          data={data}
+                          displayItems={displayItems}
+                          displayProps={view.displayProps}
+                          editable={editable}
+                          expandedItemIds={expandedItemIds}
+                          laneItems={groupItems}
+                          onCreateItem={
+                            editable
+                              ? () =>
+                                  openCreateForGroup({
+                                    groupValue: groupName,
+                                    laneItems: groupItems,
+                                  })
+                              : undefined
+                          }
+                          onOpenProperties={onSelectedItemIdChange}
+                          onToggleExpandedItem={toggleExpandedItem}
+                          scopedItems={scopedItems}
+                          selection={editable ? selection : undefined}
+                          showChildItems={showChildItems}
+                          view={view}
+                        />
+                      ) : null
+                    }
+                  />
                 ) : null}
               </div>
             )
-          })}
+            })
+          )}
 
-          {view.hiddenState.groups.length > 0 ? (
+          {view.grouping && hiddenGroups.length > 0 ? (
             <div className="border-t border-line-soft px-4 py-3">
               <div className="mb-2 text-xs text-muted-foreground">
                 Hidden rows
               </div>
-              {view.hiddenState.groups.map((groupName) => (
+              {hiddenGroups.map(([groupName]) => (
                 <button
                   key={groupName}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-3"
@@ -2299,22 +2720,31 @@ function ListGroupHeader({
       ref={setNodeRef}
       className="sticky top-0 z-[2] bg-[color:color-mix(in_oklch,var(--background)_92%,transparent)] backdrop-blur-[6px]"
     >
-      <button
-        type="button"
-        aria-disabled={!isExpandable}
+      <div
         className={cn(
           "flex w-full items-center gap-2.5 px-5 pt-2 pb-1.5 pl-3.5 text-left",
           isExpandable ? "group/grp" : "cursor-default"
         )}
-        onClick={onClick}
       >
-        <span className="grid size-5 shrink-0 place-items-center text-fg-3">
+        <button
+          type="button"
+          aria-disabled={!isExpandable}
+          aria-label={
+            isCollapsed ? `Expand ${groupLabel}` : `Collapse ${groupLabel}`
+          }
+          className="grid size-5 shrink-0 place-items-center rounded-sm text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
+          onClick={() => {
+            if (isExpandable) {
+              onClick()
+            }
+          }}
+        >
           {isExpandable ? (
             <CollapseCaret open={!isCollapsed} className="size-3" />
           ) : (
             <span aria-hidden className="size-3" />
           )}
-        </span>
+        </button>
         <div
           className={cn(
             "flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-[min(var(--radius-md),12px)] border border-line bg-surface px-3.5 shadow-[0_1px_0_0_oklch(0.18_0_0/0.03)] transition-colors",
@@ -2334,7 +2764,7 @@ function ListGroupHeader({
             {groupCount}
           </span>
         </div>
-      </button>
+      </div>
     </div>
   )
 }
@@ -2446,6 +2876,8 @@ type ListRowBodyProps = {
   dragListeners?: DraggableBindings["listeners"]
   selection?: WorkItemSelectionController
   onOpenProperties?: (itemId: string) => void
+  reserveSelectionSlot?: boolean
+  rowAlignment?: "grouped" | "ungrouped"
 }
 
 type ListRowProps = Omit<
@@ -2559,7 +2991,7 @@ function ParentGroupItemSummary({
       aria-label={`Open properties for ${item.title}`}
       title="Open properties"
       data-no-drag="true"
-      className="inline-grid size-6 shrink-0 place-items-center rounded-md text-fg-3 opacity-0 transition-opacity hover:bg-surface-3 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none group-hover/parent-summary:opacity-100"
+      className="inline-grid size-6 shrink-0 place-items-center rounded-md text-fg-3 opacity-0 transition-opacity group-hover/parent-summary:opacity-100 hover:bg-surface-3 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
       onPointerDown={stopDragPropagation}
       onMouseDown={stopDragPropagation}
       onClick={(event) => {
@@ -2645,9 +3077,7 @@ function ParentGroupItemSummary({
           className="flex min-w-0 items-center gap-1.5 rounded-sm focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
         >
           {idProperty}
-          <span
-            className="truncate text-[13px] font-medium text-foreground"
-          >
+          <span className="truncate text-[13px] font-medium text-foreground">
             {item.title}
           </span>
         </AppLink>
@@ -2655,9 +3085,7 @@ function ParentGroupItemSummary({
         {actions}
       </div>
       {visibleProperties.length > 0 ? (
-        <div
-          className="flex min-w-0 shrink-0 items-center gap-1.5 overflow-hidden text-[11.5px] text-fg-3"
-        >
+        <div className="flex min-w-0 shrink-0 items-center gap-1.5 overflow-hidden text-[11.5px] text-fg-3">
           {visibleProperties.map(({ key, node }) => (
             <span key={key} className="contents">
               {node}
@@ -2748,7 +3176,7 @@ function ListRowLinkedContent({
             type="button"
             aria-label={`Open properties for ${item.title}`}
             title="Open properties"
-            className="grid size-5 shrink-0 place-items-center text-fg-3 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none group-hover/row:opacity-100"
+            className="grid size-5 shrink-0 place-items-center text-fg-3 opacity-0 transition-opacity group-hover/row:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[color:var(--brand)] focus-visible:outline-none"
             onPointerDown={stopDragPropagation}
             onClick={(event) => {
               event.preventDefault()
@@ -2874,6 +3302,8 @@ function ListRowBody({
   dragListeners,
   selection,
   onOpenProperties,
+  reserveSelectionSlot = true,
+  rowAlignment = "grouped",
 }: ListRowBodyProps) {
   const { idProperty, subCount, visibleProperties } = getListRowDisplayState({
     childCountOverride,
@@ -2883,6 +3313,14 @@ function ListRowBody({
     item,
   })
   const disclosureSlotClass = depth === 0 ? "size-5" : "size-4"
+  const basePaddingLeft = 14
+  const depthIndent = 24
+  const rowPaddingLeft = basePaddingLeft + depth * depthIndent
+  const usesOverlaySelection = rowAlignment === "ungrouped" && Boolean(selection)
+  const hasInlineSelectionSlot =
+    !usesOverlaySelection && (Boolean(selection) || reserveSelectionSlot)
+  const selectionOverlayLeft =
+    rowPaddingLeft + (depth === 0 ? 20 : 16) + 2
 
   const body = (
     <div
@@ -2898,7 +3336,7 @@ function ListRowBody({
     >
       <div
         className="flex min-h-[34px] items-center gap-2.5 pr-5"
-        style={{ paddingLeft: 14 + depth * 24 }}
+        style={{ paddingLeft: rowPaddingLeft }}
       >
         <ListRowDisclosure
           expanded={expanded}
@@ -2906,26 +3344,28 @@ function ListRowBody({
           slotClassName={disclosureSlotClass}
           onToggleExpanded={onToggleExpanded}
         />
-        <div
-          className={cn(
-            "flex items-center justify-center",
-            selection &&
-              "opacity-0 transition-opacity group-hover/row:opacity-100",
-            selection?.isSelected(item.id) && "opacity-100"
-          )}
-        >
-          {selection ? (
-            <WorkItemSelectionCheckbox
-              checked={selection.isSelected(item.id)}
-              label={`Select ${item.key}`}
-              onChange={(event) =>
-                selection.handleCheckboxChange(item.id, event)
-              }
-            />
-          ) : (
-            <span aria-hidden className="size-4" />
-          )}
-        </div>
+        {hasInlineSelectionSlot ? (
+          <div
+            className={cn(
+              "flex items-center justify-center",
+              selection &&
+                "opacity-0 transition-opacity group-hover/row:opacity-100",
+              selection?.isSelected(item.id) && "opacity-100"
+            )}
+          >
+            {selection ? (
+              <WorkItemSelectionCheckbox
+                checked={selection.isSelected(item.id)}
+                label={`Select ${item.key}`}
+                onChange={(event) =>
+                  selection.handleCheckboxChange(item.id, event)
+                }
+              />
+            ) : (
+              <span aria-hidden className="size-4" />
+            )}
+          </div>
+        ) : null}
         <ListRowLinkedContent
           idProperty={idProperty}
           interactive={interactive}
@@ -2937,6 +3377,23 @@ function ListRowBody({
           interactive={interactive}
           visibleProperties={visibleProperties}
         />
+        {usesOverlaySelection && selection ? (
+          <div
+            className={cn(
+              "absolute top-1/2 z-[1] flex -translate-y-1/2 items-center justify-center opacity-0 transition-opacity group-hover/row:opacity-100",
+              selection.isSelected(item.id) && "opacity-100"
+            )}
+            style={{ left: selectionOverlayLeft }}
+          >
+            <WorkItemSelectionCheckbox
+              checked={selection.isSelected(item.id)}
+              label={`Select ${item.key}`}
+              onChange={(event) =>
+                selection.handleCheckboxChange(item.id, event)
+              }
+            />
+          </div>
+        ) : null}
         <ListRowHoverActions
           data={data}
           interactive={interactive}
@@ -3260,18 +3717,18 @@ const BoardCardBody = memo(function BoardCardBody({
                 <WorkItemChildCount count={subCount} />
               </div>
             ) : null}
-	            <div className="min-w-0">
-	              <div className="truncate text-[13px] leading-[1.35] font-medium text-foreground">
-	                {item.title}
-	              </div>
-	            </div>
-	          </div>
+            <div className="min-w-0">
+              <div className="truncate text-[13px] leading-[1.35] font-medium text-foreground">
+                {item.title}
+              </div>
+            </div>
+          </div>
           <div
             className="pointer-events-auto opacity-0 transition-opacity group-hover/card:opacity-100"
             onPointerDown={stopDragPropagation}
             onClick={stopMenuEvent}
-	          >
-	            <div className="flex items-center gap-1">
+          >
+            <div className="flex items-center gap-1">
               {onOpenProperties ? (
                 <button
                   type="button"
@@ -3288,7 +3745,7 @@ const BoardCardBody = memo(function BoardCardBody({
                   <SidebarSimple className="size-4" />
                 </button>
               ) : null}
-	              <IssueActionMenu
+              <IssueActionMenu
                 data={data}
                 displayProps={displayProps}
                 item={item}

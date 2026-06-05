@@ -29,7 +29,7 @@ import {
   subDays,
 } from "date-fns"
 
-import { buildItemGroups } from "@/lib/domain/selectors"
+import { buildItemGroups, getVisibleItemGroupEntries } from "@/lib/domain/selectors"
 import type {
   AppData,
   TeamExperienceType,
@@ -241,9 +241,7 @@ function getVisibleTimelineGroups(
   groups: TimelineGroupEntry[],
   view: ViewDefinition
 ) {
-  return groups.filter(
-    ([groupName]) => !view.hiddenState.groups.includes(groupName)
-  )
+  return getVisibleItemGroupEntries(groups, view.hiddenState)
 }
 
 function useTimelineLabelColumnResize(initialWidth = 224) {

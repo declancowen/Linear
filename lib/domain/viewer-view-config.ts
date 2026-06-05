@@ -3,6 +3,7 @@ import type {
   ViewerDirectoryConfig,
   ViewerViewConfigOverride,
 } from "@/lib/domain/types"
+import { normalizeHiddenState } from "@/lib/domain/types"
 
 function encodeKeyPart(value: string) {
   return encodeURIComponent(value)
@@ -63,12 +64,7 @@ export function applyViewerViewConfig(
       ? { displayProps: [...override.displayProps] }
       : {}),
     ...(override.hiddenState
-      ? {
-          hiddenState: {
-            groups: [...override.hiddenState.groups],
-            subgroups: [...override.hiddenState.subgroups],
-          },
-        }
+      ? { hiddenState: normalizeHiddenState(override.hiddenState) }
       : {}),
   }
 }

@@ -48,7 +48,7 @@ const viewMutationSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("toggleHiddenValue"),
-    key: z.enum(["groups", "subgroups"]),
+    key: z.enum(["groups", "subgroups", "includedGroups"]),
     value: z.string().min(1),
   }),
   z.object({

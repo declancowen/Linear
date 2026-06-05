@@ -11,8 +11,8 @@ import { Plus } from "@phosphor-icons/react"
 import {
   canEditTeam,
   canEditWorkspace,
+  buildWorkViewModel,
   getViewByRoute,
-  getVisibleItemsForView,
   getProjectDetailModel,
   getTemplateDefaultsForTeam,
 } from "@/lib/domain/selectors"
@@ -59,7 +59,6 @@ import {
   PropertiesChipPopover,
   SortChipPopover,
   type ViewConfigPatch,
-  ViewConfigPopover,
 } from "@/components/app/screens/work-surface-controls"
 import {
   BoardView,
@@ -177,6 +176,8 @@ function ProjectItemsViewbar({
   groupOptions,
   createWorkItemTeamId,
   projectId,
+  projectTemplateType,
+  groupingExperience,
   onUpdateProjectView,
   onUpdateViewerView,
   onToggleProjectFilter,
@@ -196,6 +197,8 @@ function ProjectItemsViewbar({
   groupOptions: GroupField[]
   createWorkItemTeamId: string | null
   projectId: string
+  projectTemplateType: ProjectDetailModel["project"]["templateType"]
+  groupingExperience: ReturnType<typeof resolveProjectWorkSurfaceExperience>
   onUpdateProjectView: (patch: ViewConfigPatch) => void
   onUpdateViewerView: (patch: ViewConfigPatch) => void
   onToggleProjectFilter: (key: ViewFilterKey, value: string) => void
@@ -230,7 +233,12 @@ function ProjectItemsViewbar({
           isSavedViewActive ? onClearViewerFilters : onClearProjectFilters
         }
       />
-      <LevelChipPopover view={view} onUpdateView={updateView} />
+      <LevelChipPopover
+        view={view}
+        groupingExperience={groupingExperience}
+        templateType={projectTemplateType}
+        onUpdateView={updateView}
+      />
       <GroupChipPopover
         view={view}
         groupOptions={groupOptions}
@@ -256,16 +264,6 @@ function ProjectItemsViewbar({
         }
       />
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
-        <ViewConfigPopover
-          view={view}
-          groupOptions={groupOptions}
-          onUpdateView={updateView}
-          onToggleDisplayProperty={
-            isSavedViewActive
-              ? onToggleViewerDisplayProperty
-              : onToggleProjectDisplayProperty
-          }
-        />
         <Button
           size="sm"
           variant="default"
@@ -383,7 +381,7 @@ function useProjectItemsPresentationState({
   const [layout, setLayout] = useState<ViewDefinition["layout"]>(
     () => initialProjectPresentation.layout
   )
-  const [grouping, setGrouping] = useState<GroupField>(
+  const [grouping, setGrouping] = useState<GroupField | null>(
     () => initialProjectPresentation.grouping
   )
   const [subGrouping, setSubGrouping] = useState<GroupField | null>(null)
@@ -402,6 +400,9 @@ function useProjectItemsPresentationState({
   const [displayProps, setDisplayProps] = useState<DisplayProperty[]>(() => [
     ...initialProjectPresentation.displayProps,
   ])
+  const [hiddenState, setHiddenState] = useState<ViewDefinition["hiddenState"]>(
+    () => ({ groups: [], subgroups: [] })
+  )
 
   useEffect(() => {
     if (!defaultProjectPresentation) {
@@ -417,6 +418,7 @@ function useProjectItemsPresentationState({
       setShowChildItems(defaultProjectPresentation.showChildItems ?? false)
       setFilters(cloneViewFilters(defaultProjectPresentation.filters))
       setDisplayProps([...defaultProjectPresentation.displayProps])
+      setHiddenState({ groups: [], subgroups: [] })
     })
   }, [defaultProjectPresentation, projectId, projectModelProjectId])
 
@@ -425,8 +427,8 @@ function useProjectItemsPresentationState({
       setLayout(patch.layout)
     }
 
-    if (patch.grouping) {
-      setGrouping(patch.grouping)
+    if ("grouping" in patch) {
+      setGrouping(patch.grouping ?? null)
     }
 
     if ("subGrouping" in patch) {
@@ -451,6 +453,24 @@ function useProjectItemsPresentationState({
         showCompleted: patch.showCompleted ?? true,
       }))
     }
+
+    if (patch.showEmptyGroups !== undefined) {
+      setFilters((current) => ({
+        ...current,
+        showEmptyGroups: patch.showEmptyGroups ?? true,
+      }))
+    }
+
+    if (patch.filters) {
+      setFilters((current) => ({
+        ...current,
+        ...patch.filters,
+      }))
+    }
+
+    if (patch.hiddenState) {
+      setHiddenState(patch.hiddenState)
+    }
   }
 
   function toggleFilter(key: ViewFilterKey, value: string) {
@@ -474,6 +494,7 @@ function useProjectItemsPresentationState({
     setShowChildItems(Boolean(view.showChildItems))
     setFilters(cloneViewFilters(view.filters))
     setDisplayProps([...view.displayProps])
+    setHiddenState(view.hiddenState)
   }
 
   return {
@@ -483,6 +504,7 @@ function useProjectItemsPresentationState({
     displayProps,
     filters,
     grouping,
+    hiddenState,
     itemLevel,
     layout,
     ordering,
@@ -771,7 +793,7 @@ function buildProjectItemsView({
     subGrouping: presentation.subGrouping,
     ordering: presentation.ordering,
     displayProps: presentation.displayProps,
-    hiddenState: { groups: [], subgroups: [] },
+    hiddenState: presentation.hiddenState,
     isShared: false,
     route: detailHref,
     createdAt: project.createdAt,
@@ -838,6 +860,13 @@ function buildProjectBuiltinItemViews({
     hiddenState: {
       groups: [...fallbackProjectItemsView.hiddenState.groups],
       subgroups: [...fallbackProjectItemsView.hiddenState.subgroups],
+      ...(fallbackProjectItemsView.hiddenState.includedGroups
+        ? {
+            includedGroups: [
+              ...fallbackProjectItemsView.hiddenState.includedGroups,
+            ],
+          }
+        : {}),
     },
   }
   const activeBuiltinProjectView =
@@ -1107,16 +1136,19 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
     activeSavedProjectView?.id ??
     activeBuiltinProjectViewId ??
     fallbackProjectItemsView.id
-  const visibleProjectItems = getVisibleItemsForView(
+  const projectItemsModel = buildWorkViewModel(
     data,
     items,
-    activeProjectItemsView
+    activeProjectItemsView,
+    { sourceItems: items }
   )
+  const visibleProjectItems = projectItemsModel.matchedItems
+  const scopedProjectItems = projectItemsModel.scopedSourceItems
   const emptyProjectItemsLabel = resolveEmptyProjectItemsLabel({
     activeView: activeProjectItemsView,
     itemsLength: items.length,
     surfaceLabel: workCopy.surfaceLabel,
-    visibleItemsLength: visibleProjectItems.length,
+    visibleItemsLength: projectItemsModel.visibleItems.length,
     workEmptyLabel: workCopy.emptyLabel,
   })
   const createWorkItemTeamId = resolveCreateWorkItemTeamId({
@@ -1156,6 +1188,8 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
           groupOptions={projectGroupOptions}
           createWorkItemTeamId={createWorkItemTeamId}
           projectId={project.id}
+          projectTemplateType={project.templateType}
+          groupingExperience={workSurfaceExperience}
           onUpdateProjectView={projectItemsPresentation.updateView}
           onUpdateViewerView={viewerProjectItemsActions.updateView}
           onToggleProjectFilter={projectItemsPresentation.toggleFilter}
@@ -1186,7 +1220,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
           view={activeProjectItemsView}
           activeSavedView={activeSavedProjectView}
           visibleItems={visibleProjectItems}
-          scopedItems={items}
+          scopedItems={scopedProjectItems}
           editable={editable}
           createWorkItemTeamId={createWorkItemTeamId}
           projectId={project.id}

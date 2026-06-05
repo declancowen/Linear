@@ -310,7 +310,7 @@ export type AppStore = AppData & {
   toggleViewerViewHiddenValue: (
     surfaceKey: string,
     viewId: string,
-    key: "groups" | "subgroups",
+    key: "groups" | "subgroups" | "includedGroups",
     value: string
   ) => void
   patchViewerDirectoryConfig: (
@@ -362,7 +362,7 @@ export type AppStore = AppData & {
   ) => void
   toggleViewHiddenValue: (
     viewId: string,
-    key: "groups" | "subgroups",
+    key: "groups" | "subgroups" | "includedGroups",
     value: string
   ) => void
   toggleViewFilterValue: (

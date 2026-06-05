@@ -41,6 +41,7 @@ import {
   getDefaultViewItemLevelForProjectTemplate,
   getDefaultTemplateTypeForTeamExperience,
   getDefaultViewItemLevelForTeamExperience,
+  normalizeHiddenState,
   type AppData,
   type CreateDialogState,
   type Document,
@@ -202,12 +203,7 @@ function cloneDraftConfig(config: DraftViewConfig): DraftViewConfig {
     ...config,
     filters: config.filters ? { ...config.filters } : createEmptyViewFilters(),
     displayProps: [...(config.displayProps ?? [])],
-    hiddenState: config.hiddenState
-      ? {
-          groups: [...config.hiddenState.groups],
-          subgroups: [...config.hiddenState.subgroups],
-        }
-      : { groups: [], subgroups: [] },
+    hiddenState: normalizeHiddenState(config.hiddenState),
   }
 }
 
@@ -865,10 +861,7 @@ function getCreateViewConfig({
       showChildItems: Boolean(draftView.showChildItems),
       filters: draftView.filters,
       displayProps: [...draftView.displayProps],
-      hiddenState: {
-        groups: [...draftView.hiddenState.groups],
-        subgroups: [...draftView.hiddenState.subgroups],
-      },
+      hiddenState: normalizeHiddenState(draftView.hiddenState),
     }
   }
 

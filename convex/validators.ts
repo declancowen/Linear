@@ -480,6 +480,34 @@ export const storedViewFiltersValidator = v.object({
   itemTypes: v.array(storedWorkItemTypeValidator),
 })
 
+export const hiddenStateValidator = v.object({
+  groups: v.array(v.string()),
+  subgroups: v.array(v.string()),
+  includedGroups: v.optional(v.array(v.string())),
+})
+
+function createProjectPresentationValidator(
+  itemLevelValidator:
+    | typeof workItemTypeValidator
+    | typeof storedWorkItemTypeValidator
+) {
+  return v.object({
+    itemLevel: v.optional(v.union(itemLevelValidator, v.null())),
+    showChildItems: v.optional(v.boolean()),
+    layout: viewLayoutValidator,
+    grouping: v.union(groupFieldValidator, v.null()),
+    ordering: orderingFieldValidator,
+    displayProps: v.array(displayPropertyValidator),
+    filters: viewFiltersValidator,
+  })
+}
+
+export const projectPresentationValidator =
+  createProjectPresentationValidator(storedWorkItemTypeValidator)
+
+export const projectPresentationMutationValidator =
+  createProjectPresentationValidator(workItemTypeValidator)
+
 export const projectFields = {
   id: v.string(),
   scopeType: scopeTypeValidator,
@@ -497,17 +525,7 @@ export const projectFields = {
   labelIds: v.optional(v.array(v.string())),
   blockingProjectIds: v.optional(v.array(v.string())),
   blockedByProjectIds: v.optional(v.array(v.string())),
-  presentation: v.optional(
-    v.object({
-      itemLevel: v.optional(v.union(storedWorkItemTypeValidator, v.null())),
-      showChildItems: v.optional(v.boolean()),
-      layout: viewLayoutValidator,
-      grouping: groupFieldValidator,
-      ordering: orderingFieldValidator,
-      displayProps: v.array(displayPropertyValidator),
-      filters: viewFiltersValidator,
-    })
-  ),
+  presentation: v.optional(projectPresentationValidator),
   startDate: nullableString,
   targetDate: nullableString,
   createdAt: v.string(),
@@ -659,14 +677,11 @@ export const viewDefinitionFields = {
   showChildItems: v.optional(v.boolean()),
   layout: viewLayoutValidator,
   filters: storedViewFiltersValidator,
-  grouping: groupFieldValidator,
+  grouping: v.union(groupFieldValidator, v.null()),
   subGrouping: v.union(groupFieldValidator, v.null()),
   ordering: orderingFieldValidator,
   displayProps: v.array(displayPropertyValidator),
-  hiddenState: v.object({
-    groups: v.array(v.string()),
-    subgroups: v.array(v.string()),
-  }),
+  hiddenState: hiddenStateValidator,
   isShared: v.boolean(),
   route: v.string(),
   createdAt: v.string(),

@@ -7,6 +7,7 @@ import {
 import { createEmptyState } from "@/lib/domain/empty-state"
 import { getViewByRoute } from "@/lib/domain/selectors"
 import {
+  applyViewerViewConfig,
   getViewerScopedDirectoryKey,
   getViewerScopedViewKey,
 } from "@/lib/domain/viewer-view-config"
@@ -113,6 +114,41 @@ describe("viewer-local view config", () => {
 
     expect(useAppStore.getState().ui.selectedViewByRoute).toEqual({
       [getViewerScopedDirectoryKey("user_1", route)]: "view_2",
+    })
+  })
+
+  it("applies no primary grouping from viewer-local overrides", () => {
+    const view = createView({
+      grouping: "status",
+      subGrouping: "priority",
+    })
+
+    expect(
+      applyViewerViewConfig(view, {
+        grouping: null,
+        subGrouping: null,
+      })
+    ).toMatchObject({
+      grouping: null,
+      subGrouping: null,
+    })
+  })
+
+  it("normalizes viewer-local hidden group include and exclude conflicts", () => {
+    const view = createView()
+
+    expect(
+      applyViewerViewConfig(view, {
+        hiddenState: {
+          groups: ["done"],
+          subgroups: [],
+          includedGroups: ["done", "todo"],
+        },
+      }).hiddenState
+    ).toEqual({
+      groups: ["done"],
+      subgroups: [],
+      includedGroups: ["todo"],
     })
   })
 

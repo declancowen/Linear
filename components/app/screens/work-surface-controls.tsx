@@ -37,14 +37,13 @@ import {
   EyeSlash,
   FadersHorizontal,
   FunnelSimple,
-  GearSix,
-  Kanban,
   MagnifyingGlass,
   Rows,
   SortAscending,
   SquaresFour,
   Stack,
   TreeStructure,
+  X,
 } from "@phosphor-icons/react"
 
 import { ProjectIconGlyph, TeamIconGlyph } from "@/components/app/entity-icons"
@@ -61,9 +60,14 @@ import {
 import {
   getCustomPropertyIdFromDisplayReference,
   getChildWorkItemCopy,
+  clearViewFilterSelections,
   getDefaultShowChildItemsForItemLevel,
-  getDefaultWorkItemTypesForTeamExperience,
   getDisplayLabelForWorkItemType,
+  getWorkItemLevelTaxonomyGroups,
+  getWorkItemLevelTaxonomyOptions,
+  getExcludedGroupVisibilityHiddenState,
+  getGroupVisibilityState,
+  getNextGroupVisibilityHiddenState,
   projectHealthMeta,
   projectStatuses,
   projectStatusMeta,
@@ -104,10 +108,13 @@ import {
   ViewTab,
 } from "@/components/ui/template-primitives"
 
-import { isPersistedViewFilterKey, type ViewFilterKey } from "./helpers"
+import {
+  isPersistedViewFilterKey,
+  toggleViewFilterValue,
+  type ViewFilterKey,
+} from "./helpers"
 import { WorkItemAssigneeAvatar } from "./work-item-ui"
 import {
-  ConfigSelect,
   LabelColorDot,
   PriorityIcon,
   StatusIcon,
@@ -393,7 +400,7 @@ const orderingOptions: OrderingField[] = [
 
 export type ViewConfigPatch = {
   layout?: ViewDefinition["layout"]
-  grouping?: GroupField
+  grouping?: GroupField | null
   subGrouping?: GroupField | null
   ordering?: OrderingField
   itemLevel?: WorkItemType | null
@@ -401,9 +408,14 @@ export type ViewConfigPatch = {
   showCompleted?: boolean
   showEmptyGroups?: boolean
   filters?: Partial<ViewDefinition["filters"]>
+  hiddenState?: ViewDefinition["hiddenState"]
 }
 
-export function getGroupFieldOptionLabel(field: GroupField) {
+export function getGroupFieldOptionLabel(field: GroupField | null) {
+  if (!field) {
+    return "None"
+  }
+
   return getContextualGroupFieldOptionLabel(field)
 }
 
@@ -416,6 +428,11 @@ function matchesQuery(label: string, query: string) {
 }
 
 type ToggleWorkFilterValue = (key: ViewFilterKey, value: string) => void
+type GroupVisibilityState = ReturnType<typeof getGroupVisibilityState>
+type FilterGroupVisibility = {
+  groupValue: string
+  state: GroupVisibilityState
+}
 
 type FilterPopoverProps = {
   view: ViewDefinition
@@ -524,9 +541,15 @@ function getFilterParentItems(
   return [...parents.values()]
 }
 
-function getVisibleFilterItemTypes(items: WorkItem[]) {
-  return workItemTypes.filter((itemType) =>
-    items.some((item) => item.type === itemType)
+function getVisibleFilterItemTypes(
+  items: WorkItem[],
+  taxonomyOptions: WorkItemType[]
+) {
+  const visibleTypes = new Set(items.map((item) => item.type))
+
+  return workItemTypes.filter(
+    (itemType) =>
+      visibleTypes.has(itemType) || taxonomyOptions.includes(itemType)
   )
 }
 
@@ -553,13 +576,48 @@ function getWorkFilterActiveCount(filters: ViewDefinition["filters"]) {
   )
 }
 
+function getGroupVisibilityFilterActiveCount(view: ViewDefinition) {
+  return (
+    view.hiddenState.groups.length +
+    (view.hiddenState.includedGroups?.length ?? 0)
+  )
+}
+
+function clearGroupVisibilityFilterState(view: ViewDefinition) {
+  return {
+    groups: [],
+    subgroups: view.hiddenState.subgroups,
+  }
+}
+
 function useWorkFilterOptions(
   view: ViewDefinition,
   items: WorkItem[]
 ): WorkFilterOptions {
+  const privateTaskView = isPrivateTaskView(view)
+  const currentUserId = useAppStore((state) => state.currentUserId)
+  const currentWorkspaceId = useAppStore((state) => state.currentWorkspaceId)
+  const activeTeam = useAppStore((state) =>
+    view.scopeType === "personal" ? getTeam(state, state.ui.activeTeamId) : null
+  )
+  const scopedTeam = useAppStore((state) =>
+    view.scopeType === "team" ? getTeam(state, view.scopeId) : null
+  )
+  const baseItems = useMemo(
+    () =>
+      privateTaskView
+        ? items.filter(
+            (item) =>
+              (item.visibility ?? "team") === "private" &&
+              item.creatorId === currentUserId &&
+              item.workspaceId === currentWorkspaceId
+          )
+        : items,
+    [currentUserId, currentWorkspaceId, items, privateTaskView]
+  )
   const scopedItems = useMemo(
-    () => getScopedFilterItems(view, items),
-    [items, view]
+    () => getScopedFilterItems(view, baseItems),
+    [baseItems, view]
   )
   const teamIds = useMemo(
     () => [
@@ -580,9 +638,22 @@ function useWorkFilterOptions(
   const allWorkItems = useAppStore((state) => state.workItems)
   const projects = useAppStore((state) => state.projects)
   const labels = useAppStore((state) => state.labels)
-  const currentUserId = useAppStore((state) => state.currentUserId)
   const teams = useAppStore((state) => state.teams)
-  const privateTaskView = isPrivateTaskView(view)
+  const taxonomyOptions = useMemo(
+    () =>
+      getWorkItemLevelTaxonomyOptions({
+        personal: view.scopeType === "personal",
+        privateOnly: privateTaskView,
+        teamExperience:
+          scopedTeam?.settings.experience ?? activeTeam?.settings.experience,
+      }),
+    [
+      activeTeam?.settings.experience,
+      privateTaskView,
+      scopedTeam?.settings.experience,
+      view.scopeType,
+    ]
+  )
   const userById = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
     [users]
@@ -631,8 +702,8 @@ function useWorkFilterOptions(
     [teamIds, teams]
   )
   const itemTypes = useMemo(
-    () => getVisibleFilterItemTypes(scopedItems),
-    [scopedItems]
+    () => getVisibleFilterItemTypes(scopedItems, taxonomyOptions),
+    [scopedItems, taxonomyOptions]
   )
 
   return {
@@ -734,6 +805,110 @@ function clearFiltersOrDelegate({
   useAppStore.getState().clearViewFilters(viewId)
 }
 
+function getFilterGroupVisibility(
+  view: ViewDefinition,
+  field: GroupField,
+  groupValue: string,
+  filterActive = false
+): FilterGroupVisibility | null {
+  if (!isFilterPropertyVisibilityField(field)) {
+    return null
+  }
+
+  return getFilterPropertyVisibility(view, groupValue, filterActive)
+}
+
+function getFilterPropertyVisibility(
+  view: ViewDefinition,
+  groupValue: string,
+  filterActive: boolean
+): FilterGroupVisibility {
+  const hiddenState = getGroupVisibilityState(view.hiddenState, groupValue)
+
+  return {
+    groupValue,
+    state:
+      hiddenState === "normal" && filterActive ? "included" : hiddenState,
+  }
+}
+
+function isFilterPropertyVisibilityField(field: GroupField) {
+  return (
+    field === "assignee" ||
+    field === "label" ||
+    field === "parent" ||
+    field === "priority" ||
+    field === "project" ||
+    field === "status" ||
+    field === "team" ||
+    field === "type"
+  )
+}
+
+function getFilterPropertyActiveCount(
+  view: ViewDefinition,
+  rows: Array<{
+    active: boolean
+    groupValue: string
+  }>
+) {
+  return rows.filter(
+    (row) =>
+      getFilterPropertyVisibility(view, row.groupValue, row.active).state !==
+      "normal"
+  ).length
+}
+
+function getFilterRowSelected(
+  active: boolean,
+  groupVisibility: FilterGroupVisibility | null
+) {
+  if (groupVisibility) {
+    return groupVisibility.state === "included"
+  }
+
+  return active
+}
+
+function handleFilterRowClick({
+  filterKey,
+  filterActive,
+  filterValue,
+  groupVisibility,
+  onExcludeGroupVisibility,
+  onCycleGroupVisibility,
+  onToggleFilterValue,
+}: {
+  filterKey: ViewFilterKey
+  filterActive: boolean
+  filterValue: string
+  groupVisibility: FilterGroupVisibility | null
+  onExcludeGroupVisibility: (groupValue: string) => void
+  onCycleGroupVisibility: (groupValue: string) => void
+  onToggleFilterValue: ToggleWorkFilterValue
+}) {
+  if (groupVisibility) {
+    if (groupVisibility.state === "excluded") {
+      onCycleGroupVisibility(groupVisibility.groupValue)
+      return
+    }
+
+    if (groupVisibility.state === "included") {
+      if (filterActive) {
+        onToggleFilterValue(filterKey, filterValue)
+      }
+
+      onExcludeGroupVisibility(groupVisibility.groupValue)
+      return
+    }
+
+    onToggleFilterValue(filterKey, filterValue)
+    return
+  }
+
+  onToggleFilterValue(filterKey, filterValue)
+}
+
 const FilterTriggerButton = forwardRef<
   HTMLButtonElement,
   {
@@ -830,12 +1005,16 @@ function WorkFilterHeader({
 
 function StatusFilterSection({
   hidden,
+  onCycleGroupVisibility,
+  onExcludeGroupVisibility,
   onToggleFilterValue,
   query,
   statusOptions,
   view,
 }: {
   hidden: boolean
+  onCycleGroupVisibility: (groupValue: string) => void
+  onExcludeGroupVisibility: (groupValue: string) => void
   onToggleFilterValue: ToggleWorkFilterValue
   query: string
   statusOptions: WorkFilterOptions["statusOptions"]
@@ -846,29 +1025,65 @@ function StatusFilterSection({
   }
 
   return (
-    <FilterSection label="Status" activeCount={view.filters.status.length}>
+    <FilterSection
+      label="Status"
+      activeCount={
+        getFilterPropertyActiveCount(
+          view,
+          statusOptions.map((status) => ({
+            active: view.filters.status.includes(status),
+            groupValue: status,
+          }))
+        )
+      }
+    >
       {statusOptions
         .filter((status) => matchesQuery(statusMeta[status].label, query))
-        .map((status) => (
-          <FilterRow
-            key={status}
-            icon={<StatusIcon status={status} />}
-            label={statusMeta[status].label}
-            active={view.filters.status.includes(status)}
-            onClick={() => onToggleFilterValue("status", status)}
-          />
-        ))}
+        .map((status) => {
+          const filterActive = view.filters.status.includes(status)
+          const groupVisibility = getFilterGroupVisibility(
+            view,
+            "status",
+            status,
+            filterActive
+          )
+
+          return (
+            <FilterRow
+              key={status}
+              icon={<StatusIcon status={status} />}
+              label={statusMeta[status].label}
+              active={getFilterRowSelected(filterActive, groupVisibility)}
+              visibilityState={groupVisibility?.state}
+              onClick={() =>
+                handleFilterRowClick({
+                  filterKey: "status",
+                  filterActive,
+                  filterValue: status,
+                  groupVisibility,
+                  onCycleGroupVisibility,
+                  onExcludeGroupVisibility,
+                  onToggleFilterValue,
+                })
+              }
+            />
+          )
+        })}
     </FilterSection>
   )
 }
 
 function PriorityFilterSection({
   hidden,
+  onCycleGroupVisibility,
+  onExcludeGroupVisibility,
   onToggleFilterValue,
   query,
   view,
 }: {
   hidden: boolean
+  onCycleGroupVisibility: (groupValue: string) => void
+  onExcludeGroupVisibility: (groupValue: string) => void
   onToggleFilterValue: ToggleWorkFilterValue
   query: string
   view: ViewDefinition
@@ -878,18 +1093,52 @@ function PriorityFilterSection({
   }
 
   return (
-    <FilterSection label="Priority" activeCount={view.filters.priority.length}>
+    <FilterSection
+      label="Priority"
+      activeCount={
+        getFilterPropertyActiveCount(
+          view,
+          Object.keys(priorityMeta).map((priority) => ({
+            active: view.filters.priority.includes(priority as Priority),
+            groupValue: priority,
+          }))
+        )
+      }
+    >
       {Object.entries(priorityMeta)
         .filter(([, meta]) => matchesQuery(meta.label, query))
-        .map(([priority, meta]) => (
-          <FilterRow
-            key={priority}
-            icon={<PriorityIcon priority={priority as Priority} />}
-            label={meta.label}
-            active={view.filters.priority.includes(priority as Priority)}
-            onClick={() => onToggleFilterValue("priority", priority)}
-          />
-        ))}
+        .map(([priority, meta]) => {
+          const filterActive = view.filters.priority.includes(
+            priority as Priority
+          )
+          const groupVisibility = getFilterGroupVisibility(
+            view,
+            "priority",
+            priority,
+            filterActive
+          )
+
+          return (
+            <FilterRow
+              key={priority}
+              icon={<PriorityIcon priority={priority as Priority} />}
+              label={meta.label}
+              active={getFilterRowSelected(filterActive, groupVisibility)}
+              visibilityState={groupVisibility?.state}
+              onClick={() =>
+                handleFilterRowClick({
+                  filterKey: "priority",
+                  filterActive,
+                  filterValue: priority,
+                  groupVisibility,
+                  onCycleGroupVisibility,
+                  onExcludeGroupVisibility,
+                  onToggleFilterValue,
+                })
+              }
+            />
+          )
+        })}
     </FilterSection>
   )
 }
@@ -897,12 +1146,16 @@ function PriorityFilterSection({
 function ItemTypeFilterSection({
   hidden,
   itemTypes,
+  onCycleGroupVisibility,
+  onExcludeGroupVisibility,
   onToggleFilterValue,
   query,
   view,
 }: {
   hidden: boolean
   itemTypes: WorkItemType[]
+  onCycleGroupVisibility: (groupValue: string) => void
+  onExcludeGroupVisibility: (groupValue: string) => void
   onToggleFilterValue: ToggleWorkFilterValue
   query: string
   view: ViewDefinition
@@ -912,20 +1165,52 @@ function ItemTypeFilterSection({
   }
 
   return (
-    <FilterSection label="Type" activeCount={view.filters.itemTypes.length}>
+    <FilterSection
+      label="Type"
+      activeCount={
+        getFilterPropertyActiveCount(
+          view,
+          itemTypes.map((itemType) => ({
+            active: view.filters.itemTypes.includes(itemType),
+            groupValue: itemType,
+          }))
+        )
+      }
+    >
       {itemTypes
         .filter((itemType) =>
           matchesQuery(getDisplayLabelForWorkItemType(itemType, null), query)
         )
-        .map((itemType) => (
-          <FilterRow
-            key={itemType}
-            icon={<WorkItemTypeIcon itemType={itemType} />}
-            label={getDisplayLabelForWorkItemType(itemType, null)}
-            active={view.filters.itemTypes.includes(itemType)}
-            onClick={() => onToggleFilterValue("itemTypes", itemType)}
-          />
-        ))}
+        .map((itemType) => {
+          const filterActive = view.filters.itemTypes.includes(itemType)
+          const groupVisibility = getFilterGroupVisibility(
+            view,
+            "type",
+            itemType,
+            filterActive
+          )
+
+          return (
+            <FilterRow
+              key={itemType}
+              icon={<WorkItemTypeIcon itemType={itemType} />}
+              label={getDisplayLabelForWorkItemType(itemType, null)}
+              active={getFilterRowSelected(filterActive, groupVisibility)}
+              visibilityState={groupVisibility?.state}
+              onClick={() =>
+                handleFilterRowClick({
+                  filterKey: "itemTypes",
+                  filterActive,
+                  filterValue: itemType,
+                  groupVisibility,
+                  onCycleGroupVisibility,
+                  onExcludeGroupVisibility,
+                  onToggleFilterValue,
+                })
+              }
+            />
+          )
+        })}
     </FilterSection>
   )
 }
@@ -933,12 +1218,16 @@ function ItemTypeFilterSection({
 function AssigneeFilterSection({
   assignees,
   hidden,
+  onCycleGroupVisibility,
+  onExcludeGroupVisibility,
   onToggleFilterValue,
   query,
   view,
 }: {
   assignees: UserProfile[]
   hidden: boolean
+  onCycleGroupVisibility: (groupValue: string) => void
+  onExcludeGroupVisibility: (groupValue: string) => void
   onToggleFilterValue: ToggleWorkFilterValue
   query: string
   view: ViewDefinition
@@ -950,24 +1239,53 @@ function AssigneeFilterSection({
   return (
     <FilterSection
       label="Assignee"
-      activeCount={view.filters.assigneeIds.length}
+      activeCount={
+        getFilterPropertyActiveCount(
+          view,
+          assignees.map((assignee) => ({
+            active: view.filters.assigneeIds.includes(assignee.id),
+            groupValue: assignee.name,
+          }))
+        )
+      }
     >
       {assignees
         .filter((assignee) => matchesQuery(assignee.name, query))
-        .map((assignee) => (
-          <FilterRow
-            key={assignee.id}
-            icon={
-              <WorkItemAssigneeAvatar
-                user={assignee}
-                className="size-4 data-[size=sm]:size-4"
-              />
-            }
-            label={assignee.name}
-            active={view.filters.assigneeIds.includes(assignee.id)}
-            onClick={() => onToggleFilterValue("assigneeIds", assignee.id)}
-          />
-        ))}
+        .map((assignee) => {
+          const filterActive = view.filters.assigneeIds.includes(assignee.id)
+          const groupVisibility = getFilterGroupVisibility(
+            view,
+            "assignee",
+            assignee.name,
+            filterActive
+          )
+
+          return (
+            <FilterRow
+              key={assignee.id}
+              icon={
+                <WorkItemAssigneeAvatar
+                  user={assignee}
+                  className="size-4 data-[size=sm]:size-4"
+                />
+              }
+              label={assignee.name}
+              active={getFilterRowSelected(filterActive, groupVisibility)}
+              visibilityState={groupVisibility?.state}
+              onClick={() =>
+                handleFilterRowClick({
+                  filterKey: "assigneeIds",
+                  filterActive,
+                  filterValue: assignee.id,
+                  groupVisibility,
+                  onCycleGroupVisibility,
+                  onExcludeGroupVisibility,
+                  onToggleFilterValue,
+                })
+              }
+            />
+          )
+        })}
     </FilterSection>
   )
 }
@@ -1018,12 +1336,16 @@ function VisibilityFilterSection({
 
 function TeamFilterSection({
   hidden,
+  onCycleGroupVisibility,
+  onExcludeGroupVisibility,
   onToggleFilterValue,
   query,
   teams,
   view,
 }: {
   hidden: boolean
+  onCycleGroupVisibility: (groupValue: string) => void
+  onExcludeGroupVisibility: (groupValue: string) => void
   onToggleFilterValue: ToggleWorkFilterValue
   query: string
   teams: Team[]
@@ -1034,35 +1356,71 @@ function TeamFilterSection({
   }
 
   return (
-    <FilterSection label="Team space" activeCount={view.filters.teamIds.length}>
+    <FilterSection
+      label="Team space"
+      activeCount={
+        getFilterPropertyActiveCount(
+          view,
+          teams.map((team) => ({
+            active: view.filters.teamIds.includes(team.id),
+            groupValue: team.name,
+          }))
+        )
+      }
+    >
       {teams
         .filter((team) => matchesQuery(team.name, query))
-        .map((team) => (
-          <FilterRow
-            key={team.id}
-            icon={
-              <TeamIconGlyph
-                icon={team.icon}
-                className="size-[13px] text-fg-3"
-              />
-            }
-            label={team.name}
-            active={view.filters.teamIds.includes(team.id)}
-            onClick={() => onToggleFilterValue("teamIds", team.id)}
-          />
-        ))}
+        .map((team) => {
+          const filterActive = view.filters.teamIds.includes(team.id)
+          const groupVisibility = getFilterGroupVisibility(
+            view,
+            "team",
+            team.name,
+            filterActive
+          )
+
+          return (
+            <FilterRow
+              key={team.id}
+              icon={
+                <TeamIconGlyph
+                  icon={team.icon}
+                  className="size-[13px] text-fg-3"
+                />
+              }
+              label={team.name}
+              active={getFilterRowSelected(filterActive, groupVisibility)}
+              visibilityState={groupVisibility?.state}
+              onClick={() =>
+                handleFilterRowClick({
+                  filterKey: "teamIds",
+                  filterActive,
+                  filterValue: team.id,
+                  groupVisibility,
+                  onCycleGroupVisibility,
+                  onExcludeGroupVisibility,
+                  onToggleFilterValue,
+                })
+              }
+            />
+          )
+        })}
     </FilterSection>
   )
 }
 
 function ProjectFilterSection({
   hidden,
+  onCycleGroupVisibility,
+  onExcludeGroupVisibility,
   onToggleFilterValue,
   projects,
   query,
   view,
 }: {
   hidden: boolean
+  onCycleGroupVisibility: (groupValue: string) => void
+  onExcludeGroupVisibility: (groupValue: string) => void
   onToggleFilterValue: ToggleWorkFilterValue
   projects: Project[]
   query: string
@@ -1073,33 +1431,67 @@ function ProjectFilterSection({
   }
 
   return (
-    <FilterSection label="Project" activeCount={view.filters.projectIds.length}>
+    <FilterSection
+      label="Project"
+      activeCount={
+        getFilterPropertyActiveCount(
+          view,
+          projects.map((project) => ({
+            active: view.filters.projectIds.includes(project.id),
+            groupValue: project.name,
+          }))
+        )
+      }
+    >
       {projects
         .filter((project) => matchesQuery(project.name, query))
-        .map((project) => (
-          <FilterRow
-            key={project.id}
-            icon={
-              <ProjectIconGlyph
-                project={project}
-                className="size-[13px] text-fg-3"
-              />
-            }
-            label={project.name}
-            active={view.filters.projectIds.includes(project.id)}
-            onClick={() => onToggleFilterValue("projectIds", project.id)}
-          />
-        ))}
+        .map((project) => {
+          const filterActive = view.filters.projectIds.includes(project.id)
+          const groupVisibility = getFilterGroupVisibility(
+            view,
+            "project",
+            project.name,
+            filterActive
+          )
+
+          return (
+            <FilterRow
+              key={project.id}
+              icon={
+                <ProjectIconGlyph
+                  project={project}
+                  className="size-[13px] text-fg-3"
+                />
+              }
+              label={project.name}
+              active={getFilterRowSelected(filterActive, groupVisibility)}
+              visibilityState={groupVisibility?.state}
+              onClick={() =>
+                handleFilterRowClick({
+                  filterKey: "projectIds",
+                  filterActive,
+                  filterValue: project.id,
+                  groupVisibility,
+                  onCycleGroupVisibility,
+                  onExcludeGroupVisibility,
+                  onToggleFilterValue,
+                })
+              }
+            />
+          )
+        })}
     </FilterSection>
   )
 }
 
-function getParentFilterActiveCount(view: ViewDefinition) {
-  return getSelectedParentFilterValues(view.filters).length
+function getParentFilterGroupValue(parent: WorkItem) {
+  return `${parent.key} · ${parent.title}`
 }
 
 function ParentFilterSection({
   hidden,
+  onCycleGroupVisibility,
+  onExcludeGroupVisibility,
   onToggleFilterValue,
   parentLabel,
   parents,
@@ -1107,6 +1499,8 @@ function ParentFilterSection({
   view,
 }: {
   hidden: boolean
+  onCycleGroupVisibility: (groupValue: string) => void
+  onExcludeGroupVisibility: (groupValue: string) => void
   onToggleFilterValue: ToggleWorkFilterValue
   parentLabel: string
   parents: WorkItem[]
@@ -1120,21 +1514,51 @@ function ParentFilterSection({
   return (
     <FilterSection
       label={parentLabel}
-      activeCount={getParentFilterActiveCount(view)}
+      activeCount={
+        getFilterPropertyActiveCount(
+          view,
+          parents.map((parent) => ({
+            active: Boolean(view.filters.parentIds?.includes(parent.id)),
+            groupValue: getParentFilterGroupValue(parent),
+          }))
+        )
+      }
     >
       {parents
         .filter((parent) =>
-          matchesQuery(`${parent.key} ${parent.title}`, query)
+          matchesQuery(getParentFilterGroupValue(parent), query)
         )
-        .map((parent) => (
-          <FilterRow
-            key={parent.id}
-            icon={<TreeStructure className="size-3" />}
-            label={`${parent.key} · ${parent.title}`}
-            active={Boolean(view.filters.parentIds?.includes(parent.id))}
-            onClick={() => onToggleFilterValue("parentIds", parent.id)}
-          />
-        ))}
+        .map((parent) => {
+          const groupValue = getParentFilterGroupValue(parent)
+          const filterActive = Boolean(view.filters.parentIds?.includes(parent.id))
+          const groupVisibility = getFilterGroupVisibility(
+            view,
+            "parent",
+            groupValue,
+            filterActive
+          )
+
+          return (
+            <FilterRow
+              key={parent.id}
+              icon={<TreeStructure className="size-3" />}
+              label={groupValue}
+              active={getFilterRowSelected(filterActive, groupVisibility)}
+              visibilityState={groupVisibility?.state}
+              onClick={() =>
+                handleFilterRowClick({
+                  filterKey: "parentIds",
+                  filterActive,
+                  filterValue: parent.id,
+                  groupVisibility,
+                  onCycleGroupVisibility,
+                  onExcludeGroupVisibility,
+                  onToggleFilterValue,
+                })
+              }
+            />
+          )
+        })}
     </FilterSection>
   )
 }
@@ -1142,12 +1566,16 @@ function ParentFilterSection({
 function LabelFilterSection({
   hidden,
   labels,
+  onCycleGroupVisibility,
+  onExcludeGroupVisibility,
   onToggleFilterValue,
   query,
   view,
 }: {
   hidden: boolean
   labels: Label[]
+  onCycleGroupVisibility: (groupValue: string) => void
+  onExcludeGroupVisibility: (groupValue: string) => void
   onToggleFilterValue: ToggleWorkFilterValue
   query: string
   view: ViewDefinition
@@ -1157,18 +1585,50 @@ function LabelFilterSection({
   }
 
   return (
-    <FilterSection label="Labels" activeCount={view.filters.labelIds.length}>
+    <FilterSection
+      label="Labels"
+      activeCount={
+        getFilterPropertyActiveCount(
+          view,
+          labels.map((label) => ({
+            active: view.filters.labelIds.includes(label.id),
+            groupValue: label.name,
+          }))
+        )
+      }
+    >
       {labels
         .filter((label) => matchesQuery(label.name, query))
-        .map((label) => (
-          <FilterRow
-            key={label.id}
-            icon={<LabelColorDot color={label.color} />}
-            label={label.name}
-            active={view.filters.labelIds.includes(label.id)}
-            onClick={() => onToggleFilterValue("labelIds", label.id)}
-          />
-        ))}
+        .map((label) => {
+          const filterActive = view.filters.labelIds.includes(label.id)
+          const groupVisibility = getFilterGroupVisibility(
+            view,
+            "label",
+            label.name,
+            filterActive
+          )
+
+          return (
+            <FilterRow
+              key={label.id}
+              icon={<LabelColorDot color={label.color} />}
+              label={label.name}
+              active={getFilterRowSelected(filterActive, groupVisibility)}
+              visibilityState={groupVisibility?.state}
+              onClick={() =>
+                handleFilterRowClick({
+                  filterKey: "labelIds",
+                  filterActive,
+                  filterValue: label.id,
+                  groupVisibility,
+                  onCycleGroupVisibility,
+                  onExcludeGroupVisibility,
+                  onToggleFilterValue,
+                })
+              }
+            />
+          )
+        })}
     </FilterSection>
   )
 }
@@ -1219,6 +1679,8 @@ function GroupsFilterSection({
 
 function WorkFilterSections({
   hiddenFilterSet,
+  onCycleGroupVisibility,
+  onExcludeGroupVisibility,
   onSetShowEmptyGroups,
   onToggleFilterValue,
   options,
@@ -1227,6 +1689,8 @@ function WorkFilterSections({
   view,
 }: {
   hiddenFilterSet: ReadonlySet<ViewFilterKey>
+  onCycleGroupVisibility: (groupValue: string) => void
+  onExcludeGroupVisibility: (groupValue: string) => void
   onSetShowEmptyGroups: (showEmptyGroups: boolean) => void
   onToggleFilterValue: ToggleWorkFilterValue
   options: WorkFilterOptions
@@ -1241,6 +1705,8 @@ function WorkFilterSections({
     >
       <StatusFilterSection
         hidden={hiddenFilterSet.has("status")}
+        onCycleGroupVisibility={onCycleGroupVisibility}
+        onExcludeGroupVisibility={onExcludeGroupVisibility}
         onToggleFilterValue={onToggleFilterValue}
         query={query}
         statusOptions={options.statusOptions}
@@ -1248,6 +1714,8 @@ function WorkFilterSections({
       />
       <PriorityFilterSection
         hidden={hiddenFilterSet.has("priority")}
+        onCycleGroupVisibility={onCycleGroupVisibility}
+        onExcludeGroupVisibility={onExcludeGroupVisibility}
         onToggleFilterValue={onToggleFilterValue}
         query={query}
         view={view}
@@ -1255,6 +1723,8 @@ function WorkFilterSections({
       <ItemTypeFilterSection
         hidden={hiddenFilterSet.has("itemTypes")}
         itemTypes={options.itemTypes}
+        onCycleGroupVisibility={onCycleGroupVisibility}
+        onExcludeGroupVisibility={onExcludeGroupVisibility}
         onToggleFilterValue={onToggleFilterValue}
         query={query}
         view={view}
@@ -1262,6 +1732,8 @@ function WorkFilterSections({
       <AssigneeFilterSection
         assignees={options.assignees}
         hidden={hiddenFilterSet.has("assigneeIds")}
+        onCycleGroupVisibility={onCycleGroupVisibility}
+        onExcludeGroupVisibility={onExcludeGroupVisibility}
         onToggleFilterValue={onToggleFilterValue}
         query={query}
         view={view}
@@ -1274,6 +1746,8 @@ function WorkFilterSections({
       />
       <TeamFilterSection
         hidden={hiddenFilterSet.has("teamIds")}
+        onCycleGroupVisibility={onCycleGroupVisibility}
+        onExcludeGroupVisibility={onExcludeGroupVisibility}
         onToggleFilterValue={onToggleFilterValue}
         query={query}
         teams={options.filteredTeams}
@@ -1281,6 +1755,8 @@ function WorkFilterSections({
       />
       <ProjectFilterSection
         hidden={hiddenFilterSet.has("projectIds")}
+        onCycleGroupVisibility={onCycleGroupVisibility}
+        onExcludeGroupVisibility={onExcludeGroupVisibility}
         onToggleFilterValue={onToggleFilterValue}
         projects={options.filteredProjects}
         query={query}
@@ -1288,6 +1764,8 @@ function WorkFilterSections({
       />
       <ParentFilterSection
         hidden={hiddenFilterSet.has("parentIds")}
+        onCycleGroupVisibility={onCycleGroupVisibility}
+        onExcludeGroupVisibility={onExcludeGroupVisibility}
         onToggleFilterValue={onToggleFilterValue}
         parentLabel={parentLabel}
         parents={options.filteredParents}
@@ -1297,6 +1775,8 @@ function WorkFilterSections({
       <LabelFilterSection
         hidden={hiddenFilterSet.has("labelIds")}
         labels={options.filteredLabels}
+        onCycleGroupVisibility={onCycleGroupVisibility}
+        onExcludeGroupVisibility={onExcludeGroupVisibility}
         onToggleFilterValue={onToggleFilterValue}
         query={query}
         view={view}
@@ -1325,10 +1805,34 @@ export function FilterPopover({
   triggerIcon,
   dashedWhenEmpty = false,
 }: FilterPopoverProps) {
+  const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
-  const options = useWorkFilterOptions(view, items)
+  const [optimisticHiddenState, setOptimisticHiddenState] = useState<{
+    hiddenState: ViewDefinition["hiddenState"]
+    viewId: string
+  } | null>(null)
+  const [optimisticFilters, setOptimisticFilters] = useState<{
+    filters: ViewDefinition["filters"]
+    viewId: string
+  } | null>(null)
+  const effectiveHiddenState =
+    open && optimisticHiddenState?.viewId === view.id
+      ? optimisticHiddenState.hiddenState
+      : view.hiddenState
+  const effectiveFilters =
+    open && optimisticFilters?.viewId === view.id
+      ? optimisticFilters.filters
+      : view.filters
+  const effectiveView =
+    effectiveHiddenState === view.hiddenState && effectiveFilters === view.filters
+      ? view
+      : { ...view, filters: effectiveFilters, hiddenState: effectiveHiddenState }
+  const options = useWorkFilterOptions(effectiveView, items)
   const hiddenFilterSet = useMemo(() => new Set(hiddenFilters), [hiddenFilters])
-  const activeCount = getWorkFilterActiveCount(view.filters)
+  const groupVisibilityActiveCount =
+    getGroupVisibilityFilterActiveCount(effectiveView)
+  const activeCount =
+    getWorkFilterActiveCount(effectiveView.filters) + groupVisibilityActiveCount
   const resolvedGroupingExperience = useResolvedGroupingExperience(
     view,
     groupingExperience
@@ -1339,6 +1843,10 @@ export function FilterPopover({
   })
 
   function handleToggleFilterValue(key: ViewFilterKey, value: string) {
+    setOptimisticFilters({
+      filters: toggleViewFilterValue(effectiveView.filters, key, value),
+      viewId: view.id,
+    })
     toggleFilterValueOrDelegate({
       canPersistKey: isPersistedViewFilterKey,
       key,
@@ -1350,14 +1858,70 @@ export function FilterPopover({
 
   function handleClearFilters() {
     clearFiltersOrDelegate({ onClearFilters, viewId: view.id })
+    setOptimisticFilters({
+      filters: clearViewFilterSelections(effectiveView.filters),
+      viewId: view.id,
+    })
+
+    if (groupVisibilityActiveCount > 0) {
+      const nextHiddenState = clearGroupVisibilityFilterState(effectiveView)
+
+      setOptimisticHiddenState({
+        hiddenState: nextHiddenState,
+        viewId: view.id,
+      })
+      updateViewConfig(view, onUpdateView, {
+        hiddenState: nextHiddenState,
+      })
+    }
   }
 
   function handleSetShowEmptyGroups(showEmptyGroups: boolean) {
     updateViewConfig(view, onUpdateView, { showEmptyGroups })
   }
 
+  function handleCycleGroupVisibility(groupValue: string) {
+    const nextHiddenState = getNextGroupVisibilityHiddenState(
+      effectiveView.hiddenState,
+      groupValue
+    )
+
+    setOptimisticHiddenState({
+      hiddenState: nextHiddenState,
+      viewId: view.id,
+    })
+    updateViewConfig(view, onUpdateView, {
+      hiddenState: nextHiddenState,
+    })
+  }
+
+  function handleExcludeGroupVisibility(groupValue: string) {
+    const nextHiddenState = getExcludedGroupVisibilityHiddenState(
+      effectiveView.hiddenState,
+      groupValue
+    )
+
+    setOptimisticHiddenState({
+      hiddenState: nextHiddenState,
+      viewId: view.id,
+    })
+    updateViewConfig(view, onUpdateView, {
+      hiddenState: nextHiddenState,
+    })
+  }
+
   return (
-    <Popover>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+
+        if (!nextOpen) {
+          setOptimisticHiddenState(null)
+          setOptimisticFilters(null)
+        }
+      }}
+    >
       <PopoverTrigger asChild>
         <FilterTriggerButton
           activeCount={activeCount}
@@ -1393,12 +1957,14 @@ export function FilterPopover({
         />
         <WorkFilterSections
           hiddenFilterSet={hiddenFilterSet}
+          onCycleGroupVisibility={handleCycleGroupVisibility}
+          onExcludeGroupVisibility={handleExcludeGroupVisibility}
           onSetShowEmptyGroups={handleSetShowEmptyGroups}
           onToggleFilterValue={handleToggleFilterValue}
           options={options}
           parentLabel={parentLabel}
           query={query}
-          view={view}
+          view={effectiveView}
         />
       </PopoverContent>
     </Popover>
@@ -1441,17 +2007,26 @@ function FilterRow({
   label,
   active,
   onClick,
+  visibilityState,
 }: {
   icon: ReactNode
   label: string
   active: boolean
   onClick: () => void
+  visibilityState?: GroupVisibilityState
 }) {
+  const excluded = visibilityState === "excluded"
+  const trailing = excluded ? (
+    <X className="size-3.5 text-fg-2" />
+  ) : active ? (
+    <Check className="size-3.5 text-accent-fg" />
+  ) : null
+
   return (
     <PropertyPopoverItem
       selected={active}
       onClick={onClick}
-      trailing={active ? <Check className="size-3.5 text-accent-fg" /> : null}
+      trailing={trailing}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
         {icon}
@@ -1468,184 +2043,6 @@ function ColorDot({ color }: { color?: string }) {
       className="inline-block size-2.5 shrink-0 rounded-full"
       style={{ background: color ?? "var(--fg-4)" }}
     />
-  )
-}
-
-export function ViewConfigPopover({
-  view,
-  onUpdateView,
-  onToggleDisplayProperty,
-  groupOptions = DEFAULT_GROUP_OPTIONS,
-  groupingExperience,
-}: {
-  view: ViewDefinition
-  onUpdateView?: (patch: ViewConfigPatch) => void
-  onToggleDisplayProperty?: (property: DisplayProperty) => void
-  groupOptions?: GroupField[]
-  groupingExperience?: TeamExperienceType | null
-}) {
-  const resolvedGroupingExperience = useResolvedGroupingExperience(
-    view,
-    groupingExperience
-  )
-  const resolveGroupLabel = (field: GroupField) =>
-    getContextualGroupFieldOptionLabel(field, {
-      view,
-      groupingExperience: resolvedGroupingExperience,
-    })
-
-  function handleUpdateView(patch: ViewConfigPatch) {
-    if (onUpdateView) {
-      onUpdateView(patch)
-      return
-    }
-
-    useAppStore.getState().updateViewConfig(view.id, patch)
-  }
-
-  function handleToggleDisplay(property: DisplayProperty) {
-    if (onToggleDisplayProperty) {
-      onToggleDisplayProperty(property)
-      return
-    }
-
-    useAppStore.getState().toggleViewDisplayProperty(view.id, property)
-  }
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button size="icon-xs" variant="ghost">
-          <GearSix className="size-3.5" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        className="w-72 overflow-hidden border border-line bg-surface p-0 shadow-lg"
-      >
-        <div className="border-b border-line-soft px-3 py-2.5">
-          <div className="flex rounded-md bg-surface-2 p-0.5">
-            {[
-              {
-                value: "list",
-                label: "List",
-                icon: <Rows className="size-3" />,
-              },
-              {
-                value: "board",
-                label: "Board",
-                icon: <Kanban className="size-3" />,
-              },
-              {
-                value: "timeline",
-                label: "Timeline",
-                icon: <ChartBarHorizontal className="size-3" />,
-              },
-              {
-                value: "calendar",
-                label: "Calendar",
-                icon: <CalendarBlank className="size-3" />,
-              },
-            ].map((layout) => (
-              <button
-                key={layout.value}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-[5px] py-1.5 text-[11px] transition-all",
-                  view.layout === layout.value
-                    ? "bg-background font-medium text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() =>
-                  handleUpdateView({
-                    layout: layout.value as ViewDefinition["layout"],
-                  })
-                }
-              >
-                {layout.icon}
-                {layout.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-col px-3 py-2">
-          <div className="mb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-            Configuration
-          </div>
-          <ConfigSelect
-            label="Grouping"
-            value={view.grouping}
-            options={groupOptions.map((option) => ({
-              value: option,
-              label: resolveGroupLabel(option),
-            }))}
-            onValueChange={(value) =>
-              handleUpdateView({ grouping: value as GroupField })
-            }
-          />
-          <ConfigSelect
-            label="Sub-grouping"
-            value={view.subGrouping ?? "none"}
-            options={[
-              { value: "none", label: "None" },
-              ...groupOptions.map((option) => ({
-                value: option,
-                label: resolveGroupLabel(option),
-              })),
-            ]}
-            onValueChange={(value) =>
-              handleUpdateView({
-                subGrouping: value === "none" ? null : (value as GroupField),
-              })
-            }
-          />
-          <ConfigSelect
-            label="Ordering"
-            value={view.ordering}
-            options={orderingOptions.map((option) => ({
-              value: option,
-              label: ORDERING_LABELS[option],
-            }))}
-            onValueChange={(value) =>
-              handleUpdateView({ ordering: value as OrderingField })
-            }
-          />
-          <ConfigSelect
-            label="Completed"
-            value={String(view.filters.showCompleted)}
-            options={[
-              { value: "true", label: "Show all" },
-              { value: "false", label: "Hide done" },
-            ]}
-            onValueChange={(value) =>
-              handleUpdateView({ showCompleted: value === "true" })
-            }
-          />
-        </div>
-
-        <div className="border-t px-3 py-2.5">
-          <div className="mb-2 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-            Properties
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {displayPropertyOptions.map((property) => (
-              <button
-                key={property}
-                className={cn(
-                  "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
-                  view.displayProps.includes(property)
-                    ? "border-primary/30 bg-primary/10 text-foreground"
-                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
-                )}
-                onClick={() => handleToggleDisplay(property)}
-              >
-                {property}
-              </button>
-            ))}
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
   )
 }
 
@@ -2432,13 +2829,14 @@ export function GroupChipPopover({
     view,
     groupingExperience
   )
-  const resolveOptionLabel =
-    getOptionLabel ??
-    ((field: GroupField) =>
-      getContextualGroupFieldOptionLabel(field, {
-        view,
-        groupingExperience: resolvedGroupingExperience,
-      }))
+  const resolveOptionLabel = (field: GroupField | null) =>
+    field
+      ? (getOptionLabel?.(field) ??
+        getContextualGroupFieldOptionLabel(field, {
+          view,
+          groupingExperience: resolvedGroupingExperience,
+        }))
+      : "None"
   const handleUpdateView = createViewConfigUpdater(view.id, onUpdateView)
 
   return (
@@ -2472,6 +2870,20 @@ export function GroupChipPopover({
           <div className="flex min-w-0 flex-col">
             <PropertyPopoverGroup>Group by</PropertyPopoverGroup>
             <div className="no-scrollbar flex max-h-[320px] flex-col overflow-y-auto p-1">
+              <PropertyPopoverItem
+                selected={view.grouping === null}
+                muted
+                onClick={() =>
+                  handleUpdateView({ grouping: null, subGrouping: null })
+                }
+                trailing={
+                  view.grouping === null ? (
+                    <Check className="size-3.5 text-accent-fg" />
+                  ) : null
+                }
+              >
+                None
+              </PropertyPopoverItem>
               {groupOptions.map((option) => {
                 const active = view.grouping === option
                 return (
@@ -2983,32 +3395,6 @@ function SortableDisplayPropertyRow({
   )
 }
 
-const privateTaskLevelOptions = ["task", "sub-task"] satisfies WorkItemType[]
-const myItemsParentLevelGroups = [
-  {
-    key: "software-development",
-    label: "Software development",
-    options: ["epic", "feature", "requirement", "story"],
-  },
-  {
-    key: "issue-analysis",
-    label: "Issues",
-    options: ["issue"],
-  },
-  {
-    key: "project-management",
-    label: "Project management",
-    options: ["task"],
-  },
-] satisfies Array<{
-  key: TeamExperienceType
-  label: string
-  options: WorkItemType[]
-}>
-const myItemsParentLevelOptions = myItemsParentLevelGroups.flatMap(
-  (group) => group.options
-) as WorkItemType[]
-
 function isMyItemsParentLevelView(
   view: ViewDefinition,
   privateTaskView: boolean
@@ -3021,33 +3407,40 @@ function isMyItemsParentLevelView(
   )
 }
 
-function getMyItemsParentLevelGroupKey(itemType: WorkItemType) {
+function getLevelTaxonomyGroupKey(
+  groups: ReturnType<typeof getWorkItemLevelTaxonomyGroups>,
+  itemType: WorkItemType
+) {
   return (
-    myItemsParentLevelGroups.find((group) =>
+    groups.find((group) =>
       (group.options as readonly WorkItemType[]).includes(itemType)
     )?.key ?? null
   )
 }
 
-function getSelectedMyItemsParentLevels(view: ViewDefinition) {
+function getSelectedMyItemsParentLevels(
+  view: ViewDefinition,
+  itemLevelOptions: readonly WorkItemType[]
+) {
   const selected = view.filters.itemTypes.filter((itemType) =>
-    myItemsParentLevelOptions.includes(itemType)
+    itemLevelOptions.includes(itemType)
   )
 
   if (selected.length > 0) {
     return selected
   }
 
-  return view.itemLevel && myItemsParentLevelOptions.includes(view.itemLevel)
+  return view.itemLevel && itemLevelOptions.includes(view.itemLevel)
     ? [view.itemLevel]
     : []
 }
 
 function getNextMyItemsParentLevels(
+  groups: ReturnType<typeof getWorkItemLevelTaxonomyGroups>,
   selectedLevels: WorkItemType[],
   itemType: WorkItemType
 ) {
-  const groupKey = getMyItemsParentLevelGroupKey(itemType)
+  const groupKey = getLevelTaxonomyGroupKey(groups, itemType)
 
   if (!groupKey) {
     return selectedLevels
@@ -3059,7 +3452,7 @@ function getNextMyItemsParentLevels(
 
   return [
     ...selectedLevels.filter(
-      (level) => getMyItemsParentLevelGroupKey(level) !== groupKey
+      (level) => getLevelTaxonomyGroupKey(groups, level) !== groupKey
     ),
     itemType,
   ]
@@ -3081,21 +3474,24 @@ function getMyItemsParentLevelLabel(
 }
 
 function getBaseItemLevelOptions({
+  groupingExperience,
   isPrivateTaskView,
+  personal,
   team,
+  templateType,
 }: {
+  groupingExperience?: TeamExperienceType | null
   isPrivateTaskView: boolean
+  personal: boolean
   team: Team | null
+  templateType?: Project["templateType"] | null
 }) {
-  if (isPrivateTaskView) {
-    return privateTaskLevelOptions
-  }
-
-  if (team) {
-    return getDefaultWorkItemTypesForTeamExperience(team.settings.experience)
-  }
-
-  return workItemTypes
+  return getWorkItemLevelTaxonomyOptions({
+    personal,
+    privateOnly: isPrivateTaskView,
+    teamExperience: groupingExperience ?? team?.settings.experience,
+    templateType,
+  })
 }
 
 function includeCurrentItemLevel(
@@ -3110,12 +3506,16 @@ function includeCurrentItemLevel(
 }
 
 function getLevelChipItemOptions({
+  groupingExperience,
   isPrivateTaskView,
   team,
+  templateType,
   view,
 }: {
+  groupingExperience?: TeamExperienceType | null
   isPrivateTaskView: boolean
   team: Team | null
+  templateType?: Project["templateType"] | null
   view: ViewDefinition
 }) {
   if (view.entityKind !== "items") {
@@ -3123,7 +3523,13 @@ function getLevelChipItemOptions({
   }
 
   return includeCurrentItemLevel(
-    getBaseItemLevelOptions({ isPrivateTaskView, team }),
+    getBaseItemLevelOptions({
+      groupingExperience,
+      isPrivateTaskView,
+      personal: view.scopeType === "personal",
+      team,
+      templateType,
+    }),
     view.itemLevel ?? null
   )
 }
@@ -3135,6 +3541,8 @@ export function LevelChipPopover({
   label = "Level",
   showLabel = true,
   showValue = false,
+  groupingExperience,
+  templateType,
 }: {
   view: ViewDefinition
   onUpdateView?: (patch: ViewConfigPatch) => void
@@ -3142,24 +3550,39 @@ export function LevelChipPopover({
   label?: string
   showLabel?: boolean
   showValue?: boolean
+  groupingExperience?: TeamExperienceType | null
+  templateType?: Project["templateType"] | null
 }) {
   const team = useAppStore((state) =>
     view.scopeType === "team" ? getTeam(state, view.scopeId) : null
   )
   const isPrivateTaskView = Boolean(
     view.entityKind === "items" &&
-      view.filters.visibility?.length === 1 &&
-      view.filters.visibility[0] === "private"
+    view.filters.visibility?.length === 1 &&
+    view.filters.visibility[0] === "private"
   )
   const isMyItemsLevelView = isMyItemsParentLevelView(view, isPrivateTaskView)
   const itemLevelExperience = isPrivateTaskView
     ? "project-management"
-    : team?.settings.experience
+    : (groupingExperience ?? team?.settings.experience)
+  const myItemsParentLevelGroups = useMemo(
+    () =>
+      getWorkItemLevelTaxonomyGroups({
+        personal: true,
+      }),
+    []
+  )
+  const myItemsParentLevelOptions = useMemo(
+    () => myItemsParentLevelGroups.flatMap((group) => group.options),
+    [myItemsParentLevelGroups]
+  )
   const itemLevelOptions = isMyItemsLevelView
     ? myItemsParentLevelOptions
     : getLevelChipItemOptions({
+        groupingExperience,
         isPrivateTaskView,
         team,
+        templateType,
         view,
       })
 
@@ -3168,7 +3591,7 @@ export function LevelChipPopover({
   }
 
   const selectedMyItemsLevels = isMyItemsLevelView
-    ? getSelectedMyItemsParentLevels(view)
+    ? getSelectedMyItemsParentLevels(view, itemLevelOptions)
     : []
   const effectiveItemLevel =
     selectedMyItemsLevels[0] ?? view.itemLevel ?? itemLevelOptions[0] ?? null
@@ -3216,6 +3639,7 @@ export function LevelChipPopover({
                       selected={active}
                       onClick={() => {
                         const nextLevels = getNextMyItemsParentLevels(
+                          myItemsParentLevelGroups,
                           selectedMyItemsLevels,
                           option
                         )

@@ -1190,7 +1190,7 @@ export function PropertyDateField({
   )
 }
 
-export function ConfigSelect({
+function ConfigSelect({
   label,
   value,
   options,

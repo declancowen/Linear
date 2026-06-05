@@ -334,6 +334,93 @@ export interface TeamWorkflowSettings {
 export type HiddenState = {
   groups: string[]
   subgroups: string[]
+  includedGroups?: string[]
+}
+
+function uniqueStrings(values: readonly string[] | undefined) {
+  return [...new Set(values ?? [])]
+}
+
+export function normalizeHiddenState(
+  hiddenState: Partial<HiddenState> | null | undefined
+): HiddenState {
+  const groups = uniqueStrings(hiddenState?.groups)
+  const subgroups = uniqueStrings(hiddenState?.subgroups)
+  const excludedGroups = new Set(groups)
+  const includedGroups = uniqueStrings(hiddenState?.includedGroups).filter(
+    (value) => !excludedGroups.has(value)
+  )
+
+  return {
+    groups,
+    subgroups,
+    ...(includedGroups.length > 0 ? { includedGroups } : {}),
+  }
+}
+
+export function getIncludedHiddenGroupValues(hiddenState: HiddenState) {
+  return hiddenState.includedGroups ?? []
+}
+
+export function getGroupVisibilityState(
+  hiddenState: HiddenState,
+  value: string
+): "normal" | "included" | "excluded" {
+  if (hiddenState.groups.includes(value)) {
+    return "excluded"
+  }
+
+  return getIncludedHiddenGroupValues(hiddenState).includes(value)
+    ? "included"
+    : "normal"
+}
+
+export function getNextGroupVisibilityHiddenState(
+  hiddenState: HiddenState,
+  value: string
+): HiddenState {
+  const current = normalizeHiddenState(hiddenState)
+  const state = getGroupVisibilityState(current, value)
+
+  if (state === "normal") {
+    return normalizeHiddenState({
+      ...current,
+      groups: current.groups.filter((entry) => entry !== value),
+      includedGroups: [value],
+    })
+  }
+
+  if (state === "included") {
+    return normalizeHiddenState({
+      ...current,
+      groups: [...current.groups, value],
+      includedGroups: getIncludedHiddenGroupValues(current).filter(
+        (entry) => entry !== value
+      ),
+    })
+  }
+
+  return normalizeHiddenState({
+    ...current,
+    groups: current.groups.filter((entry) => entry !== value),
+  })
+}
+
+export function getExcludedGroupVisibilityHiddenState(
+  hiddenState: HiddenState,
+  value: string
+): HiddenState {
+  const current = normalizeHiddenState(hiddenState)
+
+  return normalizeHiddenState({
+    ...current,
+    groups: current.groups.includes(value)
+      ? current.groups
+      : [...current.groups, value],
+    includedGroups: getIncludedHiddenGroupValues(current).filter(
+      (entry) => entry !== value
+    ),
+  })
 }
 
 export const EMPTY_PARENT_FILTER_VALUE = "__empty__"
@@ -365,7 +452,7 @@ export interface ProjectPresentationConfig {
   itemLevel?: WorkItemType | null
   showChildItems?: boolean
   layout: ProjectPresentationLayout
-  grouping: GroupField
+  grouping: GroupField | null
   ordering: OrderingField
   displayProps: DisplayProperty[]
   filters: ViewFilters

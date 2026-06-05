@@ -280,7 +280,7 @@ export interface ViewDefinition {
   showChildItems?: boolean
   layout: ViewLayout
   filters: ViewFilters
-  grouping: GroupField
+  grouping: GroupField | null
   subGrouping: GroupField | null
   ordering: OrderingField
   displayProps: DisplayProperty[]
@@ -293,7 +293,7 @@ export interface ViewDefinition {
 
 export type ViewConfigPatch = Partial<{
   layout: ViewLayout
-  grouping: GroupField
+  grouping: GroupField | null
   subGrouping: GroupField | null
   ordering: OrderingField
   itemLevel: WorkItemType | null
@@ -305,6 +305,7 @@ export type ViewConfigPatch = Partial<{
   containerType: ViewContainerType | null
   containerId: string | null
   route: string
+  hiddenState: HiddenState
 }>
 
 export type CreateViewInput = {
@@ -318,7 +319,7 @@ export type CreateViewInput = {
   name: string
   description: string
   layout?: ViewLayout
-  grouping?: GroupField
+  grouping?: GroupField | null
   subGrouping?: GroupField | null
   ordering?: OrderingField
   itemLevel?: WorkItemType | null
@@ -331,7 +332,7 @@ export type CreateViewInput = {
 export type ViewerViewConfigOverride = Partial<{
   layout: ViewLayout
   filters: Partial<ViewFilters>
-  grouping: GroupField
+  grouping: GroupField | null
   subGrouping: GroupField | null
   ordering: OrderingField
   itemLevel: WorkItemType | null
@@ -559,7 +560,7 @@ export type CreateDialogState =
       initialConfig?: Partial<{
         layout: ViewLayout
         filters: ViewFilters
-        grouping: GroupField
+        grouping: GroupField | null
         subGrouping: GroupField | null
         ordering: OrderingField
         itemLevel: WorkItemType | null

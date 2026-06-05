@@ -9,11 +9,18 @@ import {
 import {
   buildItemGroups,
   buildItemGroupsWithEmptyGroups,
+  buildWorkViewModel,
   getDirectChildWorkItemsForDisplay,
+  getGroupVisibleItemsForView,
   getVisibleWorkItems,
+  getViewMatchedItems,
   getViewsForScope,
   getVisibleItemsForView,
 } from "@/lib/domain/selectors"
+import {
+  getNextGroupVisibilityHiddenState,
+  getWorkItemLevelTaxonomyOptions,
+} from "@/lib/domain/types"
 import { createTestWorkItem } from "@/tests/lib/fixtures/app-data"
 
 function createView(overrides?: Partial<ViewDefinition>): ViewDefinition {
@@ -174,6 +181,141 @@ describe("view item levels", () => {
     ).toEqual(["feature", "story"])
   })
 
+  it("keeps sub-items in the shared matched item model for no-level item views", () => {
+    const state = createEmptyState()
+    const parent = createTestWorkItem("parent", { type: "issue" })
+    const child = createTestWorkItem("child", {
+      type: "sub-issue",
+      parentId: parent.id,
+    })
+    const view = createView({ itemLevel: null })
+
+    expect(
+      getVisibleItemsForView(state, [parent, child], view).map(
+        (item) => item.id
+      )
+    ).toEqual(["parent"])
+    expect(
+      getViewMatchedItems(state, [parent, child], view).map((item) => item.id)
+    ).toEqual(["parent", "child"])
+  })
+
+  it("applies include-only and excluded group state to the shared work view model", () => {
+    const state = createEmptyState()
+    const todo = createTestWorkItem("todo", { status: "todo" })
+    const done = createTestWorkItem("done", { status: "done" })
+    const includedDoneState = getNextGroupVisibilityHiddenState(
+      { groups: [], subgroups: [] },
+      "done"
+    )
+    const excludedDoneState = getNextGroupVisibilityHiddenState(
+      includedDoneState,
+      "done"
+    )
+    const view = createView({
+      grouping: "status",
+      hiddenState: includedDoneState,
+    })
+
+    expect(
+      getGroupVisibleItemsForView(state, [todo, done], view).map(
+        (item) => item.id
+      )
+    ).toEqual(["done"])
+
+    expect(
+      getGroupVisibleItemsForView(state, [todo, done], {
+        ...view,
+        hiddenState: excludedDoneState,
+      }).map((item) => item.id)
+    ).toEqual(["todo"])
+  })
+
+  it("scopes private work view source items before parent group synthesis", () => {
+    const state = createCurrentUserTeamState("project-management")
+    const teamParent = createTestWorkItem("team-parent", {
+      type: "task",
+      visibility: "team",
+    })
+    const privateParent = createTestWorkItem("private-parent", {
+      type: "task",
+      creatorId: "user_1",
+      teamId: null,
+      visibility: "private",
+      workspaceId: "workspace_1",
+    })
+    const privateChild = createTestWorkItem("private-child", {
+      type: "sub-task",
+      creatorId: "user_1",
+      parentId: privateParent.id,
+      teamId: null,
+      visibility: "private",
+      workspaceId: "workspace_1",
+    })
+    const view = createView({
+      grouping: "parent",
+      filters: {
+        ...createView().filters,
+        visibility: ["private"],
+      },
+    })
+
+    const model = buildWorkViewModel(
+      state,
+      [teamParent, privateParent, privateChild],
+      view
+    )
+
+    expect(model.scopedSourceItems.map((item) => item.id)).toEqual([
+      "private-parent",
+      "private-child",
+    ])
+  })
+
+  it("keeps eligible child items in the scoped source for parent-level child display", () => {
+    const state = createCurrentUserTeamState("issue-analysis")
+    const parentIssue = createTestWorkItem("parent-issue", {
+      type: "issue",
+      status: "in-progress",
+    })
+    const openSubIssue = createTestWorkItem("open-sub-issue", {
+      type: "sub-issue",
+      parentId: parentIssue.id,
+      status: "in-progress",
+    })
+    const doneSubIssue = createTestWorkItem("done-sub-issue", {
+      type: "sub-issue",
+      parentId: parentIssue.id,
+      status: "done",
+    })
+    const view = createView({
+      itemLevel: "issue",
+      showChildItems: true,
+      filters: {
+        ...createView().filters,
+        status: ["todo", "in-progress"],
+      },
+    })
+
+    const model = buildWorkViewModel(
+      state,
+      [parentIssue, openSubIssue, doneSubIssue],
+      view
+    )
+
+    expect(model.matchedItems.map((item) => item.id)).toEqual(["parent-issue"])
+    expect(model.scopedSourceItems.map((item) => item.id)).toEqual([
+      "parent-issue",
+      "open-sub-issue",
+    ])
+  })
+
+  it("exposes sub-issue and sub-task taxonomy options for personal item views", () => {
+    expect(getWorkItemLevelTaxonomyOptions({ personal: true })).toEqual(
+      expect.arrayContaining(["issue", "sub-issue", "task", "sub-task"])
+    )
+  })
+
   it("does not synthesize empty groups when empty groups are hidden", () => {
     const state = createEmptyState()
     const filteredItems = [createTestWorkItem("root-todo", { status: "todo" })]
@@ -253,7 +395,7 @@ describe("view item levels", () => {
     ]).toEqual(["cancelled"])
   })
 
-  it("keeps source group lanes available when filters hide all visible items", () => {
+  it("does not synthesize source group lanes when non-group filters hide all visible items", () => {
     const state = createCurrentUserTeamState("project-management")
     const sourceItems = [
       createTestWorkItem("backlog-source", { status: "backlog" }),
@@ -276,14 +418,7 @@ describe("view item levels", () => {
           teamId: "team_1",
         }
       ).keys(),
-    ]).toEqual([
-      "backlog",
-      "todo",
-      "in-progress",
-      "done",
-      "cancelled",
-      "duplicate",
-    ])
+    ]).toEqual([])
   })
 
   it("does not synthesize filtered-out type groups when type filters are active", () => {

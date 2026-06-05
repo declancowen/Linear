@@ -2,6 +2,15 @@ import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 
+type GetVisibleItemsForViewMock = ((
+  data: unknown,
+  items: unknown[],
+  view?: unknown,
+  options?: unknown
+) => unknown[]) & {
+  mockClear: () => void
+}
+
 const {
   filterPopoverMock,
   getVisibleItemsForViewMock,
@@ -10,7 +19,9 @@ const {
   searchParamsState,
 } = vi.hoisted(() => ({
   filterPopoverMock: vi.fn(() => null),
-  getVisibleItemsForViewMock: vi.fn((_: unknown, items: unknown[]) => items),
+  getVisibleItemsForViewMock: vi.fn(
+    (_data: unknown, items: unknown[]) => items
+  ) as GetVisibleItemsForViewMock,
   groupOptionsState: {
     value: ["status"],
   },
@@ -29,8 +40,42 @@ vi.mock("@/lib/browser/dialog-transitions", () => ({
 }))
 
 vi.mock("@/lib/domain/selectors", () => ({
+  buildWorkViewModel: (
+    data: unknown,
+    items: unknown[],
+    view: unknown,
+    options?: {
+      childDisplayMode?: string
+      matchItems?: unknown[]
+      sourceItems?: unknown[]
+    }
+  ) => {
+    const visibleOptions = { ...(options ?? {}) }
+    delete visibleOptions.sourceItems
+    const matchedItems = getVisibleItemsForViewMock(
+      data,
+      items,
+      view,
+      visibleOptions
+    )
+
+    return {
+      matchedItems,
+      scopedSourceItems: matchedItems,
+      visibleItems: matchedItems,
+    }
+  },
   canEditTeam: () => true,
   canEditWorkspace: () => true,
+  getCompatibleWorkViewGroupOptions: (view: unknown, groupOptions: string[]) =>
+    (view as { filters?: { visibility?: string[] } } | null)?.filters
+      ?.visibility?.length === 1 &&
+    (view as { filters?: { visibility?: string[] } }).filters?.visibility?.[0] ===
+      "private"
+      ? groupOptions.filter(
+          (option) => !["assignee", "project", "team"].includes(option)
+        )
+      : groupOptions,
   getUser: () => null,
   getVisibleItemsForView: getVisibleItemsForViewMock,
   getViewByRoute: (

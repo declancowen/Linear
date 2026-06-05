@@ -332,6 +332,12 @@ const viewFiltersSchema = z.object({
   showEmptyGroups: z.boolean().default(true),
 })
 
+const hiddenStateSchema = z.object({
+  groups: z.array(z.string()),
+  subgroups: z.array(z.string()),
+  includedGroups: z.array(z.string()).optional(),
+})
+
 export const displayPropertySchema = z.custom<DisplayProperty>(
   (value) =>
     typeof value === "string" &&
@@ -368,7 +374,7 @@ export const projectSchema = z.object({
       itemLevel: z.enum(workItemTypes).nullable().optional(),
       showChildItems: z.boolean().optional(),
       layout: z.enum(projectPresentationLayouts),
-      grouping: z.enum(groupFields),
+      grouping: z.enum(groupFields).nullable(),
       ordering: z.enum(orderingFields),
       displayProps: z.array(displayPropertySchema),
       filters: viewFiltersSchema,
@@ -378,13 +384,14 @@ export const projectSchema = z.object({
 
 const viewConfigPatchBaseSchema = z.object({
   layout: z.enum(viewLayouts).optional(),
-  grouping: z.enum(groupFields).optional(),
+  grouping: z.enum(groupFields).nullable().optional(),
   subGrouping: z.enum(groupFields).nullable().optional(),
   ordering: z.enum(orderingFields).optional(),
   itemLevel: z.enum(workItemTypes).nullable().optional(),
   showChildItems: z.boolean().optional(),
   showCompleted: z.boolean().optional(),
   showEmptyGroups: z.boolean().optional(),
+  hiddenState: hiddenStateSchema.optional(),
   description: boundedTrimmedStringSchema(
     viewDescriptionConstraints
   ).optional(),
@@ -443,12 +450,7 @@ export const viewSchema = z
     showCompleted: viewConfigPatchBaseSchema.shape.showCompleted,
     filters: viewFiltersSchema.optional(),
     displayProps: z.array(displayPropertySchema).optional(),
-    hiddenState: z
-      .object({
-        groups: z.array(z.string()),
-        subgroups: z.array(z.string()),
-      })
-      .optional(),
+    hiddenState: hiddenStateSchema.optional(),
   })
   .superRefine((value, ctx) => {
     const hasContainerType =

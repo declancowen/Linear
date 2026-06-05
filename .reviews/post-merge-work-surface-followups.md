@@ -198,3 +198,205 @@ Verification rerun:
 Diff-review result:
 
 - No open findings remain for the channel comment-confirmation follow-up.
+
+### Turn 10
+
+Deep-reviewed the work-view consistency follow-up after the filter dropdown and parent/child display regressions.
+
+Outcome:
+
+- no open Critical/High findings remain after the loop
+- grouped property include/exclude now lives in the Filter dropdown, not board/list headers, and updates `hiddenState` instead of item filters
+- the dropdown keeps optimistic hidden-state while open, so a fast second click advances from include-only to excluded/X without waiting for the saved view to rerender
+- board/list hidden group rails no longer render the filter X affordance
+- parent-level `showChildItems` now keeps eligible children in `buildWorkViewModel().scopedSourceItems`, while `matchedItems` remains the selected parent/container level
+- parent-grouped boards now materialize child cards inside promoted parent lanes when child display is enabled
+- no-group board/list views keep parents as expandable cards/rows under the neutral all bucket instead of promoting parent rows into grouping headers
+- project item views now use the shared work-view model, so child source materialization and group visibility semantics match team and My Items surfaces
+
+Architecture pass:
+
+- Domain selector ownership was rechecked: `lib/domain/selectors-internal/work-items.ts` owns matched items, visible group items, scoped child source items, and group visibility semantics.
+- View controls own view-config mutations only: filter dropdown property include/exclude writes `hiddenState`, while normal non-grouping rows still use persisted item filters.
+- Board/list renderers own only presentation: they consume `items` plus `scopedItems` and decide card/row disclosure, without reimplementing item-level or filter eligibility.
+- Project and general work surfaces now share `buildWorkViewModel` for the same matrix of `itemLevel`, `showChildItems`, grouping, filters, private/team scope, and parent grouping.
+
+Resolved during the loop:
+
+- Fallow duplication initially failed on newly added work-surface component tests. The repeated parent/child issue setup was extracted into test-local helpers, and the duplication gate then passed at `0/0`.
+
+Verification rerun:
+
+- `pnpm exec vitest run tests/components/group-chip-popover.test.tsx tests/components/work-surface-view.test.tsx tests/lib/domain/view-item-level.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+- `pnpm fallow:gate`
+- `git diff --check`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+
+Diff-review result:
+
+- Deep correctness/safety pass: no remaining branch-specific bug found in the filter dropdown property-visibility path or the parent/no-group child display path.
+- Maintainability/structure pass: no open blocker after extracting the duplicated regression-test setup.
+- Residual risk: browser verification on a logged-in production-backed workspace is still the best final confidence check for the live data matrix, but the code-level invariants now have focused domain and component coverage.
+
+### Turn 11
+
+Deep-reviewed the follow-up slice for the corrected Filter dropdown click contract and the no-group board/list rendering contract.
+
+Outcome:
+
+- no open Critical/High findings remain after the loop
+- Filter dropdown property rows now use the requested state machine: first click applies the include filter/tick, second click removes that include and writes excluded property visibility/X, and excluded rows cycle back to normal
+- the X affordance stays inside the Filter dropdown row only; board/list cards, rows, group headers, and hidden rails do not expose it
+- fast second clicks are handled with optimistic filter and hidden-state state while the popover remains open
+- `Group: None` no longer renders a visible `All` group/header/container in board or list mode
+- no-group board/list views still use the same item-lane renderers as grouped views, so parent rows/cards remain expandable and child items render from the shared child-display path
+
+Architecture pass:
+
+- Control ownership: include-only state remains an item filter in `view.filters`; excluded/X state is a view property-visibility change in `hiddenState.groups`.
+- Domain ownership: `lib/domain/types-internal/primitives.ts` owns hidden-state normalization and the direct excluded-state helper, avoiding UI-local persistence shapes.
+- Presentation ownership: `components/app/screens/work-surface-view.tsx` only decides whether a visible group container is drawn. The internal grouping bucket remains available for sorting/drop calculations, but no fake `All` group is rendered when `view.grouping` is `null`.
+- Structural prevention: board/list lane rendering now shares owner-local lane and subgroup section components. Fallow initially caught clone debt; the implementation was refactored until duplication returned to `0/0`.
+
+Verification rerun:
+
+- `pnpm exec vitest run tests/components/group-chip-popover.test.tsx tests/components/work-surface-view.test.tsx tests/lib/domain/view-item-level.test.ts tests/lib/domain/view-config-contract.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+- `pnpm fallow:gate`
+- `git diff --check`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- Local prod-backed reachability: `curl http://127.0.0.1:3000/login` returned `200`
+
+Diff-review result:
+
+- Deep correctness/safety pass: no remaining branch-specific bug found in the corrected filter row state machine, no-group visual rendering, or parent/child expansion paths covered by the focused tests.
+- Maintainability/structure pass: no open blocker after extracting lane controls, shared subgroup sections, and shared board/list lane components.
+- Residual risk: authenticated browser smoke against live board data was not completed because no direct Browser MCP tool is exposed and Playwright is not installed in the workspace. Hidden group state also remains value-based rather than field-scoped, so duplicate property display values can still collide across group fields; that is existing compatibility debt in the persisted `hiddenState` model and should be handled by a field-scoped visibility-state migration if it becomes a product requirement.
+
+### Turn 12
+
+Deep-reviewed the no-group lane alignment follow-up after the request to avoid a fake full-width group while keeping chevrons/control affordances aligned.
+
+Outcome:
+
+- no open Critical/High findings remain after the loop
+- no-group board rendering now uses a wider neutral lane instead of a grouped column or full-width fake group container
+- no-group list rows keep the disclosure/chevron gutter but no longer reserve grouped-only blank selection indentation when there is no selection control
+- no-group Add item uses the same row-control alignment grid as the item rows, while grouped Add item keeps the existing grouped lane indent
+- the no-group parent/child expansion path remains covered by board and list regression tests, including the absence of a visible `All` group
+
+Architecture pass:
+
+- Presentation ownership stays in `components/app/screens/work-surface-view.tsx`: grouped and no-group lanes share row/card lane renderers, and only the outer no-group visual container/alignment differs.
+- View model ownership remains unchanged: `items`, `scopedItems`, `showChildItems`, filters, hidden groups, and parent eligibility are still supplied by the shared work-view model and domain selectors.
+- The new alignment branch is explicit on the lane component contract (`addButtonAlignment`, `reserveSelectionSlot`) instead of inferring layout from unrelated group state inside row bodies.
+
+Verification rerun:
+
+- `pnpm typecheck`
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx`
+- `pnpm lint`
+- `pnpm fallow:gate`
+- `git diff --check`
+
+Diff-review result:
+
+- Deep correctness/safety pass: no remaining branch-specific bug found in the no-group board/list alignment changes or the Add item alignment path.
+- Maintainability/structure pass: no open blocker; the change is localized to lane presentation props and one focused regression test.
+
+### Turn 13
+
+Deep-reviewed the no-group list compact-gutter follow-up after visual feedback showed rows still looked too indented once the visible group container was removed.
+
+Outcome:
+
+- no open Critical/High findings remain after the loop
+- grouped list rows keep their existing grouped-lane gutter and `Add item` indentation
+- no-group list rows now use an explicit compact row alignment: `0px` base padding, tighter row gap, retained disclosure/chevron slot, and the same selection slot when editable
+- no-group `Add item` now uses the same compact gutter as no-group rows instead of inheriting grouped-lane spacing
+- the existing no-group parent/child expansion behavior remains unchanged
+
+Architecture pass:
+
+- Presentation ownership remains local to `components/app/screens/work-surface-view.tsx`; no domain selector or view-model behavior changed for this visual correction.
+- The alignment difference is expressed as explicit lane/row props (`rowAlignment`, `addButtonAlignment`) instead of coupling row spacing to ad hoc checks inside the row body.
+- Grouped and no-group modes still share the same row renderer, with only the gutter constants varied by the lane contract.
+
+Verification rerun:
+
+- `pnpm typecheck`
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx`
+- `pnpm lint`
+- `pnpm fallow:gate`
+- `git diff --check`
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+- Local server reachability: `curl -I --max-time 5 http://127.0.0.1:3000/login` returned `200`
+
+Diff-review result:
+
+- Deep correctness/safety pass: no remaining branch-specific bug found in compact no-group gutter handling.
+- Maintainability/structure pass: no open blocker; the row/add-item alignment variant is narrow and covered by the focused component regression.
+- Verification caveat: authenticated browser screenshot automation was unavailable because no Browser MCP tool is exposed and `playwright` is not installed in the workspace. Programmatic server reachability and component-level layout assertions passed.
+- Local cleanup note: untracked duplicate conflict copies named like `* 2.ts` / `* 2.test.ts` were moved out of the repo to `/tmp/linear-conflict-copies-20260605` so TypeScript and Fallow analyze only canonical source files.
+
+### Turn 14
+
+Deep-reviewed the corrected no-group list alignment after clarification that the chevron/disclosure column must not move.
+
+Outcome:
+
+- no open Critical/High findings remain after the loop
+- the no-group row gutter now uses the same base padding and gap as grouped rows, so chevrons keep their original position
+- no-group row selection is no longer an inline width-reserving column; it overlays in the gutter on hover/selection, allowing the ID/title/properties lane to start closer to the grouped header content width
+- no-group `Add item` keeps the same chevron gutter and aligns its label lane with the no-group row content instead of using the grouped `pl-[45px]` indent
+- grouped rows and grouped `Add item` remain unchanged
+
+Architecture pass:
+
+- Presentation ownership remains local to the list row/lane components.
+- The lane contract still carries the mode explicitly via `rowAlignment` and `addButtonAlignment`; no domain/view-model behavior changed.
+- Selection behavior remains wired through the existing `WorkItemSelectionController`; only its no-group visual placement changed.
+
+Verification rerun:
+
+- `pnpm typecheck`
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx`
+- `pnpm lint`
+- `pnpm fallow:gate`
+- `git diff --check`
+
+Diff-review result:
+
+- Deep correctness/safety pass: no remaining branch-specific bug found in the corrected no-group chevron/content alignment path.
+- Maintainability/structure pass: no open blocker; the change is isolated to no-group row presentation and its focused regression assertion.
+
+### Turn 15
+
+Final release validation pass for the work-view consistency release.
+
+Resolved:
+
+- normalized all accidental extensionless TypeScript/TSX conflict artifacts before release validation, including files that Turbopack would resolve before canonical `.ts`/`.tsx` paths
+- restored the no-group list `Add item` regression assertion after file normalization
+- bumped the app version to `0.0.28`
+- removed the locally generated `electron/app-icon.ico` artifact from commit scope
+
+Verification rerun:
+
+- `pnpm typecheck`
+- `pnpm lint`
+- `pnpm fallow:gate`
+- `pnpm exec vitest run tests/components/work-surface-view.test.tsx`
+- `pnpm test`
+- `pnpm build`
+- `git diff --check`
+- source artifact sweep for extensionless TS/TSX files and duplicate `* 2` files
+- `~/.codex/skills/diff-review/scripts/review-preflight.sh`
+
+Release note:
+
+- Local `pnpm desktop:release:all` was blocked by missing Apple notarization/signing credentials, as expected for public desktop releases.
+- The repository-owned `.github/workflows/desktop-release.yml` workflow is the correct GitHub release path because it uses repository secrets for macOS signing/notarization and publishes the desktop release assets.

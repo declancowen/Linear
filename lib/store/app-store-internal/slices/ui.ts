@@ -1,7 +1,11 @@
 "use client"
 
 import { createEmptyState } from "@/lib/domain/empty-state"
-import type { AppData, ViewerViewConfigOverride } from "@/lib/domain/types"
+import {
+  normalizeHiddenState,
+  type AppData,
+  type ViewerViewConfigOverride,
+} from "@/lib/domain/types"
 import {
   getViewerScopedDirectoryKey,
   getViewerScopedViewKey,
@@ -1134,20 +1138,21 @@ export function createUiSlice(
           surfaceKey,
           viewId
         )
-        const currentHiddenState = current.hiddenState ??
-          baseView?.hiddenState ?? { groups: [], subgroups: [] }
+        const currentHiddenState = normalizeHiddenState(
+          current.hiddenState ?? baseView?.hiddenState
+        )
         const currentValues = currentHiddenState[key] ?? []
         const nextValues = currentValues.includes(value)
           ? currentValues.filter((entry) => entry !== value)
           : [...currentValues, value]
+        const nextHiddenState = normalizeHiddenState({
+          ...currentHiddenState,
+          [key]: nextValues,
+        })
 
         return patchViewerViewConfigByRoute(state, storageKey, () => ({
           ...current,
-          hiddenState: {
-            groups: [...currentHiddenState.groups],
-            subgroups: [...currentHiddenState.subgroups],
-            [key]: nextValues,
-          },
+          hiddenState: nextHiddenState,
         }))
       })
     },

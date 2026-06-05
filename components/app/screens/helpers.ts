@@ -67,7 +67,7 @@ export type PersistedViewFilterKey =
 
 export type ViewConfigPatchInput = {
   layout?: ViewDefinition["layout"]
-  grouping?: GroupField
+  grouping?: GroupField | null
   subGrouping?: GroupField | null
   ordering?: OrderingField
   itemLevel?: WorkItemType | null
@@ -75,6 +75,7 @@ export type ViewConfigPatchInput = {
   showCompleted?: boolean
   showEmptyGroups?: boolean
   filters?: Partial<ViewDefinition["filters"]>
+  hiddenState?: ViewDefinition["hiddenState"]
 }
 
 export function createEmptyViewFilters(): ViewDefinition["filters"] {
@@ -151,6 +152,7 @@ export function applyViewConfigPatch<
     ["ordering", scalarPatch.ordering],
     ["itemLevel", scalarPatch.itemLevel],
     ["showChildItems", scalarPatch.showChildItems],
+    ["hiddenState", scalarPatch.hiddenState],
   ] as const
 
   for (const [key, value] of patchEntries) {

@@ -8,8 +8,10 @@ import { ArrowCounterClockwise, Plus } from "@phosphor-icons/react"
 import {
   canEditTeam,
   canEditWorkspace,
+  buildWorkViewModel,
+  getCompatibleWorkViewGroupOptions,
+  getGroupVisibleItemsForView,
   getUser,
-  getVisibleItemsForView,
   getViewByRoute,
 } from "@/lib/domain/selectors"
 import { isSystemView } from "@/lib/domain/default-views"
@@ -20,6 +22,8 @@ import {
 } from "@/lib/domain/viewer-view-config"
 import {
   getDefaultTemplateTypeForTeamExperience,
+  normalizeHiddenState,
+  type GroupField,
   type Team,
   type TeamExperienceType,
   type ViewDefinition,
@@ -154,22 +158,27 @@ function cloneFallbackView(view: ViewDefinition): ViewDefinition {
     hiddenState: {
       groups: [...view.hiddenState.groups],
       subgroups: [...view.hiddenState.subgroups],
+      ...(view.hiddenState.includedGroups
+        ? { includedGroups: [...view.hiddenState.includedGroups] }
+        : {}),
     },
   }
 }
 
 function getCompatibleActiveView(
   view: ViewDefinition | null,
-  groupOptions: ViewDefinition["grouping"][]
+  groupOptions: GroupField[]
 ) {
   if (!view) {
     return null
   }
 
-  const grouping = groupOptions.includes(view.grouping)
-    ? view.grouping
-    : "status"
+  const grouping =
+    view.grouping === null || groupOptions.includes(view.grouping)
+      ? view.grouping
+      : "status"
   const subGrouping =
+    grouping !== null &&
     view.subGrouping &&
     groupOptions.includes(view.subGrouping) &&
     view.subGrouping !== grouping
@@ -205,23 +214,15 @@ function isPrivateTaskView(view: ViewDefinition | null) {
   )
 }
 
-const PRIVATE_TASK_EXCLUDED_GROUP_OPTIONS = new Set<ViewDefinition["grouping"]>(
-  ["assignee", "project", "team"]
-)
-
 const PRIVATE_TASK_EXCLUDED_DISPLAY_PROPERTIES = new Set<
   ViewDefinition["displayProps"][number]
 >(["assignee", "project"])
 
 function getCompatibleGroupOptions(
   view: ViewDefinition | null,
-  groupOptions: ViewDefinition["grouping"][]
+  groupOptions: GroupField[]
 ) {
-  return isPrivateTaskView(view)
-    ? groupOptions.filter(
-        (option) => !PRIVATE_TASK_EXCLUDED_GROUP_OPTIONS.has(option)
-      )
-    : groupOptions
+  return getCompatibleWorkViewGroupOptions(view, groupOptions)
 }
 
 function getCompatibleWorkSurfaceDisplayProps(view: ViewDefinition) {
@@ -353,7 +354,7 @@ function getWorkSurfaceFilterPopoverItems({
     : filterScopeItems
 }
 
-function getWorkSurfaceVisibleItems({
+function getWorkSurfaceViewModel({
   childDisplayMode,
   data,
   filterScopeItems,
@@ -369,16 +370,21 @@ function getWorkSurfaceVisibleItems({
   view: ViewDefinition | null
 }) {
   if (!view) {
-    return filterScopeItems
+    return {
+      matchedItems: filterScopeItems,
+      scopedSourceItems: filterScopeItems,
+      visibleItems: filterScopeItems,
+    }
   }
 
-  return getVisibleItemsForView(data, items, view, {
+  return buildWorkViewModel(data, items, view, {
     ...(shouldMatchAssignedItems
       ? {
           matchItems: filterScopeItems,
           ...(view.showChildItems ? { childDisplayMode } : {}),
         }
       : {}),
+    sourceItems: items,
   })
 }
 
@@ -505,7 +511,7 @@ function WorkSurfaceViewbar({
   filterPopoverItems: WorkItem[]
   groupingExperience?: TeamExperienceType | null
   hiddenFilters: ViewFilterKey[]
-  groupOptions: ViewDefinition["grouping"][]
+  groupOptions: GroupField[]
   onUpdateViewerView: (patch: ViewConfigPatch) => void
   onToggleViewerFilterValue: (key: ViewFilterKey, value: string) => void
   onClearViewerFilters: () => void
@@ -546,6 +552,7 @@ function WorkSurfaceViewbar({
       <LevelChipPopover
         view={view}
         showLabel={!compactControls}
+        groupingExperience={groupingExperience}
         onUpdateView={onUpdateViewerView}
       />
       <GroupChipPopover
@@ -657,11 +664,11 @@ function WorkSurfaceContent({
           resolvedCreateTeamId={resolvedCreateTeamId}
           scopedItems={scopedItems}
           view={view}
-	          calendar={calendar}
-	          onToggleHiddenValue={onToggleHiddenValue}
-	          selectedItemId={selectedItemId}
-	          onSelectedItemIdChange={onSelectedItemIdChange}
-	        />
+          calendar={calendar}
+          onToggleHiddenValue={onToggleHiddenValue}
+          selectedItemId={selectedItemId}
+          onSelectedItemIdChange={onSelectedItemIdChange}
+        />
       ) : (
         <WorkSurfaceEmptyState
           emptyLabel={emptyLabel}
@@ -692,13 +699,14 @@ function getResolvedWorkSurfaceCreateContext(
   view: ViewDefinition
 ): WorkSurfaceCreateContext {
   const filteredVisibility =
-    view.filters.visibility?.length === 1 ? view.filters.visibility[0] : undefined
+    view.filters.visibility?.length === 1
+      ? view.filters.visibility[0]
+      : undefined
 
   return {
     defaultTeamId: createContext?.defaultTeamId ?? resolvedCreateTeamId,
     defaultProjectId: createContext?.defaultProjectId ?? null,
-    defaultVisibility:
-      createContext?.defaultVisibility ?? filteredVisibility,
+    defaultVisibility: createContext?.defaultVisibility ?? filteredVisibility,
   }
 }
 
@@ -783,11 +791,11 @@ function WorkSurfaceActiveContent({
         editable={editable}
         groupingExperience={groupingExperience}
         childDisplayMode={childDisplayMode}
-	        createContext={resolvedCreateContext}
-	        onToggleHiddenValue={hiddenValueHandler}
-	        selectedItemId={selectedItemId}
-	        onSelectedItemIdChange={onSelectedItemIdChange}
-	      />
+        createContext={resolvedCreateContext}
+        onToggleHiddenValue={hiddenValueHandler}
+        selectedItemId={selectedItemId}
+        onSelectedItemIdChange={onSelectedItemIdChange}
+      />
     )
   }
 
@@ -801,11 +809,11 @@ function WorkSurfaceActiveContent({
         editable={editable}
         groupingExperience={groupingExperience}
         childDisplayMode={childDisplayMode}
-	        createContext={resolvedCreateContext}
-	        onToggleHiddenValue={hiddenValueHandler}
-	        selectedItemId={selectedItemId}
-	        onSelectedItemIdChange={onSelectedItemIdChange}
-	      />
+        createContext={resolvedCreateContext}
+        onToggleHiddenValue={hiddenValueHandler}
+        selectedItemId={selectedItemId}
+        onSelectedItemIdChange={onSelectedItemIdChange}
+      />
     )
   }
 
@@ -813,7 +821,7 @@ function WorkSurfaceActiveContent({
     return (
       <CalendarView
         data={data}
-        items={items}
+        items={getGroupVisibleItemsForView(data, items, view)}
         editable={editable}
         mode={calendar.mode}
         onModeChange={calendar.onModeChange}
@@ -1018,11 +1026,10 @@ function useViewerViewActions({
 
         return {
           ...view,
-          hiddenState: {
-            groups: [...view.hiddenState.groups],
-            subgroups: [...view.hiddenState.subgroups],
+          hiddenState: normalizeHiddenState({
+            ...view.hiddenState,
             [key]: nextValues,
-          },
+          }),
         }
       })
     ) {
@@ -1102,9 +1109,9 @@ export function WorkSurface({
   const [localFallbackViewId, setLocalFallbackViewId] = useState<string | null>(
     null
   )
-  const [selectedInlineItemId, setSelectedInlineItemId] = useState<string | null>(
-    null
-  )
+  const [selectedInlineItemId, setSelectedInlineItemId] = useState<
+    string | null
+  >(null)
   const calendar = useWorkSurfaceCalendarState(data)
   const usingFallbackViews = views.length === 0 && localFallbackViews.length > 0
   const activeBaseView = getActiveBaseWorkSurfaceView({
@@ -1190,13 +1197,7 @@ export function WorkSurface({
     childDisplayMode,
     filterItems,
   })
-  const filterPopoverItems = getWorkSurfaceFilterPopoverItems({
-    activeView: compatibleActiveView,
-    filterScopeItems,
-    items,
-    shouldMatchAssignedItems,
-  })
-  const visibleItems = getWorkSurfaceVisibleItems({
+  const workViewModel = getWorkSurfaceViewModel({
     childDisplayMode,
     data,
     filterScopeItems,
@@ -1204,6 +1205,15 @@ export function WorkSurface({
     shouldMatchAssignedItems,
     view: compatibleActiveView,
   })
+  const filterPopoverItems = getWorkSurfaceFilterPopoverItems({
+    activeView: compatibleActiveView,
+    filterScopeItems: workViewModel.scopedSourceItems,
+    items: workViewModel.matchedItems,
+    shouldMatchAssignedItems,
+  })
+  const visibleItems = workViewModel.visibleItems
+  const matchedItems = workViewModel.matchedItems
+  const scopedSourceItems = workViewModel.scopedSourceItems
   const selectedInlineItem =
     selectedInlineItemId && compatibleActiveView?.layout !== "calendar"
       ? (visibleItems.find((item) => item.id === selectedInlineItemId) ??
@@ -1339,7 +1349,9 @@ export function WorkSurface({
               onToggleViewerFilterValue={
                 viewerViewActions.toggleViewerActiveViewFilterValue
               }
-              onClearViewerFilters={viewerViewActions.clearViewerActiveViewFilters}
+              onClearViewerFilters={
+                viewerViewActions.clearViewerActiveViewFilters
+              }
               onToggleViewerDisplayProperty={
                 viewerViewActions.toggleViewerActiveDisplayProperty
               }
@@ -1359,8 +1371,8 @@ export function WorkSurface({
           <WorkSurfaceContent
             data={data}
             view={compatibleActiveView}
-            visibleItems={visibleItems}
-            scopedItems={items}
+            visibleItems={matchedItems}
+            scopedItems={scopedSourceItems}
             editable={editable}
             groupingExperience={effectiveGroupingExperience}
             childDisplayMode={childDisplayMode}
@@ -1371,7 +1383,9 @@ export function WorkSurface({
             emptyLabel={emptyLabel}
             calendar={calendar}
             onCreateWorkItem={handleCreateWorkItem}
-            onToggleHiddenValue={viewerViewActions.toggleViewerActiveHiddenValue}
+            onToggleHiddenValue={
+              viewerViewActions.toggleViewerActiveHiddenValue
+            }
             selectedItemId={selectedInlineItemId}
             onSelectedItemIdChange={toggleInlineItemSidebar}
           />
@@ -1388,6 +1402,6 @@ export function WorkSurface({
           </div>
         ) : null}
       </div>
-	    </div>
-	  )
-	}
+    </div>
+  )
+}

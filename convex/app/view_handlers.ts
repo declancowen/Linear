@@ -1,6 +1,7 @@
 import type { MutationCtx } from "../_generated/server"
 import {
   clearViewFilterSelections,
+  normalizeHiddenState,
   type ViewDefinition,
   type ViewFilters,
 } from "../../lib/domain/types"
@@ -43,20 +44,7 @@ type ViewItemLevel =
   | "sub-task"
   | "sub-issue"
   | null
-type ViewGrouping =
-  | "project"
-  | "status"
-  | "assignee"
-  | "priority"
-  | "label"
-  | "team"
-  | "type"
-  | "parent"
-  | "epic"
-  | "feature"
-  | "kind"
-  | "createdBy"
-  | "updatedBy"
+type ViewGrouping = ViewDefinition["grouping"]
 type ViewOrdering =
   | "priority"
   | "updatedAt"
@@ -88,6 +76,7 @@ type ViewConfigArgs = ServerAccessArgs & {
   ordering?: ViewOrdering
   showCompleted?: boolean
   showEmptyGroups?: boolean
+  hiddenState?: ViewDefinition["hiddenState"]
   description?: string
   containerType?: "project-items" | null
   containerId?: string | null
@@ -116,6 +105,7 @@ type CreateViewArgs = ServerAccessArgs & {
   hiddenState?: {
     groups: string[]
     subgroups: string[]
+    includedGroups?: string[]
   }
 }
 
@@ -134,7 +124,7 @@ type ReorderViewDisplayPropertiesArgs = ServerAccessArgs & {
 type ViewHiddenValueArgs = ServerAccessArgs & {
   currentUserId: string
   viewId: string
-  key: "groups" | "subgroups"
+  key: "groups" | "subgroups" | "includedGroups"
   value: string
 }
 
@@ -482,10 +472,14 @@ function createViewConfigPatch(
       args.showChildItems,
       view.showChildItems
     ),
-    grouping: args.grouping ?? view.grouping,
+    grouping: getDefinedViewConfigValue(args.grouping, view.grouping),
     subGrouping: getDefinedViewConfigValue(args.subGrouping, view.subGrouping),
     ordering: args.ordering ?? view.ordering,
     filters: getViewConfigFiltersPatch(view, args),
+    hiddenState:
+      args.hiddenState === undefined
+        ? view.hiddenState
+        : normalizeHiddenState(args.hiddenState),
     updatedAt: now,
   }
 }
@@ -652,16 +646,16 @@ export async function toggleViewHiddenValueHandler(
     args.currentUserId
   )
 
-  const current = view.hiddenState[args.key]
+  const current = view.hiddenState[args.key] ?? []
   const nextValues = current.includes(args.value)
     ? current.filter((entry: string) => entry !== args.value)
     : [...current, args.value]
 
   await ctx.db.patch(view._id, {
-    hiddenState: {
+    hiddenState: normalizeHiddenState({
       ...view.hiddenState,
       [args.key]: nextValues,
-    },
+    }),
     updatedAt: getNow(),
   })
 }

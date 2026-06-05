@@ -1,6 +1,7 @@
 import type {
   AppData,
   GroupField,
+  HiddenState,
   OrderingField,
   Priority,
   UserProfile,
@@ -19,6 +20,7 @@ import {
   priorityMeta,
   workItemTypes,
   workStatuses,
+  getIncludedHiddenGroupValues,
 } from "@/lib/domain/types"
 import {
   getAccessibleTeams,
@@ -56,11 +58,10 @@ export function getVisibleWorkItems(
 
     const itemsById = new Map(
       data.workItems
-        .filter(
-          (item) =>
-            (getWorkItemVisibility(item) === "private"
-              ? isPrivateWorkItemCreatedByCurrentUser(data, item)
-              : teamIds.has(item.teamId ?? ""))
+        .filter((item) =>
+          getWorkItemVisibility(item) === "private"
+            ? isPrivateWorkItemCreatedByCurrentUser(data, item)
+            : teamIds.has(item.teamId ?? "")
         )
         .map((item) => [item.id, item] as const)
     )
@@ -587,6 +588,7 @@ export function getVisibleItemsForView(
   options?: {
     matchItems?: WorkItem[]
     childDisplayMode?: "direct" | "assigned-descendants"
+    containerDisplayMode?: "root" | "all"
   }
 ) {
   if (
@@ -610,6 +612,7 @@ export function getVisibleItemsForView(
   )
 
   if (
+    options?.containerDisplayMode !== "all" &&
     view.entityKind === "items" &&
     !view.itemLevel &&
     view.filters.itemTypes.length === 0 &&
@@ -619,6 +622,21 @@ export function getVisibleItemsForView(
   }
 
   return filteredItems
+}
+
+export function getViewMatchedItems(
+  data: AppData,
+  items: WorkItem[],
+  view: ViewDefinition,
+  options?: {
+    matchItems?: WorkItem[]
+    childDisplayMode?: "direct" | "assigned-descendants"
+  }
+) {
+  return getVisibleItemsForView(data, items, view, {
+    ...options,
+    containerDisplayMode: "all",
+  })
 }
 
 export function comparePriority(left: Priority, right: Priority) {
@@ -1049,7 +1067,10 @@ export function buildItemGroupsWithEmptyGroups(
   }
 ) {
   const groups = new Map(buildItemGroups(data, items, view))
-  const statusSourceItems = options?.sourceItems ?? items
+  const sourceItems = options?.sourceItems ?? items
+  const hasActiveFilters = hasActiveViewFilters(view)
+  const emptyGroupSourceItems = hasActiveFilters ? items : sourceItems
+  const statusSourceItems = emptyGroupSourceItems
   const statusOrder =
     statusSourceItems.length > 0
       ? getStatusOrderForItems(data, statusSourceItems)
@@ -1061,13 +1082,20 @@ export function buildItemGroupsWithEmptyGroups(
 
   if (
     (view.filters.showEmptyGroups ?? true) &&
-    (!hasActiveViewFilters(view) || options?.sourceItems)
+    (!hasActiveFilters || getSelectedGroupFilterKeys(data, view).length > 0)
   ) {
-    getAvailableGroupKeysForItems(data, items, view.grouping, options).forEach(
-      (groupKey) => {
+    const groupKeys = hasActiveFilters
+      ? items.map((item) => getGroupValue(data, item, view.grouping))
+      : getAvailableGroupKeysForItems(data, items, view.grouping, {
+          ...options,
+          sourceItems: emptyGroupSourceItems,
+        })
+
+    groupKeys.forEach((groupKey) => {
+      if (isGroupVisibleForHiddenState(view.hiddenState, groupKey)) {
         availableGroupKeys.add(groupKey)
       }
-    )
+    })
   }
 
   if (view.filters.showEmptyGroups ?? true) {
@@ -1104,6 +1132,151 @@ export function buildItemGroupsWithEmptyGroups(
       )
     )
   )
+}
+
+function isGroupIncludedByHiddenState(
+  hiddenState: HiddenState,
+  groupKey: string
+) {
+  const includedGroups = getIncludedHiddenGroupValues(hiddenState)
+
+  return includedGroups.length === 0 || includedGroups.includes(groupKey)
+}
+
+function isGroupVisibleForHiddenState(
+  hiddenState: HiddenState,
+  groupKey: string
+) {
+  return (
+    isGroupIncludedByHiddenState(hiddenState, groupKey) &&
+    !hiddenState.groups.includes(groupKey)
+  )
+}
+
+export function getGroupVisibleItemsForView(
+  data: AppData,
+  items: WorkItem[],
+  view: ViewDefinition
+) {
+  if (!view.grouping) {
+    return items
+  }
+
+  return items.filter((item) =>
+    isGroupVisibleForHiddenState(
+      view.hiddenState,
+      getGroupValue(data, item, view.grouping)
+    )
+  )
+}
+
+export function getVisibleItemGroupEntries(
+  groups: Array<[string, Map<string, WorkItem[]>]>,
+  hiddenState: HiddenState
+) {
+  return groups.filter(([groupName]) =>
+    isGroupVisibleForHiddenState(hiddenState, groupName)
+  )
+}
+
+export function getHiddenItemGroupEntries(
+  groups: Array<[string, Map<string, WorkItem[]>]>,
+  hiddenState: HiddenState
+) {
+  return groups.filter(([groupName]) => hiddenState.groups.includes(groupName))
+}
+
+function getWorkViewScopedSourceItems(
+  data: AppData,
+  items: WorkItem[],
+  view: ViewDefinition,
+  matchedItems: WorkItem[],
+  options?: {
+    matchItems?: WorkItem[]
+    childDisplayMode?: "direct" | "assigned-descendants"
+  }
+) {
+  if (!view.showChildItems) {
+    return getViewMatchedItems(data, items, view, options)
+  }
+
+  const sourceItemsById = new Map(
+    matchedItems.map((item) => [item.id, item] as const)
+  )
+
+  for (const item of matchedItems) {
+    for (const child of getDirectChildWorkItemsForDisplay(
+      data,
+      item,
+      view.ordering,
+      view,
+      items,
+      {
+        mode: options?.childDisplayMode,
+      }
+    )) {
+      sourceItemsById.set(child.id, child)
+    }
+  }
+
+  return [...sourceItemsById.values()]
+}
+
+export function buildWorkViewModel(
+  data: AppData,
+  items: WorkItem[],
+  view: ViewDefinition,
+  options?: {
+    matchItems?: WorkItem[]
+    childDisplayMode?: "direct" | "assigned-descendants"
+    sourceItems?: WorkItem[]
+  }
+) {
+  const matchedItems = getViewMatchedItems(data, items, view, {
+    matchItems: options?.matchItems,
+    childDisplayMode: options?.childDisplayMode,
+  })
+  const scopedSourceItems = getWorkViewScopedSourceItems(
+    data,
+    options?.sourceItems ?? items,
+    view,
+    matchedItems,
+    {
+      matchItems: options?.matchItems,
+      childDisplayMode: options?.childDisplayMode,
+    }
+  )
+
+  return {
+    matchedItems,
+    scopedSourceItems,
+    visibleItems: getGroupVisibleItemsForView(data, matchedItems, view),
+  }
+}
+
+const PRIVATE_TASK_EXCLUDED_GROUP_OPTIONS = new Set<GroupField>([
+  "assignee",
+  "project",
+  "team",
+])
+
+function isPrivateTaskViewDefinition(view: ViewDefinition | null) {
+  return (
+    view?.entityKind === "items" &&
+    view.filters.visibility?.length === 1 &&
+    view.filters.visibility[0] === "private"
+  )
+}
+
+export function getCompatibleWorkViewGroupOptions(
+  view: ViewDefinition | null,
+  groupOptions: GroupField[]
+) {
+  return isPrivateTaskViewDefinition(view)
+    ? groupOptions.filter(
+        (option) => !PRIVATE_TASK_EXCLUDED_GROUP_OPTIONS.has(option)
+      )
+    : groupOptions
 }
 
 function getSelectedGroupFilterKeys(data: AppData, view: ViewDefinition) {
