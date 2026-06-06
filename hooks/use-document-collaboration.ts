@@ -388,7 +388,23 @@ function handleCollaborationSyncTimeout({
   }
 
   if (isCloudflareYjsBodySource(bootstrap.bodySource)) {
-    return false
+    setState((current) =>
+      current.session === session
+        ? {
+            ...current,
+            error: getCollaborationErrorMessage(error),
+            hasAttachedOnce: false,
+            role: bootstrap.role,
+            connectionState: getSessionConnectionState(session),
+            session,
+            editorCollaboration: null,
+            collaboration: null,
+            bodySource: bootstrap.bodySource ?? null,
+            bootstrapContent: null,
+          }
+        : current
+    )
+    return true
   }
 
   setState((current) =>
@@ -619,18 +635,38 @@ function handleCollaborationOpenFailure({
   }
 
   disconnectCollaborationRuntimeSession(runtime, "connect-failed")
-  setState({
-    documentId,
-    error: getCollaborationErrorMessage(error),
-    hasAttachedOnce: false,
-    role: null,
-    connectionState: "errored",
-    session: null,
-    editorCollaboration: null,
-    collaboration: null,
-    bodySource: null,
-    bootstrapContent: null,
-    viewers: EMPTY_VIEWERS,
+  setState((current) => {
+    if (
+      current.documentId === documentId &&
+      isCloudflareYjsBodySource(current.bodySource)
+    ) {
+      return {
+        ...current,
+        error: getCollaborationErrorMessage(error),
+        hasAttachedOnce: false,
+        role: null,
+        connectionState: "errored",
+        session: null,
+        editorCollaboration: null,
+        collaboration: null,
+        bootstrapContent: null,
+        viewers: EMPTY_VIEWERS,
+      }
+    }
+
+    return {
+      documentId,
+      error: getCollaborationErrorMessage(error),
+      hasAttachedOnce: false,
+      role: null,
+      connectionState: "errored",
+      session: null,
+      editorCollaboration: null,
+      collaboration: null,
+      bodySource: null,
+      bootstrapContent: null,
+      viewers: EMPTY_VIEWERS,
+    }
   })
 }
 
@@ -725,12 +761,14 @@ function hasActiveEditorCollaborationSession({
 }
 
 function resolveCollaborationLifecycle({
+  bodySource,
   connectionState,
   documentId,
   isActiveDocument,
   isSessionAttached,
   wantsCollaboration,
 }: {
+  bodySource: ActiveDocumentCollaborationState["bodySource"]
   connectionState: CollaborationConnectionState
   documentId: string | null
   isActiveDocument: boolean
@@ -743,6 +781,10 @@ function resolveCollaborationLifecycle({
 
   if (isSessionAttached) {
     return "attached"
+  }
+
+  if (isActiveDocument && isCloudflareYjsBodySource(bodySource)) {
+    return "bootstrapping"
   }
 
   if (
@@ -794,6 +836,7 @@ function getDerivedDocumentCollaborationState({
     state,
   })
   const lifecycle = resolveCollaborationLifecycle({
+    bodySource: state.bodySource,
     connectionState,
     documentId,
     isActiveDocument,

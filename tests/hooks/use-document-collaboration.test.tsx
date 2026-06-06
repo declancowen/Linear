@@ -636,6 +636,54 @@ describe("useDocumentCollaboration", () => {
     await expectBootstrappingCollaboration(result)
   })
 
+  it("keeps migrated Cloudflare Yjs documents protected when initial sync times out", async () => {
+    const session = createSession()
+
+    session.connect = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("Timed out waiting for collaboration document sync")
+      )
+
+    mockMigratedOpenSession(session)
+
+    const { result } = await renderCollaborationHook()
+
+    await expectMigratedCollaborationHidden(result)
+    expect(result.current.mode).toBe("legacy")
+    await waitFor(() => {
+      expect(result.current.error).toBe(
+        "Timed out waiting for collaboration document sync"
+      )
+    })
+    expect(openDocumentCollaborationSessionMock).toHaveBeenCalledTimes(1)
+    expect(session.disconnect).not.toHaveBeenCalledWith(
+      expect.stringContaining("connect-failed")
+    )
+  })
+
+  it("keeps migrated Cloudflare Yjs documents protected after exhausted connection failures", async () => {
+    const session = createSession()
+
+    session.connect = vi.fn().mockRejectedValue(new Error("Provider unavailable"))
+
+    mockMigratedOpenSession(session)
+
+    const { result } = await renderCollaborationHook()
+
+    await waitFor(
+      () => {
+        expect(openDocumentCollaborationSessionMock).toHaveBeenCalledTimes(3)
+      },
+      {
+        timeout: 3_000,
+      }
+    )
+    await expectMigratedCollaborationHidden(result)
+    expect(result.current.error).toBe("Provider unavailable")
+    expect(result.current.mode).toBe("legacy")
+  })
+
   it("degrades out of collaboration when an attached session disconnects", async () => {
     const session = createSession()
     const statusChanges = captureSessionStatusChanges(session)
@@ -655,6 +703,24 @@ describe("useDocumentCollaboration", () => {
       expect(result.current.collaboration).toBeNull()
       expect(result.current.mode).toBe("legacy")
     })
+  })
+
+  it("keeps migrated Cloudflare Yjs documents protected when an attached session disconnects", async () => {
+    const session = createSession()
+    const statusChanges = captureSessionStatusChanges(session)
+
+    mockMigratedOpenSession(session)
+    const { result } = await renderCollaborationHook()
+
+    await expectAttachedCollaboration(result)
+
+    statusChanges.emit({
+      state: "disconnected",
+      reason: "document-missing",
+    })
+
+    await expectMigratedCollaborationHidden(result)
+    expect(result.current.mode).toBe("legacy")
   })
 
   it("surfaces reload-required collaboration errors from structured status changes", async () => {

@@ -32,6 +32,48 @@ After all slices:
 3. Fix findings.
 4. Rerun normal whole-worktree diff-review passes until clean.
 
+## PR feedback loop - 2026-06-06 - Codex Review 7301532f
+
+Status: review-clean for the PR-feedback patch; pushed validation pending.
+
+Scope:
+
+- Imported GitHub PR #50 review threads using the thread-aware GitHub review workflow.
+- Started with deep diff-review plus `architecture-standards` before editing.
+- Triaged the single unresolved Codex review thread against current branch behavior.
+- Swept sibling acquisition modes for migrated `cloudflare-yjs` documents: initial Yjs sync timeout, exhausted post-bootstrap connection failures, and attached-session disconnects.
+
+External finding import:
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review | Migrated `cloudflare-yjs` documents could clear `bodySource` after initial sync timeout, fall into degraded/legacy mode, and call `updateDocumentContent` against stale Convex projection content. | live | Invariant transfer / stale fallback | Body authority transfer must keep migrated bodies protected whenever Yjs is not synced. | fixed |
+
+Architecture-standard outcome:
+
+- The body-source authority marker is now preserved once session bootstrap identifies a document as `cloudflare-yjs`.
+- A migrated body that is not attached to a synced Yjs provider remains in the protected bootstrapping lifecycle instead of becoming an editable legacy Convex body.
+- The fix stays in the hook lifecycle owner; document screens continue relying on collaboration lifecycle/body protection rather than duplicating provider failure policy.
+- Legacy `convex-html` timeout behavior is unchanged: legacy documents may expose bootstrap editor bindings while still suppressing Convex persistence during bootstrapping.
+
+Findings and fixes:
+
+- PR-01 - High - Initial Yjs sync timeout for migrated documents erased the `cloudflare-yjs` marker on failure, allowing the screen to re-enter legacy editing and persist stale Convex body content. Fixed by treating migrated sync timeout as a protected non-attached collaboration state with no editor binding, no bootstrap content, and preserved `bodySource`.
+- PR-02 - Medium - A sibling post-bootstrap failure path could still erase the migrated body marker after retries exhausted. Fixed by preserving protected `cloudflare-yjs` state in `handleCollaborationOpenFailure` when the current state already came from a migrated bootstrap.
+- PR-03 - Medium - Attached migrated sessions that later disconnect shared the same fallback risk because disconnected non-attached states were resolved as degraded/legacy. Fixed by resolving non-attached `cloudflare-yjs` states as bootstrapping/protected until Yjs sync is attached again.
+
+Validation:
+
+- `pnpm exec vitest run tests/hooks/use-document-collaboration.test.tsx --reporter=dot` passed, `1` file / `20` tests.
+- `pnpm exec vitest run tests/components/document-detail-screen.test.tsx tests/hooks/use-document-collaboration.test.tsx --reporter=dot` passed, `2` files / `40` tests.
+- `pnpm exec eslint hooks/use-document-collaboration.ts tests/hooks/use-document-collaboration.test.tsx --max-warnings 0` passed.
+- `git diff --check -- hooks/use-document-collaboration.ts tests/hooks/use-document-collaboration.test.tsx` passed.
+
+Residual risk:
+
+- Whole-worktree verification was intentionally not run in this loop because the local working tree contains unrelated unstaged deletions of tracked files outside this fix (`lib/browser/url-hash-target.ts`, `tests/components/conversation-files-panel.test.tsx`, `tests/components/custom-property-controls.test.tsx`, `tests/components/rich-text-content.test.tsx`). Those deletions are not part of the PR-feedback patch and should not be staged with this fix.
+- The protected unavailable state currently reuses the bootstrapping lifecycle for migrated non-attached bodies; that is deliberate to prevent stale Convex body writes without adding a new UI lifecycle enum in this review-response patch.
+
 ## Final whole-worktree review - 2026-06-06
 
 Status: review-clean before external dev deployment/reset/PR.
