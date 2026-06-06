@@ -14,6 +14,7 @@ import {
   type TeamWorkflowSettings,
   type UserStatus,
 } from "../../lib/domain/types"
+import { normalizeCollaborationBodySource } from "../../lib/collaboration/body-source"
 import {
   defaultUserPreferences,
   defaultUserStatus,
@@ -335,7 +336,11 @@ export function normalizeTeam<T extends { settings: Record<string, unknown> }>(
 }
 
 export function normalizeDocument<
-  T extends { workspaceId?: string; teamId?: string | null },
+  T extends {
+    workspaceId?: string
+    teamId?: string | null
+    bodySource?: string | null
+  },
 >(document: T, teams: Array<{ id: string; workspaceId: string }>) {
   return {
     ...document,
@@ -343,6 +348,7 @@ export function normalizeDocument<
       document.workspaceId ??
       teams.find((team) => team.id === document.teamId)?.workspaceId ??
       "",
+    bodySource: normalizeCollaborationBodySource(document.bodySource),
   }
 }
 

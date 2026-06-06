@@ -2,13 +2,18 @@
 
 ## Source Of Truth
 
-Convex `documents.content` is the durable canonical body for this PR. PartyKit/Yjs is the live room state for active collaboration sessions.
+Document body authority is explicit per document:
+
+- `bodySource: "convex-html"`: Convex `documents.content` is the durable canonical body.
+- `bodySource: "cloudflare-yjs"`: PartyKit/Yjs state in Cloudflare Durable Objects is the durable canonical body, and Convex `documents.content` is a projection.
+
+Convex remains canonical for identity, access, lifecycle, metadata, work-item links, read models, search, mentions, and references.
 
 Active manual saves persist the server-held room Y.Doc. Browser-provided body snapshots are not authoritative for active rooms.
 
-`teardown-content` is the only client-content fallback, and PartyKit accepts it only when no other editor remains in the room.
+`teardown-content` is the only client-content fallback for `convex-html` rooms, and PartyKit accepts it only when no other editor remains in the room. For `cloudflare-yjs` rooms, teardown persists the server-held Y.Doc projection and ignores browser-provided body snapshots.
 
-Durable Yjs/CRDT state in Convex was compared against Outline and remains a future migration option. It should be implemented in a separate PR only if active-room reconciliation becomes too complex, conflict/reload UX is frequent, or wiki-grade offline CRDT continuity becomes a product requirement.
+Durable Yjs/CRDT state in Convex is intentionally not the target architecture for this migration. The target architecture uses PartyKit cloud-prem in the owner's Cloudflare account for migrated body state, with Convex retaining metadata and projection ownership.
 
 ## Room IDs
 
@@ -86,11 +91,27 @@ The document session route returns:
     maxContentJsonBytes: number,
     maxCanonicalHtmlBytes: number,
   },
+  bodySource: "convex-html" | "cloudflare-yjs",
+  bodyMigratedAt?: string | null,
   contentJson?: JSONContent,
   contentHtml?: string,
   expiresAt?: number,
 }
 ```
+
+For `cloudflare-yjs` documents, the session route must omit `contentJson` and `contentHtml`; editor body content comes from Yjs provider sync. For `convex-html` documents, the existing Convex bootstrap fields may be returned.
+
+## Awareness And Cursor Mapping
+
+Presence, typing, active block, cursor, and selection awareness must stay attached to the same Yjs provider state as body edits.
+
+For migrated `cloudflare-yjs` documents:
+
+- Do not derive remote cursor or selection coordinate mapping from Convex projection content.
+- Do not initialize an editor body from Convex projection and then attach it to a different Y.Doc.
+- Keep relative cursor/selection markers flowing through provider awareness so edits before a remote user's caret shift that marker with the document.
+
+The regression case to preserve is: user A has a caret several paragraphs down, user B inserts content above it, and user A's remote marker moves down with the shared Yjs document instead of staying at the old absolute position.
 
 ## Flush Semantics
 
@@ -137,8 +158,9 @@ Rules:
 
 - `document-deleted` closes active connections with `collaboration_document_deleted`.
 - `access-changed` closes active connections with `collaboration_access_revoked`.
-- `canonical-updated` replaces a clean active room from Convex canonical content.
-- `canonical-updated` does not overwrite a dirty room; it closes/notifies with `collaboration_conflict_reload_required`.
+- `canonical-updated` replaces a clean active `convex-html` room from Convex canonical content.
+- `canonical-updated` does not overwrite a dirty `convex-html` room; it closes/notifies with `collaboration_conflict_reload_required`.
+- `canonical-updated` is projection-only for `cloudflare-yjs` rooms and must not replace Yjs body state from Convex content.
 - Clean-room replacement is guarded before and after the async canonical fetch with the room dirty flag and update version, so edits that arrive during the fetch window are treated as a conflict instead of being overwritten.
 - Wrong room/document pairs are rejected.
 
@@ -222,6 +244,7 @@ Event names:
 - `refresh_received`
 - `refresh_applied`
 - `refresh_conflict`
+- `refresh_projection_skipped`
 - `room_closed`
 - `limit_rejected`
 
@@ -237,6 +260,10 @@ Any protocol change must update tests for:
 - hook reload-required state mapping
 - active flush server-owned persistence
 - teardown fallback safety
+- migrated bootstrap omission of Convex body content
+- internal body migration token, route gate, seed, already-migrated no-op, and active-room refusal
+- migrated cold rehydrate from Cloudflare Yjs state without Convex reseed
+- migrated awareness/cursor shifted-position continuity
 - viewer flush rejection
 - payload/state/admission limits
 - refresh endpoint auth and room/document matching

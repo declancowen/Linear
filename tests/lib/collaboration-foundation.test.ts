@@ -240,6 +240,46 @@ describe("collaboration foundation contracts", () => {
       success: false,
       error: "roomId must match the chat collaboration room",
     })
+
+    expect(
+      safeParseCollaborationSessionTokenClaims({
+        kind: "internal-migration",
+        sub: "server",
+        roomId: "doc:doc_123",
+        documentId: "doc_123",
+        currentUserId: "user_1",
+        action: "migrate-body",
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+        exp: 200,
+      })
+    ).toEqual({
+      success: true,
+      data: {
+        kind: "internal-migration",
+        sub: "server",
+        roomId: "doc:doc_123",
+        documentId: "doc_123",
+        currentUserId: "user_1",
+        action: "migrate-body",
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+        exp: 200,
+      },
+    })
+
+    expect(
+      safeParseCollaborationSessionTokenClaims({
+        kind: "internal-migration",
+        sub: "server",
+        roomId: "doc:doc_123",
+        documentId: "doc_123",
+        action: "migrate-body",
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+        exp: 200,
+      })
+    ).toEqual({
+      success: false,
+      error: "currentUserId must be a string",
+    })
   })
 
   it("builds collaboration awareness state with sanitized optional fields", () => {

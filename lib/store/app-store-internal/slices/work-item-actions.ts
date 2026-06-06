@@ -316,6 +316,7 @@ function buildOptimisticDescriptionDocument(input: {
         : (input.parsedInput.teamId ?? null),
     title: `${input.title} description`,
     content: "<p></p>",
+    bodySource: "convex-html" as const,
     linkedProjectIds: input.scope.resolvedPrimaryProjectId
       ? [input.scope.resolvedPrimaryProjectId]
       : [],

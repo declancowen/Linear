@@ -1876,6 +1876,7 @@ async function insertCreatedWorkItemDescription({
     teamId: args.visibility === "private" ? null : (args.teamId ?? null),
     title: `${args.title} description`,
     content: "<p></p>",
+    bodySource: "convex-html",
     linkedProjectIds: resolvedPrimaryProjectId
       ? [resolvedPrimaryProjectId]
       : [],

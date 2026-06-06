@@ -7,6 +7,21 @@ export function createRouteAuthMockModule(
   return {
     requireSession: requireSessionMock,
     requireAppContext: requireAppContextMock,
+    requireAppRouteContext: async () => {
+      const session = await requireSessionMock()
+
+      if (session instanceof Response) {
+        return session
+      }
+
+      const appContext = await requireAppContextMock(session)
+
+      if (appContext instanceof Response) {
+        return appContext
+      }
+
+      return { appContext, session }
+    },
     requireConvexUser: vi.fn(),
   }
 }

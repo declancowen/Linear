@@ -24,8 +24,11 @@ Collaboration now runs through hosted PartyKit services mapped 1:1 to Convex:
 
 Operational expectations:
 
-- Convex remains the only canonical source of truth
-- PartyKit rooms reseed from Convex on connect and persist back to Convex on flush
+- `convex-html` documents keep Convex as the canonical body source
+- `cloudflare-yjs` documents use PartyKit/Yjs state in Cloudflare Durable Objects as the canonical body source
+- Convex remains canonical for metadata, access, lifecycle, document management, work-item management, read models, search, mentions, and references
+- PartyKit presence and typing paths are preserved
+- migrated PartyKit rooms hydrate from Cloudflare Yjs state and persist Convex projections on flush
 - local web development targets the hosted dev PartyKit environment rather than a local `partykit dev` process
 - private documents do not participate in collaboration rooms
 
@@ -48,6 +51,7 @@ Signals now covered:
 - PartyKit `connect_accepted`, `connect_rejected`, `room_seeded`
 - PartyKit `flush_started`, `flush_succeeded`, `flush_failed`
 - PartyKit `refresh_received`, `refresh_applied`, `refresh_conflict`
+- PartyKit `refresh_projection_skipped`
 - PartyKit `room_closed`, `limit_rejected`
 - fallback activation onto the legacy snapshot path
 - legacy snapshot stream reconnects
@@ -73,6 +77,7 @@ Abort or roll back if any of the following persist during rollout:
   - denominator: `flush_succeeded + flush_failed`
 - p95 scoped invalidation or collaboration refresh visibility exceeds `3s`
 - collaborative documents show durable drift from canonical persisted content
+- migrated collaborative documents hydrate from Convex projection instead of Cloudflare Yjs state
 - `refresh_conflict` appears repeatedly for the same document without a known external update source
 - `limit_rejected` becomes common for normal-sized editing sessions
 - mention-send flows fail after collaborative edits
@@ -131,6 +136,9 @@ Effect:
 - confirm `NEXT_PUBLIC_PARTYKIT_URL` points at the intended hosted PartyKit environment
 - open a document in two clients and confirm immediate shared edits plus presence
 - open a work-item description in two clients and confirm the same
+- confirm migrated document sessions omit Convex body bootstrap content and hydrate from Yjs provider sync
+- confirm presence and typing still work after the body-source migration path is enabled
+- confirm remote cursor and selection markers shift correctly when another editor inserts content above them
 - mutate work, views, inbox, chat, channel, and search-triggering entities and confirm only the affected surfaces refetch
 - force a rollback flag and confirm the app still boots and remains editable
 - confirm `/api/snapshot` is no longer the default freshness path during normal scoped-sync operation

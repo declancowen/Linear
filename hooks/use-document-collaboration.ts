@@ -20,6 +20,7 @@ import {
   createCollaborationAwarenessState,
   type CollaborationAwarenessState,
 } from "@/lib/collaboration/awareness"
+import { isCloudflareYjsBodySource } from "@/lib/collaboration/body-source"
 import { createPartyKitCollaborationAdapter } from "@/lib/collaboration/adapters/partykit"
 import { getCollaborationUserColor } from "@/lib/collaboration/colors"
 import { openDocumentCollaborationSession } from "@/lib/collaboration/client-session"
@@ -156,6 +157,7 @@ const EMPTY_COLLABORATION_STATE: ActiveDocumentCollaborationState = {
   session: null,
   editorCollaboration: null,
   collaboration: null,
+  bodySource: null,
   bootstrapContent: null,
   viewers: EMPTY_VIEWERS,
 }
@@ -185,6 +187,10 @@ function createCollaborationRuntime(): CollaborationRuntime {
 }
 
 function getBootstrapContent(bootstrap: OpenDocumentCollaborationBootstrap) {
+  if (isCloudflareYjsBodySource(bootstrap.bodySource)) {
+    return null
+  }
+
   return bootstrap.contentJson ?? bootstrap.contentHtml ?? null
 }
 
@@ -324,6 +330,7 @@ function setConnectingCollaborationState({
     session,
     editorCollaboration: collaborationState,
     collaboration: null,
+    bodySource: bootstrap.bodySource ?? null,
     bootstrapContent,
     viewers: EMPTY_VIEWERS,
   })
@@ -354,6 +361,7 @@ function setConnectedCollaborationState({
     session,
     editorCollaboration: current.editorCollaboration ?? collaborationState,
     collaboration: current.collaboration ?? collaborationState,
+    bodySource: bootstrap.bodySource ?? null,
     bootstrapContent: current.bootstrapContent ?? bootstrapContent,
   }))
 }
@@ -379,6 +387,10 @@ function handleCollaborationSyncTimeout({
     return false
   }
 
+  if (isCloudflareYjsBodySource(bootstrap.bodySource)) {
+    return false
+  }
+
   setState((current) =>
     current.session === session
       ? {
@@ -387,6 +399,7 @@ function handleCollaborationSyncTimeout({
           hasAttachedOnce: current.hasAttachedOnce,
           role: bootstrap.role,
           connectionState: getSessionConnectionState(session),
+          bodySource: bootstrap.bodySource ?? null,
           editorCollaboration:
             current.editorCollaboration ?? collaborationState,
           bootstrapContent: current.bootstrapContent ?? bootstrapContent,
@@ -615,6 +628,7 @@ function handleCollaborationOpenFailure({
     session: null,
     editorCollaboration: null,
     collaboration: null,
+    bodySource: null,
     bootstrapContent: null,
     viewers: EMPTY_VIEWERS,
   })
@@ -698,11 +712,15 @@ function hasActiveEditorCollaborationSession({
   isActiveDocument: boolean
   state: ActiveDocumentCollaborationState
 }) {
+  const isCloudflareYjsBody = isCloudflareYjsBodySource(state.bodySource)
+
   return (
     isActiveDocument &&
     state.editorCollaboration !== null &&
     state.session !== null &&
-    (connectionState === "connected" || connectionState === "connecting")
+    ((connectionState === "connected" &&
+      (!isCloudflareYjsBody || state.collaboration !== null)) ||
+      (connectionState === "connecting" && !isCloudflareYjsBody))
   )
 }
 

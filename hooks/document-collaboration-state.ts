@@ -2,6 +2,7 @@ import type { JSONContent } from "@tiptap/core"
 
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import type { PartyKitDocumentCollaborationBinding } from "@/lib/collaboration/adapters/partykit"
+import type { CollaborationBodySource } from "@/lib/collaboration/body-source"
 import type {
   CollaborationConnectionState,
   CollaborationSessionRole,
@@ -34,6 +35,7 @@ export type ActiveDocumentCollaborationState = {
   session: DocumentCollaborationSession | null
   editorCollaboration: DocumentCollaborationState | null
   collaboration: DocumentCollaborationState | null
+  bodySource: CollaborationBodySource | null
   bootstrapContent: JSONContent | string | null
   viewers: DocumentPresenceViewer[]
 }
@@ -72,6 +74,7 @@ export function getSyncedCollaborationState(
         error: null,
         hasAttachedOnce: true,
         role: input.bootstrap.role,
+        bodySource: input.bootstrap.bodySource ?? null,
         editorCollaboration:
           current.editorCollaboration ?? input.collaborationState,
         collaboration: current.collaboration ?? input.collaborationState,

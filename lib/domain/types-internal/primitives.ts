@@ -273,6 +273,8 @@ export type DocumentKind =
   | "private-document"
   | "item-description"
 
+export type CollaborationBodySource = "convex-html" | "cloudflare-yjs"
+
 export type ConversationKind = "chat" | "channel"
 
 export type ConversationScopeType = "workspace" | "team"

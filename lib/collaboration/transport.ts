@@ -5,6 +5,7 @@ import {
 } from "./rooms"
 import type { CollaborationLimits } from "./limits"
 import type { CollaborationErrorCode } from "./errors"
+import type { CollaborationBodySource } from "./body-source"
 import {
   COLLABORATION_PROTOCOL_VERSION,
   RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
@@ -46,6 +47,18 @@ export type InternalCollaborationRefreshTokenClaims = {
   exp: number
 }
 
+export type InternalCollaborationMigrationTokenClaims = {
+  kind: "internal-migration"
+  sub: "server"
+  roomId: string
+  documentId: string
+  currentUserId: string
+  action: "migrate-body"
+  protocolVersion: number
+  iat?: number
+  exp: number
+}
+
 export type ChatCollaborationSessionTokenClaims = {
   kind: "chat"
   sub: string
@@ -60,6 +73,7 @@ export type ChatCollaborationSessionTokenClaims = {
 export type CollaborationSessionTokenClaims =
   | DocumentCollaborationSessionTokenClaims
   | InternalCollaborationRefreshTokenClaims
+  | InternalCollaborationMigrationTokenClaims
   | ChatCollaborationSessionTokenClaims
 
 export type CollaborationSessionBootstrap = {
@@ -71,6 +85,8 @@ export type CollaborationSessionBootstrap = {
   protocolVersion?: number
   schemaVersion?: number
   limits?: CollaborationLimits
+  bodySource?: CollaborationBodySource
+  bodyMigratedAt?: string | null
   contentJson?: JSONContent
   contentHtml?: string
   expiresAt?: number
@@ -127,9 +143,7 @@ export interface CollaborationTransportSession<
     listener: (change: CollaborationStatusChange) => void
   ): () => void
   onAwarenessChange(
-    listener: (
-      change: CollaborationAwarenessChange<TAwarenessState>
-    ) => void
+    listener: (change: CollaborationAwarenessChange<TAwarenessState>) => void
   ): () => void
 }
 
@@ -149,9 +163,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parseRequiredString(
   value: unknown,
   label: string
-):
-  | { success: true; value: string }
-  | { success: false; error: string } {
+): { success: true; value: string } | { success: false; error: string } {
   if (typeof value !== "string") {
     return {
       success: false,
@@ -174,10 +186,7 @@ function parseRequiredString(
   }
 }
 
-function parseOptionalNumber(
-  value: unknown,
-  label: string
-): string | null {
+function parseOptionalNumber(value: unknown, label: string): string | null {
   if (typeof value === "undefined") {
     return null
   }
@@ -234,14 +243,21 @@ function claimSuccess<T extends CollaborationSessionTokenClaims>(
 function parseClaimKind(
   value: unknown
 ): { success: true; kind: CollaborationClaimKind } | ClaimParseFailure {
-  if (value === "doc" || value === "chat" || value === "internal-refresh") {
+  if (
+    value === "doc" ||
+    value === "chat" ||
+    value === "internal-refresh" ||
+    value === "internal-migration"
+  ) {
     return {
       success: true,
       kind: value,
     }
   }
 
-  return claimFailure("kind must be doc, chat, or internal-refresh")
+  return claimFailure(
+    "kind must be doc, chat, internal-refresh, or internal-migration"
+  )
 }
 
 function getRequiredClaimStringFields(
@@ -261,6 +277,13 @@ function getRequiredClaimStringFields(
         [input.sub, "sub"],
         [input.roomId, "roomId"],
         [input.documentId, "documentId"],
+      ] as const
+    case "internal-migration":
+      return [
+        [input.sub, "sub"],
+        [input.roomId, "roomId"],
+        [input.documentId, "documentId"],
+        [input.currentUserId, "currentUserId"],
       ] as const
     case "chat":
       return [
@@ -296,7 +319,9 @@ function parseRequiredClaimStrings(
 
 function parseOptionalWorkspaceId(
   value: unknown
-): { success: true; workspaceId: string | null | undefined } | ClaimParseFailure {
+):
+  | { success: true; workspaceId: string | null | undefined }
+  | ClaimParseFailure {
   if (
     typeof value !== "undefined" &&
     value !== null &&
@@ -441,18 +466,22 @@ function parseDocumentClaim(
   })
 }
 
-function parseInternalRefreshClaim(
+function parseInternalDocumentActionClaim(
   input: Record<string, unknown>,
-  fields: NormalizedClaimFields
-): ClaimParseResult<InternalCollaborationRefreshTokenClaims> {
+  fields: NormalizedClaimFields,
+  expectedAction: "refresh" | "migrate-body",
+  subject: string
+):
+  | { success: true; documentId: string; protocolVersion: number }
+  | ClaimParseFailure {
   const documentId = fields.strings.get("documentId")!
 
   if (fields.sub !== "server") {
-    return claimFailure("sub must be server for internal refresh")
+    return claimFailure(`sub must be server for internal ${subject}`)
   }
 
-  if (input.action !== "refresh") {
-    return claimFailure("action must be refresh")
+  if (input.action !== expectedAction) {
+    return claimFailure(`action must be ${expectedAction}`)
   }
 
   const protocol = parseProtocolVersion(input.protocolVersion)
@@ -465,13 +494,63 @@ function parseInternalRefreshClaim(
     return claimFailure("roomId must match the document collaboration room")
   }
 
+  return {
+    success: true,
+    documentId,
+    protocolVersion: protocol.protocolVersion,
+  }
+}
+
+function parseInternalRefreshClaim(
+  input: Record<string, unknown>,
+  fields: NormalizedClaimFields
+): ClaimParseResult<InternalCollaborationRefreshTokenClaims> {
+  const internalClaim = parseInternalDocumentActionClaim(
+    input,
+    fields,
+    "refresh",
+    "refresh"
+  )
+
+  if (!internalClaim.success) {
+    return internalClaim
+  }
+
   return claimSuccess({
     kind: "internal-refresh",
     sub: "server",
     roomId: fields.roomId,
-    documentId,
+    documentId: internalClaim.documentId,
     action: "refresh",
-    protocolVersion: protocol.protocolVersion,
+    protocolVersion: internalClaim.protocolVersion,
+    iat: fields.iat,
+    exp: fields.exp,
+  })
+}
+
+function parseInternalMigrationClaim(
+  input: Record<string, unknown>,
+  fields: NormalizedClaimFields
+): ClaimParseResult<InternalCollaborationMigrationTokenClaims> {
+  const internalClaim = parseInternalDocumentActionClaim(
+    input,
+    fields,
+    "migrate-body",
+    "migration"
+  )
+
+  if (!internalClaim.success) {
+    return internalClaim
+  }
+
+  return claimSuccess({
+    kind: "internal-migration",
+    sub: "server",
+    roomId: fields.roomId,
+    documentId: internalClaim.documentId,
+    currentUserId: fields.strings.get("currentUserId")!,
+    action: "migrate-body",
+    protocolVersion: internalClaim.protocolVersion,
     iat: fields.iat,
     exp: fields.exp,
   })
@@ -507,6 +586,8 @@ function parseTypedClaim(
       return parseDocumentClaim(input, fields)
     case "internal-refresh":
       return parseInternalRefreshClaim(input, fields)
+    case "internal-migration":
+      return parseInternalMigrationClaim(input, fields)
     case "chat":
       return parseChatClaim(fields)
   }
@@ -550,6 +631,8 @@ export function createDocumentSessionBootstrap(input: {
   serviceUrl: string
   role: CollaborationSessionRole
   limits: CollaborationLimits
+  bodySource?: CollaborationBodySource
+  bodyMigratedAt?: string | null
   contentJson?: JSONContent
   contentHtml?: string
 }) {
@@ -562,6 +645,8 @@ export function createDocumentSessionBootstrap(input: {
     protocolVersion: COLLABORATION_PROTOCOL_VERSION,
     schemaVersion: RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
     limits: input.limits,
+    bodySource: input.bodySource,
+    bodyMigratedAt: input.bodyMigratedAt,
     contentJson: input.contentJson,
     contentHtml: input.contentHtml,
   } satisfies CollaborationSessionBootstrap

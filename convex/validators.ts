@@ -188,6 +188,11 @@ const documentKindLiterals = [
   v.literal("item-description"),
 ] as const
 
+const collaborationBodySourceLiterals = [
+  v.literal("convex-html"),
+  v.literal("cloudflare-yjs"),
+] as const
+
 const customPropertyTypeLiterals = [
   v.literal("text"),
   v.literal("integer"),
@@ -293,6 +298,9 @@ export const attachmentTargetTypeValidator = v.union(
   ...attachmentTargetTypeLiterals
 )
 export const documentKindValidator = v.union(...documentKindLiterals)
+export const collaborationBodySourceValidator = v.union(
+  ...collaborationBodySourceLiterals
+)
 export const customPropertyTypeValidator = v.union(
   ...customPropertyTypeLiterals
 )
@@ -639,6 +647,8 @@ export const documentFields = {
   teamId: nullableString,
   title: v.string(),
   content: v.string(),
+  bodySource: v.optional(collaborationBodySourceValidator),
+  bodyMigratedAt: v.optional(v.string()),
   notifiedMentionCounts: v.optional(v.record(v.string(), v.number())),
   linkedProjectIds: v.array(v.string()),
   linkedWorkItemIds: v.array(v.string()),

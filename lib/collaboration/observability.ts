@@ -7,9 +7,13 @@ export type CollaborationEventName =
   | "flush_succeeded"
   | "flush_failed"
   | "teardown_flush_skipped"
+  | "migration_seed_started"
+  | "migration_seed_succeeded"
+  | "migration_seed_skipped"
   | "refresh_received"
   | "refresh_applied"
   | "refresh_conflict"
+  | "refresh_projection_skipped"
   | "room_closed"
   | "limit_rejected"
 

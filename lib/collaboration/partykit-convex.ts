@@ -1,6 +1,7 @@
 import { ConvexHttpClient } from "convex/browser"
 
 import { api } from "@/convex/_generated/api"
+import type { CollaborationBodySource } from "@/lib/collaboration/body-source"
 import {
   getErrorProperty,
   runConvexRequestWithRetry,
@@ -19,6 +20,8 @@ export type CollaborationDocumentFromConvex = {
   kind: "team-document" | "workspace-document" | "private-document" | "item-description"
   title: string
   content: string
+  bodySource: CollaborationBodySource
+  bodyMigratedAt?: string | null
   workspaceId: string | null
   teamId: string | null
   updatedAt: string
@@ -178,6 +181,32 @@ export async function persistCollaborationWorkItemToConvex(
       ),
     collaborationRetryOptions
   )
+}
+
+export async function markCollaborationDocumentBodyMigratedInConvex(
+  env: CollaborationRuntimeEnv,
+  input: {
+    documentId: string
+    expectedUpdatedAt: string
+  }
+): Promise<{
+  bodySource: "cloudflare-yjs"
+  bodyMigratedAt: string | null
+  changed: boolean
+}> {
+  return runConvexRequestWithRetry(
+    "markCollaborationDocumentBodyMigratedInConvex",
+    () =>
+      getConvexClient(env).mutation(
+        api.app.markCollaborationDocumentBodyMigrated,
+        withServerToken(env, input)
+      ),
+    collaborationRetryOptions
+  ) as Promise<{
+    bodySource: "cloudflare-yjs"
+    bodyMigratedAt: string | null
+    changed: boolean
+  }>
 }
 
 export async function bumpScopedReadModelsFromConvex(

@@ -13,6 +13,8 @@ import {
   createDocumentToken,
   createEmptyParagraphJson,
   createFlushRequest,
+  createMigrationRequest,
+  createMigrationToken,
   createPartykitRoom,
   createRefreshRequest,
   createRefreshToken,
@@ -28,6 +30,9 @@ const persistCollaborationItemDescriptionToConvexMock = vi.hoisted(() =>
   vi.fn()
 )
 const persistCollaborationWorkItemToConvexMock = vi.hoisted(() => vi.fn())
+const markCollaborationDocumentBodyMigratedInConvexMock = vi.hoisted(() =>
+  vi.fn()
+)
 const bumpScopedReadModelsFromConvexMock = vi.hoisted(() => vi.fn())
 
 vi.mock("y-partykit", () => ({
@@ -43,6 +48,8 @@ vi.mock("@/lib/collaboration/partykit-convex", () => ({
     persistCollaborationItemDescriptionToConvexMock,
   persistCollaborationWorkItemToConvex:
     persistCollaborationWorkItemToConvexMock,
+  markCollaborationDocumentBodyMigratedInConvex:
+    markCollaborationDocumentBodyMigratedInConvexMock,
   bumpScopedReadModelsFromConvex: bumpScopedReadModelsFromConvexMock,
 }))
 
@@ -59,15 +66,21 @@ async function loadCollaboration() {
 type CollaborationServer = Awaited<ReturnType<typeof loadCollaboration>>
 type TestYDoc = ReturnType<typeof createDoc>
 
+const MIGRATED_BODY_AT = "2026-06-06T08:00:00.000Z"
+
 function mockYDoc(contentJson: JSONContent, connectionKeys: unknown[] = []) {
   const yDoc = createDoc(contentJson) as TestYDoc & {
     conns?: Map<unknown, unknown>
+    compactUpdateLog?: ReturnType<typeof vi.fn>
+    writeState?: ReturnType<typeof vi.fn>
   }
 
   if (connectionKeys.length > 0) {
     yDoc.conns = new Map(connectionKeys.map((connection) => [connection, {}]))
   }
 
+  yDoc.compactUpdateLog = vi.fn().mockResolvedValue(undefined)
+  yDoc.writeState = vi.fn().mockResolvedValue(undefined)
   unstableGetYDocMock.mockResolvedValue(yDoc)
 
   return yDoc
@@ -97,6 +110,16 @@ function mockItemDescriptionDocument(
     itemUpdatedAt: "2026-04-22T00:00:00.000Z",
     teamMemberIds: [],
     ...overrides,
+  })
+}
+
+async function expectBodyMigrationJson(response: Response, migrated: boolean) {
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toEqual({
+    ok: true,
+    migrated,
+    bodySource: "cloudflare-yjs",
+    bodyMigratedAt: MIGRATED_BODY_AT,
   })
 }
 
@@ -175,6 +198,15 @@ async function requestDocumentRefresh(request: Request) {
   const collaboration = await loadCollaboration()
 
   return collaboration.onRequest(request as never, createDocumentRoomContext())
+}
+
+async function requestDocumentMigration(
+  request: Request,
+  room = createDocumentRoomContext("doc:doc_team_1")
+) {
+  const collaboration = await loadCollaboration()
+
+  return collaboration.onRequest(request as never, room)
 }
 
 async function expectInvalidCollaborationFlushToken(response: Response) {
@@ -365,15 +397,18 @@ function expectNoDocumentFlushPersistence() {
 }
 
 async function requestTeardownContentFlush(options: {
+  bodySource?: "convex-html" | "cloudflare-yjs"
   connections?: unknown[]
   persist?: boolean
+  persistedContent?: string
   teamMemberIds?: string[]
 }) {
   const liveRoomContentJson = createRichTextJson("Live collaborator content")
   const teardownContentJson = createRichTextJson("Closing tab content")
   const yDoc = mockYDoc(liveRoomContentJson)
   mockCollaborationDocument({
-    content: "<p>Live collaborator content</p>",
+    ...(options.bodySource ? { bodySource: options.bodySource } : {}),
+    content: options.persistedContent ?? "<p>Live collaborator content</p>",
     teamMemberIds: options.teamMemberIds,
   })
 
@@ -404,7 +439,10 @@ async function requestTeardownContentFlush(options: {
   }
 }
 
-function expectTeardownContentPersisted(yDoc: TestYDoc, contentJson: JSONContent) {
+function expectTeardownContentPersisted(
+  yDoc: TestYDoc,
+  contentJson: JSONContent
+) {
   expect(persistCollaborationDocumentToConvexMock).toHaveBeenCalledWith(
     expect.objectContaining({
       CONVEX_URL: "https://convex-dev.example",
@@ -414,9 +452,9 @@ function expectTeardownContentPersisted(yDoc: TestYDoc, contentJson: JSONContent
     })
   )
   expect(bumpScopedReadModelsFromConvexMock).toHaveBeenCalled()
-  expect(
-    yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent
-  ).toEqual(contentJson)
+  expect(yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent).toEqual(
+    contentJson
+  )
 }
 
 describe("PartyKit collaboration server", () => {
@@ -427,6 +465,7 @@ describe("PartyKit collaboration server", () => {
     persistCollaborationDocumentToConvexMock.mockReset()
     persistCollaborationItemDescriptionToConvexMock.mockReset()
     persistCollaborationWorkItemToConvexMock.mockReset()
+    markCollaborationDocumentBodyMigratedInConvexMock.mockReset()
     bumpScopedReadModelsFromConvexMock.mockReset()
 
     process.env.COLLABORATION_TOKEN_SECRET = "test-collaboration-token-secret"
@@ -450,22 +489,44 @@ describe("PartyKit collaboration server", () => {
 
     await connectDocumentRoom(collaboration, { room })
 
-    const { loadYPartyKitCanonicalDocument } = await import(
-      "@/services/partykit/server"
-    )
+    const { loadYPartyKitCanonicalDocument } =
+      await import("@/services/partykit/server")
     const loadedDoc = await loadYPartyKitCanonicalDocument(room as never)
 
+    expect(loadedDoc).not.toBeNull()
     expect(
-      yDocToProsemirrorJSON(loadedDoc, "default") satisfies JSONContent
+      yDocToProsemirrorJSON(
+        loadedDoc as TestYDoc,
+        "default"
+      ) satisfies JSONContent
     ).toEqual(contentJson)
+  })
+
+  it("does not load Convex projection content for migrated Cloudflare Yjs documents", async () => {
+    const room = createPartykitRoom({ id: "doc:doc_team_1" })
+    mockYDoc(createEmptyParagraphJson())
+    onConnectMock.mockResolvedValue(undefined)
+    mockCollaborationDocument({
+      bodySource: "cloudflare-yjs",
+      content: "<p>Projection only</p>",
+    })
+
+    const collaboration = await loadCollaboration()
+
+    await connectDocumentRoom(collaboration, { room })
+
+    const { loadYPartyKitCanonicalDocument } =
+      await import("@/services/partykit/server")
+    const loadedDoc = await loadYPartyKitCanonicalDocument(room as never)
+
+    expect(loadedDoc).toBeNull()
   })
 
   it("logs and rethrows PartyKit load failures with room context", async () => {
     const room = createPartykitRoom({ id: "doc:doc_desc_1" })
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-    const { loadYPartyKitCanonicalDocument } = await import(
-      "@/services/partykit/server"
-    )
+    const { loadYPartyKitCanonicalDocument } =
+      await import("@/services/partykit/server")
 
     await expect(loadYPartyKitCanonicalDocument(room as never)).rejects.toThrow(
       "Missing room collaboration claims"
@@ -735,6 +796,30 @@ describe("PartyKit collaboration server", () => {
     expectTeardownContentPersisted(yDoc, teardownContentJson)
   })
 
+  it("does not apply teardown client content to migrated Cloudflare Yjs rooms", async () => {
+    const { liveRoomContentJson, response, yDoc } =
+      await requestTeardownContentFlush({
+        bodySource: "cloudflare-yjs",
+        persist: true,
+        persistedContent: "<p>Stale Convex projection</p>",
+        teamMemberIds: [],
+      })
+
+    expect(response.status).toBe(200)
+    expect(persistCollaborationDocumentToConvexMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CONVEX_URL: "https://convex-dev.example",
+      }),
+      expect.objectContaining({
+        content: "<p>Live collaborator content</p>",
+        expectedUpdatedAt: undefined,
+      })
+    )
+    expect(
+      yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent
+    ).toEqual(liveRoomContentJson)
+  })
+
   it("handles collaboration flush preflight requests", async () => {
     const collaboration = await loadCollaboration()
 
@@ -921,6 +1006,26 @@ describe("PartyKit collaboration server", () => {
     expect(
       yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent
     ).toEqual(canonicalContentJson)
+    expect(persistCollaborationDocumentToConvexMock).not.toHaveBeenCalled()
+  })
+
+  it("does not reseed migrated Cloudflare Yjs rooms from Convex projection", async () => {
+    const liveContentJson = createRichTextJson("Persisted Cloudflare body")
+    const yDoc = mockYDoc(liveContentJson)
+    onConnectMock.mockResolvedValue(undefined)
+    mockCollaborationDocument({
+      bodySource: "cloudflare-yjs",
+      content: "<p>Stale Convex projection</p>",
+      teamMemberIds: [],
+    })
+
+    const collaboration = await loadCollaboration()
+
+    await connectDocumentRoom(collaboration)
+
+    expect(
+      yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent
+    ).toEqual(liveContentJson)
     expect(persistCollaborationDocumentToConvexMock).not.toHaveBeenCalled()
   })
 
@@ -1527,6 +1632,130 @@ describe("PartyKit collaboration server", () => {
     await expect(options.callback.handler(yDoc)).resolves.toBeUndefined()
     expect(persistCollaborationDocumentToConvexMock).not.toHaveBeenCalled()
     expect(closeMock).not.toHaveBeenCalled()
+  })
+
+  it("seeds Convex content into durable Yjs state before marking the document migrated", async () => {
+    const canonicalContentJson = createRichTextJson("Canonical content")
+    const yDoc = mockEmptyYDoc()
+    mockCollaborationDocument({
+      content: "<p>Canonical content</p>",
+      teamMemberIds: [],
+    })
+    markCollaborationDocumentBodyMigratedInConvexMock.mockResolvedValue({
+      bodySource: "cloudflare-yjs",
+      bodyMigratedAt: MIGRATED_BODY_AT,
+      changed: true,
+    })
+
+    const response = await requestDocumentMigration(
+      createMigrationRequest("doc:doc_team_1", createMigrationToken())
+    )
+
+    await expectBodyMigrationJson(response, true)
+    expect(
+      yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent
+    ).toEqual(canonicalContentJson)
+    expect(yDoc.writeState).toHaveBeenCalledTimes(1)
+    expect(yDoc.compactUpdateLog).toHaveBeenCalledTimes(1)
+    expect(
+      markCollaborationDocumentBodyMigratedInConvexMock
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CONVEX_URL: "https://convex-dev.example",
+      }),
+      {
+        documentId: "doc_team_1",
+        expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
+      }
+    )
+  })
+
+  it("clears stale migration session claims after an inactive room migration", async () => {
+    const yDoc = mockEmptyYDoc()
+    onConnectMock.mockResolvedValue(undefined)
+    mockCollaborationDocument({
+      content: "<p>Canonical content</p>",
+      teamMemberIds: [],
+    })
+    markCollaborationDocumentBodyMigratedInConvexMock.mockResolvedValue({
+      bodySource: "cloudflare-yjs",
+      bodyMigratedAt: "2026-06-06T08:00:00.000Z",
+      changed: true,
+    })
+
+    const collaboration = await loadCollaboration()
+    const room = createPartykitRoom()
+
+    await connectDocumentRoom(collaboration, { room })
+    await collaboration.onRequest(
+      createMigrationRequest("doc:doc_team_1", createMigrationToken()) as never,
+      room as never
+    )
+
+    unstableGetYDocMock.mockClear()
+
+    const response = await collaboration.onRequest(
+      createRefreshRequest("doc:doc_team_1", createRefreshToken(), {
+        kind: "canonical-updated",
+        documentId: "doc_team_1",
+      }) as never,
+      room as never
+    )
+
+    expect(response.status).toBe(200)
+    expect(unstableGetYDocMock).not.toHaveBeenCalled()
+    expect(yDoc.writeState).toHaveBeenCalledTimes(1)
+  })
+
+  it("refuses body migration while document collaborators are connected", async () => {
+    const liveContentJson = createRichTextJson("Live room content")
+    const yDoc = mockYDoc(liveContentJson, [
+      {
+        close: vi.fn(),
+      },
+    ])
+    mockCollaborationDocument({
+      content: "<p>Canonical replacement</p>",
+      teamMemberIds: [],
+    })
+
+    const response = await requestDocumentMigration(
+      createMigrationRequest("doc:doc_team_1", createMigrationToken())
+    )
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      code: "collaboration_conflict_reload_required",
+      message: "Cannot migrate an active collaboration room",
+      reloadRequired: true,
+    })
+    expect(
+      yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent
+    ).toEqual(liveContentJson)
+    expect(yDoc.writeState).not.toHaveBeenCalled()
+    expect(
+      markCollaborationDocumentBodyMigratedInConvexMock
+    ).not.toHaveBeenCalled()
+  })
+
+  it("skips migration when Convex already marks the body as Cloudflare Yjs", async () => {
+    mockCollaborationDocument({
+      bodySource: "cloudflare-yjs",
+      bodyMigratedAt: MIGRATED_BODY_AT,
+      content: "<p>Projection only</p>",
+      teamMemberIds: [],
+    })
+
+    const response = await requestDocumentMigration(
+      createMigrationRequest("doc:doc_team_1", createMigrationToken())
+    )
+
+    await expectBodyMigrationJson(response, false)
+    expect(unstableGetYDocMock).not.toHaveBeenCalled()
+    expect(
+      markCollaborationDocumentBodyMigratedInConvexMock
+    ).not.toHaveBeenCalled()
   })
 
   it("broadcasts ephemeral chat typing snapshots without invoking y-partykit", async () => {

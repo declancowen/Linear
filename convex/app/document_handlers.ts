@@ -1292,6 +1292,7 @@ export async function createDocumentHandler(
     teamId: args.kind === "team-document" ? (args.teamId ?? null) : null,
     title: args.title,
     content: `<h1>${args.title}</h1><p>${contentTemplate}</p>`,
+    bodySource: "convex-html",
     linkedProjectIds: [],
     linkedWorkItemIds: [],
     createdBy: args.currentUserId,

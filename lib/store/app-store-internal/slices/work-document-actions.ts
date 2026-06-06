@@ -524,6 +524,7 @@ export function createWorkDocumentActions({
   | "applyDocumentCollaborationContent"
   | "applyDocumentCollaborationTitle"
   | "flushDocumentSync"
+  | "flushItemDescriptionSync"
   | "renameDocument"
   | "deleteDocument"
   | "updateItemDescription"
@@ -802,6 +803,9 @@ export function createWorkDocumentActions({
     async flushDocumentSync(documentId) {
       await runtime.flushRichTextSync(`document:${documentId}`)
     },
+    async flushItemDescriptionSync(itemId) {
+      await runtime.flushRichTextSync(`item-description:${itemId}`)
+    },
     renameDocument(documentId, title) {
       const normalizedTitle = title.trim() || "Untitled document"
 
@@ -835,7 +839,11 @@ export function createWorkDocumentActions({
                 content: document.content,
                 expectedUpdatedAt: document.updatedAt,
               })
-            : syncRenameDocument(state.currentUserId, documentId, document.title),
+            : syncRenameDocument(
+                state.currentUserId,
+                documentId,
+                document.title
+              ),
         {
           deriveRelationships: Boolean(pendingContentToken),
           ...(pendingContentToken ? { pendingContentToken } : {}),
@@ -1183,6 +1191,7 @@ export function createWorkDocumentActions({
             teamId: documentInput.teamId,
             title: documentInput.title,
             content: `<h1>${documentInput.title}</h1><p>New team document.</p>`,
+            bodySource: "convex-html" as const,
             linkedProjectIds: [],
             linkedWorkItemIds: [],
             createdBy: state.currentUserId,
@@ -1209,6 +1218,7 @@ export function createWorkDocumentActions({
           teamId: null,
           title: documentInput.title,
           content: `<h1>${documentInput.title}</h1><p>${contentTemplate}</p>`,
+          bodySource: "convex-html" as const,
           linkedProjectIds: [],
           linkedWorkItemIds: [],
           createdBy: state.currentUserId,

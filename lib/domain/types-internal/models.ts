@@ -11,6 +11,7 @@ import type {
   CustomPropertyType,
   CustomPropertyValue,
   DisplayProperty,
+  CollaborationBodySource,
   DocumentKind,
   EntityKind,
   GroupField,
@@ -246,6 +247,8 @@ export interface Document {
   teamId: string | null
   title: string
   content: string
+  bodySource?: CollaborationBodySource
+  bodyMigratedAt?: string
   previewText?: string
   notifiedMentionCounts?: Record<string, number>
   linkedProjectIds: string[]

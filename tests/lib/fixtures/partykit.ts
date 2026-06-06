@@ -25,6 +25,8 @@ type CollaborationDocumentRecord = {
     | "item-description"
   title: string
   content: string
+  bodySource: "convex-html" | "cloudflare-yjs"
+  bodyMigratedAt: string | null
   workspaceId: string
   teamId: string | null
   updatedAt: string
@@ -52,6 +54,12 @@ type DocumentTokenOptions = {
 }
 
 type RefreshTokenOptions = {
+  documentId?: string
+  roomId?: string
+}
+
+type MigrationTokenOptions = {
+  currentUserId?: string
   documentId?: string
   roomId?: string
 }
@@ -126,6 +134,10 @@ export function createDocumentRefreshUrl(roomId: string) {
   return `http://127.0.0.1:1999/parties/main/${roomId}?action=refresh`
 }
 
+export function createDocumentMigrationUrl(roomId: string) {
+  return `http://127.0.0.1:1999/parties/main/${roomId}?action=migrate-body`
+}
+
 export function createDocumentConnectRequest(roomId: string, token: string) {
   return new Request(createDocumentConnectUrl(roomId), {
     headers: {
@@ -142,6 +154,8 @@ export function createCollaborationDocumentRecord(
     kind: "team-document",
     title: "Doc",
     content: "<p>Canonical content</p>",
+    bodySource: "convex-html",
+    bodyMigratedAt: null,
     workspaceId: "workspace_1",
     teamId: "team_1",
     updatedAt: "2026-04-22T00:00:00.000Z",
@@ -188,6 +202,22 @@ export function createRefreshToken(options: RefreshTokenOptions = {}) {
   })
 }
 
+export function createMigrationToken(options: MigrationTokenOptions = {}) {
+  const documentId = options.documentId ?? "doc_team_1"
+  const roomId = options.roomId ?? `doc:${documentId}`
+
+  return createSignedCollaborationToken({
+    kind: "internal-migration",
+    sub: "server",
+    roomId,
+    documentId,
+    currentUserId: options.currentUserId ?? "user_1",
+    action: "migrate-body",
+    protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+    exp: Math.floor(Date.now() / 1000) + 60,
+  })
+}
+
 export function createChatToken(options: ChatTokenOptions = {}) {
   const conversationId = options.conversationId ?? "conversation_1"
   const roomId = options.roomId ?? `chat:${conversationId}`
@@ -229,6 +259,16 @@ export function createRefreshRequest(
       "Content-Type": "application/json",
     },
     body: typeof body === "string" ? body : JSON.stringify(body),
+  })
+}
+
+export function createMigrationRequest(roomId: string, token: string) {
+  return new Request(createDocumentMigrationUrl(roomId), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
   })
 }
 

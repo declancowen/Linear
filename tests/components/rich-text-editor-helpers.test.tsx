@@ -1,10 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
+import { getSchema, type JSONContent } from "@tiptap/core"
+import type { Node as ProsemirrorNode } from "@tiptap/pm/model"
+import {
+  absolutePositionToRelativePosition,
+  initProseMirrorDoc,
+  prosemirrorJSONToYDoc,
+  relativePositionToAbsolutePosition,
+} from "@tiptap/y-tiptap"
+import * as Y from "yjs"
 
 import {
   convertSelectedEditorAttachmentReferenceToPreview,
   convertSelectedEditorImageToReference,
 } from "@/components/app/rich-text-editor"
+import { COLLABORATION_XML_FRAGMENT } from "@/lib/collaboration/constants"
+import { createRichTextBaseExtensions } from "@/lib/rich-text/extensions"
 import { insertUploadedAttachment } from "@/components/app/rich-text-editor/attachment-insertion"
 import { uploadRichTextEditorAttachment } from "@/components/app/rich-text-editor/attachment-upload-one"
 import { uploadRichTextEditorFiles } from "@/components/app/rich-text-editor/attachment-uploads"
@@ -52,6 +63,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+const collaborationRichTextSchema = getSchema(
+  createRichTextBaseExtensions({
+    collaboration: true,
+    includeCharacterCount: false,
+  })
+)
+
 function mockDocumentRange(rects: Array<Partial<DOMRect>>) {
   const range = {
     setStart: vi.fn(),
@@ -90,6 +108,51 @@ function createEditorChain() {
   }
 
   return chain
+}
+
+function createParagraph(text: string): JSONContent {
+  return {
+    type: "paragraph",
+    content: [
+      {
+        type: "text",
+        text,
+      },
+    ],
+  }
+}
+
+function getTextOffsetPosition(
+  doc: ProsemirrorNode,
+  text: string,
+  offset: number
+) {
+  let foundPosition: number | null = null
+
+  doc.descendants((node, position) => {
+    if (foundPosition !== null) {
+      return false
+    }
+
+    if (!node.isText || !node.text) {
+      return true
+    }
+
+    const textOffset = node.text.indexOf(text)
+
+    if (textOffset === -1) {
+      return false
+    }
+
+    foundPosition = position + textOffset + offset
+    return false
+  })
+
+  if (foundPosition === null) {
+    throw new Error(`Could not find text "${text}" in ProseMirror document`)
+  }
+
+  return foundPosition
 }
 
 describe("rich text editor helpers", () => {
@@ -394,6 +457,62 @@ describe("rich text editor helpers", () => {
         snapshot: {},
       } as never)
     ).toBe(false)
+  })
+
+  it("resolves collaboration relative cursors after paragraphs are inserted above them", () => {
+    const yDoc = prosemirrorJSONToYDoc(
+      collaborationRichTextSchema,
+      {
+        type: "doc",
+        content: [
+          createParagraph("Alpha"),
+          createParagraph("Bravo"),
+          createParagraph("Charlie"),
+        ],
+      },
+      COLLABORATION_XML_FRAGMENT
+    )
+    const yFragment = yDoc.getXmlFragment(COLLABORATION_XML_FRAGMENT)
+    const initialState = initProseMirrorDoc(
+      yFragment,
+      collaborationRichTextSchema
+    )
+    const initialCharlieCursor = getTextOffsetPosition(
+      initialState.doc,
+      "Charlie",
+      2
+    )
+    const relativeCursor = absolutePositionToRelativePosition(
+      initialCharlieCursor,
+      yFragment,
+      initialState.mapping
+    )
+    const insertedParagraph = new Y.XmlElement("paragraph")
+    const insertedText = new Y.XmlText()
+
+    insertedText.insert(0, "Inserted")
+    insertedParagraph.insert(0, [insertedText])
+    yFragment.insert(2, [insertedParagraph])
+
+    const shiftedState = initProseMirrorDoc(
+      yFragment,
+      collaborationRichTextSchema
+    )
+    const shiftedCharlieCursor = getTextOffsetPosition(
+      shiftedState.doc,
+      "Charlie",
+      2
+    )
+
+    expect(
+      relativePositionToAbsolutePosition(
+        yDoc,
+        yFragment,
+        relativeCursor,
+        shiftedState.mapping
+      )
+    ).toBe(shiftedCharlieCursor)
+    expect(shiftedCharlieCursor).toBeGreaterThan(initialCharlieCursor)
   })
 
   it("inserts uploaded attachments as images or links", () => {

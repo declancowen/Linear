@@ -1,10 +1,11 @@
-import type { QueryCtx } from "../_generated/server"
+import type { MutationCtx, QueryCtx } from "../_generated/server"
 
+import { normalizeCollaborationBodySource } from "../../lib/collaboration/body-source"
 import {
   requireEditableDocumentAccess,
   requireReadableDocumentAccess,
 } from "./access"
-import { assertServerToken } from "./core"
+import { assertServerToken, getNow } from "./core"
 import {
   getDocumentDoc,
   getProjectDoc,
@@ -20,6 +21,11 @@ type ServerAccessArgs = {
 type GetCollaborationDocumentArgs = ServerAccessArgs & {
   currentUserId: string
   documentId: string
+}
+
+type MarkCollaborationDocumentBodyMigratedArgs = ServerAccessArgs & {
+  documentId: string
+  expectedUpdatedAt: string
 }
 
 type CollaborationDocumentDoc = NonNullable<
@@ -135,6 +141,8 @@ function toCollaborationDocumentPayload(input: {
     kind: document.kind,
     title: document.title,
     content: document.content,
+    bodySource: normalizeCollaborationBodySource(document.bodySource),
+    bodyMigratedAt: document.bodyMigratedAt ?? null,
     workspaceId: getCollaborationDocumentWorkspaceId(document),
     teamId: getCollaborationDocumentTeamId(document),
     updatedAt: document.updatedAt,
@@ -177,4 +185,44 @@ export async function getCollaborationDocumentHandler(
     workItem,
     workItemTeam,
   })
+}
+
+export async function markCollaborationDocumentBodyMigratedHandler(
+  ctx: MutationCtx,
+  args: MarkCollaborationDocumentBodyMigratedArgs
+) {
+  assertServerToken(args.serverToken)
+
+  const document = await getDocumentDoc(ctx, args.documentId)
+
+  if (!document) {
+    throw new Error("Document not found")
+  }
+
+  const bodySource = normalizeCollaborationBodySource(document.bodySource)
+
+  if (bodySource === "cloudflare-yjs") {
+    return {
+      bodySource: "cloudflare-yjs" as const,
+      bodyMigratedAt: document.bodyMigratedAt ?? null,
+      changed: false,
+    }
+  }
+
+  if (document.updatedAt !== args.expectedUpdatedAt) {
+    throw new Error("Document changed before collaboration body migration")
+  }
+
+  const bodyMigratedAt = getNow()
+
+  await ctx.db.patch(document._id, {
+    bodySource: "cloudflare-yjs",
+    bodyMigratedAt,
+  })
+
+  return {
+    bodySource: "cloudflare-yjs",
+    bodyMigratedAt,
+    changed: true,
+  }
 }

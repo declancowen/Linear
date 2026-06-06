@@ -73,6 +73,10 @@ unless the runtime actually reads them.
 
 - `NEXT_PUBLIC_PARTYKIT_URL`: canonical hosted PartyKit base URL for the active environment
 - `COLLABORATION_TOKEN_SECRET`: shared token secret used by the app and the matching PartyKit service
+- `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account used by PartyKit cloud-prem deploy scripts
+- `CLOUDFLARE_API_TOKEN`: Cloudflare API token with Workers edit permissions for PartyKit cloud-prem deploys
+- `PARTYKIT_CLOUDFLARE_DEV_DOMAIN`: dev PartyKit cloud-prem hostname, for example `collab-dev.example.com`
+- `PARTYKIT_CLOUDFLARE_PROD_DOMAIN`: production PartyKit cloud-prem hostname, for example `collab.example.com`
 - `NEXT_PUBLIC_ENABLE_COLLABORATION`: optional collaborative editor flag, defaults to enabled
 - `NEXT_PUBLIC_ENABLE_SCOPED_SYNC`: optional scoped read-model sync flag, defaults to enabled
 - `NEXT_PUBLIC_ENABLE_LEGACY_SNAPSHOT_STREAM`: optional legacy snapshot stream flag, defaults to disabled
@@ -161,20 +165,34 @@ separate local `partykit dev` process for normal app work.
 
 ## PartyKit and collaboration
 
-PartyKit is the live room/runtime layer only. Convex remains canonical for app
-data, document content, work-item descriptions, and permission checks.
+PartyKit is the live room/runtime layer. For migrated collaborative documents
+and work-item descriptions, PartyKit/Yjs state in the owner's Cloudflare account
+is the canonical body store. Convex remains canonical for app data, permissions,
+metadata, lifecycle, work-item links, and read/search/reference projections.
 
-Hosted services are mapped 1:1 to Convex:
+Unmigrated documents keep the legacy `convex-html` body source, where Convex
+`documents.content` remains canonical. Migrated documents use the
+`cloudflare-yjs` body source, where Convex `documents.content` is only a
+projection and must not rehydrate or overwrite the editor body.
+
+Cloudflare/PartyKit services are mapped 1:1 to Convex:
 
 - `linear-collaboration-dev` -> Convex dev
 - `linear-collaboration-prod` -> Convex prod
 
 Use these app env values with the matching provider stack:
 
-- local/dev app: `NEXT_PUBLIC_PARTYKIT_URL=https://linear-collaboration-dev.<subdomain>.partykit.dev`
-- production app: `NEXT_PUBLIC_PARTYKIT_URL=https://linear-collaboration-prod.<subdomain>.partykit.dev`
+- local/dev app: `NEXT_PUBLIC_PARTYKIT_URL=https://<PARTYKIT_CLOUDFLARE_DEV_DOMAIN>`
+- production app: `NEXT_PUBLIC_PARTYKIT_URL=https://<PARTYKIT_CLOUDFLARE_PROD_DOMAIN>`
+- migration windows only: `COLLABORATION_BODY_MIGRATION_ENABLED=true`
 
-For each hosted PartyKit service, provision these secrets directly in
+Deployments use PartyKit cloud-prem into the owner's Cloudflare account. The
+default posture is Cloudflare Workers Free, with Workers Paid as the upgrade
+path only if Durable Object requests, duration, SQLite row reads/writes, or
+stored data approach Free limits. Cloudflare Pro is not required for
+collaboration storage.
+
+For each PartyKit cloud-prem service, provision these secrets directly in
 Cloudflare/PartyKit:
 
 - `CONVEX_URL`
@@ -185,31 +203,44 @@ The app and the matching PartyKit service must use the same
 `COLLABORATION_TOKEN_SECRET`. Do not rely on `.env.local` to inject service
 secrets during PartyKit deploys.
 
+Leave `COLLABORATION_BODY_MIGRATION_ENABLED` unset or `false` outside a
+controlled migration window. It gates the app route that signs the internal
+PartyKit body migration command.
+
 Current PartyKit scope:
 
 - team and workspace document collaboration
 - collaborative work-item descriptions, including main-section flushes that can persist title and description together
+- durable migrated document body storage in Cloudflare Durable Objects
 - ephemeral chat presence and typing state
 
 Not in PartyKit scope:
 
 - private documents
 - non-collaborative Convex-only editor paths
-- long-term storage ownership or permission decisions
+- permission decisions
+- Convex metadata, lifecycle, links, read models, search, or reference projections
 
 Collaboration sessions are issued by the Next.js API routes under
 `app/api/collaboration/`. The client receives a short-lived signed room token,
-then connects to the hosted PartyKit room. Document rooms reseed from Convex on
-connect and flush canonical content back to Convex on debounce, manual save, and
-last-editor teardown paths.
+then connects to the PartyKit room. Unmigrated document rooms may reseed from
+Convex on connect. Migrated document rooms must hydrate from Cloudflare Yjs state
+and write Convex projection content on debounce, manual save, and last-editor
+teardown paths.
 
 Deploy the hosted runtime with `pnpm partykit:deploy:dev` or
-`pnpm partykit:deploy:prod`, then inspect it with the matching
+`pnpm partykit:deploy:prod`. These commands require `CLOUDFLARE_ACCOUNT_ID`,
+`CLOUDFLARE_API_TOKEN`, and `PARTYKIT_CLOUDFLARE_DEV_DOMAIN` or
+`PARTYKIT_CLOUDFLARE_PROD_DOMAIN`. Inspect logs with the matching
 `pnpm partykit:tail:*` command. If a change touches PartyKit room behavior,
 session issuance, token semantics, collaborative editor boot/save behavior, or
 Convex-backed collaboration helpers, coordinate the web app, PartyKit, and Convex
 deploys unless the change is explicitly backward compatible across mixed
 versions.
+
+The `partykit:deploy:managed:*` scripts target managed `*.partykit.dev` storage
+and are non-durable. Do not use them for migrated `cloudflare-yjs` production
+documents.
 
 If collaboration needs to be disabled without rolling back the whole app, set:
 
@@ -233,6 +264,8 @@ pnpm convex:codegen
 pnpm convex:deploy
 pnpm partykit:deploy:dev
 pnpm partykit:deploy:prod
+pnpm partykit:deploy:managed:dev
+pnpm partykit:deploy:managed:prod
 pnpm partykit:tail:dev
 pnpm partykit:tail:prod
 pnpm maintenance:backfill-lookups

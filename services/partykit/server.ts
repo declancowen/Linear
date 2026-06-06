@@ -14,6 +14,7 @@ import {
 } from "@tiptap/y-tiptap"
 import type { Doc } from "yjs"
 
+import { isCloudflareYjsBodySource } from "../../lib/collaboration/body-source"
 import {
   COLLABORATION_PERSIST_DEBOUNCE_MAX_WAIT_MS,
   COLLABORATION_PERSIST_DEBOUNCE_WAIT_MS,
@@ -36,16 +37,19 @@ import {
 import {
   bumpScopedReadModelsFromConvex,
   getCollaborationDocumentFromConvex,
+  markCollaborationDocumentBodyMigratedInConvex,
   persistCollaborationDocumentToConvex,
   persistCollaborationItemDescriptionToConvex,
   persistCollaborationWorkItemToConvex,
   type CollaborationDocumentFromConvex,
 } from "../../lib/collaboration/partykit-convex"
+import { RICH_TEXT_COLLABORATION_SCHEMA_VERSION } from "../../lib/collaboration/protocol"
 import { parseCollaborationRoomId } from "../../lib/collaboration/rooms"
 import {
   type ChatCollaborationSessionTokenClaims,
   type CollaborationSessionTokenClaims,
   type DocumentCollaborationSessionTokenClaims,
+  type InternalCollaborationMigrationTokenClaims,
   type InternalCollaborationRefreshTokenClaims,
 } from "../../lib/collaboration/transport"
 import { createRichTextBaseExtensions } from "../../lib/rich-text/extensions"
@@ -60,6 +64,7 @@ import { recordCollaborationEvent } from "./collaboration/observability"
 import {
   createCollaborationRequestCorsHeaders,
   isCollaborationFlushRequestUrl,
+  isCollaborationMigrationRequestUrl,
   isCollaborationRefreshRequestUrl,
   parseFlushRequest,
   parseRefreshRequest,
@@ -80,6 +85,11 @@ type CollaborationRoomStateMeta = {
 type CollaborationRoomSessionState = {
   latestClaims: DocumentCollaborationSessionTokenClaims | null
   latestEditorClaims: DocumentCollaborationSessionTokenClaims | null
+}
+
+type PersistableYDoc = Doc & {
+  writeState?: () => Promise<void>
+  compactUpdateLog?: () => Promise<void>
 }
 
 type ChatPresenceConnectionState = {
@@ -276,6 +286,20 @@ function getCollaborationConnectionCount(doc: Doc) {
   return conns instanceof Map ? conns.size : 0
 }
 
+async function persistYDocSnapshot(doc: Doc) {
+  const persistableDoc = doc as PersistableYDoc
+
+  if (
+    typeof persistableDoc.writeState !== "function" ||
+    typeof persistableDoc.compactUpdateLog !== "function"
+  ) {
+    throw new Error("PartyKit Yjs persistence methods are unavailable")
+  }
+
+  await persistableDoc.writeState()
+  await persistableDoc.compactUpdateLog()
+}
+
 function getDocumentJsonHash(value: JSONContent) {
   return JSON.stringify(normalizeCollaborationDocumentJson(value))
 }
@@ -319,6 +343,33 @@ function getRoomSessionState(roomId: string) {
   roomSessionState.set(canonicalRoomId, nextState)
 
   return nextState
+}
+
+function getExistingRoomSessionState(roomId: string) {
+  const existingState = roomSessionState.get(getCanonicalRoomKey(roomId))
+
+  if (!existingState) {
+    return null
+  }
+
+  return {
+    latestClaims: existingState.latestClaims,
+    latestEditorClaims: existingState.latestEditorClaims,
+  } satisfies CollaborationRoomSessionState
+}
+
+function restoreRoomSessionState(
+  roomId: string,
+  state: CollaborationRoomSessionState | null
+) {
+  const canonicalRoomId = getCanonicalRoomKey(roomId)
+
+  if (!state) {
+    roomSessionState.delete(canonicalRoomId)
+    return
+  }
+
+  roomSessionState.set(canonicalRoomId, state)
 }
 
 function setRoomSessionClaims(
@@ -496,6 +547,20 @@ function countOtherActiveDocumentEditors(
   }
 
   return count
+}
+
+function hasActiveDocumentConnections(room: Room) {
+  if (typeof room.getConnections !== "function") {
+    return false
+  }
+
+  for (const connection of room.getConnections<DocumentConnectionState>()) {
+    if (isDocumentConnectionState(connection.state)) {
+      return true
+    }
+  }
+
+  return false
 }
 
 function observeRoomDocument(doc: Doc) {
@@ -783,6 +848,11 @@ async function loadCanonicalDocument(room: Room) {
     room,
     requireRoomDocumentClaims(room).sub
   )
+
+  if (isCloudflareYjsBodySource(payload.bodySource)) {
+    return null
+  }
+
   const json = normalizeCollaborationDocumentJson(payload.contentJson)
 
   return prosemirrorJSONToYDoc(richTextSchema, json, COLLABORATION_XML_FRAGMENT)
@@ -823,6 +893,9 @@ async function persistCanonicalDocument(
   const persistedContentJson = createCanonicalContentJson(
     collaborationDocument.content
   )
+  const isCloudflareYjsBody = isCloudflareYjsBodySource(
+    collaborationDocument.bodySource
+  )
   const isPersistedContentUnchanged =
     collaborationDocument.content === contentHtml ||
     areDocumentJsonEqual(contentJson, persistedContentJson)
@@ -850,10 +923,7 @@ async function persistCanonicalDocument(
           patch: {
             title: options.workItemTitle,
             description: contentHtml,
-            expectedUpdatedAt:
-              options.workItemExpectedUpdatedAt ??
-              collaborationDocument.itemUpdatedAt ??
-              undefined,
+            expectedUpdatedAt: options.workItemExpectedUpdatedAt,
           },
         }
       )
@@ -864,7 +934,9 @@ async function persistCanonicalDocument(
           currentUserId: claims.sub,
           itemId: collaborationDocument.itemId,
           content: contentHtml,
-          expectedUpdatedAt: collaborationDocument.updatedAt,
+          expectedUpdatedAt: isCloudflareYjsBody
+            ? undefined
+            : collaborationDocument.updatedAt,
         }
       )
     }
@@ -875,7 +947,9 @@ async function persistCanonicalDocument(
         currentUserId: claims.sub,
         documentId: claims.documentId,
         content: contentHtml,
-        expectedUpdatedAt: collaborationDocument.updatedAt,
+        expectedUpdatedAt: isCloudflareYjsBody
+          ? undefined
+          : collaborationDocument.updatedAt,
       }
     )
   }
@@ -1012,13 +1086,23 @@ async function handleRefreshRequest(
 
   const roomMeta = getRoomStateMeta(activeRoom.yDoc)
 
+  const updateVersionBeforeFetch = roomMeta.updateVersion
+  const payload = await fetchBootstrapDocument(room, activeRoom.claims.sub)
+
+  if (isCloudflareYjsBodySource(payload.bodySource)) {
+    recordCollaborationEvent({
+      event: "refresh_projection_skipped",
+      roomId: room.id,
+      documentId: claims.documentId,
+    })
+    return
+  }
+
   if (roomMeta.dirty) {
     closeRoomForRefreshConflict(room, activeRoom.yDoc, claims.documentId)
     return
   }
 
-  const updateVersionBeforeFetch = roomMeta.updateVersion
-  const payload = await fetchBootstrapDocument(room, activeRoom.claims.sub)
   const contentJson = normalizeCollaborationDocumentJson(payload.contentJson)
 
   if (roomMeta.dirty || roomMeta.updateVersion !== updateVersionBeforeFetch) {
@@ -1035,14 +1119,152 @@ async function handleRefreshRequest(
   })
 }
 
-function createCollaborationOkJsonResponse(headers: HeadersInit) {
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 200,
+function createMigrationEditorClaims(
+  claims: InternalCollaborationMigrationTokenClaims
+): DocumentCollaborationSessionTokenClaims {
+  return {
+    kind: "doc",
+    sub: claims.currentUserId,
+    roomId: claims.roomId,
+    documentId: claims.documentId,
+    role: "editor",
+    sessionId: `migration:${claims.documentId}`,
+    protocolVersion: claims.protocolVersion,
+    schemaVersion: RICH_TEXT_COLLABORATION_SCHEMA_VERSION,
+    iat: claims.iat,
+    exp: claims.exp,
+  }
+}
+
+async function handleMigrationRequest(
+  room: Room,
+  claims: InternalCollaborationMigrationTokenClaims
+) {
+  const parsedRoom = parseRuntimeCollaborationRoomId(room)
+
+  if (
+    !parsedRoom ||
+    parsedRoom.kind !== "doc" ||
+    parsedRoom.entityId !== claims.documentId
+  ) {
+    throw new PartyKitCollaborationError("collaboration_room_mismatch")
+  }
+
+  recordCollaborationEvent({
+    event: "migration_seed_started",
+    roomId: room.id,
+    documentId: claims.documentId,
+    userId: claims.currentUserId,
+  })
+
+  const payload = await fetchBootstrapDocument(room, claims.currentUserId)
+
+  if (isCloudflareYjsBodySource(payload.bodySource)) {
+    recordCollaborationEvent({
+      event: "migration_seed_skipped",
+      roomId: room.id,
+      documentId: claims.documentId,
+      userId: claims.currentUserId,
+      code: "already_migrated",
+    })
+    return {
+      ok: true,
+      migrated: false,
+      bodySource: "cloudflare-yjs",
+      bodyMigratedAt: payload.bodyMigratedAt ?? null,
+    }
+  }
+
+  if (hasActiveDocumentConnections(room)) {
+    throw new PartyKitCollaborationError(
+      "collaboration_conflict_reload_required",
+      "Cannot migrate an active collaboration room"
+    )
+  }
+
+  const previousState = getExistingRoomSessionState(room.id)
+  const migrationClaims = createMigrationEditorClaims(claims)
+  let yDoc: Doc | null = null
+
+  setRoomSessionClaims(room.id, migrationClaims)
+
+  try {
+    const options = createYPartyKitOptions(room)
+    yDoc = await unstable_getYDoc(room, options)
+    observeRoomDocument(yDoc)
+
+    if (getCollaborationConnectionCount(yDoc) > 0) {
+      throw new PartyKitCollaborationError(
+        "collaboration_conflict_reload_required",
+        "Cannot migrate an active collaboration room"
+      )
+    }
+
+    const contentJson = normalizeCollaborationDocumentJson(payload.contentJson)
+
+    replaceCollaborationDocFromJson(yDoc, contentJson)
+    await persistYDocSnapshot(yDoc)
+    markRoomCanonical(yDoc, contentJson)
+
+    const migrationResult =
+      await markCollaborationDocumentBodyMigratedInConvex(
+        room.env as Record<string, unknown>,
+        {
+          documentId: claims.documentId,
+          expectedUpdatedAt: payload.updatedAt,
+        }
+      )
+
+    updateRoomBootstrapCache(room, {
+      bodySource: migrationResult.bodySource,
+      bodyMigratedAt: migrationResult.bodyMigratedAt,
+      contentJson,
+    })
+    recordCollaborationEvent({
+      event: "migration_seed_succeeded",
+      roomId: room.id,
+      documentId: claims.documentId,
+      userId: claims.currentUserId,
+    })
+
+    return {
+      ok: true,
+      migrated: migrationResult.changed,
+      bodySource: migrationResult.bodySource,
+      bodyMigratedAt: migrationResult.bodyMigratedAt,
+    }
+  } finally {
+    const currentState = roomSessionState.get(getCanonicalRoomKey(room))
+    const migrationOwnsState = currentState?.latestClaims === migrationClaims
+
+    if (
+      migrationOwnsState &&
+      yDoc &&
+      getCollaborationConnectionCount(yDoc) === 0
+    ) {
+      roomSessionState.delete(getCanonicalRoomKey(room))
+    } else if (migrationOwnsState) {
+      restoreRoomSessionState(room.id, previousState)
+    }
+  }
+}
+
+function createCollaborationJsonResponse(
+  payload: unknown,
+  headers: HeadersInit,
+  status = 200
+) {
+  return new Response(JSON.stringify(payload), {
+    status,
     headers: {
       ...headers,
       "Content-Type": "application/json",
     },
   })
+}
+
+function createCollaborationOkJsonResponse(headers: HeadersInit) {
+  return createCollaborationJsonResponse({ ok: true }, headers)
 }
 
 function createCollaborationOptionsResponse(headers: HeadersInit) {
@@ -1068,13 +1290,17 @@ function getCollaborationHttpRequestKind(url: URL) {
     return "refresh" as const
   }
 
+  if (isCollaborationMigrationRequestUrl(url)) {
+    return "migration" as const
+  }
+
   return null
 }
 
 async function verifyHttpRequestClaims(
   room: Room,
   req: PartyRequest,
-  requestKind: "flush" | "refresh",
+  requestKind: "flush" | "refresh" | "migration",
   corsHeaders: HeadersInit
 ) {
   try {
@@ -1103,6 +1329,27 @@ async function handleCollaborationRefreshHttpRequest(
     await handleRefreshRequest(room, claims, await parseRefreshRequest(req))
 
     return createCollaborationOkJsonResponse(corsHeaders)
+  } catch (error) {
+    return createCollaborationErrorJsonResponse(error, corsHeaders)
+  }
+}
+
+async function handleCollaborationMigrationHttpRequest(
+  room: Room,
+  claims: CollaborationSessionTokenClaims,
+  corsHeaders: HeadersInit
+) {
+  if (claims.kind !== "internal-migration") {
+    return createCollaborationErrorJsonResponse(
+      new PartyKitCollaborationError("collaboration_forbidden"),
+      corsHeaders
+    )
+  }
+
+  try {
+    const response = await handleMigrationRequest(room, claims)
+
+    return createCollaborationJsonResponse(response, corsHeaders)
   } catch (error) {
     return createCollaborationErrorJsonResponse(error, corsHeaders)
   }
@@ -1212,6 +1459,12 @@ async function persistTeardownFlushRequest(
     flushRequest.contentJson
   )
   const persistedDocument = await getEditableCollaborationDocument(room, claims)
+
+  if (isCloudflareYjsBodySource(persistedDocument.bodySource)) {
+    await persistCanonicalDocument(room, yDoc, "manual")
+    return
+  }
+
   const persistedContentJson = createCanonicalContentJson(
     persistedDocument.content
   )
@@ -1330,7 +1583,7 @@ function createYPartyKitOptions(room: Room): YPartyKitOptions {
   return {
     gc: false,
     persist: {
-      mode: "history",
+      mode: "snapshot",
     },
     load: () => loadYPartyKitCanonicalDocument(room),
     callback: {
@@ -1382,6 +1635,14 @@ async function ensureCanonicalDocumentSeeded(
   observeRoomDocument(yDoc)
   const hasActiveConnections = getCollaborationConnectionCount(yDoc) > 0
   const payload = await fetchBootstrapDocument(room, claims.sub)
+
+  if (isCloudflareYjsBodySource(payload.bodySource)) {
+    return {
+      options,
+      yDoc,
+    }
+  }
+
   const contentJson = normalizeCollaborationDocumentJson(payload.contentJson)
   const currentJson = normalizeCollaborationDocumentJson(
     yDocToProsemirrorJSON(yDoc, COLLABORATION_XML_FRAGMENT)
@@ -1606,9 +1867,24 @@ const collaboration = {
       return claims
     }
 
-    return requestKind === "refresh"
-      ? handleCollaborationRefreshHttpRequest(req, room, claims, corsHeaders)
-      : handleCollaborationFlushHttpRequest(req, room, claims, corsHeaders)
+    if (requestKind === "refresh") {
+      return handleCollaborationRefreshHttpRequest(
+        req,
+        room,
+        claims,
+        corsHeaders
+      )
+    }
+
+    if (requestKind === "migration") {
+      return handleCollaborationMigrationHttpRequest(
+        room,
+        claims,
+        corsHeaders
+      )
+    }
+
+    return handleCollaborationFlushHttpRequest(req, room, claims, corsHeaders)
   },
 } satisfies PartyKitServer
 

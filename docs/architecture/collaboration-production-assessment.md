@@ -1,5 +1,7 @@
 # Collaboration Production Assessment: Convex + PartyKit + Yjs
 
+Historical note: this document describes earlier Convex-canonical collaboration hardening work. It is not target-state authority for the Cloudflare-body migration. Use `.spec/collaboration-cloudflare-source-of-truth/` and `docs/architecture/partykit-cloudflare-runbook.md` for the current body-source and hydration plan.
+
 ## Summary
 
 This document tracks the current production-state assessment for collaborative documents and work-item descriptions.

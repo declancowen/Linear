@@ -1,7 +1,10 @@
 import type { JSONContent } from "@tiptap/core"
 import type { Request as PartyRequest } from "partykit/server"
 
-import { COLLABORATION_FLUSH_PATH } from "../../../lib/collaboration/constants"
+import {
+  COLLABORATION_FLUSH_PATH,
+  COLLABORATION_MIGRATE_BODY_ACTION,
+} from "../../../lib/collaboration/constants"
 import {
   getJsonByteLength,
   getUtf8ByteLength,
@@ -182,6 +185,10 @@ export function isCollaborationRefreshRequestUrl(url: URL) {
     url.searchParams.get("action") === "refresh" ||
     url.pathname.endsWith("/refresh")
   )
+}
+
+export function isCollaborationMigrationRequestUrl(url: URL) {
+  return url.searchParams.get("action") === COLLABORATION_MIGRATE_BODY_ACTION
 }
 
 export async function parseFlushRequest(

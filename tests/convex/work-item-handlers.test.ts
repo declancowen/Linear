@@ -495,6 +495,7 @@ describe("work item handlers", () => {
       teamId: "team_1",
       title: "Test description",
       content: "<p></p>",
+      bodySource: "convex-html",
       linkedProjectIds: [],
       linkedWorkItemIds: [],
       createdBy: "user_1",

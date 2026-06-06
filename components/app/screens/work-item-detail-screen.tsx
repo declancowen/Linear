@@ -17,6 +17,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type ComponentProps,
@@ -40,7 +41,6 @@ import {
   FolderSimple,
   LinkSimple,
   MagnifyingGlass,
-  NotePencil,
   PaperPlaneTilt,
   Plus,
   SidebarSimple,
@@ -50,9 +50,11 @@ import {
 import { toast } from "sonner"
 
 import {
-  filterPendingDocumentMentionsByContent,
-  getPendingRichTextMentionEntries,
-  mergePendingDocumentMentions,
+  createDocumentMentionQueueState,
+  reduceDocumentMentionQueue,
+} from "@/lib/content/document-mention-queue"
+import {
+  extractRichTextMentionCounts,
   type PendingDocumentMention,
 } from "@/lib/content/rich-text-mentions"
 import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
@@ -175,6 +177,22 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 import { CollaborationSyncDialog } from "./collaboration-sync-dialog"
 import { DocumentPresenceAvatarGroup } from "./document-ui"
 import { useLegacyPresenceHeartbeat } from "./legacy-presence-heartbeat"
+import {
+  completePendingMentionExit,
+  type PendingMentionExitTarget,
+  updatePendingMentionExitDialogOpen,
+  usePendingMentionBeforeUnload,
+  usePendingMentionHistoryNavigationGuard,
+  usePendingMentionLinkNavigationGuard,
+  usePendingMentionRouteRefs,
+} from "./pending-mention-navigation"
+import {
+  formatMentionCountLabel,
+  formatRecipientCountLabel,
+  PendingMentionExitDialog,
+  PendingMentionNotificationBanner,
+  usePendingMentionSummary,
+} from "./pending-mention-notifications"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
 import { IssueContextMenu } from "./work-item-menus"
 import {
@@ -234,6 +252,7 @@ const WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
 const WORK_ITEM_PRESENCE_BLOCK_CHANGE_DELAY_MS = 250
 const ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX =
   "linear:collaboration:item-description-sync-modal-seen:"
+
 function isAlreadyDeliveredMentionConflict(error: unknown) {
   return (
     error instanceof RouteMutationError &&
@@ -260,16 +279,6 @@ function formatDetailDate(value: string | null) {
 
 function formatRelativeTimestamp(value: string) {
   return formatDistanceToNow(new Date(value), { addSuffix: true })
-}
-
-function isDescriptionPlaceholder(content: string) {
-  const normalized = content.replace(/\s+/g, " ").trim()
-
-  return (
-    normalized === "<p>Add a description…</p>" ||
-    normalized === "<p>Add a description...</p>" ||
-    normalized === "<p></p>"
-  )
 }
 
 function DetailSidebarSection({
@@ -2920,7 +2929,9 @@ function WorkItemSidebarCustomPropertyRows({
       definition={definition}
       editable={editable}
       onEditProperty={() => onEditProperty(definition)}
-      onRemoveProperty={() => void archiveCustomPropertyDefinition(definition.id)}
+      onRemoveProperty={() =>
+        void archiveCustomPropertyDefinition(definition.id)
+      }
     >
       <CustomPropertyValueControl
         data={data}
@@ -2952,15 +2963,20 @@ type DetailUploadAttachmentHandler = NonNullable<
 type DetailReferenceCandidates = ComponentProps<
   typeof RichTextEditor
 >["referenceCandidates"]
+type DetailMentionCountsChangeHandler = NonNullable<
+  ComponentProps<typeof RichTextEditor>["onMentionCountsChange"]
+>
 type DetailFlushCollaboration = DetailCollaborationState["flush"]
 type DetailRouter = AppRouter
 type DetailRequestWorkItemUpdate = ReturnType<
   typeof useWorkItemProjectCascadeConfirmation
 >["requestUpdate"]
-type DetailMainMentionRetryEntries = Record<string, PendingDocumentMention[]>
-type DetailSetMainMentionRetryEntries = Dispatch<
-  SetStateAction<DetailMainMentionRetryEntries>
->
+type DescriptionMentionQueueAction = Parameters<
+  typeof reduceDocumentMentionQueue
+>[1]
+type DescriptionMentionQueueDispatch = (
+  action: DescriptionMentionQueueAction
+) => void
 
 function getMissingWorkItemDetailContent({
   deletingItem,
@@ -3629,313 +3645,171 @@ function useLegacyWorkItemPresence({
   }
 }
 
-function clearMainPendingMentionRetryEntries(
-  setEntries: DetailSetMainMentionRetryEntries,
-  itemId: string
-) {
-  setEntries((current) => {
-    if (!(itemId in current)) {
-      return current
-    }
-
-    const next = { ...current }
-    delete next[itemId]
-    return next
-  })
-}
-
-async function persistWorkItemMainSection({
+async function persistWorkItemTitle({
   currentItem,
-  flushCollaboration,
-  isCollaborationAttached,
-  mainDraftDescription,
-  mainDraftUpdatedAt,
-  mainTitleDirty,
   normalizedMainDraftTitle,
 }: {
   currentItem: WorkItem
-  flushCollaboration: DetailFlushCollaboration
-  isCollaborationAttached: boolean
-  mainDraftDescription: string
-  mainDraftUpdatedAt: string | null
-  mainTitleDirty: boolean
   normalizedMainDraftTitle: string
 }) {
-  if (isCollaborationAttached) {
-    try {
-      await flushCollaboration({
-        kind: "work-item-main",
-        ...(mainTitleDirty
-          ? {
-              workItemExpectedUpdatedAt:
-                mainDraftUpdatedAt ?? currentItem.updatedAt,
-              workItemTitle: normalizedMainDraftTitle,
-            }
-          : {}),
-      })
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to persist the latest description changes"
-      )
-      return false
-    }
-
-    useAppStore
-      .getState()
-      .applyItemDescriptionCollaborationContent(
-        currentItem.id,
-        mainDraftDescription
-      )
-
+  if (
+    normalizedMainDraftTitle.length === 0 ||
+    normalizedMainDraftTitle === currentItem.title
+  ) {
     return true
   }
 
-  return useAppStore.getState().saveWorkItemMainSection({
-    itemId: currentItem.id,
-    title: normalizedMainDraftTitle,
-    description: mainDraftDescription,
-    expectedUpdatedAt: mainDraftUpdatedAt ?? currentItem.updatedAt,
+  const result = useAppStore
+    .getState()
+    .updateWorkItem(currentItem.id, { title: normalizedMainDraftTitle })
+
+  return result.status === "updated"
+}
+
+function clearDescriptionMentionQueue(
+  dispatchMentionQueue: DescriptionMentionQueueDispatch
+) {
+  dispatchMentionQueue({
+    type: "clear-all",
   })
 }
 
-async function deliverWorkItemMainMentionNotifications({
-  pendingMentionEntries,
-  savedItemId,
-  setPendingMentionRetryEntriesByItemId,
+async function sendPendingItemDescriptionMentionNotifications({
+  activePendingMentionEntries,
+  dispatchMentionQueue,
+  flushCollaboration,
+  isCollaborationAttached,
+  itemId,
+  setSendingMentionNotifications,
 }: {
-  pendingMentionEntries: PendingDocumentMention[]
-  savedItemId: string
-  setPendingMentionRetryEntriesByItemId: DetailSetMainMentionRetryEntries
+  activePendingMentionEntries: PendingDocumentMention[]
+  dispatchMentionQueue: DescriptionMentionQueueDispatch
+  flushCollaboration: DetailFlushCollaboration
+  isCollaborationAttached: boolean
+  itemId: string
+  setSendingMentionNotifications: (sending: boolean) => void
 }) {
+  const pendingMentionEntries = activePendingMentionEntries
+
   if (pendingMentionEntries.length === 0) {
-    clearMainPendingMentionRetryEntries(
-      setPendingMentionRetryEntriesByItemId,
-      savedItemId
-    )
-    return
+    clearDescriptionMentionQueue(dispatchMentionQueue)
+    return true
   }
 
+  setSendingMentionNotifications(true)
+
   try {
+    if (isCollaborationAttached) {
+      await flushCollaboration()
+    } else {
+      await useAppStore.getState().flushItemDescriptionSync(itemId)
+    }
+
     const result = await syncSendItemDescriptionMentionNotifications(
-      savedItemId,
+      itemId,
       pendingMentionEntries
     )
 
-    clearMainPendingMentionRetryEntries(
-      setPendingMentionRetryEntriesByItemId,
-      savedItemId
-    )
-
+    dispatchMentionQueue({
+      type: "mark-sent",
+      entries: pendingMentionEntries,
+    })
     toast.success(
-      `Saved changes and notified ${result.recipientCount} ${result.recipientCount === 1 ? "person" : "people"}.`
+      `Sent notifications for ${formatMentionCountLabel(
+        result.mentionCount
+      )} across ${formatRecipientCountLabel(result.recipientCount)}.`
     )
+    return true
   } catch (error) {
     if (isAlreadyDeliveredMentionConflict(error)) {
-      clearMainPendingMentionRetryEntries(
-        setPendingMentionRetryEntriesByItemId,
-        savedItemId
-      )
-      toast.success("Saved changes and delivered mention notifications.")
-      return
+      dispatchMentionQueue({
+        type: "mark-sent",
+        entries: pendingMentionEntries,
+      })
+      toast.success("Mention notifications were already sent.")
+      return true
     }
 
-    setPendingMentionRetryEntriesByItemId((current) => ({
-      ...current,
-      [savedItemId]: pendingMentionEntries,
-    }))
     toast.error(
       error instanceof Error
         ? error.message
-        : "Saved changes but failed to notify mentions"
+        : "Failed to send mention notifications"
     )
+    return false
+  } finally {
+    setSendingMentionNotifications(false)
   }
 }
 
 function getIsMainSectionEditing({
   currentItem,
-  mainDraftItemId,
-  mainEditing,
+  editable,
 }: {
   currentItem: WorkItem | undefined
-  mainDraftItemId: string | null
-  mainEditing: boolean
+  editable: boolean
 }) {
-  return (
-    currentItem !== undefined &&
-    mainEditing &&
-    mainDraftItemId === currentItem.id
-  )
-}
-
-function getPendingMainMentionEntries({
-  currentItem,
-  descriptionContent,
-  isMainEditing,
-  mainDraftDescription,
-  pendingMentionRetryEntriesByItemId,
-}: {
-  currentItem: WorkItem | undefined
-  descriptionContent: string
-  isMainEditing: boolean
-  mainDraftDescription: string
-  pendingMentionRetryEntriesByItemId: DetailMainMentionRetryEntries
-}) {
-  if (!currentItem || !isMainEditing) {
-    return []
-  }
-
-  const activeRetryEntries = filterPendingDocumentMentionsByContent(
-    pendingMentionRetryEntriesByItemId[currentItem.id] ?? [],
-    mainDraftDescription
-  )
-
-  return mergePendingDocumentMentions(
-    activeRetryEntries,
-    getPendingRichTextMentionEntries(descriptionContent, mainDraftDescription)
-  )
+  return currentItem !== undefined && editable
 }
 
 function getMainSectionDraftState({
+  baseTitle,
   currentItem,
-  isCollaborationAttached,
   isMainEditing,
-  mainDraftDescriptionDirty,
   mainDraftTitleDirty,
-  mainDraftUpdatedAt,
 }: {
+  baseTitle: string
   currentItem: WorkItem | undefined
-  isCollaborationAttached: boolean
   isMainEditing: boolean
-  mainDraftDescriptionDirty: boolean
   mainDraftTitleDirty: boolean
-  mainDraftUpdatedAt: string | null
 }) {
   const titleDirty = Boolean(
     currentItem && isMainEditing && mainDraftTitleDirty
   )
-  const descriptionDirty = isMainEditing && mainDraftDescriptionDirty
   const stale = Boolean(
     currentItem &&
-    !isCollaborationAttached &&
     isMainEditing &&
-    mainDraftUpdatedAt &&
-    mainDraftUpdatedAt !== currentItem.updatedAt
+    titleDirty &&
+    baseTitle !== currentItem.title
   )
 
   return {
-    descriptionDirty,
-    dirty: titleDirty || descriptionDirty,
     stale,
     titleDirty,
   }
-}
-
-function getCanSaveMainSection({
-  currentItem,
-  draftDirty,
-  isAwaitingCollaboration,
-  isCollaborationAttached,
-  isMainEditing,
-  mainDraftStale,
-  mainTitleCanSubmit,
-  pendingMentionCount,
-  savingMainSection,
-}: {
-  currentItem: WorkItem | undefined
-  draftDirty: boolean
-  isAwaitingCollaboration: boolean
-  isCollaborationAttached: boolean
-  isMainEditing: boolean
-  mainDraftStale: boolean
-  mainTitleCanSubmit: boolean
-  pendingMentionCount: number
-  savingMainSection: boolean
-}) {
-  if (!currentItem) {
-    return false
-  }
-
-  if (isCollaborationAttached) {
-    return isMainEditing && mainTitleCanSubmit && !savingMainSection
-  }
-
-  return (
-    !isAwaitingCollaboration &&
-    isMainEditing &&
-    mainTitleCanSubmit &&
-    (draftDirty || pendingMentionCount > 0) &&
-    !savingMainSection &&
-    !mainDraftStale
-  )
 }
 
 function useWorkItemMainSectionController({
   currentItem,
   descriptionContent,
   editable,
-  flushCollaboration,
-  isAwaitingCollaboration,
   isCollaborationAttached,
   isCollaborationBootstrapping,
 }: {
   currentItem: WorkItem | undefined
   descriptionContent: string
   editable: boolean
-  flushCollaboration: DetailFlushCollaboration
-  isAwaitingCollaboration: boolean
   isCollaborationAttached: boolean
   isCollaborationBootstrapping: boolean
 }) {
-  const [mainEditing, setMainEditing] = useState(false)
   const [mainDraftItemId, setMainDraftItemId] = useState<string | null>(null)
-  const [mainDraftUpdatedAt, setMainDraftUpdatedAt] = useState<string | null>(
-    null
-  )
   const [mainDraftTitle, setMainDraftTitle] = useState("")
+  const [mainDraftBaseTitle, setMainDraftBaseTitle] = useState("")
   const [mainDraftTitleDirty, setMainDraftTitleDirty] = useState(false)
-  const [mainTitleCanSubmit, setMainTitleCanSubmit] = useState(true)
-  const [mainDraftDescription, setMainDraftDescription] = useState("")
-  const [mainDraftDescriptionDirty, setMainDraftDescriptionDirty] =
-    useState(false)
-  const [
-    mainPendingMentionRetryEntriesByItemId,
-    setMainPendingMentionRetryEntriesByItemId,
-  ] = useState<DetailMainMentionRetryEntries>({})
-  const [savingMainSection, setSavingMainSection] = useState(false)
   const mainDraftTitleRef = useRef("")
   const mainDraftTitleDirtyRef = useRef(false)
   const mainTitleCanSubmitRef = useRef(true)
   const mainDraftDescriptionRef = useRef("")
-  const mainDraftDescriptionDirtyRef = useRef(false)
+  const titlePersistingRef = useRef(false)
 
   const isMainEditing = getIsMainSectionEditing({
     currentItem,
-    mainDraftItemId,
-    mainEditing,
+    editable,
   })
-  const pendingMainMentionRetryCount = currentItem
-    ? (mainPendingMentionRetryEntriesByItemId[currentItem.id]?.length ?? 0)
-    : 0
   const draftState = getMainSectionDraftState({
+    baseTitle: mainDraftBaseTitle,
     currentItem,
-    isCollaborationAttached,
     isMainEditing,
-    mainDraftDescriptionDirty,
     mainDraftTitleDirty,
-    mainDraftUpdatedAt,
-  })
-  const canSaveMainSection = getCanSaveMainSection({
-    currentItem,
-    draftDirty: draftState.dirty,
-    isAwaitingCollaboration,
-    isCollaborationAttached,
-    isMainEditing,
-    mainDraftStale: draftState.stale,
-    mainTitleCanSubmit,
-    pendingMentionCount: pendingMainMentionRetryCount,
-    savingMainSection,
   })
 
   const resetMainTitleDraft = useCallback((title: string) => {
@@ -3944,169 +3818,142 @@ function useWorkItemMainSectionController({
     mainDraftTitleRef.current = title
     mainDraftTitleDirtyRef.current = false
     mainTitleCanSubmitRef.current = limitState.canSubmit
+    setMainDraftBaseTitle(title)
     setMainDraftTitle(title)
     setMainDraftTitleDirty(false)
-    setMainTitleCanSubmit(limitState.canSubmit)
   }, [])
+
+  const commitTitleDraft = useCallback(async () => {
+    if (
+      !currentItem ||
+      !editable ||
+      titlePersistingRef.current ||
+      !mainDraftTitleDirtyRef.current
+    ) {
+      return
+    }
+
+    const normalizedMainDraftTitle = mainDraftTitleRef.current.trim()
+
+    if (normalizedMainDraftTitle.length === 0) {
+      resetMainTitleDraft(currentItem.title)
+      return
+    }
+
+    if (!mainTitleCanSubmitRef.current) {
+      return
+    }
+
+    if (mainDraftBaseTitle !== currentItem.title) {
+      return
+    }
+
+    if (normalizedMainDraftTitle === currentItem.title) {
+      mainDraftTitleDirtyRef.current = false
+      setMainDraftTitleDirty(false)
+      setMainDraftTitle(normalizedMainDraftTitle)
+      return
+    }
+
+    titlePersistingRef.current = true
+    const saved = await persistWorkItemTitle({
+      currentItem,
+      normalizedMainDraftTitle,
+    })
+
+    titlePersistingRef.current = false
+
+    if (!saved) {
+      return
+    }
+
+    mainDraftTitleDirtyRef.current = false
+    setMainDraftBaseTitle(normalizedMainDraftTitle)
+    setMainDraftTitleDirty(false)
+    setMainDraftTitle(normalizedMainDraftTitle)
+  }, [currentItem, editable, mainDraftBaseTitle, resetMainTitleDraft])
+
+  useEffect(() => {
+    if (!currentItem) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- route changes reset the title draft to the resolved item state.
+      setMainDraftItemId(null)
+      resetMainTitleDraft("")
+      mainDraftDescriptionRef.current = ""
+      return
+    }
+
+    if (mainDraftItemId !== currentItem.id) {
+      setMainDraftItemId(currentItem.id)
+      resetMainTitleDraft(currentItem.title)
+      mainDraftDescriptionRef.current = descriptionContent
+      return
+    }
+
+    if (
+      !mainDraftTitleDirtyRef.current &&
+      mainDraftTitleRef.current !== currentItem.title
+    ) {
+      resetMainTitleDraft(currentItem.title)
+    }
+
+    if (mainDraftDescriptionRef.current !== descriptionContent) {
+      mainDraftDescriptionRef.current = descriptionContent
+    }
+  }, [currentItem, descriptionContent, mainDraftItemId, resetMainTitleDraft])
 
   const handleTitleDraftChange = useCallback(
     (title: string) => {
       mainDraftTitleRef.current = title
       const nextDirty = Boolean(
-        currentItem && isMainEditing && title.trim() !== currentItem.title
+        currentItem && isMainEditing && title.trim() !== mainDraftBaseTitle
       )
       const nextCanSubmit = getTextInputLimitState(
         title,
         workItemTitleConstraints
       ).canSubmit
 
+      setMainDraftTitle(title)
+
       if (nextDirty !== mainDraftTitleDirtyRef.current) {
         mainDraftTitleDirtyRef.current = nextDirty
         setMainDraftTitleDirty(nextDirty)
-        setMainDraftTitle(title)
       }
 
       if (nextCanSubmit !== mainTitleCanSubmitRef.current) {
         mainTitleCanSubmitRef.current = nextCanSubmit
-        setMainTitleCanSubmit(nextCanSubmit)
       }
     },
-    [currentItem, isMainEditing]
+    [currentItem, isMainEditing, mainDraftBaseTitle]
   )
-
-  function handleStartMainEdit() {
-    if (!currentItem || !editable || isCollaborationBootstrapping) {
-      return
-    }
-
-    setMainDraftItemId(currentItem.id)
-    setMainDraftUpdatedAt(currentItem.updatedAt)
-    resetMainTitleDraft(currentItem.title)
-    mainDraftDescriptionRef.current = descriptionContent
-    mainDraftDescriptionDirtyRef.current = false
-    setMainDraftDescription(descriptionContent)
-    setMainDraftDescriptionDirty(false)
-    setMainEditing(true)
-  }
-
-  function handleCancelMainEdit() {
-    const nextDescription =
-      currentItem && isCollaborationAttached
-        ? mainDraftDescriptionRef.current
-        : currentItem
-          ? descriptionContent
-          : ""
-
-    if (currentItem && isCollaborationAttached) {
-      useAppStore
-        .getState()
-        .applyItemDescriptionCollaborationContent(
-          currentItem.id,
-          nextDescription
-        )
-    }
-
-    setMainDraftItemId(null)
-    setMainDraftUpdatedAt(null)
-    resetMainTitleDraft(currentItem?.title ?? "")
-    mainDraftDescriptionRef.current = nextDescription
-    mainDraftDescriptionDirtyRef.current = false
-    setMainDraftDescription(nextDescription)
-    setMainDraftDescriptionDirty(false)
-    setMainEditing(false)
-  }
 
   function handleReloadMainDraft() {
     if (!currentItem) {
       return
     }
 
-    setMainDraftUpdatedAt(currentItem.updatedAt)
     resetMainTitleDraft(currentItem.title)
     mainDraftDescriptionRef.current = descriptionContent
-    mainDraftDescriptionDirtyRef.current = false
-    setMainDraftDescription(descriptionContent)
-    setMainDraftDescriptionDirty(false)
   }
 
   function handleDescriptionChange(content: string) {
     mainDraftDescriptionRef.current = content
-    const nextDirty = content !== descriptionContent
 
-    if (nextDirty === mainDraftDescriptionDirtyRef.current) {
-      return
+    if (
+      currentItem &&
+      !isCollaborationAttached &&
+      !isCollaborationBootstrapping
+    ) {
+      useAppStore.getState().updateItemDescription(currentItem.id, content)
     }
-
-    mainDraftDescriptionDirtyRef.current = nextDirty
-    setMainDraftDescriptionDirty(nextDirty)
-    setMainDraftDescription(content)
-  }
-
-  async function handleSaveMainEdit() {
-    if (!currentItem || !canSaveMainSection) {
-      return
-    }
-
-    setSavingMainSection(true)
-    const savedItemId = currentItem.id
-    const latestMainDraftTitle = mainDraftTitleRef.current
-    const normalizedMainDraftTitle = latestMainDraftTitle.trim()
-    const latestMainTitleDirty = normalizedMainDraftTitle !== currentItem.title
-    const latestMainDraftDescription = mainDraftDescriptionRef.current
-    const pendingMentionEntries = getPendingMainMentionEntries({
-      currentItem,
-      descriptionContent,
-      isMainEditing,
-      mainDraftDescription: latestMainDraftDescription,
-      pendingMentionRetryEntriesByItemId:
-        mainPendingMentionRetryEntriesByItemId,
-    })
-    const saved = await persistWorkItemMainSection({
-      currentItem,
-      flushCollaboration,
-      isCollaborationAttached,
-      mainDraftDescription: latestMainDraftDescription,
-      mainDraftUpdatedAt,
-      mainTitleDirty: latestMainTitleDirty,
-      normalizedMainDraftTitle,
-    })
-
-    if (!saved) {
-      setSavingMainSection(false)
-      return
-    }
-
-    setMainDraftItemId(null)
-    setMainDraftUpdatedAt(null)
-    mainDraftTitleDirtyRef.current = false
-    setMainDraftTitleDirty(false)
-    setMainDraftTitle(normalizedMainDraftTitle)
-    mainDraftDescriptionDirtyRef.current = false
-    setMainDraftDescriptionDirty(false)
-    setMainDraftDescription(latestMainDraftDescription)
-    setMainEditing(false)
-
-    await deliverWorkItemMainMentionNotifications({
-      pendingMentionEntries,
-      savedItemId,
-      setPendingMentionRetryEntriesByItemId:
-        setMainPendingMentionRetryEntriesByItemId,
-    })
-    setSavingMainSection(false)
   }
 
   return {
-    canSaveMainSection,
-    handleCancelMainEdit,
     handleDescriptionChange,
+    handleTitleCommit: commitTitleDraft,
     handleReloadMainDraft,
-    handleSaveMainEdit,
-    handleStartMainEdit,
     isMainEditing,
-    mainDraftDescription,
     mainDraftStale: draftState.stale,
     mainDraftTitle,
-    savingMainSection,
     setMainDraftTitle: handleTitleDraftChange,
   }
 }
@@ -4168,52 +4015,6 @@ function WorkItemDetailBreadcrumb({
   )
 }
 
-function WorkItemTopBarEditActions({
-  isMainEditing,
-  savingMainSection,
-  canSaveMainSection,
-  isCollaborationAttached,
-  onCancelMainEdit,
-  onSaveMainEdit,
-  onStartMainEdit,
-}: {
-  isMainEditing: boolean
-  savingMainSection: boolean
-  canSaveMainSection: boolean
-  isCollaborationAttached: boolean
-  onCancelMainEdit: () => void
-  onSaveMainEdit: () => void
-  onStartMainEdit: () => void
-}) {
-  if (!isMainEditing) {
-    return (
-      <Button size="sm" variant="outline" onClick={onStartMainEdit}>
-        Edit
-      </Button>
-    )
-  }
-
-  return (
-    <>
-      <Button
-        size="sm"
-        variant="ghost"
-        disabled={savingMainSection}
-        onClick={onCancelMainEdit}
-      >
-        {isCollaborationAttached ? "Close" : "Cancel"}
-      </Button>
-      <Button size="sm" disabled={!canSaveMainSection} onClick={onSaveMainEdit}>
-        {savingMainSection
-          ? "Saving..."
-          : isCollaborationAttached
-            ? "Done"
-            : "Save"}
-      </Button>
-    </>
-  )
-}
-
 function WorkItemTopBarDeleteMenu({
   deletingItem,
   itemTypeLabel,
@@ -4256,31 +4057,17 @@ function WorkItemTopBarDeleteMenu({
 function WorkItemTopBarActions({
   editable,
   otherDescriptionViewers,
-  isMainEditing,
-  savingMainSection,
-  canSaveMainSection,
-  isCollaborationAttached,
   deletingItem,
   itemTypeLabel,
   propertiesOpen,
-  onCancelMainEdit,
-  onSaveMainEdit,
-  onStartMainEdit,
   onOpenDeleteDialog,
   onToggleProperties,
 }: {
   editable: boolean
   otherDescriptionViewers: DocumentPresenceViewer[]
-  isMainEditing: boolean
-  savingMainSection: boolean
-  canSaveMainSection: boolean
-  isCollaborationAttached: boolean
   deletingItem: boolean
   itemTypeLabel: string
   propertiesOpen: boolean
-  onCancelMainEdit: () => void
-  onSaveMainEdit: () => void
-  onStartMainEdit: () => void
   onOpenDeleteDialog: () => void
   onToggleProperties: () => void
 }) {
@@ -4294,15 +4081,6 @@ function WorkItemTopBarActions({
               compact
             />
           ) : null}
-          <WorkItemTopBarEditActions
-            isMainEditing={isMainEditing}
-            savingMainSection={savingMainSection}
-            canSaveMainSection={canSaveMainSection}
-            isCollaborationAttached={isCollaborationAttached}
-            onCancelMainEdit={onCancelMainEdit}
-            onSaveMainEdit={onSaveMainEdit}
-            onStartMainEdit={onStartMainEdit}
-          />
           <WorkItemTopBarDeleteMenu
             deletingItem={deletingItem}
             itemTypeLabel={itemTypeLabel}
@@ -4328,15 +4106,8 @@ function WorkItemDetailTopBar({
   team,
   editable,
   otherDescriptionViewers,
-  isMainEditing,
-  savingMainSection,
-  canSaveMainSection,
-  isCollaborationAttached,
   deletingItem,
   propertiesOpen,
-  onCancelMainEdit,
-  onSaveMainEdit,
-  onStartMainEdit,
   onOpenDeleteDialog,
   onToggleProperties,
 }: {
@@ -4345,15 +4116,8 @@ function WorkItemDetailTopBar({
   team: Team | null
   editable: boolean
   otherDescriptionViewers: DocumentPresenceViewer[]
-  isMainEditing: boolean
-  savingMainSection: boolean
-  canSaveMainSection: boolean
-  isCollaborationAttached: boolean
   deletingItem: boolean
   propertiesOpen: boolean
-  onCancelMainEdit: () => void
-  onSaveMainEdit: () => void
-  onStartMainEdit: () => void
   onOpenDeleteDialog: () => void
   onToggleProperties: () => void
 }) {
@@ -4374,16 +4138,9 @@ function WorkItemDetailTopBar({
       <WorkItemTopBarActions
         editable={editable}
         otherDescriptionViewers={otherDescriptionViewers}
-        isMainEditing={isMainEditing}
-        savingMainSection={savingMainSection}
-        canSaveMainSection={canSaveMainSection}
-        isCollaborationAttached={isCollaborationAttached}
         deletingItem={deletingItem}
         itemTypeLabel={itemTypeLabel}
         propertiesOpen={propertiesOpen}
-        onCancelMainEdit={onCancelMainEdit}
-        onSaveMainEdit={onSaveMainEdit}
-        onStartMainEdit={onStartMainEdit}
         onOpenDeleteDialog={onOpenDeleteDialog}
         onToggleProperties={onToggleProperties}
       />
@@ -4421,12 +4178,16 @@ function WorkItemParentPill({
 }
 
 function WorkItemMainTitleInput({
+  editable,
   initialTitle,
   itemTypeLabel,
+  onTitleCommit,
   onTitleChange,
 }: {
+  editable: boolean
   initialTitle: string
   itemTypeLabel: string
+  onTitleCommit: () => void
   onTitleChange: (title: string) => void
 }) {
   const [draftTitle, setDraftTitle] = useState(initialTitle)
@@ -4443,16 +4204,26 @@ function WorkItemMainTitleInput({
     <div>
       <Input
         value={draftTitle}
+        disabled={!editable}
         onChange={(event) => {
           const nextTitle = event.target.value
 
           setDraftTitle(nextTitle)
           onTitleChange(nextTitle)
         }}
+        onBlur={onTitleCommit}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") {
+            return
+          }
+
+          event.preventDefault()
+          onTitleCommit()
+          event.currentTarget.blur()
+        }}
         placeholder={`${itemTypeLabel} title`}
         maxLength={workItemTitleConstraints.max}
-        className="h-auto border-none bg-transparent px-0 py-0 text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] shadow-none focus-visible:ring-0 dark:bg-transparent"
-        autoFocus
+        className="h-auto min-h-[2.2rem] rounded-none border-none bg-transparent px-0 py-0 text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] text-foreground shadow-none focus-visible:ring-0 disabled:opacity-100 dark:bg-transparent"
       />
       <FieldCharacterLimit
         state={titleLimitState}
@@ -4466,14 +4237,18 @@ function WorkItemMainTitleInput({
 function WorkItemMainHeader({
   currentItem,
   team,
+  editable,
   isMainEditing,
   mainDraftTitle,
+  onMainDraftTitleCommit,
   onMainDraftTitleChange,
 }: {
   currentItem: WorkItem
   team: Team | null
+  editable: boolean
   isMainEditing: boolean
   mainDraftTitle: string
+  onMainDraftTitleCommit: () => void
   onMainDraftTitleChange: (title: string) => void
 }) {
   const itemTypeLabel = getDisplayLabelForWorkItemType(
@@ -4512,8 +4287,10 @@ function WorkItemMainHeader({
       </div>
       {isMainEditing ? (
         <WorkItemMainTitleInput
+          editable={editable}
           initialTitle={mainDraftTitle}
           itemTypeLabel={itemTypeLabel}
+          onTitleCommit={onMainDraftTitleCommit}
           onTitleChange={onMainDraftTitleChange}
         />
       ) : (
@@ -4543,7 +4320,7 @@ function WorkItemStaleDraftNotice({
           This item changed while you were editing
         </div>
         <div className="text-xs text-muted-foreground">
-          Reload the latest title and description before saving your draft.
+          Reload the latest title before continuing with your local edit.
         </div>
       </div>
       <Button size="sm" variant="outline" onClick={onReload}>
@@ -4600,6 +4377,7 @@ type WorkItemDescriptionRichTextEditorProps = {
   referenceCandidates: DetailReferenceCandidates
   onLegacyActiveBlockChange: (activeBlockId: string | null) => void
   onDescriptionChange: (content: string) => void
+  onMentionCountsChange: DetailMentionCountsChangeHandler
   onUploadAttachment: DetailUploadAttachmentHandler
 }
 
@@ -4621,6 +4399,7 @@ function WorkItemDescriptionRichTextEditor({
   referenceCandidates,
   onLegacyActiveBlockChange,
   onDescriptionChange,
+  onMentionCountsChange,
   onUploadAttachment,
 }: WorkItemDescriptionRichTextEditorProps) {
   return (
@@ -4640,6 +4419,7 @@ function WorkItemDescriptionRichTextEditor({
       mentionCandidates={mentionCandidates}
       referenceCandidates={referenceCandidates}
       onChange={onDescriptionChange}
+      onMentionCountsChange={onMentionCountsChange}
       onUploadAttachment={onUploadAttachment}
     />
   )
@@ -4660,6 +4440,7 @@ function WorkItemDescriptionEditor({
   referenceCandidates,
   onLegacyActiveBlockChange,
   onDescriptionChange,
+  onMentionCountsChange,
   onUploadAttachment,
 }: WorkItemDescriptionEditorProps) {
   return (
@@ -4684,6 +4465,7 @@ function WorkItemDescriptionEditor({
           referenceCandidates={referenceCandidates}
           onLegacyActiveBlockChange={onLegacyActiveBlockChange}
           onDescriptionChange={onDescriptionChange}
+          onMentionCountsChange={onMentionCountsChange}
           onUploadAttachment={onUploadAttachment}
         />
       )}
@@ -4691,43 +4473,7 @@ function WorkItemDescriptionEditor({
   )
 }
 
-function WorkItemDescriptionReadView({
-  descriptionContent,
-  editable,
-  referenceCandidates,
-  onStartMainEdit,
-}: {
-  descriptionContent: string
-  editable: boolean
-  referenceCandidates: DetailReferenceCandidates
-  onStartMainEdit: () => void
-}) {
-  if (isDescriptionPlaceholder(descriptionContent)) {
-    return editable ? (
-      <button
-        type="button"
-        onClick={onStartMainEdit}
-        className="flex w-full items-center gap-2 rounded-xl border border-dashed border-line px-4 py-3 text-left text-[13px] text-fg-4 transition-colors hover:border-fg-4 hover:bg-surface hover:text-fg-2"
-      >
-        <NotePencil className="size-3.5" />
-        <span>Add a description…</span>
-      </button>
-    ) : (
-      <p className="text-[13px] text-fg-4">No description yet.</p>
-    )
-  }
-
-  return (
-    <RichTextContent
-      content={descriptionContent}
-      referenceCandidates={referenceCandidates}
-      className="text-fg-1 text-[14px] leading-[1.65] [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-5 [&_h1]:mb-2 [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_li]:mb-1 [&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc"
-    />
-  )
-}
-
 function WorkItemDescriptionSection({
-  isMainEditing,
   showDescriptionBootPreview,
   bootstrapContent,
   collaborationDescriptionContent,
@@ -4743,10 +4489,9 @@ function WorkItemDescriptionSection({
   descriptionContent,
   onLegacyActiveBlockChange,
   onDescriptionChange,
+  onMentionCountsChange,
   onUploadAttachment,
-  onStartMainEdit,
 }: {
-  isMainEditing: boolean
   showDescriptionBootPreview: boolean
   bootstrapContent: DetailBootstrapContent
   collaborationDescriptionContent: string
@@ -4762,12 +4507,12 @@ function WorkItemDescriptionSection({
   descriptionContent: string
   onLegacyActiveBlockChange: (activeBlockId: string | null) => void
   onDescriptionChange: (content: string) => void
+  onMentionCountsChange: DetailMentionCountsChangeHandler
   onUploadAttachment: DetailUploadAttachmentHandler
-  onStartMainEdit: () => void
 }) {
   return (
     <section className="mt-7">
-      {isMainEditing ? (
+      {editable ? (
         <WorkItemDescriptionEditor
           showDescriptionBootPreview={showDescriptionBootPreview}
           bootstrapContent={bootstrapContent}
@@ -4783,14 +4528,14 @@ function WorkItemDescriptionSection({
           referenceCandidates={referenceCandidates}
           onLegacyActiveBlockChange={onLegacyActiveBlockChange}
           onDescriptionChange={onDescriptionChange}
+          onMentionCountsChange={onMentionCountsChange}
           onUploadAttachment={onUploadAttachment}
         />
       ) : (
-        <WorkItemDescriptionReadView
-          descriptionContent={descriptionContent}
-          editable={editable}
+        <RichTextContent
+          content={descriptionContent}
           referenceCandidates={referenceCandidates}
-          onStartMainEdit={onStartMainEdit}
+          className="text-fg-1 text-[14px] leading-[1.65] [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-5 [&_h1]:mb-2 [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_li]:mb-1 [&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc"
         />
       )}
     </section>
@@ -5217,11 +4962,12 @@ function WorkItemMainArticle({
   subIssuesOpen,
   mainChildComposerOpen,
   onMainDraftTitleChange,
+  onMainDraftTitleCommit,
   onReloadMainDraft,
   onLegacyActiveBlockChange,
   onDescriptionChange,
+  onMentionCountsChange,
   onUploadAttachment,
-  onStartMainEdit,
   onToggleSubIssues,
   onToggleMainChildComposer,
   onOpenMainChildComposer,
@@ -5255,11 +5001,12 @@ function WorkItemMainArticle({
   subIssuesOpen: boolean
   mainChildComposerOpen: boolean
   onMainDraftTitleChange: (title: string) => void
+  onMainDraftTitleCommit: () => void
   onReloadMainDraft: () => void
   onLegacyActiveBlockChange: (activeBlockId: string | null) => void
   onDescriptionChange: (content: string) => void
+  onMentionCountsChange: DetailMentionCountsChangeHandler
   onUploadAttachment: DetailUploadAttachmentHandler
-  onStartMainEdit: () => void
   onToggleSubIssues: () => void
   onToggleMainChildComposer: () => void
   onOpenMainChildComposer: () => void
@@ -5273,8 +5020,10 @@ function WorkItemMainArticle({
         <WorkItemMainHeader
           currentItem={currentItem}
           team={team}
+          editable={editable}
           isMainEditing={isMainEditing}
           mainDraftTitle={mainDraftTitle}
+          onMainDraftTitleCommit={onMainDraftTitleCommit}
           onMainDraftTitleChange={onMainDraftTitleChange}
         />
 
@@ -5284,7 +5033,6 @@ function WorkItemMainArticle({
         />
 
         <WorkItemDescriptionSection
-          isMainEditing={isMainEditing}
           showDescriptionBootPreview={showDescriptionBootPreview}
           bootstrapContent={bootstrapContent}
           collaborationDescriptionContent={collaborationDescriptionContent}
@@ -5300,8 +5048,8 @@ function WorkItemMainArticle({
           descriptionContent={descriptionContent}
           onLegacyActiveBlockChange={onLegacyActiveBlockChange}
           onDescriptionChange={onDescriptionChange}
+          onMentionCountsChange={onMentionCountsChange}
           onUploadAttachment={onUploadAttachment}
-          onStartMainEdit={onStartMainEdit}
         />
 
         <WorkItemChildItemsSection
@@ -6274,6 +6022,17 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     useState(false)
   const [subIssuesOpen, setSubIssuesOpen] = useState(true)
   const [propertiesOpen, setPropertiesOpen] = useState(true)
+  const [mentionQueue, dispatchMentionQueue] = useReducer(
+    reduceDocumentMentionQueue,
+    createDocumentMentionQueueState({})
+  )
+  const [sendingMentionNotifications, setSendingMentionNotifications] =
+    useState(false)
+  const [pendingMentionExitTarget, setPendingMentionExitTarget] =
+    useState<PendingMentionExitTarget>(null)
+  const [pendingMentionExitDialogOpen, setPendingMentionExitDialogOpen] =
+    useState(false)
+  const allowPendingMentionHistoryExitRef = useRef(false)
   const { requestUpdate: requestConfirmedWorkItemUpdate, confirmationDialog } =
     useWorkItemProjectCascadeConfirmation()
   const description = item ? getDocument(data, item.descriptionDocId) : null
@@ -6284,6 +6043,8 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     activeDescriptionDocumentId
   )
   const activePresenceItemId = item?.id ?? null
+  const { currentRouteHrefRef, currentRouteStateRef } =
+    usePendingMentionRouteRefs(activePresenceItemId)
   const collaborationCurrentUser = useStableCollaborationUser(
     currentUser,
     currentUserId
@@ -6293,7 +6054,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     editorCollaboration,
     collaboration,
     flush: flushCollaboration,
-    isAwaitingCollaboration,
     lifecycle: collaborationLifecycle,
     viewers: collaborationViewers,
   } = useDocumentCollaboration({
@@ -6333,15 +6093,15 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     currentItem: item,
     descriptionContent,
     editable,
-    flushCollaboration,
-    isAwaitingCollaboration,
     isCollaborationAttached,
     isCollaborationBootstrapping,
   })
-  const isEditingCurrentItem = mainSection.isMainEditing
+  const latestDescriptionContentRef = useRef(descriptionContent)
+  const mentionNotificationsEnabled = Boolean(item && !isPrivateWorkItem(item))
+  const isEditingCurrentItem = Boolean(item && editable)
   const showDescriptionSyncDialog =
     isEditingCurrentItem && showDescriptionBootPreview
-  const collaborationDescriptionContent = mainSection.mainDraftDescription
+  const collaborationDescriptionContent = descriptionContent
   const protectedDescriptionDocumentId =
     activeDescriptionDocumentId ?? stableDescriptionDocumentId
   useProtectedWorkItemDescriptionBody({
@@ -6350,6 +6110,19 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     lifecycle: collaborationLifecycle,
   })
   useCancelActiveDescriptionSync(activePresenceItemId, collaborationLifecycle)
+  useEffect(() => {
+    latestDescriptionContentRef.current = descriptionContent
+  }, [descriptionContent])
+  useEffect(() => {
+    dispatchMentionQueue({
+      type: "reset-document",
+      counts: extractRichTextMentionCounts(latestDescriptionContentRef.current),
+    })
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- route changes clear pending mention exit UI for the newly resolved item.
+    setPendingMentionExitTarget(null)
+    setPendingMentionExitDialogOpen(false)
+    allowPendingMentionHistoryExitRef.current = false
+  }, [activePresenceItemId])
 
   const {
     handleLegacyActiveBlockChange,
@@ -6368,6 +6141,43 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     setSidebarChildComposerOpen
   )
   useScrollCurrentWorkItemHashTarget(itemId, data.comments.length)
+  const {
+    activePendingMentionEntries,
+    hasPendingMentionNotifications,
+    pendingMentionSummary,
+  } = usePendingMentionSummary({
+    enabled: mentionNotificationsEnabled,
+    mentionQueue,
+  })
+  const handleDescriptionMentionCountsChange =
+    useCallback<DetailMentionCountsChangeHandler>(
+      (counts, source) => {
+        dispatchMentionQueue({
+          type: "sync-counts",
+          counts,
+          rebaseCounts: source !== "local",
+          trackCountIncreases:
+            source === "local" && mentionNotificationsEnabled,
+          ignoredUserIds: [currentUserId],
+        })
+      },
+      [currentUserId, dispatchMentionQueue, mentionNotificationsEnabled]
+    )
+
+  usePendingMentionBeforeUnload(hasPendingMentionNotifications)
+  usePendingMentionLinkNavigationGuard({
+    hasPendingMentionNotifications,
+    setExitDialogOpen: setPendingMentionExitDialogOpen,
+    setPendingExitTarget: setPendingMentionExitTarget,
+  })
+  usePendingMentionHistoryNavigationGuard({
+    allowHistoryExitRef: allowPendingMentionHistoryExitRef,
+    currentRouteHrefRef,
+    currentRouteStateRef,
+    hasPendingMentionNotifications,
+    setExitDialogOpen: setPendingMentionExitDialogOpen,
+    setPendingExitTarget: setPendingMentionExitTarget,
+  })
 
   const hasLiveDescriptionPresence = collaborationLifecycle === "attached"
   const activeDescriptionViewers = getActiveDescriptionViewers({
@@ -6409,16 +6219,12 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     return null
   }
   const {
-    canSaveMainSection,
-    handleCancelMainEdit,
     handleDescriptionChange,
+    handleTitleCommit,
     handleReloadMainDraft,
-    handleSaveMainEdit,
-    handleStartMainEdit,
     isMainEditing,
     mainDraftStale,
     mainDraftTitle,
-    savingMainSection,
     setMainDraftTitle,
   } = mainSection
   const {
@@ -6450,7 +6256,53 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     scheduleTimeZone: getResolvedWorkItemScheduleTimeZone(data, currentItem),
   })
 
+  function clearPendingMentionBatch() {
+    clearDescriptionMentionQueue(dispatchMentionQueue)
+  }
+
+  function closePendingMentionExitDialog() {
+    setPendingMentionExitDialogOpen(false)
+    setPendingMentionExitTarget(null)
+  }
+
+  function completePendingMentionExitForItem() {
+    completePendingMentionExit({
+      allowHistoryExitRef: allowPendingMentionHistoryExitRef,
+      closeExitDialog: closePendingMentionExitDialog,
+      pendingExitTarget: pendingMentionExitTarget,
+      router,
+    })
+  }
+
+  async function sendPendingMentionNotifications() {
+    return sendPendingItemDescriptionMentionNotifications({
+      activePendingMentionEntries,
+      dispatchMentionQueue,
+      flushCollaboration,
+      isCollaborationAttached,
+      itemId: currentItem.id,
+      setSendingMentionNotifications,
+    })
+  }
+
+  async function handleSendMentionsAndExit() {
+    const sent = await sendPendingMentionNotifications()
+
+    if (!sent) {
+      return
+    }
+
+    completePendingMentionExitForItem()
+  }
+
+  function handleSkipMentionsAndExit() {
+    clearPendingMentionBatch()
+    completePendingMentionExitForItem()
+  }
+
   async function handleDeleteItem() {
+    clearPendingMentionBatch()
+    closePendingMentionExitDialog()
     await deleteWorkItemAndNavigate({
       currentItem,
       router,
@@ -6493,12 +6345,13 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     subIssuesOpen,
     mainChildComposerOpen,
     onMainDraftTitleChange: setMainDraftTitle,
+    onMainDraftTitleCommit: handleTitleCommit,
     onReloadMainDraft: handleReloadMainDraft,
     onLegacyActiveBlockChange: handleLegacyActiveBlockChange,
     onDescriptionChange: handleDescriptionChange,
+    onMentionCountsChange: handleDescriptionMentionCountsChange,
     onUploadAttachment: (file) =>
       useAppStore.getState().uploadAttachment("workItem", currentItem.id, file),
-    onStartMainEdit: handleStartMainEdit,
     onToggleSubIssues: () => setSubIssuesOpen((current) => !current),
     onToggleMainChildComposer: () => {
       setSubIssuesOpen(true)
@@ -6526,17 +6379,8 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
           team={team}
           editable={editable}
           otherDescriptionViewers={otherDescriptionViewers}
-          isMainEditing={isMainEditing}
-          savingMainSection={savingMainSection}
-          canSaveMainSection={canSaveMainSection}
-          isCollaborationAttached={isCollaborationAttached}
           deletingItem={deletingItem}
           propertiesOpen={propertiesOpen}
-          onCancelMainEdit={handleCancelMainEdit}
-          onSaveMainEdit={() => {
-            void handleSaveMainEdit()
-          }}
-          onStartMainEdit={handleStartMainEdit}
           onOpenDeleteDialog={() => setDeleteDialogOpen(true)}
           onToggleProperties={() => setPropertiesOpen((current) => !current)}
         />
@@ -6583,6 +6427,30 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       <CollaborationSyncDialog
         descriptionSubject="description"
         open={showDescriptionSyncDialog}
+      />
+      <PendingMentionNotificationBanner
+        hasPendingMentionNotifications={hasPendingMentionNotifications}
+        icon={<BellSimpleRinging weight="fill" className="size-[15px]" />}
+        pendingMentionSummary={pendingMentionSummary}
+        sendingMentionNotifications={sendingMentionNotifications}
+        subject="work item"
+        onSend={() => void sendPendingMentionNotifications()}
+      />
+      <PendingMentionExitDialog
+        entityLabel="work item"
+        exitDialogOpen={pendingMentionExitDialogOpen}
+        pendingMentionSummary={pendingMentionSummary}
+        sendingMentionNotifications={sendingMentionNotifications}
+        onOpenChange={(open) =>
+          updatePendingMentionExitDialogOpen({
+            open,
+            sendingMentionNotifications,
+            setExitDialogOpen: setPendingMentionExitDialogOpen,
+            setPendingExitTarget: setPendingMentionExitTarget,
+          })
+        }
+        onSendAndExit={() => void handleSendMentionsAndExit()}
+        onSkipAndExit={handleSkipMentionsAndExit}
       />
       <ConfirmDialog
         open={deleteDialogOpen}

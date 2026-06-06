@@ -20,8 +20,10 @@ It is intentionally practical. The goal is to remove ambiguity from the flows th
 |--------|--------|--------|--------|
 | `pnpm convex:codegen` | refresh generated Convex bindings | no | must leave `convex/_generated` clean in CI |
 | `pnpm convex:deploy` | deploy Convex functions/schema to production | yes | loads `.vercel/.env.production.local` so the prod deploy key is explicit |
-| `pnpm partykit:deploy:dev` | deploy hosted PartyKit collaboration runtime to the dev Cloudflare service | yes | targets `linear-collaboration-dev` |
-| `pnpm partykit:deploy:prod` | deploy hosted PartyKit collaboration runtime to the prod Cloudflare service | yes | targets `linear-collaboration-prod` |
+| `pnpm partykit:deploy:dev` | deploy PartyKit cloud-prem collaboration runtime to the dev Cloudflare service | yes | targets `linear-collaboration-dev` and requires `PARTYKIT_CLOUDFLARE_DEV_DOMAIN` |
+| `pnpm partykit:deploy:prod` | deploy PartyKit cloud-prem collaboration runtime to the prod Cloudflare service | yes | targets `linear-collaboration-prod` and requires `PARTYKIT_CLOUDFLARE_PROD_DOMAIN` |
+| `pnpm partykit:deploy:managed:dev` | deploy legacy managed PartyKit dev runtime | yes | non-durable; do not use for migrated `cloudflare-yjs` document bodies |
+| `pnpm partykit:deploy:managed:prod` | deploy legacy managed PartyKit prod runtime | yes | non-durable; do not use for migrated `cloudflare-yjs` document bodies |
 | `pnpm partykit:tail:dev` | tail logs from the dev hosted PartyKit service | no | operational verification for `linear-collaboration-dev` |
 | `pnpm partykit:tail:prod` | tail logs from the prod hosted PartyKit service | no | operational verification for `linear-collaboration-prod` |
 | `pnpm maintenance:backfill-lookups` | patch legacy lookup fields and label/workspace ownership metadata | yes | safe to re-run; supports `BACKFILL_BATCH_LIMIT` |
@@ -43,6 +45,10 @@ Minimum high-risk variables:
 - `CONVEX_SERVER_TOKEN`
 - `NEXT_PUBLIC_PARTYKIT_URL`
 - `COLLABORATION_TOKEN_SECRET`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+- `PARTYKIT_CLOUDFLARE_DEV_DOMAIN`
+- `PARTYKIT_CLOUDFLARE_PROD_DOMAIN`
 - `WORKOS_API_KEY`
 - `WORKOS_CLIENT_ID`
 - `RESEND_API_KEY`
@@ -83,17 +89,21 @@ If the change crosses those boundaries, the release is coordinated. Do not treat
    - critical route/test smoke paths still pass
 7. If the change affects the hosted collaboration runtime, deploy PartyKit to the matching environment:
    - `pnpm partykit:deploy:dev`
+   - confirm `NEXT_PUBLIC_PARTYKIT_URL` points at the same `PARTYKIT_CLOUDFLARE_DEV_DOMAIN`
 8. Tail hosted collaboration logs during smoke verification:
    - `pnpm partykit:tail:dev`
 9. Repeat the same choreography for production:
    - `pnpm convex:deploy`
    - deploy the matching web app build
    - `pnpm partykit:deploy:prod`
+   - confirm `NEXT_PUBLIC_PARTYKIT_URL` points at the same `PARTYKIT_CLOUDFLARE_PROD_DOMAIN`
    - `pnpm partykit:tail:prod`
 
 ### Collaboration-specific note
 
 If a release changes collaborative editor behavior, PartyKit session/bootstrap behavior, or scoped-sync freshness/error handling, assume `web + PartyKit + Convex` must be aligned unless the implementation is explicitly backward compatible across mixed versions.
+
+For the Cloudflare-body migration, managed `*.partykit.dev` deploys are not durable body storage. Use only the cloud-prem deploy path for documents marked `bodySource: "cloudflare-yjs"`.
 
 ## Backfill policy
 

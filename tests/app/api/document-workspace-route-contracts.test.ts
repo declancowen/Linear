@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ApplicationError } from "@/lib/server/application-errors"
 import {
   createJsonRouteRequest,
+  createRouteAuthMockModule,
   createRouteParams,
   expectTypedJsonError,
 } from "@/tests/lib/fixtures/api-routes"
@@ -45,25 +46,9 @@ function createCommentCreationRequest() {
   })
 }
 
-vi.mock("@/lib/server/route-auth", () => ({
-  requireSession: requireSessionMock,
-  requireAppContext: requireAppContextMock,
-  requireAppRouteContext: async () => {
-    const session = await requireSessionMock()
-
-    if (session instanceof Response) {
-      return session
-    }
-
-    const appContext = await requireAppContextMock(session)
-
-    if (appContext instanceof Response) {
-      return appContext
-    }
-
-    return { appContext, session }
-  },
-}))
+vi.mock("@/lib/server/route-auth", () =>
+  createRouteAuthMockModule(requireSessionMock, requireAppContextMock)
+)
 
 vi.mock("@/lib/server/convex", () => ({
   addCommentServer: addCommentServerMock,
@@ -103,9 +88,9 @@ vi.mock("@/lib/server/lifecycle", () => ({
 }))
 
 vi.mock("@/lib/server/provider-errors", async () =>
-  (await import("@/tests/lib/fixtures/api-routes")).createProviderErrorsMockModule(
-    logProviderErrorMock
-  )
+  (
+    await import("@/tests/lib/fixtures/api-routes")
+  ).createProviderErrorsMockModule(logProviderErrorMock)
 )
 
 vi.mock("@/lib/server/scoped-read-models", () => ({
@@ -135,18 +120,24 @@ function createJsonPatchRequest(url: string, body: unknown) {
 async function patchDocument(body: unknown) {
   const { PATCH } = await import("@/app/api/documents/[documentId]/route")
 
-  return PATCH(createJsonPatchRequest("http://localhost/api/documents/document_1", body), {
-    params: Promise.resolve({
-      documentId: "document_1",
-    }),
-  })
+  return PATCH(
+    createJsonPatchRequest("http://localhost/api/documents/document_1", body),
+    {
+      params: Promise.resolve({
+        documentId: "document_1",
+      }),
+    }
+  )
 }
 
 async function patchItemDescription(body: unknown) {
   const { PATCH } = await import("@/app/api/items/[itemId]/description/route")
 
   return PATCH(
-    createJsonPatchRequest("http://localhost/api/items/item_1/description", body),
+    createJsonPatchRequest(
+      "http://localhost/api/items/item_1/description",
+      body
+    ),
     {
       params: Promise.resolve({
         itemId: "item_1",
@@ -429,7 +420,9 @@ describe("document and workspace route contracts", () => {
 
   it("deletes documents, bumps scopes, and warns when room cleanup fails", async () => {
     const { DELETE } = await import("@/app/api/documents/[documentId]/route")
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined)
 
     notifyCollaborationDocumentChangedServerMock.mockResolvedValue({
       ok: false,

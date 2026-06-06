@@ -52,21 +52,24 @@ function createSession() {
     off: vi.fn(),
   }
 
-  const session: CollaborationTransportSession<{
-    userId: string
-    sessionId: string
-    name: string
-    avatarUrl: string | null
-    color: string | null
-    typing: boolean
-    activeBlockId: string | null
-    cursor: { anchor: number; head: number } | null
-    selection: { anchor: number; head: number } | null
-    cursorSide: "before" | "after" | null
-  }, {
-    doc: never
-    provider: typeof provider
-  }> = {
+  const session: CollaborationTransportSession<
+    {
+      userId: string
+      sessionId: string
+      name: string
+      avatarUrl: string | null
+      color: string | null
+      typing: boolean
+      activeBlockId: string | null
+      cursor: { anchor: number; head: number } | null
+      selection: { anchor: number; head: number } | null
+      cursorSide: "before" | "after" | null
+    },
+    {
+      doc: never
+      provider: typeof provider
+    }
+  > = {
     binding: {
       doc: {} as never,
       provider,
@@ -82,7 +85,10 @@ function createSession() {
   return session
 }
 
-function createOpenSessionResult(session: ReturnType<typeof createSession>) {
+function createOpenSessionResult(
+  session: ReturnType<typeof createSession>,
+  bootstrapOverrides: Record<string, unknown> = {}
+) {
   return {
     bootstrap: {
       roomId: "doc:document_1",
@@ -95,16 +101,48 @@ function createOpenSessionResult(session: ReturnType<typeof createSession>) {
       schemaVersion: 1,
       limits: DEFAULT_COLLABORATION_LIMITS,
       expiresAt: Date.now() + 60_000,
+      bodySource: "convex-html" as const,
       contentJson: bootstrapContentJson,
+      ...bootstrapOverrides,
     },
     session,
   }
 }
 
-function mockOpenSession(session: ReturnType<typeof createSession>) {
+function mockOpenSession(
+  session: ReturnType<typeof createSession>,
+  bootstrapOverrides: Record<string, unknown> = {}
+) {
   openDocumentCollaborationSessionMock.mockResolvedValue(
-    createOpenSessionResult(session)
+    createOpenSessionResult(session, bootstrapOverrides)
   )
+}
+
+function mockMigratedOpenSession(session: ReturnType<typeof createSession>) {
+  mockOpenSession(session, {
+    bodySource: "cloudflare-yjs",
+    contentJson: bootstrapContentJson,
+    contentHtml: "<p>Hello</p>",
+  })
+}
+
+function delaySessionConnect(session: ReturnType<typeof createSession>) {
+  let resolveConnect: (() => void) | null = null
+
+  session.connect = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveConnect = resolve
+      })
+  )
+
+  return {
+    resolve() {
+      act(() => {
+        resolveConnect?.()
+      })
+    },
+  }
 }
 
 function createSameUserAwareness(activeBlockId = "paragraph:1") {
@@ -141,9 +179,8 @@ async function renderCollaborationHook(
     enabled?: boolean
   } = {}
 ) {
-  const { useDocumentCollaboration } = await import(
-    "@/hooks/use-document-collaboration"
-  )
+  const { useDocumentCollaboration } =
+    await import("@/hooks/use-document-collaboration")
 
   return renderHook(() =>
     useDocumentCollaboration({
@@ -229,6 +266,17 @@ async function expectAttachedCollaboration(result: CollaborationHookResult) {
   })
 }
 
+async function expectMigratedCollaborationHidden(
+  result: CollaborationHookResult
+) {
+  await waitFor(() => {
+    expect(result.current.lifecycle).toBe("bootstrapping")
+    expect(result.current.bootstrapContent).toBeNull()
+    expect(result.current.editorCollaboration).toBeNull()
+    expect(result.current.collaboration).toBeNull()
+  })
+}
+
 describe("useDocumentCollaboration", () => {
   beforeEach(() => {
     vi.resetModules()
@@ -245,16 +293,11 @@ describe("useDocumentCollaboration", () => {
 
     mockOpenSession(session)
 
-    const { useDocumentCollaboration } = await import(
-      "@/hooks/use-document-collaboration"
-    )
+    const { useDocumentCollaboration } =
+      await import("@/hooks/use-document-collaboration")
 
     const { rerender } = renderHook(
-      ({
-        avatarImageUrl,
-      }: {
-        avatarImageUrl: string | null
-      }) =>
+      ({ avatarImageUrl }: { avatarImageUrl: string | null }) =>
         useDocumentCollaboration({
           documentId: "document_1",
           enabled: true,
@@ -300,10 +343,8 @@ describe("useDocumentCollaboration", () => {
   })
 
   it("classifies expected collaboration outages and applies synced state safely", async () => {
-    const {
-      getSyncedCollaborationState,
-      isExpectedCollaborationUnavailable,
-    } = await import("@/hooks/document-collaboration-state")
+    const { getSyncedCollaborationState, isExpectedCollaborationUnavailable } =
+      await import("@/hooks/document-collaboration-state")
     const { RouteMutationError } = await import("@/lib/convex/client")
     const session = createSession()
     const bootstrap = createOpenSessionResult(session).bootstrap
@@ -319,6 +360,7 @@ describe("useDocumentCollaboration", () => {
       session,
       editorCollaboration: null,
       collaboration: null,
+      bodySource: null,
       bootstrapContent: null,
       viewers: [],
     }
@@ -345,6 +387,7 @@ describe("useDocumentCollaboration", () => {
       error: null,
       hasAttachedOnce: true,
       role: "editor",
+      bodySource: "convex-html",
       editorCollaboration: collaborationState,
       collaboration: collaborationState,
       bootstrapContent: bootstrapContentJson,
@@ -359,14 +402,67 @@ describe("useDocumentCollaboration", () => {
     ).toBe(current)
   })
 
+  it("does not expose Convex bootstrap content for migrated Cloudflare Yjs documents", async () => {
+    const session = createSession()
+    mockMigratedOpenSession(session)
+
+    const { result } = await renderCollaborationHook()
+
+    await waitFor(() => {
+      expect(result.current.editorCollaboration).not.toBeNull()
+      expect(result.current.bootstrapContent).toBeNull()
+    })
+  })
+
+  it("waits for synced provider state before exposing migrated Cloudflare Yjs editor bindings", async () => {
+    const session = createSession()
+    const connect = delaySessionConnect(session)
+    mockMigratedOpenSession(session)
+
+    const { result } = await renderCollaborationHook()
+
+    await expectMigratedCollaborationHidden(result)
+
+    connect.resolve()
+
+    await expectAttachedCollaboration(result)
+  })
+
+  it("keeps migrated Cloudflare Yjs editor bindings hidden when websocket connects before provider sync", async () => {
+    const session = createSession()
+    const statusChanges = captureSessionStatusChanges(session)
+    const connect = delaySessionConnect(session)
+
+    session.binding.provider.wsconnected = false
+    mockMigratedOpenSession(session)
+
+    const { result } = await renderCollaborationHook()
+
+    await waitFor(() => expect(session.connect).toHaveBeenCalledTimes(1))
+    await expectMigratedCollaborationHidden(result)
+
+    session.binding.provider.wsconnected = true
+    statusChanges.emit({
+      state: "connected",
+    })
+
+    await waitFor(() =>
+      expect(result.current.connectionState).toBe("connected")
+    )
+    await expectMigratedCollaborationHidden(result)
+
+    connect.resolve()
+
+    await expectAttachedCollaboration(result)
+  })
+
   it("does not issue duplicate session bootstraps during Strict Mode effect probing", async () => {
     const session = createSession()
 
     mockOpenSession(session)
 
-    const { useDocumentCollaboration } = await import(
-      "@/hooks/use-document-collaboration"
-    )
+    const { useDocumentCollaboration } =
+      await import("@/hooks/use-document-collaboration")
 
     renderHook(
       () =>
@@ -409,9 +505,8 @@ describe("useDocumentCollaboration", () => {
           })
       )
 
-    const { useDocumentCollaboration } = await import(
-      "@/hooks/use-document-collaboration"
-    )
+    const { useDocumentCollaboration } =
+      await import("@/hooks/use-document-collaboration")
 
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) =>
@@ -463,14 +558,7 @@ describe("useDocumentCollaboration", () => {
 
   it("exposes editor collaboration state during bootstrapping before attach completes", async () => {
     const session = createSession()
-    let resolveConnect: (() => void) | null = null
-
-    session.connect = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveConnect = resolve
-        })
-    )
+    const connect = delaySessionConnect(session)
 
     mockOpenSession(session)
 
@@ -480,9 +568,7 @@ describe("useDocumentCollaboration", () => {
       expectBootstrapContent: true,
     })
 
-    act(() => {
-      resolveConnect?.()
-    })
+    connect.resolve()
 
     await expectAttachedCollaboration(result)
   })
@@ -537,9 +623,11 @@ describe("useDocumentCollaboration", () => {
   it("does not attach collaboration early when initial sync times out", async () => {
     const session = createSession()
 
-    session.connect = vi.fn().mockRejectedValue(
-      new Error("Timed out waiting for collaboration document sync")
-    )
+    session.connect = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("Timed out waiting for collaboration document sync")
+      )
 
     mockOpenSession(session)
 

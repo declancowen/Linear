@@ -34,6 +34,7 @@ const {
   fetchWorkItemDetailReadModelMock,
   richTextContentRenderMock,
   richTextEditorRenderMock,
+  routerPushMock,
   routerReplaceMock,
   syncAddCommentMock,
   syncClearWorkItemPresenceMock,
@@ -47,6 +48,7 @@ const {
   fetchWorkItemDetailReadModelMock: vi.fn(),
   richTextContentRenderMock: vi.fn(),
   richTextEditorRenderMock: vi.fn(),
+  routerPushMock: vi.fn(),
   routerReplaceMock: vi.fn(),
   syncAddCommentMock: vi.fn(),
   syncClearWorkItemPresenceMock: vi.fn(),
@@ -66,6 +68,7 @@ vi.mock("next/link", async () =>
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
+    push: routerPushMock,
     replace: routerReplaceMock,
   }),
 }))
@@ -95,6 +98,7 @@ vi.mock("@/components/app/rich-text-editor", () => ({
     collaboration,
     editable,
     onChange,
+    onMentionCountsChange,
     placeholder,
     onSubmitShortcut,
     referenceCandidates,
@@ -104,6 +108,10 @@ vi.mock("@/components/app/rich-text-editor", () => ({
     collaboration?: unknown
     editable?: boolean
     onChange: (value: string) => void
+    onMentionCountsChange?: (
+      counts: Record<string, number>,
+      source: "initial" | "local" | "external"
+    ) => void
     placeholder?: string
     onSubmitShortcut?: () => void
     referenceCandidates?: unknown[]
@@ -128,7 +136,12 @@ vi.mock("@/components/app/rich-text-editor", () => ({
         data-collaboration={String(Boolean(collaboration))}
         data-editable={String(Boolean(editable))}
         value={typeof content === "string" ? content : JSON.stringify(content)}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          const value = event.target.value
+
+          onChange(value)
+          onMentionCountsChange?.(extractTestMentionCounts(value), "local")
+        }}
         onKeyDown={(event) => {
           if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
             event.preventDefault()
@@ -148,6 +161,24 @@ vi.mock("@/components/app/rich-text-content", async () => {
     RichTextContent: createRichTextContentStub(richTextContentRenderMock),
   }
 })
+
+function extractTestMentionCounts(content: string) {
+  const counts: Record<string, number> = {}
+  const mentionPattern =
+    /<span\b(?=[^>]*\bdata-type=["']mention["'])(?=[^>]*\bdata-id=["']([^"']+)["'])[^>]*>/g
+
+  for (const match of content.matchAll(mentionPattern)) {
+    const userId = match[1]
+
+    if (!userId) {
+      continue
+    }
+
+    counts[userId] = (counts[userId] ?? 0) + 1
+  }
+
+  return counts
+}
 
 vi.mock("@/components/app/screens/document-ui", async () => {
   const { DocumentPresenceAvatarGroupStub } =
@@ -479,8 +510,13 @@ function addChildWorkItems(
 
 const TAYLOR_MENTION_DESCRIPTION =
   '<p>Initial description</p><span data-type="mention" data-id="user_2">@Taylor</span>'
-const MENTION_DELIVERY_TEST_TIMEOUT_MS = 60_000
-const WORK_ITEM_EDITOR_CLOSE_TIMEOUT_MS = 15_000
+const defaultWorkItemDetailActions = {
+  applyItemDescriptionCollaborationContent:
+    useAppStore.getState().applyItemDescriptionCollaborationContent,
+  flushItemDescriptionSync: useAppStore.getState().flushItemDescriptionSync,
+  updateItemDescription: useAppStore.getState().updateItemDescription,
+  updateWorkItem: useAppStore.getState().updateWorkItem,
+}
 
 function renderWorkItemDetail(itemId = "item_1") {
   return render(<WorkItemDetailScreen itemId={itemId} />)
@@ -512,8 +548,10 @@ function getSubtaskSurfaceQueries() {
   return within(surface!)
 }
 
-function openWorkItemEditor() {
-  fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+function expectWorkItemEditorOpen() {
+  expect(screen.getByLabelText("Description editor")).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Edit" })).toBeNull()
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
 }
 
 function updateDescriptionEditor(value: string) {
@@ -524,23 +562,10 @@ function updateDescriptionEditor(value: string) {
   })
 }
 
-function clickSaveButton() {
-  fireEvent.click(screen.getByRole("button", { name: "Save" }))
-}
-
-async function expectWorkItemEditorClosed() {
-  expect(
-    await screen.findByRole(
-      "button",
-      { name: "Edit" },
-      { timeout: WORK_ITEM_EDITOR_CLOSE_TIMEOUT_MS }
-    )
-  ).toBeInTheDocument()
-}
-
 function setupAttachedDescriptionCollaboration() {
   const flushMock = vi.fn().mockResolvedValue(undefined)
   const applyItemDescriptionCollaborationContentMock = vi.fn()
+  const flushItemDescriptionSyncMock = vi.fn().mockResolvedValue(undefined)
 
   useDocumentCollaborationMock.mockReturnValue({
     bootstrapContent: null,
@@ -554,9 +579,14 @@ function setupAttachedDescriptionCollaboration() {
   useAppStore.setState({
     applyItemDescriptionCollaborationContent:
       applyItemDescriptionCollaborationContentMock,
+    flushItemDescriptionSync: flushItemDescriptionSyncMock,
   } as Partial<ReturnType<typeof useAppStore.getState>>)
 
-  return { applyItemDescriptionCollaborationContentMock, flushMock }
+  return {
+    applyItemDescriptionCollaborationContentMock,
+    flushItemDescriptionSyncMock,
+    flushMock,
+  }
 }
 
 function renderSidebarSurfaceForTestData(data: AppData) {
@@ -573,83 +603,59 @@ function renderSidebarSurfaceForTestData(data: AppData) {
   return item
 }
 
-function setSaveWorkItemMainSectionMock(saveMock: ReturnType<typeof vi.fn>) {
+function setUpdateWorkItemMock(updateMock: ReturnType<typeof vi.fn>) {
   useAppStore.setState({
-    saveWorkItemMainSection: saveMock,
+    updateWorkItem: updateMock,
   } as Partial<ReturnType<typeof useAppStore.getState>>)
 }
 
-function createStateUpdatingSaveMock(input?: {
-  getDocumentId?: (itemId: string) => string
-}) {
-  let saveCount = 0
+function setupLegacyDescriptionFlush() {
+  const flushItemDescriptionSyncMock = vi.fn().mockResolvedValue(undefined)
 
-  return vi
-    .fn()
-    .mockImplementation(
-      async ({
-        itemId = "item_1",
-        description,
-        title,
-      }: {
-        itemId?: string
-        description: string
-        title: string
-      }) => {
-        saveCount += 1
-        const documentId = input?.getDocumentId?.(itemId) ?? "document_1"
-        const updatedAt = `2026-04-18T10:00:${saveCount
-          .toString()
-          .padStart(2, "0")}.000Z`
+  useAppStore.setState({
+    flushItemDescriptionSync: flushItemDescriptionSyncMock,
+  } as Partial<ReturnType<typeof useAppStore.getState>>)
 
-        useAppStore.setState((state) => ({
-          workItems: state.workItems.map((item) =>
-            item.id === itemId
-              ? {
-                  ...item,
-                  title,
-                  updatedAt,
-                }
-              : item
-          ),
-          documents: state.documents.map((document) =>
-            document.id === documentId
-              ? {
-                  ...document,
-                  content: description,
-                  updatedAt,
-                }
-              : document
-          ),
-        }))
-
-        return true
-      }
-    )
+  return flushItemDescriptionSyncMock
 }
 
-function mockRetryingMentionDelivery() {
-  syncSendItemDescriptionMentionNotificationsMock
-    .mockRejectedValueOnce(
-      new Error("Saved changes but failed to notify mentions")
-    )
-    .mockResolvedValueOnce({
-      recipientCount: 1,
-      mentionCount: 1,
-    })
-}
-
-async function expectTaylorMentionDeliveryRetry() {
-  await waitFor(() =>
-    expect(
-      syncSendItemDescriptionMentionNotificationsMock
-    ).toHaveBeenNthCalledWith(2, "item_1", [
-      {
-        userId: "user_2",
-        count: 1,
-      },
-    ])
-  )
+function applyRemoteWorkItemTitleChange({
+  documentContent,
+  itemId = "item_1",
+  title = "Plan launch remote",
+  updatedAt = "2026-04-18T11:00:00.000Z",
+}: {
+  documentContent?: string
+  itemId?: string
+  title?: string
+  updatedAt?: string
+} = {}) {
+  act(() => {
+    useAppStore.setState((state) => ({
+      workItems: state.workItems.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              title,
+              updatedAt,
+            }
+          : item
+      ),
+      ...(documentContent !== undefined
+        ? {
+            documents: state.documents.map((document) =>
+              document.id === "document_1"
+                ? {
+                    ...document,
+                    content: documentContent,
+                    updatedAt,
+                  }
+                : document
+            ),
+          }
+        : {}),
+    }))
+  })
 }
 
 describe("DetailSidebarLabelsRow", () => {
@@ -694,6 +700,8 @@ describe("work item detail screen", () => {
     fetchWorkItemDetailReadModelMock.mockReset()
     richTextContentRenderMock.mockReset()
     richTextEditorRenderMock.mockReset()
+    routerPushMock.mockReset()
+    routerReplaceMock.mockReset()
     fetchWorkItemDetailReadModelMock.mockResolvedValue({})
     syncClearWorkItemPresenceMock.mockReset()
     syncHeartbeatWorkItemPresenceMock.mockReset()
@@ -719,6 +727,7 @@ describe("work item detail screen", () => {
       refreshing: false,
     })
     seedState()
+    useAppStore.setState(defaultWorkItemDetailActions)
   })
 
   afterEach(() => {
@@ -795,45 +804,26 @@ describe("work item detail screen", () => {
     ).toHaveAttribute("href", "/assigned?view=view_assigned_private_tasks")
   })
 
-  it("shows a stale draft notice and reloads the latest main-section content", async () => {
+  it("shows a stale title notice and reloads the latest title", async () => {
     render(<WorkItemDetailScreen itemId="item_1" />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    expectWorkItemEditorOpen()
     fireEvent.change(screen.getByDisplayValue("Plan launch"), {
       target: {
         value: "Plan launch draft",
       },
     })
 
-    expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled()
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
 
-    act(() => {
-      useAppStore.setState((state) => ({
-        workItems: state.workItems.map((item) =>
-          item.id === "item_1"
-            ? {
-                ...item,
-                title: "Plan launch remote",
-                updatedAt: "2026-04-18T11:00:00.000Z",
-              }
-            : item
-        ),
-        documents: state.documents.map((document) =>
-          document.id === "document_1"
-            ? {
-                ...document,
-                content: "<p>Remote description</p>",
-                updatedAt: "2026-04-18T11:00:00.000Z",
-              }
-            : document
-        ),
-      }))
+    applyRemoteWorkItemTitleChange({
+      documentContent: "<p>Remote description</p>",
     })
 
     expect(
       screen.getByText("This item changed while you were editing")
     ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
 
     fireEvent.click(screen.getByRole("button", { name: "Reload latest" }))
 
@@ -872,10 +862,6 @@ describe("work item detail screen", () => {
     useDocumentCollaborationMock.mockImplementation(() => collaborationState)
 
     const { rerender } = render(<WorkItemDetailScreen itemId="item_1" />)
-
-    act(() => {
-      fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-    })
 
     await waitFor(() => {
       expect(richTextEditorRenderMock).toHaveBeenCalledWith(
@@ -931,84 +917,37 @@ describe("work item detail screen", () => {
     )
   })
 
-  it("does not rerender the description editor on every local description keystroke", () => {
+  it("does not patch attached collaboration description content on local keystrokes", () => {
+    const { applyItemDescriptionCollaborationContentMock } =
+      setupAttachedDescriptionCollaboration()
+
     renderWorkItemDetail()
-    openWorkItemEditor()
+    expectWorkItemEditorOpen()
     richTextEditorRenderMock.mockClear()
 
     updateDescriptionEditor("<p>Draft one</p>")
 
-    expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled()
-
-    const renderCountAfterDirtyTransition =
-      richTextEditorRenderMock.mock.calls.length
+    expect(applyItemDescriptionCollaborationContentMock).not.toHaveBeenCalled()
 
     updateDescriptionEditor("<p>Draft two</p>")
     updateDescriptionEditor("<p>Draft three</p>")
 
-    expect(richTextEditorRenderMock.mock.calls.length).toBe(
-      renderCountAfterDirtyTransition
-    )
+    expect(applyItemDescriptionCollaborationContentMock).not.toHaveBeenCalled()
   })
 
-  it("does not rerender the description editor on every local title keystroke", () => {
+  it("commits the latest title draft through work item metadata", async () => {
+    const updateWorkItemMock = vi.fn().mockReturnValue({ status: "updated" })
+    setUpdateWorkItemMock(updateWorkItemMock)
+
     renderWorkItemDetail()
-    openWorkItemEditor()
+    expectWorkItemEditorOpen()
     richTextEditorRenderMock.mockClear()
 
-    fireEvent.change(screen.getByDisplayValue("Plan launch"), {
-      target: {
-        value: "Plan launch draft one",
-      },
-    })
+    const titleInput = screen.getByDisplayValue("Plan launch")
 
-    expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled()
+    expect(titleInput).toHaveClass("text-[28px]")
 
-    const renderCountAfterDirtyTransition =
-      richTextEditorRenderMock.mock.calls.length
-
-    fireEvent.change(screen.getByDisplayValue("Plan launch draft one"), {
-      target: {
-        value: "Plan launch draft two",
-      },
-    })
-    fireEvent.change(screen.getByDisplayValue("Plan launch draft two"), {
-      target: {
-        value: "Plan launch draft three",
-      },
-    })
-
-    expect(richTextEditorRenderMock.mock.calls.length).toBe(
-      renderCountAfterDirtyTransition
-    )
-  })
-
-  it("saves the latest description draft after suppressing repeated editor rerenders", () => {
-    const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
-    setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
-
-    renderWorkItemDetail()
-    openWorkItemEditor()
-
-    updateDescriptionEditor("<p>Draft one</p>")
-    updateDescriptionEditor("<p>Draft two</p>")
-    clickSaveButton()
-
-    expect(saveWorkItemMainSectionMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        description: "<p>Draft two</p>",
-      })
-    )
-  })
-
-  it("saves the latest title draft after suppressing repeated editor rerenders", () => {
-    const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
-    setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
-
-    renderWorkItemDetail()
-    openWorkItemEditor()
-
-    fireEvent.change(screen.getByDisplayValue("Plan launch"), {
+    fireEvent.change(titleInput, {
       target: {
         value: "Plan launch draft one",
       },
@@ -1018,61 +957,235 @@ describe("work item detail screen", () => {
         value: "Plan launch draft two",
       },
     })
-    clickSaveButton()
+    fireEvent.blur(screen.getByDisplayValue("Plan launch draft two"))
 
-    expect(saveWorkItemMainSectionMock).toHaveBeenCalledWith(
-      expect.objectContaining({
+    await waitFor(() =>
+      expect(updateWorkItemMock).toHaveBeenCalledWith("item_1", {
         title: "Plan launch draft two",
       })
     )
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
   })
 
-  it("patches attached collaboration description content on Done instead of every keystroke", async () => {
-    const { applyItemDescriptionCollaborationContentMock, flushMock } =
-      setupAttachedDescriptionCollaboration()
+  it("keeps the sidebar title synced with the latest local title draft", async () => {
+    renderWorkItemDetail()
+    expectWorkItemEditorOpen()
+
+    const titleInput = screen.getByDisplayValue("Plan launch")
+
+    fireEvent.change(titleInput, {
+      target: {
+        value: "Plan launch draft one",
+      },
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", {
+          level: 2,
+          name: "Plan launch draft one",
+        })
+      ).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByDisplayValue("Plan launch draft one"), {
+      target: {
+        value: "Plan launch draft two",
+      },
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", {
+          level: 2,
+          name: "Plan launch draft two",
+        })
+      ).toBeInTheDocument()
+    })
+  })
+
+  it("resets an empty title draft instead of clearing the local title", async () => {
+    const updateWorkItemMock = vi.fn().mockReturnValue({ status: "updated" })
+    setUpdateWorkItemMock(updateWorkItemMock)
 
     renderWorkItemDetail()
-    openWorkItemEditor()
+    expectWorkItemEditorOpen()
 
-    updateDescriptionEditor("<p>Live draft one</p>")
-    updateDescriptionEditor("<p>Live draft two</p>")
+    const titleInput = screen.getByDisplayValue("Plan launch")
+
+    fireEvent.change(titleInput, {
+      target: {
+        value: "   ",
+      },
+    })
+    fireEvent.blur(titleInput)
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Plan launch")).toBeInTheDocument()
+    })
+    expect(updateWorkItemMock).not.toHaveBeenCalled()
+  })
+
+  it("does not overwrite a remotely changed title with a stale local draft", async () => {
+    const updateWorkItemMock = vi.fn().mockReturnValue({ status: "updated" })
+    setUpdateWorkItemMock(updateWorkItemMock)
+
+    renderWorkItemDetail()
+    expectWorkItemEditorOpen()
+
+    fireEvent.change(screen.getByDisplayValue("Plan launch"), {
+      target: {
+        value: "Plan launch stale draft",
+      },
+    })
+
+    applyRemoteWorkItemTitleChange()
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("This item changed while you were editing")
+      ).toBeInTheDocument()
+    })
+
+    fireEvent.blur(screen.getByDisplayValue("Plan launch stale draft"))
+
+    await waitFor(() => {
+      expect(updateWorkItemMock).not.toHaveBeenCalled()
+    })
+  })
+
+  it("updates legacy description content live", () => {
+    const updateItemDescriptionMock = vi.fn()
+
+    useAppStore.setState({
+      updateItemDescription: updateItemDescriptionMock,
+    } as Partial<ReturnType<typeof useAppStore.getState>>)
+
+    renderWorkItemDetail()
+    expectWorkItemEditorOpen()
+    updateDescriptionEditor("<p>Draft two</p>")
+
+    expect(updateItemDescriptionMock).toHaveBeenCalledWith(
+      "item_1",
+      "<p>Draft two</p>"
+    )
+  })
+
+  it("sends attached collaboration mention notifications after confirmation", async () => {
+    const { applyItemDescriptionCollaborationContentMock, flushMock } =
+      setupAttachedDescriptionCollaboration()
+    syncSendItemDescriptionMentionNotificationsMock.mockResolvedValue({
+      recipientCount: 1,
+      mentionCount: 1,
+    })
+
+    renderWorkItemDetail()
+    expectWorkItemEditorOpen()
+    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
 
     expect(applyItemDescriptionCollaborationContentMock).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole("button", { name: "Done" }))
+    expect(
+      await screen.findByText("Send mention notifications")
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Send notifications" }))
 
     await waitFor(() => expect(flushMock).toHaveBeenCalled())
-    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledTimes(
-      1
-    )
-    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledWith(
-      "item_1",
-      "<p>Live draft two</p>"
-    )
+    expect(
+      syncSendItemDescriptionMentionNotificationsMock
+    ).toHaveBeenCalledWith("item_1", [
+      {
+        userId: "user_2",
+        count: 1,
+      },
+    ])
+    expect(applyItemDescriptionCollaborationContentMock).not.toHaveBeenCalled()
   })
 
-  it("patches attached collaboration description content on Close instead of every keystroke", () => {
-    const { applyItemDescriptionCollaborationContentMock, flushMock } =
-      setupAttachedDescriptionCollaboration()
+  it("flushes legacy description sync before confirmed mention notifications", async () => {
+    const flushItemDescriptionSyncMock = setupLegacyDescriptionFlush()
+    syncSendItemDescriptionMentionNotificationsMock.mockResolvedValue({
+      recipientCount: 1,
+      mentionCount: 1,
+    })
 
     renderWorkItemDetail()
-    openWorkItemEditor()
+    expectWorkItemEditorOpen()
+    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
 
-    updateDescriptionEditor("<p>Close draft one</p>")
-    updateDescriptionEditor("<p>Close draft two</p>")
-
-    expect(applyItemDescriptionCollaborationContentMock).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole("button", { name: "Close" }))
-
-    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledTimes(
-      1
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send notifications" })
     )
-    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledWith(
-      "item_1",
-      "<p>Close draft two</p>"
+
+    await waitFor(() =>
+      expect(flushItemDescriptionSyncMock).toHaveBeenCalledWith("item_1")
     )
-    expect(flushMock).not.toHaveBeenCalled()
+    expect(
+      syncSendItemDescriptionMentionNotificationsMock
+    ).toHaveBeenCalledWith("item_1", [
+      {
+        userId: "user_2",
+        count: 1,
+      },
+    ])
+  })
+
+  it("prompts before leaving with pending mention notifications", async () => {
+    const flushItemDescriptionSyncMock = setupLegacyDescriptionFlush()
+    syncSendItemDescriptionMentionNotificationsMock.mockResolvedValue({
+      recipientCount: 1,
+      mentionCount: 1,
+    })
+    act(() => {
+      useAppStore.setState((state) => ({
+        workItems: state.workItems.map((workItem) =>
+          workItem.id === "item_2"
+            ? {
+                ...workItem,
+                parentId: "item_1",
+              }
+            : workItem
+        ),
+      }))
+    })
+
+    renderWorkItemDetail("item_2")
+    expectWorkItemEditorOpen()
+    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+
+    const parentLink = screen
+      .getAllByRole("link")
+      .find((link) => link.getAttribute("href") === "/items/item_1")
+
+    if (!parentLink) {
+      throw new Error("Expected parent work item link")
+    }
+
+    fireEvent.click(parentLink)
+
+    expect(
+      await screen.findByText("Exit before sending notifications?")
+    ).toBeInTheDocument()
+    expect(routerPushMock).not.toHaveBeenCalled()
+
+    const sendButtons = screen.getAllByRole("button", {
+      name: "Send notifications",
+    })
+    fireEvent.click(sendButtons.at(-1)!)
+
+    await waitFor(() =>
+      expect(flushItemDescriptionSyncMock).toHaveBeenCalledWith("item_2")
+    )
+    expect(
+      syncSendItemDescriptionMentionNotificationsMock
+    ).toHaveBeenCalledWith("item_2", [
+      {
+        userId: "user_2",
+        count: 1,
+      },
+    ])
+    expect(routerPushMock).toHaveBeenCalledWith("/items/item_1")
   })
 
   it("passes access-filtered reference candidates to description and comment editors", async () => {
@@ -1186,8 +1299,6 @@ describe("work item detail screen", () => {
       "workItem:item_3",
     ])
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-
     await waitFor(() => {
       expect(richTextEditorRenderMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1234,169 +1345,75 @@ describe("work item detail screen", () => {
 
     render(<WorkItemDetailScreen itemId="item_1" />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-
     expect(await screen.findByText("Taylor")).toBeInTheDocument()
     expect(screen.queryByText("Taylor is also editing this item")).toBeNull()
   })
 
-  it(
-    "closes edit mode even when mention delivery fails after save",
-    async () => {
-      const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
-      syncSendItemDescriptionMentionNotificationsMock.mockRejectedValue(
-        new Error("Saved changes but failed to notify mentions")
+  it("keeps pending mention notifications visible when delivery fails", async () => {
+    setupLegacyDescriptionFlush()
+    syncSendItemDescriptionMentionNotificationsMock.mockRejectedValue(
+      new Error("Failed to notify mentions")
+    )
+
+    renderWorkItemDetail()
+    expectWorkItemEditorOpen()
+    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send notifications" })
+    )
+
+    await waitFor(() =>
+      expect(syncSendItemDescriptionMentionNotificationsMock).toHaveBeenCalled()
+    )
+    expect(screen.getByText("Send mention notifications")).toBeInTheDocument()
+  })
+
+  it("clears pending mention notifications when the server reports they were already delivered", async () => {
+    setupLegacyDescriptionFlush()
+    syncSendItemDescriptionMentionNotificationsMock.mockRejectedValue(
+      new RouteMutationError(
+        "One or more mentioned users were already notified for this work item",
+        409,
+        {
+          code: "ITEM_DESCRIPTION_MENTION_ALREADY_SENT",
+        }
       )
-      setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
+    )
 
-      renderWorkItemDetail()
-      openWorkItemEditor()
-      updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
-      clickSaveButton()
+    renderWorkItemDetail()
+    expectWorkItemEditorOpen()
+    updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
 
-      expect(saveWorkItemMainSectionMock).toHaveBeenCalled()
-      await expectWorkItemEditorClosed()
-      expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
-    },
-    MENTION_DELIVERY_TEST_TIMEOUT_MS
-  )
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send notifications" })
+    )
 
-  it(
-    "retries failed mention delivery on the next save without reintroducing the mention",
-    async () => {
-      setSaveWorkItemMainSectionMock(createStateUpdatingSaveMock())
-      mockRetryingMentionDelivery()
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Send mention notifications")
+      ).not.toBeInTheDocument()
+    )
+  })
 
-      renderWorkItemDetail()
+  it("does not queue self-mention notifications", async () => {
+    setupLegacyDescriptionFlush()
 
-      openWorkItemEditor()
-      updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
+    renderWorkItemDetail()
+    expectWorkItemEditorOpen()
+    updateDescriptionEditor(
+      '<p>Initial description</p><span data-type="mention" data-id="user_1">@Alex</span>'
+    )
 
-      clickSaveButton()
-
-      await expectWorkItemEditorClosed()
-
-      openWorkItemEditor()
-
-      const saveButton = screen.getByRole("button", { name: "Save" })
-      expect(saveButton).not.toBeDisabled()
-
-      fireEvent.click(saveButton)
-
-      await expectTaylorMentionDeliveryRetry()
-
-      fireEvent.click(await screen.findByRole("button", { name: "Edit" }))
-      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
-    },
-    MENTION_DELIVERY_TEST_TIMEOUT_MS
-  )
-
-  it(
-    "preserves mention retries for one item when saving a different item without mentions",
-    async () => {
-      setSaveWorkItemMainSectionMock(
-        createStateUpdatingSaveMock({
-          getDocumentId: (itemId) =>
-            itemId === "item_1" ? "document_1" : "document_2",
-        })
-      )
-      mockRetryingMentionDelivery()
-
-      const { rerender } = renderWorkItemDetail()
-
-      openWorkItemEditor()
-      updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
-      clickSaveButton()
-
-      await expectWorkItemEditorClosed()
-
-      rerender(<WorkItemDetailScreen itemId="item_2" />)
-
-      openWorkItemEditor()
-      fireEvent.change(screen.getByDisplayValue("Follow up"), {
-        target: { value: "Follow up updated" },
-      })
-      clickSaveButton()
-
-      await expectWorkItemEditorClosed()
-
-      rerender(<WorkItemDetailScreen itemId="item_1" />)
-
-      openWorkItemEditor()
-
-      const saveButton = screen.getByRole("button", { name: "Save" })
-      expect(saveButton).not.toBeDisabled()
-
-      fireEvent.click(saveButton)
-
-      await expectTaylorMentionDeliveryRetry()
-    },
-    MENTION_DELIVERY_TEST_TIMEOUT_MS
-  )
-
-  it(
-    "sends self-mentions after saving the main section",
-    async () => {
-      const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
-      syncSendItemDescriptionMentionNotificationsMock.mockResolvedValue({
-        recipientCount: 1,
-        mentionCount: 1,
-      })
-      setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
-
-      renderWorkItemDetail()
-
-      openWorkItemEditor()
-      updateDescriptionEditor(
-        '<p>Initial description</p><span data-type="mention" data-id="user_1">@Alex</span>'
-      )
-
-      clickSaveButton()
-
-      expect(saveWorkItemMainSectionMock).toHaveBeenCalled()
-      await waitFor(() =>
-        expect(
-          syncSendItemDescriptionMentionNotificationsMock
-        ).toHaveBeenCalledWith("item_1", [
-          {
-            userId: "user_1",
-            count: 1,
-          },
-        ])
-      )
-    },
-    MENTION_DELIVERY_TEST_TIMEOUT_MS
-  )
-
-  it(
-    "clears mention retries when the server reports they were already delivered",
-    async () => {
-      const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
-      syncSendItemDescriptionMentionNotificationsMock.mockRejectedValue(
-        new RouteMutationError(
-          "One or more mentioned users were already notified for this work item",
-          409,
-          {
-            code: "ITEM_DESCRIPTION_MENTION_ALREADY_SENT",
-          }
-        )
-      )
-      setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
-
-      renderWorkItemDetail()
-
-      openWorkItemEditor()
-      updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
-
-      clickSaveButton()
-
-      await expectWorkItemEditorClosed()
-
-      openWorkItemEditor()
-      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
-    },
-    MENTION_DELIVERY_TEST_TIMEOUT_MS
-  )
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Send mention notifications")
+      ).not.toBeInTheDocument()
+    })
+    expect(
+      syncSendItemDescriptionMentionNotificationsMock
+    ).not.toHaveBeenCalled()
+  })
 
   it("shows editable sidebar property controls and simplified child rows", () => {
     addChildWorkItems([
@@ -1412,7 +1429,8 @@ describe("work item detail screen", () => {
     render(<WorkItemDetailScreen itemId="item_1" />)
 
     expect(screen.getAllByText("PLA-1").length).toBeGreaterThan(0)
-    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
     expect(
       screen.getByRole("button", { name: "Copy item link" })
     ).toBeInTheDocument()

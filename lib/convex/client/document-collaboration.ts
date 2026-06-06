@@ -2,6 +2,7 @@
 
 import type { JSONContent } from "@tiptap/core"
 
+import type { CollaborationBodySource } from "@/lib/collaboration/body-source"
 import type { CollaborationLimits } from "@/lib/collaboration/limits"
 import type { CollaborationSessionRole } from "@/lib/collaboration/transport"
 import { buildPublicApiUrl } from "@/lib/api/public-url"
@@ -19,6 +20,8 @@ export type DocumentCollaborationSessionPayload = {
   schemaVersion: number
   limits: CollaborationLimits
   expiresAt: number
+  bodySource: CollaborationBodySource
+  bodyMigratedAt?: string | null
   contentJson?: JSONContent
   contentHtml?: string
 }

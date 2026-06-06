@@ -63,7 +63,10 @@ import {
   lookupTeamByJoinCodeHandler,
 } from "./app/auth_bootstrap"
 import { consumeDesktopHandoffTicketHandler } from "./app/desktop_auth"
-import { getCollaborationDocumentHandler } from "./app/collaboration_documents"
+import {
+  getCollaborationDocumentHandler,
+  markCollaborationDocumentBodyMigratedHandler,
+} from "./app/collaboration_documents"
 import {
   archiveNotificationHandler,
   claimPendingNotificationDigestsHandler,
@@ -1238,6 +1241,15 @@ export const persistCollaborationDocument = operationalMutation({
     expectedUpdatedAt: v.optional(v.string()),
   },
   handler: updateDocumentHandler,
+})
+
+export const markCollaborationDocumentBodyMigrated = operationalMutation({
+  args: {
+    ...serverAccessArgs,
+    documentId: v.string(),
+    expectedUpdatedAt: v.string(),
+  },
+  handler: markCollaborationDocumentBodyMigratedHandler,
 })
 
 export const sendDocumentMentionNotifications = mutation({
