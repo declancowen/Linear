@@ -1159,6 +1159,13 @@ async function handleMigrationRequest(
 
   const payload = await fetchBootstrapDocument(room, claims.currentUserId)
 
+  if (!payload.canEdit) {
+    throw new PartyKitCollaborationError(
+      "collaboration_forbidden",
+      "You do not have permission to migrate this document"
+    )
+  }
+
   if (isCloudflareYjsBodySource(payload.bodySource)) {
     recordCollaborationEvent({
       event: "migration_seed_skipped",

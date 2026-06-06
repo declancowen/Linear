@@ -32,6 +32,47 @@ After all slices:
 3. Fix findings.
 4. Rerun normal whole-worktree diff-review passes until clean.
 
+## PR feedback loop - 2026-06-06 - Codex Review 1d69cc22
+
+Status: review-clean for the third PR-feedback patch; pushed validation pending.
+
+Scope:
+
+- Waited for Codex to review commit `1d69cc22` before making further changes.
+- Imported the thread-aware PR feedback and started with a deep branch-total review plus `architecture-standards`.
+- Ran escaped-finding learning because this is the third external-finding loop after previous local clean reviews.
+- Swept the migration handoff by authority boundary: app route token issuance, PartyKit token consumption, Yjs seed/snapshot, Convex body marker flip, canonical refresh, and normal flush/title persist paths.
+
+External finding import:
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review on `258c68f3` | Legacy/degraded item description body protection suppresses `updateItemDescription` sync. | already fixed in current tree | Invariant transfer / fallback persistence | Body protection must track collaboration authority, not editability. | no new code |
+| GitHub Codex review on `1d69cc22` | Migration token issuance checks edit access, but PartyKit can consume the token after edit access is revoked and still seed/flip the migrated body under server authority. | live | Authority / invariant transfer / access-loss stale token | Migration execution must revalidate current edit permission at the write owner boundary. | fixed |
+
+Architecture-standard outcome:
+
+- PartyKit migration execution now rechecks current `canEdit` from Convex before any Yjs durable write, update-log compaction, room canonical marking, or Convex `cloudflare-yjs` marker mutation.
+- The app route remains the admission/token issuance boundary; PartyKit is the execution boundary and must enforce the stale-token/lost-access variant.
+- Convex marker mutation still enforces content staleness with `expectedUpdatedAt`; edit permission stays in PartyKit because the marker mutation is an operational server-token mutation and does not receive `currentUserId`.
+- Normal content/title flush paths already use `getEditableCollaborationDocument` at persist time; canonical refresh remains read-only and does not persist.
+
+Findings and fixes:
+
+- PR3-01 - High - A user could receive a migration token while editable, lose edit permission during the token TTL, and still have PartyKit seed the Yjs document and flip Convex body authority. Fixed with a PartyKit-side `payload.canEdit` guard before migrated/no-op handling, active-room checks, Yjs snapshot writes, or Convex marker mutation.
+
+Validation:
+
+- `pnpm exec vitest run tests/services/partykit-server.test.ts --reporter=dot` passed, `1` file / `50` tests.
+- `pnpm exec vitest run tests/app/api/document-collaboration-route-contracts.test.ts tests/convex/collaboration-document-helpers.test.ts tests/services/partykit-server.test.ts --reporter=dot` passed, `3` files / `65` tests.
+- `pnpm exec eslint services/partykit/server.ts tests/services/partykit-server.test.ts --max-warnings 0` passed.
+- `git diff --check -- services/partykit/server.ts tests/services/partykit-server.test.ts` passed.
+
+Residual risk:
+
+- Whole-worktree verification remains blocked by unrelated unstaged deletions of tracked files outside this patch. The PR-feedback commit stages only the PartyKit migration fix and review-log update.
+- The old work-item protection GitHub thread remains unresolved in GitHub's thread state, but the current branch contains the fix from `1d69cc22`; the thread is stale by behavior, not by GitHub resolution metadata.
+
 ## PR feedback loop - 2026-06-06 - Codex Review 258c68f3
 
 Status: review-clean for the second PR-feedback patch; pushed validation pending.

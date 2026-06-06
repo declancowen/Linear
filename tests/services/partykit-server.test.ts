@@ -1739,6 +1739,31 @@ describe("PartyKit collaboration server", () => {
     ).not.toHaveBeenCalled()
   })
 
+  it("rechecks edit access before seeding a body migration", async () => {
+    const yDoc = mockEmptyYDoc()
+    mockCollaborationDocument({
+      canEdit: false,
+      content: "<p>Canonical replacement</p>",
+      teamMemberIds: [],
+    })
+
+    const response = await requestDocumentMigration(
+      createMigrationRequest("doc:doc_team_1", createMigrationToken())
+    )
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      code: "collaboration_forbidden",
+      message: "You do not have permission to migrate this document",
+    })
+    expect(yDoc.writeState).not.toHaveBeenCalled()
+    expect(yDoc.compactUpdateLog).not.toHaveBeenCalled()
+    expect(
+      markCollaborationDocumentBodyMigratedInConvexMock
+    ).not.toHaveBeenCalled()
+  })
+
   it("skips migration when Convex already marks the body as Cloudflare Yjs", async () => {
     mockCollaborationDocument({
       bodySource: "cloudflare-yjs",
