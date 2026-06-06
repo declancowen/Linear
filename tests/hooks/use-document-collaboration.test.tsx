@@ -4,6 +4,7 @@ import { StrictMode, type ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { DEFAULT_COLLABORATION_LIMITS } from "@/lib/collaboration/limits"
+import type { CollaborationBodySource } from "@/lib/collaboration/body-source"
 import type {
   CollaborationStatusChange,
   CollaborationTransportSession,
@@ -176,6 +177,7 @@ function createSameUserAwareness(activeBlockId = "paragraph:1") {
 async function renderCollaborationHook(
   options: {
     avatarImageUrl?: string | null
+    bodySource?: CollaborationBodySource | null
     enabled?: boolean
   } = {}
 ) {
@@ -185,6 +187,7 @@ async function renderCollaborationHook(
   return renderHook(() =>
     useDocumentCollaboration({
       documentId: "document_1",
+      bodySource: options.bodySource ?? null,
       enabled: options.enabled ?? true,
       currentUser: {
         id: "user_1",
@@ -682,6 +685,25 @@ describe("useDocumentCollaboration", () => {
     await expectMigratedCollaborationHidden(result)
     expect(result.current.error).toBe("Provider unavailable")
     expect(result.current.mode).toBe("legacy")
+  })
+
+  it("keeps known migrated Cloudflare Yjs documents protected when session creation fails", async () => {
+    const { RouteMutationError } = await import("@/lib/convex/client")
+
+    openDocumentCollaborationSessionMock.mockRejectedValue(
+      new RouteMutationError("Collaboration unavailable", 503)
+    )
+
+    const { result } = await renderCollaborationHook({
+      bodySource: "cloudflare-yjs",
+    })
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("Collaboration unavailable")
+    })
+    await expectMigratedCollaborationHidden(result)
+    expect(result.current.mode).toBe("legacy")
+    expect(openDocumentCollaborationSessionMock).toHaveBeenCalledTimes(1)
   })
 
   it("degrades out of collaboration when an attached session disconnects", async () => {

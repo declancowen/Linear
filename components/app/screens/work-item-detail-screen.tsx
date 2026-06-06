@@ -6056,6 +6056,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     viewers: collaborationViewers,
   } = useDocumentCollaboration({
     documentId: stableDescriptionDocumentId,
+    bodySource: description?.bodySource ?? null,
     currentUser: collaborationCurrentUser,
     enabled: Boolean(stableDescriptionDocumentId),
   })

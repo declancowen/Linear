@@ -1362,6 +1362,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
     viewers: collaborationViewers,
   } = useDocumentCollaboration({
     documentId: stableCollaborativeDocumentId,
+    bodySource: document?.bodySource ?? null,
     currentUser: collaborationCurrentUser,
     enabled: Boolean(stableCollaborativeDocumentId),
   })

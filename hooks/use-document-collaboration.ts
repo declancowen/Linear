@@ -20,7 +20,10 @@ import {
   createCollaborationAwarenessState,
   type CollaborationAwarenessState,
 } from "@/lib/collaboration/awareness"
-import { isCloudflareYjsBodySource } from "@/lib/collaboration/body-source"
+import {
+  isCloudflareYjsBodySource,
+  type CollaborationBodySource,
+} from "@/lib/collaboration/body-source"
 import { createPartyKitCollaborationAdapter } from "@/lib/collaboration/adapters/partykit"
 import { getCollaborationUserColor } from "@/lib/collaboration/colors"
 import { openDocumentCollaborationSession } from "@/lib/collaboration/client-session"
@@ -108,6 +111,7 @@ type CollaborationRuntime = {
 
 type CollaborationOpenSnapshot = {
   documentId: string
+  bodySource: CollaborationBodySource | null
   userId: string
   userName: string
   avatarUrl: string | null
@@ -605,6 +609,7 @@ async function runCollaborationOpenAttempts(
 }
 
 function handleCollaborationOpenFailure({
+  bodySource,
   documentId,
   error,
   isCancelled,
@@ -612,6 +617,7 @@ function handleCollaborationOpenFailure({
   setState,
   startedAt,
 }: {
+  bodySource: CollaborationBodySource | null
   documentId: string
   error: unknown
   isCancelled: () => boolean
@@ -636,12 +642,20 @@ function handleCollaborationOpenFailure({
 
   disconnectCollaborationRuntimeSession(runtime, "connect-failed")
   setState((current) => {
-    if (
+    const currentBodySource =
       current.documentId === documentId &&
       isCloudflareYjsBodySource(current.bodySource)
+        ? current.bodySource
+        : null
+    const fallbackBodySource = currentBodySource ?? bodySource
+
+    if (
+      current.documentId === documentId &&
+      isCloudflareYjsBodySource(fallbackBodySource)
     ) {
       return {
         ...current,
+        documentId,
         error: getCollaborationErrorMessage(error),
         hasAttachedOnce: false,
         role: null,
@@ -649,6 +663,7 @@ function handleCollaborationOpenFailure({
         session: null,
         editorCollaboration: null,
         collaboration: null,
+        bodySource: fallbackBodySource,
         bootstrapContent: null,
         viewers: EMPTY_VIEWERS,
       }
@@ -663,7 +678,7 @@ function handleCollaborationOpenFailure({
       session: null,
       editorCollaboration: null,
       collaboration: null,
-      bodySource: null,
+      bodySource: fallbackBodySource,
       bootstrapContent: null,
       viewers: EMPTY_VIEWERS,
     }
@@ -682,6 +697,7 @@ async function openActiveDocumentCollaboration(
     })
   } catch (error) {
     handleCollaborationOpenFailure({
+      bodySource: params.snapshot.bodySource,
       documentId: params.snapshot.documentId,
       error,
       isCancelled: params.isCancelled,
@@ -967,6 +983,7 @@ function useCollaborationStateEvents(
 
 function useActiveDocumentCollaboration({
   adapter,
+  bodySource,
   currentUserId,
   currentUserNameRef,
   currentUserResolvedAvatarUrlRef,
@@ -977,6 +994,7 @@ function useActiveDocumentCollaboration({
   setState,
 }: {
   adapter: ReturnType<typeof createPartyKitCollaborationAdapter>
+  bodySource: CollaborationBodySource | null
   currentUserId: string | null
   currentUserNameRef: RefObject<string | null>
   currentUserResolvedAvatarUrlRef: RefObject<string | null>
@@ -1000,6 +1018,7 @@ function useActiveDocumentCollaboration({
     const runtime = createCollaborationRuntime()
     const snapshot = {
       documentId,
+      bodySource,
       userId: currentUserId,
       userName: currentUserName,
       avatarUrl: currentUserResolvedAvatarUrlRef.current,
@@ -1023,6 +1042,7 @@ function useActiveDocumentCollaboration({
     }
   }, [
     adapter,
+    bodySource,
     currentUserId,
     currentUserNameRef,
     currentUserResolvedAvatarUrlRef,
@@ -1151,6 +1171,7 @@ function useEditorSessionPageHideFlush(
 
 export function useDocumentCollaboration(input: {
   documentId: string | null
+  bodySource?: CollaborationBodySource | null
   currentUser: CollaborationViewerUser | null
   enabled?: boolean
 }) {
@@ -1188,6 +1209,7 @@ export function useDocumentCollaboration(input: {
 
   useActiveDocumentCollaboration({
     adapter,
+    bodySource: input.bodySource ?? null,
     currentUserId,
     currentUserNameRef,
     currentUserResolvedAvatarUrlRef,

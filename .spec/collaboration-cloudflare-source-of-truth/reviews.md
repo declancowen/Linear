@@ -32,6 +32,47 @@ After all slices:
 3. Fix findings.
 4. Rerun normal whole-worktree diff-review passes until clean.
 
+## PR feedback loop - 2026-06-06 - Codex Review 96ce1701
+
+Status: review-clean for the fifth PR-feedback patch; pushed validation pending.
+
+Scope:
+
+- Waited for Codex to review commit `96ce1701` before making further changes.
+- Imported the thread-aware PR feedback and started with a deep whole-worktree review plus `architecture-standards`.
+- Rechecked the hook lifecycle authority transfer for migrated `cloudflare-yjs` documents across pre-bootstrap session creation failure, adapter/session failure after bootstrap, initial sync timeout, exhausted provider retry, attached disconnect, document screen call sites, and work item description call sites.
+
+External finding import:
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review on `96ce1701` | If `/session` or adapter creation fails before bootstrap state is recorded, a migrated document falls back with `bodySource: null`, derives `degraded`, and can re-enable stale Convex body edits. | live | Authority / invariant transfer / pre-bootstrap fallback | Known body authority must protect migrated documents even before session bootstrap is available. | fixed |
+
+Architecture-standard outcome:
+
+- `Document.bodySource` remains the read-model metadata authority for known body ownership before the collaboration session returns.
+- Document detail and work item description detail pass that known body source into `useDocumentCollaboration`.
+- The hook uses the known body source only for failure-state protection; successful session bootstrap remains the runtime collaboration contract.
+- Failure handling now trusts an existing `cloudflare-yjs` marker from current state only when it belongs to the same document, so stale failures cannot leak one document's body authority into another document.
+
+Findings and fixes:
+
+- PR5-01 - High - A migrated body could become legacy/degraded when collaboration failed before bootstrap state was installed. Fixed by passing known body source into the hook and preserving `cloudflare-yjs` protection in the pre-bootstrap failure state.
+- PR5-02 - Medium - During local deep review, the first fix could have reused the current state's migrated marker for a different document in a stale failure race. Fixed by scoping current-state body-source reuse to matching `documentId` only.
+
+Validation:
+
+- `pnpm exec vitest run tests/hooks/use-document-collaboration.test.tsx --reporter=dot` passed, `1` file / `21` tests.
+- `pnpm exec vitest run tests/components/document-detail-screen.test.tsx tests/components/work-item-detail-screen.test.tsx tests/hooks/use-document-collaboration.test.tsx --reporter=dot` passed, `3` files / `86` tests.
+- `pnpm exec eslint hooks/use-document-collaboration.ts tests/hooks/use-document-collaboration.test.tsx components/app/screens/document-detail-screen.tsx components/app/screens/work-item-detail-screen.tsx --max-warnings 0` passed.
+- `pnpm typecheck` passed.
+- `git diff --check` passed for the whole current worktree.
+
+Residual risk:
+
+- The broad screen test run still emits existing React `act(...)` warning noise and existing async mock stderr in work item mention tests, but Vitest reports the affected slice passing.
+- Full UI/component inventory and Fallow were not rerun for this review-response patch; the changed surface is the collaboration hook fallback path and two body-source call sites.
+
 ## PR feedback loop - 2026-06-06 - Codex Review a877229d
 
 Status: review-clean for the fourth PR-feedback patch; pushed validation pending.
