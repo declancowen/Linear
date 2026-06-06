@@ -32,6 +32,44 @@ After all slices:
 3. Fix findings.
 4. Rerun normal whole-worktree diff-review passes until clean.
 
+## PR feedback loop - 2026-06-06 - Codex Review 258c68f3
+
+Status: review-clean for the second PR-feedback patch; pushed validation pending.
+
+Scope:
+
+- Watched PR #50 without making changes until Codex posted a new review for commit `258c68f3`.
+- Imported the new thread-aware review feedback.
+- Started a fresh deep diff-review plus `architecture-standards` before editing.
+- Triaged the single unresolved Codex review thread against the work-item always-editable/body-protection path.
+
+External finding import:
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review | Always-editable work-item descriptions marked the description document protected even in legacy/degraded mode, causing `updateItemDescription` to patch locally without queueing the legacy rich-text sync. | live | Invariant transfer / fallback persistence | Body protection must track collaboration authority, not editability. Legacy/degraded edits need the unprotected sync path. | fixed |
+
+Architecture-standard outcome:
+
+- Work item body protection is now owned by collaboration lifecycle only: bootstrapping and attached protect the Convex projection from stale rehydration, while legacy/degraded leave the existing `updateItemDescription` sync path unprotected.
+- The always-editable UI remains intact; editability no longer implies collaboration body protection.
+- Existing store semantics remain unchanged: `updateItemDescription` still skips queued sync only when a description document is protected by collaboration.
+
+Findings and fixes:
+
+- PR2-01 - High - Legacy/degraded always-editable item descriptions were protected for the lifetime of the editable screen, so local edits could be lost after refresh/navigation because the queued sync was suppressed. Fixed by removing `editing` from `useProtectedWorkItemDescriptionBody` and limiting protection to `bootstrapping`/`attached`.
+
+Validation:
+
+- `pnpm exec eslint components/app/screens/work-item-detail-screen.tsx tests/components/work-item-detail-screen.test.tsx hooks/use-document-collaboration.ts tests/hooks/use-document-collaboration.test.tsx --max-warnings 0` passed.
+- `git diff --check -- components/app/screens/work-item-detail-screen.tsx tests/components/work-item-detail-screen.test.tsx hooks/use-document-collaboration.ts tests/hooks/use-document-collaboration.test.tsx .spec/collaboration-cloudflare-source-of-truth/reviews.md` passed.
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx --reporter=dot` was attempted but blocked before test execution because the local worktree has an unrelated unstaged deletion of `lib/browser/url-hash-target.ts`, which `work-item-detail-screen.tsx` imports. This deletion is not staged for this PR-feedback patch.
+
+Residual risk:
+
+- The work-item component regression is added but could not be executed in this dirty local worktree until the unrelated tracked deletion is restored or otherwise resolved.
+- CI/GitHub review will run against the pushed branch state, where this patch does not stage that deletion.
+
 ## PR feedback loop - 2026-06-06 - Codex Review 7301532f
 
 Status: review-clean for the PR-feedback patch; pushed validation pending.

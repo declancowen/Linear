@@ -5934,17 +5934,15 @@ export function WorkItemDetailSidebarSurface({
 
 function useProtectedWorkItemDescriptionBody({
   documentId,
-  editing,
   lifecycle,
 }: {
   documentId: string | null
-  editing: boolean
   lifecycle: WorkItemCollaborationLifecycle
 }) {
   const protectedDocumentId = documentId
   const protectingBody = Boolean(
     protectedDocumentId &&
-    (editing || lifecycle === "bootstrapping" || lifecycle === "attached")
+    (lifecycle === "bootstrapping" || lifecycle === "attached")
   )
 
   useEffect(() => {
@@ -6106,7 +6104,6 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     activeDescriptionDocumentId ?? stableDescriptionDocumentId
   useProtectedWorkItemDescriptionBody({
     documentId: protectedDescriptionDocumentId,
-    editing: isEditingCurrentItem,
     lifecycle: collaborationLifecycle,
   })
   useCancelActiveDescriptionSync(activePresenceItemId, collaborationLifecycle)

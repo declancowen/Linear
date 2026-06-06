@@ -1063,6 +1063,9 @@ describe("work item detail screen", () => {
 
     renderWorkItemDetail()
     expectWorkItemEditorOpen()
+    expect(useAppStore.getState().protectedDocumentIds).not.toContain(
+      "document_1"
+    )
     updateDescriptionEditor("<p>Draft two</p>")
 
     expect(updateItemDescriptionMock).toHaveBeenCalledWith(
