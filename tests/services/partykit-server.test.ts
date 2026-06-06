@@ -522,6 +522,38 @@ describe("PartyKit collaboration server", () => {
     expect(loadedDoc).toBeNull()
   })
 
+  it("bypasses stale Convex projection limits for migrated Cloudflare Yjs documents", async () => {
+    const liveContentJson = createRichTextJson("Persisted Cloudflare body")
+    const yDoc = mockYDoc(liveContentJson)
+    const room = createPartykitRoom({
+      id: "doc:doc_team_1",
+      env: {
+        COLLABORATION_TOKEN_SECRET: process.env.COLLABORATION_TOKEN_SECRET,
+        CONVEX_URL: "https://convex-dev.example",
+        CONVEX_SERVER_TOKEN: "server-token",
+        COLLABORATION_MAX_CANONICAL_HTML_BYTES: "10",
+      },
+    })
+    onConnectMock.mockResolvedValue(undefined)
+    mockCollaborationDocument({
+      bodySource: "cloudflare-yjs",
+      content: "<p>Stale Convex projection that is intentionally ignored</p>",
+    })
+
+    const collaboration = await loadCollaboration()
+
+    await connectDocumentRoom(collaboration, { room })
+
+    const { loadYPartyKitCanonicalDocument } =
+      await import("@/services/partykit/server")
+    const loadedDoc = await loadYPartyKitCanonicalDocument(room as never)
+
+    expect(loadedDoc).toBeNull()
+    expect(
+      yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent
+    ).toEqual(liveContentJson)
+  })
+
   it("logs and rethrows PartyKit load failures with room context", async () => {
     const room = createPartykitRoom({ id: "doc:doc_desc_1" })
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})

@@ -32,6 +32,51 @@ After all slices:
 3. Fix findings.
 4. Rerun normal whole-worktree diff-review passes until clean.
 
+## PR feedback loop - 2026-06-06 - Codex Review a877229d
+
+Status: review-clean for the fourth PR-feedback patch; pushed validation pending.
+
+Scope:
+
+- Waited for Codex to review commit `a877229d` before making further changes.
+- Imported the thread-aware PR feedback and started with a deep whole-worktree review plus `architecture-standards`.
+- Rechecked branch-total source-of-truth assumptions for migrated `cloudflare-yjs` documents, legacy `convex-html` documents, migration execution, canonical room load, canonical refresh, and flush paths.
+- Reviewed the whole worktree, not just the intended PartyKit patch. The first pass found tracked deletions of `lib/browser/url-hash-target.ts` and three component tests in this session; those deletions were investigated, restored, and verified before the final review so the current worktree diff is limited to the intended PartyKit source and test files.
+
+External finding import:
+
+| Source | Finding | Current status | Bug class | Missed invariant/variant | Action |
+|--------|---------|----------------|-----------|--------------------------|--------|
+| GitHub Codex review on `258c68f3` | Legacy/degraded item description body protection suppresses `updateItemDescription` sync. | already fixed in current tree | Invariant transfer / fallback persistence | Body protection must track collaboration authority, not editability. | no new code |
+| GitHub Codex review on `1d69cc22` | PartyKit migration could consume a stale migration token after edit access was revoked. | already fixed in current tree | Authority / invariant transfer / access-loss stale token | Migration execution must revalidate current edit permission at the write owner boundary. | no new code |
+| GitHub Codex review on `a877229d` | Migrated `cloudflare-yjs` rooms still size-check and parse stale Convex projection content before returning `null`, so a cold reconnect can fail even though durable Yjs is canonical. | live | Authority / data admission / invariant transfer | For migrated bodies, Convex content is a projection, not body authority; room load must decide body authority before content admission. | fixed |
+
+Architecture-standard outcome:
+
+- `fetchBootstrapDocument` now normalizes `bodySource` before Convex body-content admission.
+- For `cloudflare-yjs` bodies, Convex `content` is not size-checked or parsed into canonical JSON during room bootstrap; the durable Yjs room remains the body authority.
+- For legacy `convex-html` bodies, the existing canonical HTML size limit and HTML-to-ProseMirror parsing still run before seeding.
+- The placeholder JSON for migrated bootstrap payloads is created per payload and is not used to seed, refresh, or persist migrated room content.
+
+Findings and fixes:
+
+- PR4-01 - High - Migrated rooms could still fail cold load from stale or oversized Convex projection content before PartyKit reached the `cloudflare-yjs` branch. Fixed by moving body-source normalization ahead of content admission and bypassing Convex projection size/parse work only for migrated bodies.
+
+Validation:
+
+- `pnpm exec vitest run tests/services/partykit-server.test.ts --reporter=dot` passed, `1` file / `51` tests.
+- `pnpm exec vitest run tests/app/api/document-collaboration-route-contracts.test.ts tests/convex/collaboration-document-helpers.test.ts tests/services/partykit-server.test.ts --reporter=dot` passed, `3` files / `66` tests.
+- `pnpm exec vitest run tests/components/work-item-detail-screen.test.tsx tests/components/conversation-files-panel.test.tsx tests/components/custom-property-controls.test.tsx tests/components/rich-text-content.test.tsx --reporter=dot` passed, `4` files / `52` tests, after restoring the tracked deletions.
+- `pnpm typecheck` passed, confirming restored `lib/browser/url-hash-target.ts` satisfies current production imports.
+- `pnpm exec eslint services/partykit/server.ts tests/services/partykit-server.test.ts --max-warnings 0` passed.
+- `git diff --check` passed for the whole current worktree.
+
+Residual risk:
+
+- Full repo typecheck was rerun and passed. The full UI/component suite was not rerun in this PR-feedback loop; the changed runtime surface is the PartyKit server bootstrap path and is covered by the focused collaboration slice above.
+- The restored component test run still emits existing React `act(...)` warnings and asynchronous mock stderr for `syncUpdateItemDescription`; Vitest reports the affected slice passing, so this is test-noise/debt rather than a current blocking failure.
+- Older GitHub review threads may remain unresolved in GitHub metadata until the reviewer refreshes, but their current-tree behavior is fixed by commits `1d69cc22` and `a877229d`.
+
 ## PR feedback loop - 2026-06-06 - Codex Review 1d69cc22
 
 Status: review-clean for the third PR-feedback patch; pushed validation pending.

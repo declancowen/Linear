@@ -14,7 +14,10 @@ import {
 } from "@tiptap/y-tiptap"
 import type { Doc } from "yjs"
 
-import { isCloudflareYjsBodySource } from "../../lib/collaboration/body-source"
+import {
+  isCloudflareYjsBodySource,
+  normalizeCollaborationBodySource,
+} from "../../lib/collaboration/body-source"
 import {
   COLLABORATION_PERSIST_DEBOUNCE_MAX_WAIT_MS,
   COLLABORATION_PERSIST_DEBOUNCE_WAIT_MS,
@@ -73,6 +76,17 @@ import {
 
 type CollaborationBootstrapPayload = CollaborationDocumentFromConvex & {
   contentJson: JSONContent
+}
+
+function createEmptyCanonicalContentJson(): JSONContent {
+  return {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+      },
+    ],
+  }
 }
 
 type CollaborationRoomStateMeta = {
@@ -755,18 +769,26 @@ async function fetchBootstrapDocument(room: Room, currentUserId: string) {
     throw new Error("Private documents do not support collaboration sessions")
   }
 
+  const bodySource = normalizeCollaborationBodySource(
+    collaborationDocument.bodySource
+  )
+  const isCloudflareYjsBody = isCloudflareYjsBodySource(bodySource)
   const limits = resolveCollaborationLimits(room.env as Record<string, unknown>)
 
   if (
+    !isCloudflareYjsBody &&
     getUtf8ByteLength(collaborationDocument.content) >
-    limits.maxCanonicalHtmlBytes
+      limits.maxCanonicalHtmlBytes
   ) {
     throw new PartyKitCollaborationError("collaboration_state_too_large")
   }
 
   const payload: CollaborationBootstrapPayload = {
     ...collaborationDocument,
-    contentJson: createCanonicalContentJson(collaborationDocument.content),
+    bodySource,
+    contentJson: isCloudflareYjsBody
+      ? createEmptyCanonicalContentJson()
+      : createCanonicalContentJson(collaborationDocument.content),
   }
 
   roomBootstrapCache.set(canonicalRoomId, payload)
