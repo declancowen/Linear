@@ -300,10 +300,67 @@ function applyPendingViewConfig(
   }
 }
 
+function sameStringSet(a: readonly string[], b: readonly string[]) {
+  if (a.length !== b.length) {
+    return false
+  }
+
+  const seen = new Set(a)
+  return b.every((value) => seen.has(value))
+}
+
+function sameOrderedStrings(a: readonly string[], b: readonly string[]) {
+  return a.length === b.length && a.every((value, index) => value === b[index])
+}
+
+function matchesPendingFilterSelections(
+  view: AppData["views"][number],
+  filters: RuntimeViewConfigPatch["filters"]
+) {
+  if (!filters) {
+    return true
+  }
+
+  const currentFilters = view.filters as Record<string, unknown>
+
+  return Object.entries(filters).every(([key, value]) => {
+    const current = currentFilters[key]
+
+    if (Array.isArray(value)) {
+      return (
+        Array.isArray(current) &&
+        sameStringSet(current as string[], value as string[])
+      )
+    }
+
+    return current === value
+  })
+}
+
+function matchesPendingHiddenState(
+  view: AppData["views"][number],
+  hiddenState: PendingViewConfig["patch"]["hiddenState"]
+) {
+  if (hiddenState === undefined) {
+    return true
+  }
+
+  const current = normalizeHiddenState(view.hiddenState)
+  const target = normalizeHiddenState(hiddenState)
+
+  return (
+    sameStringSet(current.groups, target.groups) &&
+    sameStringSet(current.subgroups, target.subgroups) &&
+    sameStringSet(current.includedGroups ?? [], target.includedGroups ?? [])
+  )
+}
+
 function matchesPendingViewConfig(
   view: AppData["views"][number],
   patch: PendingViewConfig["patch"]
 ) {
+  const { filters, displayProps } = patch as RuntimeViewConfigPatch
+
   return [
     patch.layout === undefined || view.layout === patch.layout,
     patch.grouping === undefined || view.grouping === patch.grouping,
@@ -317,6 +374,10 @@ function matchesPendingViewConfig(
       view.filters.showCompleted === patch.showCompleted,
     patch.showEmptyGroups === undefined ||
       (view.filters.showEmptyGroups ?? true) === patch.showEmptyGroups,
+    matchesPendingFilterSelections(view, filters),
+    matchesPendingHiddenState(view, patch.hiddenState),
+    displayProps === undefined ||
+      sameOrderedStrings(view.displayProps, displayProps),
   ].every(Boolean)
 }
 

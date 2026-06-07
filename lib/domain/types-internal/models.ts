@@ -301,6 +301,7 @@ export type ViewConfigPatch = Partial<{
   showCompleted: boolean
   showEmptyGroups: boolean
   filters: Partial<ViewFilters>
+  displayProps: DisplayProperty[]
   description: string
   containerType: ViewContainerType | null
   containerId: string | null

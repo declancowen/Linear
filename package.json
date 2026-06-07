@@ -1,6 +1,6 @@
 {
   "name": "linear",
-  "version": "0.0.31",
+  "version": "0.0.32",
   "main": "electron/main.cjs",
   "type": "module",
   "private": true,

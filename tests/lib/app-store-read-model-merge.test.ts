@@ -808,6 +808,97 @@ describe("app store read model merge", () => {
     expect(state.pendingViewConfigById).toEqual({})
   })
 
+  it("preserves pending optimistic filter and display-prop edits until the server catches up", () => {
+    const baseView: ViewDefinition = {
+      id: "view_1",
+      name: "All work",
+      description: "",
+      scopeType: "team" as const,
+      scopeId: "team_1",
+      entityKind: "items" as const,
+      containerType: null,
+      containerId: null,
+      itemLevel: null,
+      showChildItems: true,
+      layout: "list" as const,
+      grouping: "status" as const,
+      subGrouping: null,
+      ordering: "priority" as const,
+      filters: {
+        status: [],
+        priority: [],
+        assigneeIds: [],
+        creatorIds: [],
+        leadIds: [],
+        health: [],
+        milestoneIds: [],
+        relationTypes: [],
+        projectIds: [],
+        parentIds: [],
+        itemTypes: [],
+        labelIds: [],
+        teamIds: [],
+        showCompleted: true,
+      },
+      displayProps: ["id", "status", "assignee"],
+      hiddenState: {
+        groups: [],
+        subgroups: [],
+      },
+      isShared: true,
+      route: "/team/eng/work",
+      createdAt: "2026-04-22T00:00:00.000Z",
+      updatedAt: "2026-04-22T00:00:00.000Z",
+    }
+
+    useAppStore.setState((state) => ({
+      ...state,
+      views: [
+        {
+          ...baseView,
+          filters: { ...baseView.filters, status: ["on-hold"] },
+          displayProps: ["id", "status"],
+        },
+      ],
+      pendingViewConfigById: {
+        view_1: {
+          token: "pending_1",
+          patch: {
+            filters: { status: ["on-hold"] },
+            displayProps: ["id", "status"],
+          },
+        },
+      },
+    }))
+
+    // A racing read-model refresh that lacks the optimistic edits must not clobber them.
+    useAppStore.getState().mergeReadModelData({
+      views: [{ ...baseView, updatedAt: "2026-04-23T00:00:00.000Z" }],
+    })
+
+    let state = useAppStore.getState()
+    expect(state.views[0]?.filters.status).toEqual(["on-hold"])
+    expect(state.views[0]?.displayProps).toEqual(["id", "status"])
+    expect(state.pendingViewConfigById.view_1?.token).toBe("pending_1")
+
+    // Once the server reflects the edits, the pending entry clears.
+    useAppStore.getState().mergeReadModelData({
+      views: [
+        {
+          ...baseView,
+          filters: { ...baseView.filters, status: ["on-hold"] },
+          displayProps: ["id", "status"],
+          updatedAt: "2026-04-24T00:00:00.000Z",
+        },
+      ],
+    })
+
+    state = useAppStore.getState()
+    expect(state.views[0]?.filters.status).toEqual(["on-hold"])
+    expect(state.views[0]?.displayProps).toEqual(["id", "status"])
+    expect(state.pendingViewConfigById).toEqual({})
+  })
+
   it("prunes stale documents when a document index scope is refreshed", () => {
     useAppStore.getState().mergeReadModelData(
       {

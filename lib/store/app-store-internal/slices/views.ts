@@ -30,6 +30,7 @@ import {
   viewNameMaxLength,
   viewNameMinLength,
   viewSchema,
+  type ViewConfigPatch,
 } from "@/lib/domain/types"
 import { getViewerScopedDirectoryKey } from "@/lib/domain/viewer-view-config"
 
@@ -88,6 +89,60 @@ function clearPendingViewConfig(
   return {
     pendingViewConfigById: nextPendingViewConfigById,
   }
+}
+
+function mergePendingViewConfigPatch(
+  existing: ViewConfigPatch | undefined,
+  patch: ViewConfigPatch
+): ViewConfigPatch {
+  const merged: ViewConfigPatch = { ...existing, ...patch }
+
+  if (existing?.filters || patch.filters) {
+    merged.filters = { ...existing?.filters, ...patch.filters }
+  }
+
+  return merged
+}
+
+function registerPendingViewConfig(
+  state: AppStore,
+  viewId: string,
+  token: string,
+  patch: ViewConfigPatch
+) {
+  return {
+    ...(state.pendingViewConfigById ?? {}),
+    [viewId]: {
+      token,
+      patch: mergePendingViewConfigPatch(
+        state.pendingViewConfigById?.[viewId]?.patch,
+        patch
+      ),
+    },
+  }
+}
+
+function runPendingViewConfigSync(
+  runtime: ReturnType<typeof createStoreRuntime>,
+  set: AppStoreSet,
+  input: {
+    viewId: string
+    token: string
+    run: Promise<unknown>
+    failureMessage: string
+  }
+) {
+  runtime.syncInBackground(
+    Promise.resolve(input.run)
+      .then(() => {
+        set((state) => clearPendingViewConfig(state, input.viewId, input.token))
+      })
+      .catch((error) => {
+        set((state) => clearPendingViewConfig(state, input.viewId, input.token))
+        throw error
+      }),
+    input.failureMessage
+  )
 }
 
 function getViewNameValidationMessage(name: string) {
@@ -544,44 +599,34 @@ export function createViewSlice(
             ...state.ui,
             selectedViewByRoute,
           },
-          pendingViewConfigById: {
-            ...(state.pendingViewConfigById ?? {}),
-            [viewId]: {
-              token: pendingToken,
-              patch: {
-                ...(state.pendingViewConfigById?.[viewId]?.patch ?? {}),
-                ...patch,
-              },
-            },
-          },
+          pendingViewConfigById: registerPendingViewConfig(
+            state,
+            viewId,
+            pendingToken,
+            patch
+          ),
         }
       })
 
-      runtime.syncInBackground(
-        Promise.resolve(syncUpdateViewConfig(viewId, patch))
-          .then(() => {
-            set((state) =>
-              clearPendingViewConfig(state, viewId, pendingToken)
-            )
-          })
-          .catch((error) => {
-            set((state) =>
-              clearPendingViewConfig(state, viewId, pendingToken)
-            )
-
-            throw error
-          }),
-        "Failed to update view"
-      )
+      runPendingViewConfigSync(runtime, set, {
+        viewId,
+        token: pendingToken,
+        run: Promise.resolve(syncUpdateViewConfig(viewId, patch)),
+        failureMessage: "Failed to update view",
+      })
     },
     toggleViewDisplayProperty(viewId, property) {
-      set((state) => ({
-        views: state.views.map((view) => {
+      const pendingToken = createId("view_sync")
+      let nextDisplayProps: AppStore["views"][number]["displayProps"] | null =
+        null
+
+      set((state) => {
+        const views = state.views.map((view) => {
           if (view.id !== viewId) {
             return view
           }
 
-          const nextDisplayProps = view.displayProps.includes(property)
+          nextDisplayProps = view.displayProps.includes(property)
             ? view.displayProps.filter((value) => value !== property)
             : [...view.displayProps, property]
 
@@ -590,16 +635,33 @@ export function createViewSlice(
             displayProps: nextDisplayProps,
             updatedAt: getNow(),
           }
-        }),
-      }))
+        })
 
-      runtime.syncInBackground(
-        syncToggleViewDisplayProperty(viewId, property),
-        "Failed to update view"
-      )
+        if (nextDisplayProps === null) {
+          return state
+        }
+
+        return {
+          views,
+          pendingViewConfigById: registerPendingViewConfig(
+            state,
+            viewId,
+            pendingToken,
+            { displayProps: nextDisplayProps }
+          ),
+        }
+      })
+
+      runPendingViewConfigSync(runtime, set, {
+        viewId,
+        token: pendingToken,
+        run: Promise.resolve(syncToggleViewDisplayProperty(viewId, property)),
+        failureMessage: "Failed to update view",
+      })
     },
     reorderViewDisplayProperties(viewId, displayProps) {
       const nextDisplayProps = Array.from(new Set(displayProps))
+      const pendingToken = createId("view_sync")
 
       set((state) => ({
         views: state.views.map((view) =>
@@ -611,16 +673,29 @@ export function createViewSlice(
               }
             : view
         ),
+        pendingViewConfigById: registerPendingViewConfig(
+          state,
+          viewId,
+          pendingToken,
+          { displayProps: nextDisplayProps }
+        ),
       }))
 
-      runtime.syncInBackground(
-        syncReorderViewDisplayProperties(viewId, nextDisplayProps),
-        "Failed to update view"
-      )
+      runPendingViewConfigSync(runtime, set, {
+        viewId,
+        token: pendingToken,
+        run: Promise.resolve(
+          syncReorderViewDisplayProperties(viewId, nextDisplayProps)
+        ),
+        failureMessage: "Failed to update view",
+      })
     },
     toggleViewHiddenValue(viewId, key, value) {
-      set((state) => ({
-        views: state.views.map((view) => {
+      const pendingToken = createId("view_sync")
+      let nextHiddenState: AppStore["views"][number]["hiddenState"] | null = null
+
+      set((state) => {
+        const views = state.views.map((view) => {
           if (view.id !== viewId) {
             return view
           }
@@ -630,7 +705,7 @@ export function createViewSlice(
           const nextValues = values.includes(value)
             ? values.filter((entry) => entry !== value)
             : [...values, value]
-          const nextHiddenState = normalizeHiddenState({
+          nextHiddenState = normalizeHiddenState({
             ...hiddenState,
             [key]: nextValues,
           })
@@ -640,17 +715,36 @@ export function createViewSlice(
             hiddenState: nextHiddenState,
             updatedAt: getNow(),
           }
-        }),
-      }))
+        })
 
-      runtime.syncInBackground(
-        syncToggleViewHiddenValue(viewId, key, value),
-        "Failed to update view"
-      )
+        if (nextHiddenState === null) {
+          return state
+        }
+
+        return {
+          views,
+          pendingViewConfigById: registerPendingViewConfig(
+            state,
+            viewId,
+            pendingToken,
+            { hiddenState: nextHiddenState }
+          ),
+        }
+      })
+
+      runPendingViewConfigSync(runtime, set, {
+        viewId,
+        token: pendingToken,
+        run: Promise.resolve(syncToggleViewHiddenValue(viewId, key, value)),
+        failureMessage: "Failed to update view",
+      })
     },
     toggleViewFilterValue(viewId, key, value) {
-      set((state) => ({
-        views: state.views.map((view) => {
+      const pendingToken = createId("view_sync")
+      let nextFilterValue: string[] | null = null
+
+      set((state) => {
+        const views = state.views.map((view) => {
           if (view.id !== viewId) {
             return view
           }
@@ -659,6 +753,7 @@ export function createViewSlice(
           const next = current.includes(value as never)
             ? current.filter((entry) => entry !== value)
             : [...current, value]
+          nextFilterValue = next
 
           return {
             ...view,
@@ -668,33 +763,70 @@ export function createViewSlice(
             },
             updatedAt: getNow(),
           }
-        }),
-      }))
+        })
 
-      runtime.syncInBackground(
-        syncToggleViewFilterValue(viewId, key, value),
-        "Failed to update filters"
-      )
+        if (nextFilterValue === null) {
+          return state
+        }
+
+        return {
+          views,
+          pendingViewConfigById: registerPendingViewConfig(
+            state,
+            viewId,
+            pendingToken,
+            { filters: { [key]: nextFilterValue } }
+          ),
+        }
+      })
+
+      runPendingViewConfigSync(runtime, set, {
+        viewId,
+        token: pendingToken,
+        run: Promise.resolve(syncToggleViewFilterValue(viewId, key, value)),
+        failureMessage: "Failed to update filters",
+      })
     },
     clearViewFilters(viewId) {
-      set((state) => ({
-        views: state.views.map((view) => {
+      const pendingToken = createId("view_sync")
+      let nextFilters: AppStore["views"][number]["filters"] | null = null
+
+      set((state) => {
+        const views = state.views.map((view) => {
           if (view.id !== viewId) {
             return view
           }
 
+          nextFilters = clearViewFilterSelections(view.filters)
+
           return {
             ...view,
-            filters: clearViewFilterSelections(view.filters),
+            filters: nextFilters,
             updatedAt: getNow(),
           }
-        }),
-      }))
+        })
 
-      runtime.syncInBackground(
-        syncClearViewFilters(viewId),
-        "Failed to update filters"
-      )
+        if (nextFilters === null) {
+          return state
+        }
+
+        return {
+          views,
+          pendingViewConfigById: registerPendingViewConfig(
+            state,
+            viewId,
+            pendingToken,
+            { filters: nextFilters }
+          ),
+        }
+      })
+
+      runPendingViewConfigSync(runtime, set, {
+        viewId,
+        token: pendingToken,
+        run: Promise.resolve(syncClearViewFilters(viewId)),
+        failureMessage: "Failed to update filters",
+      })
     },
   }
 }

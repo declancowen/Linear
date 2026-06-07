@@ -58,6 +58,7 @@ describe("store domain updates", () => {
       },
     })
     expect(result.team.settings.workflow.statusOrder).toEqual([
+      "on-hold",
       "backlog",
       "todo",
       "in-progress",
