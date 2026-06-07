@@ -13,6 +13,7 @@ import {
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
   normalizeTeamFeatureSettings,
+  workStatuses,
 } from "@/lib/domain/types"
 
 export function getCurrentUser(data: AppData): UserProfile | null {
@@ -453,7 +454,15 @@ function getTeamWorkflowSettings(
 export function getStatusOrderForTeam(
   team: Team | null | undefined
 ): WorkStatus[] {
-  return [...getTeamWorkflowSettings(team).statusOrder]
+  const storedOrder = getTeamWorkflowSettings(team).statusOrder
+  // A team's persisted statusOrder can predate a newly added status (e.g.
+  // "on-hold"). If any canonical status is missing, fall back to the canonical
+  // order so every workspace/view/picker exposes the full status set with
+  // "on-hold" first — no data migration required.
+  const hasAllStatuses = workStatuses.every((status) =>
+    storedOrder.includes(status)
+  )
+  return hasAllStatuses ? [...storedOrder] : [...workStatuses]
 }
 
 export function getTemplateDefaultsForTeam(
