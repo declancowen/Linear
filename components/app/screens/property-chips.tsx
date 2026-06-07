@@ -47,7 +47,12 @@ export const propertyChipTriggerDashedClass =
 export const propertyCrumbTriggerClass =
   "inline-flex h-7 w-fit items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-0 text-[12.5px] font-normal text-fg-2 shadow-none transition-colors hover:bg-surface-3 hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 data-[size=default]:h-7 [&>svg:last-child]:opacity-60 [&>svg:last-child]:size-3"
 
-const openWorkStatuses: WorkStatus[] = ["backlog", "todo", "in-progress"]
+const openWorkStatuses: WorkStatus[] = [
+  "on-hold",
+  "backlog",
+  "todo",
+  "in-progress",
+]
 const closedWorkStatuses: WorkStatus[] = ["done", "cancelled", "duplicate"]
 const workItemPriorityOrder: Priority[] = [
   "none",

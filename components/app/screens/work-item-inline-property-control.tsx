@@ -67,7 +67,7 @@ import {
   StatusIcon,
 } from "./shared"
 
-const OPEN_STATUSES: WorkStatus[] = ["backlog", "todo", "in-progress"]
+const OPEN_STATUSES: WorkStatus[] = ["on-hold", "backlog", "todo", "in-progress"]
 const CLOSED_STATUSES: WorkStatus[] = ["done", "cancelled", "duplicate"]
 const PRIORITY_ORDER: Priority[] = ["none", "urgent", "high", "medium", "low"]
 
