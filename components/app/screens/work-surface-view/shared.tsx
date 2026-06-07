@@ -17,6 +17,8 @@ import { getEmptyParentGroupingLabel } from "../work-grouping-labels"
 
 const STATUS_GROUP_ACCENT_BY_VALUE: Record<string, string> = {
   backlog: "var(--status-backlog)",
+  "on-hold": "var(--status-hold)",
+  "on hold": "var(--status-hold)",
   canceled: "var(--priority-urgent)",
   cancelled: "var(--priority-urgent)",
   done: "var(--status-done)",

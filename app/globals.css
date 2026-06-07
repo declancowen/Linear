@@ -44,6 +44,7 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --color-status-backlog: var(--status-backlog);
+  --color-status-hold: var(--status-hold);
   --color-status-todo: var(--status-todo);
   --color-status-doing: var(--status-doing);
   --color-status-review: var(--status-review);
@@ -126,6 +127,7 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
   --status-backlog: oklch(0.7 0 0);
+  --status-hold: oklch(0.7 0.16 60);
   --status-todo: oklch(0.7 0.1 250);
   --status-doing: oklch(0.72 0.15 90);
   --status-review: oklch(0.68 0.16 310);
@@ -197,6 +199,7 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
   --status-backlog: oklch(0.68 0 0);
+  --status-hold: oklch(0.76 0.16 60);
   --status-todo: oklch(0.72 0.1 250);
   --status-doing: oklch(0.78 0.15 90);
   --status-review: oklch(0.74 0.16 310);

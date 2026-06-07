@@ -312,6 +312,7 @@ export function StatusIcon({ status }: { status: string }) {
 }
 
 type StatusIconRingStatus =
+  | "on-hold"
   | "backlog"
   | "todo"
   | "in-progress"
@@ -321,6 +322,8 @@ type StatusIconRingStatus =
 type StatusIconStatus = StatusIconRingStatus | "review"
 
 const STATUS_ICON_STATUS_BY_LABEL: Record<string, StatusIconStatus> = {
+  "on-hold": "on-hold",
+  "on hold": "on-hold",
   backlog: "backlog",
   todo: "todo",
   done: "done",

@@ -54,6 +54,7 @@ export type LegacyWorkItemType = "bug"
 export type StoredWorkItemType = WorkItemType | LegacyWorkItemType
 
 export const workStatuses = [
+  "on-hold",
   "backlog",
   "todo",
   "in-progress",
@@ -87,6 +88,7 @@ export const projectNameMinLength = projectNameConstraints.min ?? 0
 export const projectNameMaxLength = projectNameConstraints.max
 
 export const viewFilterStatuses = [
+  "on-hold",
   "backlog",
   "todo",
   "in-progress",

@@ -67,12 +67,18 @@ function getDocumentScopeLabel(data: AppData, document: AppDocument) {
   return "Workspace"
 }
 
-function DocumentDetailSidebarHeader({ onClose }: { onClose?: () => void }) {
+function DocumentDetailSidebarHeader({
+  onClose,
+  showClose = true,
+}: {
+  onClose?: () => void
+  showClose?: boolean
+}) {
   return (
-    <div className="flex h-9 items-center gap-2 border-b border-line-soft px-3">
+    <div className="flex h-11 items-center gap-2 border-b border-line px-3">
       <FileText className="size-[14px] text-fg-3" />
       <span className="text-[12px] font-medium text-fg-2">Document</span>
-      {onClose ? (
+      {showClose && onClose ? (
         <button
           type="button"
           aria-label="Close document properties"
@@ -436,6 +442,7 @@ export function DocumentDetailSidebarSurface({
   open = true,
   onClose,
   onRenameTitle,
+  showHeaderClose = true,
 }: {
   data: AppData
   document: AppDocument
@@ -443,6 +450,7 @@ export function DocumentDetailSidebarSurface({
   open?: boolean
   onClose?: () => void
   onRenameTitle?: (title: string) => void
+  showHeaderClose?: boolean
 }) {
   const [customPropertyDialogOpen, setCustomPropertyDialogOpen] =
     useState(false)
@@ -458,7 +466,10 @@ export function DocumentDetailSidebarSurface({
         width="26.25rem"
         className="border-l border-line bg-surface"
       >
-        <DocumentDetailSidebarHeader onClose={onClose} />
+        <DocumentDetailSidebarHeader
+          onClose={onClose}
+          showClose={showHeaderClose}
+        />
         <div className="no-scrollbar flex-1 overflow-y-auto px-6 py-[22px]">
           <DocumentSidebarTitleEditor
             document={document}

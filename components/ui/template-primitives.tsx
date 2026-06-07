@@ -45,6 +45,7 @@ export function StatusRing({
   className,
 }: {
   status:
+    | "on-hold"
     | "backlog"
     | "todo"
     | "in-progress"
@@ -123,6 +124,21 @@ export function StatusRing({
           style={{
             ...ringStyle,
             borderColor: "var(--status-todo)",
+          }}
+        />
+      </span>
+    )
+  }
+
+  if (status === "on-hold") {
+    return (
+      <span aria-hidden className={wrapperClassName}>
+        <span
+          className="rounded-full border-[1.6px] border-dashed"
+          style={{
+            ...ringStyle,
+            borderColor: "var(--status-hold)",
+            background: `color-mix(in oklch, var(--status-hold) 22%, transparent)`,
           }}
         />
       </span>

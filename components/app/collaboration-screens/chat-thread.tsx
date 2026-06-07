@@ -1636,9 +1636,41 @@ function useChatMessagesAutoScroll(
       image.addEventListener("error", scrollToBottom, { once: true })
     })
 
+    // On a cold refresh the message list (markdown, fonts, async content) can
+    // finish laying out after the fixed retry window above closes. Re-pin to the
+    // bottom as content settles, but only while the viewport is already near the
+    // bottom so a user scrolling through history is never yanked down.
+    let repinFrameId = 0
+    const repinIfNearBottom = () => {
+      if (repinFrameId) {
+        return
+      }
+      repinFrameId = window.requestAnimationFrame(() => {
+        repinFrameId = 0
+        const distanceFromBottom =
+          el.scrollHeight - el.scrollTop - el.clientHeight
+        if (distanceFromBottom < 120) {
+          scrollToBottom()
+        }
+      })
+    }
+    const contentObserver =
+      typeof MutationObserver === "function"
+        ? new MutationObserver(repinIfNearBottom)
+        : null
+    contentObserver?.observe(el, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    })
+
     return () => {
       timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId))
       frameIds.forEach((frameId) => window.cancelAnimationFrame(frameId))
+      if (repinFrameId) {
+        window.cancelAnimationFrame(repinFrameId)
+      }
+      contentObserver?.disconnect()
       pendingImages.forEach((image) => {
         image.removeEventListener("load", scrollToBottom)
         image.removeEventListener("error", scrollToBottom)

@@ -46,6 +46,7 @@ const workItemVisibilityLiterals = [
 ] as const
 
 const workStatusLiterals = [
+  v.literal("on-hold"),
   v.literal("backlog"),
   v.literal("todo"),
   v.literal("in-progress"),
@@ -78,6 +79,7 @@ const projectStatusLiterals = [
 ] as const
 
 const viewFilterStatusLiterals = [
+  v.literal("on-hold"),
   v.literal("backlog"),
   v.literal("todo"),
   v.literal("in-progress"),
