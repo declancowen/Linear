@@ -116,6 +116,7 @@ export function createTestTeamMembership(
 export function createTestWorkflowSettingsRequestBody(): TeamWorkflowSettings {
   return {
     statusOrder: [
+      "on-hold",
       "backlog",
       "todo",
       "in-progress",

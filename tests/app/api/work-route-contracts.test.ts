@@ -417,6 +417,29 @@ describe("work route contracts", () => {
     })
   })
 
+  it("accepts the on-hold status for work item updates", async () => {
+    const itemRoute = await import("@/app/api/items/[itemId]/route")
+
+    updateWorkItemServerMock.mockResolvedValue({
+      ok: true,
+    })
+
+    const response = await itemRoute.PATCH(
+      ...itemPatchRouteInput({
+        status: "on-hold",
+      })
+    )
+
+    expect(updateWorkItemServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      itemId: "item_1",
+      patch: {
+        status: "on-hold",
+      },
+    })
+    expect(response.status).toBe(200)
+  })
+
   it("accepts guarded main-section saves for work items", async () => {
     const itemRoute = await import("@/app/api/items/[itemId]/route")
 

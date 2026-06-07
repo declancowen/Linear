@@ -35,6 +35,7 @@ export function createScopedReadModelTeam(
       experience: "software-development",
       workflow: {
         statusOrder: [
+          "on-hold",
           "backlog",
           "todo",
           "in-progress",

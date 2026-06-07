@@ -5,6 +5,8 @@ import {
   nullableCalendarDateSchema,
   nullableTimeSchema,
   nullableTimeZoneSchema,
+  priorities,
+  workStatuses,
 } from "@/lib/domain/types"
 import { ApplicationError } from "@/lib/server/application-errors"
 import {
@@ -32,17 +34,8 @@ const workItemPatchSchema = z
     title: z.string().trim().min(2).max(96).optional(),
     description: z.string().min(1).optional(),
     expectedUpdatedAt: z.string().datetime().optional(),
-    status: z
-      .enum([
-        "backlog",
-        "todo",
-        "in-progress",
-        "done",
-        "cancelled",
-        "duplicate",
-      ])
-      .optional(),
-    priority: z.enum(["none", "low", "medium", "high", "urgent"]).optional(),
+    status: z.enum(workStatuses).optional(),
+    priority: z.enum(priorities).optional(),
     assigneeId: z.string().nullable().optional(),
     assigneeIds: z.array(z.string().trim().min(1)).optional(),
     parentId: z.string().nullable().optional(),
