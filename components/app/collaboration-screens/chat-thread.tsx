@@ -2030,7 +2030,7 @@ export function ChatThread({
           description={description}
           detailsAction={detailsAction}
           membersCount={members.length}
-          tabs={tabs}
+          tabs={tabsControlledExternally ? undefined : tabs}
           title={title}
           videoAction={videoAction}
         />

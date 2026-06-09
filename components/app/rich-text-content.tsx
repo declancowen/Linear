@@ -1,9 +1,10 @@
 "use client"
 
 import { useMemo, useState, type MouseEvent } from "react"
-import { useRouter } from "next/navigation"
 import { DownloadSimple } from "@phosphor-icons/react"
 import { toast } from "sonner"
+
+import { useAppRouter } from "@/lib/browser/app-navigation"
 
 import {
   Dialog,
@@ -310,7 +311,7 @@ export function RichTextContent({
   const [imagePreview, setImagePreview] = useState<ImagePreviewState | null>(
     null
   )
-  const router = useRouter()
+  const router = useAppRouter()
   const sanitizedContent = useMemo(
     () => sanitizeRichTextContent(content),
     [content]

@@ -25,6 +25,7 @@ import { useAppStore } from "@/lib/store/app-store"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { UserAvatar } from "@/components/app/user-presence"
 import { ChatThread } from "@/components/app/collaboration-screens/chat-thread"
+import { ConversationTabBar } from "@/components/app/collaboration-screens/conversation-files-panel"
 import {
   useConversationListReadModelRefresh,
   useConversationThreadReadModelRefresh,
@@ -311,6 +312,8 @@ type WorkspaceChatsContentProps = WorkspaceConversationListPaneProps & {
   hasLoadedConversationThread: boolean
   welcomeParticipant: UserProfile | null
   sidebarOpen: boolean
+  activeTab: "chat" | "files"
+  onActiveTabChange: (tab: "chat" | "files") => void
   onToggleConversationListCollapsed: () => void
   splitRef: RefObject<HTMLDivElement | null>
 }
@@ -324,6 +327,8 @@ function WorkspaceChatsContent({
   hasLoadedConversationThread,
   welcomeParticipant,
   sidebarOpen,
+  activeTab,
+  onActiveTabChange,
   onCreateChat,
   onToggleConversationListCollapsed,
   splitRef,
@@ -374,6 +379,8 @@ function WorkspaceChatsContent({
             members={members}
             loaded={hasLoadedConversationThread}
             welcomeParticipant={welcomeParticipant}
+            activeTab={activeTab}
+            onActiveTabChange={onActiveTabChange}
             conversationListAction={
               <Button
                 type="button"
@@ -641,6 +648,7 @@ export function WorkspaceChatsScreen() {
       activeChatId ?? workspace?.id
     )
   )
+  const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
   const { hasLoadedOnce: hasLoadedConversationList } =
     useConversationListReadModelRefresh(currentUserId)
   const { hasLoadedOnce: hasLoadedConversationThread } =
@@ -700,15 +708,21 @@ export function WorkspaceChatsScreen() {
         subtitle="Direct and group conversations"
         actions={
           activeChat ? (
-            <ChatHeaderActions
-              detailsAction={
-                <DetailsSidebarToggle
-                  sidebarOpen={sidebarOpen}
-                  onDesktopToggle={() => setSidebarOpen((current) => !current)}
-                  onMobileOpen={() => setMobileSidebarOpen(true)}
-                />
-              }
-            />
+            <>
+              <ConversationTabBar
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+              />
+              <ChatHeaderActions
+                detailsAction={
+                  <DetailsSidebarToggle
+                    sidebarOpen={sidebarOpen}
+                    onDesktopToggle={() => setSidebarOpen((current) => !current)}
+                    onMobileOpen={() => setMobileSidebarOpen(true)}
+                  />
+                }
+              />
+            </>
           ) : null
         }
       />
@@ -731,6 +745,8 @@ export function WorkspaceChatsScreen() {
         hasLoadedConversationThread={hasLoadedConversationThread}
         welcomeParticipant={welcomeParticipant}
         sidebarOpen={sidebarOpen}
+        activeTab={activeTab}
+        onActiveTabChange={setActiveTab}
         renderConversationAvatar={(conversationId) => (
           <WorkspaceConversationAvatar
             conversation={chatsById.get(conversationId) ?? null}
