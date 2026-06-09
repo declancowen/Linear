@@ -2,19 +2,12 @@
 
 import { useState } from "react"
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
-import {
-  CheckSquare,
-  FileText,
-  FolderSimple,
-  SquaresFour,
-  TextAlignLeft,
-  Cards,
-  type Icon,
-} from "@phosphor-icons/react"
+import { TextAlignLeft, Cards, type Icon } from "@phosphor-icons/react"
 
 import { useShallow } from "zustand/react/shallow"
 
 import { resolveEntityReferenceNodeAttrs } from "@/lib/content/rich-text-references"
+import { getReferenceTypeIcon } from "@/components/app/rich-text-editor/reference-icons"
 import {
   getDocument,
   getProject,
@@ -36,13 +29,6 @@ type EntityReferencePreview = {
   title: string
   subtitle: string | null
   accessible: boolean
-}
-
-const REFERENCE_TYPE_ICON: Record<string, Icon> = {
-  workItem: CheckSquare,
-  document: FileText,
-  project: FolderSimple,
-  view: SquaresFour,
 }
 
 function getReferenceTypeLabel(referenceType: string) {
@@ -143,7 +129,7 @@ function buildEntityReferencePreview(
     : { title: fallbackLabel, subtitle: null, accessible: false }
 
   return {
-    icon: REFERENCE_TYPE_ICON[referenceType] ?? CheckSquare,
+    icon: getReferenceTypeIcon(referenceType),
     typeLabel: getReferenceTypeLabel(referenceType),
     ...details,
   }

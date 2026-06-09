@@ -1713,6 +1713,8 @@ export function ChatThread({
   detailsAction,
   conversationListAction,
   welcomeParticipant,
+  activeTab: controlledActiveTab,
+  onActiveTabChange,
 }: {
   conversationId: string
   title: string
@@ -1724,6 +1726,8 @@ export function ChatThread({
   detailsAction?: ReactNode
   conversationListAction?: ReactNode
   welcomeParticipant?: NonNullable<ReturnType<typeof getUser>> | null
+  activeTab?: "chat" | "files"
+  onActiveTabChange?: (tab: "chat" | "files") => void
 }) {
   const messages = useAppStore(
     useShallow((state) => getChatMessages(state, conversationId))
@@ -1776,7 +1780,13 @@ export function ChatThread({
     key: 0,
   })
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
+  const [internalActiveTab, setInternalActiveTab] = useState<"chat" | "files">(
+    "chat"
+  )
+  const tabsControlledExternally =
+    controlledActiveTab != null && onActiveTabChange != null
+  const activeTab = controlledActiveTab ?? internalActiveTab
+  const setActiveTab = onActiveTabChange ?? setInternalActiveTab
   const [highlightedMessageId, setHighlightedMessageId] = useState<
     string | null
   >(null)
@@ -2024,7 +2034,7 @@ export function ChatThread({
           title={title}
           videoAction={videoAction}
         />
-      ) : (
+      ) : tabsControlledExternally ? null : (
         <div className="flex h-10 shrink-0 items-center justify-end gap-1.5 border-b border-line px-4">
           {tabs}
           {detailsAction}

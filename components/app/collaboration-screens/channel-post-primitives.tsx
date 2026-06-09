@@ -263,6 +263,7 @@ export function ForumPostCommentItem({
         ) : (
           <RichTextContent
             content={comment.content}
+            enableAttachmentDownload
             className="text-[13px] leading-[1.5] text-foreground [&_p]:leading-[1.5]"
           />
         )}

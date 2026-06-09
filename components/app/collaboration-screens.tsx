@@ -335,22 +335,24 @@ export function WorkspaceChannelsScreen() {
 /* ------------------------------------------------------------------ */
 
 function TeamChatBody({
+  activeTab,
   conversation,
-  detailsAction,
   editable,
   hasLoadedConversationList,
   hasLoadedConversationThread,
   members,
+  onActiveTabChange,
   sidebarOpen,
   team,
   teamDescription,
 }: {
+  activeTab: "chat" | "files"
   conversation: AppData["conversations"][number] | null
-  detailsAction?: ReactNode
   editable: boolean
   hasLoadedConversationList: boolean
   hasLoadedConversationThread: boolean
   members: AppData["users"]
+  onActiveTabChange: (tab: "chat" | "files") => void
   sidebarOpen: boolean
   team: AppData["teams"][number]
   teamDescription: string
@@ -387,7 +389,8 @@ function TeamChatBody({
           members={members}
           loaded={hasLoadedConversationThread}
           showHeader={false}
-          detailsAction={detailsAction}
+          activeTab={activeTab}
+          onActiveTabChange={onActiveTabChange}
         />
       </div>
       <TeamSurfaceSidebar
@@ -423,6 +426,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
   } = usePersistedCollaborationSidebarState(
     createCollaborationSidebarSurfaceKey("team-chat", team?.id)
   )
+  const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
   const { hasLoadedOnce: hasLoadedConversationList } =
     useConversationListReadModelRefresh(currentUserId)
   const { hasLoadedOnce: hasLoadedConversationThread } =
@@ -474,20 +478,30 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
       <PageHeader
         title={team.name}
         subtitle="Chat"
+        actions={
+          conversation ? (
+            <>
+              <ConversationTabBar
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+              />
+              <DetailsSidebarToggle
+                sidebarOpen={sidebarOpen}
+                onDesktopToggle={() => setSidebarOpen((current) => !current)}
+                onMobileOpen={() => setMobileSidebarOpen(true)}
+              />
+            </>
+          ) : null
+        }
       />
       <TeamChatBody
+        activeTab={activeTab}
         conversation={conversation}
-        detailsAction={
-          <DetailsSidebarToggle
-            sidebarOpen={sidebarOpen}
-            onDesktopToggle={() => setSidebarOpen((current) => !current)}
-            onMobileOpen={() => setMobileSidebarOpen(true)}
-          />
-        }
         editable={editable}
         hasLoadedConversationList={hasLoadedConversationList}
         hasLoadedConversationThread={hasLoadedConversationThread}
         members={members}
+        onActiveTabChange={setActiveTab}
         sidebarOpen={sidebarOpen}
         team={team}
         teamDescription={teamDescription}

@@ -337,7 +337,7 @@ function DocumentSidebarRelations({
             key={project.id}
             href={getProjectHref(data, project) ?? `/projects/${project.id}`}
             icon={<Folder className="size-3" />}
-            label="Project"
+            label="project"
             title={project.name}
           />
         ))}
@@ -346,7 +346,7 @@ function DocumentSidebarRelations({
             key={item.id}
             href={`/items/${item.id}`}
             icon={<TreeStructure className="size-3" />}
-            label="Item"
+            label="item"
             title={item.title}
           />
         ))}
@@ -355,7 +355,7 @@ function DocumentSidebarRelations({
             key={linkedDocument.id}
             href={`/docs/${linkedDocument.id}`}
             icon={<LinkSimple className="size-3" />}
-            label="Doc"
+            label="document"
             title={linkedDocument.title}
           />
         ))}
@@ -364,7 +364,7 @@ function DocumentSidebarRelations({
             key={view.id}
             href={getViewHref(view)}
             icon={<SquaresFour className="size-3" />}
-            label="View"
+            label="view"
             title={view.name}
           />
         ))}

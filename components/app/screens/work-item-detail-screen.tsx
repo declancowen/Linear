@@ -5760,7 +5760,7 @@ function WorkItemRelationsSection({
             key={document.id}
             href={`/docs/${document.id}`}
             icon={<LinkSimple className="size-3" />}
-            label="Linked doc"
+            label="document"
             title={document.title}
           />
         ))}
@@ -5769,7 +5769,7 @@ function WorkItemRelationsSection({
             key={item.id}
             href={`/items/${item.id}`}
             icon={<TreeStructure className="size-3" />}
-            label="Linked item"
+            label="item"
             title={item.title}
           />
         ))}
@@ -5778,7 +5778,7 @@ function WorkItemRelationsSection({
             key={view.id}
             href={getViewHref(view)}
             icon={<SquaresFour className="size-3" />}
-            label="Linked view"
+            label="view"
             title={view.name}
           />
         ))}

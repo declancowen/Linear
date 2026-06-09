@@ -37,6 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import type { RichTextEntityReferenceCandidate } from "@/lib/content/rich-text-references"
+import { getReferenceTypeIcon } from "@/components/app/rich-text-editor/reference-icons"
 import { getMentionDisplayLabel } from "@/lib/domain/input-constraints"
 import type { UserProfile } from "@/lib/domain/types"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
@@ -817,16 +818,8 @@ function getReferenceKindLabel(candidate: ReferenceCandidate) {
 }
 
 function getReferenceIcon(candidate: ReferenceCandidate) {
-  switch (candidate.type) {
-    case "document":
-      return <FileArrowUp className="size-4" />
-    case "project":
-      return <TableIcon className="size-4" />
-    case "view":
-      return <ListBullets className="size-4" />
-    case "workItem":
-      return <CheckSquare className="size-4" />
-  }
+  const Icon = getReferenceTypeIcon(candidate.type)
+  return <Icon className="size-4" />
 }
 
 export function ReferenceMenu({

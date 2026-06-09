@@ -10,6 +10,12 @@ import {
 } from "vitest"
 
 import "@/tests/lib/fixtures/rich-text-composer-mocks"
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
 import {
   CommentsInline,
   InlineChildIssueComposer,
