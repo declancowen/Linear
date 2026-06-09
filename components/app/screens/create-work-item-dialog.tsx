@@ -2469,7 +2469,7 @@ export function CreateWorkItemDialog({
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-[12vh] max-h-[calc(100vh-3rem)] translate-y-0 gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-[14vh] sm:max-w-[640px]"
+        className="top-[12vh] flex max-h-[calc(100vh-3rem)] translate-y-0 flex-col gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-[14vh] sm:max-w-[640px]"
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{workCopy.createLabel}</DialogTitle>
@@ -2492,87 +2492,89 @@ export function CreateWorkItemDialog({
           secondaryContextLabel={secondaryContextLabel}
         />
 
-        <CreateWorkItemTitleFields
-          key={open ? "create-work-item-open" : "create-work-item-closed"}
-          titlePlaceholder={titlePlaceholder}
-          onTitleDraftChange={handleTitleDraftChange}
-          onDescriptionDraftChange={handleDescriptionDraftChange}
-        />
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <CreateWorkItemTitleFields
+            key={open ? "create-work-item-open" : "create-work-item-closed"}
+            titlePlaceholder={titlePlaceholder}
+            onTitleDraftChange={handleTitleDraftChange}
+            onDescriptionDraftChange={handleDescriptionDraftChange}
+          />
 
-        <CreateWorkItemPropertiesRow
-          showAssignee={!privateTaskMode}
-          showLabels
-          showProject={!privateTaskMode}
-          team={team}
-          status={status}
-          teamStatuses={teamStatuses}
-          statusPickerOpen={statusPickerOpen}
-          setStatusPickerOpen={setStatusPickerOpen}
-          statusQuery={statusQuery}
-          setStatusQuery={setStatusQuery}
-          onStatusChange={handleStatusChange}
-          priority={priority}
-          priorityPickerOpen={priorityPickerOpen}
-          setPriorityPickerOpen={setPriorityPickerOpen}
-          onPriorityChange={handlePriorityChange}
-          assigneePickerOpen={assigneePickerOpen}
-          setAssigneePickerOpen={setAssigneePickerOpen}
-          assigneeQuery={assigneeQuery}
-          setAssigneeQuery={setAssigneeQuery}
-          teamMembers={teamMembers}
-          selectedAssignees={selectedAssignees}
-          effectiveAssigneeIds={effectiveAssigneeIds}
-          onAssigneeChange={handleAssigneeChange}
-          projectPickerOpen={projectPickerOpen}
-          setProjectPickerOpen={setProjectPickerOpen}
-          projectQuery={projectQuery}
-          setProjectQuery={setProjectQuery}
-          teamProjects={teamProjects}
-          selectedProject={displayedProject}
-          effectiveProjectId={effectiveProjectId}
-          selectedParentItem={selectedParentItem}
-          onProjectChange={handleProjectChange}
-          startDate={startDate}
-          setStartDate={setStartDate}
-          startTime={startTime}
-          setStartTime={setStartTime}
-          targetDate={targetDate}
-          setTargetDate={setTargetDate}
-          endTime={endTime}
-          setEndTime={setEndTime}
-          scheduleTimeZone={scheduleTimeZone}
-          setScheduleTimeZone={setScheduleTimeZone}
-          showParentSelect={showParentSelect}
-          parentPickerOpen={parentPickerOpen}
-          setParentPickerOpen={setParentPickerOpen}
-          parentQuery={parentQuery}
-          setParentQuery={setParentQuery}
-          parentOptions={parentOptions}
-          selectedParentId={selectedParentId}
-          onParentChange={handleParentChange}
-          labelsPickerOpen={labelsPickerOpen}
-          canCreateLabel={Boolean(selectedWorkspaceId)}
-          setLabelsPickerOpen={setLabelsPickerOpen}
-          labelQuery={labelQuery}
-          setLabelQuery={setLabelQuery}
-          availableLabels={availableLabels}
-          selectedLabels={selectedLabels}
-          selectedLabelIds={selectedLabelIds}
-          newLabelName={newLabelName}
-          setNewLabelName={setNewLabelName}
-          labelNameLimitState={labelNameLimitState}
-          creatingLabel={creatingLabel}
-          onToggleLabel={toggleLabel}
-          onClearLabels={() => setSelectedLabelIds([])}
-          onCreateLabel={() => {
-            void handleCreateLabel()
-          }}
-        />
+          <CreateWorkItemPropertiesRow
+            showAssignee={!privateTaskMode}
+            showLabels
+            showProject={!privateTaskMode}
+            team={team}
+            status={status}
+            teamStatuses={teamStatuses}
+            statusPickerOpen={statusPickerOpen}
+            setStatusPickerOpen={setStatusPickerOpen}
+            statusQuery={statusQuery}
+            setStatusQuery={setStatusQuery}
+            onStatusChange={handleStatusChange}
+            priority={priority}
+            priorityPickerOpen={priorityPickerOpen}
+            setPriorityPickerOpen={setPriorityPickerOpen}
+            onPriorityChange={handlePriorityChange}
+            assigneePickerOpen={assigneePickerOpen}
+            setAssigneePickerOpen={setAssigneePickerOpen}
+            assigneeQuery={assigneeQuery}
+            setAssigneeQuery={setAssigneeQuery}
+            teamMembers={teamMembers}
+            selectedAssignees={selectedAssignees}
+            effectiveAssigneeIds={effectiveAssigneeIds}
+            onAssigneeChange={handleAssigneeChange}
+            projectPickerOpen={projectPickerOpen}
+            setProjectPickerOpen={setProjectPickerOpen}
+            projectQuery={projectQuery}
+            setProjectQuery={setProjectQuery}
+            teamProjects={teamProjects}
+            selectedProject={displayedProject}
+            effectiveProjectId={effectiveProjectId}
+            selectedParentItem={selectedParentItem}
+            onProjectChange={handleProjectChange}
+            startDate={startDate}
+            setStartDate={setStartDate}
+            startTime={startTime}
+            setStartTime={setStartTime}
+            targetDate={targetDate}
+            setTargetDate={setTargetDate}
+            endTime={endTime}
+            setEndTime={setEndTime}
+            scheduleTimeZone={scheduleTimeZone}
+            setScheduleTimeZone={setScheduleTimeZone}
+            showParentSelect={showParentSelect}
+            parentPickerOpen={parentPickerOpen}
+            setParentPickerOpen={setParentPickerOpen}
+            parentQuery={parentQuery}
+            setParentQuery={setParentQuery}
+            parentOptions={parentOptions}
+            selectedParentId={selectedParentId}
+            onParentChange={handleParentChange}
+            labelsPickerOpen={labelsPickerOpen}
+            canCreateLabel={Boolean(selectedWorkspaceId)}
+            setLabelsPickerOpen={setLabelsPickerOpen}
+            labelQuery={labelQuery}
+            setLabelQuery={setLabelQuery}
+            availableLabels={availableLabels}
+            selectedLabels={selectedLabels}
+            selectedLabelIds={selectedLabelIds}
+            newLabelName={newLabelName}
+            setNewLabelName={setNewLabelName}
+            labelNameLimitState={labelNameLimitState}
+            creatingLabel={creatingLabel}
+            onToggleLabel={toggleLabel}
+            onClearLabels={() => setSelectedLabelIds([])}
+            onCreateLabel={() => {
+              void handleCreateLabel()
+            }}
+          />
 
-        <CreateWorkItemWarnings
-          hasEditableTeams={hasEditableTeams}
-          hasAvailableItemTypes={hasAvailableItemTypes}
-        />
+          <CreateWorkItemWarnings
+            hasEditableTeams={hasEditableTeams}
+            hasAvailableItemTypes={hasAvailableItemTypes}
+          />
+        </div>
 
         <CreateWorkItemFooter
           destinationLabel={privateTaskMode ? "Private tasks" : null}

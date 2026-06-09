@@ -5,10 +5,17 @@ import {
   CalendarBlank,
   CaretDown,
   Check,
+  CheckSquare,
+  EnvelopeSimple,
   Hash,
+  LinkSimple,
+  ListBullets,
+  ListChecks,
+  Phone,
   Plus,
   TextAa,
   Trash,
+  User,
 } from "@phosphor-icons/react"
 
 import { PhosphorIconPicker } from "@/components/app/phosphor-icon-picker"
@@ -63,6 +70,22 @@ const CUSTOM_PROPERTY_TYPE_LABELS: Record<CustomPropertyType, string> = {
   person: "Person",
   select: "Select",
   multiSelect: "Multi-select",
+}
+
+const CUSTOM_PROPERTY_TYPE_ICONS: Record<
+  CustomPropertyType,
+  typeof TextAa
+> = {
+  text: TextAa,
+  integer: Hash,
+  date: CalendarBlank,
+  checkbox: CheckSquare,
+  url: LinkSimple,
+  email: EnvelopeSimple,
+  phone: Phone,
+  person: User,
+  select: ListBullets,
+  multiSelect: ListChecks,
 }
 
 const OPTION_COLORS = [
@@ -429,22 +452,51 @@ export function CustomPropertyDefinitionDialog({
             <label className="text-[11.5px] font-semibold tracking-wide text-fg-3 uppercase">
               Type
             </label>
-            <Select
-              value={type}
-              disabled={isEditing}
-              onValueChange={(value) => setType(value as CustomPropertyType)}
+            <div
+              role="radiogroup"
+              aria-label="Property type"
+              className="grid grid-cols-2 gap-1.5"
             >
-              <SelectTrigger className="h-9 w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {customPropertyTypes.map((entry) => (
-                  <SelectItem key={entry} value={entry}>
-                    {CUSTOM_PROPERTY_TYPE_LABELS[entry]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              {customPropertyTypes.map((entry) => {
+                const TypeIcon = CUSTOM_PROPERTY_TYPE_ICONS[entry]
+                const selected = type === entry
+
+                return (
+                  <button
+                    key={entry}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={isEditing && !selected}
+                    onClick={() => setType(entry)}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[12.5px] font-medium transition-colors",
+                      selected
+                        ? "border-primary/40 bg-primary/10 text-foreground"
+                        : "border-line-soft bg-background text-fg-2 hover:border-line hover:bg-surface-2",
+                      isEditing && !selected && "opacity-40"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "grid size-6 shrink-0 place-items-center rounded-md",
+                        selected
+                          ? "bg-primary/15 text-primary"
+                          : "bg-surface-3 text-fg-3"
+                      )}
+                    >
+                      <TypeIcon className="size-3.5" />
+                    </span>
+                    <span className="truncate">
+                      {CUSTOM_PROPERTY_TYPE_LABELS[entry]}
+                    </span>
+                    {selected ? (
+                      <Check className="ml-auto size-3.5 shrink-0 text-primary" />
+                    ) : null}
+                  </button>
+                )
+              })}
+            </div>
             {isEditing ? (
               <p className="text-[11.5px] text-fg-3">
                 Type can’t be changed after a property is created.

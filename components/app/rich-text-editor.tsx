@@ -16,6 +16,7 @@ import {
   EditorContent,
   type Editor,
   type JSONContent,
+  ReactNodeViewRenderer,
   useEditor,
 } from "@tiptap/react"
 import { relativePositionToAbsolutePosition } from "@tiptap/y-tiptap"
@@ -33,6 +34,7 @@ import type { RichTextMentionCounts } from "@/lib/content/rich-text-mentions"
 import { sanitizeRichTextContent } from "@/lib/content/rich-text-security"
 import type { DocumentPresenceViewer, UserProfile } from "@/lib/domain/types"
 import { createRichTextBaseExtensions } from "@/lib/rich-text/extensions"
+import { EntityReferenceNodeView } from "@/components/app/rich-text-editor/entity-reference-node-view"
 import { cn, getPlainTextContent } from "@/lib/utils"
 import { isImageAttachmentFile } from "@/lib/domain/file-uploads"
 import {
@@ -238,7 +240,7 @@ function getImageReferenceLabel(input: {
 
 function getSelectedNodeAttrs(
   currentEditor: Editor,
-  nodeTypeName: "attachmentReference" | "image"
+  nodeTypeName: "attachmentReference" | "image" | "entityReference"
 ) {
   const node = (currentEditor.state.selection as { node?: unknown }).node
 
@@ -2044,6 +2046,7 @@ function getSlashCommandMenuNode(
     | "allowSlashCommands"
     | "containerWidth"
     | "filteredSlashCommands"
+    | "mentionMenuPlacement"
     | "previousSlashQueryRef"
     | "setSlashIndex"
     | "setSlashState"
@@ -2066,6 +2069,7 @@ function getSlashCommandMenuNode(
       commands={input.filteredSlashCommands}
       containerWidth={input.containerWidth}
       editor={input.activeEditor}
+      placement={input.mentionMenuPlacement}
       state={input.slashState}
       onComplete={() => {
         input.setSlashState(null)
@@ -2253,6 +2257,7 @@ function RichTextEditorBody({
     allowSlashCommands,
     containerWidth,
     filteredSlashCommands,
+    mentionMenuPlacement,
     previousSlashQueryRef,
     setSlashIndex,
     setSlashState,
@@ -3223,6 +3228,10 @@ function createRichTextCollaborationExtensions(input: {
   ]
 }
 
+const entityReferenceNodeViewRenderer = ReactNodeViewRenderer(
+  EntityReferenceNodeView
+)
+
 function useRichTextExtensionSets({
   collaboration,
   enforcePlainTextLimit,
@@ -3247,6 +3256,7 @@ function useRichTextExtensionSets({
         placeholder,
         collaboration: hasCollaboration,
         characterLimit,
+        entityReferenceNodeView: entityReferenceNodeViewRenderer,
       }),
     [characterLimit, hasCollaboration, placeholder]
   )
@@ -3735,6 +3745,85 @@ export function RichTextEditor({
     enableReferences,
   })
 
+  // The editor's `handleKeyDown` closure is configured by `useEditor` and is
+  // not recreated when menu state changes. Reading menu state through latest
+  // refs keeps slash/mention/reference keyboard navigation (arrow/Enter/Escape)
+  // working without stale-closure no-ops.
+  const slashStateRef = useLatestRef(slashState)
+  const slashIndexRef = useLatestRef(slashIndex)
+  const mentionStateRef = useLatestRef(mentionState)
+  const mentionIndexRef = useLatestRef(mentionIndex)
+  const referenceStateRef = useLatestRef(referenceState)
+  const referenceIndexRef = useLatestRef(referenceIndex)
+
+  // Dismiss any open inline menu (slash / mention / reference picker) when the
+  // user points outside the editor surface. Keyboard Escape and candidate
+  // selection are handled elsewhere; this closes the otherwise-sticky picker.
+  useEffect(() => {
+    function handlePointerDownOutside(event: PointerEvent) {
+      const container = containerRef.current
+      const target = event.target
+
+      if (
+        !container ||
+        (target instanceof Node && container.contains(target))
+      ) {
+        return
+      }
+
+      // The reference picker renders as a centered modal portaled outside the
+      // editor container, so it manages its own dismissal (overlay click /
+      // Escape). Skip the outside-pointer teardown to avoid closing it the
+      // moment the user interacts with the modal.
+      if (referenceStateRef.current?.mode === "picker") {
+        return
+      }
+
+      if (slashStateRef.current) {
+        setSlashState(null)
+        setSlashIndex(0)
+        previousSlashQueryRef.current = null
+      }
+
+      if (mentionStateRef.current) {
+        setMentionState(null)
+        setMentionIndex(0)
+        previousMentionQueryRef.current = null
+      }
+
+      if (referenceStateRef.current) {
+        setReferenceState(null)
+        setReferenceIndex(0)
+        previousReferenceQueryRef.current = null
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDownOutside, true)
+
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        handlePointerDownOutside,
+        true
+      )
+    }
+  }, [
+    mentionIndexRef,
+    mentionStateRef,
+    previousMentionQueryRef,
+    previousReferenceQueryRef,
+    previousSlashQueryRef,
+    referenceIndexRef,
+    referenceStateRef,
+    setMentionIndex,
+    setMentionState,
+    setReferenceIndex,
+    setReferenceState,
+    setSlashIndex,
+    setSlashState,
+    slashStateRef,
+  ])
+
   const editorClass = getRichTextEditorClassName({ compact, fullPage })
   const { resolvedEditorContent, sanitizedStringContent } =
     useRichTextResolvedContent(content)
@@ -3799,8 +3888,8 @@ export function RichTextEditor({
             enableReferences,
             event,
             mentionCandidates,
-            mentionIndex,
-            mentionState,
+            mentionIndex: mentionIndexRef.current,
+            mentionState: mentionStateRef.current,
             onMentionInsertedRef,
             onReferenceInsertedRef,
             onSubmitShortcut,
@@ -3809,8 +3898,8 @@ export function RichTextEditor({
             previousReferenceQueryRef,
             previousSlashQueryRef,
             referenceCandidates: referenceCandidatesRef.current,
-            referenceIndex,
-            referenceState,
+            referenceIndex: referenceIndexRef.current,
+            referenceState: referenceStateRef.current,
             requestAttachmentPicker,
             requestEmojiPicker,
             requestImagePicker,
@@ -3821,8 +3910,8 @@ export function RichTextEditor({
             setReferenceState,
             setSlashIndex,
             setSlashState,
-            slashIndex,
-            slashState,
+            slashIndex: slashIndexRef.current,
+            slashState: slashStateRef.current,
             submitOnEnter,
           })
         },

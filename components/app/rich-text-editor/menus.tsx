@@ -31,6 +31,11 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import type { RichTextEntityReferenceCandidate } from "@/lib/content/rich-text-references"
 import { getMentionDisplayLabel } from "@/lib/domain/input-constraints"
 import type { UserProfile } from "@/lib/domain/types"
@@ -627,6 +632,7 @@ export function SlashCommandMenu({
   commands,
   containerWidth,
   editor,
+  placement = "below",
   state,
   onComplete,
 }: {
@@ -634,6 +640,7 @@ export function SlashCommandMenu({
   commands: ReturnType<typeof filterSlashCommands>
   containerWidth: number
   editor: Editor
+  placement?: "above" | "below"
   state: MenuState
   onComplete: () => void
 }) {
@@ -643,8 +650,9 @@ export function SlashCommandMenu({
     <div
       className="absolute z-50 w-[22.5rem] max-w-[calc(100%-1rem)]"
       style={{
+        bottom: placement === "above" ? state.bottom : undefined,
         left: getMenuLeft(state, containerWidth, SLASH_MENU_WIDTH),
-        top: state.top,
+        top: placement === "below" ? state.top : undefined,
       }}
     >
       <Command
@@ -841,6 +849,99 @@ export function ReferenceMenu({
   onSelectCandidate?: (candidate: ReferenceCandidate) => void
 }) {
   const itemRefs = useActiveItemScroll(activeIndex, candidates.length)
+  const isPicker = state.mode === "picker"
+
+  const commandBody = (
+    <Command
+      className={cn(
+        "overflow-hidden rounded-lg border border-line bg-background",
+        !isPicker && "shadow-xl"
+      )}
+      shouldFilter={false}
+      value={
+        isPicker
+          ? undefined
+          : candidates[activeIndex]
+            ? `${candidates[activeIndex].type}:${candidates[activeIndex].id}`
+            : undefined
+      }
+      onKeyDown={
+        isPicker
+          ? (event) => {
+              if (event.key === "Escape") {
+                event.preventDefault()
+                onComplete()
+              }
+            }
+          : undefined
+      }
+    >
+      <CommandInput
+        autoFocus
+        placeholder="Search references..."
+        value={state.query}
+        onValueChange={onQueryChange}
+      />
+      <CommandList className="max-h-[min(20rem,50vh)]">
+        <CommandEmpty>
+          <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+            No matching references
+          </div>
+        </CommandEmpty>
+        <CommandGroup>
+          {candidates.map((candidate, index) => (
+            <CommandItem
+              key={`${candidate.type}:${candidate.id}`}
+              ref={(node) => assignMenuItemRef(itemRefs, index, node)}
+              className={cn(
+                "flex items-center gap-3 rounded-md px-2 py-1.5",
+                isPicker
+                  ? "data-[selected=true]:bg-accent"
+                  : index === activeIndex && "bg-accent"
+              )}
+              value={`${candidate.type}:${candidate.id}`}
+              onSelect={() => {
+                insertReference(editor, state, candidate)
+                onSelectCandidate?.(candidate)
+                onComplete()
+              }}
+            >
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+                {getReferenceIcon(candidate)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm">{candidate.label}</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {candidate.subtitle ?? getReferenceKindLabel(candidate)}
+                </div>
+              </div>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </CommandList>
+    </Command>
+  )
+
+  if (isPicker) {
+    return (
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open) {
+            onComplete()
+          }
+        }}
+      >
+        <DialogContent
+          className="overflow-hidden p-0 sm:max-w-lg"
+          showCloseButton={false}
+        >
+          <DialogTitle className="sr-only">Insert reference</DialogTitle>
+          {commandBody}
+        </DialogContent>
+      </Dialog>
+    )
+  }
 
   return (
     <div
@@ -850,57 +951,7 @@ export function ReferenceMenu({
         top: state.top,
       }}
     >
-      <Command
-        className="overflow-hidden rounded-lg border border-line bg-background shadow-xl"
-        shouldFilter={false}
-        value={
-          candidates[activeIndex]
-            ? `${candidates[activeIndex].type}:${candidates[activeIndex].id}`
-            : undefined
-        }
-      >
-        <CommandInput
-          autoFocus
-          placeholder="Search references..."
-          value={state.query}
-          onValueChange={onQueryChange}
-        />
-        <CommandList className="max-h-[min(20rem,50vh)]">
-          <CommandEmpty>
-            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-              No matching references
-            </div>
-          </CommandEmpty>
-          <CommandGroup>
-            {candidates.map((candidate, index) => (
-              <CommandItem
-                key={`${candidate.type}:${candidate.id}`}
-                ref={(node) => assignMenuItemRef(itemRefs, index, node)}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-2 py-1.5",
-                  index === activeIndex && "bg-accent"
-                )}
-                value={`${candidate.type}:${candidate.id}`}
-                onSelect={() => {
-                  insertReference(editor, state, candidate)
-                  onSelectCandidate?.(candidate)
-                  onComplete()
-                }}
-              >
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
-                  {getReferenceIcon(candidate)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{candidate.label}</div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {candidate.subtitle ?? getReferenceKindLabel(candidate)}
-                  </div>
-                </div>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        </CommandList>
-      </Command>
+      {commandBody}
     </div>
   )
 }

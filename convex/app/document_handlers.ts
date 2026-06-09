@@ -1073,10 +1073,15 @@ export async function updateItemDescriptionHandler(
     updatedBy: args.currentUserId,
   })
 
+  // Update reference relationships derived from the description, but do NOT
+  // bump the work item record's `updatedAt`. The description lives in its own
+  // document (with its own `updatedAt` + optimistic lock above); bumping the
+  // work item here would invalidate the title's `expectedUpdatedAt` baseline
+  // from the same user's own description edits, causing spurious
+  // "Work item changed while you were editing" conflicts on title save.
   await ctx.db.patch(item._id, {
     linkedDocumentIds: relationships.documentIds,
     linkedWorkItemIds: relationships.workItemIds,
-    updatedAt,
   })
 
   return {

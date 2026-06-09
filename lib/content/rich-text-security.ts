@@ -71,6 +71,7 @@ const RICH_TEXT_ALLOWED_ATTRIBUTES: Record<string, readonly string[]> = {
     "data-reference-type",
     "data-reference-id",
     "data-label",
+    "data-display",
     "data-attachment-kind",
     "data-file-name",
   ],
@@ -99,6 +100,7 @@ const RICH_TEXT_ALLOWED_CLASSES: Record<string, readonly string[]> = {
     "editor-reference-project",
     "editor-reference-view",
     "editor-reference-workItem",
+    "editor-reference-preview",
   ],
   img: ["editor-image"],
   span: ["editor-highlight", "editor-mention"],
@@ -337,12 +339,15 @@ function getEntityReferenceAttributes(attributes: Record<string, string>) {
     : null
   const referenceId = attributes["data-reference-id"]?.trim() ?? null
   const referenceLabel = attributes["data-label"]?.trim() ?? null
+  const referenceDisplay =
+    attributes["data-display"]?.trim() === "preview" ? "preview" : null
   return dataType && referenceType && referenceId
     ? {
         "data-type": dataType,
         "data-reference-type": referenceType,
         "data-reference-id": referenceId,
         ...(referenceLabel ? { "data-label": referenceLabel } : {}),
+        ...(referenceDisplay ? { "data-display": referenceDisplay } : {}),
       }
     : null
 }

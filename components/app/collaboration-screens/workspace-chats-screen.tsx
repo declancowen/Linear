@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react"
 import { useAppRouter, useAppSearchParams } from "@/lib/browser/app-navigation"
-import { Plus, SidebarIcon } from "@phosphor-icons/react"
+import { ChatCircleDots, Plus } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
 import {
@@ -387,7 +387,7 @@ function WorkspaceChatsContent({
                 className="size-7 rounded-md"
                 onClick={onToggleConversationListCollapsed}
               >
-                <SidebarIcon className="size-3.5" />
+                <ChatCircleDots className="size-3.5" />
               </Button>
             }
           />

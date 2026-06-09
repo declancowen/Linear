@@ -10,6 +10,7 @@ export type WorkSlice = Pick<
   | "updateWorkItem"
   | "setWorkItemSubscription"
   | "deleteWorkItem"
+  | "deleteWorkItems"
   | "shiftTimelineItem"
   | "updateDocumentContent"
   | "cancelDocumentSync"

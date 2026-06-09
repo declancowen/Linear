@@ -418,6 +418,115 @@
     white-space: nowrap;
   }
 
+  .tiptap .editor-attachment-download {
+    display: inline-flex;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: 0 0.15rem;
+    align-items: center;
+    justify-content: center;
+    vertical-align: baseline;
+    border-radius: 0.375rem;
+    color: var(--muted-foreground);
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .tiptap .editor-attachment-download:hover {
+    background: var(--surface-3);
+    color: var(--foreground);
+  }
+
+  .tiptap .editor-attachment-download::before {
+    content: "";
+    display: inline-block;
+    width: 0.95em;
+    height: 0.95em;
+    background-color: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M224,152v56a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V152a8,8,0,0,1,16,0v56H208V152a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,132.69V40a8,8,0,0,0-16,0v92.69L93.66,106.34a8,8,0,0,0-11.32,11.32Z%22/%3E%3C/svg%3E")
+      center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M224,152v56a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V152a8,8,0,0,1,16,0v56H208V152a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,132.69V40a8,8,0,0,0-16,0v92.69L93.66,106.34a8,8,0,0,0-11.32,11.32Z%22/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+
+  .tiptap .editor-reference,
+  .ProseMirror .editor-reference {
+    display: inline-flex;
+    max-width: min(100%, 22rem);
+    align-items: center;
+    gap: 0.3rem;
+    vertical-align: baseline;
+    border-radius: 0.375rem;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    padding: 0.05rem 0.45rem;
+    color: var(--foreground);
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    --reference-chip-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M208,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32Zm0,176H48V48H208V208Zm-37.66-93.66a8,8,0,0,1,0,11.32l-48,48a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L116,143.31l42.34-42.35A8,8,0,0,1,170.34,114.34Z%22/%3E%3C/svg%3E");
+  }
+
+  .tiptap .editor-reference:hover,
+  .ProseMirror .editor-reference:hover {
+    background: var(--surface-3);
+    text-decoration: none;
+  }
+
+  .tiptap .editor-reference::before,
+  .ProseMirror .editor-reference::before {
+    content: "";
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    flex: none;
+    background-color: var(--muted-foreground);
+    -webkit-mask: var(--reference-chip-icon) center / contain no-repeat;
+    mask: var(--reference-chip-icon) center / contain no-repeat;
+  }
+
+  .tiptap .editor-reference-document,
+  .ProseMirror .editor-reference-document {
+    --reference-chip-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM160,51.31,188.69,80H160ZM200,216H56V40h88V88a8,8,0,0,0,8,8h48V216Z%22/%3E%3C/svg%3E");
+  }
+
+  .tiptap .editor-reference-project,
+  .ProseMirror .editor-reference-project {
+    --reference-chip-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M216,72H131.31L104,44.69A15.86,15.86,0,0,0,92.69,40H40A16,16,0,0,0,24,56V200.62A15.4,15.4,0,0,0,39.38,216H216.89A15.13,15.13,0,0,0,232,200.89V88A16,16,0,0,0,216,72ZM40,56H92.69l16,16H40ZM216,200H40V88H216Z%22/%3E%3C/svg%3E");
+  }
+
+  .tiptap .editor-reference-view,
+  .ProseMirror .editor-reference-view {
+    --reference-chip-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M104,40H56A16,16,0,0,0,40,56v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V56A16,16,0,0,0,104,40Zm0,64H56V56h48ZM200,40H152a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V56A16,16,0,0,0,200,40Zm0,64H152V56h48ZM104,136H56a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V152A16,16,0,0,0,104,136Zm0,64H56V152h48Zm96-64H152a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V152A16,16,0,0,0,200,136Zm0,64H152V152h48Z%22/%3E%3C/svg%3E");
+  }
+
+  .tiptap .editor-reference-preview,
+  .ProseMirror .editor-reference-preview {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 0.5rem 0;
+    padding: 0.6rem 0.75rem;
+    gap: 0.55rem;
+    border-radius: 0.6rem;
+    white-space: normal;
+    font-weight: 600;
+  }
+
+  .tiptap .editor-reference-preview::before,
+  .ProseMirror .editor-reference-preview::before {
+    width: 1.2em;
+    height: 1.2em;
+    margin-top: 0.05em;
+  }
+
+  .ProseMirror .editor-reference-preview.ProseMirror-selectednode {
+    outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
+    outline-offset: 1px;
+  }
+
   .tiptap mark,
   .ProseMirror mark {
     border-radius: 0.2rem;
@@ -532,7 +641,7 @@
     border: 0 !important;
   }
 
-  .app-emoji-picker input {
+  .app-emoji-picker:not(.epr-dark-theme) input {
     color: #111111 !important;
     caret-color: #111111 !important;
   }

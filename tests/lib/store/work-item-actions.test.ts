@@ -948,4 +948,32 @@ describe("work item actions", () => {
     expect(harness.syncInBackgroundMock).not.toHaveBeenCalled()
     expect(harness.state.workItems).toHaveLength(2)
   })
+
+  it("bulk deletes a selected subtree and only syncs the top-level root", async () => {
+    const harness = await createWorkItemActionsHarness()
+
+    const result = await harness.actions.deleteWorkItems(["child", "parent"])
+
+    expect(result).toBe(true)
+    expect(harness.state.workItems).toHaveLength(0)
+    expect(syncDeleteWorkItemMock).toHaveBeenCalledTimes(1)
+    expect(syncDeleteWorkItemMock).toHaveBeenCalledWith("parent")
+  })
+
+  it("bulk deletes multiple independent items together", async () => {
+    const state = createState()
+    state.workItems = [
+      createTestWorkItem("a", { status: "todo" }),
+      createTestWorkItem("b", { status: "todo" }),
+    ]
+    const harness = await createWorkItemActionsHarness(state)
+
+    const result = await harness.actions.deleteWorkItems(["a", "b"])
+
+    expect(result).toBe(true)
+    expect(harness.state.workItems).toHaveLength(0)
+    expect(syncDeleteWorkItemMock).toHaveBeenCalledTimes(2)
+    expect(syncDeleteWorkItemMock).toHaveBeenCalledWith("a")
+    expect(syncDeleteWorkItemMock).toHaveBeenCalledWith("b")
+  })
 })

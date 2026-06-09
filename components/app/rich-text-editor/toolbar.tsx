@@ -32,6 +32,7 @@ import { EmojiPickerPopover } from "@/components/app/emoji-picker-popover"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
@@ -379,6 +380,10 @@ function TableEditToolbarGroup({ editor }: { editor: Editor }) {
     return null
   }
 
+  const canDeleteRow = editor.can().chain().focus().deleteRow().run()
+  const canDeleteColumn = editor.can().chain().focus().deleteColumn().run()
+  const canDeleteTable = editor.can().chain().focus().deleteTable().run()
+
   return (
     <>
       <ToolbarSeparator />
@@ -398,30 +403,47 @@ function TableEditToolbarGroup({ editor }: { editor: Editor }) {
       >
         <ColumnsPlusRight className="size-3.5" />
       </ToolbarButton>
-      <ToolbarButton
-        active={false}
-        disabled={!editor.can().chain().focus().deleteRow().run()}
-        onClick={() => editor.chain().focus().deleteRow().run()}
-        label="Delete row"
-      >
-        <Trash className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={false}
-        disabled={!editor.can().chain().focus().deleteColumn().run()}
-        onClick={() => editor.chain().focus().deleteColumn().run()}
-        label="Delete column"
-      >
-        <Trash className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton
-        active={false}
-        disabled={!editor.can().chain().focus().deleteTable().run()}
-        onClick={() => editor.chain().focus().deleteTable().run()}
-        label="Delete table"
-      >
-        <Trash className="size-3.5" />
-      </ToolbarButton>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={!canDeleteRow && !canDeleteColumn && !canDeleteTable}
+            title="Delete from table"
+            aria-label="Delete from table"
+            className={cn(
+              "flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+              !canDeleteRow &&
+                !canDeleteColumn &&
+                !canDeleteTable &&
+                "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-muted-foreground"
+            )}
+          >
+            <Trash className="size-3.5" />
+            <span className="sr-only">Delete from table</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-40">
+          <DropdownMenuItem
+            disabled={!canDeleteRow}
+            onSelect={() => editor.chain().focus().deleteRow().run()}
+          >
+            Delete row
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!canDeleteColumn}
+            onSelect={() => editor.chain().focus().deleteColumn().run()}
+          >
+            Delete column
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!canDeleteTable}
+            variant="destructive"
+            onSelect={() => editor.chain().focus().deleteTable().run()}
+          >
+            Delete table
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </>
   )
 }

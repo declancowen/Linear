@@ -142,10 +142,13 @@ function getAnchorAttachmentKind(
  * mode image previews become reference chips; supported file links upgrade to
  * chips in every mode.
  */
-function transformAttachmentReferences(html: string, inline: boolean) {
+function transformAttachmentReferences(
+  html: string,
+  options: { inline: boolean; download: boolean }
+) {
   const doc = parseHtmlDocument(html)
 
-  if (inline) {
+  if (options.inline) {
     replaceImagePreviewsWithAttachmentLinks(doc.body)
   }
 
@@ -165,7 +168,46 @@ function transformAttachmentReferences(html: string, inline: boolean) {
     anchor.setAttribute("data-attachment-kind", kind)
   })
 
+  if (options.download) {
+    appendAttachmentDownloadControls(doc.body)
+  }
+
   return doc.body.innerHTML
+}
+
+function appendAttachmentDownloadControls(container: HTMLElement) {
+  container
+    .querySelectorAll('a[data-type="attachment"]')
+    .forEach((anchor) => {
+      if (anchor.nextElementSibling?.hasAttribute("data-attachment-download")) {
+        return
+      }
+
+      const href = anchor.getAttribute("href")
+
+      if (!href) {
+        return
+      }
+
+      const ownerDocument = anchor.ownerDocument
+
+      if (!ownerDocument) {
+        return
+      }
+
+      const fileName =
+        anchor.getAttribute("data-file-name") ||
+        anchor.textContent?.trim() ||
+        "file"
+      const download = ownerDocument.createElement("a")
+      download.setAttribute("href", href)
+      download.setAttribute("download", fileName)
+      download.setAttribute("data-attachment-download", "true")
+      download.setAttribute("class", "editor-attachment-download")
+      download.setAttribute("aria-label", `Download ${fileName}`)
+      download.setAttribute("title", `Download ${fileName}`)
+      anchor.after(download)
+    })
 }
 
 function getImagePreviewFromTarget(
@@ -198,6 +240,7 @@ function getImagePreviewFromTarget(
 
   if (
     anchor instanceof HTMLAnchorElement &&
+    !anchor.hasAttribute("data-attachment-download") &&
     anchor.dataset.type !== "entity-reference" &&
     isImageHrefCandidate(anchor)
   ) {
@@ -214,11 +257,13 @@ export function RichTextContent({
   content,
   className,
   attachmentDisplay = "default",
+  enableAttachmentDownload = false,
   referenceCandidates,
 }: {
   content: string
   className?: string
   attachmentDisplay?: AttachmentDisplayMode
+  enableAttachmentDownload?: boolean
   referenceCandidates?: RichTextEntityReferenceCandidate[]
 }) {
   const [imagePreview, setImagePreview] = useState<ImagePreviewState | null>(
@@ -230,11 +275,11 @@ export function RichTextContent({
   )
   const displayedContent = useMemo(
     () =>
-      transformAttachmentReferences(
-        sanitizedContent,
-        attachmentDisplay === "inline"
-      ),
-    [attachmentDisplay, sanitizedContent]
+      transformAttachmentReferences(sanitizedContent, {
+        inline: attachmentDisplay === "inline",
+        download: enableAttachmentDownload,
+      }),
+    [attachmentDisplay, enableAttachmentDownload, sanitizedContent]
   )
   const accessibleReferenceKeys = useMemo(
     () =>

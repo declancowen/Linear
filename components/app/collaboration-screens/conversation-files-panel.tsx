@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { format } from "date-fns"
-import { ArrowSquareOut, DownloadSimple } from "@phosphor-icons/react"
+import { ArrowSquareOut, ChatCircleDots, DownloadSimple, Files } from "@phosphor-icons/react"
 
 import {
   Dialog,
@@ -59,23 +59,35 @@ export function ConversationTabBar({
   className?: string
   onTabChange: (tab: "chat" | "files") => void
 }) {
+  const tabs = [
+    { tab: "chat" as const, label: "Chat", Icon: ChatCircleDots },
+    { tab: "files" as const, label: "Files", Icon: Files },
+  ]
+
   return (
     <div className={cn("flex items-center gap-1", className)}>
-      {(["chat", "files"] as const).map((tab) => (
-        <button
-          key={tab}
-          type="button"
-          onClick={() => onTabChange(tab)}
-          className={cn(
-            "rounded-md px-2.5 py-1 text-[12.5px] font-medium capitalize transition-colors",
-            activeTab === tab
-              ? "bg-surface-3 text-foreground"
-              : "text-fg-3 hover:text-foreground"
-          )}
-        >
-          {tab}
-        </button>
-      ))}
+      {tabs.map(({ tab, label, Icon }) => {
+        const active = activeTab === tab
+
+        return (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => onTabChange(tab)}
+            aria-label={label}
+            aria-pressed={active}
+            title={label}
+            className={cn(
+              "flex size-7 items-center justify-center rounded-md transition-colors",
+              active
+                ? "bg-surface-3 text-foreground"
+                : "text-fg-3 hover:text-foreground"
+            )}
+          >
+            <Icon className="size-4" weight={active ? "fill" : "regular"} />
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -144,8 +156,18 @@ export function ConversationFilesPanel({
 
   if (files.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-[13px] text-fg-3">
-        No files have been shared here yet.
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+        <div className="flex size-11 items-center justify-center rounded-full bg-surface-2 text-fg-3">
+          <Files className="size-5" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-[13.5px] font-medium text-foreground">
+            No files shared yet
+          </p>
+          <p className="mx-auto max-w-[15rem] text-[12.5px] leading-5 text-fg-3">
+            Files and images shared in this conversation will appear here.
+          </p>
+        </div>
       </div>
     )
   }

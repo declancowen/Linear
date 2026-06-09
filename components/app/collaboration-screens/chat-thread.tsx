@@ -677,6 +677,7 @@ function ChatMessageBody({
     <div onClickCapture={handleContentClickCapture}>
       <RichTextContent
         content={sanitizeRichTextMessageContent(getChatMessageMarkup(content))}
+        enableAttachmentDownload
         className="max-w-full text-[13.5px] leading-[1.55] [overflow-wrap:anywhere] break-words text-foreground [&_.editor-mention]:rounded [&_.editor-mention]:bg-accent-bg [&_.editor-mention]:px-1 [&_.editor-mention]:font-medium [&_.editor-mention]:text-accent-fg [&_a]:break-all [&_a]:text-blue-600 [&_a]:underline dark:[&_a]:text-blue-400 [&_code]:rounded [&_code]:bg-surface-3 [&_code]:px-1.5 [&_code]:py-[1px] [&_code]:text-[12.5px] [&_p]:my-0 [&_p+p]:mt-1 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap"
       />
     </div>
@@ -2024,8 +2025,9 @@ export function ChatThread({
           videoAction={videoAction}
         />
       ) : (
-        <div className="flex h-10 shrink-0 items-center justify-end border-b border-line px-4">
+        <div className="flex h-10 shrink-0 items-center justify-end gap-1.5 border-b border-line px-4">
           {tabs}
+          {detailsAction}
         </div>
       )}
 

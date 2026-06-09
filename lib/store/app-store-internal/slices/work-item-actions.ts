@@ -230,6 +230,65 @@ function getWorkItemDeleteSuccessMessage(deletionPlan: WorkItemDeletePlan) {
     : "Item deleted"
 }
 
+// Only the top-level roots are synced; the server cascades their descendants,
+// so a selected id whose ancestor is also selected is dropped here to avoid
+// server-side double-deletes.
+function getBulkDeleteRootIds(state: AppStore, uniqueIds: string[]): string[] {
+  const itemById = new Map(state.workItems.map((item) => [item.id, item]))
+  const selectedIdSet = new Set(uniqueIds)
+
+  const isTopLevelRoot = (id: string) => {
+    let parentId = itemById.get(id)?.parentId ?? null
+    const visited = new Set<string>()
+
+    while (parentId && !visited.has(parentId)) {
+      if (selectedIdSet.has(parentId)) {
+        return false
+      }
+
+      visited.add(parentId)
+      parentId = itemById.get(parentId)?.parentId ?? null
+    }
+
+    return true
+  }
+
+  return uniqueIds.filter(isTopLevelRoot)
+}
+
+type BulkWorkItemDeletePlan = {
+  working: AppStore
+  syncIds: string[]
+  totalDeleted: number
+}
+
+// Fold each root's cascade plan against an evolving snapshot so the optimistic
+// removal is order-independent. canDeleteWorkItem surfaces its own toast for
+// unauthorized roots, which are skipped while the rest of the selection
+// continues to process.
+function planBulkWorkItemDelete(
+  state: AppStore,
+  rootIds: string[]
+): BulkWorkItemDeletePlan {
+  let working: AppStore = state
+  const syncIds: string[] = []
+  let totalDeleted = 0
+
+  for (const rootId of rootIds) {
+    const plan = getWorkItemCascadeDeletePlan(working, rootId)
+
+    if (!plan || !canDeleteWorkItem(working, plan)) {
+      continue
+    }
+
+    working = applyWorkItemCascadeDeletePlan(working, plan)
+    syncIds.push(rootId)
+    totalDeleted += plan.deletedItemIds.size
+  }
+
+  return { working, syncIds, totalDeleted }
+}
+
 function resolveCreateWorkItemDates(
   state: AppStore,
   input: CreateWorkItemInput
@@ -1082,6 +1141,7 @@ export function createWorkItemActions({
   | "updateWorkItem"
   | "setWorkItemSubscription"
   | "deleteWorkItem"
+  | "deleteWorkItems"
   | "shiftTimelineItem"
   | "createWorkItem"
 > {
@@ -1387,6 +1447,70 @@ export function createWorkItemActions({
         toast.error("Failed to delete item")
         return false
       }
+    },
+    async deleteWorkItems(itemIds) {
+      const uniqueIds = [...new Set(itemIds)].filter(
+        (id): id is string => typeof id === "string" && id.length > 0
+      )
+
+      if (uniqueIds.length <= 1) {
+        return uniqueIds.length === 1
+          ? get().deleteWorkItem(uniqueIds[0]!)
+          : false
+      }
+
+      const state = get()
+      const rootIds = getBulkDeleteRootIds(state, uniqueIds)
+      const { working, syncIds, totalDeleted } = planBulkWorkItemDelete(
+        state,
+        rootIds
+      )
+
+      if (syncIds.length === 0) {
+        return false
+      }
+
+      const previousState = getWorkItemDeletePreviousState(state)
+
+      set((current) => ({
+        ...current,
+        workItems: working.workItems,
+        documents: working.documents,
+        comments: working.comments,
+        attachments: working.attachments,
+        notifications: working.notifications,
+        workItemActivities: working.workItemActivities,
+      }))
+
+      const results = await Promise.allSettled(
+        syncIds.map((id) => syncDeleteWorkItem(id))
+      )
+
+      if (results.some((result) => result.status === "rejected")) {
+        for (const result of results) {
+          if (result.status === "rejected") {
+            console.error(result.reason)
+          }
+        }
+
+        set((current) => ({
+          ...current,
+          ...previousState,
+        }))
+        void runtime.refreshFromServer().catch((refreshError) => {
+          console.error(
+            "Failed to reconcile work item state after bulk delete failure",
+            refreshError
+          )
+        })
+        toast.error("Failed to delete some items")
+        return false
+      }
+
+      toast.success(
+        totalDeleted > 1 ? `Deleted ${totalDeleted} items` : "Item deleted"
+      )
+      return true
     },
     shiftTimelineItem(itemId, nextStartDate) {
       set((state) => {

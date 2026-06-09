@@ -74,4 +74,18 @@ describe("canonical collaboration content helpers", () => {
     )
     expect(invalid.contentHtml).not.toContain("data-chat-source-message-id")
   })
+
+  it("preserves inline entity-reference metadata through canonical normalization", () => {
+    const result = prepareCanonicalCollaborationContent(
+      createCanonicalContentJson(
+        '<p><a class="editor-reference editor-reference-workItem editor-reference-preview" data-type="entity-reference" data-reference-type="workItem" data-reference-id="item_1" data-label="PLA-1" data-display="preview" href="/items/item_1">PLA-1</a></p>'
+      )
+    )
+
+    expect(result.contentHtml).toContain('data-type="entity-reference"')
+    expect(result.contentHtml).toContain('data-reference-type="workItem"')
+    expect(result.contentHtml).toContain('data-reference-id="item_1"')
+    expect(result.contentHtml).toContain('data-display="preview"')
+    expect(result.contentHtml).toContain("editor-reference")
+  })
 })

@@ -395,6 +395,8 @@ const viewConfigPatchBaseSchema = z.object({
   description: boundedTrimmedStringSchema(
     viewDescriptionConstraints
   ).optional(),
+  scopeType: z.enum(["team", "workspace"]).optional(),
+  scopeId: z.string().trim().min(1).optional(),
   containerType: z.enum(viewContainerTypes).nullable().optional(),
   containerId: z.string().trim().min(1).nullable().optional(),
   route: z.string().trim().min(1).optional(),
@@ -402,6 +404,17 @@ const viewConfigPatchBaseSchema = z.object({
 
 export const viewConfigPatchSchema = viewConfigPatchBaseSchema.superRefine(
   (value, ctx) => {
+    const hasScopeType = value.scopeType !== undefined
+    const hasScopeId = value.scopeId !== undefined
+
+    if (hasScopeType !== hasScopeId) {
+      ctx.addIssue({
+        code: "custom",
+        message: "scopeType and scopeId must be provided together",
+        path: hasScopeType ? ["scopeId"] : ["scopeType"],
+      })
+    }
+
     const hasContainerTypeKey = "containerType" in value
     const hasContainerIdKey = "containerId" in value
     const hasContainerType =

@@ -395,12 +395,10 @@ function DocumentDetailHeader({
   titleInputRef,
   documentStats,
   otherDocumentViewers,
-  propertiesOpen,
   onDraftTitleChange,
   onSaveTitle,
   onStartEditingTitle,
   onDelete,
-  onToggleProperties,
 }: {
   backHref: string
   documentTitle: string
@@ -415,15 +413,13 @@ function DocumentDetailHeader({
     characters: number
   }
   otherDocumentViewers: DocumentPresenceViewer[]
-  propertiesOpen: boolean
   onDraftTitleChange: (title: string) => void
   onSaveTitle: () => void
   onStartEditingTitle: () => void
   onDelete: () => void
-  onToggleProperties: () => void
 }) {
   return (
-    <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b border-line bg-background px-3.5">
+    <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b border-line bg-background pr-12 pl-3.5">
       <div className="flex min-w-0 items-center gap-2 text-sm">
         <SidebarTrigger className="size-5 shrink-0" />
         <AppLink
@@ -490,15 +486,6 @@ function DocumentDetailHeader({
             Delete
           </Button>
         ) : null}
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label={propertiesOpen ? "Hide properties" : "Open properties"}
-          className={cn(!propertiesOpen && "text-muted-foreground")}
-          onClick={onToggleProperties}
-        >
-          <SidebarSimple className="size-4" />
-        </Button>
       </div>
     </div>
   )
@@ -861,7 +848,7 @@ function DocumentDetailLoadedView({
 }) {
   return (
     <>
-      <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden bg-background">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
           <DocumentDetailHeader
             backHref={backHref}
@@ -874,12 +861,10 @@ function DocumentDetailLoadedView({
             titleInputRef={titleInputRef}
             documentStats={documentStats}
             otherDocumentViewers={otherDocumentViewers}
-            propertiesOpen={propertiesOpen}
             onDraftTitleChange={onDraftTitleChange}
             onSaveTitle={onSaveTitle}
             onStartEditingTitle={onStartEditingTitle}
             onDelete={onDelete}
-            onToggleProperties={onToggleProperties}
           />
 
           <DocumentEditorPane
@@ -915,6 +900,19 @@ function DocumentDetailLoadedView({
           onRenameTitle={onRenameTitle}
           showHeaderClose={false}
         />
+
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label={propertiesOpen ? "Hide properties" : "Open properties"}
+          className={cn(
+            "absolute top-1.5 right-2 z-30 bg-background/80 backdrop-blur-sm",
+            !propertiesOpen && "text-muted-foreground"
+          )}
+          onClick={onToggleProperties}
+        >
+          <SidebarSimple className="size-4" />
+        </Button>
       </div>
 
       <DocumentMentionNotificationBanner
@@ -1668,7 +1666,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
   const [exitDialogOpen, setExitDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingDocument, setDeletingDocument] = useState(false)
-  const [propertiesOpen, setPropertiesOpen] = useState(true)
+  const [propertiesOpen, setPropertiesOpen] = useState(false)
   const editorInstanceRef = useRef<Editor | null>(null)
   const allowHistoryExitRef = useRef(false)
   const currentDocumentId = document?.id ?? null

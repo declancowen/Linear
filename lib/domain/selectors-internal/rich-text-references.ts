@@ -45,27 +45,27 @@ function getReferenceWorkspaceId(
   context: RichTextReferenceContext
 ) {
   if (context.type === "document") {
-    return getDocument(data, context.documentId)?.workspaceId ?? null
+    const document = getDocument(data, context.documentId)
+
+    if (!document) {
+      return null
+    }
+
+    if (document.workspaceId) {
+      return document.workspaceId
+    }
+
+    // Team documents may not carry an explicit workspaceId; derive it from the
+    // owning team so reference candidates still resolve.
+    return document.teamId
+      ? (data.teams.find((team) => team.id === document.teamId)?.workspaceId ??
+          null)
+      : null
   }
 
   const item = data.workItems.find((entry) => entry.id === context.itemId)
 
   return item ? getWorkspaceIdForWorkItem(data, item) : null
-}
-
-function isPrivateReferenceSource(
-  data: AppData,
-  context: RichTextReferenceContext
-) {
-  if (context.type === "document") {
-    const document = getDocument(data, context.documentId)
-
-    return document?.kind === "private-document"
-  }
-
-  const item = data.workItems.find((entry) => entry.id === context.itemId)
-
-  return (item?.visibility ?? "team") === "private"
 }
 
 function getDocumentContextLabel(
@@ -169,10 +169,6 @@ export function getRichTextReferenceCandidates(
   data: AppData,
   context: RichTextReferenceContext
 ): RichTextEntityReferenceCandidate[] {
-  if (isPrivateReferenceSource(data, context)) {
-    return []
-  }
-
   const workspaceId = getReferenceWorkspaceId(data, context)
 
   if (!workspaceId) {

@@ -38,6 +38,7 @@ import {
   getVisibleProjectsForView,
   getViewsForScope,
   getVisibleWorkItems,
+  getGroupVisibleItemsForView,
   getWorkspaceDocuments,
   getWorkspaceDirectoryViews,
   hasWorkspaceAccess,
@@ -50,6 +51,7 @@ import {
   projectStatusMeta,
   priorityMeta,
   templateMeta,
+  normalizeHiddenState,
   type AppData,
   type DisplayProperty,
   type Document,
@@ -3825,9 +3827,11 @@ function fetchPersonalWorkReadModel(currentUserId: string | null) {
 function createUserCalendarFilterView({
   currentUserId,
   filters,
+  hiddenState,
 }: {
   currentUserId: string | null
   filters: ViewDefinition["filters"]
+  hiddenState: ViewDefinition["hiddenState"]
 }): ViewDefinition {
   return {
     id: "user-calendar-filters",
@@ -3844,7 +3848,7 @@ function createUserCalendarFilterView({
     subGrouping: null,
     ordering: "targetDate",
     displayProps: [],
-    hiddenState: { groups: [], subgroups: [] },
+    hiddenState: normalizeHiddenState(hiddenState),
     isShared: false,
     route: "/calendar",
     createdAt: "",
@@ -3861,11 +3865,13 @@ function getUserCalendarItemsForView({
   items: WorkItem[]
   view: ViewDefinition
 }) {
-  return items.filter((item) =>
+  const matchedItems = items.filter((item) =>
     workItemMatchesView(data, item, view, {
       ignoreItemLevel: true,
     })
   )
+
+  return getGroupVisibleItemsForView(data, matchedItems, view)
 }
 
 function getDefaultUserCalendarCreateTeamId(data: AppData) {
@@ -3880,11 +3886,13 @@ function UserCalendarFilterAccessory({
   items,
   onClearFilters,
   onToggleFilterValue,
+  onUpdateView,
   view,
 }: {
   items: WorkItem[]
   onClearFilters: () => void
   onToggleFilterValue: (key: ViewFilterKey, value: string) => void
+  onUpdateView: (patch: ViewConfigPatch) => void
   view: ViewDefinition
 }) {
   return (
@@ -3892,6 +3900,7 @@ function UserCalendarFilterAccessory({
       view={view}
       items={items}
       onToggleFilterValue={onToggleFilterValue}
+      onUpdateView={onUpdateView}
       onClearFilters={onClearFilters}
       triggerIcon={<FunnelSimple className="size-3.5" />}
       variant="icon"
@@ -3909,6 +3918,7 @@ function UserCalendarScreenContent({
   hasLoadedOnce,
   onClearFilters,
   onToggleFilterValue,
+  onUpdateView,
 }: {
   calendarFilterView: ViewDefinition
   calendarItems: WorkItem[]
@@ -3919,6 +3929,7 @@ function UserCalendarScreenContent({
   hasLoadedOnce: boolean
   onClearFilters: () => void
   onToggleFilterValue: (key: ViewFilterKey, value: string) => void
+  onUpdateView: (patch: ViewConfigPatch) => void
 }) {
   if (!hasLoadedOnce && calendarItems.length === 0) {
     return <ScopedScreenLoading label="Loading calendar..." />
@@ -3936,6 +3947,7 @@ function UserCalendarScreenContent({
           items={calendarItems}
           onToggleFilterValue={onToggleFilterValue}
           onClearFilters={onClearFilters}
+          onUpdateView={onUpdateView}
         />
       }
       createContext={{
@@ -3952,6 +3964,9 @@ export function UserCalendarScreen() {
   const [calendarFilters, setCalendarFilters] = useState(() =>
     createEmptyViewFilters()
   )
+  const [calendarHiddenState, setCalendarHiddenState] = useState<
+    ViewDefinition["hiddenState"]
+  >(() => ({ groups: [], subgroups: [] }))
   const { currentUserId } = useAppStore(
     useShallow((state) => ({
       currentUserId: state.currentUserId,
@@ -3976,8 +3991,9 @@ export function UserCalendarScreen() {
       createUserCalendarFilterView({
         currentUserId,
         filters: calendarFilters,
+        hiddenState: calendarHiddenState,
       }),
-    [calendarFilters, currentUserId]
+    [calendarFilters, calendarHiddenState, currentUserId]
   )
   const filteredCalendarItems = useMemo(() => {
     return getUserCalendarItemsForView({
@@ -4025,6 +4041,26 @@ export function UserCalendarScreen() {
           clearViewFiltersPreservingCompletion(current)
         )
       }
+      onUpdateView={(patch) => {
+        if (patch.hiddenState !== undefined) {
+          setCalendarHiddenState(normalizeHiddenState(patch.hiddenState))
+        }
+
+        if (
+          patch.showEmptyGroups !== undefined ||
+          patch.showCompleted !== undefined
+        ) {
+          setCalendarFilters((current) => ({
+            ...current,
+            ...(patch.showEmptyGroups !== undefined
+              ? { showEmptyGroups: patch.showEmptyGroups }
+              : {}),
+            ...(patch.showCompleted !== undefined
+              ? { showCompleted: patch.showCompleted }
+              : {}),
+          }))
+        }
+      }}
     />
   )
 }

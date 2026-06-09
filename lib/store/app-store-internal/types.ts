@@ -398,6 +398,7 @@ export type AppStore = AppData & {
     value: CustomPropertyValue
   ) => void
   deleteWorkItem: (itemId: string) => Promise<boolean>
+  deleteWorkItems: (itemIds: string[]) => Promise<boolean>
   shiftTimelineItem: (itemId: string, nextStartDate: string) => void
   updateDocumentContent: (documentId: string, content: string) => void
   cancelDocumentSync: (documentId: string) => void

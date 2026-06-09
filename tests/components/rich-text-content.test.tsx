@@ -121,4 +121,33 @@ describe("RichTextContent", () => {
       "file"
     )
   })
+
+  it("adds a download control next to shared files when enabled", async () => {
+    render(
+      <RichTextContent
+        enableAttachmentDownload
+        content='<p><a href="https://files.example.com/spec.pdf">spec.pdf</a></p>'
+      />
+    )
+
+    const download = await screen.findByRole("link", {
+      name: "Download spec.pdf",
+    })
+    expect(download).toHaveAttribute("href", "https://files.example.com/spec.pdf")
+    expect(download).toHaveAttribute("download", "spec.pdf")
+    expect(download).toHaveAttribute("data-attachment-download", "true")
+  })
+
+  it("does not add download controls by default", async () => {
+    render(
+      <RichTextContent content='<p><a href="https://files.example.com/spec.pdf">spec.pdf</a></p>' />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: "spec.pdf" })).toBeInTheDocument()
+    })
+    expect(
+      screen.queryByRole("link", { name: "Download spec.pdf" })
+    ).not.toBeInTheDocument()
+  })
 })

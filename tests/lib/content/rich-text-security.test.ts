@@ -84,6 +84,22 @@ describe("rich-text security", () => {
     expect(sanitized).not.toContain('href="https://example.com"')
   })
 
+  it("preserves the preview display variant on entity references", () => {
+    const sanitized = sanitizeRichTextContent(
+      '<a class="editor-reference editor-reference-workItem editor-reference-preview" data-type="entity-reference" data-reference-type="workItem" data-reference-id="item_1" data-label="PLA-1" data-display="preview" href="/items/item_1">PLA-1</a>'
+    )
+
+    expect(sanitized).toContain("editor-reference-preview")
+    expect(sanitized).toContain('data-display="preview"')
+
+    const inline = sanitizeRichTextContent(
+      '<a class="editor-reference editor-reference-workItem" data-type="entity-reference" data-reference-type="workItem" data-reference-id="item_1" data-label="PLA-1" href="/items/item_1">PLA-1</a>'
+    )
+
+    expect(inline).not.toContain("editor-reference-preview")
+    expect(inline).not.toContain("data-display")
+  })
+
   it("preserves mixed text anchors outside chat message normalization", () => {
     expect(
       sanitizeRichTextContent(

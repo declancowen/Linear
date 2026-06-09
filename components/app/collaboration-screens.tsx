@@ -1,6 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react"
 import { Hash, PaperPlaneTilt } from "@phosphor-icons/react"
 import { useShallow } from "zustand/react/shallow"
 
@@ -40,7 +47,6 @@ import {
   usePersistedCollaborationSidebarState,
 } from "@/components/app/collaboration-screens/sidebar-state"
 import {
-  ChatHeaderActions,
   DetailsSidebarToggle,
   EmptyState,
   PageHeader,
@@ -139,6 +145,39 @@ function useChannelReadModelRefresh(input: {
     hasLoadedChannelFeed,
     hasLoadedConversationList,
   }
+}
+
+type ChannelTabsContextValue = {
+  activeTab: "chat" | "files"
+  setActiveTab: (tab: "chat" | "files") => void
+}
+
+const ChannelTabsContext = createContext<ChannelTabsContextValue | null>(null)
+
+function ChannelTabsProvider({ children }: { children: ReactNode }) {
+  const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
+
+  return (
+    <ChannelTabsContext.Provider value={{ activeTab, setActiveTab }}>
+      {children}
+    </ChannelTabsContext.Provider>
+  )
+}
+
+function useChannelTabs() {
+  const context = useContext(ChannelTabsContext)
+
+  if (!context) {
+    throw new Error("useChannelTabs must be used within a ChannelTabsProvider")
+  }
+
+  return context
+}
+
+function ChannelHeaderTabs() {
+  const { activeTab, setActiveTab } = useChannelTabs()
+
+  return <ConversationTabBar activeTab={activeTab} onTabChange={setActiveTab} />
 }
 
 function WorkspaceChannelBody({
@@ -250,39 +289,44 @@ export function WorkspaceChannelsScreen() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <PageHeader
-        title="Channel"
-        subtitle="Workspace-wide updates"
-        actions={
-          <DetailsSidebarToggle
-            sidebarOpen={sidebarOpen}
-            onDesktopToggle={() => setSidebarOpen((current) => !current)}
-            onMobileOpen={() => setMobileSidebarOpen(true)}
-          />
-        }
-      />
-      <WorkspaceChannelBody
-        activeChannel={activeChannel}
-        hasLoadedChannelFeed={hasLoadedChannelFeed}
-        hasLoadedConversationList={hasLoadedConversationList}
-        members={members}
-        posts={posts}
-        sidebarOpen={sidebarOpen}
-        workspace={workspace}
-        workspaceDescription={workspaceDescription}
-      />
+    <ChannelTabsProvider>
+      <div className="flex min-h-0 flex-1 flex-col bg-background">
+        <PageHeader
+          title="Channel"
+          subtitle="Workspace-wide updates"
+          actions={
+            <>
+              <ChannelHeaderTabs />
+              <DetailsSidebarToggle
+                sidebarOpen={sidebarOpen}
+                onDesktopToggle={() => setSidebarOpen((current) => !current)}
+                onMobileOpen={() => setMobileSidebarOpen(true)}
+              />
+            </>
+          }
+        />
+        <WorkspaceChannelBody
+          activeChannel={activeChannel}
+          hasLoadedChannelFeed={hasLoadedChannelFeed}
+          hasLoadedConversationList={hasLoadedConversationList}
+          members={members}
+          posts={posts}
+          sidebarOpen={sidebarOpen}
+          workspace={workspace}
+          workspaceDescription={workspaceDescription}
+        />
 
-      <CollaborationDetailsSheet
-        open={mobileSidebarOpen}
-        onOpenChange={setMobileSidebarOpen}
-        label="Workspace channel"
-        title={workspace.name}
-        description={workspaceDescription}
-        sheetDescription="Channel details"
-        members={members}
-      />
-    </div>
+        <CollaborationDetailsSheet
+          open={mobileSidebarOpen}
+          onOpenChange={setMobileSidebarOpen}
+          label="Workspace channel"
+          title={workspace.name}
+          description={workspaceDescription}
+          sheetDescription="Channel details"
+          members={members}
+        />
+      </div>
+    </ChannelTabsProvider>
   )
 }
 
@@ -292,6 +336,7 @@ export function WorkspaceChannelsScreen() {
 
 function TeamChatBody({
   conversation,
+  detailsAction,
   editable,
   hasLoadedConversationList,
   hasLoadedConversationThread,
@@ -301,6 +346,7 @@ function TeamChatBody({
   teamDescription,
 }: {
   conversation: AppData["conversations"][number] | null
+  detailsAction?: ReactNode
   editable: boolean
   hasLoadedConversationList: boolean
   hasLoadedConversationThread: boolean
@@ -341,6 +387,7 @@ function TeamChatBody({
           members={members}
           loaded={hasLoadedConversationThread}
           showHeader={false}
+          detailsAction={detailsAction}
         />
       </div>
       <TeamSurfaceSidebar
@@ -427,20 +474,16 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
       <PageHeader
         title={team.name}
         subtitle="Chat"
-        actions={
-          <ChatHeaderActions
-            detailsAction={
-              <DetailsSidebarToggle
-                sidebarOpen={sidebarOpen}
-                onDesktopToggle={() => setSidebarOpen((current) => !current)}
-                onMobileOpen={() => setMobileSidebarOpen(true)}
-              />
-            }
-          />
-        }
       />
       <TeamChatBody
         conversation={conversation}
+        detailsAction={
+          <DetailsSidebarToggle
+            sidebarOpen={sidebarOpen}
+            onDesktopToggle={() => setSidebarOpen((current) => !current)}
+            onMobileOpen={() => setMobileSidebarOpen(true)}
+          />
+        }
         editable={editable}
         hasLoadedConversationList={hasLoadedConversationList}
         hasLoadedConversationThread={hasLoadedConversationThread}
@@ -485,7 +528,7 @@ function ChannelPostFeedPanel({
   hasLoadedChannelFeed: boolean
   posts: ChannelPost[]
 }) {
-  const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
+  const { activeTab } = useChannelTabs()
   const postIds = useMemo(() => new Set(posts.map((post) => post.id)), [posts])
   const channelPostComments = useAppStore(
     useShallow((state) =>
@@ -508,18 +551,13 @@ function ChannelPostFeedPanel({
 
   return (
     <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      {editable ? (
+      {editable && activeTab !== "files" ? (
         <div className="relative z-30 shrink-0 border-b bg-background/95 backdrop-blur">
           <div className="mx-auto max-w-3xl overflow-visible px-5 py-4">
             <NewPostComposer channelId={channelId} />
           </div>
         </div>
       ) : null}
-      <div className="shrink-0 border-b">
-        <div className="mx-auto flex max-w-3xl items-center justify-end px-5 py-1.5">
-          <ConversationTabBar activeTab={activeTab} onTabChange={setActiveTab} />
-        </div>
-      </div>
       <div className="relative z-0 no-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
         {activeTab === "files" ? (
           <ConversationFilesPanel entries={fileContents} />
@@ -762,36 +800,41 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <PageHeader
-        title={team.name}
-        subtitle="Channel"
-        actions={
-          <DetailsSidebarToggle
-            sidebarOpen={sidebarOpen}
-            onDesktopToggle={() => setSidebarOpen((current) => !current)}
-            onMobileOpen={() => setMobileSidebarOpen(true)}
-          />
-        }
-      />
-      <TeamChannelBody
-        activeChannel={activeChannel}
-        editable={editable}
-        hasLoadedChannelFeed={hasLoadedChannelFeed}
-        hasLoadedConversationList={hasLoadedConversationList}
-        members={members}
-        posts={posts}
-        sidebarOpen={sidebarOpen}
-        team={team}
-        teamDescription={teamDescription}
-      />
-      <TeamChannelDetailsSheet
-        members={members}
-        mobileSidebarOpen={mobileSidebarOpen}
-        setMobileSidebarOpen={setMobileSidebarOpen}
-        team={team}
-        teamDescription={teamDescription}
-      />
-    </div>
+    <ChannelTabsProvider>
+      <div className="flex min-h-0 flex-1 flex-col bg-background">
+        <PageHeader
+          title={team.name}
+          subtitle="Channel"
+          actions={
+            <>
+              <ChannelHeaderTabs />
+              <DetailsSidebarToggle
+                sidebarOpen={sidebarOpen}
+                onDesktopToggle={() => setSidebarOpen((current) => !current)}
+                onMobileOpen={() => setMobileSidebarOpen(true)}
+              />
+            </>
+          }
+        />
+        <TeamChannelBody
+          activeChannel={activeChannel}
+          editable={editable}
+          hasLoadedChannelFeed={hasLoadedChannelFeed}
+          hasLoadedConversationList={hasLoadedConversationList}
+          members={members}
+          posts={posts}
+          sidebarOpen={sidebarOpen}
+          team={team}
+          teamDescription={teamDescription}
+        />
+        <TeamChannelDetailsSheet
+          members={members}
+          mobileSidebarOpen={mobileSidebarOpen}
+          setMobileSidebarOpen={setMobileSidebarOpen}
+          team={team}
+          teamDescription={teamDescription}
+        />
+      </div>
+    </ChannelTabsProvider>
   )
 }

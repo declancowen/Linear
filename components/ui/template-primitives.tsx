@@ -358,4 +358,4 @@ export function PropertyPopoverFoot({
 }
 
 export const PROPERTY_POPOVER_CLASS =
-  "max-h-[min(360px,var(--radix-popover-content-available-height))] w-[240px] overflow-hidden rounded-lg border border-line bg-surface p-0 text-foreground shadow-lg"
+  "flex max-h-[min(360px,var(--radix-popover-content-available-height))] w-[240px] flex-col overflow-hidden rounded-lg border border-line bg-surface p-0 text-foreground shadow-lg"

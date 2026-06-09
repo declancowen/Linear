@@ -358,8 +358,8 @@ describe("ChatThread", () => {
 
     renderDirectChatThread({ showHeader: false })
 
-    expect(screen.getByRole("button", { name: "chat" })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "files" }))
+    expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Files" }))
 
     expect(
       screen.getByRole("button", { name: "Open spec.pdf" })
@@ -1538,8 +1538,8 @@ describe("ChatThread", () => {
 
       scrollIntoViewMock.mockClear()
 
-      fireEvent.click(screen.getByRole("button", { name: "files" }))
-      fireEvent.click(screen.getByRole("button", { name: "chat" }))
+      fireEvent.click(screen.getByRole("button", { name: "Files" }))
+      fireEvent.click(screen.getByRole("button", { name: "Chat" }))
 
       expect(scrollIntoViewMock).toHaveBeenCalled()
       expect(scrollIntoViewMock).toHaveBeenLastCalledWith({ block: "end" })
