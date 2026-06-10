@@ -7,6 +7,11 @@ architecture-standards + diff-review + fallow.
 Status: CLEAN (local). Verified: typecheck, lint (--max-warnings 0), fallow
 dead-code + dupes, full test suite (235 files / 1664 tests), production build.
 
+## Turn 5 — 2026-06-10 (project view tabs)
+
+Outcome: all-clear (local). Presentation only. Verified: typecheck, lint, Fallow clean, full suite (1666), build.
+- Project-detail view tabs now render the view icon (getViewIconName + PhosphorIconGlyph), matching the work-surface tabs.
+
 ## Turn 4 — 2026-06-10 (icons + greyscale sweep)
 
 Outcome: all-clear (local). Risk: Low-Medium (presentation only). Verified: typecheck, lint, Fallow clean, full suite (1666), production build.
