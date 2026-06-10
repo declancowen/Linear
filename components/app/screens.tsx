@@ -1288,15 +1288,10 @@ function getProjectTeamLabel(data: AppData, project: Project) {
 }
 
 function ProjectIconTile({ project }: { project: Project }) {
-  const accent = PROJECT_STATUS_ACCENT[project.status]
   return (
     <span
       aria-hidden
-      className="grid size-8 shrink-0 place-items-center rounded-md"
-      style={{
-        background: `color-mix(in oklch, ${accent} 14%, var(--surface-2))`,
-        color: "var(--foreground)",
-      }}
+      className="grid size-8 shrink-0 place-items-center rounded-md bg-surface-3 text-fg-2"
     >
       {project.icon ? (
         <ProjectIconGlyph project={project} className="size-4" />
@@ -1552,12 +1547,7 @@ function ProjectCard({ data, project, displayProps }: ProjectPreviewProps) {
           <div className="flex items-center gap-2.5">
             <span
               aria-hidden
-              className="grid size-9 shrink-0 place-items-center rounded-lg text-[14px] font-semibold"
-              style={{
-                background: `color-mix(in oklch, ${preview.accent} 24%, var(--surface))`,
-                color: "var(--foreground)",
-                border: `1px solid color-mix(in oklch, ${preview.accent} 35%, transparent)`,
-              }}
+              className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-3 text-[14px] font-semibold text-fg-2"
             >
               {project.icon ? (
                 <ProjectIconGlyph project={project} className="size-4" />
@@ -2025,7 +2015,6 @@ function SavedViewCard(props: SavedViewItemProps) {
     showUpdated,
     view,
   } = props
-  const layoutMeta = viewDirectoryLayoutMeta[view.layout]
   const updatedLabel = getSavedViewUpdatedLabel(view, showUpdated)
 
   return (
@@ -2034,7 +2023,7 @@ function SavedViewCard(props: SavedViewItemProps) {
         className="group relative flex h-full min-h-[212px] flex-col overflow-hidden rounded-xl border border-line bg-surface transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-md"
         href={getViewHref(view)}
       >
-        <ViewLayoutPreview layout={view.layout} accent={layoutMeta.accent} />
+        <ViewLayoutPreview layout={view.layout} accent="var(--foreground)" />
         <div className="flex flex-1 flex-col gap-2 p-4">
           <div className="flex items-start gap-2">
             <h2 className="min-w-0 flex-1 truncate text-[14px] leading-[1.3] font-semibold tracking-[-0.005em] text-foreground">

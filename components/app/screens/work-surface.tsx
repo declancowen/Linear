@@ -14,6 +14,8 @@ import {
   getUser,
   getViewByRoute,
 } from "@/lib/domain/selectors"
+import { getViewIconName } from "@/lib/domain/default-views"
+import { PhosphorIconGlyph } from "@/components/app/phosphor-icon-picker"
 import {
   applyViewerViewConfig,
   getViewerScopedDirectoryKey,
@@ -428,7 +430,7 @@ function WorkSurfaceTopbar({
             <ViewContextMenu key={view.id} view={view}>
               <button
                 className={cn(
-                  "h-7 rounded-md px-2 text-[12px] transition-colors",
+                  "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors",
                   view.id === activeView.id
                     ? "bg-surface-3 font-medium text-foreground"
                     : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
@@ -442,6 +444,10 @@ function WorkSurfaceTopbar({
                   onSelectView(view.id)
                 }}
               >
+                <PhosphorIconGlyph
+                  icon={getViewIconName(view)}
+                  className="size-3.5 shrink-0"
+                />
                 {view.name}
               </button>
             </ViewContextMenu>

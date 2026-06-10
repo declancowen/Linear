@@ -59,13 +59,6 @@ const projectHealthAccent: Record<Project["health"], string> = {
   "no-update": "var(--text-3)",
 }
 
-const projectIconTint: Record<Project["health"], string> = {
-  "on-track": "var(--label-4)",
-  "at-risk": "var(--label-2)",
-  "off-track": "var(--label-1)",
-  "no-update": "var(--label-5)",
-}
-
 const viewLayoutMeta: Record<
   ViewDefinition["layout"],
   {
@@ -159,7 +152,6 @@ function ProjectBoardCard({
   const projectTeam =
     project.scopeType === "team" ? getTeam(data, project.scopeId) : null
   const accent = projectHealthAccent[project.health]
-  const tint = projectIconTint[project.health]
   const summary = project.summary || project.description
   const dueDate = getProjectBoardDueDateState(project.targetDate, today)
 
@@ -173,7 +165,6 @@ function ProjectBoardCard({
           priorityLabel={priorityMeta[project.priority].label}
           project={project}
           projectTeamName={projectTeam?.name ?? "Workspace"}
-          tint={tint}
         />
 
         {summary ? (
@@ -201,22 +192,16 @@ function ProjectBoardCardHeader({
   priorityLabel,
   project,
   projectTeamName,
-  tint,
 }: {
   priorityLabel: string
   project: Project
   projectTeamName: string
-  tint: string
 }) {
   return (
     <div className="flex items-center gap-2.5">
       <span
         aria-hidden
-        className="grid size-8 shrink-0 place-items-center rounded-md text-[15px]"
-        style={{
-          background: `color-mix(in oklch, ${tint} 22%, transparent)`,
-          color: "var(--foreground)",
-        }}
+        className="grid size-8 shrink-0 place-items-center rounded-md bg-surface-3 text-[15px] text-fg-2"
       >
         {project.icon ? (
           <ProjectIconGlyph project={project} className="size-4" />
@@ -387,7 +372,7 @@ export function SavedViewsBoard({
   )
 }
 
-const DOC_ACCENT = "oklch(0.6 0.09 240)"
+const DOC_ACCENT = "var(--foreground)"
 
 function DocumentPreviewArt({ seed }: { seed: number }) {
   const widths = [

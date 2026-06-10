@@ -7,6 +7,13 @@ architecture-standards + diff-review + fallow.
 Status: CLEAN (local). Verified: typecheck, lint (--max-warnings 0), fallow
 dead-code + dupes, full test suite (235 files / 1664 tests), production build.
 
+## Turn 4 — 2026-06-10 (icons + greyscale sweep)
+
+Outcome: all-clear (local). Risk: Low-Medium (presentation only). Verified: typecheck, lint, Fallow clean, full suite (1666), production build.
+- Work-surface view tabs now show the view icon (getViewIconName + PhosphorIconGlyph).
+- Greyscale sweep across board layouts and projects: project list + project board card icons, doc board card art (DocumentPreviewArt → foreground accent), and the view board card preview (ViewLayoutPreview → neutral accent) now use grey chips / monochrome art instead of status/health/label color tints. Removed the now-unused projectIconTint map.
+- Residual: browser smoke pending for the board layouts.
+
 ## Turn 3 — 2026-06-10 (drift fixes)
 
 Outcome: all-clear (local). Risk: Medium-High (cross-layer schema add + broad UI).
