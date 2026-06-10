@@ -6,9 +6,30 @@ import {
   getDefaultRouteForViewContext,
   getSharedTeamExperience,
   getSystemViewEditCapability,
+  getViewIconName,
   isRouteAllowedForViewContext,
   isSystemView,
 } from "@/lib/domain/default-views"
+
+describe("getViewIconName", () => {
+  it("returns distinct default icons for built-in views", () => {
+    const icon = (id: string, entityKind: "items" | "projects" | "docs") =>
+      getViewIconName({ id, entityKind, icon: null })
+
+    expect(icon("view_assigned_private_tasks", "items")).toBe("LockSimple")
+    expect(icon("view_assigned_subscribed_items", "items")).toBe("Bell")
+    expect(icon("view_team_1_active_items", "items")).toBe("Lightning")
+    expect(icon("view_team_1_backlog_items", "items")).toBe("ClipboardText")
+    expect(icon("view_team_1_all_items", "items")).toBe("ListBullets")
+  })
+
+  it("prefers the chosen icon for custom views", () => {
+    expect(
+      getViewIconName({ id: "view_custom_1", entityKind: "items", icon: "Rocket" })
+    ).toBe("Rocket")
+  })
+})
+
 
 describe("getSystemViewEditCapability", () => {
   it("allows a full re-default for private tasks", () => {

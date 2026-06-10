@@ -27,20 +27,16 @@ import { DocumentAuthorAvatar, DocumentContextMenu } from "./document-ui"
 import { MissingState } from "./shared"
 import { ScopedScreenLoading } from "./scoped-screen-loading"
 
-const DOC_ACCENT = "oklch(0.6 0.09 240)"
-
 function DocumentIconTile({ size = "md" }: { size?: "md" | "lg" }) {
   const tile = size === "lg" ? "size-9 rounded-lg" : "size-7 rounded-md"
   const icon = size === "lg" ? "size-4" : "size-3.5"
   return (
     <span
       aria-hidden
-      className={cn("grid shrink-0 place-items-center border", tile)}
-      style={{
-        background: `color-mix(in oklch, ${DOC_ACCENT} 12%, var(--surface))`,
-        borderColor: `color-mix(in oklch, ${DOC_ACCENT} 28%, transparent)`,
-        color: DOC_ACCENT,
-      }}
+      className={cn(
+        "grid shrink-0 place-items-center bg-surface-3 text-fg-2",
+        tile
+      )}
     >
       <FileText className={icon} />
     </span>

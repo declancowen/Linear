@@ -335,7 +335,6 @@ export function SavedViewsBoard({
               href={getViewHref(view)}
             >
               <ViewCardHeader
-                layoutMeta={layoutMeta}
                 showOpenIcon
                 subtitle={`${scopeLabel} · ${format(new Date(view.updatedAt), "MMM d")}`}
                 view={view}

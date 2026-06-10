@@ -295,6 +295,7 @@ function buildOptimisticView(input: {
     id: input.viewId,
     name: input.input.name,
     description: input.input.description,
+    icon: input.input.icon,
     scopeType: input.input.scopeType,
     scopeId: input.input.scopeId,
     entityKind: input.input.entityKind,

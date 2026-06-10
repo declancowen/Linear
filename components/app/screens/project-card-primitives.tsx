@@ -1,8 +1,9 @@
 "use client"
 
-import type { ComponentType } from "react"
 import { ArrowSquareOut } from "@phosphor-icons/react"
 
+import { PhosphorIconGlyph } from "@/components/app/phosphor-icon-picker"
+import { getViewIconName } from "@/lib/domain/default-views"
 import type { ViewDefinition } from "@/lib/domain/types"
 import { cn } from "@/lib/utils"
 
@@ -59,35 +60,22 @@ export function ProjectProgressMeter({
   )
 }
 
-type ViewCardLayoutMeta = {
-  accent: string
-  icon: ComponentType<{ className?: string }>
-}
-
 export function ViewCardHeader({
-  layoutMeta,
   showOpenIcon = false,
   subtitle,
   view,
 }: {
-  layoutMeta: ViewCardLayoutMeta
   showOpenIcon?: boolean
   subtitle?: string | null
   view: ViewDefinition
 }) {
-  const LayoutIcon = layoutMeta.icon
-
   return (
     <div className="flex items-center gap-2.5">
       <span
         aria-hidden
-        className="grid size-8 shrink-0 place-items-center rounded-md"
-        style={{
-          color: layoutMeta.accent,
-          background: `color-mix(in oklch, ${layoutMeta.accent} 18%, transparent)`,
-        }}
+        className="grid size-8 shrink-0 place-items-center rounded-md bg-surface-3 text-fg-2"
       >
-        <LayoutIcon className="size-4" />
+        <PhosphorIconGlyph icon={getViewIconName(view)} className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
         <h2 className="truncate text-[14px] leading-[1.3] font-semibold tracking-[-0.005em] text-foreground">

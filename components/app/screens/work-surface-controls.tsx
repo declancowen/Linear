@@ -360,6 +360,18 @@ const DISPLAY_PROPERTY_LABELS: Record<BuiltinDisplayProperty, string> = {
   linkedItems: "Linked items",
 }
 
+export function getViewDisplayPropertyOptions(
+  view: ViewDefinition
+): DisplayProperty[] {
+  return getDisplayPropertyOptionsForView(view, displayPropertyOptions)
+}
+
+export function getDisplayPropertyLabel(property: DisplayProperty): string {
+  return (
+    DISPLAY_PROPERTY_LABELS[property as BuiltinDisplayProperty] ?? property
+  )
+}
+
 const DEFAULT_GROUP_OPTIONS: GroupField[] = [
   "project",
   "status",

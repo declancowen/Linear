@@ -395,6 +395,7 @@ const viewConfigPatchBaseSchema = z.object({
   description: boundedTrimmedStringSchema(
     viewDescriptionConstraints
   ).optional(),
+  icon: z.string().trim().min(1).nullable().optional(),
   scopeType: z.enum(["team", "workspace"]).optional(),
   scopeId: z.string().trim().min(1).optional(),
   containerType: z.enum(viewContainerTypes).nullable().optional(),
@@ -454,6 +455,7 @@ export const viewSchema = z
     description: boundedTrimmedStringSchema(viewDescriptionConstraints).default(
       ""
     ),
+    icon: z.string().trim().min(1).nullable().optional(),
     layout: viewConfigPatchBaseSchema.shape.layout,
     grouping: viewConfigPatchBaseSchema.shape.grouping,
     subGrouping: viewConfigPatchBaseSchema.shape.subGrouping,

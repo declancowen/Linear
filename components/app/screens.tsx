@@ -132,7 +132,8 @@ import {
 import { ScopedScreenLoading } from "@/components/app/screens/scoped-screen-loading"
 import { WorkSurface } from "@/components/app/screens/work-surface"
 import { CalendarView } from "@/components/app/screens/work-surface-view"
-import { getViewHref } from "@/lib/domain/default-views"
+import { getViewHref, getViewIconName } from "@/lib/domain/default-views"
+import { PhosphorIconGlyph } from "@/components/app/phosphor-icon-picker"
 import {
   GroupChipPopover,
   FilterPopover,
@@ -1957,8 +1958,6 @@ function SavedViewRow(props: SavedViewItemProps) {
     showUpdated,
     view,
   } = props
-  const layoutMeta = viewDirectoryLayoutMeta[view.layout]
-  const LayoutIcon = layoutMeta.icon
   const updatedLabel = getSavedViewUpdatedLabel(view, showUpdated)
 
   return (
@@ -1969,18 +1968,13 @@ function SavedViewRow(props: SavedViewItemProps) {
       >
         <span
           aria-hidden
-          className="absolute inset-y-2 left-0 w-[2px] rounded-r-full opacity-0 transition-opacity group-hover:opacity-100"
-          style={{ background: layoutMeta.accent }}
+          className="absolute inset-y-2 left-0 w-[2px] rounded-r-full bg-fg-4 opacity-0 transition-opacity group-hover:opacity-100"
         />
         <span
           aria-hidden
-          className="grid size-7 shrink-0 place-items-center rounded-md transition-colors"
-          style={{
-            color: layoutMeta.accent,
-            background: `color-mix(in oklch, ${layoutMeta.accent} 14%, transparent)`,
-          }}
+          className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-3 text-fg-2"
         >
-          <LayoutIcon className="size-3.5" />
+          <PhosphorIconGlyph icon={getViewIconName(view)} className="size-3.5" />
         </span>
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <div className="min-w-0 flex-1">
@@ -4611,10 +4605,18 @@ export function DocsScreen({
       }),
     [data, isWorkspaceDocs, scopeId, scopeType]
   )
-  const documents = useMemo(
-    () => getDocumentsForView(baseDocuments, activeView),
-    [activeView, baseDocuments]
-  )
+  const documents = useMemo(() => {
+    const filtered = getDocumentsForView(baseDocuments, activeView)
+    // A docs view's documentKinds filter defines its identity (Private vs
+    // Workspace). The system view owns that scope, so a viewer-config override
+    // (e.g. clearing filters) must not be able to surface the wrong kinds.
+    const baseKinds = docViews.find((view) => view.id === activeView?.id)
+      ?.filters.documentKinds
+    if (!baseKinds?.length) {
+      return filtered
+    }
+    return filtered.filter((document) => baseKinds.includes(document.kind))
+  }, [activeView, baseDocuments, docViews])
   const docSections = useMemo(
     () => buildDocsSections(data, documents, activeView),
     [activeView, data, documents]

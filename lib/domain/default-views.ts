@@ -29,6 +29,7 @@ type CreateViewDefinitionInput = {
   id: string
   name: string
   description: string
+  icon?: string | null
   scopeType: "personal" | "team" | "workspace"
   scopeId: string
   entityKind: EntityKind
@@ -256,6 +257,45 @@ function getViewDefinitionConfigFields(input: CreateViewDefinitionInput) {
   }
 }
 
+function getDefaultViewIcon(id: string, entityKind: EntityKind): string {
+  if (/_private_tasks$/.test(id) || /_private_docs$/.test(id)) {
+    return "LockSimple"
+  }
+  if (/_subscribed_items$/.test(id)) {
+    return "Bell"
+  }
+  if (/_active_items$/.test(id)) {
+    return "Lightning"
+  }
+  if (/_backlog_items$/.test(id)) {
+    return "ClipboardText"
+  }
+  if (/_all_items$/.test(id)) {
+    return "ListBullets"
+  }
+  if (/_all_projects$/.test(id)) {
+    return "Kanban"
+  }
+  if (/_(workspace|team)_docs$/.test(id)) {
+    return "FileText"
+  }
+
+  // Sensible per-kind fallback for any generated view without a chosen icon.
+  if (entityKind === "projects") {
+    return "Kanban"
+  }
+  if (entityKind === "docs") {
+    return "FileText"
+  }
+  return "ListBullets"
+}
+
+export function getViewIconName(
+  view: Pick<ViewDefinition, "id" | "entityKind" | "icon">
+): string {
+  return view.icon || getDefaultViewIcon(view.id, view.entityKind)
+}
+
 export function createViewDefinition(
   input: CreateViewDefinitionInput
 ): ViewDefinition | null {
@@ -272,6 +312,7 @@ export function createViewDefinition(
     id: input.id,
     name: input.name,
     description: input.description,
+    icon: input.icon ?? getDefaultViewIcon(input.id, input.entityKind),
     scopeType: input.scopeType,
     scopeId: input.scopeId,
     entityKind: input.entityKind,

@@ -5,6 +5,8 @@ import { useShallow } from "zustand/react/shallow"
 
 import {
   FilterPopover,
+  getDisplayPropertyLabel,
+  getViewDisplayPropertyOptions,
   GroupChipPopover,
   LayoutTabs,
   LevelChipPopover,
@@ -12,6 +14,7 @@ import {
   SortChipPopover,
   type ViewConfigPatch,
 } from "@/components/app/screens/work-surface-controls"
+import { Switch } from "@/components/ui/switch"
 import type { ViewFilterKey } from "@/components/app/screens/helpers"
 import type { ViewFilterValueKey } from "@/lib/store/app-store-internal/types"
 import { getSystemViewEditCapability } from "@/lib/domain/default-views"
@@ -22,6 +25,7 @@ import {
 import type { DisplayProperty, ViewDefinition } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import {
   Dialog,
   DialogContent,
@@ -135,40 +139,57 @@ export function SystemViewDefaultsDialog({
               : `Choose which properties show by default on ${view.name}.`}
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-wrap items-center gap-1.5 px-5 py-5">
-          {isFull ? (
-            <>
-              <LayoutTabs view={effectiveView} onUpdateView={onUpdateView} />
-              <div aria-hidden className="mx-1 h-[18px] w-px bg-line" />
-              <FilterPopover
-                view={effectiveView}
-                items={items}
-                variant="chip"
-                onToggleFilterValue={onToggleFilterValue}
-                onUpdateView={onUpdateView}
-                onClearFilters={onClearFilters}
-              />
-              <LevelChipPopover
-                view={effectiveView}
-                onUpdateView={onUpdateView}
-              />
-              <GroupChipPopover
-                view={effectiveView}
-                onUpdateView={onUpdateView}
-              />
-              <SortChipPopover
-                view={effectiveView}
-                onUpdateView={onUpdateView}
-              />
-            </>
-          ) : null}
-          <PropertiesChipPopover
-            view={effectiveView}
-            onToggleDisplayProperty={onToggleDisplayProperty}
-            onReorderDisplayProperties={onReorderDisplayProperties}
-            onClearDisplayProperties={onClearDisplayProperties}
-          />
-        </div>
+        {isFull ? (
+          <div className="flex flex-wrap items-center gap-1.5 px-5 py-5">
+            <LayoutTabs view={effectiveView} onUpdateView={onUpdateView} />
+            <div aria-hidden className="mx-1 h-[18px] w-px bg-line" />
+            <FilterPopover
+              view={effectiveView}
+              items={items}
+              variant="chip"
+              onToggleFilterValue={onToggleFilterValue}
+              onUpdateView={onUpdateView}
+              onClearFilters={onClearFilters}
+            />
+            <LevelChipPopover view={effectiveView} onUpdateView={onUpdateView} />
+            <GroupChipPopover view={effectiveView} onUpdateView={onUpdateView} />
+            <SortChipPopover view={effectiveView} onUpdateView={onUpdateView} />
+            <PropertiesChipPopover
+              view={effectiveView}
+              onToggleDisplayProperty={onToggleDisplayProperty}
+              onReorderDisplayProperties={onReorderDisplayProperties}
+              onClearDisplayProperties={onClearDisplayProperties}
+            />
+          </div>
+        ) : (
+          <div className="px-5 py-4">
+            <div className="overflow-hidden rounded-lg border border-line-soft">
+              {getViewDisplayPropertyOptions(effectiveView).map(
+                (property, index) => {
+                  const checked = effectiveView.displayProps.includes(property)
+                  return (
+                    <label
+                      key={property}
+                      className={cn(
+                        "flex cursor-pointer items-center justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-surface-2",
+                        index > 0 && "border-t border-line-soft"
+                      )}
+                    >
+                      <span className="text-[13px] text-fg-2">
+                        {getDisplayPropertyLabel(property)}
+                      </span>
+                      <Switch
+                        size="sm"
+                        checked={checked}
+                        onCheckedChange={() => onToggleDisplayProperty(property)}
+                      />
+                    </label>
+                  )
+                }
+              )}
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-between gap-2 border-t border-line-soft px-5 py-3.5">
           <Button
             variant="ghost"

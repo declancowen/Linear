@@ -670,6 +670,7 @@ export const viewDefinitionFields = {
   id: v.string(),
   name: v.string(),
   description: v.string(),
+  icon: v.optional(nullableString),
   scopeType: viewScopeTypeValidator,
   scopeId: v.string(),
   entityKind: entityKindValidator,

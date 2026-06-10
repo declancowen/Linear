@@ -7,6 +7,25 @@ architecture-standards + diff-review + fallow.
 Status: CLEAN (local). Verified: typecheck, lint (--max-warnings 0), fallow
 dead-code + dupes, full test suite (235 files / 1664 tests), production build.
 
+## Turn 3 — 2026-06-10 (drift fixes)
+
+Outcome: all-clear (local). Risk: Medium-High (cross-layer schema add + broad UI).
+Verified: codegen, typecheck, lint, Fallow dead-code (1 pre-existing) + dupes (114 pre-existing), full suite (1664), production build.
+
+Changes:
+- View `icon` field end-to-end (the deferred #3): schema (`v.optional(nullableString)`), createView + updateViewConfig mutation args/handlers, server forwarders, viewSchema + viewConfigPatchSchema, store create + updateViewConfig (generic), CreateViewInput/ViewConfigPatch/ViewDefinition types, read-model (normalizeViewDefinition spread) + canonical reconciliation patch. Regenerated `convex/_generated`.
+- Default built-in view icons via `getDefaultViewIcon`/`getViewIconName` (single source): Private tasks→LockSimple, Subscribed→Bell, Active→Lightning, Backlog→ClipboardText, All issues→ListBullets, projects→Kanban, docs→FileText. Custom views use the chosen icon.
+- Create-view modal: added a Phosphor icon picker (threaded controller→frame→fields), persisted on create + edit.
+- Greyscale view/doc icon chips (the deferred #8): views list/cards (`ViewCardHeader`, `SavedViewRow`) + `DocumentIconTile` now use `bg-surface-3 text-fg-2`, no colored tint/border.
+- Docs filter bug: enforce the base docs view's `documentKinds` as identity so viewer-config can't surface the wrong kinds (Workspace docs no longer shows private docs). Pre-existing; not from prior turns.
+- Dashboard header: title "Dashboard", tabs inline, no subtitle (dropped PageHeader for an inline SidebarTrigger row).
+- Default-view properties editor: display-props tier now a flat on/off Switch list (reuses exported `getViewDisplayPropertyOptions`/`getDisplayPropertyLabel`) instead of the chip popover.
+- Team landing route → `/team/{slug}/dashboard`.
+- Icons: Dashboard nav uses SquaresFour; Views nav/reference icons use Cards (board layout icon unchanged).
+
+Test added: getViewIconName defaults + chosen-icon passthrough.
+Residual: browser smoke still pending for the new modal icon picker, greyscale chips, dashboard header, and flat toggle list.
+
 ## Turn 2 — 2026-06-10 (follow-up)
 
 Outcome: all-clear (local), pre-redeploy. Risk: Medium (UI redesign + new dependency + routing).

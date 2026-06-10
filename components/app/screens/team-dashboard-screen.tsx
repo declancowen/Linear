@@ -15,7 +15,7 @@ import {
   YAxis,
 } from "recharts"
 
-import { PageHeader } from "@/components/app/collaboration-screens/shared-ui"
+import { SidebarTrigger } from "@/components/ui/sidebar"
 import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
 import { STATUS_ACCENTS } from "@/components/app/screens/work-surface-view/event-accent"
 import {
@@ -531,7 +531,10 @@ export function TeamDashboardScreen({ teamSlug }: { teamSlug: string }) {
   if (!team) {
     return (
       <div className="flex h-full flex-col">
-        <PageHeader title="Dashboard" />
+        <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-background px-3.5">
+          <SidebarTrigger className="size-5 shrink-0" />
+          <h1 className="text-sm font-medium">Dashboard</h1>
+        </div>
         <div className="flex flex-1 items-center justify-center px-6 py-20 text-sm text-muted-foreground">
           Team space not found.
         </div>
@@ -541,30 +544,33 @@ export function TeamDashboardScreen({ teamSlug }: { teamSlug: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title={team.name} subtitle="Dashboard" />
-      <div className="flex shrink-0 items-center gap-0.5 border-b border-line-soft px-3.5 py-1.5">
-        {DASHBOARD_TABS.map((entry) => {
-          const active = tab === entry.id
-          const Icon = entry.icon
-          return (
-            <button
-              key={entry.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setTab(entry.id)}
-              className={cn(
-                "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors",
-                active
-                  ? "bg-surface-3 font-medium text-foreground"
-                  : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
-              )}
-            >
-              <Icon className="size-3.5" />
-              {entry.label}
-            </button>
-          )
-        })}
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-background px-3.5">
+        <SidebarTrigger className="size-5 shrink-0" />
+        <h1 className="text-sm font-medium">Dashboard</h1>
+        <div className="ml-2 flex items-center gap-0.5">
+          {DASHBOARD_TABS.map((entry) => {
+            const active = tab === entry.id
+            const Icon = entry.icon
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(entry.id)}
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors",
+                  active
+                    ? "bg-surface-3 font-medium text-foreground"
+                    : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
+                )}
+              >
+                <Icon className="size-3.5" />
+                {entry.label}
+              </button>
+            )
+          })}
+        </div>
       </div>
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto w-full max-w-[1100px]">

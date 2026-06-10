@@ -78,6 +78,7 @@ type ViewConfigArgs = ServerAccessArgs & {
   showEmptyGroups?: boolean
   hiddenState?: ViewDefinition["hiddenState"]
   description?: string
+  icon?: string | null
   scopeType?: "team" | "workspace"
   scopeId?: string
   containerType?: "project-items" | null
@@ -96,6 +97,7 @@ type CreateViewArgs = ServerAccessArgs & {
   route: string
   name: string
   description: string
+  icon?: string | null
   layout?: ViewLayout
   itemLevel?: ViewItemLevel
   showChildItems?: boolean
@@ -421,6 +423,7 @@ export async function createViewHandler(
     id: args.id ?? createId("view"),
     name: args.name,
     description: args.description,
+    icon: args.icon,
     scopeType: args.scopeType,
     scopeId: args.scopeId,
     entityKind: args.entityKind,
@@ -496,6 +499,7 @@ function getViewConfigTextPatch(
 ) {
   return {
     description: getDefinedViewConfigValue(args.description, view.description),
+    icon: getDefinedViewConfigValue(args.icon, view.icon ?? null),
     route: getDefinedViewConfigValue(args.route, view.route),
     layout: getDefinedViewConfigValue(args.layout, view.layout),
   }
