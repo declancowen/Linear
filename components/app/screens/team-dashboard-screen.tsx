@@ -2,8 +2,22 @@
 
 import { useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
+import { ChartBar, Kanban, Pulse } from "@phosphor-icons/react"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  Pie,
+  PieChart,
+  XAxis,
+  YAxis,
+} from "recharts"
 
+import { PageHeader } from "@/components/app/collaboration-screens/shared-ui"
 import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
+import { STATUS_ACCENTS } from "@/components/app/screens/work-surface-view/event-accent"
 import {
   getTeamDashboardCompletion,
   getTeamDashboardProjectProgress,
@@ -23,53 +37,24 @@ import {
   type WorkItem,
 } from "@/lib/domain/types"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import { getDisplayInitials } from "@/lib/display-initials"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
 
 type DashboardTab = "overview" | "work" | "activity"
 
-const DASHBOARD_TABS: { id: DashboardTab; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "work", label: "Work" },
-  { id: "activity", label: "Activity" },
-]
-
-function ThemeBar({
-  label,
-  value,
-  caption,
-}: {
-  label: string
-  value: number
-  caption?: string
-}) {
-  const clamped = Math.max(0, Math.min(100, value))
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between gap-2 text-[12.5px]">
-        <span className="truncate text-fg-2">{label}</span>
-        <span className="shrink-0 tabular-nums text-fg-3">
-          {caption ?? `${clamped}%`}
-        </span>
-      </div>
-      <div
-        role="progressbar"
-        aria-valuenow={clamped}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={label}
-        className="h-2 w-full overflow-hidden rounded-full bg-surface-3"
-      >
-        <div
-          className="h-full rounded-full bg-foreground transition-[width]"
-          style={{ width: `${clamped}%` }}
-        />
-      </div>
-    </div>
-  )
-}
+const DASHBOARD_TABS: { id: DashboardTab; label: string; icon: typeof ChartBar }[] =
+  [
+    { id: "overview", label: "Overview", icon: ChartBar },
+    { id: "work", label: "Work", icon: Kanban },
+    { id: "activity", label: "Activity", icon: Pulse },
+  ]
 
 function DashboardCard({
   title,
@@ -99,6 +84,194 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
   return <p className="text-[12.5px] text-fg-3">{children}</p>
 }
 
+function StatCard({
+  label,
+  value,
+  hint,
+}: {
+  label: string
+  value: string | number
+  hint?: string
+}) {
+  return (
+    <div className="rounded-xl border border-line-soft bg-surface px-4 py-3">
+      <div className="text-[11.5px] font-medium tracking-wide text-fg-3 uppercase">
+        {label}
+      </div>
+      <div className="mt-1 text-[22px] leading-none font-semibold tabular-nums text-foreground">
+        {value}
+      </div>
+      {hint ? <div className="mt-1 text-[11.5px] text-fg-3">{hint}</div> : null}
+    </div>
+  )
+}
+
+function ProgressTrack({ value }: { value: number }) {
+  const clamped = Math.max(0, Math.min(100, value))
+
+  return (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-surface-3">
+      <div
+        className="h-full rounded-full bg-foreground transition-[width]"
+        style={{ width: `${clamped}%` }}
+      />
+    </div>
+  )
+}
+
+function CompletionByTypeCard({
+  items,
+  experience,
+}: {
+  items: WorkItem[]
+  experience?: TeamExperienceType | null
+}) {
+  const completion = useMemo(() => getTeamDashboardCompletion(items), [items])
+  const data = completion.byType.map((entry) => ({
+    label: getDisplayLabelForWorkItemType(entry.type, experience),
+    percent: entry.percent,
+    completed: entry.completed,
+    total: entry.total,
+  }))
+  const config: ChartConfig = {
+    percent: { label: "Complete", color: "var(--foreground)" },
+  }
+
+  return (
+    <DashboardCard title="Completion by type">
+      {data.length > 0 ? (
+        <ChartContainer
+          config={config}
+          className="aspect-auto h-[240px] w-full"
+        >
+          <BarChart
+            accessibilityLayer
+            data={data}
+            layout="vertical"
+            margin={{ left: 8, right: 28, top: 4, bottom: 4 }}
+          >
+            <CartesianGrid horizontal={false} strokeDasharray="3 3" />
+            <XAxis type="number" domain={[0, 100]} hide />
+            <YAxis
+              type="category"
+              dataKey="label"
+              tickLine={false}
+              axisLine={false}
+              width={92}
+              tick={{ fontSize: 12 }}
+            />
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  hideLabel
+                  formatter={(value, _name, item) => (
+                    <span className="text-fg-2">
+                      {item?.payload?.label}:{" "}
+                      <span className="font-medium text-foreground">
+                        {item?.payload?.completed}/{item?.payload?.total} (
+                        {value}%)
+                      </span>
+                    </span>
+                  )}
+                />
+              }
+            />
+            <Bar dataKey="percent" fill="var(--color-percent)" radius={5}>
+              <LabelList
+                dataKey="percent"
+                position="right"
+                offset={8}
+                className="fill-fg-2"
+                fontSize={11}
+                formatter={(value: number) => `${value}%`}
+              />
+            </Bar>
+          </BarChart>
+        </ChartContainer>
+      ) : (
+        <EmptyHint>No work items yet.</EmptyHint>
+      )}
+    </DashboardCard>
+  )
+}
+
+function StatusBreakdownCard({ items }: { items: WorkItem[] }) {
+  const breakdown = useMemo(
+    () => getTeamDashboardStatusBreakdown(items),
+    [items]
+  )
+  const data = breakdown.map((entry) => ({
+    status: entry.status,
+    label: statusMeta[entry.status].label,
+    value: entry.count,
+    fill: STATUS_ACCENTS[entry.status],
+  }))
+  const config: ChartConfig = Object.fromEntries(
+    data.map((entry) => [entry.status, { label: entry.label, color: entry.fill }])
+  )
+  const total = data.reduce((sum, entry) => sum + entry.value, 0)
+
+  return (
+    <DashboardCard title="Issue status">
+      {data.length > 0 ? (
+        <div className="flex flex-col items-center gap-3 sm:flex-row">
+          <ChartContainer
+            config={config}
+            className="aspect-square h-[200px] w-[200px] shrink-0"
+          >
+            <PieChart>
+              <ChartTooltip
+                cursor={false}
+                content={<ChartTooltipContent nameKey="label" hideLabel />}
+              />
+              <Pie
+                data={data}
+                dataKey="value"
+                nameKey="label"
+                innerRadius={56}
+                outerRadius={88}
+                paddingAngle={2}
+                strokeWidth={2}
+                stroke="var(--surface)"
+              >
+                {data.map((entry) => (
+                  <Cell key={entry.status} fill={entry.fill} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ChartContainer>
+          <ul className="min-w-0 flex-1 space-y-1.5">
+            {data.map((entry) => (
+              <li
+                key={entry.status}
+                className="flex items-center gap-2 text-[12.5px]"
+              >
+                <span
+                  aria-hidden
+                  className="size-2.5 shrink-0 rounded-[3px]"
+                  style={{ background: entry.fill }}
+                />
+                <span className="min-w-0 flex-1 truncate text-fg-2">
+                  {entry.label}
+                </span>
+                <span className="shrink-0 tabular-nums text-fg-3">
+                  {entry.value}
+                  <span className="ml-1 text-fg-4">
+                    {total > 0 ? `${Math.round((entry.value / total) * 100)}%` : ""}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <EmptyHint>No work items yet.</EmptyHint>
+      )}
+    </DashboardCard>
+  )
+}
+
 function OverviewTab({
   items,
   experience,
@@ -111,61 +284,69 @@ function OverviewTab({
     () => getTeamDashboardStatusBreakdown(items),
     [items]
   )
-  const maxStatusCount = statusBreakdown.reduce(
-    (max, entry) => Math.max(max, entry.count),
-    0
+  const inProgress =
+    statusBreakdown.find((entry) => entry.status === "in-progress")?.count ?? 0
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="Items" value={items.length} />
+        <StatCard
+          label="Completed"
+          value={completion.overall.completed}
+          hint={`of ${completion.overall.total} active`}
+        />
+        <StatCard label="In progress" value={inProgress} />
+        <StatCard label="Complete" value={`${completion.overall.percent}%`} />
+      </div>
+      <DashboardCard title="Overall completion">
+        <ProgressTrack value={completion.overall.percent} />
+        <p className="mt-2 text-[12px] text-fg-3">
+          {completion.overall.completed}/{completion.overall.total} actionable
+          items done · {completion.overall.percent}%
+        </p>
+      </DashboardCard>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <CompletionByTypeCard items={items} experience={experience} />
+        <StatusBreakdownCard items={items} />
+      </div>
+    </div>
+  )
+}
+
+function ProjectProgressCard({
+  items,
+  projects,
+}: {
+  items: WorkItem[]
+  projects: Project[]
+}) {
+  const projectProgress = useMemo(
+    () => getTeamDashboardProjectProgress(projects, items),
+    [projects, items]
   )
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <DashboardCard title="Completion">
-        <div className="space-y-4">
-          <ThemeBar
-            label="Overall complete"
-            value={completion.overall.percent}
-            caption={`${completion.overall.completed}/${completion.overall.total} · ${completion.overall.percent}%`}
-          />
-          {completion.byType.length > 0 ? (
-            <div className="space-y-3 border-t border-line-soft pt-3">
-              {completion.byType.map((entry) => (
-                <ThemeBar
-                  key={entry.type}
-                  label={getDisplayLabelForWorkItemType(
-                    entry.type,
-                    experience
-                  )}
-                  value={entry.percent}
-                  caption={`${entry.completed}/${entry.total} · ${entry.percent}%`}
-                />
-              ))}
+    <DashboardCard title="Projects">
+      {projectProgress.length > 0 ? (
+        <div className="space-y-3">
+          {projectProgress.map((entry) => (
+            <div key={entry.projectId} className="space-y-1.5">
+              <div className="flex items-baseline justify-between gap-2 text-[12.5px]">
+                <span className="truncate text-fg-2">{entry.name}</span>
+                <span className="shrink-0 tabular-nums text-fg-3">
+                  {entry.completion.completed}/{entry.completion.total} ·{" "}
+                  {entry.completion.percent}%
+                </span>
+              </div>
+              <ProgressTrack value={entry.completion.percent} />
             </div>
-          ) : (
-            <EmptyHint>No work items yet.</EmptyHint>
-          )}
+          ))}
         </div>
-      </DashboardCard>
-
-      <DashboardCard title="Issue status">
-        {statusBreakdown.length > 0 ? (
-          <div className="space-y-3">
-            {statusBreakdown.map((entry) => (
-              <ThemeBar
-                key={entry.status}
-                label={statusMeta[entry.status].label}
-                value={
-                  maxStatusCount > 0
-                    ? Math.round((entry.count / maxStatusCount) * 100)
-                    : 0
-                }
-                caption={String(entry.count)}
-              />
-            ))}
-          </div>
-        ) : (
-          <EmptyHint>No work items yet.</EmptyHint>
-        )}
-      </DashboardCard>
-    </div>
+      ) : (
+        <EmptyHint>No projects in this team space.</EmptyHint>
+      )}
+    </DashboardCard>
   )
 }
 
@@ -178,11 +359,6 @@ function WorkTab({
   projects: Project[]
   views: ViewDefinition[]
 }) {
-  const projectProgress = useMemo(
-    () => getTeamDashboardProjectProgress(projects, items),
-    [projects, items]
-  )
-
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <DashboardCard title="Views">
@@ -204,23 +380,7 @@ function WorkTab({
           <EmptyHint>No saved views in this team space.</EmptyHint>
         )}
       </DashboardCard>
-
-      <DashboardCard title="Projects">
-        {projectProgress.length > 0 ? (
-          <div className="space-y-3">
-            {projectProgress.map((entry) => (
-              <ThemeBar
-                key={entry.projectId}
-                label={entry.name}
-                value={entry.completion.percent}
-                caption={`${entry.completion.completed}/${entry.completion.total} · ${entry.completion.percent}%`}
-              />
-            ))}
-          </div>
-        ) : (
-          <EmptyHint>No projects in this team space.</EmptyHint>
-        )}
-      </DashboardCard>
+      <ProjectProgressCard items={items} projects={projects} />
     </div>
   )
 }
@@ -307,10 +467,7 @@ function ActivityTab({
               key={`${entry.userId}:${entry.activity.type}:${entry.activity.createdAt}:${index}`}
               className="flex items-start gap-2.5"
             >
-              <Avatar
-                size="sm"
-                className="mt-0.5 size-5 data-[size=sm]:size-5"
-              >
+              <Avatar size="sm" className="mt-0.5 size-5 data-[size=sm]:size-5">
                 {imageSrc ? <AvatarImage src={imageSrc} alt={name} /> : null}
                 <AvatarFallback>{getDisplayInitials(name, "?")}</AvatarFallback>
               </Avatar>
@@ -356,8 +513,7 @@ export function TeamDashboardScreen({ teamSlug }: { teamSlug: string }) {
     () =>
       teamId
         ? data.views.filter(
-            (view) =>
-              view.scopeType === "team" && view.scopeId === teamId
+            (view) => view.scopeType === "team" && view.scopeId === teamId
           )
         : [],
     [data.views, teamId]
@@ -367,34 +523,29 @@ export function TeamDashboardScreen({ teamSlug }: { teamSlug: string }) {
     [data, teamId]
   )
   const usersById = useMemo(
-    () => new Map<string, UserProfile>(data.users.map((user) => [user.id, user])),
+    () =>
+      new Map<string, UserProfile>(data.users.map((user) => [user.id, user])),
     [data.users]
   )
 
   if (!team) {
     return (
-      <div className="flex h-full items-center justify-center px-6 py-20 text-sm text-muted-foreground">
-        Team space not found.
+      <div className="flex h-full flex-col">
+        <PageHeader title="Dashboard" />
+        <div className="flex flex-1 items-center justify-center px-6 py-20 text-sm text-muted-foreground">
+          Team space not found.
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="no-scrollbar mx-auto w-full max-w-[1100px] space-y-5 overflow-y-auto px-6 py-6">
-      <header className="space-y-0.5">
-        <h1 className="text-[18px] font-semibold tracking-tight text-foreground">
-          {team.name}
-        </h1>
-        <p className="text-[13px] text-fg-3">Dashboard</p>
-      </header>
-
-      <div
-        role="tablist"
-        aria-label="Dashboard sections"
-        className="flex items-center gap-1 border-b border-line-soft"
-      >
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader title={team.name} subtitle="Dashboard" />
+      <div className="flex shrink-0 items-center gap-0.5 border-b border-line-soft px-3.5 py-1.5">
         {DASHBOARD_TABS.map((entry) => {
           const active = tab === entry.id
+          const Icon = entry.icon
           return (
             <button
               key={entry.id}
@@ -403,27 +554,31 @@ export function TeamDashboardScreen({ teamSlug }: { teamSlug: string }) {
               aria-selected={active}
               onClick={() => setTab(entry.id)}
               className={cn(
-                "-mb-px border-b-2 px-3 py-2 text-[13px] transition-colors",
+                "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors",
                 active
-                  ? "border-foreground font-medium text-foreground"
-                  : "border-transparent text-fg-3 hover:text-foreground"
+                  ? "bg-surface-3 font-medium text-foreground"
+                  : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
               )}
             >
+              <Icon className="size-3.5" />
               {entry.label}
             </button>
           )
         })}
       </div>
-
-      {tab === "overview" ? (
-        <OverviewTab items={items} experience={experience} />
-      ) : null}
-      {tab === "work" ? (
-        <WorkTab items={items} projects={projects} views={views} />
-      ) : null}
-      {tab === "activity" ? (
-        <ActivityTab entries={activity} usersById={usersById} />
-      ) : null}
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-6">
+        <div className="mx-auto w-full max-w-[1100px]">
+          {tab === "overview" ? (
+            <OverviewTab items={items} experience={experience} />
+          ) : null}
+          {tab === "work" ? (
+            <WorkTab items={items} projects={projects} views={views} />
+          ) : null}
+          {tab === "activity" ? (
+            <ActivityTab entries={activity} usersById={usersById} />
+          ) : null}
+        </div>
+      </div>
     </div>
   )
 }

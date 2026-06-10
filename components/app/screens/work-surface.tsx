@@ -14,7 +14,6 @@ import {
   getUser,
   getViewByRoute,
 } from "@/lib/domain/selectors"
-import { isSystemView } from "@/lib/domain/default-views"
 import {
   applyViewerViewConfig,
   getViewerScopedDirectoryKey,
@@ -425,10 +424,9 @@ function WorkSurfaceTopbar({
       <HeaderTitle title={title} />
       {displayedViews.length > 0 && activeView ? (
         <div className="ml-2 flex items-center gap-0.5">
-          {displayedViews.map((view) =>
-            usingFallbackViews || isSystemView(view) ? (
+          {displayedViews.map((view) => (
+            <ViewContextMenu key={view.id} view={view}>
               <button
-                key={view.id}
                 className={cn(
                   "h-7 rounded-md px-2 text-[12px] transition-colors",
                   view.id === activeView.id
@@ -446,24 +444,8 @@ function WorkSurfaceTopbar({
               >
                 {view.name}
               </button>
-            ) : (
-              <ViewContextMenu key={view.id} view={view}>
-                <button
-                  className={cn(
-                    "h-7 rounded-md px-2 text-[12px] transition-colors",
-                    view.id === activeView.id
-                      ? "bg-surface-3 font-medium text-foreground"
-                      : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
-                  )}
-                  onClick={() => {
-                    onSelectView(view.id)
-                  }}
-                >
-                  {view.name}
-                </button>
-              </ViewContextMenu>
-            )
-          )}
+            </ViewContextMenu>
+          ))}
           {!usingFallbackViews &&
           allowCreateViews &&
           editable &&

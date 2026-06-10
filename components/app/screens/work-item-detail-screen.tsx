@@ -44,7 +44,7 @@ import {
   PaperPlaneTilt,
   Plus,
   SidebarSimple,
-  SquaresFour,
+  Cards,
   Trash,
   TreeStructure,
 } from "@phosphor-icons/react"
@@ -5777,7 +5777,7 @@ function WorkItemRelationsSection({
           <DetailRelationLink
             key={view.id}
             href={getViewHref(view)}
-            icon={<SquaresFour className="size-3" />}
+            icon={<Cards className="size-3" />}
             label="view"
             title={view.name}
           />

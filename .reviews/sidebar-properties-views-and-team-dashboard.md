@@ -7,6 +7,21 @@ architecture-standards + diff-review + fallow.
 Status: CLEAN (local). Verified: typecheck, lint (--max-warnings 0), fallow
 dead-code + dupes, full test suite (235 files / 1664 tests), production build.
 
+## Turn 2 — 2026-06-10 (follow-up)
+
+Outcome: all-clear (local), pre-redeploy. Risk: Medium (UI redesign + new dependency + routing).
+Verified: typecheck, lint, Fallow dead-code (1 pre-existing) + dupes (114 pre-existing), full suite (1664), production build (Recharts SSR OK).
+
+Changes:
+- Bugfix (F3, escaped from Turn 1): built-in/system + fallback view tabs were rendered as plain buttons in `WorkSurfaceTopbar`, bypassing `ViewContextMenu` — so All issues/Active/Backlog (and My-items Private tasks/Subscribed) had no right-click menu. Now every view tab is wrapped in `ViewContextMenu`. Removed the now-unused `isSystemView` import. Root cause: the #11 capability lived in `ViewContextMenu` but a sibling render path skipped it (missed sibling-path sweep).
+- Team landing route → `/team/{slug}/dashboard` (`getTeamLandingHref` simplified; Dashboard is always-on). Fixes "lands on issues" in web + Electron (Electron nav policy is origin-based, not path-based, so no allowlist change needed).
+- Icons: Dashboard now uses `SquaresFour` (former Views icon); Views nav/reference icons (team + workspace sidebar, view reference, linked-view rows) now use `Cards`. Board *layout* icon intentionally unchanged.
+- Dashboard redesign: common `PageHeader` (collapsible sidebar button) + view-style segmented tabs; stat cards; shadcn chart primitive (`components/ui/chart.tsx`, Recharts 2.15.4) with a monochrome `var(--foreground)` completion bar chart and a status donut colored from the shared `STATUS_ACCENTS` map (exported from `event-accent.ts` as the single source). Trimmed unused `ChartLegend`/`ChartLegendContent`/`ChartStyle` exports (Fallow) — `ChartStyle` kept internal.
+
+New dependency: `recharts@2.15.4` (pinned 2.x, the version shadcn's chart wrapper targets).
+
+Residual: dashboard charts/tabs still want a browser smoke (presentation-heavy); production web is live for smoking. Dashboard still reads current store state (no scoped refresh).
+
 ## Turn 1 — 2026-06-10
 
 Outcome: all-clear (local), pre-deploy.

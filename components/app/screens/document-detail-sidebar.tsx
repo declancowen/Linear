@@ -8,7 +8,7 @@ import {
   Folder,
   LinkSimple,
   SidebarSimple,
-  SquaresFour,
+  Cards,
   TreeStructure,
   UserCircle,
   UsersThree,
@@ -363,7 +363,7 @@ function DocumentSidebarRelations({
           <DetailRelationLink
             key={view.id}
             href={getViewHref(view)}
-            icon={<SquaresFour className="size-3" />}
+            icon={<Cards className="size-3" />}
             label="view"
             title={view.name}
           />

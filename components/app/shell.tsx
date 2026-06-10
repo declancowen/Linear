@@ -12,6 +12,7 @@ import {
 import {
   Bell,
   CalendarBlank,
+  Cards,
   CaretDown,
   CaretRight,
   ChatCircleDots,
@@ -19,7 +20,6 @@ import {
   CodesandboxLogo,
   DotsThree,
   FileText,
-  Gauge,
   Gear,
   HashStraight,
   Kanban,
@@ -1908,7 +1908,7 @@ function ShellWorkspaceSection({
             />
             <SidebarLink
               href="/workspace/views"
-              icon={<SquaresFour />}
+              icon={<Cards />}
               label="Views"
               active={pathname.startsWith("/workspace/views")}
             />
@@ -2018,7 +2018,7 @@ function TeamSidebarSubLinks({
           isActive={pathname.startsWith(`/team/${team.slug}/dashboard`)}
         >
           <AppLink href={`/team/${team.slug}/dashboard`}>
-            <Gauge className="size-4" />
+            <SquaresFour className="size-4" />
             <span>Dashboard</span>
           </AppLink>
         </SidebarMenuSubButton>
@@ -2093,7 +2093,7 @@ function TeamSidebarSubLinks({
             isActive={pathname.startsWith(`/team/${team.slug}/views`)}
           >
             <AppLink href={`/team/${team.slug}/views`}>
-              <SquaresFour className="size-4" />
+              <Cards className="size-4" />
               <span>Views</span>
             </AppLink>
           </SidebarMenuSubButton>
