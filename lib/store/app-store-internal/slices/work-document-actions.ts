@@ -597,7 +597,10 @@ export function createWorkDocumentActions({
         entry.id === itemId
           ? {
               ...entry,
-              updatedAt,
+              // Description persistence updates the description document's
+              // updatedAt (above), not the work item record's updatedAt. Keep
+              // the work item timestamp stable so the title's optimistic
+              // concurrency baseline is not invalidated by description edits.
               ...(relationships
                 ? {
                     linkedDocumentIds: relationships.documentIds,

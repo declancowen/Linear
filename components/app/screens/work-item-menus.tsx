@@ -962,8 +962,12 @@ function IssueActionMenuContent({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   async function handleDelete() {
-    for (const target of getDeleteTargetItems(data, model.targetItems)) {
-      await useAppStore.getState().deleteWorkItem(target.id)
+    const targets = getDeleteTargetItems(data, model.targetItems)
+
+    if (targets.length > 0) {
+      await useAppStore
+        .getState()
+        .deleteWorkItems(targets.map((target) => target.id))
     }
 
     setDeleteDialogOpen(false)

@@ -78,6 +78,8 @@ type ViewConfigArgs = ServerAccessArgs & {
   showEmptyGroups?: boolean
   hiddenState?: ViewDefinition["hiddenState"]
   description?: string
+  scopeType?: "team" | "workspace"
+  scopeId?: string
   containerType?: "project-items" | null
   containerId?: string | null
   route?: string
@@ -462,11 +464,15 @@ export async function createViewHandler(
 function createViewConfigPatch(
   view: Awaited<ReturnType<typeof requireViewMutationAccess>>,
   args: ViewConfigArgs,
-  now: string
+  now: string,
+  scope: ResolvedViewScopeChange
 ) {
   return {
     ...getViewConfigTextPatch(view, args),
     ...getViewConfigContainerPatch(view, args),
+    ...(scope.changed
+      ? { scopeType: scope.scopeType, scopeId: scope.scopeId }
+      : {}),
     itemLevel: getDefinedViewConfigValue(args.itemLevel, view.itemLevel),
     showChildItems: getDefinedViewConfigValue(
       args.showChildItems,
@@ -541,24 +547,67 @@ function getViewConfigFiltersPatch(
   return filters
 }
 
-async function assertUpdateViewRoute(
+type ResolvedViewScopeChange = {
+  scopeType: "team" | "workspace" | "personal"
+  scopeId: string
+  changed: boolean
+}
+
+async function resolveUpdatedViewScope(
   ctx: MutationCtx,
   view: Awaited<ReturnType<typeof requireViewMutationAccess>>,
-  route: string | undefined
-) {
-  if (route === undefined) {
-    return
+  args: ViewConfigArgs
+): Promise<ResolvedViewScopeChange> {
+  if (args.scopeType === undefined && args.scopeId === undefined) {
+    return { scopeType: view.scopeType, scopeId: view.scopeId, changed: false }
   }
 
+  if (args.scopeType === undefined || args.scopeId === undefined) {
+    throw new Error("scopeType and scopeId must be provided together")
+  }
+
+  if (args.scopeType === view.scopeType && args.scopeId === view.scopeId) {
+    return { scopeType: view.scopeType, scopeId: view.scopeId, changed: false }
+  }
+
+  if (view.scopeType === "personal") {
+    throw new Error("Personal views cannot be moved to another scope")
+  }
+
+  if (args.scopeType === "team") {
+    const team = await getTeamDoc(ctx, args.scopeId)
+
+    if (!team) {
+      throw new Error("Team not found")
+    }
+
+    await requireEditableTeamAccess(ctx, args.scopeId, args.currentUserId)
+    assertTeamViewFeatures(normalizeTeam(team), view.entityKind)
+  } else {
+    await requireEditableWorkspaceAccess(ctx, args.scopeId, args.currentUserId)
+  }
+
+  return { scopeType: args.scopeType, scopeId: args.scopeId, changed: true }
+}
+
+async function assertUpdateViewRoute(
+  ctx: MutationCtx,
+  params: {
+    scopeType: "team" | "workspace" | "personal"
+    scopeId: string
+    entityKind: "items" | "projects" | "docs"
+    route: string
+  }
+) {
   const team =
-    view.scopeType === "team" ? await getTeamDoc(ctx, view.scopeId) : null
+    params.scopeType === "team" ? await getTeamDoc(ctx, params.scopeId) : null
   const teamSlug = team ? normalizeTeam(team).slug : null
 
   if (
     !isRouteAllowedForViewContext({
-      scopeType: view.scopeType,
-      entityKind: view.entityKind,
-      route,
+      scopeType: params.scopeType,
+      entityKind: params.entityKind,
+      route: params.route,
       teamSlug,
     })
   ) {
@@ -577,8 +626,18 @@ export async function updateViewConfigHandler(
     args.currentUserId
   )
 
-  await assertUpdateViewRoute(ctx, view, args.route)
-  await ctx.db.patch(view._id, createViewConfigPatch(view, args, getNow()))
+  const scope = await resolveUpdatedViewScope(ctx, view, args)
+
+  if (args.route !== undefined || scope.changed) {
+    await assertUpdateViewRoute(ctx, {
+      scopeType: scope.scopeType,
+      scopeId: scope.scopeId,
+      entityKind: view.entityKind,
+      route: args.route ?? view.route,
+    })
+  }
+
+  await ctx.db.patch(view._id, createViewConfigPatch(view, args, getNow(), scope))
 }
 
 export async function toggleViewDisplayPropertyHandler(

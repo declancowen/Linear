@@ -221,6 +221,8 @@ const viewConfigPatchMutationArgs = {
   showEmptyGroups: v.optional(v.boolean()),
   hiddenState: v.optional(hiddenStateValidator),
   description: v.optional(v.string()),
+  scopeType: v.optional(v.union(v.literal("team"), v.literal("workspace"))),
+  scopeId: v.optional(v.string()),
   containerType: v.optional(v.union(v.literal("project-items"), v.null())),
   containerId: v.optional(v.union(v.string(), v.null())),
   route: v.optional(v.string()),

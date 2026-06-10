@@ -1026,8 +1026,29 @@ async function handleRefreshRequest(
     return
   }
 
-  replaceCollaborationDocFromJson(activeRoom.yDoc, contentJson)
-  markRoomCanonical(activeRoom.yDoc, contentJson)
+  // Only rewrite the live Yjs fragment when it actually differs from the
+  // canonical Convex content. Re-applying identical content via delete+insert
+  // churns the shared doc and, with gc disabled, accumulates tombstones —
+  // widening the window for reconnect/merge duplication. Uses the same
+  // HTML+JSON equality that persistCanonicalDocument trusts as "unchanged".
+  const currentJson = normalizeCollaborationDocumentJson(
+    yDocToProsemirrorJSON(activeRoom.yDoc, COLLABORATION_XML_FRAGMENT)
+  )
+  const { contentHtml: currentContentHtml } =
+    prepareCanonicalCollaborationContent(currentJson)
+  const isLiveContentUnchanged =
+    payload.content === currentContentHtml ||
+    areDocumentJsonEqual(currentJson, contentJson)
+
+  if (!isLiveContentUnchanged) {
+    replaceCollaborationDocFromJson(activeRoom.yDoc, contentJson)
+    markRoomCanonical(activeRoom.yDoc, contentJson)
+  } else {
+    // Content already matches canonical; mark canonical against the live doc
+    // so lastCanonicalHash stays consistent with what clients are syncing.
+    markRoomCanonical(activeRoom.yDoc, currentJson)
+  }
+
   recordCollaborationEvent({
     event: "refresh_applied",
     roomId: room.id,
@@ -1388,11 +1409,23 @@ async function ensureCanonicalDocumentSeeded(
   )
 
   if (!hasActiveConnections) {
-    if (!areDocumentJsonEqual(currentJson, contentJson)) {
-      replaceCollaborationDocFromJson(yDoc, contentJson)
-    }
+    // Use the same reliable HTML+JSON equality as persistCanonicalDocument /
+    // handleRefreshRequest. The JSON-only areDocumentJsonEqual reports false
+    // mismatches (yDoc serialization vs canonical HTML normalization), which
+    // caused unnecessary delete+reinsert reseeds on every reconnect — a
+    // primary trigger for reconnect/merge content duplication.
+    const { contentHtml: currentContentHtml } =
+      prepareCanonicalCollaborationContent(currentJson)
+    const isLiveContentUnchanged =
+      payload.content === currentContentHtml ||
+      areDocumentJsonEqual(currentJson, contentJson)
 
-    markRoomCanonical(yDoc, contentJson)
+    if (isLiveContentUnchanged) {
+      markRoomCanonical(yDoc, currentJson)
+    } else {
+      replaceCollaborationDocFromJson(yDoc, contentJson)
+      markRoomCanonical(yDoc, contentJson)
+    }
   } else if (
     !isEmptyDocumentJson(contentJson) &&
     isCollaborationDocEmpty(yDoc)

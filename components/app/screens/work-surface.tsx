@@ -39,6 +39,7 @@ import {
   Topbar,
   Viewbar,
 } from "@/components/ui/template-primitives"
+import { FloatingBoundaryRegion } from "@/components/ui/floating-boundary"
 import { HeaderTitle } from "@/components/app/screens/shared"
 import { ViewContextMenu } from "@/components/app/screens/entity-context-menus"
 import {
@@ -1337,7 +1338,7 @@ export function WorkSurface({
       />
 
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <FloatingBoundaryRegion className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {compatibleActiveView ? (
             <WorkSurfaceViewbar
               view={compatibleActiveView}
@@ -1389,7 +1390,7 @@ export function WorkSurface({
             selectedItemId={selectedInlineItemId}
             onSelectedItemIdChange={toggleInlineItemSidebar}
           />
-        </div>
+        </FloatingBoundaryRegion>
         {selectedInlineItem ? (
           <div className="flex h-full min-h-0 w-[26.25rem] shrink-0 overflow-hidden">
             <WorkItemDetailSidebarSurface

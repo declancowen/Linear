@@ -44,6 +44,7 @@ import {
   PaperPlaneTilt,
   Plus,
   SidebarSimple,
+  SquaresFour,
   Trash,
   TreeStructure,
 } from "@phosphor-icons/react"
@@ -94,6 +95,7 @@ import {
   sortItems,
   workItemMatchesView,
 } from "@/lib/domain/selectors"
+import { getViewHref } from "@/lib/domain/default-views"
 import {
   flattenCommentReplies,
   getRootComments,
@@ -3143,6 +3145,18 @@ function getLinkedWorkItems(data: AppData, currentItem: WorkItem) {
     )
 }
 
+function getLinkedWorkItemViews(data: AppData, currentItem: WorkItem) {
+  if ((currentItem.visibility ?? "team") === "private") {
+    return []
+  }
+
+  return (currentItem.referencedViewIds ?? [])
+    .map((viewId) => data.views.find((entry) => entry.id === viewId) ?? null)
+    .filter(
+      (view): view is AppData["views"][number] => view !== null
+    )
+}
+
 function getWorkItemDeleteCascadeMessage({
   data,
   currentItem,
@@ -3223,6 +3237,7 @@ function getWorkItemDetailModel({
     displayedEndDate: currentItem.targetDate ?? currentItem.dueDate,
     linkedDocuments: getLinkedWorkItemDocuments(data, currentItem),
     linkedItems: getLinkedWorkItems(data, currentItem),
+    linkedViews: getLinkedWorkItemViews(data, currentItem),
     mentionCandidates: privateTask ? [] : team ? teamMembers : data.users,
     referenceCandidates: getRichTextReferenceCandidates(data, {
       type: "workItemDescription",
@@ -4451,7 +4466,7 @@ function WorkItemMainTitleInput({
         }}
         placeholder={`${itemTypeLabel} title`}
         maxLength={workItemTitleConstraints.max}
-        className="h-auto border-none bg-transparent px-0 py-0 text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] shadow-none focus-visible:ring-0 dark:bg-transparent"
+        className="h-auto border-none bg-transparent px-0 py-0 text-[28px] leading-[1.18] font-semibold tracking-[-0.018em] shadow-none focus-visible:ring-0 md:text-[28px] dark:bg-transparent"
         autoFocus
       />
       <FieldCharacterLimit
@@ -5723,11 +5738,17 @@ function WorkItemSidebarSubtasks({
 function WorkItemRelationsSection({
   linkedDocuments,
   linkedItems,
+  linkedViews,
 }: {
   linkedDocuments: AppDocument[]
   linkedItems: WorkItem[]
+  linkedViews: AppData["views"]
 }) {
-  if (linkedDocuments.length === 0 && linkedItems.length === 0) {
+  if (
+    linkedDocuments.length === 0 &&
+    linkedItems.length === 0 &&
+    linkedViews.length === 0
+  ) {
     return null
   }
 
@@ -5739,7 +5760,7 @@ function WorkItemRelationsSection({
             key={document.id}
             href={`/docs/${document.id}`}
             icon={<LinkSimple className="size-3" />}
-            label="Linked doc"
+            label="document"
             title={document.title}
           />
         ))}
@@ -5748,8 +5769,17 @@ function WorkItemRelationsSection({
             key={item.id}
             href={`/items/${item.id}`}
             icon={<TreeStructure className="size-3" />}
-            label="Linked item"
+            label="item"
             title={item.title}
+          />
+        ))}
+        {linkedViews.map((view) => (
+          <DetailRelationLink
+            key={view.id}
+            href={getViewHref(view)}
+            icon={<SquaresFour className="size-3" />}
+            label="view"
+            title={view.name}
           />
         ))}
       </div>
@@ -5944,6 +5974,7 @@ function WorkItemDetailSidebar({
   sidebarChildComposerOpen,
   linkedDocuments,
   linkedItems,
+  linkedViews,
   currentUserId,
   variant = "docked",
   headerClassName,
@@ -5983,6 +6014,7 @@ function WorkItemDetailSidebar({
   sidebarChildComposerOpen: boolean
   linkedDocuments: AppDocument[]
   linkedItems: WorkItem[]
+  linkedViews: AppData["views"]
   currentUserId: string
   variant?: WorkItemDetailSidebarVariant
   headerClassName?: string
@@ -6059,6 +6091,7 @@ function WorkItemDetailSidebar({
             <WorkItemRelationsSection
               linkedDocuments={linkedDocuments}
               linkedItems={linkedItems}
+              linkedViews={linkedViews}
             />
 
             <DetailSidebarSection title="Activity">
@@ -6165,6 +6198,7 @@ export function WorkItemDetailSidebarSurface({
         sidebarChildComposerOpen={sidebarChildComposerOpen}
         linkedDocuments={detailModel.linkedDocuments}
         linkedItems={detailModel.linkedItems}
+        linkedViews={detailModel.linkedViews}
         currentUserId={data.currentUserId}
         variant={variant}
         headerClassName={headerClassName}
@@ -6431,6 +6465,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
     displayedEndDate,
     linkedDocuments,
     linkedItems,
+    linkedViews,
     mentionCandidates,
     parentItem,
     parentOptions,
@@ -6565,6 +6600,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
             sidebarChildComposerOpen={sidebarChildComposerOpen}
             linkedDocuments={linkedDocuments}
             linkedItems={linkedItems}
+            linkedViews={linkedViews}
             currentUserId={currentUserId}
             onCopyItemLink={() => {
               void handleCopyItemLink()

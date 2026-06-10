@@ -31,6 +31,42 @@ export function isRichTextEntityReferenceType(
   return Boolean(value && richTextEntityReferenceTypeSet.has(value))
 }
 
+export type RichTextEntityReferenceDisplay = "inline" | "preview"
+
+export type ResolvedEntityReferenceNodeAttrs = {
+  referenceType: RichTextEntityReferenceType
+  referenceId: string
+  label: string
+  display: RichTextEntityReferenceDisplay
+}
+
+/**
+ * Normalizes the attributes of an `EntityReference` ProseMirror node into the
+ * shape both the editor extension (`renderHTML`) and the React NodeView render
+ * from. Owning this read in one place keeps the attribute-defaulting invariant
+ * consistent across the serialization and editing surfaces.
+ */
+export function resolveEntityReferenceNodeAttrs(
+  attrs: Record<string, unknown>
+): ResolvedEntityReferenceNodeAttrs {
+  const rawReferenceType =
+    typeof attrs.referenceType === "string" ? attrs.referenceType : null
+  const referenceType: RichTextEntityReferenceType =
+    isRichTextEntityReferenceType(rawReferenceType)
+      ? rawReferenceType
+      : "workItem"
+  const referenceId =
+    typeof attrs.referenceId === "string" ? attrs.referenceId : ""
+  const label =
+    typeof attrs.label === "string" && attrs.label.length > 0
+      ? attrs.label
+      : referenceId
+  const display: RichTextEntityReferenceDisplay =
+    attrs.display === "preview" ? "preview" : "inline"
+
+  return { referenceType, referenceId, label, display }
+}
+
 function normalizeReference(
   type: string | undefined,
   id: string | undefined

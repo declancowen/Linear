@@ -319,7 +319,7 @@
     max-height: 16rem;
     height: auto;
     object-fit: contain;
-    margin: 0.85rem 0;
+    margin: 0.85rem 0.2rem;
     border: 1px solid var(--line);
     border-radius: calc(var(--radius) - 2px);
     background: var(--surface-2);
@@ -357,7 +357,7 @@
     border: 1px solid var(--line);
     background: var(--surface-2);
     padding: 0.05rem 0.45rem;
-    margin: 0.35rem 0;
+    margin: 0.35rem 0.2rem;
     color: var(--foreground);
     font-weight: 500;
     text-decoration: none;
@@ -416,6 +416,116 @@
     color: var(--foreground);
     font-weight: 500;
     white-space: nowrap;
+  }
+
+  .tiptap .editor-attachment-download {
+    display: inline-flex;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: 0 0.15rem;
+    align-items: center;
+    justify-content: center;
+    vertical-align: baseline;
+    border-radius: 0.375rem;
+    color: var(--muted-foreground);
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .tiptap .editor-attachment-download:hover {
+    background: var(--surface-3);
+    color: var(--foreground);
+  }
+
+  .tiptap .editor-attachment-download::before {
+    content: "";
+    display: inline-block;
+    width: 0.95em;
+    height: 0.95em;
+    background-color: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M224,152v56a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V152a8,8,0,0,1,16,0v56H208V152a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,132.69V40a8,8,0,0,0-16,0v92.69L93.66,106.34a8,8,0,0,0-11.32,11.32Z%22/%3E%3C/svg%3E")
+      center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M224,152v56a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V152a8,8,0,0,1,16,0v56H208V152a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,132.69V40a8,8,0,0,0-16,0v92.69L93.66,106.34a8,8,0,0,0-11.32,11.32Z%22/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+
+  .tiptap .editor-reference,
+  .ProseMirror .editor-reference {
+    display: inline-flex;
+    max-width: min(100%, 22rem);
+    align-items: center;
+    gap: 0.3rem;
+    vertical-align: baseline;
+    border-radius: 0.375rem;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    padding: 0.05rem 0.45rem;
+    margin: 0 0.2rem;
+    color: var(--foreground);
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    --reference-chip-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M221.87,83.16A104.1,104.1,0,1,1,195.67,49l22.67-22.68a8,8,0,0,1,11.32,11.32l-96,96a8,8,0,0,1-11.32-11.32l27.72-27.72a40,40,0,1,0,17.87,31.09,8,8,0,1,1,16-.9,56,56,0,1,1-22.38-41.65L184.3,60.39a87.88,87.88,0,1,0,23.13,29.67,8,8,0,0,1,14.44-6.9Z%22/%3E%3C/svg%3E");
+  }
+
+  .tiptap .editor-reference:hover,
+  .ProseMirror .editor-reference:hover {
+    background: var(--surface-3);
+    text-decoration: none;
+  }
+
+  .tiptap .editor-reference::before,
+  .ProseMirror .editor-reference::before {
+    content: "";
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    flex: none;
+    background-color: var(--muted-foreground);
+    -webkit-mask: var(--reference-chip-icon) center / contain no-repeat;
+    mask: var(--reference-chip-icon) center / contain no-repeat;
+  }
+
+  .tiptap .editor-reference-document,
+  .ProseMirror .editor-reference-document {
+    --reference-chip-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM160,51.31,188.69,80H160ZM200,216H56V40h88V88a8,8,0,0,0,8,8h48V216Zm-32-80a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,136Zm0,32a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,168Z%22/%3E%3C/svg%3E");
+  }
+
+  .tiptap .editor-reference-project,
+  .ProseMirror .editor-reference-project {
+    --reference-chip-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M224,64H154.67L126.93,43.2a16.12,16.12,0,0,0-9.6-3.2H72A16,16,0,0,0,56,56V72H40A16,16,0,0,0,24,88V200a16,16,0,0,0,16,16H192.89A15.13,15.13,0,0,0,208,200.89V184h16.89A15.13,15.13,0,0,0,240,168.89V80A16,16,0,0,0,224,64ZM192,200H40V88H85.33l29.87,22.4A8,8,0,0,0,120,112h72Zm32-32H208V112a16,16,0,0,0-16-16H122.67L94.93,75.2a16.12,16.12,0,0,0-9.6-3.2H72V56h45.33L147.2,78.4A8,8,0,0,0,152,80h72Z%22/%3E%3C/svg%3E");
+  }
+
+  .tiptap .editor-reference-view,
+  .ProseMirror .editor-reference-view {
+    --reference-chip-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M104,40H56A16,16,0,0,0,40,56v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V56A16,16,0,0,0,104,40Zm0,64H56V56h48ZM200,40H152a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V56A16,16,0,0,0,200,40Zm0,64H152V56h48ZM104,136H56a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V152A16,16,0,0,0,104,136Zm0,64H56V152h48Zm96-64H152a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V152A16,16,0,0,0,200,136Zm0,64H152V152h48Z%22/%3E%3C/svg%3E");
+  }
+
+  .tiptap .editor-reference-preview,
+  .ProseMirror .editor-reference-preview {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 0.5rem 0.2rem;
+    padding: 0.6rem 0.75rem;
+    gap: 0.55rem;
+    border-radius: 0.6rem;
+    white-space: normal;
+    font-weight: 600;
+  }
+
+  .tiptap .editor-reference-preview::before,
+  .ProseMirror .editor-reference-preview::before {
+    width: 1.2em;
+    height: 1.2em;
+    margin-top: 0.05em;
+  }
+
+  .ProseMirror .editor-reference-preview.ProseMirror-selectednode {
+    outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
+    outline-offset: 1px;
   }
 
   .tiptap mark,
@@ -532,7 +642,7 @@
     border: 0 !important;
   }
 
-  .app-emoji-picker input {
+  .app-emoji-picker:not(.epr-dark-theme) input {
     color: #111111 !important;
     caret-color: #111111 !important;
   }

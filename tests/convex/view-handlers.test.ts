@@ -395,4 +395,146 @@ describe("view handlers", () => {
     ).rejects.toThrow("Custom property is not available in this view scope")
     expect(ctx.db.patch).not.toHaveBeenCalled()
   })
+
+  function mockTeamItemsViewForMove() {
+    requireViewMutationAccessMock.mockResolvedValue({
+      _id: "view_doc_1",
+      scopeType: "team",
+      scopeId: "team_1",
+      entityKind: "items",
+      route: "/team/platform/work",
+      description: "",
+      layout: "list",
+      containerType: null,
+      containerId: null,
+      itemLevel: null,
+      showChildItems: false,
+      grouping: null,
+      subGrouping: null,
+      ordering: "updatedAt",
+      filters: { visibility: ["team"] },
+      hiddenState: { groups: [], subgroups: [] },
+      isShared: true,
+      displayProps: ["status"],
+    })
+  }
+
+  it("re-links (moves) a team items view to a workspace project without duplicating", async () => {
+    const { updateViewConfigHandler } =
+      await import("@/convex/app/view_handlers")
+    const ctx = createCtx()
+
+    mockTeamItemsViewForMove()
+
+    await updateViewConfigHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      viewId: "view_1",
+      scopeType: "workspace",
+      scopeId: "workspace_1",
+      containerType: "project-items",
+      containerId: "project_1",
+      route: "/workspace/projects/project_1",
+    })
+
+    expect(requireEditableWorkspaceAccessMock).toHaveBeenCalledWith(
+      ctx,
+      "workspace_1",
+      "user_1"
+    )
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+    expect(ctx.db.delete).not.toHaveBeenCalled()
+    expect(ctx.db.patch).toHaveBeenCalledTimes(1)
+    expect(ctx.db.patch).toHaveBeenCalledWith(
+      "view_doc_1",
+      expect.objectContaining({
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+        containerType: "project-items",
+        containerId: "project_1",
+        route: "/workspace/projects/project_1",
+      })
+    )
+  })
+
+  it("re-links a team items view to a different team and enforces target features", async () => {
+    const { updateViewConfigHandler } =
+      await import("@/convex/app/view_handlers")
+    const ctx = createCtx()
+
+    mockTeamItemsViewForMove()
+    getTeamDocMock.mockResolvedValue({ _id: "team_doc_2" })
+    normalizeTeamMock.mockReturnValue({
+      id: "team_2",
+      workspaceId: "workspace_1",
+      slug: "other",
+      settings: {
+        experience: "software-development",
+        features: { views: true, issues: true, projects: true, docs: true },
+      },
+    })
+
+    await updateViewConfigHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      viewId: "view_1",
+      scopeType: "team",
+      scopeId: "team_2",
+      route: "/team/other/work",
+    })
+
+    expect(requireEditableTeamAccessMock).toHaveBeenCalledWith(
+      ctx,
+      "team_2",
+      "user_1"
+    )
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+    expect(ctx.db.delete).not.toHaveBeenCalled()
+    expect(ctx.db.patch).toHaveBeenCalledWith(
+      "view_doc_1",
+      expect.objectContaining({
+        scopeType: "team",
+        scopeId: "team_2",
+        route: "/team/other/work",
+      })
+    )
+  })
+
+  it("refuses to move a personal view to another scope", async () => {
+    const { updateViewConfigHandler } =
+      await import("@/convex/app/view_handlers")
+    const ctx = createCtx()
+
+    requireViewMutationAccessMock.mockResolvedValue({
+      _id: "view_doc_1",
+      scopeType: "personal",
+      scopeId: "user_1",
+      entityKind: "items",
+      route: "/assigned",
+      description: "",
+      layout: "list",
+      containerType: null,
+      containerId: null,
+      itemLevel: null,
+      showChildItems: false,
+      grouping: null,
+      subGrouping: null,
+      ordering: "updatedAt",
+      filters: {},
+      hiddenState: { groups: [], subgroups: [] },
+      isShared: false,
+      displayProps: [],
+    })
+
+    await expect(
+      updateViewConfigHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        viewId: "view_1",
+        scopeType: "workspace",
+        scopeId: "workspace_1",
+      })
+    ).rejects.toThrow("Personal views cannot be moved to another scope")
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
 })

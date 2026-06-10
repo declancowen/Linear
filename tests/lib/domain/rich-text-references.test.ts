@@ -237,21 +237,33 @@ describe("rich text reference selectors", () => {
     ])
   })
 
-  it("does not offer shared references from private source artifacts", () => {
+  it("offers team-scoped references from private source artifacts", () => {
     const data = createReferenceCandidateData()
 
-    expect(
+    const fromPrivateDoc = getCandidateKeys(
       getRichTextReferenceCandidates(data, {
         type: "document",
         documentId: "doc_private",
       })
-    ).toEqual([])
-    expect(
+    )
+    expect(fromPrivateDoc.length).toBeGreaterThan(0)
+    expect(fromPrivateDoc).toContain("workItem:item_visible")
+    expect(fromPrivateDoc).toContain("document:doc_team")
+    // Team-membership visibility is still enforced for the candidate set.
+    expect(fromPrivateDoc).not.toContain("workItem:item_hidden_team")
+    expect(fromPrivateDoc).not.toContain("document:doc_hidden_team")
+    expect(fromPrivateDoc).not.toContain("project:project_hidden_team")
+    expect(fromPrivateDoc).not.toContain("view:view_hidden_team")
+
+    const fromPrivateItem = getCandidateKeys(
       getRichTextReferenceCandidates(data, {
         type: "workItemDescription",
         itemId: "item_private",
       })
-    ).toEqual([])
+    )
+    expect(fromPrivateItem.length).toBeGreaterThan(0)
+    expect(fromPrivateItem).toContain("workItem:item_visible")
+    expect(fromPrivateItem).not.toContain("workItem:item_hidden_team")
   })
 
   it("derives document relationship ids from allowed inline references only", () => {

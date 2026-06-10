@@ -1101,6 +1101,7 @@ function ForumPostBody({
 
             <RichTextContent
               content={post.content}
+              enableAttachmentDownload
               className={cn(
                 "text-[13.5px] leading-[1.55] text-foreground [&_p]:leading-[1.55]",
                 post.title ? "mt-1.5" : "mt-2"

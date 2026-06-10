@@ -58,8 +58,11 @@ export function DetailRelationLink({
       className={cn(detailChipClassName, "w-fit hover:bg-surface-3")}
     >
       {icon}
-      <span>{label}</span>
-      <b className="font-medium text-foreground">{title}</b>
+      <b className="min-w-0 truncate font-medium text-foreground">{title}</b>
+      <span className="text-fg-3" aria-hidden="true">
+        •
+      </span>
+      <span className="text-fg-3">{label}</span>
     </AppLink>
   )
 }

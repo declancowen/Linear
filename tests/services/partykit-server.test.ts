@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { type JSONContent } from "@tiptap/core"
 import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
+import * as Y from "yjs"
 
 import { COLLABORATION_PROTOCOL_VERSION } from "@/lib/collaboration/protocol"
 import {
@@ -129,11 +130,27 @@ async function connectDocumentRoom(
   )
 }
 
-function createDocumentRoomContext(roomId = "doc:doc_desc_1") {
-  return createPartykitRoom({ id: roomId }) as never
+// Shared arrange for viewer-driven canonical refresh tests: loads the
+// collaboration server, connects a viewer, and returns the refresh token + room
+// each test drives onRequest with.
+async function connectViewerForCanonicalRefresh() {
+  const collaboration = await loadCollaboration()
+  const viewerToken = createDocumentToken({
+    role: "viewer",
+    sessionId: "session_viewer",
+    sub: "user_viewer",
+  })
+  const refreshToken = createRefreshToken()
+  const room = createPartykitRoom()
+
+  await connectDocumentRoom(collaboration, { room, token: viewerToken })
+
+  return { collaboration, refreshToken, room }
 }
 
-function createDocumentRoomUrl(roomId: string, query = "") {
+function createDocumentRoomContext(roomId = "doc:doc_desc_1") {
+  return createPartykitRoom({ id: roomId }) as never
+}function createDocumentRoomUrl(roomId: string, query = "") {
   return `http://127.0.0.1:1999/parties/main/${roomId}${query}`
 }
 
@@ -1495,17 +1512,8 @@ describe("PartyKit collaboration server", () => {
         })
       )
 
-    const collaboration = await loadCollaboration()
-
-    const viewerToken = createDocumentToken({
-      role: "viewer",
-      sessionId: "session_viewer",
-      sub: "user_viewer",
-    })
-    const refreshToken = createRefreshToken()
-    const room = createPartykitRoom()
-
-    await connectDocumentRoom(collaboration, { room, token: viewerToken })
+    const { collaboration, refreshToken, room } =
+      await connectViewerForCanonicalRefresh()
 
     const response = await collaboration.onRequest(
       createRefreshRequest("doc:doc_team_1", refreshToken, {
@@ -1527,6 +1535,69 @@ describe("PartyKit collaboration server", () => {
     await expect(options.callback.handler(yDoc)).resolves.toBeUndefined()
     expect(persistCollaborationDocumentToConvexMock).not.toHaveBeenCalled()
     expect(closeMock).not.toHaveBeenCalled()
+  })
+
+  it("does not rewrite the live document when a refresh matches canonical content", async () => {
+    const contentJson = createRichTextJson("Canonical content")
+    const yDoc = mockYDoc(contentJson)
+    onConnectMock.mockResolvedValue(undefined)
+    getCollaborationDocumentFromConvexMock
+      .mockResolvedValueOnce(
+        createCollaborationDocumentRecord({
+          canEdit: false,
+          teamMemberIds: [],
+        })
+      )
+      .mockResolvedValueOnce(
+        createCollaborationDocumentRecord({
+          canEdit: false,
+          teamMemberIds: [],
+        })
+      )
+
+    const { collaboration, refreshToken, room } =
+      await connectViewerForCanonicalRefresh()
+
+    const stateBefore = Y.encodeStateAsUpdate(yDoc as unknown as Y.Doc)
+
+    const response = await collaboration.onRequest(
+      createRefreshRequest("doc:doc_team_1", refreshToken, {
+        kind: "canonical-updated",
+        documentId: "doc_team_1",
+      }) as never,
+      room as never
+    )
+
+    const stateAfter = Y.encodeStateAsUpdate(yDoc as unknown as Y.Doc)
+
+    expect(response.status).toBe(200)
+    expect(
+      yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent
+    ).toEqual(contentJson)
+    // The refresh must not delete+reinsert identical content: no new Yjs
+    // operations should have been appended to the shared doc.
+    expect(Array.from(stateAfter)).toEqual(Array.from(stateBefore))
+  })
+
+  it("does not reseed the document on connect when content already matches canonical", async () => {
+    const contentJson = createRichTextJson("Canonical content")
+    const yDoc = mockYDoc(contentJson)
+    onConnectMock.mockResolvedValue(undefined)
+    mockCollaborationDocument()
+
+    const collaboration = await loadCollaboration()
+    const room = createPartykitRoom()
+
+    const stateBefore = Y.encodeStateAsUpdate(yDoc as unknown as Y.Doc)
+
+    await connectDocumentRoom(collaboration, { room })
+
+    const stateAfter = Y.encodeStateAsUpdate(yDoc as unknown as Y.Doc)
+
+    // Reconnecting to a room whose content already matches canonical must not
+    // delete+reinsert the fragment (the reseed/merge path that duplicates
+    // content over long-lived sessions).
+    expect(Array.from(stateAfter)).toEqual(Array.from(stateBefore))
   })
 
   it("broadcasts ephemeral chat typing snapshots without invoking y-partykit", async () => {

@@ -55,6 +55,9 @@ vi.mock("@/components/app/collaboration-screens/channel-ui", () => ({
 vi.mock("@phosphor-icons/react", () => ({
   Hash: () => null,
   PaperPlaneTilt: () => null,
+  ChatCircle: () => null,
+  ChatCircleDots: () => null,
+  Files: () => null,
 }))
 
 function seedBaseState() {

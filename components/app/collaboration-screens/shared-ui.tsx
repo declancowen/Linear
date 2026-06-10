@@ -556,22 +556,25 @@ export function DetailsSidebarToggle({
   return (
     <>
       <Button
-        size="sm"
+        size="icon-sm"
         variant="ghost"
-        className="h-7 gap-1.5 text-xs xl:hidden"
+        aria-label="Details"
+        title="Details"
+        className="size-7 xl:hidden"
         onClick={onMobileOpen}
       >
         <UsersThree className="size-3.5" />
-        Details
       </Button>
       <Button
-        size="sm"
+        size="icon-sm"
         variant="ghost"
-        className="hidden h-7 gap-1.5 text-xs xl:inline-flex"
+        aria-label={sidebarOpen ? "Hide details" : "Show details"}
+        aria-pressed={sidebarOpen}
+        title={sidebarOpen ? "Hide details" : "Show details"}
+        className="hidden size-7 xl:inline-flex"
         onClick={onDesktopToggle}
       >
         <UsersThree className="size-3.5" />
-        {sidebarOpen ? "Hide details" : "Show details"}
       </Button>
     </>
   )

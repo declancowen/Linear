@@ -874,6 +874,7 @@ async function updateExistingViewFromDraft({
   description,
   draftView,
   editingView,
+  effectiveScope,
   name,
   projectViewContainer,
   resolvedRoute,
@@ -881,6 +882,7 @@ async function updateExistingViewFromDraft({
   description: string
   draftView: ViewDefinition
   editingView: ViewDefinition
+  effectiveScope: ReturnType<typeof getEffectiveCreateViewScope>
   name: string
   projectViewContainer:
     | { containerType: "project-items"; containerId: string }
@@ -897,6 +899,17 @@ async function updateExistingViewFromDraft({
     "containerId" in projectViewContainer
       ? projectViewContainer.containerId
       : null
+  const scopeChange =
+    effectiveScope &&
+    (effectiveScope.scopeType === "team" ||
+      effectiveScope.scopeType === "workspace") &&
+    (effectiveScope.scopeType !== editingView.scopeType ||
+      effectiveScope.scopeId !== editingView.scopeId)
+      ? {
+          scopeType: effectiveScope.scopeType,
+          scopeId: effectiveScope.scopeId,
+        }
+      : null
 
   if (trimmedName !== editingView.name) {
     await store.renameView(editingView.id, trimmedName)
@@ -904,6 +917,7 @@ async function updateExistingViewFromDraft({
 
   store.updateViewConfig(editingView.id, {
     description: description.trim(),
+    ...(scopeChange ?? {}),
     containerType: nextContainerType,
     containerId: nextContainerId,
     route: resolvedRoute,
@@ -961,6 +975,7 @@ async function submitCreateViewDialog({
       description,
       draftView,
       editingView,
+      effectiveScope,
       name,
       projectViewContainer,
       resolvedRoute,

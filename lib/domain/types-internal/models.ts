@@ -303,6 +303,8 @@ export type ViewConfigPatch = Partial<{
   filters: Partial<ViewFilters>
   displayProps: DisplayProperty[]
   description: string
+  scopeType: "team" | "workspace"
+  scopeId: string
   containerType: ViewContainerType | null
   containerId: string | null
   route: string

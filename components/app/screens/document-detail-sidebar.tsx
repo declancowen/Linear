@@ -8,17 +8,20 @@ import {
   Folder,
   LinkSimple,
   SidebarSimple,
+  SquaresFour,
   TreeStructure,
   UserCircle,
   UsersThree,
 } from "@phosphor-icons/react"
 
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import { UserAvatar } from "@/components/app/user-presence"
 import {
   documentTitleConstraints,
   getTextInputLimitState,
 } from "@/lib/domain/input-constraints"
 import { isCustomPropertyDefinitionForDocument } from "@/lib/domain/labels"
+import { getViewHref } from "@/lib/domain/default-views"
 import {
   getProject,
   getProjectHref,
@@ -213,14 +216,14 @@ function DocumentSidebarProperties({
   data: AppData
   document: AppDocument
 }) {
-  const createdBy = getUser(data, document.createdBy)?.name ?? "Unknown"
-  const updatedBy = getUser(data, document.updatedBy)?.name ?? "Unknown"
+  const createdByUser = getUser(data, document.createdBy)
+  const updatedByUser = getUser(data, document.updatedBy)
 
   return (
     <section className="border-b border-line-soft pb-5">
       <dl className="grid grid-cols-[minmax(7rem,0.42fr)_minmax(0,1fr)] gap-x-4 gap-y-1 text-[12.5px]">
         <DocumentSidebarStaticRow
-          icon={<SidebarSimple className="size-[13px]" />}
+          icon={<FileText className="size-[13px]" />}
           label="Kind"
           value={getDocumentKindLabel(document.kind)}
         />
@@ -232,12 +235,40 @@ function DocumentSidebarProperties({
         <DocumentSidebarStaticRow
           icon={<UserCircle className="size-[13px]" />}
           label="Created by"
-          value={createdBy}
+          value={
+            <span className="inline-flex items-center gap-1.5">
+              <UserAvatar
+                name={createdByUser?.name}
+                avatarUrl={createdByUser?.avatarUrl}
+                avatarImageUrl={createdByUser?.avatarImageUrl}
+                status={createdByUser?.status}
+                size="xs"
+                showStatus={false}
+              />
+              <span className="truncate">
+                {createdByUser?.name ?? "Unknown"}
+              </span>
+            </span>
+          }
         />
         <DocumentSidebarStaticRow
           icon={<UserCircle className="size-[13px]" />}
           label="Updated by"
-          value={updatedBy}
+          value={
+            <span className="inline-flex items-center gap-1.5">
+              <UserAvatar
+                name={updatedByUser?.name}
+                avatarUrl={updatedByUser?.avatarUrl}
+                avatarImageUrl={updatedByUser?.avatarImageUrl}
+                status={updatedByUser?.status}
+                size="xs"
+                showStatus={false}
+              />
+              <span className="truncate">
+                {updatedByUser?.name ?? "Unknown"}
+              </span>
+            </span>
+          }
         />
         <DocumentSidebarStaticRow
           icon={<CalendarBlank className="size-[13px]" />}
@@ -275,11 +306,15 @@ function DocumentSidebarRelations({
         data.documents.find((entry) => entry.id === documentId) ?? null
     )
     .filter((entry): entry is AppDocument => Boolean(entry))
+  const linkedViews = (document.linkedViewIds ?? [])
+    .map((viewId) => data.views.find((entry) => entry.id === viewId) ?? null)
+    .filter((entry): entry is AppData["views"][number] => Boolean(entry))
 
   if (
     linkedProjects.length === 0 &&
     linkedItems.length === 0 &&
-    linkedDocuments.length === 0
+    linkedDocuments.length === 0 &&
+    linkedViews.length === 0
   ) {
     return (
       <section className="pt-5">
@@ -302,7 +337,7 @@ function DocumentSidebarRelations({
             key={project.id}
             href={getProjectHref(data, project) ?? `/projects/${project.id}`}
             icon={<Folder className="size-3" />}
-            label="Project"
+            label="project"
             title={project.name}
           />
         ))}
@@ -311,7 +346,7 @@ function DocumentSidebarRelations({
             key={item.id}
             href={`/items/${item.id}`}
             icon={<TreeStructure className="size-3" />}
-            label="Item"
+            label="item"
             title={item.title}
           />
         ))}
@@ -320,8 +355,17 @@ function DocumentSidebarRelations({
             key={linkedDocument.id}
             href={`/docs/${linkedDocument.id}`}
             icon={<LinkSimple className="size-3" />}
-            label="Doc"
+            label="document"
             title={linkedDocument.title}
+          />
+        ))}
+        {linkedViews.map((view) => (
+          <DetailRelationLink
+            key={view.id}
+            href={getViewHref(view)}
+            icon={<SquaresFour className="size-3" />}
+            label="view"
+            title={view.name}
           />
         ))}
       </div>

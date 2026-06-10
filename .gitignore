@@ -38,6 +38,7 @@ pnpm-debug.log*
 
 # env files
 .env*.local
+.env*.local.*
 .env.vercel.pull
 
 # local toolchains

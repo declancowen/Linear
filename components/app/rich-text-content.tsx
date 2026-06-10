@@ -1,7 +1,10 @@
 "use client"
 
 import { useMemo, useState, type MouseEvent } from "react"
+import { DownloadSimple } from "@phosphor-icons/react"
 import { toast } from "sonner"
+
+import { useAppRouter } from "@/lib/browser/app-navigation"
 
 import {
   Dialog,
@@ -42,6 +45,45 @@ function getReferenceAnchor(target: EventTarget | null) {
   const anchor = target.closest('a[data-type="entity-reference"]')
 
   return anchor instanceof HTMLAnchorElement ? anchor : null
+}
+
+/**
+ * Resolves the in-app destination for an embedded entity reference. Prefers the
+ * precomputed candidate href (covers views and access-scoped routing); falls
+ * back to the deterministic entity routes so references stay navigable even in
+ * surfaces that do not supply candidates (chat, channel posts/comments). The
+ * stored anchor href is unreliable here because the canonical sanitizer strips
+ * relative routes to "#".
+ */
+function resolveReferenceDestination(
+  referenceType: string | undefined,
+  referenceId: string | undefined,
+  hrefByKey: Map<string, string> | null
+) {
+  const key = getReferenceKey(referenceType, referenceId)
+  const candidateHref = key ? (hrefByKey?.get(key) ?? null) : null
+
+  if (candidateHref) {
+    return candidateHref
+  }
+
+  if (!referenceId) {
+    return null
+  }
+
+  if (referenceType === "workItem") {
+    return `/items/${referenceId}`
+  }
+
+  if (referenceType === "document") {
+    return `/docs/${referenceId}`
+  }
+
+  if (referenceType === "project") {
+    return `/projects/${referenceId}`
+  }
+
+  return null
 }
 
 type ImagePreviewState = {
@@ -142,10 +184,13 @@ function getAnchorAttachmentKind(
  * mode image previews become reference chips; supported file links upgrade to
  * chips in every mode.
  */
-function transformAttachmentReferences(html: string, inline: boolean) {
+function transformAttachmentReferences(
+  html: string,
+  options: { inline: boolean; download: boolean }
+) {
   const doc = parseHtmlDocument(html)
 
-  if (inline) {
+  if (options.inline) {
     replaceImagePreviewsWithAttachmentLinks(doc.body)
   }
 
@@ -165,7 +210,46 @@ function transformAttachmentReferences(html: string, inline: boolean) {
     anchor.setAttribute("data-attachment-kind", kind)
   })
 
+  if (options.download) {
+    appendAttachmentDownloadControls(doc.body)
+  }
+
   return doc.body.innerHTML
+}
+
+function appendAttachmentDownloadControls(container: HTMLElement) {
+  container
+    .querySelectorAll('a[data-type="attachment"]')
+    .forEach((anchor) => {
+      if (anchor.nextElementSibling?.hasAttribute("data-attachment-download")) {
+        return
+      }
+
+      const href = anchor.getAttribute("href")
+
+      if (!href) {
+        return
+      }
+
+      const ownerDocument = anchor.ownerDocument
+
+      if (!ownerDocument) {
+        return
+      }
+
+      const fileName =
+        anchor.getAttribute("data-file-name") ||
+        anchor.textContent?.trim() ||
+        "file"
+      const download = ownerDocument.createElement("a")
+      download.setAttribute("href", href)
+      download.setAttribute("download", fileName)
+      download.setAttribute("data-attachment-download", "true")
+      download.setAttribute("class", "editor-attachment-download")
+      download.setAttribute("aria-label", `Download ${fileName}`)
+      download.setAttribute("title", `Download ${fileName}`)
+      anchor.after(download)
+    })
 }
 
 function getImagePreviewFromTarget(
@@ -198,6 +282,7 @@ function getImagePreviewFromTarget(
 
   if (
     anchor instanceof HTMLAnchorElement &&
+    !anchor.hasAttribute("data-attachment-download") &&
     anchor.dataset.type !== "entity-reference" &&
     isImageHrefCandidate(anchor)
   ) {
@@ -214,27 +299,30 @@ export function RichTextContent({
   content,
   className,
   attachmentDisplay = "default",
+  enableAttachmentDownload = false,
   referenceCandidates,
 }: {
   content: string
   className?: string
   attachmentDisplay?: AttachmentDisplayMode
+  enableAttachmentDownload?: boolean
   referenceCandidates?: RichTextEntityReferenceCandidate[]
 }) {
   const [imagePreview, setImagePreview] = useState<ImagePreviewState | null>(
     null
   )
+  const router = useAppRouter()
   const sanitizedContent = useMemo(
     () => sanitizeRichTextContent(content),
     [content]
   )
   const displayedContent = useMemo(
     () =>
-      transformAttachmentReferences(
-        sanitizedContent,
-        attachmentDisplay === "inline"
-      ),
-    [attachmentDisplay, sanitizedContent]
+      transformAttachmentReferences(sanitizedContent, {
+        inline: attachmentDisplay === "inline",
+        download: enableAttachmentDownload,
+      }),
+    [attachmentDisplay, enableAttachmentDownload, sanitizedContent]
   )
   const accessibleReferenceKeys = useMemo(
     () =>
@@ -247,6 +335,23 @@ export function RichTextContent({
         : null,
     [referenceCandidates]
   )
+  const referenceHrefByKey = useMemo(() => {
+    if (!referenceCandidates) {
+      return null
+    }
+
+    const map = new Map<string, string>()
+
+    for (const candidate of referenceCandidates) {
+      const key = getReferenceKey(candidate.type, candidate.id)
+
+      if (key && candidate.href) {
+        map.set(key, candidate.href)
+      }
+    }
+
+    return map
+  }, [referenceCandidates])
 
   return (
     <>
@@ -268,27 +373,37 @@ export function RichTextContent({
             return
           }
 
-          if (!accessibleReferenceKeys) {
-            return
-          }
-
           const anchor = getReferenceAnchor(event.target)
 
           if (!anchor) {
             return
           }
 
-          const referenceKey = getReferenceKey(
-            anchor.dataset.referenceType,
-            anchor.dataset.referenceId
-          )
+          const referenceType = anchor.dataset.referenceType
+          const referenceId = anchor.dataset.referenceId
+          const referenceKey = getReferenceKey(referenceType, referenceId)
 
-          if (!referenceKey || accessibleReferenceKeys.has(referenceKey)) {
+          // The stored reference href is "#"; control navigation ourselves.
+          event.preventDefault()
+
+          if (
+            accessibleReferenceKeys &&
+            referenceKey &&
+            !accessibleReferenceKeys.has(referenceKey)
+          ) {
+            toast.error("You do not have access to this reference")
             return
           }
 
-          event.preventDefault()
-          toast.error("You do not have access to this reference")
+          const destination = resolveReferenceDestination(
+            referenceType,
+            referenceId,
+            referenceHrefByKey
+          )
+
+          if (destination) {
+            router.push(destination)
+          }
         }}
         dangerouslySetInnerHTML={{ __html: displayedContent }}
       />
@@ -315,8 +430,21 @@ export function RichTextContent({
                 alt={imagePreview.label}
                 className="mx-auto max-h-[calc(100vh-7rem)] max-w-full rounded-md object-contain"
               />
-              <div className="truncate px-8 text-center text-xs text-white/75">
-                {imagePreview.label}
+              <div className="flex items-center justify-center gap-3 px-8">
+                <span className="truncate text-xs text-white/75">
+                  {imagePreview.label}
+                </span>
+                <a
+                  href={imagePreview.src}
+                  download={imagePreview.label}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Download ${imagePreview.label}`}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-xs text-white transition-colors hover:bg-white/20"
+                >
+                  <DownloadSimple className="size-3.5" />
+                  Download
+                </a>
               </div>
             </>
           ) : null}

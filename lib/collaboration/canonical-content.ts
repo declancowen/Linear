@@ -61,6 +61,15 @@ const ALLOWED_HTML_TAGS = new Set([
   "ul",
 ])
 const ALLOWED_SPAN_CLASSES = new Set(["editor-highlight", "editor-mention"])
+const ALLOWED_ANCHOR_CLASSES = new Set([
+  "editor-attachment",
+  "editor-reference",
+  "editor-reference-document",
+  "editor-reference-project",
+  "editor-reference-view",
+  "editor-reference-workItem",
+  "editor-reference-preview",
+])
 const ALLOWED_IMAGE_CLASSES = new Set(["editor-image"])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -267,6 +276,26 @@ function collectAnchorAttributes(
     target.set("target", "_blank")
     target.set("rel", "noopener noreferrer")
   }
+
+  const className = normalizeClassNames(
+    element.getAttribute("class"),
+    ALLOWED_ANCHOR_CLASSES
+  )
+
+  if (className) {
+    target.set("class", className)
+  }
+
+  // Preserve entity-reference and attachment metadata so inline references and
+  // attachment chips survive the collaborative canonical round-trip instead of
+  // degrading to plain links/text on reseed.
+  setTrimmedAttribute(target, element, "data-type")
+  setTrimmedAttribute(target, element, "data-reference-type")
+  setTrimmedAttribute(target, element, "data-reference-id")
+  setTrimmedAttribute(target, element, "data-label")
+  setTrimmedAttribute(target, element, "data-display")
+  setTrimmedAttribute(target, element, "data-attachment-kind")
+  setTrimmedAttribute(target, element, "data-file-name")
 }
 
 function collectStyledBlockAttributes(

@@ -12,13 +12,14 @@ import { TableKit } from "@tiptap/extension-table"
 import Typography from "@tiptap/extension-typography"
 import Underline from "@tiptap/extension-underline"
 import type { Extensions } from "@tiptap/react"
+import type { NodeViewRenderer } from "@tiptap/core"
 import StarterKit from "@tiptap/starter-kit"
 
 import {
   CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE,
   normalizeChatQuoteSourceMessageId,
 } from "@/lib/content/chat-message-quote-metadata"
-import { isRichTextEntityReferenceType } from "@/lib/content/rich-text-references"
+import { resolveEntityReferenceNodeAttrs } from "@/lib/content/rich-text-references"
 import {
   renderMentionHTML,
   renderMentionText,
@@ -50,6 +51,13 @@ const EntityReference = Node.create({
         default: null,
         parseHTML: (element) => element.getAttribute("href"),
       },
+      display: {
+        default: "inline",
+        parseHTML: (element) =>
+          element.getAttribute("data-display") === "preview"
+            ? "preview"
+            : "inline",
+      },
     }
   },
 
@@ -57,25 +65,18 @@ const EntityReference = Node.create({
     return [
       {
         tag: 'a[data-type="entity-reference"][data-reference-type][data-reference-id]',
+        priority: 100,
       },
       {
         tag: "a.editor-reference[data-reference-type][data-reference-id]",
+        priority: 100,
       },
     ]
   },
 
   renderHTML({ HTMLAttributes, node }) {
-    const referenceType = isRichTextEntityReferenceType(
-      node.attrs.referenceType
-    )
-      ? node.attrs.referenceType
-      : "workItem"
-    const referenceId =
-      typeof node.attrs.referenceId === "string" ? node.attrs.referenceId : ""
-    const label =
-      typeof node.attrs.label === "string" && node.attrs.label.length > 0
-        ? node.attrs.label
-        : referenceId
+    const { referenceType, referenceId, label, display } =
+      resolveEntityReferenceNodeAttrs(node.attrs)
     const href =
       typeof node.attrs.href === "string" && node.attrs.href.length > 0
         ? node.attrs.href
@@ -84,11 +85,14 @@ const EntityReference = Node.create({
     return [
       "a",
       mergeAttributes(HTMLAttributes, {
-        class: `editor-reference editor-reference-${referenceType}`,
+        class:
+          `editor-reference editor-reference-${referenceType}` +
+          (display === "preview" ? " editor-reference-preview" : ""),
         "data-type": "entity-reference",
         "data-reference-type": referenceType,
         "data-reference-id": referenceId,
         "data-label": label,
+        "data-display": display,
         href,
       }),
       label,
@@ -211,7 +215,15 @@ export function createRichTextBaseExtensions(options?: {
   collaboration?: boolean
   includeCharacterCount?: boolean
   characterLimit?: number
+  entityReferenceNodeView?: NodeViewRenderer
 }) {
+  const entityReferenceExtension = options?.entityReferenceNodeView
+    ? EntityReference.extend({
+        addNodeView() {
+          return options.entityReferenceNodeView as NodeViewRenderer
+        },
+      })
+    : EntityReference
   const extensions: Extensions = [
     StarterKit.configure({
       heading: {
@@ -245,7 +257,7 @@ export function createRichTextBaseExtensions(options?: {
       openOnClick: false,
       autolink: true,
     }),
-    EntityReference,
+    entityReferenceExtension,
     AttachmentReference,
     Mention.configure({
       HTMLAttributes: {

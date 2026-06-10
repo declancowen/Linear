@@ -1,8 +1,9 @@
 "use client"
 
-import { forwardRef, type ComponentProps } from "react"
+import { forwardRef, useCallback, useState, type ComponentProps } from "react"
 
 import { cn } from "@/lib/utils"
+import { FloatingBoundaryProvider } from "@/components/ui/floating-boundary"
 
 type CollapsibleRightSidebarProps = ComponentProps<"aside"> & {
   open: boolean
@@ -18,6 +19,20 @@ export const CollapsibleRightSidebar = forwardRef<
   ref
 ) {
   const sidebarWidth = open ? width : "0rem"
+  const [boundary, setBoundary] = useState<HTMLElement | null>(null)
+
+  const mergedRef = useCallback(
+    (node: HTMLElement | null) => {
+      setBoundary(node)
+
+      if (typeof ref === "function") {
+        ref(node)
+      } else if (ref) {
+        ref.current = node
+      }
+    },
+    [ref]
+  )
 
   return (
     <div
@@ -25,7 +40,7 @@ export const CollapsibleRightSidebar = forwardRef<
       style={{ width: sidebarWidth, flexBasis: sidebarWidth }}
     >
       <aside
-        ref={ref}
+        ref={mergedRef}
         aria-hidden={!open}
         inert={!open ? true : undefined}
         className={cn(
@@ -36,7 +51,9 @@ export const CollapsibleRightSidebar = forwardRef<
         style={{ width }}
         {...props}
       >
-        {children}
+        <FloatingBoundaryProvider boundary={boundary}>
+          {children}
+        </FloatingBoundaryProvider>
       </aside>
     </div>
   )

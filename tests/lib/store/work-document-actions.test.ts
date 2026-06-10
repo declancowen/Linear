@@ -811,7 +811,7 @@ describe("work document actions", () => {
     })
     expect(
       harness.state.workItems.find((item) => item.id === "item_1")
-    ).toMatchObject({ updatedAt: "2026-04-17T10:06:00.000Z" })
+    ).toMatchObject({ updatedAt: "2026-04-17T10:00:00.000Z" })
   })
 
   it("updates work item description reference relationships from saved content", async () => {

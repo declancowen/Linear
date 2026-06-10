@@ -283,6 +283,7 @@ describe("work item menus", () => {
       })) as never,
       setCustomPropertyValue: vi.fn() as never,
       deleteWorkItem: vi.fn(async () => true) as never,
+      deleteWorkItems: vi.fn(async () => true) as never,
     })
     pushMock.mockReset()
   })
@@ -550,11 +551,11 @@ describe("work item menus", () => {
 
     fireEvent.click(screen.getByText("Delete"))
 
-    expect(useAppStore.getState().deleteWorkItem).toHaveBeenCalledWith("item_1")
     await waitFor(() =>
-      expect(useAppStore.getState().deleteWorkItem).toHaveBeenCalledWith(
-        "item_2"
-      )
+      expect(useAppStore.getState().deleteWorkItems).toHaveBeenCalledWith([
+        "item_1",
+        "item_2",
+      ])
     )
   })
 })
