@@ -2,7 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { CustomPropertyValueControl } from "@/components/app/screens/custom-property-controls"
+import {
+  CustomPropertyDefinitionDialog,
+  CustomPropertyValueControl,
+} from "@/components/app/screens/custom-property-controls"
 import { useAppStore } from "@/lib/store/app-store"
 import {
   createTestAppData,
@@ -128,5 +131,73 @@ describe("CustomPropertyValueControl", () => {
       "property_private_person",
       "user_2"
     )
+  })
+})
+
+describe("CustomPropertyDefinitionDialog", () => {
+  function renderSelectEditor() {
+    const data = createTestAppData({})
+
+    useAppStore.setState({
+      ...data,
+      createCustomPropertyDefinition: vi.fn(),
+      updateCustomPropertyDefinition: vi.fn(),
+    } as Partial<ReturnType<typeof useAppStore.getState>>)
+
+    render(
+      <CustomPropertyDefinitionDialog
+        open
+        scopeType="team"
+        teamId="team_1"
+        definition={{
+          id: "property_select",
+          workspaceId: "workspace_1",
+          teamId: "team_1",
+          scopeType: "team",
+          ownerId: null,
+          targetType: "workItem",
+          name: "Stage",
+          icon: "ListBullets",
+          type: "select",
+          options: [
+            { id: "opt_a", label: "Alpha", color: "var(--status-backlog)" },
+            { id: "opt_b", label: "Beta", color: "var(--status-todo)" },
+          ],
+          isArchived: false,
+          createdBy: "user_1",
+          createdAt: "2026-05-12T10:00:00.000Z",
+          updatedAt: "2026-05-12T10:00:00.000Z",
+        }}
+        onOpenChange={() => {}}
+      />
+    )
+  }
+
+  function optionLabels() {
+    return screen
+      .getAllByPlaceholderText("Option label")
+      .map((input) => (input as HTMLInputElement).value)
+  }
+
+  it("reorders select options with the move controls", () => {
+    renderSelectEditor()
+
+    expect(optionLabels()).toEqual(["Alpha", "Beta"])
+
+    fireEvent.click(screen.getAllByLabelText("Move option down")[0])
+
+    expect(optionLabels()).toEqual(["Beta", "Alpha"])
+
+    fireEvent.click(screen.getAllByLabelText("Move option up")[1])
+
+    expect(optionLabels()).toEqual(["Alpha", "Beta"])
+  })
+
+  it("exposes a color palette for each option", () => {
+    renderSelectEditor()
+
+    fireEvent.click(screen.getAllByLabelText("Option color")[0])
+
+    expect(screen.getAllByLabelText(/^Use color/).length).toBeGreaterThan(1)
   })
 })

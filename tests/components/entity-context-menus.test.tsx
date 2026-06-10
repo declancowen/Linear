@@ -62,6 +62,11 @@ vi.mock("@/components/ui/context-menu", () => ({
   ),
 }))
 
+vi.mock("@/components/app/screens/system-view-defaults-dialog", () => ({
+  SystemViewDefaultsDialog: ({ open }: { open: boolean }) =>
+    open ? <div>System defaults dialog</div> : null,
+}))
+
 vi.mock("@phosphor-icons/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@phosphor-icons/react")>()
   const Icon = () => null
@@ -408,6 +413,43 @@ describe("ViewContextMenu", () => {
 
     expect(screen.getByText("Open view")).toBeInTheDocument()
     expectRenameDeleteVisibility("view", "hidden")
+  })
+
+  it("offers displayed-properties-only editing for shared built-in item views", () => {
+    renderViewContextMenu({
+      id: "view_team_1_all_items",
+      name: "All issues",
+      route: "/team/platform/work",
+    })
+
+    expect(screen.getByText("Edit displayed properties")).toBeInTheDocument()
+    expect(screen.queryByText("Edit view")).not.toBeInTheDocument()
+    expectRenameDeleteVisibility("view", "hidden")
+
+    fireEvent.click(screen.getByText("Edit displayed properties"))
+    expect(screen.getByText("System defaults dialog")).toBeInTheDocument()
+    expect(useAppStore.getState().ui.activeCreateDialog).toBeNull()
+  })
+
+  it("offers a full re-default editor for private tasks", () => {
+    renderViewContextMenu({
+      id: "view_assigned_private_tasks",
+      name: "Private tasks",
+      scopeType: "personal",
+      scopeId: "user_1",
+      route: "/assigned",
+    })
+
+    expect(screen.getByText("Edit view")).toBeInTheDocument()
+    expect(
+      screen.queryByText("Edit displayed properties")
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Rename view")).not.toBeInTheDocument()
+    expect(screen.queryByText("Delete view")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("Edit view"))
+    expect(screen.getByText("System defaults dialog")).toBeInTheDocument()
+    expect(useAppStore.getState().ui.activeCreateDialog).toBeNull()
   })
 })
 

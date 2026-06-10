@@ -262,8 +262,19 @@ function getWorkSurfaceGroups({
   const sourceItems = scopedItems ?? items
   const groupedItems = getParentGroupedDisplayItems(items, sourceItems, view)
 
+  // Empty-group synthesis is owned by the view's `showEmptyGroups` config, not by
+  // edit permission. Gating it on `editable` previously caused configured empty
+  // groups to vanish on non-editable surfaces (e.g. private tasks rendered on the
+  // workspace items surface for a non-workspace-editor, or any viewer). The
+  // "Add item" affordance stays separately gated on `editable` in the lane
+  // components, so viewers see the empty lanes without create buttons.
+  const shouldSynthesizeEmptyGroups =
+    editable ||
+    isParentGroupingField(view.grouping) ||
+    (view.filters.showEmptyGroups ?? true)
+
   return [
-    ...(editable || isParentGroupingField(view.grouping)
+    ...(shouldSynthesizeEmptyGroups
       ? buildItemGroupsWithEmptyGroups(data, groupedItems, view, {
           sourceItems,
           teamId: createContext?.defaultTeamId,

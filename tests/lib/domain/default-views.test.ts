@@ -5,9 +5,43 @@ import {
   createViewDefinition,
   getDefaultRouteForViewContext,
   getSharedTeamExperience,
+  getSystemViewEditCapability,
   isRouteAllowedForViewContext,
   isSystemView,
 } from "@/lib/domain/default-views"
+
+describe("getSystemViewEditCapability", () => {
+  it("allows a full re-default for private tasks", () => {
+    expect(
+      getSystemViewEditCapability({
+        id: "view_assigned_private_tasks",
+        entityKind: "items",
+      })
+    ).toBe("full")
+  })
+
+  it("restricts shared built-in item views to displayed properties", () => {
+    for (const id of [
+      "view_team_1_all_items",
+      "view_team_1_active_items",
+      "view_team_1_backlog_items",
+      "view_assigned_subscribed_items",
+    ]) {
+      expect(
+        getSystemViewEditCapability({ id, entityKind: "items" })
+      ).toBe("display-props")
+    }
+  })
+
+  it("returns none for custom (non-system) views", () => {
+    expect(
+      getSystemViewEditCapability({
+        id: "view_custom_abc123",
+        entityKind: "items",
+      })
+    ).toBe("none")
+  })
+})
 
 describe("isSystemView", () => {
   it("treats canonical built-in ids as system views", () => {

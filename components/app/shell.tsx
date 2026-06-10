@@ -19,6 +19,7 @@ import {
   CodesandboxLogo,
   DotsThree,
   FileText,
+  Gauge,
   Gear,
   HashStraight,
   Kanban,
@@ -2010,6 +2011,18 @@ function TeamSidebarSubLinks({
 
   return (
     <SidebarMenuSub className="mx-0 translate-x-0 gap-0.5 border-l-0 px-0 py-0">
+      <SidebarMenuSubItem>
+        <SidebarMenuSubButton
+          className="pl-8"
+          asChild
+          isActive={pathname.startsWith(`/team/${team.slug}/dashboard`)}
+        >
+          <AppLink href={`/team/${team.slug}/dashboard`}>
+            <Gauge className="size-4" />
+            <span>Dashboard</span>
+          </AppLink>
+        </SidebarMenuSubButton>
+      </SidebarMenuSubItem>
       {features.chat ? (
         <SidebarMenuSubItem>
           <SidebarMenuSubButton

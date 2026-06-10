@@ -677,6 +677,36 @@ export function isSystemView(view: Pick<ViewDefinition, "id" | "entityKind">) {
   return isCanonicalSystemViewId(view.id, view.entityKind)
 }
 
+export type SystemViewEditCapability = "full" | "display-props" | "none"
+
+/**
+ * System views are generated defaults, not editable view records. Per-user
+ * customization is owned by the viewer-config layer, not Convex view mutations.
+ * This resolver is the single source of truth for how much of a built-in view a
+ * user may re-default:
+ * - Private tasks: full re-default (layout, filters, level, grouping, ordering,
+ *   displayed properties).
+ * - All issues / Active / Backlog / Subscribed: displayed properties only, since
+ *   their filters/grouping define what the built-in surfaces.
+ */
+export function getSystemViewEditCapability(
+  view: Pick<ViewDefinition, "id" | "entityKind">
+): SystemViewEditCapability {
+  if (!isSystemView(view)) {
+    return "none"
+  }
+
+  if (/^view_.+_private_tasks$/.test(view.id)) {
+    return "full"
+  }
+
+  if (/^view_.+_(all|active|backlog|subscribed)_items$/.test(view.id)) {
+    return "display-props"
+  }
+
+  return "none"
+}
+
 export function getViewHref(view: ViewDefinition) {
   const separator = view.route.includes("?") ? "&" : "?"
   return `${view.route}${separator}view=${encodeURIComponent(view.id)}`
