@@ -2598,7 +2598,33 @@ describe("ListView", () => {
     vi.clearAllMocks()
   })
 
-  it("does not render empty read-only groups without item rows", () => {
+  it("hides empty groups on read-only surfaces when show empty groups is disabled", () => {
+    const data = createData()
+
+    render(
+      <ListView
+        data={data}
+        items={data.workItems}
+        view={createView("list", [], {
+          filters: {
+            ...createDefaultViewFilters(),
+            showEmptyGroups: false,
+          },
+        })}
+        editable={false}
+      />
+    )
+
+    expect(
+      screen.queryByRole("button", { name: /backlog/i })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("No items")).not.toBeInTheDocument()
+  })
+
+  it("renders configured empty groups on read-only surfaces when show empty groups is enabled", () => {
+    // Empty-group synthesis is owned by the view's `showEmptyGroups` config, not
+    // by edit permission. A viewer (or the owner viewing private tasks on a
+    // non-workspace-editable surface) must still see configured empty groups.
     const data = createData()
 
     render(
@@ -2611,9 +2637,8 @@ describe("ListView", () => {
     )
 
     expect(
-      screen.queryByRole("button", { name: /backlog/i })
-    ).not.toBeInTheDocument()
-    expect(screen.queryByText("No items")).not.toBeInTheDocument()
+      screen.getByRole("button", { name: /backlog/i })
+    ).toBeInTheDocument()
   })
 
   it("opens visible label properties as editable list dropdowns", () => {
@@ -3229,7 +3254,7 @@ describe("ListView", () => {
     expectPrivateCreateDialogDefaults()
   })
 
-  it("does not synthesize create-context groups for read-only empty surfaces", () => {
+  it("synthesizes configured empty groups for read-only surfaces when show empty groups is enabled", () => {
     const data = {
       ...createEditableData(),
       workItems: [],
@@ -3251,8 +3276,7 @@ describe("ListView", () => {
       />
     )
 
-    expect(screen.queryByText("Backlog")).not.toBeInTheDocument()
-    expect(screen.queryByText("No items")).not.toBeInTheDocument()
+    expect(screen.getByText("Backlog")).toBeInTheDocument()
 
     rerender(
       <BoardView
@@ -3260,6 +3284,37 @@ describe("ListView", () => {
         items={[]}
         scopedItems={[]}
         view={{ ...view, layout: "board" }}
+        editable={false}
+        createContext={createContext}
+      />
+    )
+
+    expect(screen.getByText("Backlog")).toBeInTheDocument()
+  })
+
+  it("hides create-context empty groups for read-only surfaces when show empty groups is disabled", () => {
+    const data = {
+      ...createEditableData(),
+      workItems: [],
+    }
+    const view = createView("list", [], {
+      grouping: "status",
+      filters: {
+        ...createDefaultViewFilters(),
+        showEmptyGroups: false,
+      },
+    })
+    const createContext = {
+      defaultTeamId: "team_1",
+      defaultProjectId: "project_1",
+    }
+
+    render(
+      <ListView
+        data={data}
+        items={[]}
+        scopedItems={[]}
+        view={view}
         editable={false}
         createContext={createContext}
       />

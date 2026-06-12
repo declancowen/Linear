@@ -79,13 +79,7 @@ const projectStatusLiterals = [
 ] as const
 
 const viewFilterStatusLiterals = [
-  v.literal("on-hold"),
-  v.literal("backlog"),
-  v.literal("todo"),
-  v.literal("in-progress"),
-  v.literal("done"),
-  v.literal("cancelled"),
-  v.literal("duplicate"),
+  ...workStatusLiterals,
   v.literal("planned"),
   v.literal("completed"),
 ] as const
@@ -670,6 +664,7 @@ export const viewDefinitionFields = {
   id: v.string(),
   name: v.string(),
   description: v.string(),
+  icon: v.optional(nullableString),
   scopeType: viewScopeTypeValidator,
   scopeId: v.string(),
   entityKind: entityKindValidator,

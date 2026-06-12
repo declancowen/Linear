@@ -2,7 +2,6 @@
 
 import { syncGenerateSettingsImageUploadUrl } from "@/lib/convex/client"
 import { getDisplayInitials } from "@/lib/display-initials"
-import { type TeamFeatureSettings } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 
 export const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
@@ -11,31 +10,10 @@ export function getUserInitials(name: string | null | undefined) {
   return getDisplayInitials(name ?? "", "?")
 }
 
-const TEAM_LANDING_FEATURES: Array<
-  keyof Pick<TeamFeatureSettings, "issues" | "chat" | "channels" | "docs">
-> = ["issues", "chat", "channels", "docs"]
-
-const TEAM_LANDING_HREF_BY_FEATURE: Record<
-  (typeof TEAM_LANDING_FEATURES)[number],
-  (teamSlug: string) => string
-> = {
-  channels: (teamSlug) => `/team/${teamSlug}/channel`,
-  chat: (teamSlug) => `/team/${teamSlug}/chat`,
-  docs: (teamSlug) => `/team/${teamSlug}/docs`,
-  issues: (teamSlug) => `/team/${teamSlug}/work`,
-}
-
-export function getTeamLandingHref(
-  teamSlug: string,
-  features: TeamFeatureSettings
-) {
-  const landingFeature = TEAM_LANDING_FEATURES.find(
-    (feature) => features[feature]
-  )
-
-  return landingFeature
-    ? TEAM_LANDING_HREF_BY_FEATURE[landingFeature](teamSlug)
-    : `/team/${teamSlug}/work`
+export function getTeamLandingHref(teamSlug: string) {
+  // The Dashboard is an always-on surface and the team's first page, so every
+  // team lands there regardless of which optional surfaces are enabled.
+  return `/team/${teamSlug}/dashboard`
 }
 
 export async function cancelSettingsInvite(

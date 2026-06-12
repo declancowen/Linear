@@ -78,7 +78,7 @@ describe("store runtime rich-text recovery", () => {
 
     expect(fetchSnapshotMock).not.toHaveBeenCalled()
     expect(replaceDomainDataMock).not.toHaveBeenCalled()
-    expect(toastErrorMock).toHaveBeenCalledWith("Failed to update document")
+    expect(toastErrorMock).toHaveBeenCalledWith("Document not found")
   })
 
   it("still refreshes from the snapshot path for not-found rich-text failures when refreshStrategy is snapshot", async () => {

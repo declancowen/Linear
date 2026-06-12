@@ -310,7 +310,8 @@ function getInitialProjectTeamId({
   const projectTeamId =
     project?.scopeType === "team" ? project.scopeId : defaultTeamId
 
-  return projectTeamId && availableTeams.some((team) => team.id === projectTeamId)
+  return projectTeamId &&
+    availableTeams.some((team) => team.id === projectTeamId)
     ? projectTeamId
     : (availableTeams[0]?.id ?? "")
 }
@@ -704,13 +705,17 @@ function getCollectionTriggerText<T extends { name: string }>(
 
 function ProjectDialogHeader({
   availableTeams,
+  icon,
   isEditing,
   selectedTeamId,
+  onIconChange,
   onTeamSelect,
 }: {
   availableTeams: ProjectDialogTeam[]
+  icon: string
   isEditing: boolean
   selectedTeamId: string
+  onIconChange: (icon: string) => void
   onTeamSelect: (teamId: string) => void
 }) {
   const selectedTeam =
@@ -739,6 +744,12 @@ function ProjectDialogHeader({
       <span className={crumbTriggerClass}>
         <span className="font-medium text-foreground">Project</span>
       </span>
+      <PhosphorIconPicker
+        value={icon}
+        onValueChange={onIconChange}
+        iconOnly
+        triggerClassName="border-transparent bg-transparent"
+      />
       <div className="ml-auto flex items-center gap-0.5">
         <DialogClose asChild>
           <button
@@ -1219,7 +1230,6 @@ function ProjectPresentationControls({
 }
 
 function ProjectDialogControlStrip({
-  icon,
   availableLabels,
   defaultLeadIdForSelectedTeam,
   labelQuery,
@@ -1267,9 +1277,7 @@ function ProjectDialogControlStrip({
   onTogglePresentationDisplayProperty,
   onTogglePresentationFilterValue,
   onUpdatePresentationView,
-  onIconChange,
 }: {
-  icon: string
   availableLabels: ProjectDialogLabel[]
   defaultLeadIdForSelectedTeam: string | null
   labelQuery: string
@@ -1321,11 +1329,9 @@ function ProjectDialogControlStrip({
   onTogglePresentationDisplayProperty: (property: DisplayProperty) => void
   onTogglePresentationFilterValue: (key: ViewFilterKey, value: string) => void
   onUpdatePresentationView: (patch: ViewConfigPatch) => void
-  onIconChange: (icon: string) => void
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-t border-line-soft bg-background px-[18px] py-2.5">
-      <PhosphorIconPicker value={icon} onValueChange={onIconChange} />
       <ProjectStatusChip
         open={statusPickerOpen}
         status={status}
@@ -1565,8 +1571,10 @@ function CreateProjectDialogContent({
     () => [...new Set(memberIds)].filter(Boolean),
     [memberIds]
   )
-  const defaultLeadIdForSelectedTeam =
-    getInitialProjectLeadId({ currentUserId, teamMembers })
+  const defaultLeadIdForSelectedTeam = getInitialProjectLeadId({
+    currentUserId,
+    teamMembers,
+  })
   const selectedLead = useMemo(
     () => teamMembers.find((member) => member.id === leadId) ?? null,
     [teamMembers, leadId]
@@ -1680,7 +1688,6 @@ function CreateProjectDialogContent({
 
   const controlStripProps = {
     availableLabels,
-    icon,
     teamMembers,
     defaultLeadIdForSelectedTeam,
     selectedMembers,
@@ -1706,9 +1713,9 @@ function CreateProjectDialogContent({
     status,
     statusPickerOpen,
     targetDate,
-    onClearPresentationDisplayProperties: presentationActions.clearDisplayProperties,
+    onClearPresentationDisplayProperties:
+      presentationActions.clearDisplayProperties,
     onClearPresentationFilters: presentationActions.clearFilters,
-    onIconChange: setIcon,
     onLabelIdsChange: setSelectedLabelIds,
     onLabelsPickerOpenChange: setLabelsPickerOpen,
     onLabelQueryChange: setLabelQuery,
@@ -1726,7 +1733,8 @@ function CreateProjectDialogContent({
     onStatusChange: setStatus,
     onStatusPickerOpenChange: setStatusPickerOpen,
     onTargetDateChange: setTargetDate,
-    onTogglePresentationDisplayProperty: presentationActions.toggleDisplayProperty,
+    onTogglePresentationDisplayProperty:
+      presentationActions.toggleDisplayProperty,
     onTogglePresentationFilterValue: presentationActions.toggleFilterValue,
     onUpdatePresentationView: presentationActions.updateView,
   } satisfies Parameters<typeof ProjectDialogControlStrip>[0]
@@ -1738,7 +1746,9 @@ function CreateProjectDialogContent({
         className="top-[12vh] max-h-[calc(100vh-3rem)] translate-y-0 gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 shadow-lg sm:top-[14vh] sm:max-w-[640px]"
       >
         <DialogHeader className="sr-only">
-          <DialogTitle>{isEditing ? "Edit project" : "New project"}</DialogTitle>
+          <DialogTitle>
+            {isEditing ? "Edit project" : "New project"}
+          </DialogTitle>
           <DialogDescription>
             {isEditing
               ? "Update the project and its default presentation."
@@ -1748,8 +1758,10 @@ function CreateProjectDialogContent({
 
         <ProjectDialogHeader
           availableTeams={availableTeams}
+          icon={icon}
           isEditing={isEditing}
           selectedTeamId={selectedTeamId}
+          onIconChange={setIcon}
           onTeamSelect={syncTeamSelection}
         />
 

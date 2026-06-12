@@ -29,6 +29,7 @@ type CreateViewDefinitionInput = {
   id: string
   name: string
   description: string
+  icon?: string | null
   scopeType: "personal" | "team" | "workspace"
   scopeId: string
   entityKind: EntityKind
@@ -47,6 +48,26 @@ type DefaultViewBuildMetadata = {
   createdAt: string
   updatedAt?: string
   experience?: TeamExperienceType | null
+}
+
+export type CanonicalAllCollectionKind = EntityKind | "views"
+
+export function getCanonicalAllCollectionIcon(
+  kind: CanonicalAllCollectionKind
+) {
+  if (kind === "views") {
+    return "SquaresFour"
+  }
+
+  if (kind === "projects") {
+    return "Kanban"
+  }
+
+  if (kind === "docs") {
+    return "FileText"
+  }
+
+  return "ListBullets"
 }
 
 const ACTIVE_WORK_ITEM_DISPLAY_PROPS: ViewDefinition["displayProps"] = [
@@ -256,6 +277,39 @@ function getViewDefinitionConfigFields(input: CreateViewDefinitionInput) {
   }
 }
 
+function getDefaultViewIcon(id: string, entityKind: EntityKind): string {
+  if (/_private_tasks$/.test(id) || /_private_docs$/.test(id)) {
+    return "LockSimple"
+  }
+  if (/_subscribed_items$/.test(id)) {
+    return "Bell"
+  }
+  if (/_active_items$/.test(id)) {
+    return "Lightning"
+  }
+  if (/_backlog_items$/.test(id)) {
+    return "ClipboardText"
+  }
+  if (/_all_items$/.test(id)) {
+    return getCanonicalAllCollectionIcon("items")
+  }
+  if (/_all_projects$/.test(id)) {
+    return getCanonicalAllCollectionIcon("projects")
+  }
+  if (/_(workspace|team)_docs$/.test(id)) {
+    return getCanonicalAllCollectionIcon("docs")
+  }
+
+  // Sensible per-kind fallback for any generated view without a chosen icon.
+  return getCanonicalAllCollectionIcon(entityKind)
+}
+
+export function getViewIconName(
+  view: Pick<ViewDefinition, "id" | "entityKind" | "icon">
+): string {
+  return view.icon || getDefaultViewIcon(view.id, view.entityKind)
+}
+
 export function createViewDefinition(
   input: CreateViewDefinitionInput
 ): ViewDefinition | null {
@@ -272,6 +326,7 @@ export function createViewDefinition(
     id: input.id,
     name: input.name,
     description: input.description,
+    icon: input.icon ?? getDefaultViewIcon(input.id, input.entityKind),
     scopeType: input.scopeType,
     scopeId: input.scopeId,
     entityKind: input.entityKind,
@@ -571,7 +626,7 @@ export function buildWorkspaceDocumentViews(input: {
   return [
     createViewDefinition({
       id: `view_${input.workspaceId}_private_docs`,
-      name: "Private docs",
+      name: "Private",
       description: "Your private documents in this workspace.",
       scopeType: "personal",
       scopeId: input.userId,
@@ -589,7 +644,7 @@ export function buildWorkspaceDocumentViews(input: {
     }),
     createViewDefinition({
       id: `view_${input.workspaceId}_workspace_docs`,
-      name: "Workspace docs",
+      name: "Workspace",
       description: "Workspace-level documents.",
       scopeType: "workspace",
       scopeId: input.workspaceId,
@@ -615,7 +670,7 @@ export function buildTeamDocumentViews(input: {
   return [
     createViewDefinition({
       id: `view_${input.teamId}_team_docs`,
-      name: "Team space docs",
+      name: "All docs",
       description: "Documents in this team space.",
       scopeType: "team",
       scopeId: input.teamId,
@@ -675,6 +730,50 @@ function isCanonicalSystemViewId(
 
 export function isSystemView(view: Pick<ViewDefinition, "id" | "entityKind">) {
   return isCanonicalSystemViewId(view.id, view.entityKind)
+}
+
+export type SystemViewEditCapability =
+  | "full"
+  | "collection"
+  | "presentation"
+  | "none"
+
+/**
+ * System views are generated defaults, not editable view records. Per-user
+ * customization is owned by the viewer-config layer, not Convex view mutations.
+ * This resolver is the single source of truth for how much of a built-in view a
+ * user may re-default:
+ * - Private tasks: full re-default (layout, filters, level, grouping, ordering,
+ *   displayed properties).
+ * - Built-in project and document collections: collection re-default (layout,
+ *   filters, grouping, ordering, and displayed properties).
+ * - All issues / Active / Backlog / Subscribed: presentation re-default
+ *   (layout, level, grouping, ordering, displayed properties), while filters
+ *   remain locked because they define the built-in surface.
+ */
+export function getSystemViewEditCapability(
+  view: Pick<ViewDefinition, "id" | "entityKind">
+): SystemViewEditCapability {
+  if (!isSystemView(view)) {
+    return "none"
+  }
+
+  if (/^view_.+_private_tasks$/.test(view.id)) {
+    return "full"
+  }
+
+  if (/^view_.+_(all|active|backlog|subscribed)_items$/.test(view.id)) {
+    return "presentation"
+  }
+
+  if (
+    /^view_.+_all_projects$/.test(view.id) ||
+    /^view_.+_(private|workspace|team)_docs$/.test(view.id)
+  ) {
+    return "collection"
+  }
+
+  return "none"
 }
 
 export function getViewHref(view: ViewDefinition) {

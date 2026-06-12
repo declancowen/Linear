@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import {
   CalendarBlank,
   CaretDown,
+  CaretUp,
   Check,
   CheckSquare,
   EnvelopeSimple,
@@ -371,6 +372,29 @@ export function CustomPropertyDefinitionDialog({
     (!requiresOptions ||
       options.every((option) => option.label.trim().length > 0))
 
+  function moveOption(index: number, direction: -1 | 1) {
+    setOptions((current) => {
+      const target = index + direction
+
+      if (target < 0 || target >= current.length) {
+        return current
+      }
+
+      const next = [...current]
+      const [moved] = next.splice(index, 1)
+      next.splice(target, 0, moved!)
+      return next
+    })
+  }
+
+  function setOptionColor(optionId: string, color: string) {
+    setOptions((current) =>
+      current.map((entry) =>
+        entry.id === optionId ? { ...entry, color } : entry
+      )
+    )
+  }
+
   async function handleSave() {
     if (!canSave) {
       return
@@ -419,7 +443,12 @@ export function CustomPropertyDefinitionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0 sm:max-w-[480px]">
+      <DialogContent
+        className={cn(
+          "gap-0 overflow-hidden rounded-xl border border-line bg-surface p-0",
+          requiresOptions ? "sm:max-w-[680px]" : "sm:max-w-[480px]"
+        )}
+      >
         <DialogHeader className="space-y-1 border-b border-line-soft px-5 py-4">
           <DialogTitle className="text-[15px] font-semibold tracking-tight">
             {isEditing ? "Edit property" : "New property"}
@@ -430,82 +459,89 @@ export function CustomPropertyDefinitionDialog({
               : `Add a typed property for ${targetLabel} in this scope.`}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-5 px-5 py-5">
-          <div className="space-y-1.5">
-            <label className="text-[11.5px] font-semibold tracking-wide text-fg-3 uppercase">
-              Name
-            </label>
-            <div className="flex items-center gap-2">
-              <PhosphorIconPicker value={icon} onValueChange={setIcon} />
-              <Input
-                autoFocus
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Property name"
-                maxLength={64}
-                className="h-9"
-              />
+        <div
+          className={cn(
+            "px-5 py-5",
+            requiresOptions ? "grid grid-cols-2 gap-5" : "space-y-5"
+          )}
+        >
+          <div className="space-y-5">
+            <div className="space-y-1.5">
+              <label className="text-[11.5px] font-semibold tracking-wide text-fg-3 uppercase">
+                Name
+              </label>
+              <div className="flex items-center gap-2">
+                <PhosphorIconPicker value={icon} onValueChange={setIcon} />
+                <Input
+                  autoFocus
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Property name"
+                  maxLength={64}
+                  className="h-9"
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-1.5">
-            <label className="text-[11.5px] font-semibold tracking-wide text-fg-3 uppercase">
-              Type
-            </label>
-            <div
-              role="radiogroup"
-              aria-label="Property type"
-              className="grid grid-cols-2 gap-1.5"
-            >
-              {customPropertyTypes.map((entry) => {
-                const TypeIcon = CUSTOM_PROPERTY_TYPE_ICONS[entry]
-                const selected = type === entry
+            <div className="space-y-1.5">
+              <label className="text-[11.5px] font-semibold tracking-wide text-fg-3 uppercase">
+                Type
+              </label>
+              <div
+                role="radiogroup"
+                aria-label="Property type"
+                className="grid grid-cols-2 gap-1.5"
+              >
+                {customPropertyTypes.map((entry) => {
+                  const TypeIcon = CUSTOM_PROPERTY_TYPE_ICONS[entry]
+                  const selected = type === entry
 
-                return (
-                  <button
-                    key={entry}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    disabled={isEditing && !selected}
-                    onClick={() => setType(entry)}
-                    className={cn(
-                      "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[12.5px] font-medium transition-colors",
-                      selected
-                        ? "border-primary/40 bg-primary/10 text-foreground"
-                        : "border-line-soft bg-background text-fg-2 hover:border-line hover:bg-surface-2",
-                      isEditing && !selected && "opacity-40"
-                    )}
-                  >
-                    <span
+                  return (
+                    <button
+                      key={entry}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      disabled={isEditing && !selected}
+                      onClick={() => setType(entry)}
                       className={cn(
-                        "grid size-6 shrink-0 place-items-center rounded-md",
+                        "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[12.5px] font-medium transition-colors",
                         selected
-                          ? "bg-primary/15 text-primary"
-                          : "bg-surface-3 text-fg-3"
+                          ? "border-primary/40 bg-primary/10 text-foreground"
+                          : "border-line-soft bg-background text-fg-2 hover:border-line hover:bg-surface-2",
+                        isEditing && !selected && "opacity-40"
                       )}
                     >
-                      <TypeIcon className="size-3.5" />
-                    </span>
-                    <span className="truncate">
-                      {CUSTOM_PROPERTY_TYPE_LABELS[entry]}
-                    </span>
-                    {selected ? (
-                      <Check className="ml-auto size-3.5 shrink-0 text-primary" />
-                    ) : null}
-                  </button>
-                )
-              })}
+                      <span
+                        className={cn(
+                          "grid size-6 shrink-0 place-items-center rounded-md",
+                          selected
+                            ? "bg-primary/15 text-primary"
+                            : "bg-surface-3 text-fg-3"
+                        )}
+                      >
+                        <TypeIcon className="size-3.5" />
+                      </span>
+                      <span className="truncate">
+                        {CUSTOM_PROPERTY_TYPE_LABELS[entry]}
+                      </span>
+                      {selected ? (
+                        <Check className="ml-auto size-3.5 shrink-0 text-primary" />
+                      ) : null}
+                    </button>
+                  )
+                })}
+              </div>
+              {isEditing ? (
+                <p className="text-[11.5px] text-fg-3">
+                  Type can’t be changed after a property is created.
+                </p>
+              ) : null}
             </div>
-            {isEditing ? (
-              <p className="text-[11.5px] text-fg-3">
-                Type can’t be changed after a property is created.
-              </p>
-            ) : null}
           </div>
 
           {requiresOptions ? (
-            <div className="space-y-2">
+            <div className="space-y-2 border-line-soft sm:border-l sm:pl-5">
               <div className="flex items-center justify-between">
                 <label className="text-[11.5px] font-semibold tracking-wide text-fg-3 uppercase">
                   Options
@@ -525,16 +561,47 @@ export function CustomPropertyDefinitionDialog({
                 </Button>
               </div>
               <div className="space-y-1.5">
-                {options.map((option) => (
+                {options.map((option, index) => (
                   <div
                     key={option.id}
-                    className="flex items-center gap-2 rounded-md border border-line-soft bg-background px-2 py-1.5"
+                    className="flex items-center gap-1.5 rounded-md border border-line-soft bg-background px-2 py-1.5"
                   >
-                    <span
-                      aria-hidden
-                      className="size-2.5 shrink-0 rounded-full"
-                      style={{ background: option.color }}
-                    />
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label="Option color"
+                          className="inline-grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-surface-3"
+                        >
+                          <span
+                            aria-hidden
+                            className="size-2.5 rounded-full"
+                            style={{ background: option.color }}
+                          />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        className={cn(PROPERTY_POPOVER_CLASS, "w-auto p-2")}
+                      >
+                        <div className="grid grid-cols-6 gap-1.5">
+                          {OPTION_COLORS.map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              aria-label={`Use color ${color}`}
+                              className={cn(
+                                "size-5 rounded-full transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+                                option.color === color &&
+                                  "ring-2 ring-ring ring-offset-1 ring-offset-surface"
+                              )}
+                              style={{ background: color }}
+                              onClick={() => setOptionColor(option.id, color)}
+                            />
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                     <Input
                       value={option.label}
                       placeholder="Option label"
@@ -549,21 +616,41 @@ export function CustomPropertyDefinitionDialog({
                         )
                       }
                     />
-                    <button
-                      type="button"
-                      aria-label="Remove option"
-                      disabled={options.length <= 1}
-                      className="inline-grid size-7 shrink-0 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      onClick={() =>
-                        setOptions((current) =>
-                          current.length > 1
-                            ? current.filter((entry) => entry.id !== option.id)
-                            : current
-                        )
-                      }
-                    >
-                      <Trash className="size-3.5" />
-                    </button>
+                    <div className="flex shrink-0 items-center">
+                      <button
+                        type="button"
+                        aria-label="Move option up"
+                        disabled={index === 0}
+                        className="inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+                        onClick={() => moveOption(index, -1)}
+                      >
+                        <CaretUp className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Move option down"
+                        disabled={index === options.length - 1}
+                        className="inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+                        onClick={() => moveOption(index, 1)}
+                      >
+                        <CaretDown className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Remove option"
+                        disabled={options.length <= 1}
+                        className="inline-grid size-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={() =>
+                          setOptions((current) =>
+                            current.length > 1
+                              ? current.filter((entry) => entry.id !== option.id)
+                              : current
+                          )
+                        }
+                      >
+                        <Trash className="size-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -595,6 +682,7 @@ function CustomPropertyChoiceControl({
   const selectedOptions = definition.options.filter((option) =>
     selectedIds.includes(option.id)
   )
+  const hasSelection = selectedOptions.length > 0
   const triggerText =
     selectedOptions.length === 0
       ? definition.name
@@ -607,10 +695,23 @@ function CustomPropertyChoiceControl({
           type="button"
           disabled={!editable}
           className={cn(
-            "inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-[12px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground",
-            variant === "chip" && "h-6 rounded-full text-[11px]"
+            "inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-[12px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent",
+            variant === "chip" && "h-6 rounded-full text-[11px]",
+            !hasSelection && "text-fg-3"
           )}
         >
+          {hasSelection ? (
+            <span className="flex shrink-0 items-center -space-x-0.5">
+              {selectedOptions.slice(0, 3).map((option) => (
+                <span
+                  key={option.id}
+                  aria-hidden
+                  className="size-2.5 rounded-full ring-1 ring-surface"
+                  style={{ background: option.color }}
+                />
+              ))}
+            </span>
+          ) : null}
           <span className="truncate">{triggerText}</span>
           <CaretDown className="size-3 shrink-0 opacity-60" />
         </button>

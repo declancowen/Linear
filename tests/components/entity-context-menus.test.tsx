@@ -62,6 +62,11 @@ vi.mock("@/components/ui/context-menu", () => ({
   ),
 }))
 
+vi.mock("@/components/app/screens/system-view-defaults-dialog", () => ({
+  SystemViewDefaultsDialog: ({ open }: { open: boolean }) =>
+    open ? <div>System defaults dialog</div> : null,
+}))
+
 vi.mock("@phosphor-icons/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@phosphor-icons/react")>()
   const Icon = () => null
@@ -259,6 +264,19 @@ function expectRenameDeleteVisibility(
   expect(screen.queryByText(deleteLabel)).not.toBeInTheDocument()
 }
 
+function openSystemViewDefaults(overrides: Partial<ViewDefinition>) {
+  renderViewContextMenu(overrides)
+
+  expect(screen.getByText("Edit view")).toBeInTheDocument()
+  expect(screen.queryByText("Edit displayed properties")).not.toBeInTheDocument()
+  expect(screen.queryByText("Rename view")).not.toBeInTheDocument()
+  expect(screen.queryByText("Delete view")).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByText("Edit view"))
+  expect(screen.getByText("System defaults dialog")).toBeInTheDocument()
+  expect(useAppStore.getState().ui.activeCreateDialog).toBeNull()
+}
+
 describe("RenameDialog", () => {
   it("confirms trimmed values from Enter and ignores guarded key targets", async () => {
     const onConfirm = vi.fn().mockResolvedValue(true)
@@ -408,6 +426,66 @@ describe("ViewContextMenu", () => {
 
     expect(screen.getByText("Open view")).toBeInTheDocument()
     expectRenameDeleteVisibility("view", "hidden")
+  })
+
+  it("offers filter-locked presentation editing for shared built-in item views", () => {
+    openSystemViewDefaults({
+      id: "view_team_1_all_items",
+      name: "All issues",
+      route: "/team/platform/work",
+    })
+  })
+
+  it("offers a full re-default editor for private tasks", () => {
+    openSystemViewDefaults({
+      id: "view_assigned_private_tasks",
+      name: "Private tasks",
+      scopeType: "personal",
+      scopeId: "user_1",
+      route: "/assigned",
+    })
+  })
+
+  it("offers built-in project and document collection defaults without rename or delete", () => {
+    for (const view of [
+      {
+        id: "view_workspace_1_all_projects",
+        name: "All projects",
+        entityKind: "projects" as const,
+        route: "/workspace/projects",
+      },
+      {
+        id: "view_workspace_1_workspace_docs",
+        name: "Workspace",
+        entityKind: "docs" as const,
+        route: "/workspace/docs",
+      },
+      {
+        id: "view_workspace_1_private_docs",
+        name: "Private",
+        entityKind: "docs" as const,
+        route: "/workspace/docs",
+        scopeType: "personal" as const,
+        scopeId: "user_1",
+      },
+      {
+        id: "view_team_1_team_docs",
+        name: "All docs",
+        entityKind: "docs" as const,
+        route: "/team/platform/docs",
+      },
+    ]) {
+      const { unmount } = render(
+        <ViewContextMenu view={createView(view)}>
+          <button type="button">Open {view.name}</button>
+        </ViewContextMenu>
+      )
+
+      expect(screen.getByText("Edit view")).toBeInTheDocument()
+      expect(screen.queryByText("Rename view")).not.toBeInTheDocument()
+      expect(screen.queryByText("Delete view")).not.toBeInTheDocument()
+      unmount()
+    }
   })
 })
 

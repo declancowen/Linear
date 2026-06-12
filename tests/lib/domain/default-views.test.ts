@@ -2,12 +2,142 @@ import { describe, expect, it } from "vitest"
 
 import {
   buildAssignedWorkViews,
+  buildTeamDocumentViews,
+  buildTeamProjectViews,
+  buildWorkspaceDocumentViews,
+  buildWorkspaceProjectViews,
   createViewDefinition,
+  getCanonicalAllCollectionIcon,
   getDefaultRouteForViewContext,
   getSharedTeamExperience,
+  getSystemViewEditCapability,
+  getViewIconName,
   isRouteAllowedForViewContext,
   isSystemView,
 } from "@/lib/domain/default-views"
+
+describe("getViewIconName", () => {
+  it("uses one canonical icon per All collection label", () => {
+    expect(getCanonicalAllCollectionIcon("items")).toBe("ListBullets")
+    expect(getCanonicalAllCollectionIcon("projects")).toBe("Kanban")
+    expect(getCanonicalAllCollectionIcon("docs")).toBe("FileText")
+    expect(getCanonicalAllCollectionIcon("views")).toBe("SquaresFour")
+  })
+
+  it("returns distinct default icons for built-in views", () => {
+    const icon = (id: string, entityKind: "items" | "projects" | "docs") =>
+      getViewIconName({ id, entityKind, icon: null })
+
+    expect(icon("view_assigned_private_tasks", "items")).toBe("LockSimple")
+    expect(icon("view_assigned_subscribed_items", "items")).toBe("Bell")
+    expect(icon("view_team_1_active_items", "items")).toBe("Lightning")
+    expect(icon("view_team_1_backlog_items", "items")).toBe("ClipboardText")
+    expect(icon("view_team_1_all_items", "items")).toBe("ListBullets")
+    expect(icon("view_workspace_1_all_projects", "projects")).toBe("Kanban")
+    expect(icon("view_workspace_1_private_docs", "docs")).toBe("LockSimple")
+    expect(icon("view_team_1_team_docs", "docs")).toBe("FileText")
+  })
+
+  it("prefers the chosen icon for custom views", () => {
+    expect(
+      getViewIconName({
+        id: "view_custom_1",
+        entityKind: "items",
+        icon: "Rocket",
+      })
+    ).toBe("Rocket")
+  })
+})
+
+describe("built-in collection views", () => {
+  const createdAt = "2026-04-20T00:00:00.000Z"
+
+  it("uses the collection tab labels and icons for workspace docs", () => {
+    const views = buildWorkspaceDocumentViews({
+      workspaceId: "workspace_1",
+      userId: "user_1",
+      createdAt,
+    })
+
+    expect(views.map((view) => ({ name: view.name, icon: view.icon }))).toEqual(
+      [
+        { name: "Private", icon: "LockSimple" },
+        { name: "Workspace", icon: "FileText" },
+      ]
+    )
+  })
+
+  it("uses All docs and All projects with their collection icons", () => {
+    expect(
+      buildTeamDocumentViews({
+        teamId: "team_1",
+        teamSlug: "platform",
+        createdAt,
+      })[0]
+    ).toMatchObject({ name: "All docs", icon: "FileText" })
+    expect(
+      buildWorkspaceProjectViews({
+        workspaceId: "workspace_1",
+        createdAt,
+      })[0]
+    ).toMatchObject({ name: "All projects", icon: "Kanban" })
+    expect(
+      buildTeamProjectViews({
+        teamId: "team_1",
+        teamSlug: "platform",
+        createdAt,
+      })[0]
+    ).toMatchObject({ name: "All projects", icon: "Kanban" })
+  })
+})
+
+describe("getSystemViewEditCapability", () => {
+  it("allows a full re-default for private tasks", () => {
+    expect(
+      getSystemViewEditCapability({
+        id: "view_assigned_private_tasks",
+        entityKind: "items",
+      })
+    ).toBe("full")
+  })
+
+  it("allows presentation edits but keeps filters locked on shared built-in item views", () => {
+    for (const id of [
+      "view_team_1_all_items",
+      "view_team_1_active_items",
+      "view_team_1_backlog_items",
+      "view_assigned_subscribed_items",
+    ]) {
+      expect(getSystemViewEditCapability({ id, entityKind: "items" })).toBe(
+        "presentation"
+      )
+    }
+  })
+
+  it("allows collection presentation defaults for built-in projects and docs", () => {
+    expect(
+      getSystemViewEditCapability({
+        id: "view_workspace_1_all_projects",
+        entityKind: "projects",
+      })
+    ).toBe("collection")
+    expect(
+      getSystemViewEditCapability({
+        id: "view_workspace_1_workspace_docs",
+        entityKind: "docs",
+      })
+    ).toBe("collection")
+  })
+
+  it("returns none for custom (non-system) views", () => {
+    expect(
+      getSystemViewEditCapability({
+        id: "view_custom_abc123",
+        entityKind: "items",
+      })
+    ).toBe("none")
+  })
+})
 
 describe("isSystemView", () => {
   it("treats canonical built-in ids as system views", () => {

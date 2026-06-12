@@ -99,6 +99,40 @@ function createCtx() {
   }
 }
 
+function expectDescriptionOnlyPatches(ctx: ReturnType<typeof createCtx>) {
+  expect(ctx.db.patch).toHaveBeenNthCalledWith(1, "db_doc_1", {
+    content: "<p>Updated</p>",
+    notifiedMentionCounts: {},
+    updatedAt: "2026-04-20T22:20:00.000Z",
+    updatedBy: "user_1",
+  })
+  expect(ctx.db.patch).toHaveBeenNthCalledWith(2, "db_item_1", {
+    linkedDocumentIds: [],
+    linkedWorkItemIds: [],
+    referencedProjectIds: [],
+    referencedViewIds: [],
+  })
+}
+
+async function persistCollaborationPatch(
+  ctx: ReturnType<typeof createCtx>,
+  patch: {
+    description?: string
+    expectedUpdatedAt?: string
+    title?: string
+  }
+) {
+  const { persistCollaborationWorkItemHandler } =
+    await import("@/convex/app/work_item_handlers")
+
+  await persistCollaborationWorkItemHandler(ctx as never, {
+    serverToken: "server_token",
+    currentUserId: "user_1",
+    itemId: "item_1",
+    patch,
+  })
+}
+
 function createPrivateWorkItemDoc() {
   return {
     _id: "db_item_1",
@@ -154,6 +188,7 @@ describe("work item handlers", () => {
       title: "Launch task description",
       content: "<p>Existing</p>",
       notifiedMentionCounts: {},
+      updatedAt: "2026-04-20T22:00:00.000Z",
     })
     getTeamDocMock.mockResolvedValue({
       id: "team_1",
@@ -783,20 +818,48 @@ describe("work item handlers", () => {
     expect(ctx.db.patch).not.toHaveBeenCalled()
   })
 
-  it("persists collaboration title and description updates without origin-driven side effects", async () => {
-    const { persistCollaborationWorkItemHandler } =
+  it("guards descriptions independently from unrelated work item changes", async () => {
+    const { updateWorkItemHandler } =
       await import("@/convex/app/work_item_handlers")
     const ctx = createCtx()
 
-    await persistCollaborationWorkItemHandler(ctx as never, {
+    await expect(
+      updateWorkItemHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        itemId: "item_1",
+        patch: {
+          description: "<p>Updated</p>",
+          expectedDescriptionUpdatedAt: "2026-04-20T21:59:00.000Z",
+        },
+      })
+    ).rejects.toThrow("Work item changed while you were editing")
+
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+
+    mockEmptyQueryCollect(ctx)
+    await updateWorkItemHandler(ctx as never, {
       serverToken: "server_token",
       currentUserId: "user_1",
+      origin: "https://app.example.com",
       itemId: "item_1",
       patch: {
-        title: "Updated title",
         description: "<p>Updated</p>",
-        expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
+        expectedDescriptionUpdatedAt: "2026-04-20T22:00:00.000Z",
       },
+    })
+
+    expectDescriptionOnlyPatches(ctx)
+  })
+
+  it("persists collaboration title and description updates without origin-driven side effects", async () => {
+    const ctx = createCtx()
+
+    await persistCollaborationPatch(ctx, {
+      title: "Updated title",
+      description: "<p>Updated</p>",
+      expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
     })
 
     expect(ctx.db.patch).toHaveBeenNthCalledWith(1, "db_item_1", {
@@ -815,9 +878,36 @@ describe("work item handlers", () => {
       linkedWorkItemIds: [],
       referencedProjectIds: [],
       referencedViewIds: [],
-      updatedAt: "2026-04-20T22:20:00.000Z",
     })
     expect(validateWorkItemParentMock).not.toHaveBeenCalled()
+  })
+
+  it("does not advance the description version for collaboration title-only updates", async () => {
+    const ctx = createCtx()
+
+    await persistCollaborationPatch(ctx, {
+      title: "Updated title",
+      expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
+    })
+
+    expect(ctx.db.patch).toHaveBeenCalledTimes(2)
+    expect(ctx.db.patch).toHaveBeenNthCalledWith(1, "db_item_1", {
+      title: "Updated title",
+      updatedAt: "2026-04-20T22:20:00.000Z",
+    })
+    expect(ctx.db.patch).toHaveBeenNthCalledWith(2, "db_doc_1", {
+      title: "Updated title description",
+    })
+  })
+
+  it("does not advance the work-item version for collaboration description-only updates", async () => {
+    const ctx = createCtx()
+
+    await persistCollaborationPatch(ctx, {
+      description: "<p>Updated</p>",
+    })
+
+    expectDescriptionOnlyPatches(ctx)
   })
 
   it("shifts timeline dates in calendar-day space when moving a scheduled item", async () => {
@@ -892,7 +982,21 @@ describe("work item handlers", () => {
       linkedWorkItemIds: [],
       referencedProjectIds: [],
       referencedViewIds: [],
-      updatedAt: "2026-04-20T22:20:00.000Z",
+    })
+
+    ctx.db.patch.mockClear()
+    await patchWorkItemDescriptionDocument(ctx as never, {
+      existing: existing as never,
+      nextTitle: "Title only",
+      nextDescription: undefined,
+      currentUserId: "user_1",
+      now: "2026-04-20T22:20:00.000Z",
+      titleChanged: true,
+    })
+
+    expect(ctx.db.patch).toHaveBeenCalledTimes(1)
+    expect(ctx.db.patch).toHaveBeenCalledWith("db_doc_1", {
+      title: "Title only description",
     })
   })
 
@@ -1217,7 +1321,6 @@ describe("work item handlers", () => {
       })
     ).resolves.toBeNull()
     expect(ctx.db.insert).not.toHaveBeenCalled()
-
   })
 
   it("records assignee change activity when assignees change", async () => {

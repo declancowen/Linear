@@ -221,6 +221,7 @@ const viewConfigPatchMutationArgs = {
   showEmptyGroups: v.optional(v.boolean()),
   hiddenState: v.optional(hiddenStateValidator),
   description: v.optional(v.string()),
+  icon: v.optional(v.union(v.string(), v.null())),
   scopeType: v.optional(v.union(v.literal("team"), v.literal("workspace"))),
   scopeId: v.optional(v.string()),
   containerType: v.optional(v.union(v.literal("project-items"), v.null())),
@@ -985,7 +986,9 @@ export const createCustomPropertyDefinition = mutation({
     scopeType: v.optional(
       v.union(v.literal("team"), v.literal("workspace"), v.literal("private"))
     ),
-    targetType: v.optional(v.union(v.literal("workItem"), v.literal("document"))),
+    targetType: v.optional(
+      v.union(v.literal("workItem"), v.literal("document"))
+    ),
     name: v.string(),
     icon: v.string(),
     type: customPropertyTypeValidator,
@@ -1040,6 +1043,7 @@ export const createView = mutation({
     route: v.string(),
     name: v.string(),
     description: v.string(),
+    icon: v.optional(v.union(v.string(), v.null())),
     ...viewConfigMutationArgs,
     filters: v.optional(viewFiltersValidator),
     displayProps: v.optional(v.array(displayPropertyValidator)),
@@ -1150,6 +1154,7 @@ export const updateWorkItem = mutation({
     patch: v.object({
       title: v.optional(v.string()),
       description: v.optional(v.string()),
+      expectedDescriptionUpdatedAt: v.optional(v.string()),
       expectedUpdatedAt: v.optional(v.string()),
       status: v.optional(workStatusValidator),
       priority: v.optional(priorityValidator),

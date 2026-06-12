@@ -95,7 +95,10 @@ function createThreadHistoryFixture() {
   }
 }
 
-function seedThreadHistory({ conversation, messages }: ReturnType<typeof createThreadHistoryFixture>) {
+function seedThreadHistory({
+  conversation,
+  messages,
+}: ReturnType<typeof createThreadHistoryFixture>) {
   useAppStore.setState((state) => ({
     ...state,
     conversations: [conversation],
@@ -180,6 +183,50 @@ function replaceDomainDataWithDocuments(
     channelPosts: currentState.channelPosts,
     channelPostComments: currentState.channelPostComments,
   })
+}
+
+function createPendingConfigBaseView(): ViewDefinition {
+  return {
+    id: "view_1",
+    name: "All work",
+    description: "",
+    scopeType: "team",
+    scopeId: "team_1",
+    entityKind: "items",
+    containerType: null,
+    containerId: null,
+    itemLevel: null,
+    showChildItems: true,
+    layout: "list",
+    grouping: "status",
+    subGrouping: null,
+    ordering: "priority",
+    filters: {
+      status: [],
+      priority: [],
+      assigneeIds: [],
+      creatorIds: [],
+      leadIds: [],
+      health: [],
+      milestoneIds: [],
+      relationTypes: [],
+      projectIds: [],
+      parentIds: [],
+      itemTypes: [],
+      labelIds: [],
+      teamIds: [],
+      showCompleted: true,
+    },
+    displayProps: ["id", "status", "assignee"],
+    hiddenState: {
+      groups: [],
+      subgroups: [],
+    },
+    isShared: true,
+    route: "/team/eng/work",
+    createdAt: "2026-04-22T00:00:00.000Z",
+    updatedAt: "2026-04-22T00:00:00.000Z",
+  }
 }
 
 describe("app store read model merge", () => {
@@ -324,6 +371,8 @@ describe("app store read model merge", () => {
         selectedViewByRoute: {},
         viewerViewConfigByRoute: {},
         viewerDirectoryConfigByRoute: {},
+        viewerDirectoryPresetsByRoute: {},
+        selectedDirectoryPresetByRoute: {},
         collaborationSidebarOpenBySurface: {},
         activeCreateDialog: null,
       },
@@ -512,9 +561,9 @@ describe("app store read model merge", () => {
       }
     )
 
-    expect(useAppStore.getState().comments.map((comment) => comment.id)).toEqual(
-      ["comment_pending"]
-    )
+    expect(
+      useAppStore.getState().comments.map((comment) => comment.id)
+    ).toEqual(["comment_pending"])
   })
 
   it("keeps pending channel post comments during scoped replacement pruning", () => {
@@ -585,9 +634,7 @@ describe("app store read model merge", () => {
     )
 
     expect(
-      useAppStore
-        .getState()
-        .channelPostComments.map((comment) => comment.id)
+      useAppStore.getState().channelPostComments.map((comment) => comment.id)
     ).toEqual(["channel_comment_pending"])
   })
 
@@ -720,47 +767,7 @@ describe("app store read model merge", () => {
   })
 
   it("preserves pending optimistic view config until the server catches up", () => {
-    const baseView: ViewDefinition = {
-      id: "view_1",
-      name: "All work",
-      description: "",
-      scopeType: "team" as const,
-      scopeId: "team_1",
-      entityKind: "items" as const,
-      containerType: null,
-      containerId: null,
-      itemLevel: null,
-      showChildItems: true,
-      layout: "list" as const,
-      grouping: "status" as const,
-      subGrouping: null,
-      ordering: "priority" as const,
-      filters: {
-        status: [],
-        priority: [],
-        assigneeIds: [],
-        creatorIds: [],
-        leadIds: [],
-        health: [],
-        milestoneIds: [],
-        relationTypes: [],
-        projectIds: [],
-        parentIds: [],
-        itemTypes: [],
-        labelIds: [],
-        teamIds: [],
-        showCompleted: true,
-      },
-      displayProps: ["id", "status", "assignee"],
-      hiddenState: {
-        groups: [],
-        subgroups: [],
-      },
-      isShared: true,
-      route: "/team/eng/work",
-      createdAt: "2026-04-22T00:00:00.000Z",
-      updatedAt: "2026-04-22T00:00:00.000Z",
-    }
+    const baseView = createPendingConfigBaseView()
 
     useAppStore.setState((state) => ({
       ...state,
@@ -809,47 +816,7 @@ describe("app store read model merge", () => {
   })
 
   it("preserves pending optimistic filter and display-prop edits until the server catches up", () => {
-    const baseView: ViewDefinition = {
-      id: "view_1",
-      name: "All work",
-      description: "",
-      scopeType: "team" as const,
-      scopeId: "team_1",
-      entityKind: "items" as const,
-      containerType: null,
-      containerId: null,
-      itemLevel: null,
-      showChildItems: true,
-      layout: "list" as const,
-      grouping: "status" as const,
-      subGrouping: null,
-      ordering: "priority" as const,
-      filters: {
-        status: [],
-        priority: [],
-        assigneeIds: [],
-        creatorIds: [],
-        leadIds: [],
-        health: [],
-        milestoneIds: [],
-        relationTypes: [],
-        projectIds: [],
-        parentIds: [],
-        itemTypes: [],
-        labelIds: [],
-        teamIds: [],
-        showCompleted: true,
-      },
-      displayProps: ["id", "status", "assignee"],
-      hiddenState: {
-        groups: [],
-        subgroups: [],
-      },
-      isShared: true,
-      route: "/team/eng/work",
-      createdAt: "2026-04-22T00:00:00.000Z",
-      updatedAt: "2026-04-22T00:00:00.000Z",
-    }
+    const baseView = createPendingConfigBaseView()
 
     useAppStore.setState((state) => ({
       ...state,

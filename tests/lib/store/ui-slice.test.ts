@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { getViewerScopedViewKey } from "@/lib/domain/viewer-view-config"
+import {
+  getViewerDirectoryPresetSurfaceKey,
+  getViewerScopedDirectoryKey,
+  getViewerScopedViewKey,
+} from "@/lib/domain/viewer-view-config"
 import { createUiSlice } from "@/lib/store/app-store-internal/slices/ui"
 import {
   createTestAppData,
@@ -101,6 +105,59 @@ describe("ui slice", () => {
     slice.resetViewerViewConfig("/team/platform/work", "view_1")
 
     expect(state.ui.viewerViewConfigByRoute[storageKey]).toBeUndefined()
+  })
+
+  it("creates, selects, updates, and deletes viewer-local directory presets", () => {
+    const { slice, state } = createUiSliceHarness()
+    const surfaceKey = "views-directory:workspace:workspace_1"
+    const routeKey = getViewerScopedDirectoryKey(
+      state.currentUserId,
+      surfaceKey
+    )
+
+    const presetId = slice.createViewerDirectoryPreset(surfaceKey, {
+      name: "Active views",
+      icon: "SquaresFour",
+      config: {
+        layout: "board",
+        filters: { entityKinds: ["items"] },
+      },
+    })
+
+    expect(presetId).toBeTruthy()
+    expect(state.ui.viewerDirectoryPresetsByRoute[routeKey]).toEqual([
+      expect.objectContaining({
+        id: presetId,
+        name: "Active views",
+        icon: "SquaresFour",
+      }),
+    ])
+    expect(state.ui.selectedDirectoryPresetByRoute[routeKey]).toBe(presetId)
+    expect(
+      state.ui.viewerDirectoryConfigByRoute[
+        getViewerScopedDirectoryKey(
+          state.currentUserId,
+          getViewerDirectoryPresetSurfaceKey(surfaceKey, presetId!)
+        )
+      ]
+    ).toEqual({
+      layout: "board",
+      filters: { entityKinds: ["items"] },
+    })
+
+    expect(
+      slice.updateViewerDirectoryPreset(surfaceKey, presetId!, {
+        name: "Renamed",
+      })
+    ).toBe(true)
+    expect(state.ui.viewerDirectoryPresetsByRoute[routeKey]?.[0]?.name).toBe(
+      "Renamed"
+    )
+
+    slice.deleteViewerDirectoryPreset(surfaceKey, presetId!)
+
+    expect(state.ui.viewerDirectoryPresetsByRoute[routeKey]).toEqual([])
+    expect(state.ui.selectedDirectoryPresetByRoute[routeKey]).toBeUndefined()
   })
 
   it("preserves a local read notification while stale read models arrive", () => {

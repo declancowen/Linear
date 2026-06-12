@@ -15,7 +15,7 @@ type EventAccentLabel = {
   id: string
 }
 
-const STATUS_ACCENTS: Record<WorkItem["status"], string> = {
+export const STATUS_ACCENTS: Record<WorkItem["status"], string> = {
   "on-hold": "var(--status-hold)",
   backlog: "var(--status-backlog)",
   todo: "var(--status-todo)",

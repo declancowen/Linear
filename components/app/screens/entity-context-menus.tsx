@@ -22,7 +22,12 @@ import {
   canMutateView,
   getProjectHref,
 } from "@/lib/domain/selectors"
-import { getViewHref, isSystemView } from "@/lib/domain/default-views"
+import {
+  getSystemViewEditCapability,
+  getViewHref,
+  isSystemView,
+} from "@/lib/domain/default-views"
+import { SystemViewDefaultsDialog } from "@/components/app/screens/system-view-defaults-dialog"
 import {
   type AppData,
   type Project,
@@ -56,6 +61,8 @@ function EntityActionsContextMenu({
   onEdit,
   onOpen,
   onRename,
+  onSystemEdit,
+  systemEditLabel,
   statusSection,
 }: {
   canMutate: boolean
@@ -66,6 +73,8 @@ function EntityActionsContextMenu({
   onEdit?: () => void
   onOpen: () => void
   onRename: () => void
+  onSystemEdit?: () => void
+  systemEditLabel?: string
   statusSection?: ReactNode
 }) {
   return (
@@ -78,6 +87,17 @@ function EntityActionsContextMenu({
           <ArrowSquareOut className="size-4" />
           {`Open ${entityTypeLabel}`}
         </ContextMenuItem>
+        {onSystemEdit ? (
+          <ContextMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              onSystemEdit()
+            }}
+          >
+            <PencilSimple className="size-4" />
+            {systemEditLabel ?? `Edit ${entityTypeLabel}`}
+          </ContextMenuItem>
+        ) : null}
         {canMutate ? (
           <>
             {onEdit ? (
@@ -223,9 +243,17 @@ export function ViewContextMenu({
   const deleteView = useAppStore((state) => state.deleteView)
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [systemEditOpen, setSystemEditOpen] = useState(false)
   const isPersistedView = data.views.some((entry) => entry.id === view.id)
   const canMutate =
     isPersistedView && !isSystemView(view) && canMutateView(data, view)
+  const systemCapability = getSystemViewEditCapability(view)
+  const systemEditLabel =
+    systemCapability === "full" ||
+    systemCapability === "collection" ||
+    systemCapability === "presentation"
+      ? "Edit view"
+      : "Edit displayed properties"
   const editableScope =
     view.scopeType === "team" || view.scopeType === "workspace"
       ? {
@@ -267,9 +295,22 @@ export function ViewContextMenu({
         }
         onOpen={() => router.push(getViewHref(view))}
         onRename={() => setRenameOpen(true)}
+        onSystemEdit={
+          systemCapability === "none"
+            ? undefined
+            : () => setSystemEditOpen(true)
+        }
+        systemEditLabel={systemEditLabel}
       >
         {children}
       </EntityActionsContextMenu>
+      {systemCapability === "none" ? null : (
+        <SystemViewDefaultsDialog
+          view={view}
+          open={systemEditOpen}
+          onOpenChange={setSystemEditOpen}
+        />
+      )}
       <RenameDialog
         key={`${view.id}:${renameOpen ? "open" : "closed"}:${view.name}`}
         open={renameOpen}

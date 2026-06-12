@@ -451,6 +451,7 @@ describe("work route contracts", () => {
       ...itemPatchRouteInput({
         title: "Updated launch task",
         description: "<p>Updated details</p>",
+        expectedDescriptionUpdatedAt: "2026-04-18T10:00:00.000Z",
         expectedUpdatedAt: "2026-04-18T10:00:00.000Z",
       })
     )
@@ -461,6 +462,7 @@ describe("work route contracts", () => {
       patch: {
         title: "Updated launch task",
         description: "<p>Updated details</p>",
+        expectedDescriptionUpdatedAt: "2026-04-18T10:00:00.000Z",
         expectedUpdatedAt: "2026-04-18T10:00:00.000Z",
       },
     })

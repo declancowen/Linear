@@ -48,6 +48,14 @@ const ACTIVE_SYNC_CONTEXT = {
   isCurrent: () => true,
 } as const
 
+const MAIN_SECTION_SAVE_INPUT = {
+  itemId: "item_1",
+  title: "Plan launch",
+  description: "<p>Updated details</p>",
+  expectedDescriptionUpdatedAt: "2026-04-17T10:00:00.000Z",
+  expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+} as const
+
 type ActiveSyncTask = (
   context: typeof ACTIVE_SYNC_CONTEXT
 ) => Promise<void> | null
@@ -504,24 +512,11 @@ describe("work document actions", () => {
     expect(toastErrorMock).toHaveBeenCalledWith("Failed to delete attachment")
   })
 
-  it("blocks main-section saves when the item changed during edit mode", async () => {
-    const { createWorkDocumentActions } =
-      await import("@/lib/store/app-store-internal/slices/work-document-actions")
-
-    const actions = createWorkDocumentActions({
-      get: () => createState() as never,
-      runtime: {
-        refreshFromServer: vi.fn(),
-        handleSyncFailure: vi.fn(),
-        queueRichTextSync: vi.fn(),
-      } as never,
-      set: vi.fn() as never,
-    })
-
-    const saved = await actions.saveWorkItemMainSection({
-      itemId: "item_1",
+  it("blocks title saves when the item changed during edit mode", async () => {
+    const harness = await createWorkDocumentActionsHarness()
+    const saved = await harness.actions.saveWorkItemMainSection({
+      ...MAIN_SECTION_SAVE_INPUT,
       title: "Updated title",
-      description: "<p>Updated details</p>",
       expectedUpdatedAt: "2026-04-17T09:59:00.000Z",
     })
 
@@ -532,11 +527,75 @@ describe("work document actions", () => {
     )
   })
 
-  it("surfaces server edit conflicts with a specific message", async () => {
-    const { createWorkDocumentActions } =
-      await import("@/lib/store/app-store-internal/slices/work-document-actions")
+  it("allows description-only saves after unrelated work item changes", async () => {
+    const state = createState()
+    state.workItems = state.workItems.map((item) =>
+      item.id === "item_1"
+        ? {
+            ...item,
+            updatedAt: "2026-04-17T10:01:00.000Z",
+          }
+        : item
+    )
+    const harness = await createWorkDocumentActionsHarness(state)
+    const saved =
+      await harness.actions.saveWorkItemMainSection(MAIN_SECTION_SAVE_INPUT)
 
-    const storeState = createReplacingStoreState()
+    expect(saved).toBe(true)
+    expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "item_1", {
+      description: "<p>Updated details</p>",
+      expectedDescriptionUpdatedAt: "2026-04-17T10:00:00.000Z",
+    })
+    expect(
+      harness.state.workItems.find((item) => item.id === "item_1")?.updatedAt
+    ).toBe("2026-04-17T10:01:00.000Z")
+    expect(toastErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("does not advance the description version for title-only saves", async () => {
+    const harness = await createWorkDocumentActionsHarness()
+    const saved = await harness.actions.saveWorkItemMainSection({
+      ...MAIN_SECTION_SAVE_INPUT,
+      title: "Updated title",
+      description: "<h1>Spec</h1>",
+    })
+
+    expect(saved).toBe(true)
+    expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "item_1", {
+      title: "Updated title",
+      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
+    })
+    expect(
+      harness.state.documents.find((document) => document.id === "document_1")
+    ).toMatchObject({
+      title: "Updated title description",
+      updatedAt: "2026-04-17T10:00:00.000Z",
+    })
+  })
+
+  it("blocks description saves when the description changed during edit mode", async () => {
+    const state = createState()
+    state.documents = state.documents.map((document) =>
+      document.id === "document_1"
+        ? {
+            ...document,
+            content: "<p>Newer remote details</p>",
+            updatedAt: "2026-04-17T10:01:00.000Z",
+          }
+        : document
+    )
+    const harness = await createWorkDocumentActionsHarness(state)
+    const saved =
+      await harness.actions.saveWorkItemMainSection(MAIN_SECTION_SAVE_INPUT)
+
+    expect(saved).toBe(false)
+    expect(syncUpdateWorkItemMock).not.toHaveBeenCalled()
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "This work item changed while you were editing. Review the latest version and try again."
+    )
+  })
+
+  it("surfaces server edit conflicts with a specific message", async () => {
     const handleSyncFailureMock = vi.fn().mockResolvedValue(undefined)
 
     syncUpdateWorkItemMock.mockRejectedValue(
@@ -545,39 +604,29 @@ describe("work document actions", () => {
       })
     )
 
-    const actions = createWorkDocumentActions({
-      get: () => storeState.current as never,
-      runtime: {
-        refreshFromServer: vi.fn(),
-        handleSyncFailure: handleSyncFailureMock,
-        queueRichTextSync: vi.fn(),
-      } as never,
-      set: storeState.set as never,
+    const harness = await createWorkDocumentActionsHarness(createState(), {
+      handleSyncFailure: handleSyncFailureMock,
     })
-
-    const saved = await actions.saveWorkItemMainSection({
-      itemId: "item_1",
+    const saved = await harness.actions.saveWorkItemMainSection({
+      ...MAIN_SECTION_SAVE_INPUT,
       title: "Updated title",
-      description: "<p>Updated details</p>",
-      expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
     })
 
     expect(saved).toBe(false)
     expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "item_1", {
       title: "Updated title",
       description: "<p>Updated details</p>",
+      expectedDescriptionUpdatedAt: "2026-04-17T10:00:00.000Z",
       expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
     })
     expect(
-      storeState.current.workItems.find((item) => item.id === "item_1")
+      harness.state.workItems.find((item) => item.id === "item_1")
     ).toMatchObject({
       title: "Plan launch",
       updatedAt: "2026-04-17T10:00:00.000Z",
     })
     expect(
-      storeState.current.documents.find(
-        (document) => document.id === "document_1"
-      )
+      harness.state.documents.find((document) => document.id === "document_1")
     ).toMatchObject({
       content: "<h1>Spec</h1>",
       title: "Spec",
@@ -609,6 +658,7 @@ describe("work document actions", () => {
       itemId: "item_1",
       title: "Private edit",
       description: "<p>Private details</p>",
+      expectedDescriptionUpdatedAt: "2026-04-17T10:00:00.000Z",
       expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
     })
 

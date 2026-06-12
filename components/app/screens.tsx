@@ -7,18 +7,17 @@ import { format } from "date-fns"
 import {
   CalendarDots,
   CalendarBlank,
-  CaretDown,
-  Check,
   CodesandboxLogo,
   FileText,
   FunnelSimple,
   Kanban,
+  PencilSimple,
   Plus,
   Rows,
   SquaresFour,
   Stack,
   Tag,
-  SortAscending,
+  Trash,
   TreeStructure,
 } from "@phosphor-icons/react"
 
@@ -63,19 +62,22 @@ import {
   type Team,
   type ViewDefinition,
   type ViewerDirectoryConfig,
+  type ViewerDirectoryPreset,
   type WorkItem,
   type Workspace,
 } from "@/lib/domain/types"
 import {
   buildAssignedWorkViews,
   buildTeamDocumentViews,
+  buildTeamProjectViews,
   buildWorkspaceDocumentViews,
-  createViewDefinition,
+  buildWorkspaceProjectViews,
+  getCanonicalAllCollectionIcon,
   getSharedTeamExperience,
-  isSystemView,
 } from "@/lib/domain/default-views"
 import {
   applyViewerDirectoryConfig,
+  getViewerDirectoryPresetSurfaceKey,
   applyViewerViewConfig,
   getViewerScopedDirectoryKey,
   getViewerScopedViewKey,
@@ -115,7 +117,6 @@ import {
   createEmptyViewFilters,
   canEditDocumentInUi,
   selectAppDataSnapshot,
-  toggleDisplayPropertyValue,
   toggleViewFilterValue,
   type ViewFilterKey,
 } from "@/components/app/screens/helpers"
@@ -124,6 +125,11 @@ import {
   type DocsTab,
 } from "@/components/app/screens/docs-dialog-input"
 import { DocsContent } from "@/components/app/screens/docs-content"
+import {
+  DocsFilterPopover,
+  DocsGroupPopover,
+  DocsSortPopover,
+} from "@/components/app/screens/docs-view-controls"
 import { DocumentDetailSidebarSurface } from "@/components/app/screens/document-detail-sidebar"
 import {
   buildGroupedSections,
@@ -132,7 +138,11 @@ import {
 import { ScopedScreenLoading } from "@/components/app/screens/scoped-screen-loading"
 import { WorkSurface } from "@/components/app/screens/work-surface"
 import { CalendarView } from "@/components/app/screens/work-surface-view"
-import { getViewHref } from "@/lib/domain/default-views"
+import { getViewHref, getViewIconName } from "@/lib/domain/default-views"
+import {
+  PhosphorIconGlyph,
+  PhosphorIconPicker,
+} from "@/components/app/phosphor-icon-picker"
 import {
   GroupChipPopover,
   FilterPopover,
@@ -157,34 +167,35 @@ import {
   ViewsDirectoryPropertiesChipPopover,
   ViewsDirectorySortChipPopover,
 } from "@/components/app/screens/directory-controls"
-import { DocsFilterOptionsList } from "@/components/app/screens/docs-filter-options-list"
 import {
-  buildDocsFilterOptions,
   DOC_KIND_LABEL,
   DOCS_DISPLAY_PROPERTY_LABEL,
   DOCS_DISPLAY_PROPERTY_OPTIONS,
-  DOCS_GROUP_OPTIONS,
-  DOCS_ORDERING_LABEL,
-  DOCS_ORDERING_OPTIONS,
-  getDocsFilterCount,
-  groupDocsFilterOptions,
 } from "@/components/app/screens/docs-view-config"
 import {
   IconButton,
-  PROPERTY_POPOVER_CLASS,
-  PropertyPopoverFoot,
-  PropertyPopoverGroup,
-  PropertyPopoverItem,
-  PropertyPopoverList,
   Topbar,
   Viewbar,
 } from "@/components/ui/template-primitives"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { RenameDialog } from "@/components/app/screens/rename-dialog"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 export { DocumentDetailScreen } from "@/components/app/screens/document-detail-screen"
 export { WorkItemDetailScreen } from "@/components/app/screens/work-item-detail-screen"
 
@@ -266,28 +277,23 @@ const viewDirectoryLayoutMeta: Record<
   {
     label: string
     icon: typeof Rows
-    accent: string
   }
 > = {
   list: {
     label: "List",
     icon: Rows,
-    accent: "var(--status-todo)",
   },
   board: {
     label: "Board",
     icon: SquaresFour,
-    accent: "var(--status-doing)",
   },
   timeline: {
     label: "Timeline",
     icon: CalendarDots,
-    accent: "var(--status-review)",
   },
   calendar: {
     label: "Calendar",
     icon: CalendarBlank,
-    accent: "var(--status-done)",
   },
 }
 
@@ -298,13 +304,6 @@ const PROJECT_STATUS_ORDER = [
   "completed",
   "cancelled",
 ] as const
-
-const DEFAULT_PROJECT_DISPLAY_PROPS: DisplayProperty[] = [
-  "team",
-  "assignee",
-  "priority",
-  "updated",
-]
 
 const PROJECT_PROPERTY_LABEL: Partial<Record<DisplayProperty, string>> = {
   assignee: "Lead",
@@ -382,6 +381,7 @@ const DEFAULT_VIEW_DIRECTORY_PROPERTIES: ViewsDirectoryProperty[] = [
   "updated",
   "configuration",
 ]
+const EMPTY_VIEWER_DIRECTORY_PRESETS: ViewerDirectoryPreset[] = []
 
 type ResolvedViewsDirectoryConfig = ViewerDirectoryConfig & {
   layout: "list" | "board"
@@ -783,6 +783,19 @@ function getCurrentViewsDirectorySettings(
   return getResolvedViewsDirectorySettings(directoryConfig)
 }
 
+function getViewsDirectoryConfig(
+  settings: ViewsDirectorySettings
+): ViewerDirectoryConfig {
+  return {
+    layout: settings.layout,
+    ordering: settings.sortBy,
+    grouping: settings.grouping,
+    subGrouping: settings.subGrouping,
+    filters: settings.filters,
+    displayProps: settings.properties,
+  }
+}
+
 function getAvailableViewEntityKinds(views: ViewDefinition[]) {
   return [...new Set(views.map((view) => view.entityKind))]
 }
@@ -986,17 +999,6 @@ function isTeamDocsDisabled(team?: Team | null) {
   return Boolean(team && !teamHasFeature(team, "docs"))
 }
 
-const DOCS_CHIP_BASE =
-  "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-const DOCS_CHIP_DEFAULT =
-  "border-line bg-surface text-fg-2 hover:text-foreground hover:bg-surface-3"
-const DOCS_CHIP_SELECTED =
-  "border-transparent bg-surface-3 text-foreground shadow-none hover:bg-surface-3"
-
-function getDocsChipClassName(selected = false) {
-  return cn(DOCS_CHIP_BASE, selected ? DOCS_CHIP_SELECTED : DOCS_CHIP_DEFAULT)
-}
-
 function getDocsRouteKey(scopeType: "team" | "workspace", team?: Team | null) {
   return team ? `/team/${team.slug}/docs` : "/workspace/docs"
 }
@@ -1024,7 +1026,7 @@ function getDocsSystemViews(input: {
   })
 }
 
-function mergeDocsViews(
+function mergeSystemViews(
   systemViews: ViewDefinition[],
   persistedViews: ViewDefinition[]
 ) {
@@ -1287,15 +1289,10 @@ function getProjectTeamLabel(data: AppData, project: Project) {
 }
 
 function ProjectIconTile({ project }: { project: Project }) {
-  const accent = PROJECT_STATUS_ACCENT[project.status]
   return (
     <span
       aria-hidden
-      className="grid size-8 shrink-0 place-items-center rounded-md"
-      style={{
-        background: `color-mix(in oklch, ${accent} 14%, var(--surface-2))`,
-        color: "var(--foreground)",
-      }}
+      className="grid size-8 shrink-0 place-items-center rounded-md bg-surface-3 text-fg-2"
     >
       {project.icon ? (
         <ProjectIconGlyph project={project} className="size-4" />
@@ -1390,13 +1387,9 @@ function ProjectStatusPill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] leading-none font-medium",
+        "inline-flex items-center gap-1.5 rounded-full bg-surface-3 px-2 py-0.5 text-[10.5px] leading-none font-medium text-fg-2",
         className
       )}
-      style={{
-        background: `color-mix(in oklch, ${accent} 16%, transparent)`,
-        color: accent,
-      }}
     >
       <span
         aria-hidden
@@ -1535,13 +1528,7 @@ function ProjectCard({ data, project, displayProps }: ProjectPreviewProps) {
         className="group relative flex h-full min-h-[252px] flex-col overflow-hidden rounded-xl border border-line bg-surface transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-md"
         href={preview.href}
       >
-        <div
-          className="relative flex flex-col gap-3 px-4 pt-4 pb-4"
-          style={{
-            background: `linear-gradient(135deg, color-mix(in oklch, ${preview.accent} 18%, transparent) 0%, color-mix(in oklch, ${preview.accent} 5%, transparent) 100%)`,
-            borderBottom: `1px solid color-mix(in oklch, ${preview.accent} 20%, var(--line))`,
-          }}
-        >
+        <div className="relative flex flex-col gap-3 border-b border-line-soft bg-surface-2 px-4 pt-4 pb-4">
           <div className="flex items-start justify-between gap-2">
             <ProjectStatusPill project={project} />
             <div className="flex shrink-0 items-center gap-1.5">
@@ -1551,12 +1538,7 @@ function ProjectCard({ data, project, displayProps }: ProjectPreviewProps) {
           <div className="flex items-center gap-2.5">
             <span
               aria-hidden
-              className="grid size-9 shrink-0 place-items-center rounded-lg text-[14px] font-semibold"
-              style={{
-                background: `color-mix(in oklch, ${preview.accent} 24%, var(--surface))`,
-                color: "var(--foreground)",
-                border: `1px solid color-mix(in oklch, ${preview.accent} 35%, transparent)`,
-              }}
+              className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-3 text-[14px] font-semibold text-fg-2"
             >
               {project.icon ? (
                 <ProjectIconGlyph project={project} className="size-4" />
@@ -1663,10 +1645,7 @@ function ViewConfigurationBadges({
         </span>
         <span aria-hidden className="size-1 rounded-full bg-line-soft" />
         <span className="inline-flex items-center gap-1">
-          <LayoutIcon
-            className="size-3.5"
-            style={{ color: layoutMeta.accent }}
-          />
+          <LayoutIcon className="size-3.5 text-fg-3" />
           <span>{layoutMeta.label}</span>
         </span>
       </div>
@@ -1679,14 +1658,7 @@ function ViewConfigurationBadges({
         {getEntityKindIconNode(view.entityKind, "size-3 text-fg-3")}
         <span>{formatEntityKind(view.entityKind)}</span>
       </span>
-      <span
-        className="inline-flex items-center gap-1 rounded-md border px-1.5 py-1 leading-none"
-        style={{
-          color: layoutMeta.accent,
-          borderColor: `color-mix(in oklch, ${layoutMeta.accent} 30%, var(--line))`,
-          background: `color-mix(in oklch, ${layoutMeta.accent} 10%, transparent)`,
-        }}
-      >
+      <span className="inline-flex items-center gap-1 rounded-md border border-line bg-surface-2 px-1.5 py-1 leading-none text-fg-3">
         <LayoutIcon className="size-3" />
         <span>{layoutMeta.label}</span>
       </span>
@@ -1957,8 +1929,6 @@ function SavedViewRow(props: SavedViewItemProps) {
     showUpdated,
     view,
   } = props
-  const layoutMeta = viewDirectoryLayoutMeta[view.layout]
-  const LayoutIcon = layoutMeta.icon
   const updatedLabel = getSavedViewUpdatedLabel(view, showUpdated)
 
   return (
@@ -1969,18 +1939,16 @@ function SavedViewRow(props: SavedViewItemProps) {
       >
         <span
           aria-hidden
-          className="absolute inset-y-2 left-0 w-[2px] rounded-r-full opacity-0 transition-opacity group-hover:opacity-100"
-          style={{ background: layoutMeta.accent }}
+          className="absolute inset-y-2 left-0 w-[2px] rounded-r-full bg-fg-4 opacity-0 transition-opacity group-hover:opacity-100"
         />
         <span
           aria-hidden
-          className="grid size-7 shrink-0 place-items-center rounded-md transition-colors"
-          style={{
-            color: layoutMeta.accent,
-            background: `color-mix(in oklch, ${layoutMeta.accent} 14%, transparent)`,
-          }}
+          className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-3 text-fg-2"
         >
-          <LayoutIcon className="size-3.5" />
+          <PhosphorIconGlyph
+            icon={getViewIconName(view)}
+            className="size-3.5"
+          />
         </span>
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <div className="min-w-0 flex-1">
@@ -2031,7 +1999,6 @@ function SavedViewCard(props: SavedViewItemProps) {
     showUpdated,
     view,
   } = props
-  const layoutMeta = viewDirectoryLayoutMeta[view.layout]
   const updatedLabel = getSavedViewUpdatedLabel(view, showUpdated)
 
   return (
@@ -2040,7 +2007,7 @@ function SavedViewCard(props: SavedViewItemProps) {
         className="group relative flex h-full min-h-[212px] flex-col overflow-hidden rounded-xl border border-line bg-surface transition-all hover:-translate-y-px hover:border-fg-4 hover:shadow-md"
         href={getViewHref(view)}
       >
-        <ViewLayoutPreview layout={view.layout} accent={layoutMeta.accent} />
+        <ViewLayoutPreview layout={view.layout} accent="var(--foreground)" />
         <div className="flex flex-1 flex-col gap-2 p-4">
           <div className="flex items-start gap-2">
             <h2 className="min-w-0 flex-1 truncate text-[14px] leading-[1.3] font-semibold tracking-[-0.005em] text-foreground">
@@ -2300,27 +2267,29 @@ function ViewsDirectoryContent({
 }
 
 function ViewsDirectoryViewbar({
+  allowFilters,
   availableEntityKinds,
   availableScopes,
-  editable,
   filters,
   grouping,
   layout,
+  onCreatePreset,
+  onReset,
   onUpdateConfig,
   onUpdateFilters,
   onUpdateProperties,
   properties,
-  scopeId,
-  scopeType,
   sortBy,
   subGrouping,
 }: {
+  allowFilters: boolean
   availableEntityKinds: ViewDefinition["entityKind"][]
   availableScopes: ViewsDirectoryScopeFilter[]
-  editable: boolean
   filters: ViewsDirectoryFilters
   grouping: ViewsDirectoryGroupField
   layout: "list" | "board"
+  onCreatePreset: () => void
+  onReset: () => void
   onUpdateConfig: (patch: ViewerDirectoryConfig) => void
   onUpdateFilters: (
     resolveNextFilters: (
@@ -2333,8 +2302,6 @@ function ViewsDirectoryViewbar({
     ) => ViewsDirectoryProperty[]
   ) => void
   properties: ViewsDirectoryProperty[]
-  scopeId: string
-  scopeType: "team" | "workspace"
   sortBy: ViewsDirectorySortField
   subGrouping: ViewsDirectoryGroupField
 }) {
@@ -2345,31 +2312,33 @@ function ViewsDirectoryViewbar({
         onLayoutChange={(nextLayout) => onUpdateConfig({ layout: nextLayout })}
       />
       <div aria-hidden className="mx-1.5 h-[18px] w-px bg-line" />
-      <ViewsDirectoryFilterPopover
-        availableEntityKinds={availableEntityKinds}
-        availableScopes={availableScopes}
-        filters={filters}
-        onClearFilters={() =>
-          onUpdateConfig({
-            filters: {
-              entityKinds: [],
-              scopes: [],
-            },
-          })
-        }
-        onToggleEntityKind={(entityKind) =>
-          onUpdateFilters((current) => ({
-            ...current,
-            entityKinds: toggleArrayValue(current.entityKinds, entityKind),
-          }))
-        }
-        onToggleScope={(scope) =>
-          onUpdateFilters((current) => ({
-            ...current,
-            scopes: toggleArrayValue(current.scopes, scope),
-          }))
-        }
-      />
+      {allowFilters ? (
+        <ViewsDirectoryFilterPopover
+          availableEntityKinds={availableEntityKinds}
+          availableScopes={availableScopes}
+          filters={filters}
+          onClearFilters={() =>
+            onUpdateConfig({
+              filters: {
+                entityKinds: [],
+                scopes: [],
+              },
+            })
+          }
+          onToggleEntityKind={(entityKind) =>
+            onUpdateFilters((current) => ({
+              ...current,
+              entityKinds: toggleArrayValue(current.entityKinds, entityKind),
+            }))
+          }
+          onToggleScope={(scope) =>
+            onUpdateFilters((current) => ({
+              ...current,
+              scopes: toggleArrayValue(current.scopes, scope),
+            }))
+          }
+        />
+      ) : null}
       <ViewsDirectoryGroupChipPopover
         grouping={grouping}
         onGroupingChange={(nextGrouping) =>
@@ -2403,198 +2372,421 @@ function ViewsDirectoryViewbar({
         properties={properties}
       />
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
-        {editable ? (
-          <Button
-            size="sm"
-            variant="default"
-            className="h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
-            onClick={() =>
-              openManagedCreateDialog({
-                kind: "view",
-                defaultScopeType: scopeType,
-                defaultScopeId: scopeId,
-                ...(scopeType === "team" ? { lockScope: true } : {}),
-              })
-            }
-          >
-            <Plus className="size-3.5" />
-            New
-          </Button>
-        ) : null}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 shrink-0 px-2.5 text-[12px]"
+          onClick={onReset}
+        >
+          Reset
+        </Button>
+        <Button
+          size="sm"
+          variant="default"
+          className="h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
+          onClick={onCreatePreset}
+        >
+          <Plus className="size-3.5" />
+          New view
+        </Button>
       </div>
     </Viewbar>
   )
 }
 
-function DocsFilterPopover({
-  data,
-  documents,
-  routeKey,
-  view,
+function ViewsDirectoryPresetDialog({
+  allowFilters,
+  availableEntityKinds,
+  availableScopes,
+  initialConfig,
+  initialIcon,
+  initialName,
+  mode,
+  onOpenChange,
+  onSave,
+  open,
 }: {
-  data: AppData
-  documents: Document[]
-  routeKey: string
-  view: ViewDefinition
+  allowFilters: boolean
+  availableEntityKinds: ViewDefinition["entityKind"][]
+  availableScopes: ViewsDirectoryScopeFilter[]
+  initialConfig: ViewerDirectoryConfig | null | undefined
+  initialIcon: string
+  initialName: string
+  mode: "create" | "edit-default" | "edit-preset"
+  onOpenChange: (open: boolean) => void
+  onSave: (input: {
+    config: ViewerDirectoryConfig
+    icon: string
+    name: string
+  }) => void
+  open: boolean
 }) {
-  const options = buildDocsFilterOptions(data, documents)
-  const optionGroups = groupDocsFilterOptions(options)
-  const count = getDocsFilterCount(view)
+  const [name, setName] = useState(initialName)
+  const [icon, setIcon] = useState(initialIcon)
+  const [settings, setSettings] = useState(() =>
+    getResolvedViewsDirectorySettings(initialConfig)
+  )
 
-  function toggleFilter(key: ViewFilterKey, value: string) {
-    useAppStore
-      .getState()
-      .toggleViewerViewFilterValue(routeKey, view.id, key, value)
+  function updateSettings(patch: Partial<ViewsDirectorySettings>) {
+    setSettings((current) => ({ ...current, ...patch }))
   }
 
-  function clearFilters() {
-    useAppStore.getState().clearViewerViewFilters(routeKey, view.id)
-  }
+  const isDefault = mode === "edit-default"
+  const canSave = isDefault || name.trim().length > 0
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button type="button" className={getDocsChipClassName(count > 0)}>
-          <FunnelSimple className="size-3.5" />
-          Filter
-          {count > 0 ? (
-            <span className="rounded-full bg-background/60 px-1 text-[10px]">
-              {count}
-            </span>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-0 overflow-visible p-0 sm:max-w-[680px]">
+        <DialogHeader className="space-y-1 border-b border-line-soft px-5 py-4">
+          <DialogTitle className="text-[15px] font-semibold">
+            {mode === "create"
+              ? "Create views page view"
+              : isDefault
+                ? "Edit All views defaults"
+                : `Edit ${initialName}`}
+          </DialogTitle>
+          <DialogDescription className="text-[12.5px]">
+            Configure how this views directory tab is displayed.
+          </DialogDescription>
+        </DialogHeader>
+        {!isDefault ? (
+          <div className="flex items-center gap-2 border-b border-line-soft px-5 py-4">
+            <PhosphorIconPicker iconOnly value={icon} onValueChange={setIcon} />
+            <Input
+              autoFocus={mode === "create"}
+              placeholder="View name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-1.5 px-5 py-5">
+          <ViewsDirectoryLayoutTabs
+            layout={settings.layout}
+            onLayoutChange={(layout) => updateSettings({ layout })}
+          />
+          <div aria-hidden className="mx-1 h-[18px] w-px bg-line" />
+          {allowFilters ? (
+            <ViewsDirectoryFilterPopover
+              availableEntityKinds={availableEntityKinds}
+              availableScopes={availableScopes}
+              filters={settings.filters}
+              onClearFilters={() =>
+                updateSettings({
+                  filters: { entityKinds: [], scopes: [] },
+                })
+              }
+              onToggleEntityKind={(entityKind) =>
+                updateSettings({
+                  filters: {
+                    ...settings.filters,
+                    entityKinds: toggleArrayValue(
+                      settings.filters.entityKinds,
+                      entityKind
+                    ),
+                  },
+                })
+              }
+              onToggleScope={(scope) =>
+                updateSettings({
+                  filters: {
+                    ...settings.filters,
+                    scopes: toggleArrayValue(settings.filters.scopes, scope),
+                  },
+                })
+              }
+            />
           ) : null}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[280px]")}
+          <ViewsDirectoryGroupChipPopover
+            grouping={settings.grouping}
+            subGrouping={settings.subGrouping}
+            onGroupingChange={(grouping) =>
+              updateSettings({
+                grouping,
+                ...(grouping !== "none" && settings.subGrouping === grouping
+                  ? { subGrouping: "none" }
+                  : {}),
+              })
+            }
+            onSubGroupingChange={(subGrouping) =>
+              updateSettings({ subGrouping })
+            }
+          />
+          <ViewsDirectorySortChipPopover
+            sortBy={settings.sortBy}
+            onSortByChange={(sortBy) => updateSettings({ sortBy })}
+          />
+          <ViewsDirectoryPropertiesChipPopover
+            properties={settings.properties}
+            onClearProperties={() =>
+              updateSettings({
+                properties: DEFAULT_VIEW_DIRECTORY_PROPERTIES,
+              })
+            }
+            onToggleProperty={(property) =>
+              updateSettings({
+                properties: toggleArrayValue(settings.properties, property),
+              })
+            }
+          />
+        </div>
+        <div className="flex justify-end gap-2 border-t border-line-soft px-5 py-3.5">
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={!canSave}
+            onClick={() => {
+              onSave({
+                config: getViewsDirectoryConfig(settings),
+                icon,
+                name: name.trim(),
+              })
+              onOpenChange(false)
+            }}
+          >
+            {mode === "create" ? "Create view" : "Save"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ViewsDirectoryTabs({
+  activePreset,
+  availableEntityKinds,
+  availableScopes,
+  createOpen,
+  directorySurfaceKey,
+  onCreateOpenChange,
+  onSelectPreset,
+  presets,
+}: {
+  activePreset: ViewerDirectoryPreset | null
+  availableEntityKinds: ViewDefinition["entityKind"][]
+  availableScopes: ViewsDirectoryScopeFilter[]
+  createOpen: boolean
+  directorySurfaceKey: string
+  onCreateOpenChange: (open: boolean) => void
+  onSelectPreset: (presetId: string | null) => void
+  presets: ViewerDirectoryPreset[]
+}) {
+  const [dialogTarget, setDialogTarget] = useState<
+    "create" | "default" | ViewerDirectoryPreset | null
+  >(null)
+  const [renameTarget, setRenameTarget] =
+    useState<ViewerDirectoryPreset | null>(null)
+  const [deleteTarget, setDeleteTarget] =
+    useState<ViewerDirectoryPreset | null>(null)
+
+  const effectiveDialogTarget = createOpen ? "create" : dialogTarget
+  const targetSurfaceKey =
+    effectiveDialogTarget && typeof effectiveDialogTarget === "object"
+      ? getViewerDirectoryPresetSurfaceKey(
+          directorySurfaceKey,
+          effectiveDialogTarget.id
+        )
+      : directorySurfaceKey
+  const initialConfig = useAppStore((state) =>
+    effectiveDialogTarget
+      ? state.ui.viewerDirectoryConfigByRoute[
+          getViewerScopedDirectoryKey(state.currentUserId, targetSurfaceKey)
+        ]
+      : undefined
+  )
+
+  function renderTab(
+    preset: ViewerDirectoryPreset | null,
+    label: string,
+    icon: string
+  ) {
+    const isActive = preset ? activePreset?.id === preset.id : !activePreset
+    const button = (
+      <button
+        type="button"
+        className={cn(
+          "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors",
+          isActive
+            ? "bg-surface-3 font-medium text-foreground"
+            : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
+        )}
+        onClick={() => onSelectPreset(preset?.id ?? null)}
       >
-        <DocsFilterOptionsList
-          checkClassName="size-3.5 text-accent-fg"
-          optionGroups={optionGroups}
-          view={view}
-          onToggleFilter={toggleFilter}
+        <PhosphorIconGlyph icon={icon} className="size-3.5 shrink-0" />
+        {label}
+      </button>
+    )
+
+    return (
+      <ContextMenu key={preset?.id ?? "all-views"}>
+        <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
+        <ContextMenuContent className="w-52">
+          <ContextMenuLabel className="truncate">{label}</ContextMenuLabel>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              setDialogTarget(preset ?? "default")
+            }}
+          >
+            <PencilSimple className="size-4" />
+            Edit view
+          </ContextMenuItem>
+          {preset ? (
+            <>
+              <ContextMenuItem
+                onSelect={(event) => {
+                  event.preventDefault()
+                  setRenameTarget(preset)
+                }}
+              >
+                <PencilSimple className="size-4" />
+                Rename view
+              </ContextMenuItem>
+              <ContextMenuItem
+                variant="destructive"
+                onSelect={(event) => {
+                  event.preventDefault()
+                  setDeleteTarget(preset)
+                }}
+              >
+                <Trash className="size-4" />
+                Delete view
+              </ContextMenuItem>
+            </>
+          ) : null}
+        </ContextMenuContent>
+      </ContextMenu>
+    )
+  }
+
+  const targetPreset =
+    effectiveDialogTarget && typeof effectiveDialogTarget === "object"
+      ? effectiveDialogTarget
+      : null
+  const dialogMode =
+    effectiveDialogTarget === "create"
+      ? "create"
+      : effectiveDialogTarget === "default"
+        ? "edit-default"
+        : "edit-preset"
+
+  return (
+    <>
+      <div className="ml-2 no-scrollbar flex min-w-0 items-center gap-0.5 overflow-x-auto">
+        {renderTab(null, "All views", getCanonicalAllCollectionIcon("views"))}
+        {presets.map((preset) =>
+          renderTab(preset, preset.name, preset.icon || "SquaresFour")
+        )}
+        <IconButton
+          aria-label="Create views page view"
+          className="size-6 shrink-0"
+          onClick={() => onCreateOpenChange(true)}
+        >
+          <Plus className="size-3.5" />
+        </IconButton>
+      </div>
+      <ViewsDirectoryPresetDialog
+        key={
+          effectiveDialogTarget === "create"
+            ? "create"
+            : (targetPreset?.id ?? String(effectiveDialogTarget))
+        }
+        allowFilters={effectiveDialogTarget !== "default"}
+        availableEntityKinds={availableEntityKinds}
+        availableScopes={availableScopes}
+        initialConfig={initialConfig}
+        initialIcon={targetPreset?.icon ?? "SquaresFour"}
+        initialName={targetPreset?.name ?? ""}
+        mode={dialogMode}
+        open={effectiveDialogTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDialogTarget(null)
+            onCreateOpenChange(false)
+          }
+        }}
+        onSave={({ config, icon, name }) => {
+          const store = useAppStore.getState()
+
+          if (effectiveDialogTarget === "create") {
+            store.createViewerDirectoryPreset(directorySurfaceKey, {
+              config,
+              icon,
+              name,
+            })
+            return
+          }
+
+          store.setViewerDirectoryConfig(
+            targetSurfaceKey,
+            effectiveDialogTarget === "default"
+              ? {
+                  ...config,
+                  filters: {
+                    entityKinds: [],
+                    scopes: [],
+                  },
+                }
+              : config
+          )
+          if (targetPreset) {
+            store.updateViewerDirectoryPreset(
+              directorySurfaceKey,
+              targetPreset.id,
+              { icon, name }
+            )
+          }
+        }}
+      />
+      {renameTarget ? (
+        <RenameDialog
+          key={renameTarget.id}
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setRenameTarget(null)
+            }
+          }}
+          title="Rename view"
+          description="Update the views page tab name."
+          initialValue={renameTarget.name}
+          confirmLabel="Rename"
+          minLength={1}
+          maxLength={80}
+          onConfirm={(name) =>
+            useAppStore
+              .getState()
+              .updateViewerDirectoryPreset(
+                directorySurfaceKey,
+                renameTarget.id,
+                { name }
+              )
+          }
         />
-        <PropertyPopoverFoot>
-          <span>{count} active</span>
-          {count > 0 ? (
-            <button
-              type="button"
-              className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
-              onClick={clearFilters}
-            >
-              Clear all
-            </button>
-          ) : null}
-        </PropertyPopoverFoot>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function DocsGroupPopover({
-  routeKey,
-  view,
-}: {
-  routeKey: string
-  view: ViewDefinition
-}) {
-  function updateGrouping(grouping: GroupField) {
-    useAppStore.getState().patchViewerViewConfig(routeKey, view.id, {
-      grouping,
-    })
-  }
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button type="button" className={getDocsChipClassName()}>
-          <TreeStructure className="size-3.5" />
-          Group
-          <span className="font-medium text-foreground">
-            · {getGroupFieldOptionLabel(view.grouping)}
-          </span>
-          <CaretDown className="size-3 opacity-70" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[220px]")}
-      >
-        <PropertyPopoverList>
-          <PropertyPopoverGroup>Group by</PropertyPopoverGroup>
-          {DOCS_GROUP_OPTIONS.map((option) => {
-            const selected = view.grouping === option
-
-            return (
-              <PropertyPopoverItem
-                key={option}
-                selected={selected}
-                onClick={() => updateGrouping(option)}
-                trailing={
-                  selected ? (
-                    <Check className="size-3.5 text-accent-fg" />
-                  ) : null
-                }
-              >
-                {getGroupFieldOptionLabel(option)}
-              </PropertyPopoverItem>
-            )
-          })}
-        </PropertyPopoverList>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function DocsSortPopover({
-  routeKey,
-  view,
-}: {
-  routeKey: string
-  view: ViewDefinition
-}) {
-  function updateOrdering(ordering: OrderingField) {
-    useAppStore.getState().patchViewerViewConfig(routeKey, view.id, {
-      ordering,
-    })
-  }
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button type="button" className={getDocsChipClassName()}>
-          <SortAscending className="size-3.5" />
-          <span>{DOCS_ORDERING_LABEL[view.ordering]}</span>
-          <CaretDown className="size-3 opacity-70" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn(PROPERTY_POPOVER_CLASS, "w-[200px]")}
-      >
-        <PropertyPopoverList>
-          <PropertyPopoverGroup>Order by</PropertyPopoverGroup>
-          {DOCS_ORDERING_OPTIONS.map((option) => {
-            const selected = view.ordering === option
-
-            return (
-              <PropertyPopoverItem
-                key={option}
-                selected={selected}
-                onClick={() => updateOrdering(option)}
-                trailing={
-                  selected ? (
-                    <Check className="size-3.5 text-accent-fg" />
-                  ) : null
-                }
-              >
-                {DOCS_ORDERING_LABEL[option]}
-              </PropertyPopoverItem>
-            )
-          })}
-        </PropertyPopoverList>
-      </PopoverContent>
-    </Popover>
+      ) : null}
+      {deleteTarget ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setDeleteTarget(null)
+            }
+          }}
+          title={`Delete ${deleteTarget.name}`}
+          description="This views page tab will be permanently removed."
+          confirmLabel="Delete"
+          onConfirm={() => {
+            useAppStore
+              .getState()
+              .deleteViewerDirectoryPreset(directorySurfaceKey, deleteTarget.id)
+            setDeleteTarget(null)
+          }}
+        />
+      ) : null}
+    </>
   )
 }
 
@@ -2650,10 +2842,6 @@ function DocsViewTabs({
           />
         )
 
-        if (isSystemView(view)) {
-          return button
-        }
-
         return (
           <ViewContextMenu key={view.id} view={view}>
             {button}
@@ -2706,11 +2894,38 @@ function DocsTaskbar({
       <DocsFilterPopover
         data={data}
         documents={documents}
-        routeKey={routeKey}
         view={activeView}
+        onToggleFilter={(key, value) =>
+          useAppStore
+            .getState()
+            .toggleViewerViewFilterValue(
+              routeKey,
+              activeView.id,
+              key,
+              value,
+              activeView
+            )
+        }
+        onClearFilters={() =>
+          useAppStore.getState().clearViewerViewFilters(routeKey, activeView.id)
+        }
       />
-      <DocsGroupPopover routeKey={routeKey} view={activeView} />
-      <DocsSortPopover routeKey={routeKey} view={activeView} />
+      <DocsGroupPopover
+        view={activeView}
+        onUpdateView={(patch) =>
+          useAppStore
+            .getState()
+            .patchViewerViewConfig(routeKey, activeView.id, patch)
+        }
+      />
+      <DocsSortPopover
+        view={activeView}
+        onUpdateView={(patch) =>
+          useAppStore
+            .getState()
+            .patchViewerViewConfig(routeKey, activeView.id, patch)
+        }
+      />
       <PropertiesChipPopover
         view={activeView}
         propertyOptions={DOCS_DISPLAY_PROPERTY_OPTIONS}
@@ -2720,7 +2935,12 @@ function DocsTaskbar({
         onToggleDisplayProperty={(property) =>
           useAppStore
             .getState()
-            .toggleViewerViewDisplayProperty(routeKey, activeView.id, property)
+            .toggleViewerViewDisplayProperty(
+              routeKey,
+              activeView.id,
+              property,
+              activeView
+            )
         }
         onReorderDisplayProperties={(displayProps) =>
           useAppStore
@@ -2737,10 +2957,20 @@ function DocsTaskbar({
             .reorderViewerViewDisplayProperties(routeKey, activeView.id, [])
         }
       />
+      <Button
+        size="sm"
+        variant="ghost"
+        className="ml-auto h-7 shrink-0 px-2.5 text-[12px]"
+        onClick={() =>
+          useAppStore.getState().resetViewerViewConfig(routeKey, activeView.id)
+        }
+      >
+        Reset
+      </Button>
       {editable ? (
         <Button
           size="sm"
-          className="ml-auto h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
+          className="h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
           onClick={onCreateDocument}
         >
           <Plus className="size-3.5" />
@@ -2763,13 +2993,17 @@ function ProjectViewTabButton({
   return (
     <button
       className={cn(
-        "h-7 rounded-md px-2 text-[12px] transition-colors",
+        "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors",
         active
           ? "bg-surface-3 font-medium text-foreground"
           : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
       )}
       onClick={onSelect}
     >
+      <PhosphorIconGlyph
+        icon={getViewIconName(view)}
+        className="size-3.5 shrink-0"
+      />
       {view.name}
     </button>
   )
@@ -2780,7 +3014,6 @@ function ProjectViewTabs({
   displayedProjectViews,
   editable,
   effectiveProjectView,
-  persistedProjectViewIds,
   routeKey,
   scopeId,
   team,
@@ -2789,7 +3022,6 @@ function ProjectViewTabs({
   displayedProjectViews: ViewDefinition[]
   editable: boolean
   effectiveProjectView: ViewDefinition | null
-  persistedProjectViewIds: Set<string>
   routeKey: string
   scopeId: string
   team?: Team | null
@@ -2817,10 +3049,6 @@ function ProjectViewTabs({
             view={view}
           />
         )
-
-        if (isSystemView(view) || !persistedProjectViewIds.has(view.id)) {
-          return button
-        }
 
         return (
           <ViewContextMenu key={view.id} view={view}>
@@ -2855,7 +3083,6 @@ function ProjectsTopbar({
   displayedProjectViews,
   editable,
   effectiveProjectView,
-  persistedProjectViewIds,
   routeKey,
   scopeId,
   team,
@@ -2865,7 +3092,6 @@ function ProjectsTopbar({
   displayedProjectViews: ViewDefinition[]
   editable: boolean
   effectiveProjectView: ViewDefinition | null
-  persistedProjectViewIds: Set<string>
   routeKey: string
   scopeId: string
   team?: Team | null
@@ -2879,7 +3105,6 @@ function ProjectsTopbar({
         displayedProjectViews={displayedProjectViews}
         editable={editable}
         effectiveProjectView={effectiveProjectView}
-        persistedProjectViewIds={persistedProjectViewIds}
         routeKey={routeKey}
         scopeId={scopeId}
         team={team}
@@ -2897,98 +3122,18 @@ type ProjectViewbarHandlers = {
   onUpdateView: (patch: ViewConfigPatch) => void
 }
 
-type ProjectDraftFilters = ReturnType<typeof createEmptyViewFilters>
-
-type ProjectDraftViewSetters = {
-  setLayout: (layout: "list" | "board") => void
-  setProjectFilters: (
-    resolveNextFilters: (current: ProjectDraftFilters) => ProjectDraftFilters
-  ) => void
-  setProjectGrouping: (grouping: GroupField | null) => void
-  setProjectOrdering: (ordering: ViewDefinition["ordering"]) => void
-  setProjectSubGrouping: (grouping: GroupField | null) => void
-}
-
-function applyProjectDraftLayoutPatch(
-  patch: ViewConfigPatch,
-  setLayout: ProjectDraftViewSetters["setLayout"]
-) {
-  if (!patch.layout) {
-    return
-  }
-
-  setLayout(patch.layout === "board" ? "board" : "list")
-}
-
-function applyProjectDraftGroupingPatch(
-  patch: ViewConfigPatch,
-  setters: Pick<
-    ProjectDraftViewSetters,
-    "setProjectGrouping" | "setProjectSubGrouping"
-  >
-) {
-  if ("grouping" in patch) {
-    setters.setProjectGrouping(patch.grouping ?? null)
-  }
-
-  if ("subGrouping" in patch) {
-    setters.setProjectSubGrouping(patch.subGrouping ?? null)
-  }
-}
-
-function applyProjectDraftOrderingPatch(
-  patch: ViewConfigPatch,
-  setProjectOrdering: ProjectDraftViewSetters["setProjectOrdering"]
-) {
-  if (!patch.ordering) {
-    return
-  }
-
-  setProjectOrdering(patch.ordering)
-}
-
-function applyProjectDraftCompletionPatch(
-  patch: ViewConfigPatch,
-  setProjectFilters: ProjectDraftViewSetters["setProjectFilters"]
-) {
-  if (
-    patch.showCompleted === undefined &&
-    patch.showEmptyGroups === undefined
-  ) {
-    return
-  }
-
-  setProjectFilters((current) => ({
-    ...current,
-    ...(patch.showCompleted === undefined
-      ? {}
-      : { showCompleted: patch.showCompleted }),
-    ...(patch.showEmptyGroups === undefined
-      ? {}
-      : { showEmptyGroups: patch.showEmptyGroups }),
-  }))
-}
-
-function applyProjectDraftViewPatch(
-  patch: ViewConfigPatch,
-  setters: ProjectDraftViewSetters
-) {
-  applyProjectDraftLayoutPatch(patch, setters.setLayout)
-  applyProjectDraftGroupingPatch(patch, setters)
-  applyProjectDraftOrderingPatch(patch, setters.setProjectOrdering)
-  applyProjectDraftCompletionPatch(patch, setters.setProjectFilters)
-}
-
 function ProjectsViewbar({
   canCreateProject,
   handlers,
   projects,
+  routeKey,
   team,
   view,
 }: {
   canCreateProject: boolean
   handlers: ProjectViewbarHandlers
   projects: Project[]
+  routeKey: string
   team?: Team | null
   view: ViewDefinition
 }) {
@@ -3022,6 +3167,16 @@ function ProjectsViewbar({
         onClearDisplayProperties={handlers.onClearDisplayProperties}
       />
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 shrink-0 px-2.5 text-[12px]"
+          onClick={() =>
+            useAppStore.getState().resetViewerViewConfig(routeKey, view.id)
+          }
+        >
+          Reset
+        </Button>
         {canCreateProject ? (
           <Button
             size="sm"
@@ -3043,141 +3198,25 @@ function ProjectsViewbar({
   )
 }
 
-function useProjectDraftViewState({
-  layout,
-  routeKey,
-  scopeId,
-  scopeType,
-  setLayout,
-  team,
-}: {
-  layout: "list" | "board"
-  routeKey: string
-  scopeId: string
-  scopeType: ScopeType
-  setLayout: (layout: "list" | "board") => void
-  team?: Team | null
-}) {
-  const [projectFilters, setProjectFilters] = useState(() =>
-    createEmptyViewFilters()
-  )
-  const [projectGrouping, setProjectGrouping] = useState<GroupField | null>(
-    "status"
-  )
-  const [projectSubGrouping, setProjectSubGrouping] =
-    useState<GroupField | null>(null)
-  const [projectOrdering, setProjectOrdering] =
-    useState<ViewDefinition["ordering"]>("priority")
-  const [projectDisplayProperties, setProjectDisplayProperties] = useState<
-    DisplayProperty[]
-  >(DEFAULT_PROJECT_DISPLAY_PROPS)
-  const fallbackProjectView = useMemo(() => {
-    const timestamp = new Date().toISOString()
-
-    return (
-      createViewDefinition({
-        id: `fallback-project-view-${scopeType}-${scopeId}`,
-        name: "All projects",
-        description: "All projects in this scope.",
-        scopeType: team ? "team" : "workspace",
-        scopeId,
-        entityKind: "projects",
-        route: routeKey,
-        teamSlug: team?.slug,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        overrides: {
-          layout,
-          filters: projectFilters,
-          grouping: projectGrouping,
-          subGrouping: projectSubGrouping,
-          ordering: projectOrdering,
-          displayProps: projectDisplayProperties,
-        },
-      }) ?? null
-    )
-  }, [
-    layout,
-    projectDisplayProperties,
-    projectFilters,
-    projectGrouping,
-    projectOrdering,
-    projectSubGrouping,
-    routeKey,
-    scopeId,
-    scopeType,
-    team,
-  ])
-
-  function updateProjectView(patch: ViewConfigPatch) {
-    applyProjectDraftViewPatch(patch, {
-      setLayout,
-      setProjectFilters,
-      setProjectGrouping,
-      setProjectOrdering,
-      setProjectSubGrouping,
-    })
-  }
-
-  const handlers: ProjectViewbarHandlers = {
-    onUpdateView: updateProjectView,
-    onToggleFilterValue: (key, value) =>
-      setProjectFilters((current) =>
-        toggleViewFilterValue(current, key, value)
-      ),
-    onClearFilters: () =>
-      setProjectFilters(clearViewFiltersPreservingCompletion),
-    onToggleDisplayProperty: (property) =>
-      setProjectDisplayProperties((current) =>
-        toggleDisplayPropertyValue(current, property)
-      ),
-    onReorderDisplayProperties: setProjectDisplayProperties,
-    onClearDisplayProperties: () => setProjectDisplayProperties([]),
-  }
-
-  return {
-    fallbackProjectView,
-    handlers,
-  }
-}
-
-function getDisplayedProjectViews(
-  projectViews: ViewDefinition[],
-  fallbackProjectView: ViewDefinition | null
-) {
-  if (projectViews.length > 0) {
-    return projectViews
-  }
-
-  return fallbackProjectView ? [fallbackProjectView] : []
-}
-
 function useEffectiveProjectView({
   activeView,
-  fallbackProjectView,
-  layout,
 }: {
   activeView: ViewDefinition | null
-  fallbackProjectView: ViewDefinition | null
-  layout: "list" | "board"
 }) {
   return useMemo(() => {
-    const source = activeView ?? fallbackProjectView
-
-    if (!source) {
+    if (!activeView) {
       return null
     }
 
-    const grouping = getProjectViewGrouping(source)
-    const subGrouping = getProjectViewSubGrouping(source, grouping)
+    const grouping = getProjectViewGrouping(activeView)
+    const subGrouping = getProjectViewSubGrouping(activeView, grouping)
 
     return {
-      ...source,
-      ...(activeView ? {} : { layout }),
+      ...activeView,
       grouping,
       subGrouping,
     }
-  }, [activeView, fallbackProjectView, layout])
+  }, [activeView])
 }
 
 function getProjectViewGrouping(view: ViewDefinition) {
@@ -3212,7 +3251,13 @@ function createSavedProjectViewbarHandlers(
       withSavedProjectView(activeView, (viewId) =>
         useAppStore
           .getState()
-          .toggleViewerViewFilterValue(routeKey, viewId, key, value)
+          .toggleViewerViewFilterValue(
+            routeKey,
+            viewId,
+            key,
+            value,
+            activeView ?? undefined
+          )
       ),
     onClearFilters: () =>
       withSavedProjectView(activeView, (viewId) =>
@@ -3222,7 +3267,12 @@ function createSavedProjectViewbarHandlers(
       withSavedProjectView(activeView, (viewId) =>
         useAppStore
           .getState()
-          .toggleViewerViewDisplayProperty(routeKey, viewId, property)
+          .toggleViewerViewDisplayProperty(
+            routeKey,
+            viewId,
+            property,
+            activeView ?? undefined
+          )
       ),
     onReorderDisplayProperties: (displayProps) =>
       withSavedProjectView(activeView, (viewId) =>
@@ -3248,22 +3298,6 @@ function withSavedProjectView(
   }
 
   action(activeView.id)
-}
-
-function getProjectViewbarHandlers({
-  activeView,
-  draftHandlers,
-  hasSavedProjectView,
-  routeKey,
-}: {
-  activeView: ViewDefinition | null
-  draftHandlers: ProjectViewbarHandlers
-  hasSavedProjectView: boolean
-  routeKey: string
-}) {
-  return hasSavedProjectView
-    ? createSavedProjectViewbarHandlers(activeView, routeKey)
-    : draftHandlers
 }
 
 function ProjectBoardSection({
@@ -4077,6 +4111,27 @@ function getProjectsScreenRouteKey(team?: Team | null) {
   return team ? `/team/${team.slug}/projects` : "/workspace/projects"
 }
 
+function getProjectSystemViews(input: {
+  scopeId: string
+  scopeType: ScopeType
+  team?: Team | null
+}) {
+  const createdAt = "1970-01-01T00:00:00.000Z"
+
+  if (input.scopeType === "team" && input.team) {
+    return buildTeamProjectViews({
+      teamId: input.scopeId,
+      teamSlug: input.team.slug,
+      createdAt,
+    })
+  }
+
+  return buildWorkspaceProjectViews({
+    workspaceId: input.scopeId,
+    createdAt,
+  })
+}
+
 function useProjectsScreenReadModel(input: {
   scopeId: string
   scopeType: ScopeType
@@ -4124,43 +4179,31 @@ function useProjectsScreenViewState({
   scopeType: ScopeType
   team?: Team | null
 }) {
-  const { activeView, layout, setLayout } = useCollectionLayout(
+  const systemProjectViews = useMemo(
+    () => getProjectSystemViews({ scopeId, scopeType, team }),
+    [scopeId, scopeType, team]
+  )
+  const displayedProjectViews = useMemo(
+    () => mergeSystemViews(systemProjectViews, projectViews),
+    [projectViews, systemProjectViews]
+  )
+  const { activeView, layout } = useCollectionLayout(
     routeKey,
-    projectViews
+    displayedProjectViews
   )
-  const { fallbackProjectView, handlers: draftProjectViewbarHandlers } =
-    useProjectDraftViewState({
-      layout,
-      routeKey,
-      scopeId,
-      scopeType,
-      setLayout,
-      team,
-    })
-  const hasSavedProjectView = activeView !== null
-  const displayedProjectViews = getDisplayedProjectViews(
-    projectViews,
-    fallbackProjectView
-  )
-  const persistedProjectViewIds = new Set(projectViews.map((view) => view.id))
   const effectiveProjectView = useEffectiveProjectView({
     activeView,
-    fallbackProjectView,
-    layout,
   })
-  const projectViewbarHandlers = getProjectViewbarHandlers({
+  const projectViewbarHandlers = createSavedProjectViewbarHandlers(
     activeView,
-    draftHandlers: draftProjectViewbarHandlers,
-    hasSavedProjectView,
-    routeKey,
-  })
+    routeKey
+  )
 
   return {
     activeView,
     displayedProjectViews,
     effectiveProjectView,
     layout,
-    persistedProjectViewIds,
     projectViewbarHandlers,
   }
 }
@@ -4260,12 +4303,14 @@ function ProjectsScreenViewbarSlot({
   canCreateProject,
   projectViewbarHandlers,
   projects,
+  routeKey,
   team,
   view,
 }: {
   canCreateProject: boolean
   projectViewbarHandlers: ProjectViewbarHandlers
   projects: Project[]
+  routeKey: string
   team?: Team | null
   view: ViewDefinition | null
 }) {
@@ -4278,6 +4323,7 @@ function ProjectsScreenViewbarSlot({
       canCreateProject={canCreateProject}
       handlers={projectViewbarHandlers}
       projects={projects}
+      routeKey={routeKey}
       team={team}
       view={view}
     />
@@ -4298,7 +4344,6 @@ export function ProjectsScreen({
     displayedProjectViews,
     effectiveProjectView,
     layout,
-    persistedProjectViewIds,
     projectViewbarHandlers,
   } = useProjectsScreenViewState({
     projectViews,
@@ -4337,7 +4382,6 @@ export function ProjectsScreen({
         displayedProjectViews={displayedProjectViews}
         editable={editable}
         effectiveProjectView={effectiveProjectView}
-        persistedProjectViewIds={persistedProjectViewIds}
         routeKey={routeKey}
         scopeId={scopeId}
         team={team}
@@ -4347,6 +4391,7 @@ export function ProjectsScreen({
         canCreateProject={canCreateProject}
         projectViewbarHandlers={projectViewbarHandlers}
         projects={projects}
+        routeKey={routeKey}
         team={team}
         view={effectiveProjectView}
       />
@@ -4375,6 +4420,7 @@ export function ViewsScreen({
   title: string
   description?: string
 }) {
+  const [createPresetOpen, setCreatePresetOpen] = useState(false)
   const { hasLoadedOnce } = useScopedReadModelRefresh({
     enabled: Boolean(scopeId),
     scopeKeys: getViewCatalogScopeKeys(scopeType, scopeId),
@@ -4419,21 +4465,46 @@ export function ViewsScreen({
     [viewContext.projects]
   )
   const directorySurfaceKey = `views-directory:${scopeType}:${scopeId}`
-  const directoryConfig = useAppStore(
-    useShallow(
-      (state) =>
-        state.ui.viewerDirectoryConfigByRoute[
-          getViewerScopedDirectoryKey(state.currentUserId, directorySurfaceKey)
-        ]
-    )
+  const directoryPresetState = useAppStore(
+    useShallow((state) => {
+      const routeKey = getViewerScopedDirectoryKey(
+        state.currentUserId,
+        directorySurfaceKey
+      )
+      const presets =
+        state.ui.viewerDirectoryPresetsByRoute[routeKey] ??
+        EMPTY_VIEWER_DIRECTORY_PRESETS
+      const selectedPresetId =
+        state.ui.selectedDirectoryPresetByRoute[routeKey] ?? null
+      const activePreset =
+        presets.find((preset) => preset.id === selectedPresetId) ?? null
+      const activeSurfaceKey = activePreset
+        ? getViewerDirectoryPresetSurfaceKey(
+            directorySurfaceKey,
+            activePreset.id
+          )
+        : directorySurfaceKey
+
+      return {
+        activePreset,
+        activeSurfaceKey,
+        directoryConfig:
+          state.ui.viewerDirectoryConfigByRoute[
+            getViewerScopedDirectoryKey(state.currentUserId, activeSurfaceKey)
+          ],
+        presets,
+      }
+    })
   )
-  const { filters, grouping, layout, properties, sortBy, subGrouping } =
+  const { activePreset, activeSurfaceKey, directoryConfig, presets } =
+    directoryPresetState
+  const resolvedDirectorySettings =
     getResolvedViewsDirectorySettings(directoryConfig)
-  const editable = useAppStore((state) =>
-    scopeType === "team"
-      ? canEditTeam(state, scopeId)
-      : canEditWorkspace(state, scopeId)
-  )
+  const { grouping, layout, properties, sortBy, subGrouping } =
+    resolvedDirectorySettings
+  const filters = activePreset
+    ? resolvedDirectorySettings.filters
+    : DEFAULT_VIEWS_DIRECTORY_CONFIG.filters
   const availableEntityKinds = useMemo(
     () => getAvailableViewEntityKinds(views),
     [views]
@@ -4463,9 +4534,7 @@ export function ViewsScreen({
       : "No saved views match the current settings."
 
   function updateDirectoryConfig(patch: ViewerDirectoryConfig) {
-    useAppStore
-      .getState()
-      .patchViewerDirectoryConfig(directorySurfaceKey, patch)
+    useAppStore.getState().patchViewerDirectoryConfig(activeSurfaceKey, patch)
   }
 
   function updateDirectoryFilters(
@@ -4475,7 +4544,7 @@ export function ViewsScreen({
   ) {
     updateDirectoryConfig({
       filters: resolveNextFilters(
-        getCurrentViewsDirectorySettings(directorySurfaceKey).filters
+        getCurrentViewsDirectorySettings(activeSurfaceKey).filters
       ),
     })
   }
@@ -4487,7 +4556,7 @@ export function ViewsScreen({
   ) {
     updateDirectoryConfig({
       displayProps: resolveNextProperties(
-        getCurrentViewsDirectorySettings(directorySurfaceKey).properties
+        getCurrentViewsDirectorySettings(activeSurfaceKey).properties
       ),
     })
   }
@@ -4496,20 +4565,36 @@ export function ViewsScreen({
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       <Topbar>
         <HeaderTitle title={title} />
+        <ViewsDirectoryTabs
+          activePreset={activePreset}
+          availableEntityKinds={availableEntityKinds}
+          availableScopes={availableScopes}
+          createOpen={createPresetOpen}
+          directorySurfaceKey={directorySurfaceKey}
+          onCreateOpenChange={setCreatePresetOpen}
+          onSelectPreset={(presetId) =>
+            useAppStore
+              .getState()
+              .setSelectedDirectoryPreset(directorySurfaceKey, presetId)
+          }
+          presets={presets}
+        />
       </Topbar>
       <ViewsDirectoryViewbar
+        allowFilters={Boolean(activePreset)}
         availableEntityKinds={availableEntityKinds}
         availableScopes={availableScopes}
-        editable={editable}
         filters={filters}
         grouping={grouping}
         layout={layout}
+        onCreatePreset={() => setCreatePresetOpen(true)}
+        onReset={() =>
+          useAppStore.getState().resetViewerDirectoryConfig(activeSurfaceKey)
+        }
         onUpdateConfig={updateDirectoryConfig}
         onUpdateFilters={updateDirectoryFilters}
         onUpdateProperties={updateDirectoryProperties}
         properties={properties}
-        scopeId={scopeId}
-        scopeType={scopeType}
         sortBy={sortBy}
         subGrouping={subGrouping}
       />
@@ -4580,7 +4665,7 @@ export function DocsScreen({
   )
   const docViews = useMemo(
     () =>
-      mergeDocsViews(
+      mergeSystemViews(
         systemDocViews,
         getPersistedDocsViews({
           isWorkspaceDocs,
@@ -4611,10 +4696,18 @@ export function DocsScreen({
       }),
     [data, isWorkspaceDocs, scopeId, scopeType]
   )
-  const documents = useMemo(
-    () => getDocumentsForView(baseDocuments, activeView),
-    [activeView, baseDocuments]
-  )
+  const documents = useMemo(() => {
+    const filtered = getDocumentsForView(baseDocuments, activeView)
+    // A docs view's documentKinds filter defines its identity (Private vs
+    // Workspace). The system view owns that scope, so a viewer-config override
+    // (e.g. clearing filters) must not be able to surface the wrong kinds.
+    const baseKinds = docViews.find((view) => view.id === activeView?.id)
+      ?.filters.documentKinds
+    if (!baseKinds?.length) {
+      return filtered
+    }
+    return filtered.filter((document) => baseKinds.includes(document.kind))
+  }, [activeView, baseDocuments, docViews])
   const docSections = useMemo(
     () => buildDocsSections(data, documents, activeView),
     [activeView, data, documents]

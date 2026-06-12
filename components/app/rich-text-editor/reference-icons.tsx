@@ -1,7 +1,7 @@
 import {
+  Cards,
   FileText,
   Folders,
-  SquaresFour,
   Target,
   type Icon,
 } from "@phosphor-icons/react"
@@ -18,7 +18,7 @@ const REFERENCE_TYPE_ICON: Record<RichTextEntityReferenceType, Icon> = {
   workItem: Target,
   document: FileText,
   project: Folders,
-  view: SquaresFour,
+  view: Cards,
 }
 
 export function getReferenceTypeIcon(type: string): Icon {

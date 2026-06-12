@@ -201,6 +201,31 @@ function assertExpectedWorkItemVersion(
   }
 }
 
+async function assertExpectedWorkItemDescriptionVersion(
+  ctx: MutationCtx,
+  existing: WorkItemDoc,
+  patch: WorkItemPatch
+) {
+  if (
+    patch.description === undefined ||
+    patch.expectedDescriptionUpdatedAt === undefined
+  ) {
+    return
+  }
+
+  const descriptionDocument = await getDocumentDoc(
+    ctx,
+    existing.descriptionDocId
+  )
+
+  if (
+    !descriptionDocument ||
+    descriptionDocument.updatedAt !== patch.expectedDescriptionUpdatedAt
+  ) {
+    throw new Error("Work item changed while you were editing")
+  }
+}
+
 function getNextWorkItemTitle(existing: WorkItemDoc, patch: WorkItemPatch) {
   const nextTitle = patch.title?.trim() || existing.title
 
@@ -481,11 +506,11 @@ export async function patchWorkItemDescriptionDocument(
             input.nextDescription,
             descriptionDocument.notifiedMentionCounts
           ),
+          updatedAt: input.now,
+          updatedBy: input.currentUserId,
         }
       : {}),
-    title: `${input.nextTitle} description`,
-    updatedAt: input.now,
-    updatedBy: input.currentUserId,
+    ...(input.titleChanged ? { title: `${input.nextTitle} description` } : {}),
   })
 
   if (relationships) {
@@ -494,7 +519,6 @@ export async function patchWorkItemDescriptionDocument(
       linkedWorkItemIds: relationships.workItemIds,
       referencedProjectIds: relationships.projectIds,
       referencedViewIds: relationships.viewIds,
-      updatedAt: input.now,
     })
   }
 }
@@ -710,6 +734,7 @@ function buildPersistedWorkItemPatch(
   const isPrivate = (input.existing.visibility ?? "team") === "private"
 
   delete persistedPatch.description
+  delete persistedPatch.expectedDescriptionUpdatedAt
   delete persistedPatch.expectedUpdatedAt
   if (isPrivate) {
     delete persistedPatch.assigneeId
@@ -726,6 +751,15 @@ function buildPersistedWorkItemPatch(
     primaryProjectId: isPrivate ? null : input.resolvedPrimaryProjectId,
     updatedAt: input.now,
   }
+}
+
+function hasWorkItemRecordMutation(patch: WorkItemPatch) {
+  return Object.keys(patch).some(
+    (key) =>
+      key !== "description" &&
+      key !== "expectedDescriptionUpdatedAt" &&
+      key !== "expectedUpdatedAt"
+  )
 }
 
 export async function createAssignmentNotificationForWorkItemUpdate(
@@ -935,9 +969,7 @@ export async function createAssigneeChangeActivityForWorkItemUpdate(
   }
 
   const fromAssigneeIds = getWorkItemAssigneeIds(input.existing)
-  const toAssigneeIds = getResolvedWorkItemMutationAssigneeIds(
-    input.args.patch
-  )
+  const toAssigneeIds = getResolvedWorkItemMutationAssigneeIds(input.args.patch)
 
   if (haveSameWorkItemAssigneeIds(fromAssigneeIds, toAssigneeIds)) {
     return null
@@ -989,6 +1021,7 @@ export async function updateWorkItemHandler(
   const effectiveArgs = { ...args, patch }
 
   assertExpectedWorkItemVersion(existing, args.patch)
+  await assertExpectedWorkItemDescriptionVersion(ctx, existing, args.patch)
   assertWorkItemSchedulePatch(existing, patch)
   await validateWorkItemParentPatch(
     ctx,
@@ -1031,14 +1064,16 @@ export async function updateWorkItemHandler(
   const now = getNow()
   const nextDescription = patch.description
 
-  await ctx.db.patch(existing._id, {
-    ...buildPersistedWorkItemPatch(patch, {
-      existing,
-      nextTitle,
-      resolvedPrimaryProjectId,
-      now,
-    }),
-  })
+  if (hasWorkItemRecordMutation(patch)) {
+    await ctx.db.patch(existing._id, {
+      ...buildPersistedWorkItemPatch(patch, {
+        existing,
+        nextTitle,
+        resolvedPrimaryProjectId,
+        now,
+      }),
+    })
+  }
 
   await patchWorkItemDescriptionDocument(ctx, {
     existing,
@@ -1228,11 +1263,13 @@ async function patchCollaborationDescriptionDocument(
             args.patch.description,
             descriptionDocument.notifiedMentionCounts
           ),
+          updatedAt,
+          updatedBy: args.currentUserId,
         }
       : {}),
-    title: `${nextTitle} description`,
-    updatedAt,
-    updatedBy: args.currentUserId,
+    ...(args.patch.title !== undefined
+      ? { title: `${nextTitle} description` }
+      : {}),
   })
 
   if (relationships) {
@@ -1241,7 +1278,6 @@ async function patchCollaborationDescriptionDocument(
       linkedWorkItemIds: relationships.workItemIds,
       referencedProjectIds: relationships.projectIds,
       referencedViewIds: relationships.viewIds,
-      updatedAt,
     })
   }
 }
@@ -1280,10 +1316,12 @@ export async function persistCollaborationWorkItemHandler(
   assertWorkItemTitleLength(nextTitle)
   const updatedAt = getNow()
 
-  await ctx.db.patch(
-    existing._id,
-    getCollaborationWorkItemPatch(args, nextTitle, updatedAt)
-  )
+  if (args.patch.title !== undefined) {
+    await ctx.db.patch(
+      existing._id,
+      getCollaborationWorkItemPatch(args, nextTitle, updatedAt)
+    )
+  }
   await patchCollaborationDescriptionDocument(
     ctx,
     args,

@@ -387,6 +387,7 @@ export async function updateViewConfigServer(input: {
   showEmptyGroups?: boolean
   hiddenState?: ViewDefinition["hiddenState"]
   description?: string
+  icon?: string | null
   scopeType?: "team" | "workspace"
   scopeId?: string
   containerType?: ViewContainerType | null

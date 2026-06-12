@@ -156,6 +156,7 @@ function createCanonicalViewPatch(
   return {
     name: canonicalView.name,
     description: canonicalView.description,
+    icon: canonicalView.icon ?? null,
     layout: canonicalView.layout,
     ...getCanonicalViewItemFieldsPatch(canonicalView, options),
     filters: canonicalView.filters,

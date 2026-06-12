@@ -271,6 +271,7 @@ export interface ViewDefinition {
   id: string
   name: string
   description: string
+  icon?: string | null
   scopeType: ViewScopeType
   scopeId: string
   entityKind: EntityKind
@@ -303,6 +304,7 @@ export type ViewConfigPatch = Partial<{
   filters: Partial<ViewFilters>
   displayProps: DisplayProperty[]
   description: string
+  icon: string | null
   scopeType: "team" | "workspace"
   scopeId: string
   containerType: ViewContainerType | null
@@ -321,6 +323,7 @@ export type CreateViewInput = {
   route: string
   name: string
   description: string
+  icon?: string | null
   layout?: ViewLayout
   grouping?: GroupField | null
   subGrouping?: GroupField | null
@@ -355,6 +358,14 @@ export type ViewerDirectoryConfig = Partial<{
   ordering: string
   displayProps: string[]
 }>
+
+export interface ViewerDirectoryPreset {
+  id: string
+  name: string
+  icon: string
+  createdAt: string
+  updatedAt: string
+}
 
 export interface Comment {
   id: string
@@ -579,6 +590,8 @@ export interface UiState {
   selectedViewByRoute: Record<string, string>
   viewerViewConfigByRoute: Record<string, ViewerViewConfigOverride>
   viewerDirectoryConfigByRoute: Record<string, ViewerDirectoryConfig>
+  viewerDirectoryPresetsByRoute: Record<string, ViewerDirectoryPreset[]>
+  selectedDirectoryPresetByRoute: Record<string, string>
   collaborationSidebarOpenBySurface: Record<string, boolean>
   activeCreateDialog: CreateDialogState | null
 }

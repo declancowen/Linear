@@ -441,6 +441,14 @@ function OptionalSurfaceRows({
 }) {
   return (
     <SettingsRowGroup>
+      <SettingsToggleRow
+        checked
+        disabled
+        title="Dashboard"
+        description="Team overview with completion, projects, views, and activity."
+        note="Always on"
+        onCheckedChange={() => {}}
+      />
       {items.map((feature) => {
         const featureChecked = features[feature.key]
         const noteForFeature = savedFeatures[feature.key]

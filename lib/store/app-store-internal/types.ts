@@ -20,9 +20,11 @@ import type {
   TeamFeatureSettings,
   TeamWorkflowSettings,
   ViewConfigPatch,
+  ViewDefinition,
   UserStatus,
   WorkItem,
   ViewerDirectoryConfig,
+  ViewerDirectoryPreset,
 } from "@/lib/domain/types"
 import type {
   CreateStoreWorkItemInput,
@@ -293,13 +295,15 @@ export type AppStore = AppData & {
     surfaceKey: string,
     viewId: string,
     key: ViewFilterValueKey,
-    value: string
+    value: string,
+    baseView?: ViewDefinition
   ) => void
   clearViewerViewFilters: (surfaceKey: string, viewId: string) => void
   toggleViewerViewDisplayProperty: (
     surfaceKey: string,
     viewId: string,
-    property: DisplayProperty
+    property: DisplayProperty,
+    baseView?: ViewDefinition
   ) => void
   reorderViewerViewDisplayProperties: (
     surfaceKey: string,
@@ -311,11 +315,35 @@ export type AppStore = AppData & {
     surfaceKey: string,
     viewId: string,
     key: "groups" | "subgroups" | "includedGroups",
-    value: string
+    value: string,
+    baseView?: ViewDefinition
   ) => void
   patchViewerDirectoryConfig: (
     surfaceKey: string,
     patch: ViewerDirectoryConfig
+  ) => void
+  setViewerDirectoryConfig: (
+    surfaceKey: string,
+    config: ViewerDirectoryConfig
+  ) => void
+  resetViewerDirectoryConfig: (surfaceKey: string) => void
+  createViewerDirectoryPreset: (
+    surfaceKey: string,
+    input: {
+      name: string
+      icon: string
+      config: ViewerDirectoryConfig
+    }
+  ) => string | null
+  updateViewerDirectoryPreset: (
+    surfaceKey: string,
+    presetId: string,
+    patch: Partial<Pick<ViewerDirectoryPreset, "name" | "icon">>
+  ) => boolean
+  deleteViewerDirectoryPreset: (surfaceKey: string, presetId: string) => void
+  setSelectedDirectoryPreset: (
+    surfaceKey: string,
+    presetId: string | null
   ) => void
   setCollaborationSidebarOpen: (surfaceKey: string, open: boolean) => void
   setActiveInboxNotification: (notificationId: string | null) => void
@@ -420,6 +448,7 @@ export type AppStore = AppData & {
     itemId: string
     title: string
     description: string
+    expectedDescriptionUpdatedAt: string
     expectedUpdatedAt: string
   }) => Promise<boolean>
   uploadAttachment: (

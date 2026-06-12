@@ -53,6 +53,7 @@ import {
 } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
+import { PhosphorIconPicker } from "@/components/app/phosphor-icon-picker"
 import {
   applyViewConfigPatch,
   createEmptyViewFilters,
@@ -872,6 +873,7 @@ function getCreateViewConfig({
 
 async function updateExistingViewFromDraft({
   description,
+  icon,
   draftView,
   editingView,
   effectiveScope,
@@ -880,6 +882,7 @@ async function updateExistingViewFromDraft({
   resolvedRoute,
 }: {
   description: string
+  icon: string | null
   draftView: ViewDefinition
   editingView: ViewDefinition
   effectiveScope: ReturnType<typeof getEffectiveCreateViewScope>
@@ -917,6 +920,7 @@ async function updateExistingViewFromDraft({
 
   store.updateViewConfig(editingView.id, {
     description: description.trim(),
+    icon: icon ?? null,
     ...(scopeChange ?? {}),
     containerType: nextContainerType,
     containerId: nextContainerId,
@@ -945,6 +949,7 @@ async function updateExistingViewFromDraft({
 
 async function submitCreateViewDialog({
   description,
+  icon,
   dialog,
   draftView,
   effectiveScope,
@@ -955,6 +960,7 @@ async function submitCreateViewDialog({
   selectedEntityKind,
 }: {
   description: string
+  icon: string | null
   dialog: CreateViewDialogState
   draftView: ViewDefinition | null
   effectiveScope: ReturnType<typeof getEffectiveCreateViewScope>
@@ -973,6 +979,7 @@ async function submitCreateViewDialog({
   if (editingView && draftView) {
     await updateExistingViewFromDraft({
       description,
+      icon,
       draftView,
       editingView,
       effectiveScope,
@@ -991,6 +998,7 @@ async function submitCreateViewDialog({
     route: resolvedRoute,
     name: name.trim(),
     description: description.trim(),
+    icon: icon ?? undefined,
     ...getCreateViewConfig({ dialog, draftView, selectedEntityKind }),
   })
 
@@ -1293,10 +1301,12 @@ function CreateViewDialogFrame({
   groupingExperience,
   isProjectSpecificItemView,
   name,
+  icon,
   nameLimitState,
   onCreate,
   onDescriptionChange,
   onNameChange,
+  onIconChange,
   onOpenChange,
   onSelectEntityKind,
   onSelectScope,
@@ -1328,10 +1338,12 @@ function CreateViewDialogFrame({
   groupingExperience?: TeamExperienceType | null
   isProjectSpecificItemView: boolean
   name: string
+  icon: string | null
   nameLimitState: ReturnType<typeof getTextInputLimitState>
   onCreate: () => void
   onDescriptionChange: (description: string) => void
   onNameChange: (name: string) => void
+  onIconChange: (icon: string | null) => void
   onOpenChange: (open: boolean) => void
   onSelectEntityKind: (entityKind: SelectableEntityKind) => void
   onSelectScope: (scopeKey: string) => void
@@ -1372,6 +1384,7 @@ function CreateViewDialogFrame({
 
         <CreateViewDialogTopBar
           dialog={dialog}
+          icon={icon}
           selectedEntityKind={selectedEntityKind}
           availableEntityKinds={availableEntityKinds}
           onSelectEntityKind={onSelectEntityKind}
@@ -1380,6 +1393,7 @@ function CreateViewDialogFrame({
           onSelectScope={onSelectScope}
           isProjectSpecificItemView={isProjectSpecificItemView}
           selectedProject={selectedProject}
+          onIconChange={onIconChange}
         />
 
         <CreateViewDialogFields
@@ -1726,6 +1740,7 @@ function CreateDocsSortPopover({
 
 function CreateViewDialogTopBar({
   dialog,
+  icon,
   selectedEntityKind,
   availableEntityKinds,
   onSelectEntityKind,
@@ -1734,8 +1749,10 @@ function CreateViewDialogTopBar({
   onSelectScope,
   isProjectSpecificItemView,
   selectedProject,
+  onIconChange,
 }: {
   dialog: CreateViewDialogState
+  icon: string | null
   selectedEntityKind: SelectableEntityKind
   availableEntityKinds: SelectableEntityKind[]
   onSelectEntityKind: (entityKind: SelectableEntityKind) => void
@@ -1744,6 +1761,7 @@ function CreateViewDialogTopBar({
   onSelectScope: (scopeKey: string) => void
   isProjectSpecificItemView: boolean
   selectedProject: Project | null
+  onIconChange: (icon: string | null) => void
 }) {
   return (
     <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
@@ -1788,6 +1806,12 @@ function CreateViewDialogTopBar({
           </span>
         </span>
       )}
+      <PhosphorIconPicker
+        value={icon ?? "ListBullets"}
+        onValueChange={onIconChange}
+        iconOnly
+        triggerClassName="border-transparent bg-transparent"
+      />
       <div className="ml-auto flex items-center gap-0.5">
         <DialogClose asChild>
           <button
@@ -2162,6 +2186,7 @@ export function CreateViewDialog({
   })
   const [name, setName] = useState(editingView?.name ?? "")
   const [description, setDescription] = useState(editingView?.description ?? "")
+  const [icon, setIcon] = useState<string | null>(editingView?.icon ?? null)
   const [selectedScopeKey, setSelectedScopeKey] = useState(initialScopeKey)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   const [projectQuery, setProjectQuery] = useState("")
@@ -2379,6 +2404,12 @@ export function CreateViewDialog({
     setDraftConfig,
   })
 
+  useEffect(() => {
+    if (open) {
+      setIcon(editingView?.icon ?? null)
+    }
+  }, [editingView, open])
+
   async function handleCreate() {
     if (creating || !effectiveScope || !resolvedRoute) {
       return
@@ -2389,6 +2420,7 @@ export function CreateViewDialog({
     try {
       const saved = await submitCreateViewDialog({
         description,
+        icon,
         dialog,
         draftView,
         effectiveScope,
@@ -2454,6 +2486,7 @@ export function CreateViewDialog({
       groupingExperience={groupingExperience}
       isProjectSpecificItemView={isProjectSpecificItemView}
       name={name}
+      icon={icon}
       nameLimitState={nameLimitState}
       open={open}
       projectPicker={projectPicker}
@@ -2470,6 +2503,7 @@ export function CreateViewDialog({
       onCreate={handleCreate}
       onDescriptionChange={setDescription}
       onNameChange={setName}
+      onIconChange={setIcon}
       onOpenChange={onOpenChange}
       onSelectEntityKind={handleSelectEntityKind}
       onSelectScope={setSelectedScopeKey}

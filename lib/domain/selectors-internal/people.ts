@@ -511,3 +511,123 @@ export function getWorkspacePersonActivity(
     ...getProjectUpdatePostedActivities(data, workspaceId, userId),
   ].sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 }
+
+export type TeamActivityEntry = {
+  /** The team member who performed the activity. */
+  userId: string
+  activity: PersonActivity
+}
+
+function getPersonActivityTeamId(
+  data: AppData,
+  activity: PersonActivity
+): string | null {
+  if ("itemId" in activity) {
+    return (
+      data.workItems.find((item) => item.id === activity.itemId)?.teamId ?? null
+    )
+  }
+
+  switch (activity.type) {
+    case "documentCommented":
+      return (
+        data.documents.find(
+          (document) => document.id === activity.documentId
+        )?.teamId ?? null
+      )
+    case "channelPostCreated": {
+      const conversation = data.conversations.find(
+        (candidate) => candidate.id === activity.channelId
+      )
+      return conversation?.scopeType === "team" ? conversation.scopeId : null
+    }
+    case "channelPostCommented": {
+      const post = data.channelPosts.find(
+        (candidate) => candidate.id === activity.postId
+      )
+      const conversation = post
+        ? data.conversations.find(
+            (candidate) => candidate.id === post.conversationId
+          )
+        : null
+      return conversation?.scopeType === "team" ? conversation.scopeId : null
+    }
+    case "projectUpdatePosted": {
+      const project = data.projects.find(
+        (candidate) => candidate.id === activity.projectId
+      )
+      return project?.scopeType === "team" ? project.scopeId : null
+    }
+  }
+}
+
+function getPersonActivityKey(activity: PersonActivity): string {
+  switch (activity.type) {
+    case "workItemCreated":
+      return `${activity.type}:${activity.itemId}`
+    case "workItemCommented":
+    case "documentCommented":
+    case "channelPostCommented":
+      return `${activity.type}:${activity.commentId}`
+    case "workItemStatusChanged":
+    case "workItemLabelsChanged":
+    case "workItemAssigneesChanged":
+      return `${activity.type}:${activity.activityId}`
+    case "channelPostCreated":
+      return `${activity.type}:${activity.postId}`
+    case "projectUpdatePosted":
+      return `${activity.type}:${activity.updateId}`
+  }
+}
+
+/**
+ * Recent activity for an entire team space, mirroring the profile activity model
+ * but scoped to every member of the team. Reuses the per-person workspace
+ * activity selector and keeps only events that belong to this team, enriched
+ * with the acting member so the feed can attribute each event.
+ */
+export function getTeamSpaceActivity(
+  data: AppData,
+  teamId: string,
+  limit = 30
+): TeamActivityEntry[] {
+  const team = data.teams.find((candidate) => candidate.id === teamId)
+
+  if (!team) {
+    return []
+  }
+
+  const memberIds = data.teamMemberships
+    .filter((membership) => membership.teamId === teamId)
+    .map((membership) => membership.userId)
+
+  const seen = new Set<string>()
+  const entries: TeamActivityEntry[] = []
+
+  for (const userId of memberIds) {
+    for (const activity of getWorkspacePersonActivity(
+      data,
+      team.workspaceId,
+      userId
+    )) {
+      if (getPersonActivityTeamId(data, activity) !== teamId) {
+        continue
+      }
+
+      const key = getPersonActivityKey(activity)
+
+      if (seen.has(key)) {
+        continue
+      }
+
+      seen.add(key)
+      entries.push({ userId, activity })
+    }
+  }
+
+  return entries
+    .sort((left, right) =>
+      right.activity.createdAt.localeCompare(left.activity.createdAt)
+    )
+    .slice(0, limit)
+}

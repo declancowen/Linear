@@ -30,6 +30,13 @@ export function getViewerScopedDirectoryKey(
   )
 }
 
+export function getViewerDirectoryPresetSurfaceKey(
+  surfaceKey: string,
+  presetId: string
+) {
+  return `${surfaceKey}::preset::${encodeKeyPart(presetId)}`
+}
+
 export function applyViewerViewConfig(
   view: ViewDefinition,
   override?: ViewerViewConfigOverride | null

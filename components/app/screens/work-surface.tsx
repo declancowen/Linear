@@ -14,7 +14,8 @@ import {
   getUser,
   getViewByRoute,
 } from "@/lib/domain/selectors"
-import { isSystemView } from "@/lib/domain/default-views"
+import { getViewIconName } from "@/lib/domain/default-views"
+import { PhosphorIconGlyph } from "@/components/app/phosphor-icon-picker"
 import {
   applyViewerViewConfig,
   getViewerScopedDirectoryKey,
@@ -425,12 +426,11 @@ function WorkSurfaceTopbar({
       <HeaderTitle title={title} />
       {displayedViews.length > 0 && activeView ? (
         <div className="ml-2 flex items-center gap-0.5">
-          {displayedViews.map((view) =>
-            usingFallbackViews || isSystemView(view) ? (
+          {displayedViews.map((view) => (
+            <ViewContextMenu key={view.id} view={view}>
               <button
-                key={view.id}
                 className={cn(
-                  "h-7 rounded-md px-2 text-[12px] transition-colors",
+                  "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors",
                   view.id === activeView.id
                     ? "bg-surface-3 font-medium text-foreground"
                     : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
@@ -444,26 +444,14 @@ function WorkSurfaceTopbar({
                   onSelectView(view.id)
                 }}
               >
+                <PhosphorIconGlyph
+                  icon={getViewIconName(view)}
+                  className="size-3.5 shrink-0"
+                />
                 {view.name}
               </button>
-            ) : (
-              <ViewContextMenu key={view.id} view={view}>
-                <button
-                  className={cn(
-                    "h-7 rounded-md px-2 text-[12px] transition-colors",
-                    view.id === activeView.id
-                      ? "bg-surface-3 font-medium text-foreground"
-                      : "text-fg-3 hover:bg-surface-3 hover:text-foreground"
-                  )}
-                  onClick={() => {
-                    onSelectView(view.id)
-                  }}
-                >
-                  {view.name}
-                </button>
-              </ViewContextMenu>
-            )
-          )}
+            </ViewContextMenu>
+          ))}
           {!usingFallbackViews &&
           allowCreateViews &&
           editable &&
@@ -927,7 +915,13 @@ function useViewerViewActions({
 
     useAppStore
       .getState()
-      .toggleViewerViewFilterValue(routeKey, activeViewId, key, value)
+      .toggleViewerViewFilterValue(
+        routeKey,
+        activeViewId,
+        key,
+        value,
+        activeView ?? undefined
+      )
   }
 
   function clearViewerActiveViewFilters() {
@@ -971,7 +965,12 @@ function useViewerViewActions({
 
     useAppStore
       .getState()
-      .toggleViewerViewDisplayProperty(routeKey, activeViewId, property)
+      .toggleViewerViewDisplayProperty(
+        routeKey,
+        activeViewId,
+        property,
+        activeView ?? undefined
+      )
   }
 
   function reorderViewerActiveDisplayProperties(
@@ -1043,7 +1042,13 @@ function useViewerViewActions({
 
     useAppStore
       .getState()
-      .toggleViewerViewHiddenValue(routeKey, activeViewId, key, value)
+      .toggleViewerViewHiddenValue(
+        routeKey,
+        activeViewId,
+        key,
+        value,
+        activeView ?? undefined
+      )
   }
 
   return {

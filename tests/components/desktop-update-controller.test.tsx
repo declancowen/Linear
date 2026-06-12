@@ -246,7 +246,9 @@ describe("DesktopUpdateController", () => {
     render(renderToast())
 
     expect(
-      screen.getByText("Desktop update ready").parentElement?.parentElement
+      screen
+        .getByText("Desktop update ready")
+        .closest('[data-slot="toast-card"]')
     ).toHaveClass("w-[var(--width)]")
   })
 

@@ -18,6 +18,8 @@ type PersistedUiSlice = Pick<
   | "selectedViewByRoute"
   | "viewerViewConfigByRoute"
   | "viewerDirectoryConfigByRoute"
+  | "viewerDirectoryPresetsByRoute"
+  | "selectedDirectoryPresetByRoute"
   | "collaborationSidebarOpenBySurface"
 > &
   Partial<Pick<AppStore["ui"], "activeTeamId" | "activeInboxNotificationId">>
@@ -25,10 +27,13 @@ type PersistedUiSlice = Pick<
 type ViewerViewConfigEntry = AppStore["ui"]["viewerViewConfigByRoute"][string]
 type ViewerDirectoryConfigEntry =
   AppStore["ui"]["viewerDirectoryConfigByRoute"][string]
+type ViewerDirectoryPresetEntry =
+  AppStore["ui"]["viewerDirectoryPresetsByRoute"][string][number]
 
 export const MAX_PERSISTED_SELECTED_VIEW_ROUTES = 500
 export const MAX_PERSISTED_VIEWER_VIEW_CONFIGS = 1000
 export const MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS = 500
+export const MAX_PERSISTED_VIEWER_DIRECTORY_PRESET_ROUTES = 500
 export const MAX_PERSISTED_COLLABORATION_SIDEBARS = 500
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -102,6 +107,39 @@ function compactObjectRecord<T extends object>(
   )
 }
 
+function isViewerDirectoryPreset(
+  value: unknown
+): value is ViewerDirectoryPresetEntry {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.icon === "string" &&
+    typeof value.createdAt === "string" &&
+    typeof value.updatedAt === "string"
+  )
+}
+
+function compactDirectoryPresetRecord(
+  value: unknown,
+  maxEntries: number
+): Record<string, ViewerDirectoryPresetEntry[]> {
+  if (!isRecord(value)) {
+    return {}
+  }
+
+  return limitRecordEntries(
+    Object.fromEntries(
+      Object.entries(value).flatMap(([key, presets]) =>
+        Array.isArray(presets)
+          ? [[key, presets.filter(isViewerDirectoryPreset)]]
+          : []
+      )
+    ),
+    maxEntries
+  )
+}
+
 function compactPersistedUi(
   ui: Partial<AppStore["ui"]> | undefined
 ): PersistedUiSlice {
@@ -119,6 +157,14 @@ function compactPersistedUi(
         ui?.viewerDirectoryConfigByRoute,
         MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS
       ),
+    viewerDirectoryPresetsByRoute: compactDirectoryPresetRecord(
+      ui?.viewerDirectoryPresetsByRoute,
+      MAX_PERSISTED_VIEWER_DIRECTORY_PRESET_ROUTES
+    ),
+    selectedDirectoryPresetByRoute: compactStringRecord(
+      ui?.selectedDirectoryPresetByRoute,
+      MAX_PERSISTED_VIEWER_DIRECTORY_PRESET_ROUTES
+    ),
     collaborationSidebarOpenBySurface: compactBooleanRecord(
       ui?.collaborationSidebarOpenBySurface,
       MAX_PERSISTED_COLLABORATION_SIDEBARS
@@ -159,7 +205,7 @@ export const useAppStore = create<AppStore>()(
     storage: createJSONStorage(() =>
       typeof window === "undefined" ? noopStorage : localStorage
     ),
-    version: 5,
+    version: 6,
     migrate: (persistedState) => migratePersistedAppStore(persistedState),
     partialize: (state) => ({
       ui: compactPersistedUi(state.ui),
