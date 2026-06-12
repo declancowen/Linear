@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { redirectToExpiredSessionLogin } from "@/lib/browser/session-redirect"
 import {
@@ -18,7 +18,13 @@ import {
 import { isScopedSyncEnabled } from "@/lib/realtime/feature-flags"
 import type { ScopedInvalidationEnvelope } from "@/lib/scoped-sync/client"
 import { openScopedInvalidationStream } from "@/lib/scoped-sync/client"
+import type { ScopedReadModelReplaceInstruction } from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
+
+type ScopedReadModelInitialSeed = {
+  data: Partial<AppSnapshot>
+  replace?: ScopedReadModelReplaceInstruction[]
+}
 
 type ScopedReadModelRefreshInput = {
   enabled?: boolean
@@ -33,6 +39,15 @@ type ScopedReadModelRefreshInput = {
   notFoundResult?:
     | Partial<AppSnapshot>
     | ReadModelFetchResult<Partial<AppSnapshot>>
+  /**
+   * Server-side seed for the current scope. When provided on (re)mount or on
+   * scope change, the hook applies the seed to the store and treats the scope
+   * as already loaded, skipping the redundant initial fetch. The scoped
+   * invalidation stream is still opened so subsequent changes are picked up
+   * normally. Callers must guarantee the seed matches the current scope; the
+   * hook does not validate scope alignment.
+   */
+  initialSeed?: ScopedReadModelInitialSeed | null
 }
 
 function normalizeScopeKeys(scopeKeys: string[]) {
@@ -60,8 +75,19 @@ function normalizeReadModelFetchResult(
 export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   const mergeReadModelData = useAppStore((state) => state.mergeReadModelData)
   const [error, setError] = useState<string | null>(null)
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
-  const [loadedScopeKeySignature, setLoadedScopeKeySignature] = useState("")
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(() =>
+    Boolean(input.initialSeed) &&
+    input.enabled !== false &&
+    isScopedSyncEnabled() &&
+    normalizeScopeKeys(input.scopeKeys).length > 0
+  )
+  const [loadedScopeKeySignature, setLoadedScopeKeySignature] = useState(() =>
+    Boolean(input.initialSeed) &&
+    input.enabled !== false &&
+    isScopedSyncEnabled()
+      ? normalizeScopeKeys(input.scopeKeys).join("|")
+      : ""
+  )
   const [refreshing, setRefreshing] = useState(false)
   const inFlightGenerationRef = useRef<number | null>(null)
   const queuedRef = useRef(false)
@@ -73,6 +99,7 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
   const firstUsefulRenderSignatureRef = useRef("")
   const reportedFirstUsefulRenderSignatureRef = useRef("")
   const degradedIntervalIdRef = useRef<number | null>(null)
+  const seedAppliedScopeRef = useRef("")
   const scopedSyncEnabled = isScopedSyncEnabled()
   const scopeKeySignature = normalizeScopeKeys(input.scopeKeys).join("|")
   const scopeKeys = useMemo(
@@ -277,6 +304,42 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     setHasLoadedOnce(loaded)
   })
 
+  // Apply the SSR-provided seed synchronously, before the browser paints, so
+  // surfaces that depend on the read model render with data on first paint
+  // instead of flashing an empty/loading state. Tracks the applied scope via
+  // a ref so the main effect (below) knows to skip its initial fetch.
+  useLayoutEffect(() => {
+    if (!scopedSyncEnabled || !input.enabled) {
+      seedAppliedScopeRef.current = ""
+      return
+    }
+
+    if (activeScopeKeySignature.length === 0) {
+      seedAppliedScopeRef.current = ""
+      return
+    }
+
+    if (!input.initialSeed) {
+      seedAppliedScopeRef.current = ""
+      return
+    }
+
+    if (seedAppliedScopeRef.current === activeScopeKeySignature) {
+      return
+    }
+
+    seedAppliedScopeRef.current = activeScopeKeySignature
+    mergeReadModelData(input.initialSeed.data, {
+      replace: input.initialSeed.replace,
+    })
+  }, [
+    activeScopeKeySignature,
+    input.enabled,
+    input.initialSeed,
+    mergeReadModelData,
+    scopedSyncEnabled,
+  ])
+
   useEffect(() => {
     const effectScopeKeys =
       scopeKeySignature.length > 0 ? scopeKeySignature.split("|") : []
@@ -294,8 +357,21 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     runGenerationRef.current += 1
     scopedVersionByKeyRef.current = new Map()
     stopDegradedRefresh()
-    setHasLoadedOnce(false)
-    void refresh()
+
+    if (seedAppliedScopeRef.current === activeScopeKeySignature) {
+      // The seed was applied synchronously in the useLayoutEffect above; mark
+      // the scope as loaded and skip the redundant initial fetch. The scoped
+      // invalidation stream below still opens so subsequent versions are
+      // picked up.
+      lastRefreshFailedRef.current = false
+      setError(null)
+      setRefreshing(false)
+      setLoadedScopeKeySignature(activeScopeKeySignature)
+      setHasLoadedOnce(true)
+    } else {
+      setHasLoadedOnce(false)
+      void refresh()
+    }
     let hasSeenReady = false
     let hasEnteredDegradedMode = false
 
@@ -359,7 +435,12 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
       window.removeEventListener("focus", handleFocus)
       window.removeEventListener("online", handleOnline)
     }
-  }, [input.enabled, scopeKeySignature, scopedSyncEnabled])
+  }, [
+    activeScopeKeySignature,
+    input.enabled,
+    scopeKeySignature,
+    scopedSyncEnabled,
+  ])
 
   useEffect(() => {
     if (!input.diagnostics?.surface) {

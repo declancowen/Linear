@@ -26,6 +26,7 @@ import {
   type OrderingField,
   type ProjectPresentationConfig,
   type ViewDefinition,
+  type AppSnapshot,
 } from "@/lib/domain/types"
 import {
   createViewDefinition,
@@ -39,6 +40,7 @@ import {
 import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
 import { fetchProjectDetailReadModel } from "@/lib/convex/client"
 import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
+import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import { createProjectDetailScopeKey } from "@/lib/scoped-sync/scope-keys"
 import { useAppStore } from "@/lib/store/app-store"
@@ -1015,7 +1017,13 @@ function getMissingProjectDetailContent(hasLoadedProjectReadModel: boolean) {
   return <MissingState title="Project not found" />
 }
 
-export function ProjectDetailScreen({ projectId }: { projectId: string }) {
+export function ProjectDetailScreen({
+  projectId,
+  initialSeed,
+}: {
+  projectId: string
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+}) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const projectModel = getProjectDetailModel(data, projectId)
   const { hasLoadedOnce: hasLoadedProjectReadModel } =
@@ -1023,6 +1031,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       enabled: true,
       scopeKeys: [createProjectDetailScopeKey(projectId)],
       fetchLatest: () => fetchProjectDetailReadModel(projectId),
+      initialSeed,
       diagnostics: {
         retainedData: Boolean(projectModel),
         surface: "project/detail",

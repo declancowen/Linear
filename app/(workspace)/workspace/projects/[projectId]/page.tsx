@@ -1,11 +1,17 @@
-"use client"
-
-import { useParams } from "next/navigation"
-
 import { ProjectDetailScreen } from "@/components/app/screens"
+import { resolveWorkspaceSeedContext } from "@/lib/server/page-seed-context"
+import { buildProjectDetailSeed } from "@/lib/server/scoped-read-model-seeds"
 
-export default function WorkspaceProjectPage() {
-  const params = useParams<{ projectId: string }>()
+export default async function WorkspaceProjectPage({
+  params,
+}: {
+  params: Promise<{ projectId: string }>
+}) {
+  const { projectId } = await params
+  const ctx = await resolveWorkspaceSeedContext()
+  const initialSeed = ctx
+    ? await buildProjectDetailSeed(ctx.session, projectId)
+    : null
 
-  return <ProjectDetailScreen projectId={params.projectId} />
+  return <ProjectDetailScreen projectId={projectId} initialSeed={initialSeed} />
 }

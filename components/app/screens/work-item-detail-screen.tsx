@@ -66,6 +66,7 @@ import {
 } from "@/lib/convex/client"
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
+import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import {
   commentContentConstraints,
@@ -113,6 +114,7 @@ import {
   priorityMeta,
   statusMeta,
   type AppData,
+  type AppSnapshot,
   type Document as AppDocument,
   type DocumentPresenceViewer,
   type Milestone,
@@ -6322,7 +6324,13 @@ function useScrollCurrentWorkItemHashTarget(
   }, [itemId, commentCount])
 }
 
-export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
+export function WorkItemDetailScreen({
+  itemId,
+  initialSeed,
+}: {
+  itemId: string
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+}) {
   const router = useAppRouter()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const currentUserId = useAppStore((state) => state.currentUserId)
@@ -6367,6 +6375,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
       enabled: Boolean(itemId),
       scopeKeys: [createWorkItemDetailScopeKey(itemId)],
       fetchLatest: () => fetchWorkItemDetailReadModel(itemId),
+      initialSeed,
       diagnostics: {
         retainedData: Boolean(item),
         surface: "work-item/detail",

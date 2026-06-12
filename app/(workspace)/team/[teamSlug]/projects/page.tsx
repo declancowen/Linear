@@ -1,26 +1,17 @@
-"use client"
+import { TeamProjectsClient } from "@/components/app/screens/team-projects-client"
+import { resolveTeamSeedContext } from "@/lib/server/page-seed-context"
+import { buildProjectIndexSeed } from "@/lib/server/scoped-read-model-seeds"
 
-import { useParams } from "next/navigation"
+export default async function TeamProjectsPage({
+  params,
+}: {
+  params: Promise<{ teamSlug: string }>
+}) {
+  const { teamSlug } = await params
+  const ctx = await resolveTeamSeedContext(teamSlug)
+  const initialSeed = ctx
+    ? await buildProjectIndexSeed(ctx.session, "team", ctx.teamScope.teamId)
+    : null
 
-import { ProjectsScreen } from "@/components/app/screens"
-import { getTeamBySlug } from "@/lib/domain/selectors"
-import { useAppStore } from "@/lib/store/app-store"
-
-export default function TeamProjectsPage() {
-  const params = useParams<{ teamSlug: string }>()
-  const team = useAppStore((state) => getTeamBySlug(state, params.teamSlug))
-
-  if (!team) {
-    return null
-  }
-
-  return (
-    <ProjectsScreen
-      scopeId={team.id}
-      scopeType="team"
-      team={team}
-      title={`${team.name} projects`}
-      description="Projects owned by the current team, with linked work and child work rolled up together."
-    />
-  )
+  return <TeamProjectsClient teamSlug={teamSlug} initialSeed={initialSeed} />
 }

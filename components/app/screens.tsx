@@ -52,6 +52,7 @@ import {
   templateMeta,
   normalizeHiddenState,
   type AppData,
+  type AppSnapshot,
   type DisplayProperty,
   type Document,
   type DocumentKind,
@@ -89,6 +90,7 @@ import {
   fetchProjectIndexReadModel,
   fetchViewCatalogReadModel,
   fetchWorkIndexReadModel,
+  type ReadModelFetchResult,
 } from "@/lib/convex/client/read-models"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import { useRetainedTeamBySlug } from "@/hooks/use-retained-team-by-slug"
@@ -3619,7 +3621,13 @@ function TeamWorkScreenContent({
   )
 }
 
-export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
+export function TeamWorkScreen({
+  teamSlug,
+  initialSeed,
+}: {
+  teamSlug: string
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+}) {
   const { team } = useRetainedTeamBySlug(teamSlug)
   const views = useAppStore(
     useShallow((state) => selectTeamWorkViews(state, team))
@@ -3631,6 +3639,7 @@ export function TeamWorkScreen({ teamSlug }: { teamSlug: string }) {
     enabled: Boolean(team?.id),
     scopeKeys: getTeamWorkScopeKeys(team),
     fetchLatest: () => fetchTeamWorkReadModel(team),
+    initialSeed,
     diagnostics: {
       retainedData: items.length > 0 || views.length > 0,
       surface: "team/work-items",
@@ -3730,7 +3739,11 @@ function WorkspaceItemsScreenContent({
   )
 }
 
-export function WorkspaceItemsScreen() {
+export function WorkspaceItemsScreen({
+  initialSeed,
+}: {
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+} = {}) {
   const workspace = useAppStore(getCurrentWorkspace) ?? null
   const workspaceId = workspace?.id ?? null
   const activeTeamId = useAppStore((state) => state.ui.activeTeamId)
@@ -3744,6 +3757,7 @@ export function WorkspaceItemsScreen() {
     enabled: Boolean(workspaceId),
     scopeKeys: getWorkspaceItemsScopeKeys(workspaceId),
     fetchLatest: () => fetchWorkspaceItemsReadModel(workspaceId),
+    initialSeed,
     diagnostics: {
       retainedData: items.length > 0 || views.length > 0,
       surface: "workspace/work-items",
@@ -3763,7 +3777,11 @@ export function WorkspaceItemsScreen() {
   )
 }
 
-export function AssignedScreen() {
+export function AssignedScreen({
+  initialSeed,
+}: {
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+} = {}) {
   const { activeTeamId, currentUserId } = useAppStore(
     useShallow((state) => ({
       activeTeamId: state.ui.activeTeamId,
@@ -3805,6 +3823,7 @@ export function AssignedScreen() {
       ? getWorkIndexScopeKeys("personal", currentUserId)
       : [],
     fetchLatest: () => fetchWorkIndexReadModel("personal", currentUserId ?? ""),
+    initialSeed,
     diagnostics: {
       retainedData: items.length > 0 || views.length > 0,
       surface: "workspace/assigned-items",
@@ -3993,7 +4012,11 @@ function UserCalendarScreenContent({
   )
 }
 
-export function UserCalendarScreen() {
+export function UserCalendarScreen({
+  initialSeed,
+}: {
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+} = {}) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const [calendarFilters, setCalendarFilters] = useState(() =>
     createEmptyViewFilters()
@@ -4015,6 +4038,7 @@ export function UserCalendarScreen() {
     enabled: Boolean(currentUserId),
     scopeKeys: getPersonalWorkScopeKeys(currentUserId),
     fetchLatest: () => fetchPersonalWorkReadModel(currentUserId),
+    initialSeed,
     diagnostics: {
       retainedData: calendarItems.length > 0,
       surface: "workspace/calendar",
@@ -4105,6 +4129,7 @@ type ProjectsScreenProps = {
   team?: Team | null
   title: string
   description?: string
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
 }
 
 function getProjectsScreenRouteKey(team?: Team | null) {
@@ -4135,6 +4160,7 @@ function getProjectSystemViews(input: {
 function useProjectsScreenReadModel(input: {
   scopeId: string
   scopeType: ScopeType
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
 }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const projects = useAppStore(
@@ -4152,6 +4178,7 @@ function useProjectsScreenReadModel(input: {
     scopeKeys: getProjectIndexScopeKeys(input.scopeType, input.scopeId),
     fetchLatest: () =>
       fetchProjectIndexReadModel(input.scopeType, input.scopeId),
+    initialSeed: input.initialSeed,
     diagnostics: {
       retainedData: projects.length > 0 || projectViews.length > 0,
       surface: `${input.scopeType}/projects`,
@@ -4335,9 +4362,10 @@ export function ProjectsScreen({
   scopeId,
   team,
   title,
+  initialSeed,
 }: ProjectsScreenProps) {
   const { data, hasLoadedOnce, projects, projectViews } =
-    useProjectsScreenReadModel({ scopeId, scopeType })
+    useProjectsScreenReadModel({ scopeId, scopeType, initialSeed })
   const routeKey = getProjectsScreenRouteKey(team)
   const {
     activeView,
@@ -4414,17 +4442,20 @@ export function ViewsScreen({
   scopeType,
   scopeId,
   title,
+  initialSeed,
 }: {
   scopeType: "team" | "workspace"
   scopeId: string
   title: string
   description?: string
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
 }) {
   const [createPresetOpen, setCreatePresetOpen] = useState(false)
   const { hasLoadedOnce } = useScopedReadModelRefresh({
     enabled: Boolean(scopeId),
     scopeKeys: getViewCatalogScopeKeys(scopeType, scopeId),
     fetchLatest: () => fetchViewCatalogReadModel(scopeType, scopeId),
+    initialSeed,
     diagnostics: {
       retainedData: Boolean(scopeId),
       surface: `${scopeType}/views`,
@@ -4623,12 +4654,14 @@ export function DocsScreen({
   scopeId,
   team,
   title,
+  initialSeed,
 }: {
   scopeType: "team" | "workspace"
   scopeId: string
   team?: Team | null
   title: string
   description?: string
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
 }) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const currentUserId = useAppStore((state) => state.currentUserId)
@@ -4636,6 +4669,7 @@ export function DocsScreen({
     enabled: Boolean(scopeId),
     scopeKeys: getDocumentIndexScopeKeys(scopeType, scopeId, currentUserId),
     fetchLatest: () => fetchDocumentIndexReadModel(scopeType, scopeId),
+    initialSeed,
     diagnostics: {
       retainedData: Boolean(scopeId),
       surface: `${scopeType}/documents`,

@@ -31,6 +31,7 @@ import {
   syncSendDocumentMentionNotifications,
 } from "@/lib/convex/client"
 import { createMissingScopedReadModelResult } from "@/lib/convex/client/read-models"
+import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import {
   createDocumentMentionQueueState,
   getPendingDocumentMentionEntries,
@@ -46,7 +47,7 @@ import {
   getRichTextReferenceCandidates,
   getWorkspaceUsers,
 } from "@/lib/domain/selectors"
-import type { AppData, DocumentPresenceViewer } from "@/lib/domain/types"
+import type { AppData, AppSnapshot, DocumentPresenceViewer } from "@/lib/domain/types"
 import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
 import { useInitialCollaborationSyncPreview } from "@/hooks/use-initial-collaboration-sync-preview"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
@@ -1643,7 +1644,13 @@ function useDocumentEditorContentLifecycle({
   }
 }
 
-export function DocumentDetailScreen({ documentId }: { documentId: string }) {
+export function DocumentDetailScreen({
+  documentId,
+  initialSeed,
+}: {
+  documentId: string
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+}) {
   const router = useAppRouter()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const { currentWorkspaceId, currentUser, currentUserId, document, team } =
@@ -1711,6 +1718,7 @@ export function DocumentDetailScreen({ documentId }: { documentId: string }) {
       enabled: Boolean(documentId),
       scopeKeys: documentId ? [createDocumentDetailScopeKey(documentId)] : [],
       fetchLatest: () => fetchDocumentDetailReadModel(documentId),
+      initialSeed,
       diagnostics: {
         retainedData: Boolean(document),
         surface: "document/detail",

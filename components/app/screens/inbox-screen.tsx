@@ -24,6 +24,7 @@ import {
   fetchNotificationInboxReadModel,
   syncAcceptInvite,
 } from "@/lib/convex/client"
+import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import { getNotificationInboxScopeKeys } from "@/lib/scoped-sync/read-models"
 import { useAppStore } from "@/lib/store/app-store"
@@ -36,6 +37,7 @@ import {
   type InboxEntry,
   type InboxTab,
 } from "@/components/app/screens/inbox-ui"
+import { type AppSnapshot } from "@/lib/domain/types"
 
 const INBOX_LIST_WIDTH_STORAGE_KEY = "inbox-list-width:v2"
 const INBOX_LIST_MIN_WIDTH = 240
@@ -257,13 +259,17 @@ function isPendingInvite(
   )
 }
 
-function useInboxReadModel(currentUserId: string | null) {
+function useInboxReadModel(
+  currentUserId: string | null,
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+) {
   return useScopedReadModelRefresh({
     enabled: Boolean(currentUserId),
     scopeKeys: currentUserId
       ? getNotificationInboxScopeKeys(currentUserId)
       : [],
     fetchLatest: () => fetchNotificationInboxReadModel(currentUserId ?? ""),
+    initialSeed,
     diagnostics: {
       retainedData: Boolean(currentUserId),
       surface: "inbox",
@@ -541,10 +547,15 @@ function useInboxNotificationActions({
   }
 }
 
-function useInboxScreenController() {
+function useInboxScreenController(
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+) {
   const router = useAppRouter()
   const currentUserId = useAppStore((state) => state.currentUserId)
-  const { hasLoadedOnce: hasLoadedInbox } = useInboxReadModel(currentUserId)
+  const { hasLoadedOnce: hasLoadedInbox } = useInboxReadModel(
+    currentUserId,
+    initialSeed
+  )
   const { activeInboxNotificationId } = useAppStore(
     useShallow((state) => ({
       activeInboxNotificationId: state.ui.activeInboxNotificationId,
@@ -729,8 +740,12 @@ function InboxScreenLayout({
   )
 }
 
-export function InboxScreen() {
-  const controller = useInboxScreenController()
+export function InboxScreen({
+  initialSeed,
+}: {
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+} = {}) {
+  const controller = useInboxScreenController(initialSeed)
 
   return <InboxScreenLayout {...controller} />
 }

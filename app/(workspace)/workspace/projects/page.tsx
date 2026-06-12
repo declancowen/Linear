@@ -1,26 +1,27 @@
-"use client"
-
 import { ProjectsScreen } from "@/components/app/screens"
-import { getCurrentWorkspace } from "@/lib/domain/selectors"
-import { useAppStore } from "@/lib/store/app-store"
+import { resolveWorkspaceSeedContext } from "@/lib/server/page-seed-context"
+import { buildProjectIndexSeed } from "@/lib/server/scoped-read-model-seeds"
 
-export default function WorkspaceProjectsPage() {
-  const workspace = useAppStore(getCurrentWorkspace)
+export default async function WorkspaceProjectsPage() {
+  const ctx = await resolveWorkspaceSeedContext()
 
-  if (!workspace) {
-    return (
-      <div className="flex min-h-[320px] items-center justify-center text-sm text-muted-foreground">
-        Loading workspace projects...
-      </div>
-    )
+  if (!ctx) {
+    return null
   }
+
+  const initialSeed = await buildProjectIndexSeed(
+    ctx.session,
+    "workspace",
+    ctx.workspaceId
+  )
 
   return (
     <ProjectsScreen
-      scopeId={workspace.id}
+      scopeId={ctx.workspaceId}
       scopeType="workspace"
       title="Workspace projects"
       description="Projects across the teams you belong to, aggregated into a single workspace view."
+      initialSeed={initialSeed}
     />
   )
 }

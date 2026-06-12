@@ -107,7 +107,7 @@ export function ToastCard({
           <div className="min-w-0 flex-1">
             <div className="text-[13px] leading-5 font-medium">{title}</div>
             {description ? (
-              <div className="mt-0.5 line-clamp-3 text-[12px] leading-4 text-fg-3">
+              <div className="mt-0.5 text-[12px] leading-4 break-words text-fg-3">
                 {description}
               </div>
             ) : null}
@@ -126,7 +126,7 @@ export function ToastCard({
             </button>
           ) : null}
         </div>
-        {action ? <div className="flex">{action}</div> : null}
+        {action ? <div className="flex justify-end">{action}</div> : null}
       </div>
     </div>
   )

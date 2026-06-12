@@ -1,33 +1,17 @@
-"use client"
+import { TeamViewsClient } from "@/components/app/screens/team-views-client"
+import { resolveTeamSeedContext } from "@/lib/server/page-seed-context"
+import { buildViewCatalogSeed } from "@/lib/server/scoped-read-model-seeds"
 
-import { useParams } from "next/navigation"
+export default async function TeamViewsPage({
+  params,
+}: {
+  params: Promise<{ teamSlug: string }>
+}) {
+  const { teamSlug } = await params
+  const ctx = await resolveTeamSeedContext(teamSlug)
+  const initialSeed = ctx
+    ? await buildViewCatalogSeed(ctx.session, "team", ctx.teamScope.teamId)
+    : null
 
-import { ViewsScreen } from "@/components/app/screens"
-import { getTeamBySlug, teamHasFeature } from "@/lib/domain/selectors"
-import { useAppStore } from "@/lib/store/app-store"
-
-export default function TeamViewsPage() {
-  const params = useParams<{ teamSlug: string }>()
-  const team = useAppStore((state) => getTeamBySlug(state, params.teamSlug))
-
-  if (!team) {
-    return null
-  }
-
-  if (!teamHasFeature(team, "views")) {
-    return (
-      <div className="p-6 text-sm text-muted-foreground">
-        Views are disabled for this team.
-      </div>
-    )
-  }
-
-  return (
-    <ViewsScreen
-      scopeId={team.id}
-      scopeType="team"
-      title={`${team.name} views`}
-      description="Saved work views with list, board, and timeline layouts."
-    />
-  )
+  return <TeamViewsClient teamSlug={teamSlug} initialSeed={initialSeed} />
 }

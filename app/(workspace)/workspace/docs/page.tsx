@@ -1,22 +1,27 @@
-"use client"
-
 import { DocsScreen } from "@/components/app/screens"
-import { getCurrentWorkspace } from "@/lib/domain/selectors"
-import { useAppStore } from "@/lib/store/app-store"
+import { resolveWorkspaceSeedContext } from "@/lib/server/page-seed-context"
+import { buildDocumentIndexSeed } from "@/lib/server/scoped-read-model-seeds"
 
-export default function WorkspaceDocsPage() {
-  const workspace = useAppStore(getCurrentWorkspace)
+export default async function WorkspaceDocsPage() {
+  const ctx = await resolveWorkspaceSeedContext()
 
-  if (!workspace) {
+  if (!ctx) {
     return null
   }
 
+  const initialSeed = await buildDocumentIndexSeed(
+    ctx.session,
+    "workspace",
+    ctx.workspaceId
+  )
+
   return (
     <DocsScreen
-      scopeId={workspace.id}
+      scopeId={ctx.workspaceId}
       scopeType="workspace"
       title="Docs"
       description="Aggregate team-owned documents visible from the workspace."
+      initialSeed={initialSeed}
     />
   )
 }

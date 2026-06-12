@@ -490,6 +490,104 @@ describe("useScopedReadModelRefresh", () => {
     })
   })
 
+  it("applies an initial seed synchronously and skips the redundant first fetch", async () => {
+    const fetchLatestMock = vi.fn().mockResolvedValue({})
+    const { useScopedReadModelRefresh } = await import(
+      "@/hooks/use-scoped-read-model-refresh"
+    )
+
+    const seed = {
+      data: {
+        documents: [{ id: "doc_1" }] as unknown as never,
+      },
+      replace: [
+        {
+          kind: "document-index" as const,
+          scopeType: "workspace" as const,
+          scopeId: "ws_1",
+        },
+      ],
+    }
+
+    const { result } = renderHook(() =>
+      useScopedReadModelRefresh({
+        enabled: true,
+        scopeKeys: ["scope:a"],
+        fetchLatest: fetchLatestMock,
+        initialSeed: seed,
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.hasLoadedOnce).toBe(true)
+    })
+
+    expect(mergeReadModelDataMock).toHaveBeenCalledWith(seed.data, {
+      replace: seed.replace,
+    })
+    expect(fetchLatestMock).not.toHaveBeenCalled()
+    expect(result.current.refreshing).toBe(false)
+    expect(result.current.error).toBeNull()
+  })
+
+  it("re-applies an initial seed when the active scope changes", async () => {
+    const fetchLatestMock = vi.fn().mockResolvedValue({})
+    const { useScopedReadModelRefresh } = await import(
+      "@/hooks/use-scoped-read-model-refresh"
+    )
+
+    function makeSeed(documentId: string) {
+      return {
+        data: {
+          documents: [{ id: documentId }] as unknown as never,
+        },
+        replace: [
+          {
+            kind: "document-detail" as const,
+            documentId,
+          },
+        ],
+      }
+    }
+
+    const { rerender } = renderHook(
+      ({ scopeKeys, seed }: { scopeKeys: string[]; seed: ReturnType<typeof makeSeed> }) =>
+        useScopedReadModelRefresh({
+          enabled: true,
+          scopeKeys,
+          fetchLatest: fetchLatestMock,
+          initialSeed: seed,
+        }),
+      {
+        initialProps: {
+          scopeKeys: ["scope:a"],
+          seed: makeSeed("doc_a"),
+        },
+      }
+    )
+
+    await waitFor(() => {
+      expect(mergeReadModelDataMock).toHaveBeenLastCalledWith(
+        makeSeed("doc_a").data,
+        { replace: makeSeed("doc_a").replace }
+      )
+    })
+
+    rerender({
+      scopeKeys: ["scope:b"],
+      seed: makeSeed("doc_b"),
+    })
+
+    await waitFor(() => {
+      expect(mergeReadModelDataMock).toHaveBeenLastCalledWith(
+        makeSeed("doc_b").data,
+        { replace: makeSeed("doc_b").replace }
+      )
+    })
+
+    expect(fetchLatestMock).not.toHaveBeenCalled()
+  })
+
   it("reports first useful render from retained data before a scoped refresh resolves", async () => {
     const fetchState = createDeferred<Record<string, never>>()
     const fetchLatestMock = vi.fn(() => fetchState.promise)

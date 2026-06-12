@@ -12,6 +12,7 @@ import { useShallow } from "zustand/react/shallow"
 
 import { AppLink, useAppRouter } from "@/lib/browser/app-navigation"
 import { fetchWorkspacePeopleReadModel } from "@/lib/convex/client/read-models"
+import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import {
   getChannelPostHref,
   getCurrentWorkspace,
@@ -29,6 +30,7 @@ import {
   statusMeta,
   userStatusMeta,
   type AppData,
+  type AppSnapshot,
   type UserProfile,
   type UserStatus,
   type WorkItem,
@@ -168,13 +170,20 @@ function getWorkspacePersonMeta(
   }
 }
 
-function PeopleReadModelBoundary({ children }: { children: ReactNode }) {
+function PeopleReadModelBoundary({
+  children,
+  initialSeed,
+}: {
+  children: ReactNode
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+}) {
   const workspaceId = useAppStore((state) => state.currentWorkspaceId)
 
   useScopedReadModelRefresh({
     enabled: Boolean(workspaceId),
     scopeKeys: workspaceId ? getWorkspacePeopleScopeKeys(workspaceId) : [],
     fetchLatest: () => fetchWorkspacePeopleReadModel(workspaceId),
+    initialSeed,
     diagnostics: {
       retainedData: Boolean(workspaceId),
       surface: "people",
@@ -293,7 +302,11 @@ function PersonCard({
   )
 }
 
-export function PeopleScreen() {
+export function PeopleScreen({
+  initialSeed,
+}: {
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+} = {}) {
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const workspace = getCurrentWorkspace(data)
   const people = useMemo(
@@ -302,7 +315,7 @@ export function PeopleScreen() {
   )
 
   return (
-    <PeopleReadModelBoundary>
+    <PeopleReadModelBoundary initialSeed={initialSeed}>
       <div className="flex h-full min-h-0 flex-col bg-background">
         <ScreenHeader title="People" />
         {!workspace ? (
@@ -698,7 +711,13 @@ function PersonProfileBreadcrumb({ person }: { person: UserProfile | null }) {
   )
 }
 
-export function PeopleProfileScreen({ userId }: { userId: string }) {
+export function PeopleProfileScreen({
+  userId,
+  initialSeed,
+}: {
+  userId: string
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+}) {
   const router = useAppRouter()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const workspace = getCurrentWorkspace(data)
@@ -721,7 +740,7 @@ export function PeopleProfileScreen({ userId }: { userId: string }) {
   )
 
   return (
-    <PeopleReadModelBoundary>
+    <PeopleReadModelBoundary initialSeed={initialSeed}>
       <div className="flex h-full min-h-0 flex-col bg-background">
         <div className={SCREEN_HEADER_CLASS_NAME}>
           <PersonProfileBreadcrumb person={person} />

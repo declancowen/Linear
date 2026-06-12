@@ -1,28 +1,19 @@
-"use client"
+import { ProjectDetailRedirector } from "@/components/app/screens/project-detail-redirector"
+import { resolveWorkspaceSeedContext } from "@/lib/server/page-seed-context"
+import { buildProjectDetailSeed } from "@/lib/server/scoped-read-model-seeds"
 
-import { useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+export default async function ProjectPage({
+  params,
+}: {
+  params: Promise<{ projectId: string }>
+}) {
+  const { projectId } = await params
+  const ctx = await resolveWorkspaceSeedContext()
+  const initialSeed = ctx
+    ? await buildProjectDetailSeed(ctx.session, projectId)
+    : null
 
-import { ProjectDetailScreen } from "@/components/app/screens"
-import { getProjectHref } from "@/lib/domain/selectors"
-import { useAppStore } from "@/lib/store/app-store"
-
-export default function ProjectPage() {
-  const params = useParams<{ projectId: string }>()
-  const router = useRouter()
-  const href = useAppStore((state) => getProjectHref(state, params.projectId))
-
-  useEffect(() => {
-    if (!href || href === `/projects/${params.projectId}`) {
-      return
-    }
-
-    router.replace(href)
-  }, [href, params.projectId, router])
-
-  if (href && href !== `/projects/${params.projectId}`) {
-    return null
-  }
-
-  return <ProjectDetailScreen projectId={params.projectId} />
+  return (
+    <ProjectDetailRedirector projectId={projectId} initialSeed={initialSeed} />
+  )
 }

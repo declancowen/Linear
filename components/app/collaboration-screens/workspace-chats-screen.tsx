@@ -20,7 +20,13 @@ import {
   getWorkspaceChats,
 } from "@/lib/domain/selectors"
 import { isChatConversationUnread } from "@/lib/domain/chat-read-state"
-import type { Conversation, UserProfile, Workspace } from "@/lib/domain/types"
+import type {
+  AppSnapshot,
+  Conversation,
+  UserProfile,
+  Workspace,
+} from "@/lib/domain/types"
+import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import { useAppStore } from "@/lib/store/app-store"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { UserAvatar } from "@/components/app/user-presence"
@@ -444,7 +450,11 @@ function WorkspaceChatDetailsSheet({
   )
 }
 
-export function WorkspaceChatsScreen() {
+export function WorkspaceChatsScreen({
+  initialSeed,
+}: {
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+} = {}) {
   const router = useAppRouter()
   const searchParams = useAppSearchParams()
   const {
@@ -650,7 +660,7 @@ export function WorkspaceChatsScreen() {
   )
   const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
   const { hasLoadedOnce: hasLoadedConversationList } =
-    useConversationListReadModelRefresh(currentUserId)
+    useConversationListReadModelRefresh(currentUserId, initialSeed)
   const { hasLoadedOnce: hasLoadedConversationThread } =
     useConversationThreadReadModelRefresh(activeChatId)
   const activeChat =

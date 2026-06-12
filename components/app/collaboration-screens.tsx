@@ -24,10 +24,11 @@ import {
   teamHasFeature,
 } from "@/lib/domain/selectors"
 import { fetchChannelFeedReadModel } from "@/lib/convex/client"
+import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import { useRetainedTeamBySlug } from "@/hooks/use-retained-team-by-slug"
 import { useScopedReadModelRefresh } from "@/hooks/use-scoped-read-model-refresh"
 import { getChannelFeedScopeKeys } from "@/lib/scoped-sync/read-models"
-import type { AppData } from "@/lib/domain/types"
+import type { AppData, AppSnapshot } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import {
   ForumPostCard,
@@ -126,9 +127,13 @@ function useChannelMembers(
 function useChannelReadModelRefresh(input: {
   activeChannelId?: string | null
   currentUserId: string | null
+  conversationListSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
 }) {
   const { hasLoadedOnce: hasLoadedConversationList } =
-    useConversationListReadModelRefresh(input.currentUserId)
+    useConversationListReadModelRefresh(
+      input.currentUserId,
+      input.conversationListSeed
+    )
   const { hasLoadedOnce: hasLoadedChannelFeed } = useScopedReadModelRefresh({
     enabled: Boolean(input.activeChannelId),
     scopeKeys: input.activeChannelId
@@ -236,7 +241,11 @@ function WorkspaceChannelBody({
   )
 }
 
-export function WorkspaceChannelsScreen() {
+export function WorkspaceChannelsScreen({
+  initialSeed,
+}: {
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+} = {}) {
   const currentUserId = useAppStore((state) => state.currentUserId)
   const workspace = useAppStore((state) => getCurrentWorkspace(state))
   const channels = useAppStore(
@@ -261,6 +270,7 @@ export function WorkspaceChannelsScreen() {
     useChannelReadModelRefresh({
       activeChannelId: activeChannel?.id,
       currentUserId,
+      conversationListSeed: initialSeed,
     })
   const workspaceDescription =
     workspace?.settings.description ||
@@ -404,7 +414,13 @@ function TeamChatBody({
   )
 }
 
-export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
+export function TeamChatScreen({
+  teamSlug,
+  initialSeed,
+}: {
+  teamSlug: string
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+}) {
   const currentUserId = useAppStore((state) => state.currentUserId)
   const { liveTeam, team } = useRetainedTeamBySlug(teamSlug)
   const editable = useAppStore((state) =>
@@ -428,7 +444,7 @@ export function TeamChatScreen({ teamSlug }: { teamSlug: string }) {
   )
   const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
   const { hasLoadedOnce: hasLoadedConversationList } =
-    useConversationListReadModelRefresh(currentUserId)
+    useConversationListReadModelRefresh(currentUserId, initialSeed)
   const { hasLoadedOnce: hasLoadedConversationThread } =
     useConversationThreadReadModelRefresh(conversation?.id)
   const teamDescription =
@@ -747,7 +763,13 @@ function TeamChannelDetailsSheet({
   )
 }
 
-export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
+export function TeamChannelsScreen({
+  teamSlug,
+  initialSeed,
+}: {
+  teamSlug: string
+  initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+}) {
   const currentUserId = useAppStore((state) => state.currentUserId)
   const { liveTeam, team } = useRetainedTeamBySlug(teamSlug)
   const channels = useAppStore(
@@ -773,6 +795,7 @@ export function TeamChannelsScreen({ teamSlug }: { teamSlug: string }) {
     useChannelReadModelRefresh({
       activeChannelId: activeChannel?.id,
       currentUserId,
+      conversationListSeed: initialSeed,
     })
   const teamDescription =
     team?.settings.summary ||

@@ -351,11 +351,7 @@ function showDesktopUpdateToast({
       <ToastCard
         action={
           action ? (
-            <Button
-              size="sm"
-              className="w-full"
-              onClick={() => action.onClick()}
-            >
+            <Button size="sm" onClick={() => action.onClick()}>
               {action.label}
             </Button>
           ) : undefined
