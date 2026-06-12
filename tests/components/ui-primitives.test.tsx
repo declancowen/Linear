@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { Bell } from "@phosphor-icons/react"
 import type { ReactNode } from "react"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
@@ -7,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { SidebarMenuButton, SidebarProvider } from "@/components/ui/sidebar"
 import { Chip } from "@/components/ui/template-primitives"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { ToastCard } from "@/components/ui/toast-card"
 
 beforeAll(() => {
   vi.stubGlobal(
@@ -61,6 +63,23 @@ describe("Chip", () => {
       "border-dashed",
       "text-fg-3"
     )
+  })
+})
+
+describe("ToastCard", () => {
+  it("uses the owner-provided dismiss label", () => {
+    render(
+      <ToastCard
+        closeLabel="Dismiss notification"
+        icon={Bell}
+        onClose={vi.fn()}
+        title="New notification"
+      />
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Dismiss notification" })
+    ).toBeInTheDocument()
   })
 })
 

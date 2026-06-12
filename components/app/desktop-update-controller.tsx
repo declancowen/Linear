@@ -1,7 +1,14 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { CheckCircle, DownloadSimple, Warning } from "@phosphor-icons/react"
+import {
+  ArrowClockwiseIcon,
+  CheckCircleIcon,
+  CircleNotchIcon,
+  DownloadSimpleIcon,
+  type Icon,
+  WarningCircleIcon,
+} from "@phosphor-icons/react"
 import { toast } from "sonner"
 
 import { buildPublicApiUrl } from "@/lib/api/public-url"
@@ -21,6 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { ToastCard, type ToastCardTone } from "@/components/ui/toast-card"
 
 const DESKTOP_UPDATE_TOAST_ID = "desktop-update-status"
 const DESKTOP_UPDATE_DIALOG_CLASS =
@@ -177,52 +185,139 @@ function openDownloadUrl(url: string) {
   window.open(url, "_blank", "noopener,noreferrer")
 }
 
-function DesktopUpdateToastContent({
-  actionLabel,
-  description,
-  icon,
-  onAction,
-  onDismiss,
-  title,
-}: {
-  actionLabel?: string
+type DesktopUpdateToastDescriptor = {
+  action?: {
+    label: string
+    onClick: () => void
+  }
   description?: string | null
-  icon: "download" | "success" | "warning"
-  onAction?: () => void
-  onDismiss?: () => void
+  dismissible: boolean
+  duration: number
+  icon: Icon
   title: string
-}) {
-  const Icon =
-    icon === "success"
-      ? CheckCircle
-      : icon === "download"
-        ? DownloadSimple
-        : Warning
+  tone: ToastCardTone
+}
 
+function getAutomaticDesktopUpdateToastDescriptor(
+  state: DesktopUpdateState
+): DesktopUpdateToastDescriptor | null {
+  switch (state.status) {
+    case "available":
+      return {
+        action: {
+          label: "Download update",
+          onClick: () => {
+            void window.electronApp?.downloadUpdate?.()
+          },
+        },
+        description: state.availableVersion
+          ? `Version ${state.availableVersion} is ready to download.`
+          : "A new version is ready to download.",
+        dismissible: true,
+        duration: Infinity,
+        icon: DownloadSimpleIcon,
+        title: "New desktop update available",
+        tone: "accent",
+      }
+    case "downloading":
+      return {
+        description: "The update is downloading in the background.",
+        dismissible: false,
+        duration: Infinity,
+        icon: CircleNotchIcon,
+        title: "Downloading desktop update",
+        tone: "progress",
+      }
+    case "downloaded":
+      return {
+        action: {
+          label: "Restart to update",
+          onClick: () => {
+            void window.electronApp?.installUpdate?.()
+          },
+        },
+        description: state.downloadedVersion
+          ? `Version ${state.downloadedVersion} is ready to install.`
+          : "Restart Recipe Room to install the downloaded update.",
+        dismissible: true,
+        duration: Infinity,
+        icon: ArrowClockwiseIcon,
+        title: "Desktop update ready",
+        tone: "success",
+      }
+    case "installing":
+      return {
+        description: "Recipe Room will restart to finish installing.",
+        dismissible: false,
+        duration: Infinity,
+        icon: CircleNotchIcon,
+        title: "Installing desktop update",
+        tone: "progress",
+      }
+    default:
+      return null
+  }
+}
+
+function getForcedDesktopUpdateToastDescriptor(
+  state: DesktopUpdateState,
+  downloadUrl: string
+): DesktopUpdateToastDescriptor | null {
+  switch (state.status) {
+    case "disabled":
+      return {
+        action: {
+          label: "Download latest",
+          onClick: () => openDownloadUrl(downloadUrl),
+        },
+        description:
+          state.disabledReason ?? "Automatic updates are unavailable.",
+        dismissible: true,
+        duration: Infinity,
+        icon: WarningCircleIcon,
+        title: "Desktop updates unavailable",
+        tone: "warning",
+      }
+    case "error":
+      return {
+        action: {
+          label: "Download latest",
+          onClick: () => openDownloadUrl(downloadUrl),
+        },
+        description:
+          state.message ?? "Recipe Room could not check for updates.",
+        dismissible: true,
+        duration: Infinity,
+        icon: WarningCircleIcon,
+        title: "Update check failed",
+        tone: "error",
+      }
+    case "idle":
+      return {
+        description: state.message ?? "Recipe Room is up to date.",
+        dismissible: true,
+        duration: 4000,
+        icon: CheckCircleIcon,
+        title: "You're on the latest version",
+        tone: "success",
+      }
+    default:
+      return null
+  }
+}
+
+function getDesktopUpdateToastDescriptor({
+  downloadUrl,
+  force,
+  state,
+}: {
+  downloadUrl: string
+  force: boolean
+  state: DesktopUpdateState
+}): DesktopUpdateToastDescriptor | null {
   return (
-    <div className="flex w-[var(--width)] max-w-[calc(100vw-2rem)] gap-3 rounded-lg border border-line/60 bg-background/95 p-3 text-foreground shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)] backdrop-blur-xl">
-      <Icon className="text-brand mt-0.5 size-4 shrink-0" weight="fill" />
-      <div className="max-w-[min(34rem,calc(100vw-5rem))] min-w-0">
-        <div className="text-[13px] leading-5 font-medium">{title}</div>
-        {description ? (
-          <div className="mt-0.5 text-[12px] leading-4 text-fg-3">
-            {description}
-          </div>
-        ) : null}
-        <div className="mt-3 flex justify-end gap-2">
-          {onDismiss ? (
-            <Button size="xs" variant="outline" onClick={onDismiss}>
-              Close
-            </Button>
-          ) : null}
-          {actionLabel && onAction ? (
-            <Button size="xs" onClick={onAction}>
-              {actionLabel}
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    </div>
+    getAutomaticDesktopUpdateToastDescriptor(state) ??
+    (force ? getForcedDesktopUpdateToastDescriptor(state, downloadUrl) : null)
   )
 }
 
@@ -235,138 +330,46 @@ function showDesktopUpdateToast({
   force: boolean
   state: DesktopUpdateState
 }) {
+  const descriptor = getDesktopUpdateToastDescriptor({
+    downloadUrl,
+    force,
+    state,
+  })
+
+  if (!descriptor) {
+    if (!force) {
+      toast.dismiss(DESKTOP_UPDATE_TOAST_ID)
+    }
+    return
+  }
+
   const dismiss = () => toast.dismiss(DESKTOP_UPDATE_TOAST_ID)
+  const { action } = descriptor
 
-  if (state.status === "available") {
-    toast.custom(
-      () => (
-        <DesktopUpdateToastContent
-          actionLabel="Download"
-          description={
-            state.availableVersion
-              ? `Version ${state.availableVersion} is ready to download.`
-              : "A new version is ready to download."
-          }
-          icon="download"
-          onAction={() => {
-            void window.electronApp?.downloadUpdate?.()
-          }}
-          onDismiss={dismiss}
-          title="New desktop update available"
-        />
-      ),
-      { duration: Infinity, id: DESKTOP_UPDATE_TOAST_ID }
-    )
-    return
-  }
-
-  if (state.status === "downloading") {
-    toast.custom(
-      () => (
-        <DesktopUpdateToastContent
-          description="The update is downloading in the background."
-          icon="download"
-          title="Downloading desktop update"
-        />
-      ),
-      { duration: Infinity, id: DESKTOP_UPDATE_TOAST_ID }
-    )
-    return
-  }
-
-  if (state.status === "downloaded") {
-    toast.custom(
-      () => (
-        <DesktopUpdateToastContent
-          actionLabel="Restart"
-          description={
-            state.downloadedVersion
-              ? `Version ${state.downloadedVersion} is ready to install.`
-              : "Restart Recipe Room to install the downloaded update."
-          }
-          icon="success"
-          onAction={() => {
-            void window.electronApp?.installUpdate?.()
-          }}
-          onDismiss={dismiss}
-          title="Desktop update ready"
-        />
-      ),
-      { duration: Infinity, id: DESKTOP_UPDATE_TOAST_ID }
-    )
-    return
-  }
-
-  if (state.status === "installing") {
-    toast.custom(
-      () => (
-        <DesktopUpdateToastContent
-          description="Recipe Room will restart to finish installing."
-          icon="success"
-          title="Installing desktop update"
-        />
-      ),
-      { duration: Infinity, id: DESKTOP_UPDATE_TOAST_ID }
-    )
-    return
-  }
-
-  if (force && state.status === "disabled") {
-    toast.custom(
-      () => (
-        <DesktopUpdateToastContent
-          actionLabel="Download latest"
-          description={
-            state.disabledReason ?? "Automatic updates are unavailable."
-          }
-          icon="warning"
-          onAction={() => openDownloadUrl(downloadUrl)}
-          onDismiss={dismiss}
-          title="Desktop updates unavailable"
-        />
-      ),
-      { duration: Infinity, id: DESKTOP_UPDATE_TOAST_ID }
-    )
-    return
-  }
-
-  if (force && state.status === "error") {
-    toast.custom(
-      () => (
-        <DesktopUpdateToastContent
-          actionLabel="Download latest"
-          description={
-            state.message ?? "Recipe Room could not check for updates."
-          }
-          icon="warning"
-          onAction={() => openDownloadUrl(downloadUrl)}
-          onDismiss={dismiss}
-          title="Update check failed"
-        />
-      ),
-      { duration: Infinity, id: DESKTOP_UPDATE_TOAST_ID }
-    )
-    return
-  }
-
-  if (force && state.status === "idle") {
-    toast.custom(
-      () => (
-        <DesktopUpdateToastContent
-          description={state.message ?? "Recipe Room is up to date."}
-          icon="success"
-          onDismiss={dismiss}
-          title="You're on the latest version"
-        />
-      ),
-      { duration: 4000, id: DESKTOP_UPDATE_TOAST_ID }
-    )
-    return
-  }
-
-  if (!force) {
-    toast.dismiss(DESKTOP_UPDATE_TOAST_ID)
-  }
+  toast.custom(
+    () => (
+      <ToastCard
+        action={
+          action ? (
+            <Button
+              size="sm"
+              className="w-full"
+              onClick={() => action.onClick()}
+            >
+              {action.label}
+            </Button>
+          ) : undefined
+        }
+        closeLabel="Dismiss desktop update"
+        description={descriptor.description}
+        icon={descriptor.icon}
+        onClose={descriptor.dismissible ? dismiss : undefined}
+        title={descriptor.title}
+        tone={descriptor.tone}
+      />
+    ),
+    { duration: descriptor.duration, id: DESKTOP_UPDATE_TOAST_ID }
+  )
 }
 
 type DesktopUpdateFeedbackAction = "download" | "downloadLatest" | "install"

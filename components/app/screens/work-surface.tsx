@@ -915,7 +915,13 @@ function useViewerViewActions({
 
     useAppStore
       .getState()
-      .toggleViewerViewFilterValue(routeKey, activeViewId, key, value)
+      .toggleViewerViewFilterValue(
+        routeKey,
+        activeViewId,
+        key,
+        value,
+        activeView ?? undefined
+      )
   }
 
   function clearViewerActiveViewFilters() {
@@ -959,7 +965,12 @@ function useViewerViewActions({
 
     useAppStore
       .getState()
-      .toggleViewerViewDisplayProperty(routeKey, activeViewId, property)
+      .toggleViewerViewDisplayProperty(
+        routeKey,
+        activeViewId,
+        property,
+        activeView ?? undefined
+      )
   }
 
   function reorderViewerActiveDisplayProperties(
@@ -1031,7 +1042,13 @@ function useViewerViewActions({
 
     useAppStore
       .getState()
-      .toggleViewerViewHiddenValue(routeKey, activeViewId, key, value)
+      .toggleViewerViewHiddenValue(
+        routeKey,
+        activeViewId,
+        key,
+        value,
+        activeView ?? undefined
+      )
   }
 
   return {

@@ -150,7 +150,8 @@ async function connectViewerForCanonicalRefresh() {
 
 function createDocumentRoomContext(roomId = "doc:doc_desc_1") {
   return createPartykitRoom({ id: roomId }) as never
-}function createDocumentRoomUrl(roomId: string, query = "") {
+}
+function createDocumentRoomUrl(roomId: string, query = "") {
   return `http://127.0.0.1:1999/parties/main/${roomId}${query}`
 }
 
@@ -344,6 +345,36 @@ async function requestDocumentTitleFlush(
   )
 }
 
+async function requestWorkItemMainFlush(input: {
+  contentText: string
+  documentOverrides?: Parameters<typeof createCollaborationDocumentRecord>[0]
+  roomId?: string
+}) {
+  const documentId = input.roomId ?? "doc_desc_1"
+  const contentJson = createRichTextJson(input.contentText)
+  mockYDoc(contentJson, [Symbol("active-connection")])
+  mockItemDescriptionDocument(input.documentOverrides)
+  persistCollaborationWorkItemToConvexMock.mockResolvedValue({
+    updatedAt: "2026-04-23T00:00:00.000Z",
+  })
+  bumpScopedReadModelsFromConvexMock.mockResolvedValue({
+    versions: [],
+  })
+
+  const collaboration = await loadCollaboration()
+  const token = createDocumentToken({ documentId })
+
+  return collaboration.onRequest(
+    createFlushRequest(`doc:${documentId}`, token, {
+      kind: "work-item-main",
+      contentJson,
+      workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
+      workItemTitle: "Updated title",
+    }) as never,
+    createPartykitRoom({ id: `doc:${documentId}` }) as never
+  )
+}
+
 function expectDocumentTitlePersisted() {
   expect(persistCollaborationDocumentToConvexMock).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -421,7 +452,10 @@ async function requestTeardownContentFlush(options: {
   }
 }
 
-function expectTeardownContentPersisted(yDoc: TestYDoc, contentJson: JSONContent) {
+function expectTeardownContentPersisted(
+  yDoc: TestYDoc,
+  contentJson: JSONContent
+) {
   expect(persistCollaborationDocumentToConvexMock).toHaveBeenCalledWith(
     expect.objectContaining({
       CONVEX_URL: "https://convex-dev.example",
@@ -431,9 +465,9 @@ function expectTeardownContentPersisted(yDoc: TestYDoc, contentJson: JSONContent
     })
   )
   expect(bumpScopedReadModelsFromConvexMock).toHaveBeenCalled()
-  expect(
-    yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent
-  ).toEqual(contentJson)
+  expect(yDocToProsemirrorJSON(yDoc, "default") satisfies JSONContent).toEqual(
+    contentJson
+  )
 }
 
 describe("PartyKit collaboration server", () => {
@@ -467,9 +501,8 @@ describe("PartyKit collaboration server", () => {
 
     await connectDocumentRoom(collaboration, { room })
 
-    const { loadYPartyKitCanonicalDocument } = await import(
-      "@/services/partykit/server"
-    )
+    const { loadYPartyKitCanonicalDocument } =
+      await import("@/services/partykit/server")
     const loadedDoc = await loadYPartyKitCanonicalDocument(room as never)
 
     expect(
@@ -480,9 +513,8 @@ describe("PartyKit collaboration server", () => {
   it("logs and rethrows PartyKit load failures with room context", async () => {
     const room = createPartykitRoom({ id: "doc:doc_desc_1" })
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-    const { loadYPartyKitCanonicalDocument } = await import(
-      "@/services/partykit/server"
-    )
+    const { loadYPartyKitCanonicalDocument } =
+      await import("@/services/partykit/server")
 
     await expect(loadYPartyKitCanonicalDocument(room as never)).rejects.toThrow(
       "Missing room collaboration claims"
@@ -499,36 +531,17 @@ describe("PartyKit collaboration server", () => {
     )
   })
 
-  it("forwards work-item title metadata during manual collaboration flush", async () => {
-    const contentJson = createRichTextJson("Updated")
-    mockYDoc(contentJson)
-    mockItemDescriptionDocument({
-      content: "<p>Updated</p>",
-      teamMemberIds: ["user_1", "user_2"],
-      projectScopes: [
-        { projectId: "project_1", scopeType: "team", scopeId: "team_1" },
-      ],
+  it("omits unchanged descriptions from work-item title collaboration flushes", async () => {
+    const response = await requestWorkItemMainFlush({
+      contentText: "Updated",
+      documentOverrides: {
+        content: "<p>Updated</p>",
+        teamMemberIds: ["user_1", "user_2"],
+        projectScopes: [
+          { projectId: "project_1", scopeType: "team", scopeId: "team_1" },
+        ],
+      },
     })
-    persistCollaborationWorkItemToConvexMock.mockResolvedValue({
-      updatedAt: "2026-04-23T00:00:00.000Z",
-    })
-    bumpScopedReadModelsFromConvexMock.mockResolvedValue({
-      versions: [],
-    })
-
-    const collaboration = await loadCollaboration()
-
-    const token = createDocumentToken({ documentId: "doc_desc_1" })
-
-    const response = await collaboration.onRequest(
-      createFlushRequest("doc:doc_desc_1", token, {
-        kind: "work-item-main",
-        contentJson,
-        workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
-        workItemTitle: "Updated title",
-      }) as never,
-      createPartykitRoom({ id: "doc:doc_desc_1" }) as never
-    )
 
     expect(response.status).toBe(200)
     expect(response.headers.get("access-control-allow-origin")).toBe("*")
@@ -541,7 +554,6 @@ describe("PartyKit collaboration server", () => {
         itemId: "item_1",
         patch: {
           title: "Updated title",
-          description: "<p>Updated</p>",
           expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
         },
       }
@@ -559,6 +571,31 @@ describe("PartyKit collaboration server", () => {
           "project-index:team_team_1",
           "search-seed:workspace_1",
         ],
+      }
+    )
+  })
+
+  it("includes changed descriptions with work-item title collaboration flushes", async () => {
+    const response = await requestWorkItemMainFlush({
+      contentText: "Changed again",
+      roomId: "doc_desc_changed",
+      documentOverrides: {
+        documentId: "doc_desc_changed",
+        content: "<p>Original</p>",
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(persistCollaborationWorkItemToConvexMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      {
+        currentUserId: "user_1",
+        itemId: "item_1",
+        patch: {
+          title: "Updated title",
+          description: "<p>Changed again</p>",
+          expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
+        },
       }
     )
   })

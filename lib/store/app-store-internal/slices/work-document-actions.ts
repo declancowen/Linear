@@ -172,10 +172,18 @@ function hasWorkItemMainSectionChanges(changes: WorkItemMainSectionChanges) {
 }
 
 function getWorkItemMainSectionConflictMessage(
+  changes: WorkItemMainSectionChanges,
+  descriptionDocument: DocumentRecord,
   item: WorkItemRecord,
   input: SaveWorkItemMainSectionInput
 ) {
-  return item.updatedAt === input.expectedUpdatedAt
+  const titleConflict =
+    changes.titleChanged && item.updatedAt !== input.expectedUpdatedAt
+  const descriptionConflict =
+    changes.descriptionChanged &&
+    descriptionDocument.updatedAt !== input.expectedDescriptionUpdatedAt
+
+  return !titleConflict && !descriptionConflict
     ? null
     : "This work item changed while you were editing. Review the latest version and try again."
 }
@@ -215,8 +223,12 @@ function applyOptimisticWorkItemMainSectionUpdate({
               ...(changes.titleChanged
                 ? { title: `${normalizedTitle} description` }
                 : {}),
-              updatedAt,
-              updatedBy: current.currentUserId,
+              ...(changes.descriptionChanged
+                ? {
+                    updatedAt,
+                    updatedBy: current.currentUserId,
+                  }
+                : {}),
             }
           : document
       ),
@@ -233,7 +245,7 @@ function applyOptimisticWorkItemMainSectionUpdate({
                     referencedViewIds: relationships.viewIds,
                   }
                 : {}),
-              updatedAt,
+              ...(changes.titleChanged ? { updatedAt } : {}),
             }
           : entry
       ),
@@ -274,7 +286,12 @@ function getWorkItemMainSectionSyncPatch({
   return {
     ...(changes.titleChanged ? { title: normalizedTitle } : {}),
     ...(changes.descriptionChanged ? { description: input.description } : {}),
-    expectedUpdatedAt: input.expectedUpdatedAt,
+    ...(changes.descriptionChanged
+      ? { expectedDescriptionUpdatedAt: input.expectedDescriptionUpdatedAt }
+      : {}),
+    ...(changes.titleChanged
+      ? { expectedUpdatedAt: input.expectedUpdatedAt }
+      : {}),
   }
 }
 
@@ -838,7 +855,11 @@ export function createWorkDocumentActions({
                 content: document.content,
                 expectedUpdatedAt: document.updatedAt,
               })
-            : syncRenameDocument(state.currentUserId, documentId, document.title),
+            : syncRenameDocument(
+                state.currentUserId,
+                documentId,
+                document.title
+              ),
         {
           deriveRelationships: Boolean(pendingContentToken),
           ...(pendingContentToken ? { pendingContentToken } : {}),
@@ -1008,6 +1029,8 @@ export function createWorkDocumentActions({
       }
 
       const conflictMessage = getWorkItemMainSectionConflictMessage(
+        changes,
+        target.descriptionDocument,
         target.item,
         input
       )

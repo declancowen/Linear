@@ -20,9 +20,9 @@ function expectOnlyTeam2Access(nextState: {
   teamMemberships: Array<{ teamId: string }>
 }) {
   expect(nextState.teams.map((team) => team.id)).toEqual(["team_2"])
-  expect(nextState.teamMemberships.map((membership) => membership.teamId)).toEqual([
-    "team_2",
-  ])
+  expect(
+    nextState.teamMemberships.map((membership) => membership.teamId)
+  ).toEqual(["team_2"])
 }
 
 describe("store domain updates", () => {
@@ -104,7 +104,9 @@ describe("store domain updates", () => {
               guestDocumentIds: [],
               guestWorkItemIds: [],
               experience: "software-development",
-              features: createDefaultTeamFeatureSettings("software-development"),
+              features: createDefaultTeamFeatureSettings(
+                "software-development"
+              ),
               workflow: buildLocalTeamCreateState({
                 currentUserId: "user_1",
                 workspaceId: "workspace_1",
@@ -115,7 +117,9 @@ describe("store domain updates", () => {
                 icon: "robot",
                 summary: "Platform",
                 experience: "software-development",
-                features: createDefaultTeamFeatureSettings("software-development"),
+                features: createDefaultTeamFeatureSettings(
+                  "software-development"
+                ),
               }).team.settings.workflow,
             },
           },
@@ -143,7 +147,8 @@ describe("store domain updates", () => {
                 icon: "users",
                 summary: "Design",
                 experience: "project-management",
-                features: createDefaultTeamFeatureSettings("project-management"),
+                features:
+                  createDefaultTeamFeatureSettings("project-management"),
               }).team.settings.workflow,
             },
           },
@@ -377,6 +382,8 @@ describe("store domain updates", () => {
           },
           viewerViewConfigByRoute: {},
           viewerDirectoryConfigByRoute: {},
+          viewerDirectoryPresetsByRoute: {},
+          selectedDirectoryPresetByRoute: {},
           collaborationSidebarOpenBySurface: {},
           activeCreateDialog: null,
         },
@@ -542,9 +549,9 @@ describe("store domain updates", () => {
       milestoneId: null,
     })
     expect(keptDocument?.linkedProjectIds).toEqual(["project_2"])
-    expect(nextState.notifications.map((notification) => notification.id)).toEqual([
-      "notification_kept",
-    ])
+    expect(
+      nextState.notifications.map((notification) => notification.id)
+    ).toEqual(["notification_kept"])
     expect(nextState.ui.activeInboxNotificationId).toBeNull()
   })
 
@@ -727,6 +734,8 @@ describe("store domain updates", () => {
           selectedViewByRoute: {},
           viewerViewConfigByRoute: {},
           viewerDirectoryConfigByRoute: {},
+          viewerDirectoryPresetsByRoute: {},
+          selectedDirectoryPresetByRoute: {},
           collaborationSidebarOpenBySurface: {},
           activeCreateDialog: null,
         },
@@ -1039,9 +1048,14 @@ describe("store domain updates", () => {
       },
     }
 
-    const nextState = getNextStateAfterProjectRemoval(state as never, "project_1")
+    const nextState = getNextStateAfterProjectRemoval(
+      state as never,
+      "project_1"
+    )
 
-    expect(nextState.projects.map((project) => project.id)).toEqual(["project_2"])
+    expect(nextState.projects.map((project) => project.id)).toEqual([
+      "project_2",
+    ])
     expect(nextState.milestones.map((milestone) => milestone.id)).toEqual([
       "milestone_2",
     ])
@@ -1066,9 +1080,9 @@ describe("store domain updates", () => {
     expect(nextState.views.map((view) => view.id)).toEqual(["kept_view"])
     expect(nextState.views[0]?.filters.projectIds).toEqual(["project_2"])
     expect(nextState.views[0]?.filters.milestoneIds).toEqual(["milestone_2"])
-    expect(nextState.notifications.map((notification) => notification.id)).toEqual([
-      "kept_notification",
-    ])
+    expect(
+      nextState.notifications.map((notification) => notification.id)
+    ).toEqual(["kept_notification"])
     expect(nextState.projectUpdates.map((update) => update.id)).toEqual([
       "update_2",
     ])
@@ -1080,6 +1094,8 @@ describe("store domain updates", () => {
   it("leaves local state unchanged when removing an unknown project", () => {
     const state = createEmptyState()
 
-    expect(getNextStateAfterProjectRemoval(state, "missing_project")).toBe(state)
+    expect(getNextStateAfterProjectRemoval(state, "missing_project")).toBe(
+      state
+    )
   })
 })

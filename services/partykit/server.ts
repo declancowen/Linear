@@ -849,7 +849,9 @@ async function persistCanonicalDocument(
           itemId: collaborationDocument.itemId,
           patch: {
             title: options.workItemTitle,
-            description: contentHtml,
+            ...(isPersistedContentUnchanged
+              ? {}
+              : { description: contentHtml }),
             expectedUpdatedAt:
               options.workItemExpectedUpdatedAt ??
               collaborationDocument.itemUpdatedAt ??

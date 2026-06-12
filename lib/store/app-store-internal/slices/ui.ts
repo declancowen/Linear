@@ -4,9 +4,11 @@ import { createEmptyState } from "@/lib/domain/empty-state"
 import {
   normalizeHiddenState,
   type AppData,
+  type ViewDefinition,
   type ViewerViewConfigOverride,
 } from "@/lib/domain/types"
 import {
+  getViewerDirectoryPresetSurfaceKey,
   getViewerScopedDirectoryKey,
   getViewerScopedViewKey,
 } from "@/lib/domain/viewer-view-config"
@@ -24,6 +26,8 @@ import {
   getNextActiveTeamId,
   normalizeNotifications,
   normalizeUsers,
+  createId,
+  getNow,
 } from "../helpers"
 import type {
   AppStore,
@@ -57,6 +61,12 @@ type UiSlice = Pick<
   | "clearViewerViewDisplayProperties"
   | "toggleViewerViewHiddenValue"
   | "patchViewerDirectoryConfig"
+  | "setViewerDirectoryConfig"
+  | "resetViewerDirectoryConfig"
+  | "createViewerDirectoryPreset"
+  | "updateViewerDirectoryPreset"
+  | "deleteViewerDirectoryPreset"
+  | "setSelectedDirectoryPreset"
   | "setCollaborationSidebarOpen"
   | "setActiveInboxNotification"
 >
@@ -107,7 +117,8 @@ function patchViewerViewConfigByRoute(
 function getViewerViewConfigContext(
   state: AppStore,
   surfaceKey: string,
-  viewId: string
+  viewId: string,
+  fallbackBaseView?: ViewDefinition
 ) {
   const storageKey = getViewerScopedViewKey(
     state.currentUserId,
@@ -116,7 +127,8 @@ function getViewerViewConfigContext(
   )
 
   return {
-    baseView: state.views.find((view) => view.id === viewId),
+    baseView:
+      state.views.find((view) => view.id === viewId) ?? fallbackBaseView,
     current: state.ui.viewerViewConfigByRoute[storageKey] ?? {},
     storageKey,
   }
@@ -605,9 +617,7 @@ function getScopedPruningProtectedKeys(
   }
 
   if (domainKey === "channelPostComments") {
-    return new Set(
-      Object.keys(state.pendingChannelPostCommentSyncsById ?? {})
-    )
+    return new Set(Object.keys(state.pendingChannelPostCommentSyncsById ?? {}))
   }
 
   return undefined
@@ -617,7 +627,9 @@ function shouldSkipScopedPruningDomain(
   instruction: ScopedReadModelReplaceInstruction,
   domainKey: ArrayDomainKey
 ) {
-  return instruction.kind === "conversation-list" && domainKey === "chatMessages"
+  return (
+    instruction.kind === "conversation-list" && domainKey === "chatMessages"
+  )
 }
 
 function pruneScopedReadModelDomain(
@@ -696,7 +708,9 @@ function getPendingDomainIds(state: AppStore) {
     channelPostCommentIds: new Set(
       Object.keys(state.pendingChannelPostCommentSyncsById ?? {})
     ),
-    chatMessageIds: new Set(Object.keys(state.pendingChatMessageSyncsById ?? {})),
+    chatMessageIds: new Set(
+      Object.keys(state.pendingChatMessageSyncsById ?? {})
+    ),
     commentIds: new Set(Object.keys(state.pendingCommentSyncsById ?? {})),
     workItemIds: new Set(Object.keys(state.pendingWorkItemSyncsById ?? {})),
   }
@@ -745,7 +759,10 @@ function buildReplacedDomainPatch(
     ),
     notifications: normalizeNotifications(
       data.notifications
-        ? preserveLocalNotificationReadState(state.notifications, data.notifications)
+        ? preserveLocalNotificationReadState(
+            state.notifications,
+            data.notifications
+          )
         : state.notifications
     ),
     users: normalizeUsers(data.users ?? state.users),
@@ -891,8 +908,7 @@ function applyMergedReadModelData(
     pendingDocumentContentSyncs: prunedState.pendingDocumentContentSyncs ?? {},
     pendingWorkItemSyncsById: prunedState.pendingWorkItemSyncsById ?? {},
     pendingCommentSyncsById: prunedState.pendingCommentSyncsById ?? {},
-    pendingChatMessageSyncsById:
-      prunedState.pendingChatMessageSyncsById ?? {},
+    pendingChatMessageSyncsById: prunedState.pendingChatMessageSyncsById ?? {},
     pendingChannelPostCommentSyncsById:
       prunedState.pendingChannelPostCommentSyncsById ?? {},
     pendingViewConfigById: reconciledViews.pendingViewConfigById,
@@ -1100,16 +1116,16 @@ export function createUiSlice(
         }
       })
     },
-    toggleViewerViewFilterValue(surfaceKey, viewId, key, value) {
+    toggleViewerViewFilterValue(surfaceKey, viewId, key, value, baseView) {
       set((state) => {
-        const { baseView, current, storageKey } = getViewerViewConfigContext(
-          state,
-          surfaceKey,
-          viewId
-        )
+        const {
+          baseView: resolvedBaseView,
+          current,
+          storageKey,
+        } = getViewerViewConfigContext(state, surfaceKey, viewId, baseView)
         const currentFilters = current.filters ?? {}
         const currentValues = (currentFilters[key] ??
-          baseView?.filters[key] ??
+          resolvedBaseView?.filters[key] ??
           []) as string[]
         const nextValues = currentValues.includes(value)
           ? currentValues.filter((entry) => entry !== value)
@@ -1145,15 +1161,15 @@ export function createUiSlice(
         }))
       })
     },
-    toggleViewerViewDisplayProperty(surfaceKey, viewId, property) {
+    toggleViewerViewDisplayProperty(surfaceKey, viewId, property, baseView) {
       set((state) => {
-        const { baseView, current, storageKey } = getViewerViewConfigContext(
-          state,
-          surfaceKey,
-          viewId
-        )
+        const {
+          baseView: resolvedBaseView,
+          current,
+          storageKey,
+        } = getViewerViewConfigContext(state, surfaceKey, viewId, baseView)
         const displayProps =
-          current.displayProps ?? baseView?.displayProps ?? []
+          current.displayProps ?? resolvedBaseView?.displayProps ?? []
         const nextDisplayProps = displayProps.includes(property)
           ? displayProps.filter((entry) => entry !== property)
           : [...displayProps, property]
@@ -1192,15 +1208,15 @@ export function createUiSlice(
         }))
       })
     },
-    toggleViewerViewHiddenValue(surfaceKey, viewId, key, value) {
+    toggleViewerViewHiddenValue(surfaceKey, viewId, key, value, baseView) {
       set((state) => {
-        const { baseView, current, storageKey } = getViewerViewConfigContext(
-          state,
-          surfaceKey,
-          viewId
-        )
+        const {
+          baseView: resolvedBaseView,
+          current,
+          storageKey,
+        } = getViewerViewConfigContext(state, surfaceKey, viewId, baseView)
         const currentHiddenState = normalizeHiddenState(
-          current.hiddenState ?? baseView?.hiddenState
+          current.hiddenState ?? resolvedBaseView?.hiddenState
         )
         const currentValues = currentHiddenState[key] ?? []
         const nextValues = currentValues.includes(value)
@@ -1245,6 +1261,196 @@ export function createUiSlice(
               ...state.ui.viewerDirectoryConfigByRoute,
               [storageKey]: nextConfig,
             },
+          },
+        }
+      })
+    },
+    setViewerDirectoryConfig(surfaceKey, config) {
+      set((state) => {
+        const storageKey = getViewerScopedDirectoryKey(
+          state.currentUserId,
+          surfaceKey
+        )
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerDirectoryConfigByRoute: {
+              ...state.ui.viewerDirectoryConfigByRoute,
+              [storageKey]: config,
+            },
+          },
+        }
+      })
+    },
+    resetViewerDirectoryConfig(surfaceKey) {
+      set((state) => {
+        const storageKey = getViewerScopedDirectoryKey(
+          state.currentUserId,
+          surfaceKey
+        )
+        const viewerDirectoryConfigByRoute = {
+          ...state.ui.viewerDirectoryConfigByRoute,
+        }
+        delete viewerDirectoryConfigByRoute[storageKey]
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerDirectoryConfigByRoute,
+          },
+        }
+      })
+    },
+    createViewerDirectoryPreset(surfaceKey, input) {
+      const name = input.name.trim()
+
+      if (!name) {
+        return null
+      }
+
+      const presetId = createId("directory_view")
+      const timestamp = getNow()
+
+      set((state) => {
+        const routeKey = getViewerScopedDirectoryKey(
+          state.currentUserId,
+          surfaceKey
+        )
+        const configKey = getViewerScopedDirectoryKey(
+          state.currentUserId,
+          getViewerDirectoryPresetSurfaceKey(surfaceKey, presetId)
+        )
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerDirectoryConfigByRoute: {
+              ...state.ui.viewerDirectoryConfigByRoute,
+              [configKey]: input.config,
+            },
+            viewerDirectoryPresetsByRoute: {
+              ...state.ui.viewerDirectoryPresetsByRoute,
+              [routeKey]: [
+                ...(state.ui.viewerDirectoryPresetsByRoute[routeKey] ?? []),
+                {
+                  id: presetId,
+                  name,
+                  icon: input.icon,
+                  createdAt: timestamp,
+                  updatedAt: timestamp,
+                },
+              ],
+            },
+            selectedDirectoryPresetByRoute: {
+              ...state.ui.selectedDirectoryPresetByRoute,
+              [routeKey]: presetId,
+            },
+          },
+        }
+      })
+
+      return presetId
+    },
+    updateViewerDirectoryPreset(surfaceKey, presetId, patch) {
+      let didUpdate = false
+
+      set((state) => {
+        const routeKey = getViewerScopedDirectoryKey(
+          state.currentUserId,
+          surfaceKey
+        )
+        const presets = state.ui.viewerDirectoryPresetsByRoute[routeKey] ?? []
+        const name = patch.name?.trim()
+
+        if (name !== undefined && !name) {
+          return state
+        }
+
+        if (!presets.some((preset) => preset.id === presetId)) {
+          return state
+        }
+
+        didUpdate = true
+        return {
+          ui: {
+            ...state.ui,
+            viewerDirectoryPresetsByRoute: {
+              ...state.ui.viewerDirectoryPresetsByRoute,
+              [routeKey]: presets.map((preset) =>
+                preset.id === presetId
+                  ? {
+                      ...preset,
+                      ...(name !== undefined ? { name } : {}),
+                      ...(patch.icon !== undefined ? { icon: patch.icon } : {}),
+                      updatedAt: getNow(),
+                    }
+                  : preset
+              ),
+            },
+          },
+        }
+      })
+
+      return didUpdate
+    },
+    deleteViewerDirectoryPreset(surfaceKey, presetId) {
+      set((state) => {
+        const routeKey = getViewerScopedDirectoryKey(
+          state.currentUserId,
+          surfaceKey
+        )
+        const configKey = getViewerScopedDirectoryKey(
+          state.currentUserId,
+          getViewerDirectoryPresetSurfaceKey(surfaceKey, presetId)
+        )
+        const viewerDirectoryConfigByRoute = {
+          ...state.ui.viewerDirectoryConfigByRoute,
+        }
+        const selectedDirectoryPresetByRoute = {
+          ...state.ui.selectedDirectoryPresetByRoute,
+        }
+        delete viewerDirectoryConfigByRoute[configKey]
+
+        if (selectedDirectoryPresetByRoute[routeKey] === presetId) {
+          delete selectedDirectoryPresetByRoute[routeKey]
+        }
+
+        return {
+          ui: {
+            ...state.ui,
+            viewerDirectoryConfigByRoute,
+            viewerDirectoryPresetsByRoute: {
+              ...state.ui.viewerDirectoryPresetsByRoute,
+              [routeKey]: (
+                state.ui.viewerDirectoryPresetsByRoute[routeKey] ?? []
+              ).filter((preset) => preset.id !== presetId),
+            },
+            selectedDirectoryPresetByRoute,
+          },
+        }
+      })
+    },
+    setSelectedDirectoryPreset(surfaceKey, presetId) {
+      set((state) => {
+        const routeKey = getViewerScopedDirectoryKey(
+          state.currentUserId,
+          surfaceKey
+        )
+        const selectedDirectoryPresetByRoute = {
+          ...state.ui.selectedDirectoryPresetByRoute,
+        }
+
+        if (presetId) {
+          selectedDirectoryPresetByRoute[routeKey] = presetId
+        } else {
+          delete selectedDirectoryPresetByRoute[routeKey]
+        }
+
+        return {
+          ui: {
+            ...state.ui,
+            selectedDirectoryPresetByRoute,
           },
         }
       })

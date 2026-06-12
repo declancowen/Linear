@@ -359,6 +359,14 @@ export type ViewerDirectoryConfig = Partial<{
   displayProps: string[]
 }>
 
+export interface ViewerDirectoryPreset {
+  id: string
+  name: string
+  icon: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface Comment {
   id: string
   targetType: CommentTargetType
@@ -582,6 +590,8 @@ export interface UiState {
   selectedViewByRoute: Record<string, string>
   viewerViewConfigByRoute: Record<string, ViewerViewConfigOverride>
   viewerDirectoryConfigByRoute: Record<string, ViewerDirectoryConfig>
+  viewerDirectoryPresetsByRoute: Record<string, ViewerDirectoryPreset[]>
+  selectedDirectoryPresetByRoute: Record<string, string>
   collaborationSidebarOpenBySurface: Record<string, boolean>
   activeCreateDialog: CreateDialogState | null
 }

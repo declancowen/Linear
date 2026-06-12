@@ -249,7 +249,11 @@ export function ViewContextMenu({
     isPersistedView && !isSystemView(view) && canMutateView(data, view)
   const systemCapability = getSystemViewEditCapability(view)
   const systemEditLabel =
-    systemCapability === "full" ? "Edit view" : "Edit displayed properties"
+    systemCapability === "full" ||
+    systemCapability === "collection" ||
+    systemCapability === "presentation"
+      ? "Edit view"
+      : "Edit displayed properties"
   const editableScope =
     view.scopeType === "team" || view.scopeType === "workspace"
       ? {
@@ -292,7 +296,9 @@ export function ViewContextMenu({
         onOpen={() => router.push(getViewHref(view))}
         onRename={() => setRenameOpen(true)}
         onSystemEdit={
-          systemCapability === "none" ? undefined : () => setSystemEditOpen(true)
+          systemCapability === "none"
+            ? undefined
+            : () => setSystemEditOpen(true)
         }
         systemEditLabel={systemEditLabel}
       >

@@ -29,6 +29,14 @@ function getReconciliationErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
+function getSyncFailureToastMessage(error: unknown, fallback: string) {
+  if (error instanceof RouteMutationError && error.message.trim()) {
+    return error.message
+  }
+
+  return fallback
+}
+
 export function createStoreRuntime(get: AppStoreGet) {
   function getPerformanceNow() {
     return typeof window === "undefined" ? Date.now() : window.performance.now()
@@ -158,7 +166,7 @@ export function createStoreRuntime(get: AppStoreGet) {
       })
     }
     if (options?.showToast !== false) {
-      toast.error(fallbackMessage)
+      toast.error(getSyncFailureToastMessage(error, fallbackMessage))
     }
   }
 

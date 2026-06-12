@@ -8,6 +8,7 @@ import type {
 export type WorkItemMutationPatch = {
   title?: string
   description?: string
+  expectedDescriptionUpdatedAt?: string
   expectedUpdatedAt?: string
   status?: WorkStatus
   priority?: Priority

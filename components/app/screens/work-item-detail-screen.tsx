@@ -2922,7 +2922,9 @@ function WorkItemSidebarCustomPropertyRows({
       definition={definition}
       editable={editable}
       onEditProperty={() => onEditProperty(definition)}
-      onRemoveProperty={() => void archiveCustomPropertyDefinition(definition.id)}
+      onRemoveProperty={() =>
+        void archiveCustomPropertyDefinition(definition.id)
+      }
     >
       <CustomPropertyValueControl
         data={data}
@@ -3152,9 +3154,7 @@ function getLinkedWorkItemViews(data: AppData, currentItem: WorkItem) {
 
   return (currentItem.referencedViewIds ?? [])
     .map((viewId) => data.views.find((entry) => entry.id === viewId) ?? null)
-    .filter(
-      (view): view is AppData["views"][number] => view !== null
-    )
+    .filter((view): view is AppData["views"][number] => view !== null)
 }
 
 function getWorkItemDeleteCascadeMessage({
@@ -3664,6 +3664,7 @@ async function persistWorkItemMainSection({
   flushCollaboration,
   isCollaborationAttached,
   mainDraftDescription,
+  mainDraftDescriptionUpdatedAt,
   mainDraftUpdatedAt,
   mainTitleDirty,
   normalizedMainDraftTitle,
@@ -3672,6 +3673,7 @@ async function persistWorkItemMainSection({
   flushCollaboration: DetailFlushCollaboration
   isCollaborationAttached: boolean
   mainDraftDescription: string
+  mainDraftDescriptionUpdatedAt: string | null
   mainDraftUpdatedAt: string | null
   mainTitleDirty: boolean
   normalizedMainDraftTitle: string
@@ -3711,6 +3713,7 @@ async function persistWorkItemMainSection({
     itemId: currentItem.id,
     title: normalizedMainDraftTitle,
     description: mainDraftDescription,
+    expectedDescriptionUpdatedAt: mainDraftDescriptionUpdatedAt ?? "",
     expectedUpdatedAt: mainDraftUpdatedAt ?? currentItem.updatedAt,
   })
 }
@@ -3814,16 +3817,20 @@ function getPendingMainMentionEntries({
 
 function getMainSectionDraftState({
   currentItem,
+  descriptionUpdatedAt,
   isCollaborationAttached,
   isMainEditing,
   mainDraftDescriptionDirty,
+  mainDraftDescriptionUpdatedAt,
   mainDraftTitleDirty,
   mainDraftUpdatedAt,
 }: {
   currentItem: WorkItem | undefined
+  descriptionUpdatedAt: string | null
   isCollaborationAttached: boolean
   isMainEditing: boolean
   mainDraftDescriptionDirty: boolean
+  mainDraftDescriptionUpdatedAt: string | null
   mainDraftTitleDirty: boolean
   mainDraftUpdatedAt: string | null
 }) {
@@ -3831,12 +3838,21 @@ function getMainSectionDraftState({
     currentItem && isMainEditing && mainDraftTitleDirty
   )
   const descriptionDirty = isMainEditing && mainDraftDescriptionDirty
-  const stale = Boolean(
+  const descriptionStale = Boolean(
+    descriptionDirty &&
+    descriptionUpdatedAt &&
+    mainDraftDescriptionUpdatedAt &&
+    descriptionUpdatedAt !== mainDraftDescriptionUpdatedAt
+  )
+  const titleStale = Boolean(
     currentItem &&
-    !isCollaborationAttached &&
     isMainEditing &&
+    mainDraftTitleDirty &&
     mainDraftUpdatedAt &&
     mainDraftUpdatedAt !== currentItem.updatedAt
+  )
+  const stale = Boolean(
+    !isCollaborationAttached && (titleStale || descriptionStale)
   )
 
   return {
@@ -3889,6 +3905,7 @@ function getCanSaveMainSection({
 function useWorkItemMainSectionController({
   currentItem,
   descriptionContent,
+  descriptionUpdatedAt,
   editable,
   flushCollaboration,
   isAwaitingCollaboration,
@@ -3897,6 +3914,7 @@ function useWorkItemMainSectionController({
 }: {
   currentItem: WorkItem | undefined
   descriptionContent: string
+  descriptionUpdatedAt: string | null
   editable: boolean
   flushCollaboration: DetailFlushCollaboration
   isAwaitingCollaboration: boolean
@@ -3912,6 +3930,8 @@ function useWorkItemMainSectionController({
   const [mainDraftTitleDirty, setMainDraftTitleDirty] = useState(false)
   const [mainTitleCanSubmit, setMainTitleCanSubmit] = useState(true)
   const [mainDraftDescription, setMainDraftDescription] = useState("")
+  const [mainDraftDescriptionUpdatedAt, setMainDraftDescriptionUpdatedAt] =
+    useState<string | null>(null)
   const [mainDraftDescriptionDirty, setMainDraftDescriptionDirty] =
     useState(false)
   const [
@@ -3935,9 +3955,11 @@ function useWorkItemMainSectionController({
     : 0
   const draftState = getMainSectionDraftState({
     currentItem,
+    descriptionUpdatedAt,
     isCollaborationAttached,
     isMainEditing,
     mainDraftDescriptionDirty,
+    mainDraftDescriptionUpdatedAt,
     mainDraftTitleDirty,
     mainDraftUpdatedAt,
   })
@@ -3998,6 +4020,7 @@ function useWorkItemMainSectionController({
     setMainDraftUpdatedAt(currentItem.updatedAt)
     resetMainTitleDraft(currentItem.title)
     mainDraftDescriptionRef.current = descriptionContent
+    setMainDraftDescriptionUpdatedAt(descriptionUpdatedAt)
     mainDraftDescriptionDirtyRef.current = false
     setMainDraftDescription(descriptionContent)
     setMainDraftDescriptionDirty(false)
@@ -4023,6 +4046,7 @@ function useWorkItemMainSectionController({
 
     setMainDraftItemId(null)
     setMainDraftUpdatedAt(null)
+    setMainDraftDescriptionUpdatedAt(null)
     resetMainTitleDraft(currentItem?.title ?? "")
     mainDraftDescriptionRef.current = nextDescription
     mainDraftDescriptionDirtyRef.current = false
@@ -4037,6 +4061,7 @@ function useWorkItemMainSectionController({
     }
 
     setMainDraftUpdatedAt(currentItem.updatedAt)
+    setMainDraftDescriptionUpdatedAt(descriptionUpdatedAt)
     resetMainTitleDraft(currentItem.title)
     mainDraftDescriptionRef.current = descriptionContent
     mainDraftDescriptionDirtyRef.current = false
@@ -4081,6 +4106,7 @@ function useWorkItemMainSectionController({
       flushCollaboration,
       isCollaborationAttached,
       mainDraftDescription: latestMainDraftDescription,
+      mainDraftDescriptionUpdatedAt,
       mainDraftUpdatedAt,
       mainTitleDirty: latestMainTitleDirty,
       normalizedMainDraftTitle,
@@ -4093,6 +4119,7 @@ function useWorkItemMainSectionController({
 
     setMainDraftItemId(null)
     setMainDraftUpdatedAt(null)
+    setMainDraftDescriptionUpdatedAt(null)
     mainDraftTitleDirtyRef.current = false
     setMainDraftTitleDirty(false)
     setMainDraftTitle(normalizedMainDraftTitle)
@@ -6366,6 +6393,7 @@ export function WorkItemDetailScreen({ itemId }: { itemId: string }) {
   const mainSection = useWorkItemMainSectionController({
     currentItem: item,
     descriptionContent,
+    descriptionUpdatedAt: description?.updatedAt ?? null,
     editable,
     flushCollaboration,
     isAwaitingCollaboration,

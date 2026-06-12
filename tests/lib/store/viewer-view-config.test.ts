@@ -15,6 +15,7 @@ import {
   MAX_PERSISTED_COLLABORATION_SIDEBARS,
   MAX_PERSISTED_SELECTED_VIEW_ROUTES,
   MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS,
+  MAX_PERSISTED_VIEWER_DIRECTORY_PRESET_ROUTES,
   MAX_PERSISTED_VIEWER_VIEW_CONFIGS,
   migratePersistedAppStore,
   useAppStore,
@@ -186,12 +187,30 @@ describe("viewer-local view config", () => {
         ]
       )
     )
+    const viewerDirectoryPresetsByRoute = Object.fromEntries(
+      Array.from(
+        { length: MAX_PERSISTED_VIEWER_DIRECTORY_PRESET_ROUTES + 2 },
+        (_, index) => [
+          getViewerScopedDirectoryKey("user_1", `/views_${index}`),
+          [
+            {
+              id: `preset_${index}`,
+              name: `Preset ${index}`,
+              icon: "SquaresFour",
+              createdAt: "2026-04-20T10:00:00.000Z",
+              updatedAt: "2026-04-20T10:00:00.000Z",
+            },
+          ],
+        ]
+      )
+    )
 
     const migrated = migratePersistedAppStore({
       ui: {
         selectedViewByRoute,
         viewerViewConfigByRoute,
         viewerDirectoryConfigByRoute,
+        viewerDirectoryPresetsByRoute,
         collaborationSidebarOpenBySurface,
       },
     })
@@ -205,6 +224,9 @@ describe("viewer-local view config", () => {
     expect(
       Object.keys(migrated.ui?.viewerDirectoryConfigByRoute ?? {})
     ).toHaveLength(MAX_PERSISTED_VIEWER_DIRECTORY_CONFIGS)
+    expect(
+      Object.keys(migrated.ui?.viewerDirectoryPresetsByRoute ?? {})
+    ).toHaveLength(MAX_PERSISTED_VIEWER_DIRECTORY_PRESET_ROUTES)
     expect(
       Object.keys(migrated.ui?.collaborationSidebarOpenBySurface ?? {})
     ).toHaveLength(MAX_PERSISTED_COLLABORATION_SIDEBARS)
@@ -322,6 +344,44 @@ describe("viewer-local view config", () => {
       layout: "list",
       filters: {
         status: [],
+      },
+    })
+  })
+
+  it("uses an explicit generated base view when it is not persisted", () => {
+    const route = "/workspace/projects"
+    const view = createView({
+      id: "view_workspace_1_all_projects",
+      entityKind: "projects",
+      route,
+      displayProps: ["team", "assignee", "priority", "updated"],
+      filters: {
+        ...createDefaultViewFilters(),
+        status: ["in-progress"],
+      },
+    })
+
+    useAppStore.setState({
+      ...createEmptyState(),
+      currentUserId: "user_1",
+      views: [],
+    })
+
+    useAppStore
+      .getState()
+      .toggleViewerViewDisplayProperty(route, view.id, "dueDate", view)
+    useAppStore
+      .getState()
+      .toggleViewerViewFilterValue(route, view.id, "status", "done", view)
+
+    expect(
+      useAppStore.getState().ui.viewerViewConfigByRoute[
+        getViewerScopedViewKey("user_1", route, view.id)
+      ]
+    ).toMatchObject({
+      displayProps: ["team", "assignee", "priority", "updated", "dueDate"],
+      filters: {
+        status: ["in-progress", "done"],
       },
     })
   })

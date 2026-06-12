@@ -183,6 +183,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { Textarea } from "@/components/ui/textarea"
+import { ToastCard } from "@/components/ui/toast-card"
 import {
   getDesktopDownloadUrl,
   type DesktopDownloadTarget,
@@ -1305,48 +1306,23 @@ function NotificationToastContent({
   const contentPreview = getNotificationContentPreview(notification)
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="flex w-[min(360px,calc(100vw-2rem))] cursor-pointer items-start gap-3 rounded-lg border border-line/60 bg-background/95 p-3 text-left text-foreground shadow-[0_8px_30px_-12px_rgba(0,0,0,0.22)] backdrop-blur-xl transition-colors outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"
+    <ToastCard
+      closeLabel="Dismiss notification"
+      icon={Bell}
+      tone="accent"
+      title="New notification"
+      description={
+        <>
+          <span className="block">{notification.message}</span>
+          {contentPreview ? (
+            <span className="mt-1 block">{contentPreview}</span>
+          ) : null}
+        </>
+      }
+      interactive
       onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") {
-          return
-        }
-
-        event.preventDefault()
-        onOpen()
-      }}
-    >
-      <span className="bg-brand/10 text-brand mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md">
-        <Bell className="size-4" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[13px] leading-5 font-medium">
-          New notification
-        </span>
-        <span className="line-clamp-2 block text-[12px] leading-4 text-fg-3">
-          {notification.message}
-        </span>
-        {contentPreview ? (
-          <span className="mt-1 line-clamp-2 block text-[12px] leading-4 text-fg-3">
-            {contentPreview}
-          </span>
-        ) : null}
-      </span>
-      <button
-        type="button"
-        aria-label="Dismiss notification"
-        className="flex size-6 shrink-0 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
-        onClick={(event) => {
-          event.stopPropagation()
-          onDismiss()
-        }}
-      >
-        <X className="size-3.5" />
-      </button>
-    </div>
+      onClose={onDismiss}
+    />
   )
 }
 

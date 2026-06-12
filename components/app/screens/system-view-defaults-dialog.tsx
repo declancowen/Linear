@@ -10,14 +10,35 @@ import {
   GroupChipPopover,
   LayoutTabs,
   LevelChipPopover,
+  PROJECT_DISPLAY_PROPERTY_OPTIONS,
+  PROJECT_GROUP_OPTIONS,
+  ProjectFilterPopover,
+  ProjectLayoutTabs,
+  ProjectSortChipPopover,
   PropertiesChipPopover,
   SortChipPopover,
   type ViewConfigPatch,
 } from "@/components/app/screens/work-surface-controls"
+import {
+  DOCS_DISPLAY_PROPERTY_LABEL,
+  DOCS_DISPLAY_PROPERTY_OPTIONS,
+} from "@/components/app/screens/docs-view-config"
+import {
+  DocsFilterPopover,
+  DocsGroupPopover,
+  DocsSortPopover,
+} from "@/components/app/screens/docs-view-controls"
 import { Switch } from "@/components/ui/switch"
 import type { ViewFilterKey } from "@/components/app/screens/helpers"
+import { selectAppDataSnapshot } from "@/components/app/screens/helpers"
 import type { ViewFilterValueKey } from "@/lib/store/app-store-internal/types"
 import { getSystemViewEditCapability } from "@/lib/domain/default-views"
+import {
+  getPrivateDocuments,
+  getProjectsForScope,
+  getTeamDocuments,
+  getWorkspaceDocuments,
+} from "@/lib/domain/selectors"
 import {
   applyViewerViewConfig,
   getViewerScopedViewKey,
@@ -33,6 +54,65 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+
+const PROJECT_DISPLAY_PROPERTY_LABEL: Partial<Record<DisplayProperty, string>> =
+  {
+    team: "Team",
+    assignee: "Lead",
+    priority: "Priority",
+    type: "Type",
+    dueDate: "Target date",
+    created: "Created",
+    updated: "Updated",
+  }
+
+function getCollectionDisplayPropertyOptions(view: ViewDefinition) {
+  return view.entityKind === "docs"
+    ? DOCS_DISPLAY_PROPERTY_OPTIONS
+    : PROJECT_DISPLAY_PROPERTY_OPTIONS
+}
+
+function getCollectionDisplayPropertyLabel(
+  view: ViewDefinition,
+  property: DisplayProperty
+) {
+  return view.entityKind === "docs"
+    ? (DOCS_DISPLAY_PROPERTY_LABEL[property] ?? "Property")
+    : (PROJECT_DISPLAY_PROPERTY_LABEL[property] ?? "Property")
+}
+
+function DisplayPropertySwitchList({
+  activeProperties,
+  getLabel,
+  onToggle,
+  properties,
+}: {
+  activeProperties: DisplayProperty[]
+  getLabel: (property: DisplayProperty) => string
+  onToggle: (property: DisplayProperty) => void
+  properties: readonly DisplayProperty[]
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-line-soft">
+      {properties.map((property, index) => (
+        <label
+          key={property}
+          className={cn(
+            "flex cursor-pointer items-center justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-surface-2",
+            index > 0 && "border-t border-line-soft"
+          )}
+        >
+          <span className="text-[13px] text-fg-2">{getLabel(property)}</span>
+          <Switch
+            size="sm"
+            checked={activeProperties.includes(property)}
+            onCheckedChange={() => onToggle(property)}
+          />
+        </label>
+      ))}
+    </div>
+  )
+}
 
 /**
  * Built-in (system) views are generated defaults, not editable Convex view
@@ -60,6 +140,7 @@ export function SystemViewDefaultsDialog({
   )
   const allItems = useAppStore(useShallow((state) => state.workItems))
   const teams = useAppStore(useShallow((state) => state.teams))
+  const data = useAppStore(useShallow(selectAppDataSnapshot))
   const actions = useAppStore(
     useShallow((state) => ({
       patchViewerViewConfig: state.patchViewerViewConfig,
@@ -100,6 +181,27 @@ export function SystemViewDefaultsDialog({
 
     return allItems
   }, [allItems, teams, view.scopeId, view.scopeType])
+  const projects = useMemo(
+    () =>
+      view.scopeType === "team" || view.scopeType === "workspace"
+        ? getProjectsForScope(data, view.scopeType, view.scopeId)
+        : data.projects,
+    [data, view.scopeId, view.scopeType]
+  )
+  const documents = useMemo(() => {
+    if (view.scopeType === "team") {
+      return getTeamDocuments(data, view.scopeId)
+    }
+
+    if (view.scopeType === "workspace") {
+      return [
+        ...getWorkspaceDocuments(data, view.scopeId),
+        ...getPrivateDocuments(data, view.scopeId),
+      ]
+    }
+
+    return data.documents
+  }, [data, view.scopeId, view.scopeType])
 
   if (capability === "none") {
     return null
@@ -108,6 +210,8 @@ export function SystemViewDefaultsDialog({
   const surfaceKey = view.route
   const viewId = view.id
   const isFull = capability === "full"
+  const isCollection = capability === "collection"
+  const isPresentation = capability === "presentation"
 
   const onUpdateView = (patch: ViewConfigPatch) =>
     actions.patchViewerViewConfig(surfaceKey, viewId, patch)
@@ -116,11 +220,18 @@ export function SystemViewDefaultsDialog({
       surfaceKey,
       viewId,
       key as ViewFilterValueKey,
-      value
+      value,
+      effectiveView
     )
-  const onClearFilters = () => actions.clearViewerViewFilters(surfaceKey, viewId)
+  const onClearFilters = () =>
+    actions.clearViewerViewFilters(surfaceKey, viewId)
   const onToggleDisplayProperty = (property: DisplayProperty) =>
-    actions.toggleViewerViewDisplayProperty(surfaceKey, viewId, property)
+    actions.toggleViewerViewDisplayProperty(
+      surfaceKey,
+      viewId,
+      property,
+      effectiveView
+    )
   const onReorderDisplayProperties = (displayProps: DisplayProperty[]) =>
     actions.reorderViewerViewDisplayProperties(surfaceKey, viewId, displayProps)
   const onClearDisplayProperties = () =>
@@ -131,10 +242,12 @@ export function SystemViewDefaultsDialog({
       <DialogContent className="gap-0 overflow-visible rounded-xl border border-line bg-surface p-0 sm:max-w-[640px]">
         <DialogHeader className="space-y-1 border-b border-line-soft px-5 py-4">
           <DialogTitle className="text-[15px] font-semibold tracking-tight">
-            {isFull ? `Edit ${view.name} defaults` : "Displayed properties"}
+            {isFull || isCollection || isPresentation
+              ? `Edit ${view.name} defaults`
+              : "Displayed properties"}
           </DialogTitle>
           <DialogDescription className="text-[12.5px] text-muted-foreground">
-            {isFull
+            {isFull || isCollection || isPresentation
               ? "These settings become your default for this built-in view."
               : `Choose which properties show by default on ${view.name}.`}
           </DialogDescription>
@@ -151,8 +264,14 @@ export function SystemViewDefaultsDialog({
               onUpdateView={onUpdateView}
               onClearFilters={onClearFilters}
             />
-            <LevelChipPopover view={effectiveView} onUpdateView={onUpdateView} />
-            <GroupChipPopover view={effectiveView} onUpdateView={onUpdateView} />
+            <LevelChipPopover
+              view={effectiveView}
+              onUpdateView={onUpdateView}
+            />
+            <GroupChipPopover
+              view={effectiveView}
+              onUpdateView={onUpdateView}
+            />
             <SortChipPopover view={effectiveView} onUpdateView={onUpdateView} />
             <PropertiesChipPopover
               view={effectiveView}
@@ -161,33 +280,92 @@ export function SystemViewDefaultsDialog({
               onClearDisplayProperties={onClearDisplayProperties}
             />
           </div>
-        ) : (
-          <div className="px-5 py-4">
-            <div className="overflow-hidden rounded-lg border border-line-soft">
-              {getViewDisplayPropertyOptions(effectiveView).map(
-                (property, index) => {
-                  const checked = effectiveView.displayProps.includes(property)
-                  return (
-                    <label
-                      key={property}
-                      className={cn(
-                        "flex cursor-pointer items-center justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-surface-2",
-                        index > 0 && "border-t border-line-soft"
-                      )}
-                    >
-                      <span className="text-[13px] text-fg-2">
-                        {getDisplayPropertyLabel(property)}
-                      </span>
-                      <Switch
-                        size="sm"
-                        checked={checked}
-                        onCheckedChange={() => onToggleDisplayProperty(property)}
-                      />
-                    </label>
-                  )
-                }
+        ) : isPresentation ? (
+          <div className="flex flex-wrap items-center gap-1.5 px-5 py-5">
+            <LayoutTabs view={effectiveView} onUpdateView={onUpdateView} />
+            <div aria-hidden className="mx-1 h-[18px] w-px bg-line" />
+            <LevelChipPopover
+              view={effectiveView}
+              onUpdateView={onUpdateView}
+            />
+            <GroupChipPopover
+              view={effectiveView}
+              onUpdateView={onUpdateView}
+            />
+            <SortChipPopover view={effectiveView} onUpdateView={onUpdateView} />
+            <PropertiesChipPopover
+              view={effectiveView}
+              onToggleDisplayProperty={onToggleDisplayProperty}
+              onReorderDisplayProperties={onReorderDisplayProperties}
+              onClearDisplayProperties={onClearDisplayProperties}
+            />
+          </div>
+        ) : isCollection ? (
+          <div className="space-y-4 px-5 py-4">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <ProjectLayoutTabs
+                view={effectiveView}
+                onUpdateView={onUpdateView}
+              />
+              <div aria-hidden className="mx-1 h-[18px] w-px bg-line" />
+              {effectiveView.entityKind === "projects" ? (
+                <>
+                  <ProjectFilterPopover
+                    view={effectiveView}
+                    projects={projects}
+                    variant="chip"
+                    onToggleFilterValue={(key, value) =>
+                      onToggleFilterValue(key, value)
+                    }
+                    onClearFilters={onClearFilters}
+                  />
+                  <GroupChipPopover
+                    view={effectiveView}
+                    groupOptions={PROJECT_GROUP_OPTIONS}
+                    onUpdateView={onUpdateView}
+                  />
+                  <ProjectSortChipPopover
+                    view={effectiveView}
+                    onUpdateView={onUpdateView}
+                  />
+                </>
+              ) : (
+                <>
+                  <DocsFilterPopover
+                    data={data}
+                    documents={documents}
+                    view={effectiveView}
+                    onToggleFilter={onToggleFilterValue}
+                    onClearFilters={onClearFilters}
+                  />
+                  <DocsGroupPopover
+                    view={effectiveView}
+                    onUpdateView={onUpdateView}
+                  />
+                  <DocsSortPopover
+                    view={effectiveView}
+                    onUpdateView={onUpdateView}
+                  />
+                </>
               )}
             </div>
+            <DisplayPropertySwitchList
+              activeProperties={effectiveView.displayProps}
+              properties={getCollectionDisplayPropertyOptions(effectiveView)}
+              getLabel={(property) =>
+                getCollectionDisplayPropertyLabel(effectiveView, property)
+              }
+              onToggle={onToggleDisplayProperty}
+            />
+          </div>
+        ) : (
+          <div className="px-5 py-4">
+            <DisplayPropertySwitchList
+              activeProperties={effectiveView.displayProps}
+              properties={getViewDisplayPropertyOptions(effectiveView)}
+              getLabel={getDisplayPropertyLabel}
+              onToggle={onToggleDisplayProperty}
+            />
           </div>
         )}
         <div className="flex items-center justify-between gap-2 border-t border-line-soft px-5 py-3.5">

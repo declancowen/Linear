@@ -522,16 +522,13 @@ function getPersonActivityTeamId(
   data: AppData,
   activity: PersonActivity
 ): string | null {
+  if ("itemId" in activity) {
+    return (
+      data.workItems.find((item) => item.id === activity.itemId)?.teamId ?? null
+    )
+  }
+
   switch (activity.type) {
-    case "workItemCreated":
-    case "workItemCommented":
-    case "workItemStatusChanged":
-    case "workItemLabelsChanged":
-    case "workItemAssigneesChanged":
-      return (
-        data.workItems.find((item) => item.id === activity.itemId)?.teamId ??
-        null
-      )
     case "documentCommented":
       return (
         data.documents.find(

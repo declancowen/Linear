@@ -79,13 +79,7 @@ const projectStatusLiterals = [
 ] as const
 
 const viewFilterStatusLiterals = [
-  v.literal("on-hold"),
-  v.literal("backlog"),
-  v.literal("todo"),
-  v.literal("in-progress"),
-  v.literal("done"),
-  v.literal("cancelled"),
-  v.literal("duplicate"),
+  ...workStatusLiterals,
   v.literal("planned"),
   v.literal("completed"),
 ] as const

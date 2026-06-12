@@ -50,6 +50,26 @@ type DefaultViewBuildMetadata = {
   experience?: TeamExperienceType | null
 }
 
+export type CanonicalAllCollectionKind = EntityKind | "views"
+
+export function getCanonicalAllCollectionIcon(
+  kind: CanonicalAllCollectionKind
+) {
+  if (kind === "views") {
+    return "SquaresFour"
+  }
+
+  if (kind === "projects") {
+    return "Kanban"
+  }
+
+  if (kind === "docs") {
+    return "FileText"
+  }
+
+  return "ListBullets"
+}
+
 const ACTIVE_WORK_ITEM_DISPLAY_PROPS: ViewDefinition["displayProps"] = [
   "id",
   "status",
@@ -271,23 +291,17 @@ function getDefaultViewIcon(id: string, entityKind: EntityKind): string {
     return "ClipboardText"
   }
   if (/_all_items$/.test(id)) {
-    return "ListBullets"
+    return getCanonicalAllCollectionIcon("items")
   }
   if (/_all_projects$/.test(id)) {
-    return "Kanban"
+    return getCanonicalAllCollectionIcon("projects")
   }
   if (/_(workspace|team)_docs$/.test(id)) {
-    return "FileText"
+    return getCanonicalAllCollectionIcon("docs")
   }
 
   // Sensible per-kind fallback for any generated view without a chosen icon.
-  if (entityKind === "projects") {
-    return "Kanban"
-  }
-  if (entityKind === "docs") {
-    return "FileText"
-  }
-  return "ListBullets"
+  return getCanonicalAllCollectionIcon(entityKind)
 }
 
 export function getViewIconName(
@@ -612,7 +626,7 @@ export function buildWorkspaceDocumentViews(input: {
   return [
     createViewDefinition({
       id: `view_${input.workspaceId}_private_docs`,
-      name: "Private docs",
+      name: "Private",
       description: "Your private documents in this workspace.",
       scopeType: "personal",
       scopeId: input.userId,
@@ -630,7 +644,7 @@ export function buildWorkspaceDocumentViews(input: {
     }),
     createViewDefinition({
       id: `view_${input.workspaceId}_workspace_docs`,
-      name: "Workspace docs",
+      name: "Workspace",
       description: "Workspace-level documents.",
       scopeType: "workspace",
       scopeId: input.workspaceId,
@@ -656,7 +670,7 @@ export function buildTeamDocumentViews(input: {
   return [
     createViewDefinition({
       id: `view_${input.teamId}_team_docs`,
-      name: "Team space docs",
+      name: "All docs",
       description: "Documents in this team space.",
       scopeType: "team",
       scopeId: input.teamId,
@@ -718,7 +732,11 @@ export function isSystemView(view: Pick<ViewDefinition, "id" | "entityKind">) {
   return isCanonicalSystemViewId(view.id, view.entityKind)
 }
 
-export type SystemViewEditCapability = "full" | "display-props" | "none"
+export type SystemViewEditCapability =
+  | "full"
+  | "collection"
+  | "presentation"
+  | "none"
 
 /**
  * System views are generated defaults, not editable view records. Per-user
@@ -727,8 +745,11 @@ export type SystemViewEditCapability = "full" | "display-props" | "none"
  * user may re-default:
  * - Private tasks: full re-default (layout, filters, level, grouping, ordering,
  *   displayed properties).
- * - All issues / Active / Backlog / Subscribed: displayed properties only, since
- *   their filters/grouping define what the built-in surfaces.
+ * - Built-in project and document collections: collection re-default (layout,
+ *   filters, grouping, ordering, and displayed properties).
+ * - All issues / Active / Backlog / Subscribed: presentation re-default
+ *   (layout, level, grouping, ordering, displayed properties), while filters
+ *   remain locked because they define the built-in surface.
  */
 export function getSystemViewEditCapability(
   view: Pick<ViewDefinition, "id" | "entityKind">
@@ -742,7 +763,14 @@ export function getSystemViewEditCapability(
   }
 
   if (/^view_.+_(all|active|backlog|subscribed)_items$/.test(view.id)) {
-    return "display-props"
+    return "presentation"
+  }
+
+  if (
+    /^view_.+_all_projects$/.test(view.id) ||
+    /^view_.+_(private|workspace|team)_docs$/.test(view.id)
+  ) {
+    return "collection"
   }
 
   return "none"

@@ -347,12 +347,14 @@ export function PhosphorIconPicker({
   className,
   triggerClassName,
   disabled = false,
+  iconOnly = false,
 }: {
   value: string
   onValueChange: (value: PhosphorIconName) => void
   className?: string
   triggerClassName?: string
   disabled?: boolean
+  iconOnly?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -375,14 +377,25 @@ export function PhosphorIconPicker({
         <button
           type="button"
           disabled={disabled}
+          aria-label={
+            iconOnly ? `Choose icon: ${getIconLabel(selected)}` : undefined
+          }
+          title={
+            iconOnly ? `Choose icon: ${getIconLabel(selected)}` : undefined
+          }
           className={cn(
             "inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-[12px] text-fg-2 transition-colors hover:bg-surface-3 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface disabled:hover:text-fg-2",
+            iconOnly && "size-7 justify-center px-0",
             triggerClassName
           )}
         >
           <PhosphorIconGlyph icon={selected} className="size-[13px]" />
-          <span className="truncate">{getIconLabel(selected)}</span>
-          <CaretDown className="size-3 shrink-0 opacity-60" />
+          {iconOnly ? null : (
+            <>
+              <span className="truncate">{getIconLabel(selected)}</span>
+              <CaretDown className="size-3 shrink-0 opacity-60" />
+            </>
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent

@@ -264,6 +264,19 @@ function expectRenameDeleteVisibility(
   expect(screen.queryByText(deleteLabel)).not.toBeInTheDocument()
 }
 
+function openSystemViewDefaults(overrides: Partial<ViewDefinition>) {
+  renderViewContextMenu(overrides)
+
+  expect(screen.getByText("Edit view")).toBeInTheDocument()
+  expect(screen.queryByText("Edit displayed properties")).not.toBeInTheDocument()
+  expect(screen.queryByText("Rename view")).not.toBeInTheDocument()
+  expect(screen.queryByText("Delete view")).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByText("Edit view"))
+  expect(screen.getByText("System defaults dialog")).toBeInTheDocument()
+  expect(useAppStore.getState().ui.activeCreateDialog).toBeNull()
+}
+
 describe("RenameDialog", () => {
   it("confirms trimmed values from Enter and ignores guarded key targets", async () => {
     const onConfirm = vi.fn().mockResolvedValue(true)
@@ -415,41 +428,64 @@ describe("ViewContextMenu", () => {
     expectRenameDeleteVisibility("view", "hidden")
   })
 
-  it("offers displayed-properties-only editing for shared built-in item views", () => {
-    renderViewContextMenu({
+  it("offers filter-locked presentation editing for shared built-in item views", () => {
+    openSystemViewDefaults({
       id: "view_team_1_all_items",
       name: "All issues",
       route: "/team/platform/work",
     })
-
-    expect(screen.getByText("Edit displayed properties")).toBeInTheDocument()
-    expect(screen.queryByText("Edit view")).not.toBeInTheDocument()
-    expectRenameDeleteVisibility("view", "hidden")
-
-    fireEvent.click(screen.getByText("Edit displayed properties"))
-    expect(screen.getByText("System defaults dialog")).toBeInTheDocument()
-    expect(useAppStore.getState().ui.activeCreateDialog).toBeNull()
   })
 
   it("offers a full re-default editor for private tasks", () => {
-    renderViewContextMenu({
+    openSystemViewDefaults({
       id: "view_assigned_private_tasks",
       name: "Private tasks",
       scopeType: "personal",
       scopeId: "user_1",
       route: "/assigned",
     })
+  })
 
-    expect(screen.getByText("Edit view")).toBeInTheDocument()
-    expect(
-      screen.queryByText("Edit displayed properties")
-    ).not.toBeInTheDocument()
-    expect(screen.queryByText("Rename view")).not.toBeInTheDocument()
-    expect(screen.queryByText("Delete view")).not.toBeInTheDocument()
+  it("offers built-in project and document collection defaults without rename or delete", () => {
+    for (const view of [
+      {
+        id: "view_workspace_1_all_projects",
+        name: "All projects",
+        entityKind: "projects" as const,
+        route: "/workspace/projects",
+      },
+      {
+        id: "view_workspace_1_workspace_docs",
+        name: "Workspace",
+        entityKind: "docs" as const,
+        route: "/workspace/docs",
+      },
+      {
+        id: "view_workspace_1_private_docs",
+        name: "Private",
+        entityKind: "docs" as const,
+        route: "/workspace/docs",
+        scopeType: "personal" as const,
+        scopeId: "user_1",
+      },
+      {
+        id: "view_team_1_team_docs",
+        name: "All docs",
+        entityKind: "docs" as const,
+        route: "/team/platform/docs",
+      },
+    ]) {
+      const { unmount } = render(
+        <ViewContextMenu view={createView(view)}>
+          <button type="button">Open {view.name}</button>
+        </ViewContextMenu>
+      )
 
-    fireEvent.click(screen.getByText("Edit view"))
-    expect(screen.getByText("System defaults dialog")).toBeInTheDocument()
-    expect(useAppStore.getState().ui.activeCreateDialog).toBeNull()
+      expect(screen.getByText("Edit view")).toBeInTheDocument()
+      expect(screen.queryByText("Rename view")).not.toBeInTheDocument()
+      expect(screen.queryByText("Delete view")).not.toBeInTheDocument()
+      unmount()
+    }
   })
 })
 

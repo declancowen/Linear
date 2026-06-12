@@ -15,12 +15,7 @@ import { DocsContent } from "@/components/app/screens/docs-content"
 import { getDocumentListRowMeta } from "@/components/app/screens/document-list-row-meta"
 import { buildGroupedSections } from "@/components/app/screens/grouped-sections"
 import { createEmptyState } from "@/lib/domain/empty-state"
-import type {
-  CreateDialogState,
-  Project,
-  ViewDefinition,
-} from "@/lib/domain/types"
-import { openManagedCreateDialog } from "@/lib/browser/dialog-transitions"
+import type { Project, ViewDefinition } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
 import { getViewerScopedDirectoryKey } from "@/lib/domain/viewer-view-config"
 import {
@@ -329,7 +324,7 @@ function createLaunchProject(overrides: Partial<Project> = {}) {
 }
 
 function renderTeamProjectsScreen() {
-  render(
+  return render(
     <ProjectsScreen
       scopeId="team_1"
       scopeType="team"
@@ -340,7 +335,7 @@ function renderTeamProjectsScreen() {
 }
 
 function renderWorkspaceProjectsScreen() {
-  render(
+  return render(
     <ProjectsScreen
       scopeId="workspace_1"
       scopeType="workspace"
@@ -519,7 +514,7 @@ describe("ViewsScreen", () => {
     expect(screen.getByText("Platform")).toBeInTheDocument()
   })
 
-  it("keeps workspace views createable from the workspace directory without locking scope", () => {
+  it("creates viewer-local views directory tabs while keeping All views filters locked", () => {
     render(
       <ViewsScreen
         scopeId="workspace_1"
@@ -528,21 +523,54 @@ describe("ViewsScreen", () => {
       />
     )
 
-    fireEvent.click(screen.getByRole("button", { name: "New" }))
+    expect(
+      screen.getByRole("button", { name: "All views" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Filter" })
+    ).not.toBeInTheDocument()
 
-    expect(openManagedCreateDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: "view",
-        defaultScopeType: "workspace",
-        defaultScopeId: "workspace_1",
-      })
+    fireEvent.click(screen.getByRole("button", { name: "New view" }))
+    fireEvent.change(screen.getByPlaceholderText("View name"), {
+      target: { value: "Active views" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Create view" }))
+
+    expect(
+      screen.getByRole("button", { name: "Active views" })
+    ).toBeInTheDocument()
+    const routeKey = getViewerScopedDirectoryKey(
+      useAppStore.getState().currentUserId,
+      "views-directory:workspace:workspace_1"
     )
-    const firstDialog = vi.mocked(openManagedCreateDialog).mock
-      .calls[0]?.[0] as Extract<CreateDialogState, { kind: "view" }> | undefined
-    expect(firstDialog?.lockScope).toBeUndefined()
+    expect(
+      useAppStore.getState().ui.selectedDirectoryPresetByRoute[routeKey]
+    ).toBeTruthy()
   })
 
-  it("keeps fallback project view controls local when no saved project view exists", () => {
+  it("always shows All views in workspace and teamspace directories", () => {
+    const { unmount } = render(
+      <ViewsScreen
+        scopeId="workspace_1"
+        scopeType="workspace"
+        title="Workspace views"
+      />
+    )
+
+    expect(
+      screen.getByRole("button", { name: "All views" })
+    ).toBeInTheDocument()
+    unmount()
+
+    render(
+      <ViewsScreen scopeId="team_1" scopeType="team" title="Platform views" />
+    )
+    expect(
+      screen.getByRole("button", { name: "All views" })
+    ).toBeInTheDocument()
+  })
+
+  it("uses the editable All projects system view when no saved project view exists", () => {
     useAppStore.setState((state) => ({
       ...state,
       views: [],
@@ -550,6 +578,10 @@ describe("ViewsScreen", () => {
     }))
 
     renderTeamProjectsScreen()
+
+    expect(
+      screen.getByRole("button", { name: "All projects" })
+    ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "Layout:list" }))
     expect(
@@ -578,6 +610,49 @@ describe("ViewsScreen", () => {
         name: "Props:team,assignee,priority,updated,dueDate",
       })
     ).toBeInTheDocument()
+  })
+
+  it("always shows All projects in workspace and teamspace directories", () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      views: [],
+      projects: [createLaunchProject()],
+    }))
+
+    const { unmount } = renderWorkspaceProjectsScreen()
+    expect(
+      screen.getByRole("button", { name: "All projects" })
+    ).toBeInTheDocument()
+    unmount()
+
+    renderTeamProjectsScreen()
+    expect(
+      screen.getByRole("button", { name: "All projects" })
+    ).toBeInTheDocument()
+  })
+
+  it("uses the built-in workspace and teamspace docs tab labels", () => {
+    const { unmount } = render(
+      <DocsScreen scopeId="workspace_1" scopeType="workspace" title="Docs" />
+    )
+
+    expect(screen.getByRole("button", { name: "Private" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Workspace" })
+    ).toBeInTheDocument()
+
+    unmount()
+
+    render(
+      <DocsScreen
+        scopeId="team_1"
+        scopeType="team"
+        team={useAppStore.getState().teams[0]}
+        title="Docs"
+      />
+    )
+
+    expect(screen.getByRole("button", { name: "All docs" })).toBeInTheDocument()
   })
 
   it("keeps project preview metadata out of the secondary text row", () => {

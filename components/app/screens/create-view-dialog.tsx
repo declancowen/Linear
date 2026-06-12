@@ -1384,6 +1384,7 @@ function CreateViewDialogFrame({
 
         <CreateViewDialogTopBar
           dialog={dialog}
+          icon={icon}
           selectedEntityKind={selectedEntityKind}
           availableEntityKinds={availableEntityKinds}
           onSelectEntityKind={onSelectEntityKind}
@@ -1392,13 +1393,12 @@ function CreateViewDialogFrame({
           onSelectScope={onSelectScope}
           isProjectSpecificItemView={isProjectSpecificItemView}
           selectedProject={selectedProject}
+          onIconChange={onIconChange}
         />
 
         <CreateViewDialogFields
           name={name}
           onNameChange={onNameChange}
-          icon={icon}
-          onIconChange={onIconChange}
           description={description}
           onDescriptionChange={onDescriptionChange}
           nameLimitState={nameLimitState}
@@ -1740,6 +1740,7 @@ function CreateDocsSortPopover({
 
 function CreateViewDialogTopBar({
   dialog,
+  icon,
   selectedEntityKind,
   availableEntityKinds,
   onSelectEntityKind,
@@ -1748,8 +1749,10 @@ function CreateViewDialogTopBar({
   onSelectScope,
   isProjectSpecificItemView,
   selectedProject,
+  onIconChange,
 }: {
   dialog: CreateViewDialogState
+  icon: string | null
   selectedEntityKind: SelectableEntityKind
   availableEntityKinds: SelectableEntityKind[]
   onSelectEntityKind: (entityKind: SelectableEntityKind) => void
@@ -1758,6 +1761,7 @@ function CreateViewDialogTopBar({
   onSelectScope: (scopeKey: string) => void
   isProjectSpecificItemView: boolean
   selectedProject: Project | null
+  onIconChange: (icon: string | null) => void
 }) {
   return (
     <div className="flex items-center gap-1 border-b border-line-soft px-3.5 py-2 text-[12.5px] text-fg-3">
@@ -1802,6 +1806,12 @@ function CreateViewDialogTopBar({
           </span>
         </span>
       )}
+      <PhosphorIconPicker
+        value={icon ?? "ListBullets"}
+        onValueChange={onIconChange}
+        iconOnly
+        triggerClassName="border-transparent bg-transparent"
+      />
       <div className="ml-auto flex items-center gap-0.5">
         <DialogClose asChild>
           <button
@@ -1820,8 +1830,6 @@ function CreateViewDialogTopBar({
 function CreateViewDialogFields({
   name,
   onNameChange,
-  icon,
-  onIconChange,
   description,
   onDescriptionChange,
   nameLimitState,
@@ -1831,8 +1839,6 @@ function CreateViewDialogFields({
 }: {
   name: string
   onNameChange: (name: string) => void
-  icon: string | null
-  onIconChange: (icon: string | null) => void
   description: string
   onDescriptionChange: (description: string) => void
   nameLimitState: ReturnType<typeof getTextInputLimitState>
@@ -1850,11 +1856,6 @@ function CreateViewDialogFields({
 
   return (
     <div className="px-[18px] pt-3 pb-0.5">
-      <PhosphorIconPicker
-        value={icon ?? "ListBullets"}
-        onValueChange={(next) => onIconChange(next)}
-        triggerClassName="mb-1.5"
-      />
       <Input
         value={name}
         onChange={(event) => onNameChange(event.target.value)}
