@@ -44,6 +44,12 @@ vi.mock("@/components/app/collaboration-screens", () => ({
   WorkspaceChatsScreen: () => <div>Workspace chats screen</div>,
 }))
 
+vi.mock("@/components/app/screens/team-dashboard-screen", () => ({
+  TeamDashboardScreen: ({ teamSlug }: { teamSlug: string }) => (
+    <div>Team dashboard {teamSlug}</div>
+  ),
+}))
+
 vi.mock("@/components/app/settings-screens/create-team-screen", () => ({
   CreateTeamScreen: () => <div>Create team screen</div>,
 }))
@@ -123,6 +129,15 @@ describe("DesktopRoute", () => {
     render(<DesktopRoute />)
 
     expect(screen.getByText("Project detail project_1")).toBeInTheDocument()
+    expect(screen.queryByText("Team work mvp")).not.toBeInTheDocument()
+  })
+
+  it("routes team dashboard paths to the team dashboard screen", () => {
+    pathnameMock.mockReturnValue("/team/mvp/dashboard")
+
+    render(<DesktopRoute />)
+
+    expect(screen.getByText("Team dashboard mvp")).toBeInTheDocument()
     expect(screen.queryByText("Team work mvp")).not.toBeInTheDocument()
   })
 

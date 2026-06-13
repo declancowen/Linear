@@ -15,6 +15,7 @@ import {
   WorkItemDetailScreen,
   WorkspaceItemsScreen,
 } from "@/components/app/screens"
+import { TeamDashboardScreen } from "@/components/app/screens/team-dashboard-screen"
 import {
   useAppPathname,
   useAppSearchParams,
@@ -317,6 +318,10 @@ function TeamRoute({ rest, teamSlug }: { rest: string; teamSlug: string }) {
 
   if (rest === "settings") {
     return <TeamSettingsScreen teamSlug={teamSlug} />
+  }
+
+  if (rest === "dashboard") {
+    return <TeamDashboardScreen teamSlug={teamSlug} />
   }
 
   if (rest === "projects") {
