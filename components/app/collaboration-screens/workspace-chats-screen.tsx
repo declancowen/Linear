@@ -452,8 +452,10 @@ function WorkspaceChatDetailsSheet({
 
 export function WorkspaceChatsScreen({
   initialSeed,
+  conversationThreadSeed,
 }: {
   initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+  conversationThreadSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
 } = {}) {
   const router = useAppRouter()
   const searchParams = useAppSearchParams()
@@ -662,7 +664,7 @@ export function WorkspaceChatsScreen({
   const { hasLoadedOnce: hasLoadedConversationList } =
     useConversationListReadModelRefresh(currentUserId, initialSeed)
   const { hasLoadedOnce: hasLoadedConversationThread } =
-    useConversationThreadReadModelRefresh(activeChatId)
+    useConversationThreadReadModelRefresh(activeChatId, conversationThreadSeed)
   const activeChat =
     chats.find((chat) => chat.id === activeChatId) ?? chats[0] ?? null
   const members = useAppStore(

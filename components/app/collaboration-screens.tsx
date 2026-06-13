@@ -128,6 +128,7 @@ function useChannelReadModelRefresh(input: {
   activeChannelId?: string | null
   currentUserId: string | null
   conversationListSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+  channelFeedSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
 }) {
   const { hasLoadedOnce: hasLoadedConversationList } =
     useConversationListReadModelRefresh(
@@ -140,6 +141,7 @@ function useChannelReadModelRefresh(input: {
       ? getChannelFeedScopeKeys(input.activeChannelId)
       : [],
     fetchLatest: () => fetchChannelFeedReadModel(input.activeChannelId ?? ""),
+    initialSeed: input.channelFeedSeed,
     diagnostics: {
       retainedData: Boolean(input.activeChannelId),
       surface: "channel/feed",
@@ -243,8 +245,10 @@ function WorkspaceChannelBody({
 
 export function WorkspaceChannelsScreen({
   initialSeed,
+  channelFeedSeed,
 }: {
   initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+  channelFeedSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
 } = {}) {
   const currentUserId = useAppStore((state) => state.currentUserId)
   const workspace = useAppStore((state) => getCurrentWorkspace(state))
@@ -271,6 +275,7 @@ export function WorkspaceChannelsScreen({
       activeChannelId: activeChannel?.id,
       currentUserId,
       conversationListSeed: initialSeed,
+      channelFeedSeed,
     })
   const workspaceDescription =
     workspace?.settings.description ||
@@ -417,9 +422,11 @@ function TeamChatBody({
 export function TeamChatScreen({
   teamSlug,
   initialSeed,
+  conversationThreadSeed,
 }: {
   teamSlug: string
   initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+  conversationThreadSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
 }) {
   const currentUserId = useAppStore((state) => state.currentUserId)
   const { liveTeam, team } = useRetainedTeamBySlug(teamSlug)
@@ -766,9 +773,11 @@ function TeamChannelDetailsSheet({
 export function TeamChannelsScreen({
   teamSlug,
   initialSeed,
+  channelFeedSeed,
 }: {
   teamSlug: string
   initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
+  channelFeedSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
 }) {
   const currentUserId = useAppStore((state) => state.currentUserId)
   const { liveTeam, team } = useRetainedTeamBySlug(teamSlug)
@@ -796,6 +805,7 @@ export function TeamChannelsScreen({
       activeChannelId: activeChannel?.id,
       currentUserId,
       conversationListSeed: initialSeed,
+      channelFeedSeed,
     })
   const teamDescription =
     team?.settings.summary ||

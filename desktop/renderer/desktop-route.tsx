@@ -351,6 +351,7 @@ function TeamRoute({ rest, teamSlug }: { rest: string; teamSlug: string }) {
       <TeamChatScreen
         teamSlug={teamSlug}
         initialSeed={DESKTOP_PRELOADED_SEED}
+        conversationThreadSeed={DESKTOP_PRELOADED_SEED}
       />
     )
   }
@@ -360,6 +361,7 @@ function TeamRoute({ rest, teamSlug }: { rest: string; teamSlug: string }) {
       <TeamChannelsScreen
         teamSlug={teamSlug}
         initialSeed={DESKTOP_PRELOADED_SEED}
+        channelFeedSeed={DESKTOP_PRELOADED_SEED}
       />
     )
   }
@@ -413,12 +415,20 @@ const STATIC_ROUTE_DEFINITIONS: readonly StaticRouteDefinition[] = [
   {
     paths: ["/workspace/channel", "/workspace/channels"],
     render: () => (
-      <WorkspaceChannelsScreen initialSeed={DESKTOP_PRELOADED_SEED} />
+      <WorkspaceChannelsScreen
+        initialSeed={DESKTOP_PRELOADED_SEED}
+        channelFeedSeed={DESKTOP_PRELOADED_SEED}
+      />
     ),
   },
   {
     paths: ["/chats"],
-    render: () => <WorkspaceChatsScreen initialSeed={DESKTOP_PRELOADED_SEED} />,
+    render: () => (
+      <WorkspaceChatsScreen
+        initialSeed={DESKTOP_PRELOADED_SEED}
+        conversationThreadSeed={DESKTOP_PRELOADED_SEED}
+      />
+    ),
   },
   {
     paths: ["/assigned"],
