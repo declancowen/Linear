@@ -20,14 +20,38 @@ import {
   useAppPathname,
   useAppSearchParams,
 } from "@/lib/browser/app-navigation"
+import type { ReadModelFetchResult } from "@/lib/convex/client/read-models"
 import {
   getCurrentWorkspace,
   getProjectHref,
   getTeamBySlug,
   teamHasFeature,
 } from "@/lib/domain/selectors"
-import type { Team } from "@/lib/domain/types"
+import type { AppSnapshot, Team } from "@/lib/domain/types"
 import { useAppStore } from "@/lib/store/app-store"
+
+/**
+ * Sentinel "already loaded" seed for desktop route segments.
+ *
+ * The desktop renderer is a separate Vite-built SPA that, unlike the Next.js
+ * RSC pages, can't build per-surface scoped read-model seeds on the server.
+ * It boots by loading the full app snapshot via `fetchSnapshotState` though,
+ * so by the time any route component mounts, every scope's data is already
+ * in the app store.
+ *
+ * Passing this sentinel as `initialSeed` makes `useScopedReadModelRefresh`
+ * treat the scope as already-loaded on first render — its lazy useState
+ * sets `hasLoadedOnce=true`, the layout-effect store merge is a harmless
+ * no-op (empty data, no replace), and the main effect skips the redundant
+ * client fetch. The scoped invalidation stream still opens, so subsequent
+ * versions are picked up normally.
+ *
+ * If the desktop ever moves off the legacy snapshot bootstrap, switch this
+ * back to per-surface seed building (mirror the Next.js RSC pages).
+ */
+const DESKTOP_PRELOADED_SEED: ReadModelFetchResult<Partial<AppSnapshot>> = {
+  data: {},
+}
 
 const WorkspaceChannelsScreen = lazy(() =>
   import("@/components/app/collaboration-screens").then((module) => ({
@@ -232,6 +256,7 @@ function WorkspaceProjectsRoute() {
       scopeType="workspace"
       title="Workspace projects"
       description="Projects across the teams you belong to, aggregated into a single workspace view."
+      initialSeed={DESKTOP_PRELOADED_SEED}
     />
   )
 }
@@ -249,6 +274,7 @@ function WorkspaceViewsRoute() {
       scopeType="workspace"
       title="Workspace views"
       description="Saved workspace and team views across the teams you belong to."
+      initialSeed={DESKTOP_PRELOADED_SEED}
     />
   )
 }
@@ -266,6 +292,7 @@ function WorkspaceDocsRoute() {
       scopeType="workspace"
       title="Docs"
       description="Aggregate team-owned documents visible from the workspace."
+      initialSeed={DESKTOP_PRELOADED_SEED}
     />
   )
 }
@@ -278,6 +305,7 @@ function TeamProjectsRoute({ team }: { team: Team }) {
       team={team}
       title={`${team.name} projects`}
       description="Projects owned by the current team, with linked work and child work rolled up together."
+      initialSeed={DESKTOP_PRELOADED_SEED}
     />
   )
 }
@@ -293,6 +321,7 @@ function TeamViewsRoute({ team }: { team: Team }) {
       scopeType="team"
       title={`${team.name} views`}
       description="Saved work views with list, board, and timeline layouts."
+      initialSeed={DESKTOP_PRELOADED_SEED}
     />
   )
 }
@@ -305,6 +334,7 @@ function TeamDocsRoute({ team }: { team: Team }) {
       team={team}
       title="Docs"
       description="Free-standing team documents with workspace aggregation."
+      initialSeed={DESKTOP_PRELOADED_SEED}
     />
   )
 }
@@ -337,24 +367,46 @@ function TeamRoute({ rest, teamSlug }: { rest: string; teamSlug: string }) {
   }
 
   if (rest === "chat") {
-    return <TeamChatScreen teamSlug={teamSlug} />
+    return (
+      <TeamChatScreen
+        teamSlug={teamSlug}
+        initialSeed={DESKTOP_PRELOADED_SEED}
+      />
+    )
   }
 
   if (rest === "channel" || rest === "channels") {
-    return <TeamChannelsScreen teamSlug={teamSlug} />
+    return (
+      <TeamChannelsScreen
+        teamSlug={teamSlug}
+        initialSeed={DESKTOP_PRELOADED_SEED}
+      />
+    )
   }
 
-  return <TeamWorkScreen teamSlug={teamSlug} />
+  return (
+    <TeamWorkScreen teamSlug={teamSlug} initialSeed={DESKTOP_PRELOADED_SEED} />
+  )
 }
 
 function ProjectDetailRoute({ projectId }: { projectId: string }) {
   const canonicalHref = useAppStore((state) => getProjectHref(state, projectId))
 
   if (canonicalHref && canonicalHref !== `/projects/${projectId}`) {
-    return <ProjectDetailScreen projectId={projectId} />
+    return (
+      <ProjectDetailScreen
+        projectId={projectId}
+        initialSeed={DESKTOP_PRELOADED_SEED}
+      />
+    )
   }
 
-  return <ProjectDetailScreen projectId={projectId} />
+  return (
+    <ProjectDetailScreen
+      projectId={projectId}
+      initialSeed={DESKTOP_PRELOADED_SEED}
+    />
+  )
 }
 
 const STATIC_ROUTE_DEFINITIONS: readonly StaticRouteDefinition[] = [
@@ -364,7 +416,7 @@ const STATIC_ROUTE_DEFINITIONS: readonly StaticRouteDefinition[] = [
   },
   {
     paths: ["/workspace/items"],
-    render: () => <WorkspaceItemsScreen />,
+    render: () => <WorkspaceItemsScreen initialSeed={DESKTOP_PRELOADED_SEED} />,
   },
   {
     paths: ["/workspace/views"],
@@ -376,27 +428,29 @@ const STATIC_ROUTE_DEFINITIONS: readonly StaticRouteDefinition[] = [
   },
   {
     paths: ["/workspace/people"],
-    render: () => <PeopleScreen />,
+    render: () => <PeopleScreen initialSeed={DESKTOP_PRELOADED_SEED} />,
   },
   {
     paths: ["/workspace/channel", "/workspace/channels"],
-    render: () => <WorkspaceChannelsScreen />,
+    render: () => (
+      <WorkspaceChannelsScreen initialSeed={DESKTOP_PRELOADED_SEED} />
+    ),
   },
   {
     paths: ["/chats"],
-    render: () => <WorkspaceChatsScreen />,
+    render: () => <WorkspaceChatsScreen initialSeed={DESKTOP_PRELOADED_SEED} />,
   },
   {
     paths: ["/assigned"],
-    render: () => <AssignedScreen />,
+    render: () => <AssignedScreen initialSeed={DESKTOP_PRELOADED_SEED} />,
   },
   {
     paths: ["/calendar"],
-    render: () => <UserCalendarScreen />,
+    render: () => <UserCalendarScreen initialSeed={DESKTOP_PRELOADED_SEED} />,
   },
   {
     paths: ["/inbox"],
-    render: () => <InboxScreen />,
+    render: () => <InboxScreen initialSeed={DESKTOP_PRELOADED_SEED} />,
   },
   {
     paths: ["/workspace/search"],
@@ -443,11 +497,20 @@ export function DesktopRoute() {
         <TeamRoute rest={route.rest} teamSlug={route.teamSlug} />
       ) : route.kind === "detail" ? (
         route.type === "document" ? (
-          <DocumentDetailScreen documentId={route.id} />
+          <DocumentDetailScreen
+            documentId={route.id}
+            initialSeed={DESKTOP_PRELOADED_SEED}
+          />
         ) : route.type === "item" ? (
-          <WorkItemDetailScreen itemId={route.id} />
+          <WorkItemDetailScreen
+            itemId={route.id}
+            initialSeed={DESKTOP_PRELOADED_SEED}
+          />
         ) : route.type === "person" ? (
-          <PeopleProfileScreen userId={route.id} />
+          <PeopleProfileScreen
+            userId={route.id}
+            initialSeed={DESKTOP_PRELOADED_SEED}
+          />
         ) : (
           <ProjectDetailRoute projectId={route.id} />
         )

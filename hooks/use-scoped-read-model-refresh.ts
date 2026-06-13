@@ -332,6 +332,18 @@ export function useScopedReadModelRefresh(input: ScopedReadModelRefreshInput) {
     mergeReadModelData(input.initialSeed.data, {
       replace: input.initialSeed.replace,
     })
+    // Flip the loaded-state synchronously inside the same commit cycle so
+    // the very next render (still pre-paint) reflects the seed. If we left
+    // this to the main useEffect below, it would only run post-paint and
+    // surfaces whose scope keys depend on store-hydrated identifiers (e.g.
+    // notification-inbox keyed by currentUserId) would briefly render the
+    // Loading state between the parent layout's shell-seed apply and our
+    // own seed apply.
+    lastRefreshFailedRef.current = false
+    setError(null)
+    setRefreshing(false)
+    setLoadedScopeKeySignature(activeScopeKeySignature)
+    setHasLoadedOnce(true)
   }, [
     activeScopeKeySignature,
     input.enabled,
