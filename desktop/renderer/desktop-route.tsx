@@ -15,6 +15,16 @@ import {
   WorkItemDetailScreen,
   WorkspaceItemsScreen,
 } from "@/components/app/screens"
+import {
+  TeamChannelsScreen,
+  TeamChatScreen,
+  WorkspaceChannelsScreen,
+  WorkspaceChatsScreen,
+} from "@/components/app/collaboration-screens"
+import {
+  PeopleProfileScreen,
+  PeopleScreen,
+} from "@/components/app/people-screen"
 import { TeamDashboardScreen } from "@/components/app/screens/team-dashboard-screen"
 import {
   useAppPathname,
@@ -53,39 +63,9 @@ const DESKTOP_PRELOADED_SEED: ReadModelFetchResult<Partial<AppSnapshot>> = {
   data: {},
 }
 
-const WorkspaceChannelsScreen = lazy(() =>
-  import("@/components/app/collaboration-screens").then((module) => ({
-    default: module.WorkspaceChannelsScreen,
-  }))
-)
-const TeamChannelsScreen = lazy(() =>
-  import("@/components/app/collaboration-screens").then((module) => ({
-    default: module.TeamChannelsScreen,
-  }))
-)
-const TeamChatScreen = lazy(() =>
-  import("@/components/app/collaboration-screens").then((module) => ({
-    default: module.TeamChatScreen,
-  }))
-)
-const WorkspaceChatsScreen = lazy(() =>
-  import("@/components/app/collaboration-screens").then((module) => ({
-    default: module.WorkspaceChatsScreen,
-  }))
-)
 const WorkspaceSearchScreen = lazy(() =>
   import("@/components/app/workspace-search-screen").then((module) => ({
     default: module.WorkspaceSearchScreen,
-  }))
-)
-const PeopleScreen = lazy(() =>
-  import("@/components/app/people-screen").then((module) => ({
-    default: module.PeopleScreen,
-  }))
-)
-const PeopleProfileScreen = lazy(() =>
-  import("@/components/app/people-screen").then((module) => ({
-    default: module.PeopleProfileScreen,
   }))
 )
 const CreateTeamScreen = lazy(() =>
