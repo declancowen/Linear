@@ -3,6 +3,8 @@ import type { MutationCtx } from "../_generated/server"
 
 type DocumentPresenceDoc = Doc<"documentPresence">
 
+export const DOCUMENT_PRESENCE_ACTIVE_WINDOW_MS = 2 * 60 * 1000
+
 export type PresenceActor = {
   currentUserId: string
   workosUserId: string
@@ -11,6 +13,7 @@ export type PresenceActor = {
   avatarUrl: string
   avatarImageUrl?: string | null
   activeBlockId?: string | null
+  editing?: boolean
   sessionId: string
 }
 
@@ -78,10 +81,70 @@ function getPresenceWriteFields(
     avatarImageUrl: actor.avatarImageUrl ?? null,
     documentId,
     email: actor.email,
+    editing: actor.editing ?? false,
     lastSeenAt: currentTime,
     name: actor.name,
     userId: actor.currentUserId,
     workosUserId: actor.workosUserId,
+  }
+}
+
+export function isDocumentPresenceActive(
+  lastSeenAt: string,
+  currentTime = Date.now()
+) {
+  const parsedLastSeenAt = Date.parse(lastSeenAt)
+
+  return (
+    Number.isFinite(parsedLastSeenAt) &&
+    currentTime - parsedLastSeenAt <= DOCUMENT_PRESENCE_ACTIVE_WINDOW_MS
+  )
+}
+
+export async function assertDocumentEditLeaseAvailable(
+  ctx: MutationCtx,
+  documentId: string,
+  actor: PresenceActor,
+  currentTime: string
+) {
+  const entries = await ctx.db
+    .query("documentPresence")
+    .withIndex("by_document", (q) => q.eq("documentId", documentId))
+    .collect()
+  const currentTimeMs = Date.parse(currentTime)
+  const hasConflictingEditor = entries.some(
+    (entry) =>
+      entry.editing === true &&
+      entry.sessionId !== actor.sessionId &&
+      isDocumentPresenceActive(entry.lastSeenAt, currentTimeMs)
+  )
+
+  if (hasConflictingEditor) {
+    throw new Error("Work item is already being edited")
+  }
+}
+
+export async function assertDocumentEditLeaseOwned(
+  ctx: MutationCtx,
+  documentId: string,
+  actor: Pick<PresenceActor, "currentUserId" | "sessionId">,
+  currentTime: string
+) {
+  const entries = await ctx.db
+    .query("documentPresence")
+    .withIndex("by_session", (q) => q.eq("sessionId", actor.sessionId))
+    .collect()
+  const currentTimeMs = Date.parse(currentTime)
+  const ownsActiveLease = entries.some(
+    (entry) =>
+      entry.documentId === documentId &&
+      entry.userId === actor.currentUserId &&
+      entry.editing === true &&
+      isDocumentPresenceActive(entry.lastSeenAt, currentTimeMs)
+  )
+
+  if (!ownsActiveLease) {
+    throw new Error("Work item edit session is no longer active")
   }
 }
 

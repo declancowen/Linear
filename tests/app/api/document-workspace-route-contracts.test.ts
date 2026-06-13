@@ -14,7 +14,6 @@ const toggleCommentReactionServerMock = vi.fn()
 const updateDocumentServerMock = vi.fn()
 const deleteDocumentServerMock = vi.fn()
 const sendDocumentMentionNotificationsServerMock = vi.fn()
-const updateItemDescriptionServerMock = vi.fn()
 const sendItemDescriptionMentionNotificationsServerMock = vi.fn()
 const leaveWorkspaceServerMock = vi.fn()
 const removeWorkspaceUserServerMock = vi.fn()
@@ -30,7 +29,6 @@ const reconcileDeletedAccountProviderCleanupMock = vi.fn()
 const logProviderErrorMock = vi.fn()
 const bumpScopedReadModelVersionsServerMock = vi.fn()
 const resolveDocumentReadModelScopeKeysServerMock = vi.fn()
-const resolveWorkItemReadModelScopeKeysServerMock = vi.fn()
 const bumpDocumentIndexReadModelScopesServerMock = vi.fn()
 const bumpWorkspaceMembershipReadModelScopesServerMock = vi.fn()
 const bumpCommentTargetReadModelScopesServerMock = vi.fn()
@@ -72,7 +70,6 @@ vi.mock("@/lib/server/convex", () => ({
   updateDocumentServer: updateDocumentServerMock,
   sendDocumentMentionNotificationsServer:
     sendDocumentMentionNotificationsServerMock,
-  updateItemDescriptionServer: updateItemDescriptionServerMock,
   sendItemDescriptionMentionNotificationsServer:
     sendItemDescriptionMentionNotificationsServerMock,
   leaveWorkspaceServer: leaveWorkspaceServerMock,
@@ -115,8 +112,6 @@ vi.mock("@/lib/server/scoped-read-models", () => ({
     bumpDocumentIndexReadModelScopesServerMock,
   bumpWorkspaceMembershipReadModelScopesServer:
     bumpWorkspaceMembershipReadModelScopesServerMock,
-  resolveWorkItemReadModelScopeKeysServer:
-    resolveWorkItemReadModelScopeKeysServerMock,
   bumpCommentTargetReadModelScopesServer:
     bumpCommentTargetReadModelScopesServerMock,
   bumpNotificationInboxReadModelScopesServer:
@@ -142,19 +137,6 @@ async function patchDocument(body: unknown) {
   })
 }
 
-async function patchItemDescription(body: unknown) {
-  const { PATCH } = await import("@/app/api/items/[itemId]/description/route")
-
-  return PATCH(
-    createJsonPatchRequest("http://localhost/api/items/item_1/description", body),
-    {
-      params: Promise.resolve({
-        itemId: "item_1",
-      }),
-    }
-  )
-}
-
 describe("document and workspace route contracts", () => {
   beforeEach(() => {
     requireSessionMock.mockReset()
@@ -164,7 +146,6 @@ describe("document and workspace route contracts", () => {
     deleteDocumentServerMock.mockReset()
     updateDocumentServerMock.mockReset()
     sendDocumentMentionNotificationsServerMock.mockReset()
-    updateItemDescriptionServerMock.mockReset()
     sendItemDescriptionMentionNotificationsServerMock.mockReset()
     leaveWorkspaceServerMock.mockReset()
     removeWorkspaceUserServerMock.mockReset()
@@ -180,7 +161,6 @@ describe("document and workspace route contracts", () => {
     logProviderErrorMock.mockReset()
     bumpScopedReadModelVersionsServerMock.mockReset()
     resolveDocumentReadModelScopeKeysServerMock.mockReset()
-    resolveWorkItemReadModelScopeKeysServerMock.mockReset()
     bumpDocumentIndexReadModelScopesServerMock.mockReset()
     bumpWorkspaceMembershipReadModelScopesServerMock.mockReset()
     bumpCommentTargetReadModelScopesServerMock.mockReset()
@@ -217,10 +197,6 @@ describe("document and workspace route contracts", () => {
     bumpScopedReadModelVersionsServerMock.mockResolvedValue(undefined)
     resolveDocumentReadModelScopeKeysServerMock.mockResolvedValue([
       "document-detail:document_1",
-    ])
-    resolveWorkItemReadModelScopeKeysServerMock.mockResolvedValue([
-      "work-item-detail:item_1",
-      "work-index:team_team_1",
     ])
     bumpDocumentIndexReadModelScopesServerMock.mockResolvedValue(undefined)
     bumpWorkspaceMembershipReadModelScopesServerMock.mockResolvedValue(
@@ -507,52 +483,6 @@ describe("document and workspace route contracts", () => {
       error: "One or more mentioned users are invalid for this document",
       message: "One or more mentioned users are invalid for this document",
       code: "DOCUMENT_MENTION_USERS_INVALID",
-    })
-  })
-
-  it("maps item-description domain failures to typed error responses", async () => {
-    updateItemDescriptionServerMock.mockRejectedValue(
-      new ApplicationError("Work item not found", 404, {
-        code: "WORK_ITEM_NOT_FOUND",
-      })
-    )
-
-    const response = await patchItemDescription({
-      content: "<p>Updated description</p>",
-    })
-
-    expect(response.status).toBe(404)
-    await expect(response.json()).resolves.toEqual({
-      error: "Work item not found",
-      message: "Work item not found",
-      code: "WORK_ITEM_NOT_FOUND",
-    })
-  })
-
-  it("bumps scoped read model versions after item-description updates", async () => {
-    updateItemDescriptionServerMock.mockResolvedValue({
-      updatedAt: "2026-04-22T00:00:00.000Z",
-    })
-
-    const response = await patchItemDescription({
-      content: "<p>Updated description</p>",
-    })
-
-    expect(response.status).toBe(200)
-    expect(resolveWorkItemReadModelScopeKeysServerMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        user: expect.objectContaining({
-          id: "workos_1",
-        }),
-      }),
-      "item_1"
-    )
-    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledWith({
-      scopeKeys: ["work-item-detail:item_1", "work-index:team_team_1"],
-    })
-    await expect(response.json()).resolves.toEqual({
-      ok: true,
-      updatedAt: "2026-04-22T00:00:00.000Z",
     })
   })
 

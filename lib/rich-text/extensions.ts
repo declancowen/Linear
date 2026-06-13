@@ -176,6 +176,63 @@ const AttachmentReference = Node.create({
     return [{ tag: 'a[data-type="attachment"]' }]
   },
 
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement("span")
+      const attachment = document.createElement("a")
+      const download = document.createElement("a")
+
+      dom.className = "attachment-reference-node"
+      attachment.className = "editor-attachment"
+      attachment.dataset.type = "attachment"
+      attachment.target = "_blank"
+      attachment.rel = "noreferrer"
+      download.className = "editor-attachment-download"
+      download.dataset.attachmentDownload = "true"
+
+      dom.append(attachment, download)
+
+      function update(currentNode: typeof node) {
+        if (currentNode.type.name !== "attachmentReference") {
+          return false
+        }
+
+        const fileName =
+          typeof currentNode.attrs.fileName === "string" &&
+          currentNode.attrs.fileName.length > 0
+            ? currentNode.attrs.fileName
+            : "Attachment"
+        const href =
+          typeof currentNode.attrs.href === "string" &&
+          currentNode.attrs.href.length > 0
+            ? currentNode.attrs.href
+            : "#"
+        const attachmentKind =
+          typeof currentNode.attrs.attachmentKind === "string"
+            ? currentNode.attrs.attachmentKind
+            : "file"
+
+        attachment.href = href
+        attachment.dataset.attachmentKind = attachmentKind
+        attachment.dataset.fileName = fileName
+        attachment.textContent = fileName
+        download.href = href
+        download.download = fileName
+        download.ariaLabel = `Download ${fileName}`
+        download.title = `Download ${fileName}`
+        return true
+      }
+
+      update(node)
+
+      return {
+        dom,
+        update,
+        stopEvent: (event) => event.target instanceof HTMLAnchorElement,
+      }
+    }
+  },
+
   renderHTML({ HTMLAttributes, node }) {
     const fileName =
       typeof node.attrs.fileName === "string" && node.attrs.fileName.length > 0

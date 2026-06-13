@@ -264,6 +264,7 @@ export interface DocumentPresenceViewer {
   avatarUrl: string
   avatarImageUrl?: string | null
   activeBlockId?: string | null
+  editing?: boolean
   lastSeenAt: string
 }
 

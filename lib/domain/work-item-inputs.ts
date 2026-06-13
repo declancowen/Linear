@@ -8,6 +8,7 @@ import type {
 export type WorkItemMutationPatch = {
   title?: string
   description?: string
+  editSessionId?: string
   expectedDescriptionUpdatedAt?: string
   expectedUpdatedAt?: string
   status?: WorkStatus
@@ -25,11 +26,15 @@ export type WorkItemMutationPatch = {
   scheduleTimeZone?: string | null
 }
 
-export type StoreWorkItemPatch = Omit<WorkItemMutationPatch, "description">
+export type StoreWorkItemPatch = Omit<
+  WorkItemMutationPatch,
+  "description" | "editSessionId"
+>
 
 export type CreateWorkItemMutationInput = {
   id?: string
   descriptionDocId?: string
+  description?: string
   teamId?: string | null
   workspaceId?: string | null
   type: WorkItemType

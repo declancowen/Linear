@@ -21,6 +21,7 @@ import {
   hiddenStateValidator,
   nullableStringValidator,
   orderingFieldValidator,
+  presenceSessionFields,
   priorityValidator,
   projectPresentationMutationValidator,
   projectStatusValidator,
@@ -122,7 +123,6 @@ import {
   sendItemDescriptionMentionNotificationsHandler,
   updateDocumentContentHandler,
   updateDocumentHandler,
-  updateItemDescriptionHandler,
 } from "./app/document_handlers"
 import {
   bumpScopedReadModelVersionsHandler,
@@ -176,7 +176,6 @@ import {
   clearWorkItemPresenceHandler,
   deleteWorkItemHandler,
   heartbeatWorkItemPresenceHandler,
-  persistCollaborationWorkItemHandler,
   shiftTimelineItemHandler,
   setWorkItemSubscriptionHandler,
   updateWorkItemHandler,
@@ -243,9 +242,7 @@ const presenceActorArgs = {
   email: v.string(),
   name: v.string(),
   avatarUrl: v.string(),
-  avatarImageUrl: v.optional(v.union(v.string(), v.null())),
-  activeBlockId: v.optional(v.union(v.string(), v.null())),
-  sessionId: v.string(),
+  ...presenceSessionFields,
 }
 
 const clearPresenceActorArgs = {
@@ -1154,6 +1151,7 @@ export const updateWorkItem = mutation({
     patch: v.object({
       title: v.optional(v.string()),
       description: v.optional(v.string()),
+      editSessionId: v.optional(v.string()),
       expectedDescriptionUpdatedAt: v.optional(v.string()),
       expectedUpdatedAt: v.optional(v.string()),
       status: v.optional(workStatusValidator),
@@ -1177,20 +1175,6 @@ export const setWorkItemSubscription = mutation({
     subscribed: v.boolean(),
   },
   handler: setWorkItemSubscriptionHandler,
-})
-
-export const persistCollaborationWorkItem = operationalMutation({
-  args: {
-    ...serverAccessArgs,
-    currentUserId: v.string(),
-    itemId: v.string(),
-    patch: v.object({
-      title: v.optional(v.string()),
-      description: v.optional(v.string()),
-      expectedUpdatedAt: v.optional(v.string()),
-    }),
-  },
-  handler: persistCollaborationWorkItemHandler,
 })
 
 export const deleteWorkItem = mutation({
@@ -1332,28 +1316,6 @@ export const deleteDocument = mutation({
     documentId: v.string(),
   },
   handler: deleteDocumentHandler,
-})
-
-export const updateItemDescription = mutation({
-  args: {
-    ...serverAccessArgs,
-    currentUserId: v.string(),
-    itemId: v.string(),
-    content: v.string(),
-    expectedUpdatedAt: v.optional(v.string()),
-  },
-  handler: updateItemDescriptionHandler,
-})
-
-export const persistCollaborationItemDescription = operationalMutation({
-  args: {
-    ...serverAccessArgs,
-    currentUserId: v.string(),
-    itemId: v.string(),
-    content: v.string(),
-    expectedUpdatedAt: v.optional(v.string()),
-  },
-  handler: updateItemDescriptionHandler,
 })
 
 export const generateAttachmentUploadUrl = mutation({
@@ -1574,6 +1536,7 @@ export const createWorkItem = mutation({
     origin: v.string(),
     id: v.optional(v.string()),
     descriptionDocId: v.optional(v.string()),
+    description: v.optional(v.string()),
     teamId: v.optional(nullableStringValidator),
     workspaceId: v.optional(nullableStringValidator),
     type: workItemTypeValidator,

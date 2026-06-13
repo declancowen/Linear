@@ -44,6 +44,7 @@ export async function POST(
           authenticatedUser,
           parsed,
         }),
+        editing: parsed.editing ?? false,
       })
 
       return jsonOk({

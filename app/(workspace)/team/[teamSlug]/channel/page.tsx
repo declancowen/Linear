@@ -2,19 +2,10 @@ import { TeamChannelsScreen } from "@/components/app/collaboration-screens"
 import { resolveWorkspaceSeedContext } from "@/lib/server/page-seed-context"
 import { buildConversationListSeed } from "@/lib/server/scoped-read-model-seeds"
 
-export default async function TeamChannelPage({
-  params,
-}: {
-  params: Promise<{ teamSlug: string }>
-}) {
-  const { teamSlug } = await params
-  const ctx = await resolveWorkspaceSeedContext()
+import { createTeamConversationPage } from "../conversation-page"
 
-  if (!ctx) {
-    return null
-  }
-
-  const initialSeed = await buildConversationListSeed(ctx.session, ctx.userId)
-
-  return <TeamChannelsScreen teamSlug={teamSlug} initialSeed={initialSeed} />
-}
+export default createTeamConversationPage(
+  TeamChannelsScreen,
+  resolveWorkspaceSeedContext,
+  buildConversationListSeed
+)

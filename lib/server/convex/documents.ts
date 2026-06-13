@@ -48,6 +48,11 @@ const DOCUMENT_MUTATION_ERROR_MAPPINGS = [
     status: 409,
     code: "DOCUMENT_EDIT_CONFLICT",
   },
+  {
+    match: "Work item description documents can't be updated directly",
+    status: 400,
+    code: "DOCUMENT_UPDATE_INVALID_KIND",
+  },
 ] as const
 
 const COLLABORATION_DOCUMENT_ERROR_MAPPINGS = [
@@ -116,11 +121,6 @@ const ITEM_DESCRIPTION_ERROR_MAPPINGS = [
     match: "Your current role is read-only",
     status: 403,
     code: "ITEM_DESCRIPTION_READ_ONLY",
-  },
-  {
-    match: "Work item description changed while you were editing",
-    status: 409,
-    code: "ITEM_DESCRIPTION_EDIT_CONFLICT",
   },
 ] as const
 
@@ -498,33 +498,6 @@ export async function clearDocumentPresenceServer(
   } catch (error) {
     throw (
       coerceApplicationError(error, [...DOCUMENT_PRESENCE_ERROR_MAPPINGS]) ??
-      error
-    )
-  }
-}
-
-export async function updateItemDescriptionServer(input: {
-  currentUserId: string
-  itemId: string
-  content: string
-  expectedUpdatedAt?: string
-}) {
-  const preparedContent = prepareRichTextForStorage(input.content)
-
-  try {
-    return (await getConvexServerClient().mutation(
-      api.app.updateItemDescription,
-      withServerToken({
-        ...input,
-        content: preparedContent.sanitized,
-      })
-    )) as {
-      updatedAt: string
-      documentId?: string
-    }
-  } catch (error) {
-    throw (
-      coerceApplicationError(error, [...ITEM_DESCRIPTION_ERROR_MAPPINGS]) ??
       error
     )
   }

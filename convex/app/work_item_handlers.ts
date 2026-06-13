@@ -57,6 +57,8 @@ import {
 } from "./data"
 import { listDocumentPresenceViewers, normalizeTeam } from "./normalization"
 import {
+  assertDocumentEditLeaseAvailable,
+  assertDocumentEditLeaseOwned,
   clearDocumentPresenceForActor,
   upsertDocumentPresenceForActor,
 } from "./presence_helpers"
@@ -94,16 +96,6 @@ type UpdateWorkItemArgs = ServerAccessArgs & {
   patch: WorkItemPatch
 }
 
-type PersistCollaborationWorkItemArgs = ServerAccessArgs & {
-  currentUserId: string
-  itemId: string
-  patch: {
-    title?: string
-    description?: string
-    expectedUpdatedAt?: string
-  }
-}
-
 type DeleteWorkItemArgs = ServerAccessArgs & {
   currentUserId: string
   itemId: string
@@ -124,6 +116,7 @@ type WorkItemPresenceArgs = ServerAccessArgs & {
   avatarUrl: string
   avatarImageUrl?: string | null
   activeBlockId?: string | null
+  editing?: boolean
   sessionId: string
 }
 
@@ -734,6 +727,7 @@ function buildPersistedWorkItemPatch(
   const isPrivate = (input.existing.visibility ?? "team") === "private"
 
   delete persistedPatch.description
+  delete persistedPatch.editSessionId
   delete persistedPatch.expectedDescriptionUpdatedAt
   delete persistedPatch.expectedUpdatedAt
   if (isPrivate) {
@@ -757,6 +751,7 @@ function hasWorkItemRecordMutation(patch: WorkItemPatch) {
   return Object.keys(patch).some(
     (key) =>
       key !== "description" &&
+      key !== "editSessionId" &&
       key !== "expectedDescriptionUpdatedAt" &&
       key !== "expectedUpdatedAt"
   )
@@ -1019,6 +1014,19 @@ export async function updateWorkItemHandler(
   } = await loadWorkItemUpdateTarget(ctx, args)
   const patch = getEffectiveWorkItemPatch(existing, args.patch)
   const effectiveArgs = { ...args, patch }
+  const now = getNow()
+
+  if (patch.title !== undefined || patch.description !== undefined) {
+    await assertDocumentEditLeaseOwned(
+      ctx,
+      existing.descriptionDocId,
+      {
+        currentUserId: args.currentUserId,
+        sessionId: patch.editSessionId ?? "",
+      },
+      now
+    )
+  }
 
   assertExpectedWorkItemVersion(existing, args.patch)
   await assertExpectedWorkItemDescriptionVersion(ctx, existing, args.patch)
@@ -1061,7 +1069,6 @@ export async function updateWorkItemHandler(
 
   const actor = await getUserDoc(ctx, args.currentUserId)
   const actorName = actor?.name ?? "Someone"
-  const now = getNow()
   const nextDescription = patch.description
 
   if (hasWorkItemRecordMutation(patch)) {
@@ -1178,28 +1185,6 @@ export async function setWorkItemSubscriptionHandler(
   }
 }
 
-async function requireCollaborationWorkItem(
-  ctx: MutationCtx,
-  args: PersistCollaborationWorkItemArgs
-) {
-  const existing = await getWorkItemDoc(ctx, args.itemId)
-
-  if (!existing) {
-    throw new Error("Work item not found")
-  }
-
-  await requireEditableWorkItemAccess(ctx, existing, args.currentUserId)
-
-  if (
-    args.patch.expectedUpdatedAt !== undefined &&
-    existing.updatedAt !== args.patch.expectedUpdatedAt
-  ) {
-    throw new Error("Work item changed while you were editing")
-  }
-
-  return existing
-}
-
 async function requireEditableWorkItem(
   ctx: MutationCtx,
   args: { itemId: string; currentUserId: string }
@@ -1215,126 +1200,6 @@ async function requireEditableWorkItem(
   return item
 }
 
-function getCollaborationWorkItemTitle(
-  existing: WorkItemDoc,
-  args: PersistCollaborationWorkItemArgs
-) {
-  return args.patch.title !== undefined
-    ? args.patch.title.trim()
-    : existing.title
-}
-
-function assertWorkItemTitleLength(title: string) {
-  if (title.length < 2 || title.length > 96) {
-    throw new Error("Work item title must be between 2 and 96 characters")
-  }
-}
-
-async function patchCollaborationDescriptionDocument(
-  ctx: MutationCtx,
-  args: PersistCollaborationWorkItemArgs,
-  existing: WorkItemDoc,
-  nextTitle: string,
-  updatedAt: string
-) {
-  const descriptionDocument = await getDocumentDoc(
-    ctx,
-    existing.descriptionDocId
-  )
-
-  if (!descriptionDocument) {
-    return
-  }
-
-  const relationships =
-    args.patch.description !== undefined
-      ? await resolveWorkItemDescriptionRichTextReferenceRelationships(ctx, {
-          content: args.patch.description,
-          currentUserId: args.currentUserId,
-          item: existing,
-        })
-      : null
-
-  await ctx.db.patch(descriptionDocument._id, {
-    ...(args.patch.description !== undefined
-      ? {
-          content: args.patch.description,
-          notifiedMentionCounts: getClampedNotifiedMentionCounts(
-            args.patch.description,
-            descriptionDocument.notifiedMentionCounts
-          ),
-          updatedAt,
-          updatedBy: args.currentUserId,
-        }
-      : {}),
-    ...(args.patch.title !== undefined
-      ? { title: `${nextTitle} description` }
-      : {}),
-  })
-
-  if (relationships) {
-    await ctx.db.patch(existing._id, {
-      linkedDocumentIds: relationships.documentIds,
-      linkedWorkItemIds: relationships.workItemIds,
-      referencedProjectIds: relationships.projectIds,
-      referencedViewIds: relationships.viewIds,
-    })
-  }
-}
-
-function hasCollaborationMainSectionPatch(
-  args: PersistCollaborationWorkItemArgs
-) {
-  return args.patch.title !== undefined || args.patch.description !== undefined
-}
-
-function getCollaborationWorkItemPatch(
-  args: PersistCollaborationWorkItemArgs,
-  nextTitle: string,
-  updatedAt: string
-) {
-  return {
-    ...(args.patch.title !== undefined ? { title: nextTitle } : {}),
-    updatedAt,
-  }
-}
-
-export async function persistCollaborationWorkItemHandler(
-  ctx: MutationCtx,
-  args: PersistCollaborationWorkItemArgs
-) {
-  assertServerToken(args.serverToken)
-  const existing = await requireCollaborationWorkItem(ctx, args)
-
-  if (!hasCollaborationMainSectionPatch(args)) {
-    return {
-      updatedAt: existing.updatedAt,
-    }
-  }
-
-  const nextTitle = getCollaborationWorkItemTitle(existing, args)
-  assertWorkItemTitleLength(nextTitle)
-  const updatedAt = getNow()
-
-  if (args.patch.title !== undefined) {
-    await ctx.db.patch(
-      existing._id,
-      getCollaborationWorkItemPatch(args, nextTitle, updatedAt)
-    )
-  }
-  await patchCollaborationDescriptionDocument(
-    ctx,
-    args,
-    existing,
-    nextTitle,
-    updatedAt
-  )
-
-  return {
-    updatedAt,
-  }
-}
-
 export async function heartbeatWorkItemPresenceHandler(
   ctx: MutationCtx,
   args: WorkItemPresenceArgs
@@ -1343,6 +1208,14 @@ export async function heartbeatWorkItemPresenceHandler(
 
   const item = await requireEditableWorkItem(ctx, args)
   const currentTime = getNow()
+  if (args.editing) {
+    await assertDocumentEditLeaseAvailable(
+      ctx,
+      item.descriptionDocId,
+      args,
+      currentTime
+    )
+  }
   await upsertDocumentPresenceForActor(
     ctx,
     item.descriptionDocId,
@@ -1913,7 +1786,7 @@ async function insertCreatedWorkItemDescription({
     workspaceId: scope.workspaceId,
     teamId: args.visibility === "private" ? null : (args.teamId ?? null),
     title: `${args.title} description`,
-    content: "<p></p>",
+    content: args.description || "<p></p>",
     linkedProjectIds: resolvedPrimaryProjectId
       ? [resolvedPrimaryProjectId]
       : [],
@@ -1970,8 +1843,11 @@ function buildCreatedWorkItem({
     creatorId: args.currentUserId,
     parentId: getNullishCreateInputValue(parent?.id, null),
     primaryProjectId: resolvedPrimaryProjectId,
-    linkedProjectIds: [],
-    linkedDocumentIds: [],
+    linkedProjectIds: [] as string[],
+    linkedDocumentIds: [] as string[],
+    linkedWorkItemIds: [] as string[],
+    referencedProjectIds: [] as string[],
+    referencedViewIds: [] as string[],
     labelIds: scopeFields.labelIds,
     visibility,
     milestoneId: null,
@@ -2138,15 +2014,7 @@ export async function createWorkItemHandler(
   const creator = await getUserDoc(ctx, args.currentUserId)
   const defaultScheduleTimeZone = creator?.preferences.timeZone ?? null
 
-  await insertCreatedWorkItemDescription({
-    ctx,
-    args,
-    scope,
-    descriptionDocId,
-    resolvedPrimaryProjectId,
-    now,
-  })
-  const workItem = buildCreatedWorkItem({
+  const createdWorkItem = buildCreatedWorkItem({
     args,
     scope,
     parent,
@@ -2157,7 +2025,31 @@ export async function createWorkItemHandler(
     now,
     defaultScheduleTimeZone,
   })
+  const descriptionRelationships = args.description
+    ? await resolveWorkItemDescriptionRichTextReferenceRelationships(ctx, {
+        content: args.description,
+        currentUserId: args.currentUserId,
+        item: createdWorkItem,
+      })
+    : null
+  const workItem = descriptionRelationships
+    ? {
+        ...createdWorkItem,
+        linkedDocumentIds: descriptionRelationships.documentIds,
+        linkedWorkItemIds: descriptionRelationships.workItemIds,
+        referencedProjectIds: descriptionRelationships.projectIds,
+        referencedViewIds: descriptionRelationships.viewIds,
+      }
+    : createdWorkItem
 
+  await insertCreatedWorkItemDescription({
+    ctx,
+    args,
+    scope,
+    descriptionDocId,
+    resolvedPrimaryProjectId,
+    now,
+  })
   await ctx.db.insert("workItems", workItem)
   await createAssigneeChangeActivityForCreatedWorkItem(ctx, {
     args,

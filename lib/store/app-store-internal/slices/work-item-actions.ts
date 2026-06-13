@@ -18,6 +18,7 @@ import {
   shiftCalendarDate,
 } from "@/lib/calendar-date"
 import {
+  getWorkItemDescriptionRichTextReferenceRelationships,
   getLabelsForWorkspace,
   hasWorkspaceAccess,
 } from "@/lib/domain/selectors"
@@ -48,7 +49,6 @@ import {
   getNow,
   toTeamKeyPrefix,
 } from "../helpers"
-import { registerPendingWorkItemCreation } from "../pending-work-item-creations"
 import {
   effectiveRole,
   getProjectCascadeConfirmationForWorkItemUpdate,
@@ -374,7 +374,7 @@ function buildOptimisticDescriptionDocument(input: {
         ? null
         : (input.parsedInput.teamId ?? null),
     title: `${input.title} description`,
-    content: "<p></p>",
+    content: input.parsedInput.description || "<p></p>",
     linkedProjectIds: input.scope.resolvedPrimaryProjectId
       ? [input.scope.resolvedPrimaryProjectId]
       : [],
@@ -413,8 +413,11 @@ function buildOptimisticWorkItem(input: {
     creatorId: input.currentUserId,
     parentId: input.scope.parent?.id ?? null,
     primaryProjectId: isPrivate ? null : input.scope.resolvedPrimaryProjectId,
-    linkedProjectIds: [],
-    linkedDocumentIds: [],
+    linkedProjectIds: [] as string[],
+    linkedDocumentIds: [] as string[],
+    linkedWorkItemIds: [] as string[],
+    referencedProjectIds: [] as string[],
+    referencedViewIds: [] as string[],
     labelIds: input.parsedInput.labelIds ?? [],
     visibility: input.parsedInput.visibility ?? "team",
     milestoneId: null,
@@ -511,7 +514,7 @@ function buildOptimisticWorkItemCreationState(
   }
 
   const descriptionDocId = createId("doc")
-  const workItem = buildOptimisticWorkItem({
+  const createdWorkItem = buildOptimisticWorkItem({
     currentUserId: state.currentUserId,
     dates: input.dates,
     descriptionDocId,
@@ -519,6 +522,22 @@ function buildOptimisticWorkItemCreationState(
     parsedInput: input.parsedInput,
     scope,
   })
+  const descriptionRelationships = input.parsedInput.description
+    ? getWorkItemDescriptionRichTextReferenceRelationships(
+        state,
+        createdWorkItem,
+        input.parsedInput.description
+      )
+    : null
+  const workItem = descriptionRelationships
+    ? {
+        ...createdWorkItem,
+        linkedDocumentIds: descriptionRelationships.documentIds,
+        linkedWorkItemIds: descriptionRelationships.workItemIds,
+        referencedProjectIds: descriptionRelationships.projectIds,
+        referencedViewIds: descriptionRelationships.viewIds,
+      }
+    : createdWorkItem
   const descriptionDoc = buildOptimisticDescriptionDocument({
     currentUserId: state.currentUserId,
     descriptionDocId,
@@ -1623,7 +1642,6 @@ export function createWorkItemActions({
         return result
       })
 
-      registerPendingWorkItemCreation(createdItemId, createTask)
       runtime.syncInBackground(createTask, "Failed to create work item")
 
       toast.success("Work item created")

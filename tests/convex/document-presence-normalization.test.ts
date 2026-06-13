@@ -36,6 +36,7 @@ describe("document presence normalization", () => {
         avatarUrl: "SS",
         avatarImageUrl: "https://example.com/convex-photo.png",
         activeBlockId: null,
+        editing: false,
         lastSeenAt: expect.any(String),
       },
     ])

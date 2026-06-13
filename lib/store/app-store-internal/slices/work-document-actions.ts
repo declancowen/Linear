@@ -11,7 +11,6 @@ import {
   syncGenerateAttachmentUploadUrl,
   syncRenameDocument,
   syncUpdateDocument,
-  syncUpdateItemDescription,
   syncUpdateWorkItem,
 } from "@/lib/convex/client"
 import {
@@ -24,7 +23,6 @@ import { getAttachmentFileValidationMessage } from "@/lib/domain/file-uploads"
 import { getWorkItemAssigneeIds } from "@/lib/domain/work-item-assignees"
 
 import { createId, getNow } from "../helpers"
-import { waitForPendingWorkItemCreation } from "../pending-work-item-creations"
 import {
   canEditWorkspaceDocuments,
   effectiveRole,
@@ -284,6 +282,7 @@ function getWorkItemMainSectionSyncPatch({
   normalizedTitle: string
 }) {
   return {
+    editSessionId: input.editSessionId,
     ...(changes.titleChanged ? { title: normalizedTitle } : {}),
     ...(changes.descriptionChanged ? { description: input.description } : {}),
     ...(changes.descriptionChanged
@@ -296,9 +295,16 @@ function getWorkItemMainSectionSyncPatch({
 }
 
 function getWorkItemMainSectionSyncFailureMessage(error: unknown) {
-  return error instanceof RouteMutationError &&
-    error.code === "WORK_ITEM_EDIT_CONFLICT"
-    ? "This work item changed while you were editing. Review the latest version and try again."
+  if (!(error instanceof RouteMutationError)) {
+    return "Failed to save work item"
+  }
+
+  if (error.code === "WORK_ITEM_EDIT_CONFLICT") {
+    return "This work item changed while you were editing. Review the latest version and try again."
+  }
+
+  return error.code === "WORK_ITEM_EDIT_LOCKED"
+    ? error.message
     : "Failed to save work item"
 }
 
@@ -543,9 +549,6 @@ export function createWorkDocumentActions({
   | "flushDocumentSync"
   | "renameDocument"
   | "deleteDocument"
-  | "updateItemDescription"
-  | "cancelItemDescriptionSync"
-  | "applyItemDescriptionCollaborationContent"
   | "saveWorkItemMainSection"
   | "uploadAttachment"
   | "deleteAttachment"
@@ -592,66 +595,6 @@ export function createWorkDocumentActions({
         relationships
       ),
     }))
-  }
-
-  function markItemDescriptionPersisted(
-    itemId: string,
-    documentId: string,
-    updatedAt: string,
-    currentUserId: string,
-    relationships?: ReturnType<
-      typeof getWorkItemDescriptionRichTextReferenceRelationships
-    >
-  ) {
-    set((state) => ({
-      documents: updatePersistedDocumentMetadata(
-        state.documents,
-        documentId,
-        updatedAt,
-        currentUserId
-      ),
-      workItems: state.workItems.map((entry) =>
-        entry.id === itemId
-          ? {
-              ...entry,
-              // Description persistence updates the description document's
-              // updatedAt (above), not the work item record's updatedAt. Keep
-              // the work item timestamp stable so the title's optimistic
-              // concurrency baseline is not invalidated by description edits.
-              ...(relationships
-                ? {
-                    linkedDocumentIds: relationships.documentIds,
-                    linkedWorkItemIds: relationships.workItemIds,
-                    referencedProjectIds: relationships.projectIds,
-                    referencedViewIds: relationships.viewIds,
-                  }
-                : {}),
-            }
-          : entry
-      ),
-    }))
-  }
-
-  function patchItemDescriptionContent(itemId: string, content: string) {
-    set((state) => {
-      const item = state.workItems.find((entry) => entry.id === itemId)
-
-      if (!item) {
-        return state
-      }
-
-      return {
-        ...state,
-        documents: state.documents.map((document) =>
-          document.id === item.descriptionDocId
-            ? {
-                ...document,
-                content,
-              }
-            : document
-        ),
-      }
-    })
   }
 
   function markPendingDocumentContentSync(documentId: string, token: string) {
@@ -925,93 +868,6 @@ export function createWorkDocumentActions({
       } catch (error) {
         await runtime.handleSyncFailure(error, "Failed to delete document")
       }
-    },
-    updateItemDescription(itemId, content) {
-      patchItemDescriptionContent(itemId, content)
-
-      const currentItem = get().workItems.find((entry) => entry.id === itemId)
-      const descriptionDocumentId = currentItem?.descriptionDocId ?? null
-
-      if (
-        descriptionDocumentId &&
-        get().protectedDocumentIds.includes(descriptionDocumentId)
-      ) {
-        return
-      }
-
-      runtime.queueRichTextSync(
-        `item-description:${itemId}`,
-        async (syncContext) => {
-          const pendingCreation = waitForPendingWorkItemCreation(itemId)
-
-          if (pendingCreation) {
-            const created = await pendingCreation
-
-            if (!created || !syncContext.isCurrent()) {
-              return
-            }
-          }
-
-          const state = get()
-          const item = state.workItems.find((entry) => entry.id === itemId)
-
-          if (!item) {
-            return null
-          }
-
-          if (
-            item.descriptionDocId &&
-            state.protectedDocumentIds.includes(item.descriptionDocId)
-          ) {
-            return null
-          }
-
-          const descriptionDocument = state.documents.find(
-            (document) => document.id === item.descriptionDocId
-          )
-
-          if (!descriptionDocument) {
-            return null
-          }
-
-          const relationships =
-            getWorkItemDescriptionRichTextReferenceRelationships(
-              state,
-              item,
-              descriptionDocument.content
-            )
-
-          return syncUpdateItemDescription(
-            state.currentUserId,
-            itemId,
-            descriptionDocument.content,
-            descriptionDocument.updatedAt
-          ).then((result) => {
-            if (!syncContext.isCurrent()) {
-              return
-            }
-
-            markItemDescriptionPersisted(
-              itemId,
-              descriptionDocument.id,
-              result.updatedAt,
-              state.currentUserId,
-              relationships
-            )
-          })
-        },
-        "Failed to update description",
-        {
-          refreshStrategy: "none",
-        }
-      )
-    },
-    cancelItemDescriptionSync(itemId) {
-      runtime.cancelRichTextSync(`item-description:${itemId}`)
-    },
-    applyItemDescriptionCollaborationContent(itemId, content) {
-      runtime.cancelRichTextSync(`item-description:${itemId}`)
-      patchItemDescriptionContent(itemId, content)
     },
     async saveWorkItemMainSection(input) {
       const state = get()

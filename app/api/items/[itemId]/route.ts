@@ -33,6 +33,7 @@ const workItemPatchSchema = z
   .object({
     title: z.string().trim().min(2).max(96).optional(),
     description: z.string().min(1).optional(),
+    editSessionId: z.string().trim().min(8).max(128).optional(),
     expectedDescriptionUpdatedAt: z.string().datetime().optional(),
     expectedUpdatedAt: z.string().datetime().optional(),
     status: z.enum(workStatuses).optional(),

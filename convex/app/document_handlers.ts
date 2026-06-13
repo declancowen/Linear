@@ -47,10 +47,7 @@ import {
   clearDocumentPresenceForActor,
   upsertDocumentPresenceForActor,
 } from "./presence_helpers"
-import {
-  resolveDocumentRichTextReferenceRelationships,
-  resolveWorkItemDescriptionRichTextReferenceRelationships,
-} from "./rich_text_reference_relationships"
+import { resolveDocumentRichTextReferenceRelationships } from "./rich_text_reference_relationships"
 import { createId, getNow as now } from "./core"
 import { normalizeTeam } from "./normalization"
 
@@ -119,13 +116,6 @@ type RenameDocumentArgs = ServerAccessArgs & {
 type DeleteDocumentArgs = ServerAccessArgs & {
   currentUserId: string
   documentId: string
-}
-
-type UpdateItemDescriptionArgs = ServerAccessArgs & {
-  currentUserId: string
-  itemId: string
-  content: string
-  expectedUpdatedAt?: string
 }
 
 type SendItemDescriptionMentionNotificationsArgs = ServerAccessArgs & {
@@ -286,6 +276,12 @@ function assertExpectedDocumentUpdatedAt(
   }
 }
 
+function assertDocumentCanBeUpdatedDirectly(document: DocumentDoc) {
+  if (document.kind === "item-description") {
+    throw new Error("Work item description documents can't be updated directly")
+  }
+}
+
 async function requireEditableDocumentForUpdate(
   ctx: MutationCtx,
   args: {
@@ -301,6 +297,8 @@ async function requireEditableDocumentForUpdate(
   }
 
   await requireEditableDocumentAccess(ctx, document, args.currentUserId)
+  assertDocumentCanBeUpdatedDirectly(document)
+
   assertExpectedDocumentUpdatedAt(
     document,
     args.expectedUpdatedAt,
@@ -1011,6 +1009,7 @@ export async function renameDocumentHandler(
   }
 
   await requireEditableDocumentAccess(ctx, document, args.currentUserId)
+  assertDocumentCanBeUpdatedDirectly(document)
 
   await ctx.db.patch(document._id, {
     title: args.title,
@@ -1039,55 +1038,6 @@ export async function deleteDocumentHandler(
     currentUserId: args.currentUserId,
     document,
   })
-}
-
-export async function updateItemDescriptionHandler(
-  ctx: MutationCtx,
-  args: UpdateItemDescriptionArgs
-) {
-  assertServerToken(args.serverToken)
-  const { item, descriptionDocument } =
-    await requireEditableItemDescriptionDocument(ctx, args)
-
-  assertExpectedDocumentUpdatedAt(
-    descriptionDocument,
-    args.expectedUpdatedAt,
-    "Work item description changed while you were editing"
-  )
-
-  const updatedAt = getNow()
-  const relationships =
-    await resolveWorkItemDescriptionRichTextReferenceRelationships(ctx, {
-      content: args.content,
-      currentUserId: args.currentUserId,
-      item,
-    })
-
-  await ctx.db.patch(descriptionDocument._id, {
-    content: args.content,
-    notifiedMentionCounts: getClampedNotifiedMentionCounts(
-      args.content,
-      descriptionDocument.notifiedMentionCounts
-    ),
-    updatedAt,
-    updatedBy: args.currentUserId,
-  })
-
-  // Update reference relationships derived from the description, but do NOT
-  // bump the work item record's `updatedAt`. The description lives in its own
-  // document (with its own `updatedAt` + optimistic lock above); bumping the
-  // work item here would invalidate the title's `expectedUpdatedAt` baseline
-  // from the same user's own description edits, causing spurious
-  // "Work item changed while you were editing" conflicts on title save.
-  await ctx.db.patch(item._id, {
-    linkedDocumentIds: relationships.documentIds,
-    linkedWorkItemIds: relationships.workItemIds,
-  })
-
-  return {
-    updatedAt,
-    documentId: descriptionDocument.id,
-  }
 }
 
 export async function generateAttachmentUploadUrlHandler(

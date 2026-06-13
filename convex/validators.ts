@@ -646,6 +646,13 @@ export const documentFields = {
   updatedAt: v.string(),
 }
 
+export const presenceSessionFields = {
+  avatarImageUrl: v.optional(v.union(v.string(), v.null())),
+  activeBlockId: v.optional(v.union(v.string(), v.null())),
+  editing: v.optional(v.boolean()),
+  sessionId: v.string(),
+}
+
 export const documentPresenceFields = {
   documentId: v.string(),
   userId: v.string(),
@@ -653,9 +660,7 @@ export const documentPresenceFields = {
   email: v.optional(v.string()),
   name: v.optional(v.string()),
   avatarUrl: v.optional(v.string()),
-  avatarImageUrl: v.optional(v.union(v.string(), v.null())),
-  activeBlockId: v.optional(v.union(v.string(), v.null())),
-  sessionId: v.string(),
+  ...presenceSessionFields,
   createdAt: v.string(),
   lastSeenAt: v.string(),
 }

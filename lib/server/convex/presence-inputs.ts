@@ -16,6 +16,7 @@ export type ServerPresenceHeartbeatInput<TTargetKey extends string> =
       avatarUrl: string
       avatarImageUrl?: string | null
       activeBlockId?: string | null
+      editing?: boolean
     }
 
 export type ServerPresenceClearInput<TTargetKey extends string> =

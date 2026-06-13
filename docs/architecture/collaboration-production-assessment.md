@@ -64,7 +64,7 @@ Problem that was fixed:
 What changed:
 
 - active saves are server-owned: PartyKit persists the current server-held room Y.Doc
-- active `content` and `work-item-main` flushes ignore client body snapshots
+- active `content` flushes ignore client body snapshots
 - teardown/close flushes now use explicit intent:
   - `kind: "teardown-content"`
 - the “ignore if other editors remain” logic now applies only to teardown flushes
@@ -271,7 +271,6 @@ Out of scope:
 - split flush intent explicitly:
   - `content`
   - `document-title`
-  - `work-item-main`
   - `teardown-content`
 - treat active saves as server-owned
 - treat teardown as safe-to-ignore when other editors remain

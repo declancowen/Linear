@@ -21,8 +21,7 @@ import {
   normalizeTeamIcon,
 } from "./core"
 import { type AppCtx } from "./data"
-
-const DOCUMENT_PRESENCE_ACTIVE_WINDOW_MS = 2 * 60 * 1000
+import { isDocumentPresenceActive } from "./presence_helpers"
 
 export function normalizeWorkspace<
   T extends { workosOrganizationId?: string | null },
@@ -144,16 +143,6 @@ export async function resolveUserSnapshot<
   }
 }
 
-function isActiveDocumentPresence(lastSeenAt: string) {
-  const parsedLastSeenAt = Date.parse(lastSeenAt)
-
-  if (!Number.isFinite(parsedLastSeenAt)) {
-    return false
-  }
-
-  return Date.now() - parsedLastSeenAt <= DOCUMENT_PRESENCE_ACTIVE_WINDOW_MS
-}
-
 function getDocumentPresenceViewerKey(entry: {
   userId: string
   workosUserId?: string | null
@@ -176,10 +165,17 @@ export async function listDocumentPresenceViewers(
   const latestEntryByViewerKey = new Map<string, (typeof entries)[number]>()
 
   for (const entry of entries
-    .filter((candidate) => isActiveDocumentPresence(candidate.lastSeenAt))
+    .filter((candidate) => isDocumentPresenceActive(candidate.lastSeenAt))
     .sort(
-      (left, right) =>
-        Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
+      (left, right) => {
+        const editingDifference =
+          Number(right.editing === true) - Number(left.editing === true)
+
+        return (
+          editingDifference ||
+          Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
+        )
+      }
     )) {
     const viewerKey = getDocumentPresenceViewerKey(entry)
 
@@ -200,6 +196,7 @@ export async function listDocumentPresenceViewers(
     avatarUrl: entry.avatarUrl ?? "",
     avatarImageUrl: entry.avatarImageUrl ?? null,
     activeBlockId: entry.activeBlockId ?? null,
+    editing: entry.editing ?? false,
     lastSeenAt: entry.lastSeenAt,
   }))
 }

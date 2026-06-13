@@ -25,10 +25,6 @@ const unstableGetYDocMock = vi.hoisted(() => vi.fn())
 const onConnectMock = vi.hoisted(() => vi.fn())
 const getCollaborationDocumentFromConvexMock = vi.hoisted(() => vi.fn())
 const persistCollaborationDocumentToConvexMock = vi.hoisted(() => vi.fn())
-const persistCollaborationItemDescriptionToConvexMock = vi.hoisted(() =>
-  vi.fn()
-)
-const persistCollaborationWorkItemToConvexMock = vi.hoisted(() => vi.fn())
 const bumpScopedReadModelsFromConvexMock = vi.hoisted(() => vi.fn())
 
 vi.mock("y-partykit", () => ({
@@ -40,10 +36,6 @@ vi.mock("@/lib/collaboration/partykit-convex", () => ({
   getCollaborationDocumentFromConvex: getCollaborationDocumentFromConvexMock,
   persistCollaborationDocumentToConvex:
     persistCollaborationDocumentToConvexMock,
-  persistCollaborationItemDescriptionToConvex:
-    persistCollaborationItemDescriptionToConvexMock,
-  persistCollaborationWorkItemToConvex:
-    persistCollaborationWorkItemToConvexMock,
   bumpScopedReadModelsFromConvex: bumpScopedReadModelsFromConvexMock,
 }))
 
@@ -275,7 +267,10 @@ async function expectDocumentAdmissionRejected(options: {
 async function createViewerDocumentRoomSetup() {
   mockEmptyYDoc()
   onConnectMock.mockResolvedValue(undefined)
-  mockItemDescriptionDocument({ canEdit: false })
+  mockCollaborationDocument({
+    canEdit: false,
+    documentId: "doc_desc_1",
+  })
 
   return {
     collaboration: await loadCollaboration(),
@@ -342,36 +337,6 @@ async function requestDocumentTitleFlush(
       documentTitle: "Retitled manually",
     }) as never,
     (options.room ?? createPartykitRoom()) as never
-  )
-}
-
-async function requestWorkItemMainFlush(input: {
-  contentText: string
-  documentOverrides?: Parameters<typeof createCollaborationDocumentRecord>[0]
-  roomId?: string
-}) {
-  const documentId = input.roomId ?? "doc_desc_1"
-  const contentJson = createRichTextJson(input.contentText)
-  mockYDoc(contentJson, [Symbol("active-connection")])
-  mockItemDescriptionDocument(input.documentOverrides)
-  persistCollaborationWorkItemToConvexMock.mockResolvedValue({
-    updatedAt: "2026-04-23T00:00:00.000Z",
-  })
-  bumpScopedReadModelsFromConvexMock.mockResolvedValue({
-    versions: [],
-  })
-
-  const collaboration = await loadCollaboration()
-  const token = createDocumentToken({ documentId })
-
-  return collaboration.onRequest(
-    createFlushRequest(`doc:${documentId}`, token, {
-      kind: "work-item-main",
-      contentJson,
-      workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
-      workItemTitle: "Updated title",
-    }) as never,
-    createPartykitRoom({ id: `doc:${documentId}` }) as never
   )
 }
 
@@ -476,8 +441,6 @@ describe("PartyKit collaboration server", () => {
     onConnectMock.mockReset()
     getCollaborationDocumentFromConvexMock.mockReset()
     persistCollaborationDocumentToConvexMock.mockReset()
-    persistCollaborationItemDescriptionToConvexMock.mockReset()
-    persistCollaborationWorkItemToConvexMock.mockReset()
     bumpScopedReadModelsFromConvexMock.mockReset()
 
     process.env.COLLABORATION_TOKEN_SECRET = "test-collaboration-token-secret"
@@ -510,6 +473,21 @@ describe("PartyKit collaboration server", () => {
     ).toEqual(contentJson)
   })
 
+  it("rejects work-item description collaboration rooms", async () => {
+    mockEmptyYDoc()
+    onConnectMock.mockResolvedValue(undefined)
+    mockItemDescriptionDocument()
+    const collaboration = await loadCollaboration()
+
+    await expect(
+      connectDocumentRoom(collaboration, {
+        room: createPartykitRoom({ id: "doc:doc_desc_1" }),
+        token: createDocumentToken({ documentId: "doc_desc_1" }),
+      })
+    ).rejects.toThrow("This document does not support collaboration sessions")
+    expect(onConnectMock).not.toHaveBeenCalled()
+  })
+
   it("logs and rethrows PartyKit load failures with room context", async () => {
     const room = createPartykitRoom({ id: "doc:doc_desc_1" })
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
@@ -528,75 +506,6 @@ describe("PartyKit collaboration server", () => {
         roomId: "doc:doc_desc_1",
         userId: null,
       })
-    )
-  })
-
-  it("omits unchanged descriptions from work-item title collaboration flushes", async () => {
-    const response = await requestWorkItemMainFlush({
-      contentText: "Updated",
-      documentOverrides: {
-        content: "<p>Updated</p>",
-        teamMemberIds: ["user_1", "user_2"],
-        projectScopes: [
-          { projectId: "project_1", scopeType: "team", scopeId: "team_1" },
-        ],
-      },
-    })
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get("access-control-allow-origin")).toBe("*")
-    expect(persistCollaborationWorkItemToConvexMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        CONVEX_URL: "https://convex-dev.example",
-      }),
-      {
-        currentUserId: "user_1",
-        itemId: "item_1",
-        patch: {
-          title: "Updated title",
-          expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
-        },
-      }
-    )
-    expect(bumpScopedReadModelsFromConvexMock).toHaveBeenCalledWith(
-      expect.any(Object),
-      {
-        scopeKeys: [
-          "document-detail:doc_desc_1",
-          "work-item-detail:item_1",
-          "work-index:team_team_1",
-          "work-index:personal_user_1",
-          "work-index:personal_user_2",
-          "project-detail:project_1",
-          "project-index:team_team_1",
-          "search-seed:workspace_1",
-        ],
-      }
-    )
-  })
-
-  it("includes changed descriptions with work-item title collaboration flushes", async () => {
-    const response = await requestWorkItemMainFlush({
-      contentText: "Changed again",
-      roomId: "doc_desc_changed",
-      documentOverrides: {
-        documentId: "doc_desc_changed",
-        content: "<p>Original</p>",
-      },
-    })
-
-    expect(response.status).toBe(200)
-    expect(persistCollaborationWorkItemToConvexMock).toHaveBeenCalledWith(
-      expect.any(Object),
-      {
-        currentUserId: "user_1",
-        itemId: "item_1",
-        patch: {
-          title: "Updated title",
-          description: "<p>Changed again</p>",
-          expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
-        },
-      }
     )
   })
 
@@ -858,7 +767,6 @@ describe("PartyKit collaboration server", () => {
       code: "collaboration_forbidden",
       message: "Collaboration flush requires editor access",
     })
-    expect(persistCollaborationWorkItemToConvexMock).not.toHaveBeenCalled()
     expect(getCollaborationDocumentFromConvexMock).not.toHaveBeenCalled()
   })
 
@@ -871,10 +779,7 @@ describe("PartyKit collaboration server", () => {
 
     await collaboration.onClose({} as never, room as never)
 
-    expect(
-      persistCollaborationItemDescriptionToConvexMock
-    ).not.toHaveBeenCalled()
-    expect(persistCollaborationWorkItemToConvexMock).not.toHaveBeenCalled()
+    expect(persistCollaborationDocumentToConvexMock).not.toHaveBeenCalled()
   })
 
   it("normalizes blob websocket message payloads before delegating to y-partykit", async () => {
@@ -1217,7 +1122,7 @@ describe("PartyKit collaboration server", () => {
   it("does not count the connecting socket twice during admission", async () => {
     mockEmptyYDoc()
     onConnectMock.mockResolvedValue(undefined)
-    mockItemDescriptionDocument()
+    mockCollaborationDocument({ documentId: "doc_desc_1" })
 
     const collaboration = await loadCollaboration()
 
@@ -1253,7 +1158,7 @@ describe("PartyKit collaboration server", () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {})
     mockEmptyYDoc()
     onConnectMock.mockResolvedValue(undefined)
-    mockItemDescriptionDocument()
+    mockCollaborationDocument({ documentId: "doc_desc_1" })
 
     const collaboration = await loadCollaboration()
 

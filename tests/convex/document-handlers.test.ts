@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   createTestNotificationRecord,
-  expectPrivateWorkItemMutationDenied,
   mockEmptyQueryCollect,
 } from "@/tests/lib/fixtures/convex"
 
@@ -506,6 +505,53 @@ describe("document mention notifications", () => {
     )
   })
 
+  it("rejects direct generic updates to work item descriptions", async () => {
+    const {
+      renameDocumentHandler,
+      updateDocumentContentHandler,
+      updateDocumentHandler,
+    } = await import("@/convex/app/document_handlers")
+    const ctx = createCtx()
+
+    documentRecord = {
+      ...documentRecord,
+      kind: "item-description",
+    }
+
+    await expect(
+      updateDocumentContentHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        documentId: "document_1",
+        content: "<p>Bypass attempt</p>",
+      })
+    ).rejects.toThrow(
+      "Work item description documents can't be updated directly"
+    )
+    await expect(
+      updateDocumentHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        documentId: "document_1",
+        title: "Bypass attempt",
+      })
+    ).rejects.toThrow(
+      "Work item description documents can't be updated directly"
+    )
+    await expect(
+      renameDocumentHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        documentId: "document_1",
+        title: "Bypass attempt",
+      })
+    ).rejects.toThrow(
+      "Work item description documents can't be updated directly"
+    )
+
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
   it("sends work-item self-mentions through notifications and email jobs", async () => {
     const { sendItemDescriptionMentionNotificationsHandler } =
       await import("@/convex/app/document_handlers")
@@ -696,37 +742,6 @@ describe("document mention notifications", () => {
     expect(getTeamMemberIdsMock).not.toHaveBeenCalled()
     expect(createNotificationMock).not.toHaveBeenCalled()
     expect(queueEmailJobsMock).not.toHaveBeenCalled()
-  })
-
-  it("uses item-level private access before updating item descriptions", async () => {
-    const { updateItemDescriptionHandler } =
-      await import("@/convex/app/document_handlers")
-    const data = await import("@/convex/app/data")
-    const ctx = createCtx()
-
-    vi.mocked(data.getWorkItemDoc).mockResolvedValue({
-      _id: "item_1_db",
-      id: "item_1",
-      teamId: "team_1",
-      title: "Test item",
-      descriptionDocId: "document_1",
-      visibility: "private",
-      creatorId: "user_1",
-      assigneeId: null,
-    } as never)
-    await expectPrivateWorkItemMutationDenied({
-      ctx,
-      itemId: "item_1",
-      mock: requireEditableWorkItemAccessMock,
-      mutate: () =>
-        updateItemDescriptionHandler(ctx as never, {
-          serverToken: "server_token",
-          currentUserId: "user_2",
-          itemId: "item_1",
-          content: "<p>Updated</p>",
-        }),
-      userId: "user_2",
-    })
   })
 
   it("uses item-level private access before creating work item attachments", async () => {
@@ -1016,6 +1031,7 @@ describe("document presence handlers", () => {
       avatarImageUrl: "https://example.com/alex-photo.png",
       activeBlockId: null,
       documentId: "document_1",
+      editing: false,
       email: "alex@example.com",
       lastSeenAt: "2026-04-17T20:24:45.000Z",
       name: "Alex",

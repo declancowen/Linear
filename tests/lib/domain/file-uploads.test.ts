@@ -6,6 +6,7 @@ import {
   isImageAttachmentFile,
   isSupportedAttachmentFileType,
   MAX_ATTACHMENT_UPLOAD_SIZE_BYTES,
+  ATTACHMENT_FILE_INPUT_ACCEPT,
 } from "@/lib/domain/file-uploads"
 
 describe("attachment file upload policy", () => {
@@ -41,6 +42,20 @@ describe("attachment file upload policy", () => {
   })
 
   it.each([
+    ["site.html", "text/html"],
+    ["readme.md", "text/markdown"],
+    ["archive.zip", "application/zip"],
+    ["vector.svg", "image/svg+xml"],
+    ["installer.exe", "application/x-msdownload"],
+  ])("allows any non-empty file upload: %s", (name, type) => {
+    expect(getAttachmentFileValidationMessage({ name, size: 1, type })).toBeNull()
+  })
+
+  it("allows every file type in the generic file picker", () => {
+    expect(ATTACHMENT_FILE_INPUT_ACCEPT).toBe("*/*")
+  })
+
+  it.each([
     ["photo.jpg", "", "image"],
     ["brief.pdf", "", "pdf"],
     ["notes.docx", "", "word"],
@@ -55,7 +70,7 @@ describe("attachment file upload policy", () => {
     }
   )
 
-  it("rejects empty, oversized, and unsupported files", () => {
+  it("rejects empty and oversized files", () => {
     expect(
       getAttachmentFileValidationMessage({
         name: "empty.pdf",
@@ -70,23 +85,5 @@ describe("attachment file upload policy", () => {
         type: "application/pdf",
       })
     ).toBe("Files must be 25 MB or smaller")
-    expect(
-      getAttachmentFileValidationMessage({
-        name: "vector.svg",
-        size: 1,
-        type: "image/svg+xml",
-      })
-    ).toBe(
-      "Supported files include images, PDFs, Office files, text, CSV, and ZIP archives"
-    )
-    expect(
-      getAttachmentFileValidationMessage({
-        name: "installer.exe",
-        size: 1,
-        type: "application/x-msdownload",
-      })
-    ).toBe(
-      "Supported files include images, PDFs, Office files, text, CSV, and ZIP archives"
-    )
   })
 })

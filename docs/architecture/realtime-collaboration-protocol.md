@@ -97,11 +97,14 @@ The document session route returns:
 Supported flush kinds:
 
 - `content`: active body save; persists server-held room Y.Doc.
-- `work-item-main`: active work-item body save plus optional title metadata; persists server-held room Y.Doc.
 - `document-title`: metadata-only save; never derives title/body from content.
 - `teardown-content`: closing-tab fallback; may apply client content only when no other editor remains.
 
 Viewers cannot flush.
+
+Work-item descriptions do not open PartyKit rooms. Work-item title and
+description edits use the exclusive Convex edit lease and direct Convex
+mutations.
 
 Known flush failures return JSON:
 

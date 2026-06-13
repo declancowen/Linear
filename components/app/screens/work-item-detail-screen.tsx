@@ -56,8 +56,6 @@ import {
   mergePendingDocumentMentions,
   type PendingDocumentMention,
 } from "@/lib/content/rich-text-mentions"
-import { useDocumentCollaboration } from "@/hooks/use-document-collaboration"
-import { useInitialCollaborationSyncPreview } from "@/hooks/use-initial-collaboration-sync-preview"
 import {
   fetchWorkItemDetailReadModel,
   syncClearWorkItemPresence,
@@ -115,6 +113,7 @@ import {
   statusMeta,
   type AppData,
   type AppSnapshot,
+  type Attachment,
   type Document as AppDocument,
   type DocumentPresenceViewer,
   type Milestone,
@@ -176,9 +175,9 @@ import {
 } from "@/components/ui/popover"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 
-import { CollaborationSyncDialog } from "./collaboration-sync-dialog"
 import { DocumentPresenceAvatarGroup } from "./document-ui"
 import { useLegacyPresenceHeartbeat } from "./legacy-presence-heartbeat"
+import { WorkItemAttachments } from "./work-item-attachments"
 import { InlineWorkItemPropertyControl } from "./work-item-inline-property-control"
 import { IssueContextMenu } from "./work-item-menus"
 import {
@@ -236,8 +235,6 @@ import { cn } from "@/lib/utils"
 
 const WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS = 15 * 1000
 const WORK_ITEM_PRESENCE_BLOCK_CHANGE_DELAY_MS = 250
-const ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX =
-  "linear:collaboration:item-description-sync-modal-seen:"
 function isAlreadyDeliveredMentionConflict(error: unknown) {
   return (
     error instanceof RouteMutationError &&
@@ -2469,17 +2466,6 @@ function MainActivityTimeline({
   )
 }
 
-type WorkItemCollaborationLifecycle = ReturnType<
-  typeof useDocumentCollaboration
->["lifecycle"]
-
-type StableCollaborationUser = {
-  id: string
-  name: string
-  avatarUrl?: string | null
-  avatarImageUrl?: string | null
-}
-
 type DetailSelectOption = PropertySelectOption
 type DetailPropertyChangeHandlers = {
   onStatusChange: (value: string) => void
@@ -2948,17 +2934,12 @@ function WorkItemSidebarCustomPropertyRows({
 type DetailChildProgress = ReturnType<typeof getWorkItemChildProgress>
 type DetailChildCopy = ReturnType<typeof getChildWorkItemCopy>
 type DetailWorkCopy = ReturnType<typeof getWorkSurfaceCopy>
-type DetailCollaborationState = ReturnType<typeof useDocumentCollaboration>
-type DetailBootstrapContent = DetailCollaborationState["bootstrapContent"]
-type DetailEditorCollaboration = DetailCollaborationState["editorCollaboration"]
-type DetailCollaborationBinding = DetailCollaborationState["collaboration"]
 type DetailUploadAttachmentHandler = NonNullable<
   ComponentProps<typeof RichTextEditor>["onUploadAttachment"]
 >
 type DetailReferenceCandidates = ComponentProps<
   typeof RichTextEditor
 >["referenceCandidates"]
-type DetailFlushCollaboration = DetailCollaborationState["flush"]
 type DetailRouter = AppRouter
 type DetailRequestWorkItemUpdate = ReturnType<
   typeof useWorkItemProjectCascadeConfirmation
@@ -2991,22 +2972,14 @@ function getMissingWorkItemDetailContent({
 }
 
 function getActiveDescriptionViewers({
-  hasLiveDescriptionPresence,
-  collaborationViewers,
   currentUser,
   legacyActiveBlockId,
   workItemPresenceViewers,
 }: {
-  hasLiveDescriptionPresence: boolean
-  collaborationViewers: DocumentPresenceViewer[]
   currentUser: UserProfile | null
   legacyActiveBlockId: string | null
   workItemPresenceViewers: DocumentPresenceViewer[]
 }) {
-  if (hasLiveDescriptionPresence) {
-    return collaborationViewers
-  }
-
   if (!currentUser) {
     return workItemPresenceViewers
   }
@@ -3018,6 +2991,7 @@ function getActiveDescriptionViewers({
       avatarUrl: currentUser.avatarUrl,
       avatarImageUrl: currentUser.avatarImageUrl ?? null,
       activeBlockId: legacyActiveBlockId,
+      editing: false,
       lastSeenAt: new Date().toISOString(),
     },
     ...workItemPresenceViewers,
@@ -3223,6 +3197,13 @@ function getWorkItemDetailModel({
   const allowedChildTypes = getAllowedChildWorkItemTypesForItem(currentItem)
 
   return {
+    attachments: data.attachments
+      .filter(
+        (attachment) =>
+          attachment.targetType === "workItem" &&
+          attachment.targetId === currentItem.id
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
     availableLabels: getAvailableWorkItemLabels(data, currentItem, team),
     canCreateChildItem: editable && allowedChildTypes.length > 0,
     cascadeMessage: getWorkItemDeleteCascadeMessage({
@@ -3518,88 +3499,84 @@ async function copyCurrentItemLink() {
   }
 }
 
-function useStableCollaborationUser(
-  currentUser: UserProfile | null,
-  currentUserId: string
-) {
-  const stableCollaborationUserRef = useRef<StableCollaborationUser | null>(
-    null
-  )
-
-  useEffect(() => {
-    if (!currentUser) {
-      return
-    }
-
-    stableCollaborationUserRef.current = {
-      id: currentUserId,
-      name: currentUser.name,
-      avatarUrl: currentUser.avatarUrl,
-      avatarImageUrl: currentUser.avatarImageUrl ?? null,
-    }
-  }, [currentUser, currentUserId])
-
-  // eslint-disable-next-line react-hooks/refs -- keep the last user available while auth state refreshes.
-  return currentUser ?? stableCollaborationUserRef.current ?? null
-}
-
-function useStableDescriptionDocumentId(
-  itemId: string,
-  activeDescriptionDocumentId: string | null
-) {
-  const [stableDescriptionDocumentId, setStableDescriptionDocumentId] =
-    useState<string | null>(null)
-  const previousItemIdRef = useRef(itemId)
-
-  useEffect(() => {
-    if (previousItemIdRef.current === itemId) {
-      return
-    }
-
-    previousItemIdRef.current = itemId
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- route changes must discard the previous collaboration document.
-    setStableDescriptionDocumentId(null)
-  }, [itemId])
-
-  useEffect(() => {
-    if (!activeDescriptionDocumentId) {
-      return
-    }
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- promote the loaded document id into a stable collaboration target.
-    setStableDescriptionDocumentId(activeDescriptionDocumentId)
-  }, [activeDescriptionDocumentId])
-
-  return stableDescriptionDocumentId
-}
-
 function useLegacyWorkItemPresence({
   activeItemId,
   currentUserId,
-  collaborationLifecycle,
-  isEditingCurrentItem,
 }: {
   activeItemId: string | null
   currentUserId: string
-  collaborationLifecycle: WorkItemCollaborationLifecycle
-  isEditingCurrentItem: boolean
 }) {
   const [legacyActiveBlockId, setLegacyActiveBlockId] = useState<string | null>(
     null
   )
   const legacyActiveBlockIdRef = useRef<string | null>(null)
-  const hasLiveDescriptionPresence = collaborationLifecycle === "attached"
+  const editingItemIdRef = useRef<string | null>(null)
+  const presenceRequestRef = useRef<Promise<void>>(Promise.resolve())
+  const sendPresence = useCallback(
+    (
+      itemId: string,
+      sessionId: string,
+      activeBlockId: string | null,
+      editing: boolean
+    ) => {
+      const request = presenceRequestRef.current
+        .catch(() => undefined)
+        .then(() =>
+          syncHeartbeatWorkItemPresence(
+            itemId,
+            sessionId,
+            activeBlockId,
+            editing
+          )
+        )
+
+      presenceRequestRef.current = request.then(
+        () => undefined,
+        () => undefined
+      )
+      return request
+    },
+    []
+  )
+  const heartbeatPresence = useCallback(
+    (itemId: string, sessionId: string, activeBlockId: string | null) =>
+      sendPresence(
+        itemId,
+        sessionId,
+        activeBlockId,
+        editingItemIdRef.current === itemId
+      ),
+    [sendPresence]
+  )
+  const clearPresence = useCallback(
+    (
+      itemId: string,
+      sessionId: string,
+      options?: { keepalive?: boolean }
+    ) => {
+      const request = presenceRequestRef.current
+        .catch(() => undefined)
+        .then(() => syncClearWorkItemPresence(itemId, sessionId, options))
+
+      presenceRequestRef.current = request.then(
+        () => undefined,
+        () => undefined
+      )
+      return request
+    },
+    []
+  )
   const { presenceViewers: workItemPresenceViewers, sendLegacyPresenceRef } =
     useLegacyPresenceHeartbeat({
       activeId: activeItemId,
       activeBlockIdRef: legacyActiveBlockIdRef,
       clearErrorMessage: "Failed to clear work item presence",
-      clearPresence: syncClearWorkItemPresence,
-      collaborationLifecycle,
+      clearPresence,
+      collaborationLifecycle: "legacy",
       currentUserId,
       heartbeatErrorMessage: "Failed to sync work item presence",
       heartbeatIntervalMs: WORK_ITEM_PRESENCE_HEARTBEAT_INTERVAL_MS,
-      heartbeatPresence: syncHeartbeatWorkItemPresence,
+      heartbeatPresence,
       getSessionId: getWorkItemPresenceSessionId,
     })
 
@@ -3608,6 +3585,7 @@ function useLegacyWorkItemPresence({
       // eslint-disable-next-line react-hooks/set-state-in-effect -- route changes must clear the previous legacy presence target.
       setLegacyActiveBlockId(null)
       legacyActiveBlockIdRef.current = null
+      editingItemIdRef.current = null
     }
   }, [activeItemId])
 
@@ -3620,7 +3598,7 @@ function useLegacyWorkItemPresence({
   )
 
   useEffect(() => {
-    if (hasLiveDescriptionPresence || !activeItemId || !isEditingCurrentItem) {
+    if (!activeItemId) {
       return
     }
 
@@ -3633,15 +3611,53 @@ function useLegacyWorkItemPresence({
     }
   }, [
     activeItemId,
-    hasLiveDescriptionPresence,
-    isEditingCurrentItem,
     legacyActiveBlockId,
     sendLegacyPresenceRef,
   ])
 
+  const claimEditLease = useCallback(async () => {
+    if (!activeItemId) {
+      return false
+    }
+
+    editingItemIdRef.current = activeItemId
+
+    try {
+      await sendPresence(
+        activeItemId,
+        getWorkItemPresenceSessionId(currentUserId),
+        legacyActiveBlockIdRef.current,
+        true
+      )
+      return true
+    } catch (error) {
+      editingItemIdRef.current = null
+      toast.error(
+        error instanceof Error ? error.message : "Failed to start editing"
+      )
+      return false
+    }
+  }, [activeItemId, currentUserId, sendPresence])
+
+  const releaseEditLease = useCallback(() => {
+    editingItemIdRef.current = null
+    if (!activeItemId) {
+      return
+    }
+
+    void sendPresence(
+      activeItemId,
+      getWorkItemPresenceSessionId(currentUserId),
+      legacyActiveBlockIdRef.current,
+      false
+    )
+  }, [activeItemId, currentUserId, sendPresence])
+
   return {
+    claimEditLease,
     handleLegacyActiveBlockChange,
     legacyActiveBlockId,
+    releaseEditLease,
     workItemPresenceViewers,
   }
 }
@@ -3663,58 +3679,24 @@ function clearMainPendingMentionRetryEntries(
 
 async function persistWorkItemMainSection({
   currentItem,
-  flushCollaboration,
-  isCollaborationAttached,
+  editSessionId,
   mainDraftDescription,
   mainDraftDescriptionUpdatedAt,
   mainDraftUpdatedAt,
-  mainTitleDirty,
   normalizedMainDraftTitle,
 }: {
   currentItem: WorkItem
-  flushCollaboration: DetailFlushCollaboration
-  isCollaborationAttached: boolean
+  editSessionId: string
   mainDraftDescription: string
   mainDraftDescriptionUpdatedAt: string | null
   mainDraftUpdatedAt: string | null
-  mainTitleDirty: boolean
   normalizedMainDraftTitle: string
 }) {
-  if (isCollaborationAttached) {
-    try {
-      await flushCollaboration({
-        kind: "work-item-main",
-        ...(mainTitleDirty
-          ? {
-              workItemExpectedUpdatedAt:
-                mainDraftUpdatedAt ?? currentItem.updatedAt,
-              workItemTitle: normalizedMainDraftTitle,
-            }
-          : {}),
-      })
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to persist the latest description changes"
-      )
-      return false
-    }
-
-    useAppStore
-      .getState()
-      .applyItemDescriptionCollaborationContent(
-        currentItem.id,
-        mainDraftDescription
-      )
-
-    return true
-  }
-
   return useAppStore.getState().saveWorkItemMainSection({
     itemId: currentItem.id,
     title: normalizedMainDraftTitle,
     description: mainDraftDescription,
+    editSessionId,
     expectedDescriptionUpdatedAt: mainDraftDescriptionUpdatedAt ?? "",
     expectedUpdatedAt: mainDraftUpdatedAt ?? currentItem.updatedAt,
   })
@@ -3820,7 +3802,6 @@ function getPendingMainMentionEntries({
 function getMainSectionDraftState({
   currentItem,
   descriptionUpdatedAt,
-  isCollaborationAttached,
   isMainEditing,
   mainDraftDescriptionDirty,
   mainDraftDescriptionUpdatedAt,
@@ -3829,7 +3810,6 @@ function getMainSectionDraftState({
 }: {
   currentItem: WorkItem | undefined
   descriptionUpdatedAt: string | null
-  isCollaborationAttached: boolean
   isMainEditing: boolean
   mainDraftDescriptionDirty: boolean
   mainDraftDescriptionUpdatedAt: string | null
@@ -3853,9 +3833,7 @@ function getMainSectionDraftState({
     mainDraftUpdatedAt &&
     mainDraftUpdatedAt !== currentItem.updatedAt
   )
-  const stale = Boolean(
-    !isCollaborationAttached && (titleStale || descriptionStale)
-  )
+  const stale = titleStale || descriptionStale
 
   return {
     descriptionDirty,
@@ -3868,8 +3846,6 @@ function getMainSectionDraftState({
 function getCanSaveMainSection({
   currentItem,
   draftDirty,
-  isAwaitingCollaboration,
-  isCollaborationAttached,
   isMainEditing,
   mainDraftStale,
   mainTitleCanSubmit,
@@ -3878,8 +3854,6 @@ function getCanSaveMainSection({
 }: {
   currentItem: WorkItem | undefined
   draftDirty: boolean
-  isAwaitingCollaboration: boolean
-  isCollaborationAttached: boolean
   isMainEditing: boolean
   mainDraftStale: boolean
   mainTitleCanSubmit: boolean
@@ -3890,12 +3864,7 @@ function getCanSaveMainSection({
     return false
   }
 
-  if (isCollaborationAttached) {
-    return isMainEditing && mainTitleCanSubmit && !savingMainSection
-  }
-
   return (
-    !isAwaitingCollaboration &&
     isMainEditing &&
     mainTitleCanSubmit &&
     (draftDirty || pendingMentionCount > 0) &&
@@ -3908,20 +3877,18 @@ function useWorkItemMainSectionController({
   currentItem,
   descriptionContent,
   descriptionUpdatedAt,
+  editSessionId,
   editable,
-  flushCollaboration,
-  isAwaitingCollaboration,
-  isCollaborationAttached,
-  isCollaborationBootstrapping,
+  releaseEditLease,
+  requestEditLease,
 }: {
   currentItem: WorkItem | undefined
   descriptionContent: string
   descriptionUpdatedAt: string | null
+  editSessionId: string
   editable: boolean
-  flushCollaboration: DetailFlushCollaboration
-  isAwaitingCollaboration: boolean
-  isCollaborationAttached: boolean
-  isCollaborationBootstrapping: boolean
+  releaseEditLease: () => void
+  requestEditLease: () => Promise<boolean>
 }) {
   const [mainEditing, setMainEditing] = useState(false)
   const [mainDraftItemId, setMainDraftItemId] = useState<string | null>(null)
@@ -3958,7 +3925,6 @@ function useWorkItemMainSectionController({
   const draftState = getMainSectionDraftState({
     currentItem,
     descriptionUpdatedAt,
-    isCollaborationAttached,
     isMainEditing,
     mainDraftDescriptionDirty,
     mainDraftDescriptionUpdatedAt,
@@ -3968,8 +3934,6 @@ function useWorkItemMainSectionController({
   const canSaveMainSection = getCanSaveMainSection({
     currentItem,
     draftDirty: draftState.dirty,
-    isAwaitingCollaboration,
-    isCollaborationAttached,
     isMainEditing,
     mainDraftStale: draftState.stale,
     mainTitleCanSubmit,
@@ -4013,8 +3977,12 @@ function useWorkItemMainSectionController({
     [currentItem, isMainEditing]
   )
 
-  function handleStartMainEdit() {
-    if (!currentItem || !editable || isCollaborationBootstrapping) {
+  async function handleStartMainEdit() {
+    if (!currentItem || !editable || isMainEditing) {
+      return
+    }
+
+    if (!(await requestEditLease())) {
       return
     }
 
@@ -4030,21 +3998,8 @@ function useWorkItemMainSectionController({
   }
 
   function handleCancelMainEdit() {
-    const nextDescription =
-      currentItem && isCollaborationAttached
-        ? mainDraftDescriptionRef.current
-        : currentItem
-          ? descriptionContent
-          : ""
-
-    if (currentItem && isCollaborationAttached) {
-      useAppStore
-        .getState()
-        .applyItemDescriptionCollaborationContent(
-          currentItem.id,
-          nextDescription
-        )
-    }
+    const nextDescription = currentItem ? descriptionContent : ""
+    releaseEditLease()
 
     setMainDraftItemId(null)
     setMainDraftUpdatedAt(null)
@@ -4093,7 +4048,6 @@ function useWorkItemMainSectionController({
     const savedItemId = currentItem.id
     const latestMainDraftTitle = mainDraftTitleRef.current
     const normalizedMainDraftTitle = latestMainDraftTitle.trim()
-    const latestMainTitleDirty = normalizedMainDraftTitle !== currentItem.title
     const latestMainDraftDescription = mainDraftDescriptionRef.current
     const pendingMentionEntries = getPendingMainMentionEntries({
       currentItem,
@@ -4105,12 +4059,10 @@ function useWorkItemMainSectionController({
     })
     const saved = await persistWorkItemMainSection({
       currentItem,
-      flushCollaboration,
-      isCollaborationAttached,
+      editSessionId,
       mainDraftDescription: latestMainDraftDescription,
       mainDraftDescriptionUpdatedAt,
       mainDraftUpdatedAt,
-      mainTitleDirty: latestMainTitleDirty,
       normalizedMainDraftTitle,
     })
 
@@ -4129,6 +4081,7 @@ function useWorkItemMainSectionController({
     setMainDraftDescriptionDirty(false)
     setMainDraftDescription(latestMainDraftDescription)
     setMainEditing(false)
+    releaseEditLease()
 
     await deliverWorkItemMainMentionNotifications({
       pendingMentionEntries,
@@ -4213,26 +4166,32 @@ function WorkItemDetailBreadcrumb({
 }
 
 function WorkItemTopBarEditActions({
+  editLocked,
   isMainEditing,
   savingMainSection,
   canSaveMainSection,
-  isCollaborationAttached,
   onCancelMainEdit,
   onSaveMainEdit,
   onStartMainEdit,
 }: {
+  editLocked: boolean
   isMainEditing: boolean
   savingMainSection: boolean
   canSaveMainSection: boolean
-  isCollaborationAttached: boolean
   onCancelMainEdit: () => void
   onSaveMainEdit: () => void
   onStartMainEdit: () => void
 }) {
   if (!isMainEditing) {
     return (
-      <Button size="sm" variant="outline" onClick={onStartMainEdit}>
-        Edit
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={editLocked}
+        title={editLocked ? "Another person is editing this work item" : undefined}
+        onClick={onStartMainEdit}
+      >
+        {editLocked ? "Editing..." : "Edit"}
       </Button>
     )
   }
@@ -4245,14 +4204,10 @@ function WorkItemTopBarEditActions({
         disabled={savingMainSection}
         onClick={onCancelMainEdit}
       >
-        {isCollaborationAttached ? "Close" : "Cancel"}
+        Cancel
       </Button>
       <Button size="sm" disabled={!canSaveMainSection} onClick={onSaveMainEdit}>
-        {savingMainSection
-          ? "Saving..."
-          : isCollaborationAttached
-            ? "Done"
-            : "Save"}
+        {savingMainSection ? "Saving..." : "Save"}
       </Button>
     </>
   )
@@ -4300,10 +4255,10 @@ function WorkItemTopBarDeleteMenu({
 function WorkItemTopBarActions({
   editable,
   otherDescriptionViewers,
+  editLocked,
   isMainEditing,
   savingMainSection,
   canSaveMainSection,
-  isCollaborationAttached,
   deletingItem,
   itemTypeLabel,
   propertiesOpen,
@@ -4315,10 +4270,10 @@ function WorkItemTopBarActions({
 }: {
   editable: boolean
   otherDescriptionViewers: DocumentPresenceViewer[]
+  editLocked: boolean
   isMainEditing: boolean
   savingMainSection: boolean
   canSaveMainSection: boolean
-  isCollaborationAttached: boolean
   deletingItem: boolean
   itemTypeLabel: string
   propertiesOpen: boolean
@@ -4339,10 +4294,10 @@ function WorkItemTopBarActions({
             />
           ) : null}
           <WorkItemTopBarEditActions
+            editLocked={editLocked}
             isMainEditing={isMainEditing}
             savingMainSection={savingMainSection}
             canSaveMainSection={canSaveMainSection}
-            isCollaborationAttached={isCollaborationAttached}
             onCancelMainEdit={onCancelMainEdit}
             onSaveMainEdit={onSaveMainEdit}
             onStartMainEdit={onStartMainEdit}
@@ -4372,10 +4327,10 @@ function WorkItemDetailTopBar({
   team,
   editable,
   otherDescriptionViewers,
+  editLocked,
   isMainEditing,
   savingMainSection,
   canSaveMainSection,
-  isCollaborationAttached,
   deletingItem,
   propertiesOpen,
   onCancelMainEdit,
@@ -4389,10 +4344,10 @@ function WorkItemDetailTopBar({
   team: Team | null
   editable: boolean
   otherDescriptionViewers: DocumentPresenceViewer[]
+  editLocked: boolean
   isMainEditing: boolean
   savingMainSection: boolean
   canSaveMainSection: boolean
-  isCollaborationAttached: boolean
   deletingItem: boolean
   propertiesOpen: boolean
   onCancelMainEdit: () => void
@@ -4418,10 +4373,10 @@ function WorkItemDetailTopBar({
       <WorkItemTopBarActions
         editable={editable}
         otherDescriptionViewers={otherDescriptionViewers}
+        editLocked={editLocked}
         isMainEditing={isMainEditing}
         savingMainSection={savingMainSection}
         canSaveMainSection={canSaveMainSection}
-        isCollaborationAttached={isCollaborationAttached}
         deletingItem={deletingItem}
         itemTypeLabel={itemTypeLabel}
         propertiesOpen={propertiesOpen}
@@ -4597,48 +4552,10 @@ function WorkItemStaleDraftNotice({
   )
 }
 
-function WorkItemDescriptionBootPreview({
-  bootstrapContent,
-  collaborationDescriptionContent,
-  referenceCandidates,
-}: {
-  bootstrapContent: DetailBootstrapContent
-  collaborationDescriptionContent: string
-  referenceCandidates: DetailReferenceCandidates
-}) {
-  return (
-    <RichTextContent
-      content={
-        typeof bootstrapContent === "string"
-          ? bootstrapContent
-          : collaborationDescriptionContent
-      }
-      referenceCandidates={referenceCandidates}
-      className="text-fg-1 min-h-24 text-sm [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-0 [&_h1]:mb-2 [&_h1]:text-2xl [&_h1]:leading-tight [&_h1]:font-semibold [&_h2]:mt-0 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:leading-tight [&_h2]:font-semibold [&_h3]:mt-0 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:leading-tight [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:mt-0 [&_p]:leading-7 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_ul]:list-disc"
-    />
-  )
-}
-
-function getAttachedDescriptionCollaboration(input: {
-  collaboration: DetailCollaborationBinding
-  editorCollaboration: DetailEditorCollaboration
-  isCollaborationAttached: boolean
-}) {
-  if (!input.isCollaborationAttached) {
-    return undefined
-  }
-
-  return input.editorCollaboration ?? input.collaboration ?? undefined
-}
-
 type WorkItemDescriptionRichTextEditorProps = {
-  collaborationDescriptionContent: string
-  isCollaborationAttached: boolean
-  editorCollaboration: DetailEditorCollaboration
-  collaboration: DetailCollaborationBinding
+  descriptionContent: string
   currentUserId: string
   editable: boolean
-  isCollaborationBootstrapping: boolean
   otherDescriptionViewers: DocumentPresenceViewer[]
   mentionCandidates: UserProfile[]
   referenceCandidates: DetailReferenceCandidates
@@ -4647,19 +4564,12 @@ type WorkItemDescriptionRichTextEditorProps = {
   onUploadAttachment: DetailUploadAttachmentHandler
 }
 
-type WorkItemDescriptionEditorProps = WorkItemDescriptionRichTextEditorProps & {
-  showDescriptionBootPreview: boolean
-  bootstrapContent: DetailBootstrapContent
-}
+type WorkItemDescriptionEditorProps = WorkItemDescriptionRichTextEditorProps
 
 function WorkItemDescriptionRichTextEditor({
-  collaborationDescriptionContent,
-  isCollaborationAttached,
-  editorCollaboration,
-  collaboration,
+  descriptionContent,
   currentUserId,
   editable,
-  isCollaborationBootstrapping,
   otherDescriptionViewers,
   mentionCandidates,
   referenceCandidates,
@@ -4669,14 +4579,9 @@ function WorkItemDescriptionRichTextEditor({
 }: WorkItemDescriptionRichTextEditorProps) {
   return (
     <RichTextEditor
-      content={collaborationDescriptionContent}
-      collaboration={getAttachedDescriptionCollaboration({
-        collaboration,
-        editorCollaboration,
-        isCollaborationAttached,
-      })}
+      content={descriptionContent}
       currentPresenceUserId={currentUserId}
-      editable={editable && !isCollaborationBootstrapping}
+      editable={editable}
       showStats={false}
       placeholder="Add a description…"
       presenceViewers={otherDescriptionViewers}
@@ -4690,15 +4595,9 @@ function WorkItemDescriptionRichTextEditor({
 }
 
 function WorkItemDescriptionEditor({
-  showDescriptionBootPreview,
-  bootstrapContent,
-  collaborationDescriptionContent,
-  isCollaborationAttached,
-  editorCollaboration,
-  collaboration,
+  descriptionContent,
   currentUserId,
   editable,
-  isCollaborationBootstrapping,
   otherDescriptionViewers,
   mentionCandidates,
   referenceCandidates,
@@ -4708,29 +4607,17 @@ function WorkItemDescriptionEditor({
 }: WorkItemDescriptionEditorProps) {
   return (
     <div className="rounded-xl border border-line bg-surface px-4 py-3 transition-colors focus-within:border-fg-3">
-      {showDescriptionBootPreview ? (
-        <WorkItemDescriptionBootPreview
-          bootstrapContent={bootstrapContent}
-          collaborationDescriptionContent={collaborationDescriptionContent}
-          referenceCandidates={referenceCandidates}
-        />
-      ) : (
-        <WorkItemDescriptionRichTextEditor
-          collaborationDescriptionContent={collaborationDescriptionContent}
-          isCollaborationAttached={isCollaborationAttached}
-          editorCollaboration={editorCollaboration}
-          collaboration={collaboration}
-          currentUserId={currentUserId}
-          editable={editable}
-          isCollaborationBootstrapping={isCollaborationBootstrapping}
-          otherDescriptionViewers={otherDescriptionViewers}
-          mentionCandidates={mentionCandidates}
-          referenceCandidates={referenceCandidates}
-          onLegacyActiveBlockChange={onLegacyActiveBlockChange}
-          onDescriptionChange={onDescriptionChange}
-          onUploadAttachment={onUploadAttachment}
-        />
-      )}
+      <WorkItemDescriptionRichTextEditor
+        descriptionContent={descriptionContent}
+        currentUserId={currentUserId}
+        editable={editable}
+        otherDescriptionViewers={otherDescriptionViewers}
+        mentionCandidates={mentionCandidates}
+        referenceCandidates={referenceCandidates}
+        onLegacyActiveBlockChange={onLegacyActiveBlockChange}
+        onDescriptionChange={onDescriptionChange}
+        onUploadAttachment={onUploadAttachment}
+      />
     </div>
   )
 }
@@ -4764,6 +4651,7 @@ function WorkItemDescriptionReadView({
   return (
     <RichTextContent
       content={descriptionContent}
+      enableAttachmentDownload
       referenceCandidates={referenceCandidates}
       className="text-fg-1 text-[14px] leading-[1.65] [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-5 [&_h1]:mb-2 [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_li]:mb-1 [&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc"
     />
@@ -4771,16 +4659,11 @@ function WorkItemDescriptionReadView({
 }
 
 function WorkItemDescriptionSection({
+  attachments,
   isMainEditing,
-  showDescriptionBootPreview,
-  bootstrapContent,
-  collaborationDescriptionContent,
-  isCollaborationAttached,
-  editorCollaboration,
-  collaboration,
+  mainDraftDescription,
   currentUserId,
   editable,
-  isCollaborationBootstrapping,
   otherDescriptionViewers,
   mentionCandidates,
   referenceCandidates,
@@ -4790,16 +4673,11 @@ function WorkItemDescriptionSection({
   onUploadAttachment,
   onStartMainEdit,
 }: {
+  attachments: Attachment[]
   isMainEditing: boolean
-  showDescriptionBootPreview: boolean
-  bootstrapContent: DetailBootstrapContent
-  collaborationDescriptionContent: string
-  isCollaborationAttached: boolean
-  editorCollaboration: DetailEditorCollaboration
-  collaboration: DetailCollaborationBinding
+  mainDraftDescription: string
   currentUserId: string
   editable: boolean
-  isCollaborationBootstrapping: boolean
   otherDescriptionViewers: DocumentPresenceViewer[]
   mentionCandidates: UserProfile[]
   referenceCandidates: DetailReferenceCandidates
@@ -4813,15 +4691,9 @@ function WorkItemDescriptionSection({
     <section className="mt-7">
       {isMainEditing ? (
         <WorkItemDescriptionEditor
-          showDescriptionBootPreview={showDescriptionBootPreview}
-          bootstrapContent={bootstrapContent}
-          collaborationDescriptionContent={collaborationDescriptionContent}
-          isCollaborationAttached={isCollaborationAttached}
-          editorCollaboration={editorCollaboration}
-          collaboration={collaboration}
+          descriptionContent={mainDraftDescription}
           currentUserId={currentUserId}
           editable={editable}
-          isCollaborationBootstrapping={isCollaborationBootstrapping}
           otherDescriptionViewers={otherDescriptionViewers}
           mentionCandidates={mentionCandidates}
           referenceCandidates={referenceCandidates}
@@ -4837,6 +4709,7 @@ function WorkItemDescriptionSection({
           onStartMainEdit={onStartMainEdit}
         />
       )}
+      <WorkItemAttachments attachments={attachments} />
     </section>
   )
 }
@@ -5233,6 +5106,7 @@ function WorkItemChildItemsSection({
 }
 
 function WorkItemMainArticle({
+  attachments,
   data,
   currentItem,
   team,
@@ -5242,15 +5116,9 @@ function WorkItemMainArticle({
   mainDraftTitle,
   mainDraftStale,
   descriptionContent,
-  showDescriptionBootPreview,
-  bootstrapContent,
-  collaborationDescriptionContent,
-  isCollaborationAttached,
-  editorCollaboration,
-  collaboration,
+  mainDraftDescription,
   currentUserId,
   editable,
-  isCollaborationBootstrapping,
   otherDescriptionViewers,
   mentionCandidates,
   referenceCandidates,
@@ -5271,6 +5139,7 @@ function WorkItemMainArticle({
   onOpenMainChildComposer,
   onCloseMainChildComposer,
 }: {
+  attachments: Attachment[]
   data: AppData
   currentItem: WorkItem
   team: Team | null
@@ -5280,15 +5149,9 @@ function WorkItemMainArticle({
   mainDraftTitle: string
   mainDraftStale: boolean
   descriptionContent: string
-  showDescriptionBootPreview: boolean
-  bootstrapContent: DetailBootstrapContent
-  collaborationDescriptionContent: string
-  isCollaborationAttached: boolean
-  editorCollaboration: DetailEditorCollaboration
-  collaboration: DetailCollaborationBinding
+  mainDraftDescription: string
   currentUserId: string
   editable: boolean
-  isCollaborationBootstrapping: boolean
   otherDescriptionViewers: DocumentPresenceViewer[]
   mentionCandidates: UserProfile[]
   referenceCandidates: DetailReferenceCandidates
@@ -5328,16 +5191,11 @@ function WorkItemMainArticle({
         />
 
         <WorkItemDescriptionSection
+          attachments={attachments}
           isMainEditing={isMainEditing}
-          showDescriptionBootPreview={showDescriptionBootPreview}
-          bootstrapContent={bootstrapContent}
-          collaborationDescriptionContent={collaborationDescriptionContent}
-          isCollaborationAttached={isCollaborationAttached}
-          editorCollaboration={editorCollaboration}
-          collaboration={collaboration}
+          mainDraftDescription={mainDraftDescription}
           currentUserId={currentUserId}
           editable={editable}
-          isCollaborationBootstrapping={isCollaborationBootstrapping}
           otherDescriptionViewers={otherDescriptionViewers}
           mentionCandidates={mentionCandidates}
           referenceCandidates={referenceCandidates}
@@ -6250,17 +6108,12 @@ export function WorkItemDetailSidebarSurface({
 function useProtectedWorkItemDescriptionBody({
   documentId,
   editing,
-  lifecycle,
 }: {
   documentId: string | null
   editing: boolean
-  lifecycle: WorkItemCollaborationLifecycle
 }) {
   const protectedDocumentId = documentId
-  const protectingBody = Boolean(
-    protectedDocumentId &&
-    (editing || lifecycle === "bootstrapping" || lifecycle === "attached")
-  )
+  const protectingBody = Boolean(protectedDocumentId && editing)
 
   useEffect(() => {
     if (!protectedDocumentId) {
@@ -6277,19 +6130,6 @@ function useProtectedWorkItemDescriptionBody({
         .setDocumentBodyProtection(protectedDocumentId, false)
     }
   }, [protectedDocumentId, protectingBody])
-}
-
-function useCancelActiveDescriptionSync(
-  activeItemId: string | null,
-  lifecycle: WorkItemCollaborationLifecycle
-) {
-  useEffect(() => {
-    if (!activeItemId || lifecycle === "legacy" || lifecycle === "degraded") {
-      return
-    }
-
-    useAppStore.getState().cancelItemDescriptionSync(activeItemId)
-  }, [activeItemId, lifecycle])
 }
 
 function useResetWorkItemChildComposers(
@@ -6348,28 +6188,7 @@ export function WorkItemDetailScreen({
   const description = item ? getDocument(data, item.descriptionDocId) : null
   const descriptionContent = description?.content ?? "<p>Add a description…</p>"
   const activeDescriptionDocumentId = description?.id ?? null
-  const stableDescriptionDocumentId = useStableDescriptionDocumentId(
-    itemId,
-    activeDescriptionDocumentId
-  )
   const activePresenceItemId = item?.id ?? null
-  const collaborationCurrentUser = useStableCollaborationUser(
-    currentUser,
-    currentUserId
-  )
-  const {
-    bootstrapContent,
-    editorCollaboration,
-    collaboration,
-    flush: flushCollaboration,
-    isAwaitingCollaboration,
-    lifecycle: collaborationLifecycle,
-    viewers: collaborationViewers,
-  } = useDocumentCollaboration({
-    documentId: stableDescriptionDocumentId,
-    currentUser: collaborationCurrentUser,
-    enabled: Boolean(stableDescriptionDocumentId),
-  })
   const { hasLoadedOnce: hasLoadedWorkItemReadModel } =
     useScopedReadModelRefresh({
       enabled: Boolean(itemId),
@@ -6388,49 +6207,31 @@ export function WorkItemDetailScreen({
       ]),
     })
 
-  const isCollaborationAttached = collaborationLifecycle === "attached"
-  const isCollaborationBootstrapping =
-    collaborationLifecycle === "bootstrapping"
   const team = item ? getTeam(data, item.teamId) : null
   const editable = item ? canEditWorkItemDetail(data, item, team) : false
-  const showDescriptionBootPreview = useInitialCollaborationSyncPreview({
-    id: itemId,
-    storagePrefix: ITEM_DESCRIPTION_SYNC_MODAL_SEEN_STORAGE_PREFIX,
-    bootstrapping: isCollaborationBootstrapping,
-    attached: isCollaborationAttached,
+  const {
+    claimEditLease,
+    handleLegacyActiveBlockChange,
+    legacyActiveBlockId,
+    releaseEditLease,
+    workItemPresenceViewers,
+  } = useLegacyWorkItemPresence({
+    activeItemId: activePresenceItemId,
+    currentUserId,
   })
   const mainSection = useWorkItemMainSectionController({
     currentItem: item,
     descriptionContent,
     descriptionUpdatedAt: description?.updatedAt ?? null,
+    editSessionId: getWorkItemPresenceSessionId(currentUserId),
     editable,
-    flushCollaboration,
-    isAwaitingCollaboration,
-    isCollaborationAttached,
-    isCollaborationBootstrapping,
+    releaseEditLease,
+    requestEditLease: claimEditLease,
   })
   const isEditingCurrentItem = mainSection.isMainEditing
-  const showDescriptionSyncDialog =
-    isEditingCurrentItem && showDescriptionBootPreview
-  const collaborationDescriptionContent = mainSection.mainDraftDescription
-  const protectedDescriptionDocumentId =
-    activeDescriptionDocumentId ?? stableDescriptionDocumentId
   useProtectedWorkItemDescriptionBody({
-    documentId: protectedDescriptionDocumentId,
+    documentId: activeDescriptionDocumentId,
     editing: isEditingCurrentItem,
-    lifecycle: collaborationLifecycle,
-  })
-  useCancelActiveDescriptionSync(activePresenceItemId, collaborationLifecycle)
-
-  const {
-    handleLegacyActiveBlockChange,
-    legacyActiveBlockId,
-    workItemPresenceViewers,
-  } = useLegacyWorkItemPresence({
-    activeItemId: activePresenceItemId,
-    currentUserId,
-    collaborationLifecycle,
-    isEditingCurrentItem,
   })
 
   useResetWorkItemChildComposers(
@@ -6440,16 +6241,16 @@ export function WorkItemDetailScreen({
   )
   useScrollCurrentWorkItemHashTarget(itemId, data.comments.length)
 
-  const hasLiveDescriptionPresence = collaborationLifecycle === "attached"
   const activeDescriptionViewers = getActiveDescriptionViewers({
-    hasLiveDescriptionPresence,
-    collaborationViewers,
     currentUser,
     legacyActiveBlockId,
     workItemPresenceViewers,
   })
   const otherDescriptionViewers = activeDescriptionViewers.filter(
     (viewer) => viewer.userId !== currentUserId
+  )
+  const editLocked = otherDescriptionViewers.some(
+    (viewer) => viewer.editing === true
   )
   const detailSidebarTitle = item
     ? getWorkItemSidebarTitle({ currentItem: item, mainSection })
@@ -6493,6 +6294,7 @@ export function WorkItemDetailScreen({
     setMainDraftTitle,
   } = mainSection
   const {
+    attachments,
     availableLabels,
     canCreateChildItem,
     cascadeMessage,
@@ -6537,6 +6339,7 @@ export function WorkItemDetailScreen({
   }
 
   const mainArticleProps = {
+    attachments,
     currentItem,
     data,
     team,
@@ -6546,18 +6349,12 @@ export function WorkItemDetailScreen({
     isMainEditing,
     currentUserId,
     mainDraftTitle,
-    isCollaborationAttached,
-    editorCollaboration,
     mainDraftStale,
-    collaboration,
+    mainDraftDescription: mainSection.mainDraftDescription,
     descriptionContent,
-    isCollaborationBootstrapping,
-    showDescriptionBootPreview,
     otherDescriptionViewers,
-    bootstrapContent,
     mentionCandidates,
     referenceCandidates,
-    collaborationDescriptionContent,
     childItems,
     childProgress,
     childCopy,
@@ -6598,10 +6395,10 @@ export function WorkItemDetailScreen({
           team={team}
           editable={editable}
           otherDescriptionViewers={otherDescriptionViewers}
+          editLocked={editLocked}
           isMainEditing={isMainEditing}
           savingMainSection={savingMainSection}
           canSaveMainSection={canSaveMainSection}
-          isCollaborationAttached={isCollaborationAttached}
           deletingItem={deletingItem}
           propertiesOpen={propertiesOpen}
           onCancelMainEdit={handleCancelMainEdit}
@@ -6653,10 +6450,6 @@ export function WorkItemDetailScreen({
         </div>
       </div>
       {confirmationDialog}
-      <CollaborationSyncDialog
-        descriptionSubject="description"
-        open={showDescriptionSyncDialog}
-      />
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}

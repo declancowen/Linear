@@ -350,12 +350,6 @@ async function expectParentProjectInheritedOnCreate(input: {
   }
 }
 
-function spyOnUpdateItemDescription() {
-  return vi
-    .spyOn(useAppStore.getState(), "updateItemDescription")
-    .mockResolvedValue(undefined)
-}
-
 function renderPrivateTaskCreateDialog() {
   render(
     <CreateWorkItemDialog
@@ -542,7 +536,6 @@ describe("create dialogs", () => {
 
   it("submits the latest local title and description drafts without root draft state", async () => {
     const createWorkItemSpy = spyOnCreateWorkItem()
-    const updateDescriptionSpy = spyOnUpdateItemDescription()
 
     try {
       render(
@@ -571,17 +564,13 @@ describe("create dialogs", () => {
       await waitFor(() =>
         expect(createWorkItemSpy).toHaveBeenCalledWith(
           expect.objectContaining({
+            description: "<p>Latest description</p>",
             title: "Draft two",
           })
         )
       )
-      expect(updateDescriptionSpy).toHaveBeenCalledWith(
-        "item_new",
-        "<p>Latest description</p>"
-      )
     } finally {
       createWorkItemSpy.mockRestore()
-      updateDescriptionSpy.mockRestore()
     }
   })
 

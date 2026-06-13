@@ -249,11 +249,9 @@ describe("CommentsInline", () => {
 
   it("creates inline child items with normalized optional fields and descriptions", () => {
     const createWorkItem = vi.fn().mockReturnValue("item_child")
-    const updateItemDescription = vi.fn()
     useAppStore.setState({
       ...createEmptyState(),
       createWorkItem: createWorkItem as never,
-      updateItemDescription: updateItemDescription as never,
     })
 
     expect(
@@ -275,14 +273,11 @@ describe("CommentsInline", () => {
       expect.objectContaining({
         assigneeId: null,
         assigneeIds: [],
+        description: "<p>Follow up</p>",
         parentId: "parent_1",
         primaryProjectId: null,
         title: "Child item",
       })
-    )
-    expect(updateItemDescription).toHaveBeenCalledWith(
-      "item_child",
-      "<p>Follow up</p>"
     )
   })
 

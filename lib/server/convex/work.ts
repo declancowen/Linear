@@ -17,6 +17,7 @@ import type {
   CreateWorkItemMutationInput,
   WorkItemMutationPatch,
 } from "@/lib/domain/work-item-inputs"
+import { prepareRichTextForStorage } from "@/lib/content/rich-text-security"
 import { coerceApplicationError } from "@/lib/server/application-errors"
 
 import { getConvexServerClient, withServerToken } from "./core"
@@ -124,6 +125,11 @@ const WORK_ITEM_MUTATION_ERROR_MAPPINGS = [
     code: "WORK_ITEM_EDIT_CONFLICT",
   },
   {
+    match: "Work item edit session is no longer active",
+    status: 409,
+    code: "WORK_ITEM_EDIT_LOCKED",
+  },
+  {
     match: "Private tasks do not support subscriptions",
     status: 400,
     code: "WORK_ITEM_SUBSCRIPTION_UNSUPPORTED",
@@ -169,6 +175,11 @@ const WORK_ITEM_PRESENCE_ERROR_MAPPINGS = [
     match: "Document presence session is already in use",
     status: 409,
     code: "WORK_ITEM_PRESENCE_SESSION_CONFLICT",
+  },
+  {
+    match: "Work item is already being edited",
+    status: 409,
+    code: "WORK_ITEM_EDIT_LOCKED",
   },
   {
     match: (message: string) =>
@@ -720,11 +731,17 @@ export async function createWorkItemServer(
 ) {
   try {
     const origin = await resolveServerOrigin()
+    const description =
+      input.description === undefined
+        ? undefined
+        : prepareRichTextForStorage(input.description).sanitized
+    const preparedInput =
+      description === undefined ? input : { ...input, description }
 
     return await getConvexServerClient().mutation(
       api.app.createWorkItem,
       withServerToken({
-        ...input,
+        ...preparedInput,
         origin,
       })
     )

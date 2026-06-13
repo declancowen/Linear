@@ -486,6 +486,7 @@ export const workItemSchema = z
   .object({
     id: z.string().trim().min(1).optional(),
     descriptionDocId: z.string().trim().min(1).optional(),
+    description: z.string().optional(),
     teamId: z.string().min(1).nullable().optional(),
     workspaceId: z.string().min(1).nullable().optional(),
     type: z.enum(workItemTypes),

@@ -21,11 +21,6 @@ export type CollaborationFlushRequest =
       kind: "document-title"
       documentTitle: string
     }
-  | {
-      kind: "work-item-main"
-      workItemExpectedUpdatedAt?: string
-      workItemTitle?: string
-    }
 
 export type CollaborationRoomRefreshRequest = {
   kind: "canonical-updated" | "document-deleted" | "access-changed"
@@ -119,38 +114,6 @@ function parseTeardownContentFlushRequest(
   }
 }
 
-function parseWorkItemMainFlushRequest(
-  parsed: Record<string, unknown>
-): CollaborationFlushRequest {
-  if (
-    typeof parsed.workItemExpectedUpdatedAt !== "undefined" &&
-    typeof parsed.workItemExpectedUpdatedAt !== "string"
-  ) {
-    throw invalidPayload("Invalid collaboration flush request")
-  }
-
-  if (
-    typeof parsed.workItemTitle !== "undefined" &&
-    typeof parsed.workItemTitle !== "string"
-  ) {
-    throw invalidPayload("Invalid collaboration flush request")
-  }
-
-  return {
-    kind: "work-item-main",
-    ...(typeof parsed.workItemExpectedUpdatedAt === "string"
-      ? {
-          workItemExpectedUpdatedAt: parsed.workItemExpectedUpdatedAt,
-        }
-      : {}),
-    ...(typeof parsed.workItemTitle === "string"
-      ? {
-          workItemTitle: parsed.workItemTitle,
-        }
-      : {}),
-  }
-}
-
 function parseFlushRequestPayload(
   parsed: Record<string, unknown>,
   limits: CollaborationLimits
@@ -164,8 +127,6 @@ function parseFlushRequestPayload(
       }
     case "teardown-content":
       return parseTeardownContentFlushRequest(parsed, limits)
-    case "work-item-main":
-      return parseWorkItemMainFlushRequest(parsed)
     default:
       throw invalidPayload("Invalid collaboration flush request")
   }

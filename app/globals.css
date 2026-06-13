@@ -418,7 +418,8 @@
     white-space: nowrap;
   }
 
-  .tiptap .editor-attachment-download {
+  .tiptap .editor-attachment-download,
+  .ProseMirror .editor-attachment-download {
     display: inline-flex;
     width: 1.5rem;
     height: 1.5rem;
@@ -432,12 +433,14 @@
     cursor: pointer;
   }
 
-  .tiptap .editor-attachment-download:hover {
+  .tiptap .editor-attachment-download:hover,
+  .ProseMirror .editor-attachment-download:hover {
     background: var(--surface-3);
     color: var(--foreground);
   }
 
-  .tiptap .editor-attachment-download::before {
+  .tiptap .editor-attachment-download::before,
+  .ProseMirror .editor-attachment-download::before {
     content: "";
     display: inline-block;
     width: 0.95em;

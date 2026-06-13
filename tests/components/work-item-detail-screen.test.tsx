@@ -41,7 +41,6 @@ const {
   syncSendItemDescriptionMentionNotificationsMock,
   syncToggleCommentReactionMock,
   syncUpdateWorkItemMock,
-  useDocumentCollaborationMock,
   useScopedReadModelRefreshMock,
 } = vi.hoisted(() => ({
   fetchWorkItemDetailReadModelMock: vi.fn(),
@@ -54,7 +53,6 @@ const {
   syncSendItemDescriptionMentionNotificationsMock: vi.fn(),
   syncToggleCommentReactionMock: vi.fn(),
   syncUpdateWorkItemMock: vi.fn(),
-  useDocumentCollaborationMock: vi.fn(),
   useScopedReadModelRefreshMock: vi.fn(),
 }))
 
@@ -79,10 +77,6 @@ vi.mock("@/lib/convex/client", () => ({
     syncSendItemDescriptionMentionNotificationsMock,
   syncToggleCommentReaction: syncToggleCommentReactionMock,
   syncUpdateWorkItem: syncUpdateWorkItemMock,
-}))
-
-vi.mock("@/hooks/use-document-collaboration", () => ({
-  useDocumentCollaboration: useDocumentCollaborationMock,
 }))
 
 vi.mock("@/hooks/use-scoped-read-model-refresh", () => ({
@@ -512,8 +506,9 @@ function getSubtaskSurfaceQueries() {
   return within(surface!)
 }
 
-function openWorkItemEditor() {
+async function openWorkItemEditor() {
   fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+  await screen.findByLabelText("Description editor")
 }
 
 function updateDescriptionEditor(value: string) {
@@ -536,27 +531,6 @@ async function expectWorkItemEditorClosed() {
       { timeout: WORK_ITEM_EDITOR_CLOSE_TIMEOUT_MS }
     )
   ).toBeInTheDocument()
-}
-
-function setupAttachedDescriptionCollaboration() {
-  const flushMock = vi.fn().mockResolvedValue(undefined)
-  const applyItemDescriptionCollaborationContentMock = vi.fn()
-
-  useDocumentCollaborationMock.mockReturnValue({
-    bootstrapContent: null,
-    editorCollaboration: {},
-    collaboration: {},
-    flush: flushMock,
-    isAwaitingCollaboration: false,
-    lifecycle: "attached",
-    viewers: [],
-  })
-  useAppStore.setState({
-    applyItemDescriptionCollaborationContent:
-      applyItemDescriptionCollaborationContentMock,
-  } as Partial<ReturnType<typeof useAppStore.getState>>)
-
-  return { applyItemDescriptionCollaborationContentMock, flushMock }
 }
 
 function renderSidebarSurfaceForTestData(data: AppData) {
@@ -702,16 +676,6 @@ describe("work item detail screen", () => {
     syncHeartbeatWorkItemPresenceMock.mockResolvedValue([])
     syncClearWorkItemPresenceMock.mockResolvedValue({ ok: true })
     syncUpdateWorkItemMock.mockResolvedValue({ ok: true })
-    useDocumentCollaborationMock.mockReset()
-    useDocumentCollaborationMock.mockReturnValue({
-      bootstrapContent: null,
-      editorCollaboration: null,
-      collaboration: null,
-      flush: vi.fn(),
-      isAwaitingCollaboration: false,
-      lifecycle: "legacy",
-      viewers: [],
-    })
     useScopedReadModelRefreshMock.mockReset()
     useScopedReadModelRefreshMock.mockReturnValue({
       error: null,
@@ -733,17 +697,7 @@ describe("work item detail screen", () => {
     })
   }
 
-  it("keeps the work item detail read model subscribed while description collaboration is attached", () => {
-    useDocumentCollaborationMock.mockReturnValue({
-      bootstrapContent: null,
-      editorCollaboration: {},
-      collaboration: {},
-      flush: vi.fn(),
-      isAwaitingCollaboration: false,
-      lifecycle: "attached",
-      viewers: [],
-    })
-
+  it("keeps the work item detail read model subscribed", () => {
     render(<WorkItemDetailScreen itemId="item_1" />)
 
     expect(useScopedReadModelRefreshMock).toHaveBeenCalledWith(
@@ -798,7 +752,7 @@ describe("work item detail screen", () => {
   it("shows a stale draft notice and reloads the latest main-section content", async () => {
     render(<WorkItemDetailScreen itemId="item_1" />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    await openWorkItemEditor()
     fireEvent.change(screen.getByDisplayValue("Plan launch"), {
       target: {
         value: "Plan launch draft",
@@ -843,39 +797,9 @@ describe("work item detail screen", () => {
     expect(screen.getByDisplayValue("Plan launch remote")).toBeInTheDocument()
   })
 
-  it("shows a stable description preview while collaboration bootstraps", async () => {
-    const flushMock = vi.fn().mockResolvedValue(undefined)
-    const bootstrapContent = {
-      type: "doc",
-      content: [
-        {
-          type: "paragraph",
-          content: [
-            {
-              type: "text",
-              text: "Boot description",
-            },
-          ],
-        },
-      ],
-    }
-    let collaborationState: ReturnType<typeof useDocumentCollaborationMock> = {
-      bootstrapContent: null,
-      editorCollaboration: null,
-      collaboration: null,
-      flush: flushMock,
-      isAwaitingCollaboration: false,
-      lifecycle: "legacy" as const,
-      viewers: [],
-    }
-
-    useDocumentCollaborationMock.mockImplementation(() => collaborationState)
-
-    const { rerender } = render(<WorkItemDetailScreen itemId="item_1" />)
-
-    act(() => {
-      fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-    })
+  it("edits the description without a PartyKit collaboration binding", async () => {
+    render(<WorkItemDetailScreen itemId="item_1" />)
+    await openWorkItemEditor()
 
     await waitFor(() => {
       expect(richTextEditorRenderMock).toHaveBeenCalledWith(
@@ -887,53 +811,11 @@ describe("work item detail screen", () => {
         })
       )
     })
-
-    collaborationState = {
-      bootstrapContent,
-      editorCollaboration: {
-        binding: {
-          doc: {},
-          provider: {},
-        },
-        localUser: {
-          userId: "user_1",
-          sessionId: "session_1",
-          name: "Alex",
-          avatarUrl: null,
-          color: "#000000",
-          typing: false,
-          activeBlockId: null,
-          cursor: null,
-          selection: null,
-          cursorSide: null,
-        },
-      },
-      collaboration: null,
-      flush: flushMock,
-      isAwaitingCollaboration: true,
-      lifecycle: "bootstrapping",
-      viewers: [],
-    }
-
-    rerender(<WorkItemDetailScreen itemId="item_1" />)
-
-    await waitFor(() => {
-      expect(richTextContentRenderMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          content: "<p>Initial description</p>",
-        })
-      )
-    })
-    expect(richTextContentRenderMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: "<p>Initial description</p>",
-      })
-    )
   })
 
-  it("does not rerender the description editor on every local description keystroke", () => {
+  it("does not rerender the description editor on every local description keystroke", async () => {
     renderWorkItemDetail()
-    openWorkItemEditor()
+    await openWorkItemEditor()
     richTextEditorRenderMock.mockClear()
 
     updateDescriptionEditor("<p>Draft one</p>")
@@ -951,9 +833,9 @@ describe("work item detail screen", () => {
     )
   })
 
-  it("does not rerender the description editor on every local title keystroke", () => {
+  it("does not rerender the description editor on every local title keystroke", async () => {
     renderWorkItemDetail()
-    openWorkItemEditor()
+    await openWorkItemEditor()
     richTextEditorRenderMock.mockClear()
 
     fireEvent.change(screen.getByDisplayValue("Plan launch"), {
@@ -983,12 +865,12 @@ describe("work item detail screen", () => {
     )
   })
 
-  it("saves the latest description draft after suppressing repeated editor rerenders", () => {
+  it("saves the latest description draft after suppressing repeated editor rerenders", async () => {
     const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
     setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
 
     renderWorkItemDetail()
-    openWorkItemEditor()
+    await openWorkItemEditor()
 
     updateDescriptionEditor("<p>Draft one</p>")
     updateDescriptionEditor("<p>Draft two</p>")
@@ -1001,12 +883,12 @@ describe("work item detail screen", () => {
     )
   })
 
-  it("saves the latest title draft after suppressing repeated editor rerenders", () => {
+  it("saves the latest title draft after suppressing repeated editor rerenders", async () => {
     const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
     setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
 
     renderWorkItemDetail()
-    openWorkItemEditor()
+    await openWorkItemEditor()
 
     fireEvent.change(screen.getByDisplayValue("Plan launch"), {
       target: {
@@ -1025,54 +907,6 @@ describe("work item detail screen", () => {
         title: "Plan launch draft two",
       })
     )
-  })
-
-  it("patches attached collaboration description content on Done instead of every keystroke", async () => {
-    const { applyItemDescriptionCollaborationContentMock, flushMock } =
-      setupAttachedDescriptionCollaboration()
-
-    renderWorkItemDetail()
-    openWorkItemEditor()
-
-    updateDescriptionEditor("<p>Live draft one</p>")
-    updateDescriptionEditor("<p>Live draft two</p>")
-
-    expect(applyItemDescriptionCollaborationContentMock).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole("button", { name: "Done" }))
-
-    await waitFor(() => expect(flushMock).toHaveBeenCalled())
-    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledTimes(
-      1
-    )
-    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledWith(
-      "item_1",
-      "<p>Live draft two</p>"
-    )
-  })
-
-  it("patches attached collaboration description content on Close instead of every keystroke", () => {
-    const { applyItemDescriptionCollaborationContentMock, flushMock } =
-      setupAttachedDescriptionCollaboration()
-
-    renderWorkItemDetail()
-    openWorkItemEditor()
-
-    updateDescriptionEditor("<p>Close draft one</p>")
-    updateDescriptionEditor("<p>Close draft two</p>")
-
-    expect(applyItemDescriptionCollaborationContentMock).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole("button", { name: "Close" }))
-
-    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledTimes(
-      1
-    )
-    expect(applyItemDescriptionCollaborationContentMock).toHaveBeenCalledWith(
-      "item_1",
-      "<p>Close draft two</p>"
-    )
-    expect(flushMock).not.toHaveBeenCalled()
   })
 
   it("passes access-filtered reference candidates to description and comment editors", async () => {
@@ -1186,7 +1020,7 @@ describe("work item detail screen", () => {
       "workItem:item_3",
     ])
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    await openWorkItemEditor()
 
     await waitFor(() => {
       expect(richTextEditorRenderMock).toHaveBeenCalledWith(
@@ -1228,16 +1062,15 @@ describe("work item detail screen", () => {
         name: "Taylor",
         avatarUrl: "",
         avatarImageUrl: null,
+        editing: true,
         lastSeenAt: "2026-04-18T10:01:00.000Z",
       },
     ])
 
     render(<WorkItemDetailScreen itemId="item_1" />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
-
     expect(await screen.findByText("Taylor")).toBeInTheDocument()
-    expect(screen.queryByText("Taylor is also editing this item")).toBeNull()
+    expect(screen.getByRole("button", { name: "Editing..." })).toBeDisabled()
   })
 
   it(
@@ -1250,7 +1083,7 @@ describe("work item detail screen", () => {
       setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
 
       renderWorkItemDetail()
-      openWorkItemEditor()
+      await openWorkItemEditor()
       updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
       clickSaveButton()
 
@@ -1269,14 +1102,14 @@ describe("work item detail screen", () => {
 
       renderWorkItemDetail()
 
-      openWorkItemEditor()
+      await openWorkItemEditor()
       updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
 
       clickSaveButton()
 
       await expectWorkItemEditorClosed()
 
-      openWorkItemEditor()
+      await openWorkItemEditor()
 
       const saveButton = screen.getByRole("button", { name: "Save" })
       expect(saveButton).not.toBeDisabled()
@@ -1285,7 +1118,7 @@ describe("work item detail screen", () => {
 
       await expectTaylorMentionDeliveryRetry()
 
-      fireEvent.click(await screen.findByRole("button", { name: "Edit" }))
+      await openWorkItemEditor()
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
     },
     MENTION_DELIVERY_TEST_TIMEOUT_MS
@@ -1304,7 +1137,7 @@ describe("work item detail screen", () => {
 
       const { rerender } = renderWorkItemDetail()
 
-      openWorkItemEditor()
+      await openWorkItemEditor()
       updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
       clickSaveButton()
 
@@ -1312,7 +1145,7 @@ describe("work item detail screen", () => {
 
       rerender(<WorkItemDetailScreen itemId="item_2" />)
 
-      openWorkItemEditor()
+      await openWorkItemEditor()
       fireEvent.change(screen.getByDisplayValue("Follow up"), {
         target: { value: "Follow up updated" },
       })
@@ -1322,7 +1155,7 @@ describe("work item detail screen", () => {
 
       rerender(<WorkItemDetailScreen itemId="item_1" />)
 
-      openWorkItemEditor()
+      await openWorkItemEditor()
 
       const saveButton = screen.getByRole("button", { name: "Save" })
       expect(saveButton).not.toBeDisabled()
@@ -1346,7 +1179,7 @@ describe("work item detail screen", () => {
 
       renderWorkItemDetail()
 
-      openWorkItemEditor()
+      await openWorkItemEditor()
       updateDescriptionEditor(
         '<p>Initial description</p><span data-type="mention" data-id="user_1">@Alex</span>'
       )
@@ -1385,14 +1218,14 @@ describe("work item detail screen", () => {
 
       renderWorkItemDetail()
 
-      openWorkItemEditor()
+      await openWorkItemEditor()
       updateDescriptionEditor(TAYLOR_MENTION_DESCRIPTION)
 
       clickSaveButton()
 
       await expectWorkItemEditorClosed()
 
-      openWorkItemEditor()
+      await openWorkItemEditor()
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
     },
     MENTION_DELIVERY_TEST_TIMEOUT_MS

@@ -400,7 +400,8 @@ export function syncSetWorkItemSubscription(
 export async function syncHeartbeatWorkItemPresence(
   itemId: string,
   sessionId: string,
-  activeBlockId?: string | null
+  activeBlockId?: string | null,
+  editing = false
 ) {
   const payload = await runRouteMutation<{
     viewers: DocumentPresenceViewer[]
@@ -413,6 +414,7 @@ export async function syncHeartbeatWorkItemPresence(
       action: "heartbeat",
       sessionId,
       activeBlockId: activeBlockId ?? null,
+      editing,
     }),
   })
 
@@ -555,27 +557,6 @@ export function syncRenameDocument(
   return syncUpdateDocument(documentId, {
     title,
     expectedUpdatedAt,
-  })
-}
-
-export function syncUpdateItemDescription(
-  _currentUserId: string,
-  itemId: string,
-  content: string,
-  expectedUpdatedAt?: string
-) {
-  return runRouteMutation<{
-    ok: true
-    updatedAt: string
-  }>(`/api/items/${itemId}/description`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      content,
-      expectedUpdatedAt,
-    }),
   })
 }
 

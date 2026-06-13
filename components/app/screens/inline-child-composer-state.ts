@@ -121,18 +121,10 @@ export function createInlineChildWorkItem(input: {
     primaryProjectId:
       isPrivate || input.projectId === "none" ? null : input.projectId,
     visibility: isPrivate ? "private" : "team",
+    description: input.description.trim()
+      ? formatInlineDescriptionContent(input.description)
+      : undefined,
   })
-
-  if (!createdItemId || !input.description.trim()) {
-    return createdItemId
-  }
-
-  useAppStore
-    .getState()
-    .updateItemDescription(
-      createdItemId,
-      formatInlineDescriptionContent(input.description)
-    )
 
   return createdItemId
 }

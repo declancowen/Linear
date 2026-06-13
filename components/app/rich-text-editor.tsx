@@ -1787,7 +1787,7 @@ function SelectedAttachmentPreviewConversionOverlay({
       icon={<ImageSquare className="size-3.5" />}
       label="Image preview"
       onConvert={convertSelectedEditorAttachmentReferenceToPreview}
-      selector='a.editor-attachment.ProseMirror-selectednode[data-attachment-kind="image"]'
+      selector='span.attachment-reference-node.ProseMirror-selectednode a.editor-attachment[data-attachment-kind="image"]'
     />
   )
 }

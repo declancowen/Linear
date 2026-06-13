@@ -98,12 +98,6 @@ export type CollaborationDocumentTitleFlushInput = {
   documentTitle: string
 }
 
-export type CollaborationWorkItemMainFlushInput = {
-  kind: "work-item-main"
-  workItemExpectedUpdatedAt?: string
-  workItemTitle?: string
-}
-
 export type CollaborationTeardownContentFlushInput = {
   kind: "teardown-content"
 }
@@ -111,7 +105,6 @@ export type CollaborationTeardownContentFlushInput = {
 export type CollaborationFlushInput =
   | CollaborationContentFlushInput
   | CollaborationDocumentTitleFlushInput
-  | CollaborationWorkItemMainFlushInput
   | CollaborationTeardownContentFlushInput
 
 export interface CollaborationTransportSession<

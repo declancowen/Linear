@@ -218,6 +218,7 @@ describe("work route contracts", () => {
           teamId: "team_1",
           type: "task",
           title: "Launch task",
+          description: "<p>Initial details</p>",
           primaryProjectId: null,
           assigneeId: null,
           priority: "medium",
@@ -250,6 +251,7 @@ describe("work route contracts", () => {
           teamId: "team_1",
           type: "task",
           title: "Launch task",
+          description: "<p>Initial details</p>",
           primaryProjectId: null,
           assigneeId: null,
           priority: "medium",
@@ -264,6 +266,7 @@ describe("work route contracts", () => {
       teamId: "team_1",
       type: "task",
       title: "Launch task",
+      description: "<p>Initial details</p>",
       primaryProjectId: null,
       assigneeId: null,
       priority: "medium",
@@ -567,6 +570,7 @@ describe("work route contracts", () => {
       avatarUrl: "",
       avatarImageUrl: null,
       activeBlockId: null,
+      editing: false,
       sessionId: "session_123",
     })
     expect(heartbeatResponse.status).toBe(200)
@@ -581,6 +585,34 @@ describe("work route contracts", () => {
         },
       ],
     })
+
+    const editHeartbeatResponse = await itemPresenceRoute.POST(
+      new Request("http://localhost/api/items/item_1/presence", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "heartbeat",
+          editing: true,
+          sessionId: "session_123",
+        }),
+      }) as never,
+      {
+        params: Promise.resolve({
+          itemId: "item_1",
+        }),
+      }
+    )
+
+    expect(heartbeatWorkItemPresenceServerMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        editing: true,
+        itemId: "item_1",
+        sessionId: "session_123",
+      })
+    )
+    expect(editHeartbeatResponse.status).toBe(200)
 
     const leaveResponse = await itemPresenceRoute.POST(
       ...createItemPresencePostInput("leave")

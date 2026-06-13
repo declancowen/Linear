@@ -56,47 +56,6 @@ describe("partykit convex helpers", () => {
     )
   })
 
-  it("forwards work-item collaboration patches without requiring an origin", async () => {
-    mutationMock.mockResolvedValue({
-      updatedAt: "2026-04-23T00:00:00.000Z",
-    })
-
-    const { persistCollaborationWorkItemToConvex } = await import(
-      "@/lib/collaboration/partykit-convex"
-    )
-
-    await persistCollaborationWorkItemToConvex(
-      {
-        CONVEX_URL: "https://convex-dev.example",
-        CONVEX_SERVER_TOKEN: "server-token",
-      },
-      {
-        currentUserId: "user_1",
-        itemId: "item_1",
-        patch: {
-          title: "Updated title",
-          description: '<script>alert("x")</script><p>Updated</p>',
-          expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
-        },
-      }
-    )
-
-    expect(mutationMock).toHaveBeenCalledTimes(1)
-
-    const [, args] = mutationMock.mock.calls[0]!
-
-    expect(args).toEqual({
-      currentUserId: "user_1",
-      itemId: "item_1",
-      patch: {
-        title: "Updated title",
-        description: '<script>alert("x")</script><p>Updated</p>',
-        expectedUpdatedAt: "2026-04-22T00:00:00.000Z",
-      },
-      serverToken: "server-token",
-    })
-  })
-
   it("fails fast when the hosted worker is missing its Convex configuration", async () => {
     const { bumpScopedReadModelsFromConvex } = await import(
       "@/lib/collaboration/partykit-convex"

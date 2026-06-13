@@ -769,6 +769,7 @@ describe("work item actions", () => {
       teamId: "team_1",
       type: "task",
       title: "Schedule work",
+      description: "<p>Initial details</p>",
       primaryProjectId: null,
       assigneeId: null,
       priority: "medium",
@@ -789,7 +790,7 @@ describe("work item actions", () => {
     expect(harness.state.documents[0]).toMatchObject({
       kind: "item-description",
       title: "Schedule work description",
-      content: "<p></p>",
+      content: "<p>Initial details</p>",
     })
     expect(syncCreateWorkItemMock).toHaveBeenCalledWith("user_1", {
       id: createdItemId,
@@ -797,6 +798,7 @@ describe("work item actions", () => {
       teamId: "team_1",
       type: "task",
       title: "Schedule work",
+      description: "<p>Initial details</p>",
       primaryProjectId: null,
       assigneeId: null,
       priority: "medium",

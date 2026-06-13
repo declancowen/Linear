@@ -349,22 +349,6 @@ function buildFlushRequestBody(doc: Y.Doc, input?: CollaborationFlushInput) {
     }
   }
 
-  if (input?.kind === "work-item-main") {
-    return {
-      kind: "work-item-main" as const,
-      ...(input.workItemExpectedUpdatedAt
-        ? {
-            workItemExpectedUpdatedAt: input.workItemExpectedUpdatedAt,
-          }
-        : {}),
-      ...(input.workItemTitle
-        ? {
-            workItemTitle: input.workItemTitle,
-          }
-        : {}),
-    }
-  }
-
   if (input?.kind === "teardown-content") {
     return {
       kind: "teardown-content" as const,

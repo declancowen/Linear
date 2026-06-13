@@ -574,28 +574,6 @@ describe("PartyKit collaboration adapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it("includes optional work-item metadata in the manual flush payload", async () => {
-    const fetchMock = createOkFlushFetchMock()
-    const { session } = await createDocumentSession()
-
-    await session.flush({
-      kind: "work-item-main",
-      workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
-      workItemTitle: "Updated title",
-    })
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.any(URL),
-      expect.objectContaining({
-        body: JSON.stringify({
-          kind: "work-item-main",
-          workItemExpectedUpdatedAt: "2026-04-22T00:00:00.000Z",
-          workItemTitle: "Updated title",
-        }),
-      })
-    )
-  })
-
   it("omits the room state vector for document-title-only manual flushes", async () => {
     const fetchMock = createOkFlushFetchMock()
     const { session } = await createDocumentSession()

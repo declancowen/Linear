@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { RouteMutationError } from "@/lib/convex/client/shared"
 import { createEmptyState } from "@/lib/domain/empty-state"
 import {
-  createDefaultViewFilters,
   createDefaultTeamFeatureSettings,
   createDefaultTeamWorkflowSettings,
 } from "@/lib/domain/types"
@@ -14,11 +13,9 @@ const syncDeleteAttachmentMock = vi.fn()
 const syncGenerateAttachmentUploadUrlMock = vi.fn()
 const syncRenameDocumentMock = vi.fn()
 const syncUpdateDocumentMock = vi.fn()
-const syncUpdateItemDescriptionMock = vi.fn()
 const syncUpdateWorkItemMock = vi.fn()
 const toastErrorMock = vi.fn()
 const toastSuccessMock = vi.fn()
-const waitForPendingWorkItemCreationMock = vi.fn()
 
 vi.mock("sonner", () => ({
   toast: {
@@ -36,11 +33,6 @@ vi.mock("@/lib/convex/client", () => ({
   syncRenameDocument: syncRenameDocumentMock,
   syncUpdateDocument: syncUpdateDocumentMock,
   syncUpdateWorkItem: syncUpdateWorkItemMock,
-  syncUpdateItemDescription: syncUpdateItemDescriptionMock,
-}))
-
-vi.mock("@/lib/store/app-store-internal/pending-work-item-creations", () => ({
-  waitForPendingWorkItemCreation: waitForPendingWorkItemCreationMock,
 }))
 
 const ACTIVE_SYNC_CONTEXT = {
@@ -52,6 +44,7 @@ const MAIN_SECTION_SAVE_INPUT = {
   itemId: "item_1",
   title: "Plan launch",
   description: "<p>Updated details</p>",
+  editSessionId: "session_123",
   expectedDescriptionUpdatedAt: "2026-04-17T10:00:00.000Z",
   expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
 } as const
@@ -250,9 +243,7 @@ describe("work document actions", () => {
     syncGenerateAttachmentUploadUrlMock.mockReset()
     syncRenameDocumentMock.mockReset()
     syncUpdateDocumentMock.mockReset()
-    syncUpdateItemDescriptionMock.mockReset()
     syncUpdateWorkItemMock.mockReset()
-    waitForPendingWorkItemCreationMock.mockReset()
     toastErrorMock.mockReset()
     toastSuccessMock.mockReset()
     vi.restoreAllMocks()
@@ -544,6 +535,7 @@ describe("work document actions", () => {
     expect(saved).toBe(true)
     expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "item_1", {
       description: "<p>Updated details</p>",
+      editSessionId: "session_123",
       expectedDescriptionUpdatedAt: "2026-04-17T10:00:00.000Z",
     })
     expect(
@@ -562,6 +554,7 @@ describe("work document actions", () => {
 
     expect(saved).toBe(true)
     expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "item_1", {
+      editSessionId: "session_123",
       title: "Updated title",
       expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
     })
@@ -616,6 +609,7 @@ describe("work document actions", () => {
     expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "item_1", {
       title: "Updated title",
       description: "<p>Updated details</p>",
+      editSessionId: "session_123",
       expectedDescriptionUpdatedAt: "2026-04-17T10:00:00.000Z",
       expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
     })
@@ -658,6 +652,7 @@ describe("work document actions", () => {
       itemId: "item_1",
       title: "Private edit",
       description: "<p>Private details</p>",
+      editSessionId: "session_123",
       expectedDescriptionUpdatedAt: "2026-04-17T10:00:00.000Z",
       expectedUpdatedAt: "2026-04-17T10:00:00.000Z",
     })
@@ -814,165 +809,6 @@ describe("work document actions", () => {
       linkedDocumentIds: ["document_2"],
       linkedProjectIds: ["project_1"],
       linkedWorkItemIds: ["item_1"],
-    })
-  })
-
-  it("sends the last known server version for item-description syncs", async () => {
-    syncUpdateItemDescriptionMock.mockResolvedValue({
-      ok: true,
-      updatedAt: "2026-04-17T10:06:00.000Z",
-    })
-    waitForPendingWorkItemCreationMock.mockReturnValue(null)
-    const harness = await createWorkDocumentActionsHarness()
-
-    harness.actions.updateItemDescription(
-      "item_1",
-      "<p>Updated item description</p>"
-    )
-
-    expect(
-      harness.state.documents.find((document) => document.id === "document_1")
-    ).toMatchObject({
-      content: "<p>Updated item description</p>",
-      updatedAt: "2026-04-17T10:00:00.000Z",
-      updatedBy: "user_1",
-    })
-    expect(
-      harness.state.workItems.find((item) => item.id === "item_1")
-    ).toMatchObject({ updatedAt: "2026-04-17T10:00:00.000Z" })
-
-    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
-
-    expect(queuedTask).toBeTypeOf("function")
-
-    await queuedTask?.(ACTIVE_SYNC_CONTEXT)
-
-    expect(syncUpdateItemDescriptionMock).toHaveBeenCalledWith(
-      "user_1",
-      "item_1",
-      "<p>Updated item description</p>",
-      "2026-04-17T10:00:00.000Z"
-    )
-    expect(
-      harness.state.documents.find((document) => document.id === "document_1")
-    ).toMatchObject({
-      updatedAt: "2026-04-17T10:06:00.000Z",
-      updatedBy: "user_1",
-    })
-    expect(
-      harness.state.workItems.find((item) => item.id === "item_1")
-    ).toMatchObject({ updatedAt: "2026-04-17T10:00:00.000Z" })
-  })
-
-  it("updates work item description reference relationships from saved content", async () => {
-    syncUpdateItemDescriptionMock.mockResolvedValue({
-      ok: true,
-      updatedAt: "2026-04-17T10:06:00.000Z",
-    })
-    waitForPendingWorkItemCreationMock.mockReturnValue(null)
-    const baseState = createState()
-    const state = {
-      ...baseState,
-      documents: [
-        ...baseState.documents,
-        {
-          ...baseState.documents[0]!,
-          id: "document_2",
-          kind: "team-document" as const,
-          title: "Reference doc",
-          content: "<h1>Reference doc</h1>",
-          linkedWorkItemIds: [],
-        },
-      ],
-      workItems: [
-        ...baseState.workItems,
-        {
-          ...baseState.workItems[0]!,
-          id: "item_2",
-          key: "PLA-2",
-          title: "Referenced item",
-          descriptionDocId: "document_2",
-          linkedDocumentIds: [],
-        },
-      ],
-      projects: [
-        {
-          id: "project_1",
-          name: "Reference project",
-          scopeType: "team" as const,
-          scopeId: "team_1",
-          templateType: "software-delivery" as const,
-          summary: "",
-          leadId: "user_1",
-          memberIds: [],
-          health: "on-track" as const,
-          priority: "medium" as const,
-          status: "in-progress" as const,
-          startDate: null,
-          targetDate: null,
-          description: "",
-          createdAt: "2026-04-17T10:00:00.000Z",
-          updatedAt: "2026-04-17T10:00:00.000Z",
-        },
-      ],
-      views: [
-        {
-          id: "view_1",
-          name: "Reference view",
-          description: "",
-          scopeType: "team" as const,
-          scopeId: "team_1",
-          entityKind: "items" as const,
-          itemLevel: "task" as const,
-          showChildItems: true,
-          layout: "list" as const,
-          filters: createDefaultViewFilters(),
-          grouping: "status" as const,
-          subGrouping: null,
-          ordering: "priority" as const,
-          displayProps: [],
-          hiddenState: {
-            groups: [],
-            subgroups: [],
-          },
-          isShared: false,
-          route: "/team/platform/work",
-          createdAt: "2026-04-17T10:00:00.000Z",
-          updatedAt: "2026-04-17T10:00:00.000Z",
-        },
-      ],
-    }
-    const harness = await createWorkDocumentActionsHarness(state)
-
-    harness.actions.updateItemDescription(
-      "item_1",
-      [
-        referenceAnchor("document", "document_2"),
-        referenceAnchor("workItem", "item_2"),
-        referenceAnchor("workItem", "item_1"),
-        referenceAnchor("project", "project_1"),
-        referenceAnchor("view", "view_1"),
-      ].join("")
-    )
-
-    const draftItem = harness.state.workItems.find(
-      (item) => item.id === "item_1"
-    )
-
-    expect(draftItem?.linkedDocumentIds).toEqual(["document_1"])
-    expect(draftItem?.linkedWorkItemIds ?? []).toEqual([])
-
-    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
-    await queuedTask?.(ACTIVE_SYNC_CONTEXT)
-
-    expect(
-      harness.state.workItems.find((item) => item.id === "item_1")
-    ).toMatchObject({
-      linkedDocumentIds: ["document_2"],
-      linkedWorkItemIds: ["item_2"],
-      linkedProjectIds: [],
-      referencedProjectIds: ["project_1"],
-      referencedViewIds: ["view_1"],
     })
   })
 
@@ -1159,67 +995,4 @@ describe("work document actions", () => {
     expect(harness.state.pendingDocumentContentSyncs.document_1).toBeUndefined()
   })
 
-  it("skips a queued item-description sync once collaboration protects the description document", async () => {
-    const harness = await createWorkDocumentActionsHarness()
-
-    harness.actions.updateItemDescription(
-      "item_1",
-      "<p>Queued before collaboration</p>"
-    )
-
-    harness.replaceState({
-      ...harness.state,
-      protectedDocumentIds: [
-        "document_1",
-      ] as typeof harness.state.protectedDocumentIds,
-    })
-
-    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
-
-    await queuedTask?.(ACTIVE_SYNC_CONTEXT)
-
-    expect(syncUpdateItemDescriptionMock).not.toHaveBeenCalled()
-  })
-
-  it("waits for pending work-item creation before syncing an item description", async () => {
-    let resolvePendingCreation: ((value: boolean) => void) | undefined
-    waitForPendingWorkItemCreationMock.mockReturnValue(
-      new Promise<boolean>((resolve) => {
-        resolvePendingCreation = resolve
-      })
-    )
-    syncUpdateItemDescriptionMock.mockResolvedValue({
-      ok: true,
-      updatedAt: "2026-04-17T10:06:00.000Z",
-    })
-    const harness = await createWorkDocumentActionsHarness()
-
-    harness.actions.updateItemDescription(
-      "item_1",
-      "<p>Queued after create</p>"
-    )
-
-    const queuedTask = getQueuedRichTextSyncTask(harness.queueRichTextSyncMock)
-    const taskPromise = queuedTask?.(ACTIVE_SYNC_CONTEXT)
-
-    await Promise.resolve()
-
-    expect(syncUpdateItemDescriptionMock).not.toHaveBeenCalled()
-
-    expect(resolvePendingCreation).toBeTypeOf("function")
-
-    if (!resolvePendingCreation) {
-      throw new Error("Expected pending creation resolver")
-    }
-
-    resolvePendingCreation(true)
-    await taskPromise
-
-    expect(syncUpdateItemDescriptionMock).toHaveBeenCalledWith(
-      "user_1",
-      "item_1",
-      "<p>Queued after create</p>",
-      "2026-04-17T10:00:00.000Z"
-    )
-  })
 })

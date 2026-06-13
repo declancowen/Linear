@@ -438,16 +438,11 @@ export type AppStore = AppData & {
   flushDocumentSync: (documentId: string) => Promise<void>
   renameDocument: (documentId: string, title: string) => void
   deleteDocument: (documentId: string) => Promise<void>
-  updateItemDescription: (itemId: string, content: string) => void
-  cancelItemDescriptionSync: (itemId: string) => void
-  applyItemDescriptionCollaborationContent: (
-    itemId: string,
-    content: string
-  ) => void
   saveWorkItemMainSection: (input: {
     itemId: string
     title: string
     description: string
+    editSessionId: string
     expectedDescriptionUpdatedAt: string
     expectedUpdatedAt: string
   }) => Promise<boolean>

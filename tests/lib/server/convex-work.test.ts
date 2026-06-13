@@ -14,6 +14,32 @@ describe("convex work server wrappers", () => {
     mutationMock.mockReset()
   })
 
+  it("sanitizes initial work-item descriptions before creation", async () => {
+    const { createWorkItemServer } = await import("@/lib/server/convex/work")
+
+    mutationMock.mockResolvedValue({})
+
+    await createWorkItemServer({
+      currentUserId: "user_1",
+      teamId: "team_1",
+      type: "task",
+      title: "Launch task",
+      description:
+        '<p><img src="https://cdn.example.com/file.png" onerror="evil()" class="editor-image" /></p>',
+      primaryProjectId: null,
+      assigneeId: null,
+      priority: "medium",
+    })
+
+    expect(mutationMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        description:
+          '<p><img src="https://cdn.example.com/file.png" class="editor-image" /></p>',
+      })
+    )
+  })
+
   it("maps work-item presence failures to typed application errors", async () => {
     const { clearWorkItemPresenceServer, heartbeatWorkItemPresenceServer } =
       await import("@/lib/server/convex/work")
@@ -112,6 +138,47 @@ describe("convex work server wrappers", () => {
     ).rejects.toMatchObject({
       status: 503,
       code: "WORK_ITEM_PRESENCE_UNAVAILABLE",
+    })
+  })
+
+  it("maps work-item edit lease conflicts to typed application errors", async () => {
+    const { heartbeatWorkItemPresenceServer, updateWorkItemServer } =
+      await import("@/lib/server/convex/work")
+
+    mutationMock
+      .mockRejectedValueOnce(new Error("Work item is already being edited"))
+      .mockRejectedValueOnce(
+        new Error("Work item edit session is no longer active")
+      )
+
+    await expect(
+      heartbeatWorkItemPresenceServer({
+        currentUserId: "user_1",
+        itemId: "item_1",
+        workosUserId: "workos_1",
+        email: "alex@example.com",
+        name: "Alex",
+        avatarUrl: "",
+        sessionId: "session_1",
+        editing: true,
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "WORK_ITEM_EDIT_LOCKED",
+    })
+
+    await expect(
+      updateWorkItemServer({
+        currentUserId: "user_1",
+        itemId: "item_1",
+        patch: {
+          title: "Updated title",
+          editSessionId: "session_1",
+        },
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "WORK_ITEM_EDIT_LOCKED",
     })
   })
 

@@ -48,24 +48,7 @@ const SUPPORTED_ATTACHMENT_EXTENSIONS = new Set([
   "zip",
 ])
 
-export const ATTACHMENT_FILE_INPUT_ACCEPT = [
-  "image/*",
-  ".avif",
-  ".heic",
-  ".heif",
-  ".pdf",
-  ".doc",
-  ".docx",
-  ".xls",
-  ".xlsx",
-  ".csv",
-  ".ppt",
-  ".pptx",
-  ".txt",
-  ".md",
-  ".rtf",
-  ".zip",
-].join(",")
+export const ATTACHMENT_FILE_INPUT_ACCEPT = "*/*"
 
 export const ATTACHMENT_IMAGE_INPUT_ACCEPT = "image/*,.heic,.heif"
 
@@ -186,10 +169,6 @@ export function getAttachmentFileValidationMessage(
 
   if (file.size && file.size > MAX_ATTACHMENT_UPLOAD_SIZE_BYTES) {
     return "Files must be 25 MB or smaller"
-  }
-
-  if (!isSupportedAttachmentFileType(file.name, file.type)) {
-    return "Supported files include images, PDFs, Office files, text, CSV, and ZIP archives"
   }
 
   return null

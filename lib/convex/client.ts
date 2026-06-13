@@ -110,7 +110,6 @@ export {
   syncUpdateComment,
   syncUpdateDocument,
   syncUpdateCustomPropertyDefinition,
-  syncUpdateItemDescription,
   syncUpdateProject,
   syncUpdateTeamDetails,
   syncUpdateTeamMemberRole,

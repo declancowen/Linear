@@ -231,7 +231,7 @@ export async function resolveWorkItemDescriptionRichTextReferenceRelationships(
   input: {
     content: string
     currentUserId: string
-    item: WorkItemDoc
+    item: Pick<WorkItemDoc, "id" | "visibility">
   }
 ): Promise<RichTextReferenceRelationshipIds> {
   if ((input.item.visibility ?? "team") === "private") {

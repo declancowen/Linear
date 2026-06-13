@@ -13,12 +13,9 @@ describe("convex document server wrappers", () => {
     mutationMock.mockReset()
   })
 
-  it("sanitizes document and item-description rich text before persistence", async () => {
-    const {
-      addCommentServer,
-      updateDocumentContentServer,
-      updateItemDescriptionServer,
-    } = await import("@/lib/server/convex/documents")
+  it("sanitizes document and comment rich text before persistence", async () => {
+    const { addCommentServer, updateDocumentContentServer } =
+      await import("@/lib/server/convex/documents")
 
     mutationMock.mockResolvedValue({})
 
@@ -27,12 +24,6 @@ describe("convex document server wrappers", () => {
       documentId: "document_1",
       content:
         '<p><a href="/api/calls/join?callId=call_1" target="_blank">Join</a><script>alert(1)</script></p>',
-    })
-    await updateItemDescriptionServer({
-      currentUserId: "user_1",
-      itemId: "item_1",
-      content:
-        '<p><img src="https://cdn.example.com/file.png" onerror="evil()" class="editor-image" /></p>',
     })
     await addCommentServer({
       currentUserId: "user_1",
@@ -52,14 +43,6 @@ describe("convex document server wrappers", () => {
     )
     expect(mutationMock).toHaveBeenNthCalledWith(
       2,
-      expect.anything(),
-      expect.objectContaining({
-        content:
-          '<p><img src="https://cdn.example.com/file.png" class="editor-image" /></p>',
-      })
-    )
-    expect(mutationMock).toHaveBeenNthCalledWith(
-      3,
       expect.anything(),
       expect.objectContaining({
         content:
@@ -103,15 +86,13 @@ describe("convex document server wrappers", () => {
     )
   })
 
-  it("maps document and item-description edit conflicts to application errors", async () => {
-    const { updateDocumentServer, updateItemDescriptionServer } =
+  it("maps document edit conflicts to application errors", async () => {
+    const { updateDocumentServer } =
       await import("@/lib/server/convex/documents")
 
-    mutationMock
-      .mockRejectedValueOnce(new Error("Document changed while you were editing"))
-      .mockRejectedValueOnce(
-        new Error("Work item description changed while you were editing")
-      )
+    mutationMock.mockRejectedValueOnce(
+      new Error("Document changed while you were editing")
+    )
 
     await expect(
       updateDocumentServer({
@@ -124,17 +105,26 @@ describe("convex document server wrappers", () => {
       status: 409,
       code: "DOCUMENT_EDIT_CONFLICT",
     })
+  })
+
+  it("maps direct item-description updates to an invalid-kind error", async () => {
+    const { updateDocumentServer } =
+      await import("@/lib/server/convex/documents")
+
+    mutationMock.mockRejectedValueOnce(
+      new Error("Work item description documents can't be updated directly")
+    )
 
     await expect(
-      updateItemDescriptionServer({
+      updateDocumentServer({
         currentUserId: "user_1",
-        itemId: "item_1",
-        content: "<p>Updated</p>",
+        documentId: "document_1",
+        content: "<p>Bypass attempt</p>",
       })
     ).rejects.toMatchObject({
       name: "ApplicationError",
-      status: 409,
-      code: "ITEM_DESCRIPTION_EDIT_CONFLICT",
+      status: 400,
+      code: "DOCUMENT_UPDATE_INVALID_KIND",
     })
   })
 
@@ -145,7 +135,6 @@ describe("convex document server wrappers", () => {
       sendDocumentMentionNotificationsServer,
       sendItemDescriptionMentionNotificationsServer,
       toggleCommentReactionServer,
-      updateItemDescriptionServer,
     } = await import("@/lib/server/convex/documents")
 
     mutationMock
@@ -154,7 +143,6 @@ describe("convex document server wrappers", () => {
         new Error("Work item description documents can't be deleted directly")
       )
       .mockRejectedValueOnce(new Error("Comment not found"))
-      .mockRejectedValueOnce(new Error("Work item not found"))
       .mockRejectedValueOnce(
         new Error("One or more mentioned users are not present in the document")
       )
@@ -208,18 +196,6 @@ describe("convex document server wrappers", () => {
       name: "ApplicationError",
       status: 404,
       code: "COMMENT_NOT_FOUND",
-    })
-
-    await expect(
-      updateItemDescriptionServer({
-        currentUserId: "user_1",
-        itemId: "item_1",
-        content: "<p>Updated</p>",
-      })
-    ).rejects.toMatchObject({
-      name: "ApplicationError",
-      status: 404,
-      code: "WORK_ITEM_NOT_FOUND",
     })
 
     await expect(

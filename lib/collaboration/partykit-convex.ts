@@ -133,53 +133,6 @@ export async function persistCollaborationDocumentToConvex(
   )
 }
 
-export async function persistCollaborationItemDescriptionToConvex(
-  env: CollaborationRuntimeEnv,
-  input: {
-    currentUserId: string
-    itemId: string
-    content: string
-    expectedUpdatedAt?: string
-  }
-) {
-  return runConvexRequestWithRetry(
-    "persistCollaborationItemDescriptionToConvex",
-    () =>
-      getConvexClient(env).mutation(
-        api.app.persistCollaborationItemDescription,
-        withServerToken(env, input)
-      ),
-    collaborationRetryOptions
-  )
-}
-
-export async function persistCollaborationWorkItemToConvex(
-  env: CollaborationRuntimeEnv,
-  input: {
-    currentUserId: string
-    itemId: string
-    patch: {
-      title?: string
-      description?: string
-      expectedUpdatedAt?: string
-    }
-  }
-) {
-  return runConvexRequestWithRetry(
-    "persistCollaborationWorkItemToConvex",
-    () =>
-      getConvexClient(env).mutation(
-        api.app.persistCollaborationWorkItem,
-        withServerToken(env, {
-          currentUserId: input.currentUserId,
-          itemId: input.itemId,
-          patch: input.patch,
-        })
-      ),
-    collaborationRetryOptions
-  )
-}
-
 export async function bumpScopedReadModelsFromConvex(
   env: CollaborationRuntimeEnv,
   input: {

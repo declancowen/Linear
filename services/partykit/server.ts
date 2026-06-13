@@ -37,8 +37,6 @@ import {
   bumpScopedReadModelsFromConvex,
   getCollaborationDocumentFromConvex,
   persistCollaborationDocumentToConvex,
-  persistCollaborationItemDescriptionToConvex,
-  persistCollaborationWorkItemToConvex,
   type CollaborationDocumentFromConvex,
 } from "../../lib/collaboration/partykit-convex"
 import { parseCollaborationRoomId } from "../../lib/collaboration/rooms"
@@ -686,8 +684,11 @@ async function fetchBootstrapDocument(room: Room, currentUserId: string) {
     }
   )
 
-  if (collaborationDocument.kind === "private-document") {
-    throw new Error("Private documents do not support collaboration sessions")
+  if (
+    collaborationDocument.kind === "private-document" ||
+    collaborationDocument.kind === "item-description"
+  ) {
+    throw new Error("This document does not support collaboration sessions")
   }
 
   const limits = resolveCollaborationLimits(room.env as Record<string, unknown>)
@@ -721,8 +722,11 @@ async function getEditableCollaborationDocument(
     }
   )
 
-  if (collaborationDocument.kind === "private-document") {
-    throw new Error("Private documents do not support collaboration sessions")
+  if (
+    collaborationDocument.kind === "private-document" ||
+    collaborationDocument.kind === "item-description"
+  ) {
+    throw new Error("This document does not support collaboration sessions")
   }
 
   if (!collaborationDocument.canEdit) {
@@ -805,11 +809,7 @@ export async function loadYPartyKitCanonicalDocument(room: Room) {
 async function persistCanonicalDocument(
   room: Room,
   doc: Doc,
-  flushReason: "periodic" | "leave" | "manual" = "periodic",
-  options?: {
-    workItemExpectedUpdatedAt?: string
-    workItemTitle?: string
-  }
+  flushReason: "periodic" | "leave" | "manual" = "periodic"
 ) {
   const claims = requireRoomEditorClaims(room)
   const collaborationDocument = await getEditableCollaborationDocument(
@@ -827,7 +827,7 @@ async function persistCanonicalDocument(
     collaborationDocument.content === contentHtml ||
     areDocumentJsonEqual(contentJson, persistedContentJson)
 
-  if (isPersistedContentUnchanged && !options?.workItemTitle) {
+  if (isPersistedContentUnchanged) {
     markRoomCanonical(doc, contentJson)
     updateRoomBootstrapCache(room, {
       content: contentHtml,
@@ -836,51 +836,15 @@ async function persistCanonicalDocument(
     return
   }
 
-  if (collaborationDocument.kind === "item-description") {
-    if (!collaborationDocument.itemId) {
-      throw new Error("Work item not found")
+  await persistCollaborationDocumentToConvex(
+    room.env as Record<string, unknown>,
+    {
+      currentUserId: claims.sub,
+      documentId: claims.documentId,
+      content: contentHtml,
+      expectedUpdatedAt: collaborationDocument.updatedAt,
     }
-
-    if (options?.workItemTitle) {
-      await persistCollaborationWorkItemToConvex(
-        room.env as Record<string, unknown>,
-        {
-          currentUserId: claims.sub,
-          itemId: collaborationDocument.itemId,
-          patch: {
-            title: options.workItemTitle,
-            ...(isPersistedContentUnchanged
-              ? {}
-              : { description: contentHtml }),
-            expectedUpdatedAt:
-              options.workItemExpectedUpdatedAt ??
-              collaborationDocument.itemUpdatedAt ??
-              undefined,
-          },
-        }
-      )
-    } else {
-      await persistCollaborationItemDescriptionToConvex(
-        room.env as Record<string, unknown>,
-        {
-          currentUserId: claims.sub,
-          itemId: collaborationDocument.itemId,
-          content: contentHtml,
-          expectedUpdatedAt: collaborationDocument.updatedAt,
-        }
-      )
-    }
-  } else {
-    await persistCollaborationDocumentToConvex(
-      room.env as Record<string, unknown>,
-      {
-        currentUserId: claims.sub,
-        documentId: claims.documentId,
-        content: contentHtml,
-        expectedUpdatedAt: collaborationDocument.updatedAt,
-      }
-    )
-  }
+  )
 
   await bumpDocumentScopeKeys(room, collaborationDocument, flushReason)
 
@@ -898,12 +862,6 @@ async function persistDocumentTitle(room: Room, documentTitle: string) {
     room,
     claims
   )
-
-  if (collaborationDocument.kind === "item-description") {
-    throw new Error(
-      "Document title flush is not supported for item descriptions"
-    )
-  }
 
   if (documentTitle === collaborationDocument.title) {
     updateRoomBootstrapCache(room, {
@@ -1306,14 +1264,7 @@ async function persistFlushRequest(
     return
   }
 
-  await persistCanonicalDocument(room, yDoc, "manual", {
-    ...(flushRequest.kind === "work-item-main"
-      ? {
-          workItemExpectedUpdatedAt: flushRequest.workItemExpectedUpdatedAt,
-          workItemTitle: flushRequest.workItemTitle,
-        }
-      : {}),
-  })
+  await persistCanonicalDocument(room, yDoc, "manual")
 }
 
 async function handleCollaborationFlushHttpRequest(

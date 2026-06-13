@@ -1985,19 +1985,13 @@ function createWorkItemFromDialogState({
     startTime,
     endTime,
     scheduleTimeZone,
+    description: normalizedDescription
+      ? formatInlineDescriptionContent(normalizedDescription)
+      : undefined,
   })
 
   if (!createdItemId) {
     return
-  }
-
-  if (normalizedDescription) {
-    useAppStore
-      .getState()
-      .updateItemDescription(
-        createdItemId,
-        formatInlineDescriptionContent(normalizedDescription)
-      )
   }
 
   onOpenChange(false)
