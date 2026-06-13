@@ -243,7 +243,7 @@ function getAutomaticDesktopUpdateToastDescriptor(
         duration: Infinity,
         icon: ArrowClockwiseIcon,
         title: "Desktop update ready",
-        tone: "success",
+        tone: "neutral",
       }
     case "installing":
       return {

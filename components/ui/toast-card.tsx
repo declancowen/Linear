@@ -16,6 +16,7 @@ export type ToastCardTone =
   | "warning"
   | "error"
   | "progress"
+  | "neutral"
 
 const TONE_BADGE_CLASSES: Record<ToastCardTone, string> = {
   accent: "bg-[color:var(--accent-bg)] text-[color:var(--accent-fg)]",
@@ -23,6 +24,7 @@ const TONE_BADGE_CLASSES: Record<ToastCardTone, string> = {
   warning: "bg-priority-high/15 text-priority-high",
   error: "bg-priority-urgent/15 text-priority-urgent",
   progress: "bg-surface-3 text-fg-3",
+  neutral: "bg-surface-3 text-fg-3",
 }
 
 /**

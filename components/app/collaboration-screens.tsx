@@ -453,7 +453,10 @@ export function TeamChatScreen({
   const { hasLoadedOnce: hasLoadedConversationList } =
     useConversationListReadModelRefresh(currentUserId, initialSeed)
   const { hasLoadedOnce: hasLoadedConversationThread } =
-    useConversationThreadReadModelRefresh(conversation?.id)
+    useConversationThreadReadModelRefresh(
+      conversation?.id,
+      conversationThreadSeed
+    )
   const teamDescription =
     team?.settings.summary ||
     `One live conversation for everyone working in ${team?.name ?? "this team"}.`
