@@ -28,6 +28,7 @@ import type {
 } from "@/lib/domain/types"
 import type {
   CreateStoreWorkItemInput,
+  BulkWorkItemUpdate,
   StoreWorkItemPatch,
 } from "@/lib/domain/work-item-inputs"
 import type { CreateProjectInput } from "@/lib/domain/project-inputs"
@@ -410,6 +411,7 @@ export type AppStore = AppData & {
     patch: WorkItemPatch,
     options?: WorkItemUpdateOptions
   ) => WorkItemUpdateResult
+  bulkUpdateWorkItems: (updates: BulkWorkItemUpdate[]) => Promise<boolean>
   setWorkItemSubscription: (itemId: string, subscribed: boolean) => void
   createCustomPropertyDefinition: (
     input: CreateCustomPropertyInput
@@ -445,12 +447,17 @@ export type AppStore = AppData & {
     editSessionId: string
     expectedDescriptionUpdatedAt: string
     expectedUpdatedAt: string
+    removedAttachmentIds?: string[]
   }) => Promise<boolean>
   uploadAttachment: (
     targetType: AttachmentTargetType,
     targetId: string,
     file: File
-  ) => Promise<{ fileName: string; fileUrl: string | null } | null>
+  ) => Promise<{
+    attachmentId: string | null
+    fileName: string
+    fileUrl: string | null
+  } | null>
   deleteAttachment: (attachmentId: string) => Promise<void>
   addComment: (input: AddCommentInput) => void
   updateComment: (commentId: string, input: UpdateCommentInput) => void

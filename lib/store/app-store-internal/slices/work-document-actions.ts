@@ -160,7 +160,8 @@ function getWorkItemMainSectionChanges(
 ): WorkItemMainSectionChanges {
   return {
     descriptionChanged:
-      input.description !== target.descriptionDocument.content,
+      input.description !== target.descriptionDocument.content ||
+      (input.removedAttachmentIds?.length ?? 0) > 0,
     titleChanged: target.normalizedTitle !== target.item.title,
   }
 }
@@ -287,6 +288,9 @@ function getWorkItemMainSectionSyncPatch({
     ...(changes.descriptionChanged ? { description: input.description } : {}),
     ...(changes.descriptionChanged
       ? { expectedDescriptionUpdatedAt: input.expectedDescriptionUpdatedAt }
+      : {}),
+    ...(input.removedAttachmentIds?.length
+      ? { removedAttachmentIds: input.removedAttachmentIds }
       : {}),
     ...(changes.titleChanged
       ? { expectedUpdatedAt: input.expectedUpdatedAt }
@@ -964,6 +968,7 @@ export function createWorkDocumentActions({
 
         toast.success(`${file.name} uploaded`)
         return {
+          attachmentId: createdAttachment?.attachmentId ?? null,
           fileName: file.name,
           fileUrl: createdAttachment?.fileUrl ?? null,
         }

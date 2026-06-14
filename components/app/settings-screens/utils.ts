@@ -3,17 +3,31 @@
 import { syncGenerateSettingsImageUploadUrl } from "@/lib/convex/client"
 import { getDisplayInitials } from "@/lib/display-initials"
 import { useAppStore } from "@/lib/store/app-store"
+import type { TeamFeatureSettings } from "@/lib/domain/types"
 
-export const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
+const IMAGE_UPLOAD_MAX_SIZE = 10 * 1024 * 1024
 
-export function getUserInitials(name: string | null | undefined) {
+export function getSettingsInitials(name: string | null | undefined) {
   return getDisplayInitials(name ?? "", "?")
 }
 
-export function getTeamLandingHref(teamSlug: string) {
-  // The Dashboard is an always-on surface and the team's first page, so every
-  // team lands there regardless of which optional surfaces are enabled.
-  return `/team/${teamSlug}/dashboard`
+export function getTeamLandingHref(
+  teamSlug: string,
+  features: TeamFeatureSettings
+) {
+  const surfaces: Array<[keyof TeamFeatureSettings, string]> = [
+    ["dashboard", "dashboard"],
+    ["chat", "chat"],
+    ["channels", "channel"],
+    ["issues", "work"],
+    ["projects", "projects"],
+    ["views", "views"],
+    ["docs", "docs"],
+  ]
+  const surface =
+    surfaces.find(([feature]) => features[feature])?.[1] ?? "docs"
+
+  return `/team/${teamSlug}/${surface}`
 }
 
 export async function cancelSettingsInvite(
@@ -93,7 +107,7 @@ async function uploadSettingsImageFile(
   return storagePayload.storageId
 }
 
-export async function uploadSettingsImageStorage(
+async function uploadSettingsImageStorage(
   kind: "user-avatar" | "workspace-logo",
   file: File,
   messages: {

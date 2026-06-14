@@ -450,6 +450,25 @@ describe("workspace and team deletion handlers", () => {
     ensureWorkspaceProjectViewsMock.mockResolvedValue(undefined)
   })
 
+  it("denies direct public workspace creation without writing", async () => {
+    const { createWorkspaceHandler } =
+      await import("@/convex/app/workspace_team_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      createWorkspaceHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        name: "Acme",
+        logoUrl: "AC",
+        accent: "emerald",
+        description: "Acme workspace",
+      })
+    ).rejects.toThrow("Public workspace creation is disabled")
+
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
   it("creates labels idempotently within editable workspace ownership", async () => {
     const { createLabelHandler } =
       await import("@/convex/app/workspace_team_handlers")

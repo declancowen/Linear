@@ -523,9 +523,8 @@ function getPersonActivityTeamId(
   activity: PersonActivity
 ): string | null {
   if ("itemId" in activity) {
-    return (
-      data.workItems.find((item) => item.id === activity.itemId)?.teamId ?? null
-    )
+    const item = data.workItems.find((candidate) => candidate.id === activity.itemId)
+    return item && (item.visibility ?? "team") !== "private" ? item.teamId : null
   }
 
   switch (activity.type) {

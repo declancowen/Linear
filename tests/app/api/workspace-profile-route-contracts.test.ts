@@ -222,7 +222,7 @@ describe("workspace and profile route contracts", () => {
     })
   })
 
-  it("maps workspace creation failures without provider-error noise", async () => {
+  it("denies public workspace creation without calling Convex", async () => {
     const { POST } = await import("@/app/api/workspaces/route")
 
     createWorkspaceServerMock.mockRejectedValue(
@@ -240,25 +240,14 @@ describe("workspace and profile route contracts", () => {
       },
     })
 
-    const response = await POST(
-      new Request("http://localhost/api/workspaces", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: "Acme",
-          description: "Ignored ok",
-        }),
-      }) as never
-    )
+    const response = await POST()
 
-    expect(response.status).toBe(400)
+    expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({
-      error: "Workspace name is required",
-      message: "Workspace name is required",
-      code: "WORKSPACE_NAME_REQUIRED",
+      error: "Public workspace creation is disabled",
+      message: "Public workspace creation is disabled",
     })
+    expect(createWorkspaceServerMock).not.toHaveBeenCalled()
     expect(logProviderErrorMock).not.toHaveBeenCalled()
   })
 

@@ -8,6 +8,7 @@ export type WorkSlice = Pick<
   | "createLabel"
   | "updateLabel"
   | "updateWorkItem"
+  | "bulkUpdateWorkItems"
   | "setWorkItemSubscription"
   | "deleteWorkItem"
   | "deleteWorkItems"

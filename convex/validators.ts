@@ -330,6 +330,7 @@ export const storedTeamWorkflowSettingsValidator = v.object({
   templateDefaults: v.record(v.string(), storedTeamTemplateConfigValidator),
 })
 export const teamFeatureSettingsValidator = v.object({
+  dashboard: v.optional(v.boolean()),
   issues: v.boolean(),
   projects: v.boolean(),
   views: v.boolean(),

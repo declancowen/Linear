@@ -1209,6 +1209,13 @@ export async function deleteAttachmentHandler(
     targetId: attachment.targetId,
     targetType: attachment.targetType,
   })
+
+  if (attachment.targetType === "workItem") {
+    throw new Error(
+      "Work item attachments must be removed by saving the description"
+    )
+  }
+
   const attachmentStorageRecords = await listAttachmentsByStorageId(
     ctx,
     attachment.storageId as string

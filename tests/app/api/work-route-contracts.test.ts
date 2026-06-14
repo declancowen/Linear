@@ -14,6 +14,8 @@ const requireAppContextMock = vi.fn()
 const requireConvexUserMock = vi.fn()
 const createWorkItemServerMock = vi.fn()
 const updateWorkItemServerMock = vi.fn()
+const bulkUpdateWorkItemsServerMock = vi.fn()
+const bulkDeleteWorkItemsServerMock = vi.fn()
 const setWorkItemSubscriptionServerMock = vi.fn()
 const deleteWorkItemServerMock = vi.fn()
 const shiftTimelineItemServerMock = vi.fn()
@@ -50,6 +52,8 @@ vi.mock("@/lib/server/route-auth", () => ({
 vi.mock("@/lib/server/convex", () => ({
   createWorkItemServer: createWorkItemServerMock,
   updateWorkItemServer: updateWorkItemServerMock,
+  bulkUpdateWorkItemsServer: bulkUpdateWorkItemsServerMock,
+  bulkDeleteWorkItemsServer: bulkDeleteWorkItemsServerMock,
   setWorkItemSubscriptionServer: setWorkItemSubscriptionServerMock,
   deleteWorkItemServer: deleteWorkItemServerMock,
   shiftTimelineItemServer: shiftTimelineItemServerMock,
@@ -81,6 +85,12 @@ vi.mock("@/lib/server/scoped-read-models", () => ({
   resolveProjectReadModelScopeKeysServer:
     resolveProjectReadModelScopeKeysServerMock,
   resolveViewReadModelScopeKeysServer: resolveViewReadModelScopeKeysServerMock,
+}))
+
+vi.mock("@/lib/server/collaboration-refresh", () => ({
+  notifyCollaborationDocumentChangedServer: vi.fn().mockResolvedValue({
+    ok: true,
+  }),
 }))
 
 vi.mock("@/lib/server/email", () => ({
@@ -134,8 +144,14 @@ describe("work route contracts", () => {
     requireConvexUserMock.mockReset()
     createWorkItemServerMock.mockReset()
     updateWorkItemServerMock.mockReset()
+    bulkUpdateWorkItemsServerMock.mockReset()
+    bulkDeleteWorkItemsServerMock.mockReset()
     setWorkItemSubscriptionServerMock.mockReset()
     deleteWorkItemServerMock.mockReset()
+    bulkDeleteWorkItemsServerMock.mockResolvedValue({
+      deletedItemIds: ["item_1", "item_2"],
+      deletedDescriptionDocIds: ["document_1", "document_2"],
+    })
     shiftTimelineItemServerMock.mockReset()
     heartbeatWorkItemPresenceServerMock.mockReset()
     clearWorkItemPresenceServerMock.mockReset()
@@ -335,6 +351,162 @@ describe("work route contracts", () => {
       message: "Invalid work item update payload",
       code: "ROUTE_INVALID_BODY",
     })
+  })
+
+  it("validates and forwards one bounded bulk work-item command", async () => {
+    const bulkRoute = await import("@/app/api/items/bulk/route")
+    const response = await bulkRoute.PATCH(
+      createJsonRouteRequest("http://localhost/api/items/bulk", "PATCH", {
+          updates: [
+            {
+              itemId: "item_1",
+              patch: {
+                expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+                status: "done",
+              },
+            },
+            {
+              expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+              itemId: "item_2",
+              customProperty: {
+                propertyId: "property_1",
+                value: "option_high",
+              },
+            },
+          ],
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(bulkUpdateWorkItemsServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      updates: [
+        {
+          itemId: "item_1",
+          patch: {
+            expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+            status: "done",
+          },
+        },
+        {
+          expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+          itemId: "item_2",
+          customProperty: {
+            propertyId: "property_1",
+            value: "option_high",
+          },
+        },
+      ],
+    })
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("validates and forwards one atomic bulk work-item delete command", async () => {
+    const bulkRoute = await import("@/app/api/items/bulk/route")
+    const response = await bulkRoute.DELETE(
+      createJsonRouteRequest("http://localhost/api/items/bulk", "DELETE", {
+        items: [
+          {
+            itemId: "item_1",
+            expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+          },
+          {
+            itemId: "item_2",
+            expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+          },
+        ],
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(bulkDeleteWorkItemsServerMock).toHaveBeenCalledWith({
+      currentUserId: "user_1",
+      items: [
+        {
+          itemId: "item_1",
+          expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+        },
+        {
+          itemId: "item_2",
+          expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+        },
+      ],
+    })
+    expect(bumpScopedReadModelVersionsServerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects duplicate bulk targets before calling the server", async () => {
+    const bulkRoute = await import("@/app/api/items/bulk/route")
+    const response = await bulkRoute.PATCH(
+      createJsonRouteRequest("http://localhost/api/items/bulk", "PATCH", {
+          updates: [
+            {
+              itemId: "item_1",
+              patch: {
+                expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+                status: "done",
+              },
+            },
+            {
+              itemId: "item_1",
+              patch: {
+                expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+                priority: "high",
+              },
+            },
+          ],
+      })
+    )
+
+    expect(response.status).toBe(400)
+    expect(bulkUpdateWorkItemsServerMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects bulk targets that only contain a concurrency token", async () => {
+    const bulkRoute = await import("@/app/api/items/bulk/route")
+    const response = await bulkRoute.PATCH(
+      createJsonRouteRequest("http://localhost/api/items/bulk", "PATCH", {
+        updates: [
+          {
+            itemId: "item_1",
+            patch: {
+              expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+            },
+          },
+        ],
+      })
+    )
+
+    expect(response.status).toBe(400)
+    expect(bulkUpdateWorkItemsServerMock).not.toHaveBeenCalled()
+  })
+
+  it("reports durable bulk success when read-model invalidation fails", async () => {
+    const bulkRoute = await import("@/app/api/items/bulk/route")
+    bumpScopedReadModelVersionsServerMock.mockRejectedValueOnce(
+      new Error("invalidation unavailable")
+    )
+
+    const response = await bulkRoute.PATCH(
+      createJsonRouteRequest("http://localhost/api/items/bulk", "PATCH", {
+        updates: [
+          {
+            itemId: "item_1",
+            patch: {
+              expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+              status: "done",
+            },
+          },
+        ],
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(bulkUpdateWorkItemsServerMock).toHaveBeenCalledTimes(1)
+    expect(logProviderErrorMock).toHaveBeenCalledWith(
+      "Failed to invalidate read models after bulk work item update",
+      expect.any(Error)
+    )
   })
 
   it("maps work-item update and delete failures to typed error responses", async () => {

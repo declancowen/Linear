@@ -29,6 +29,7 @@ const getClampedNotifiedMentionCountsMock = vi.fn()
 const createNotificationMock = vi.fn()
 const assertDocumentEditLeaseAvailableMock = vi.fn()
 const assertDocumentEditLeaseOwnedMock = vi.fn()
+const deleteContentReferencedAttachmentsMock = vi.fn()
 
 vi.mock("@/convex/app/core", () => ({
   assertServerToken: assertServerTokenMock,
@@ -96,6 +97,10 @@ vi.mock("@/convex/app/presence_helpers", () => ({
 
 vi.mock("@/convex/app/email_job_handlers", () => ({
   queueEmailJobs: vi.fn(),
+}))
+
+vi.mock("@/convex/app/cleanup", () => ({
+  deleteContentReferencedAttachments: deleteContentReferencedAttachmentsMock,
 }))
 
 function createCtx() {
@@ -173,6 +178,7 @@ describe("work item handlers", () => {
     createNotificationMock.mockReset()
     assertDocumentEditLeaseAvailableMock.mockReset()
     assertDocumentEditLeaseOwnedMock.mockReset()
+    deleteContentReferencedAttachmentsMock.mockReset()
 
     getDocumentDocMock.mockResolvedValue({
       _id: "db_doc_1",
@@ -634,6 +640,242 @@ describe("work item handlers", () => {
     expect(ctx.db.patch).not.toHaveBeenCalled()
   })
 
+  it("rejects duplicate targets before a bulk update writes", async () => {
+    const { bulkUpdateWorkItemsHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      bulkUpdateWorkItemsHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        updates: [
+          {
+            itemId: "item_1",
+            patch: {
+              expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
+              status: "done",
+            },
+          },
+          {
+            itemId: "item_1",
+            patch: {
+              expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
+              priority: "high",
+            },
+          },
+        ],
+      })
+    ).rejects.toThrow("Bulk updates cannot contain duplicate work items")
+
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("rejects bulk targets that only contain a concurrency token", async () => {
+    const { bulkUpdateWorkItemsHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+
+    await expect(
+      bulkUpdateWorkItemsHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        updates: [
+          {
+            itemId: "item_1",
+            patch: {
+              expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
+            },
+          },
+        ],
+      })
+    ).rejects.toThrow("Bulk updates must change at least one work item field")
+
+    expect(getWorkItemDocMock).not.toHaveBeenCalled()
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("updates multiple work items inside one bulk handler", async () => {
+    const { bulkUpdateWorkItemsHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    const first = {
+      ...(await getWorkItemDocMock()),
+      _id: "db_item_1",
+      id: "item_1",
+    }
+    const second = { ...first, _id: "db_item_2", id: "item_2" }
+    getWorkItemDocMock
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second)
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second)
+    ctx.db.query.mockReturnValue({
+      withIndex: vi.fn(() => ({
+        collect: vi.fn().mockResolvedValue([first, second]),
+      })),
+    })
+
+    const result = await bulkUpdateWorkItemsHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+      updates: [
+        {
+          itemId: "item_1",
+          patch: {
+            expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
+            status: "done",
+          },
+        },
+        {
+          itemId: "item_2",
+          patch: {
+            expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
+            status: "done",
+          },
+        },
+      ],
+    })
+
+    expect(result).toEqual({ updatedCount: 2 })
+    expect(ctx.db.patch).toHaveBeenCalledWith(
+      "db_item_1",
+      expect.objectContaining({ status: "done" })
+    )
+    expect(ctx.db.patch).toHaveBeenCalledWith(
+      "db_item_2",
+      expect.objectContaining({ status: "done" })
+    )
+  })
+
+  it("preauthorizes every bulk target before writing", async () => {
+    const { bulkUpdateWorkItemsHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    const first = {
+      ...(await getWorkItemDocMock()),
+      _id: "db_item_1",
+      id: "item_1",
+    }
+    const second = { ...first, _id: "db_item_2", id: "item_2" }
+    getWorkItemDocMock
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second)
+    requireEditableWorkItemAccessMock
+      .mockResolvedValueOnce("member")
+      .mockRejectedValueOnce(new Error("Your current role is read-only"))
+
+    await expect(
+      bulkUpdateWorkItemsHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        updates: [
+          {
+            itemId: "item_1",
+            patch: {
+              expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
+              status: "done",
+            },
+          },
+          {
+            itemId: "item_2",
+            patch: {
+              expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
+              status: "done",
+            },
+          },
+        ],
+      })
+    ).rejects.toThrow("Your current role is read-only")
+
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+  })
+
+  it("rejects a stale custom-property bulk target before writing", async () => {
+    const { bulkUpdateWorkItemsHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    const item = await getWorkItemDocMock()
+    getWorkItemDocMock.mockResolvedValueOnce(item)
+
+    await expect(
+      bulkUpdateWorkItemsHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        updates: [
+          {
+            expectedUpdatedAt: "2026-04-20T21:00:00.000Z",
+            itemId: "item_1",
+            customProperty: {
+              propertyId: "property_1",
+              value: "option_1",
+            },
+          },
+        ],
+      })
+    ).rejects.toThrow("Work item changed while you were editing")
+
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
+  it("rejects a stale built-in bulk target before writing", async () => {
+    const { bulkUpdateWorkItemsHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    const item = await getWorkItemDocMock()
+    getWorkItemDocMock.mockResolvedValueOnce(item)
+
+    await expect(
+      bulkUpdateWorkItemsHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        origin: "https://app.example.com",
+        updates: [
+          {
+            itemId: "item_1",
+            patch: {
+              expectedUpdatedAt: "2026-04-20T21:00:00.000Z",
+              status: "done",
+            },
+          },
+        ],
+      })
+    ).rejects.toThrow("Work item changed while you were editing")
+
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
+  it("rejects a stale bulk delete target before deleting anything", async () => {
+    const { bulkDeleteWorkItemsHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    const item = await getWorkItemDocMock()
+    getWorkItemDocMock.mockResolvedValueOnce(item)
+
+    await expect(
+      bulkDeleteWorkItemsHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        items: [
+          {
+            itemId: "item_1",
+            expectedUpdatedAt: "2026-04-20T21:00:00.000Z",
+          },
+        ],
+      })
+    ).rejects.toThrow("Work item changed while you were editing")
+
+    expect(ctx.db.patch).not.toHaveBeenCalled()
+    expect(ctx.db.insert).not.toHaveBeenCalled()
+  })
+
   it("uses item-level private access before updating work items", async () => {
     const { updateWorkItemHandler } =
       await import("@/convex/app/work_item_handlers")
@@ -879,6 +1121,59 @@ describe("work item handlers", () => {
     })
 
     expectDescriptionOnlyPatches(ctx)
+    expect(deleteContentReferencedAttachmentsMock).toHaveBeenCalledWith(
+      ctx,
+      {
+        targetType: "workItem",
+        targetId: "item_1",
+        contents: ["<p>Existing</p>"],
+      }
+    )
+  })
+
+  it("repairs a missing legacy description document before enforcing description CAS", async () => {
+    const { updateWorkItemHandler } =
+      await import("@/convex/app/work_item_handlers")
+    const ctx = createCtx()
+    const repairedDocument = {
+      _id: "db_doc_1",
+      id: "doc_1",
+      title: "Launch task description",
+      content: "<p></p>",
+      notifiedMentionCounts: {},
+      updatedAt: "",
+    }
+    getDocumentDocMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(repairedDocument)
+    mockEmptyQueryCollect(ctx)
+
+    await updateWorkItemHandler(ctx as never, {
+      serverToken: "server_token",
+      currentUserId: "user_1",
+      origin: "https://app.example.com",
+      itemId: "item_1",
+      patch: {
+        description: "<p>Recovered</p>",
+        editSessionId: "session_1",
+        expectedDescriptionUpdatedAt: "",
+        expectedUpdatedAt: "2026-04-20T22:00:00.000Z",
+      },
+    })
+
+    expect(ctx.db.insert).toHaveBeenCalledWith(
+      "documents",
+      expect.objectContaining({
+        id: "doc_1",
+        kind: "item-description",
+        content: "<p></p>",
+        updatedAt: "",
+      })
+    )
+    expect(ctx.db.patch).toHaveBeenCalledWith(
+      "db_doc_1",
+      expect.objectContaining({ content: "<p>Recovered</p>" })
+    )
   })
 
   it("shifts timeline dates in calendar-day space when moving a scheduled item", async () => {
@@ -954,6 +1249,7 @@ describe("work item handlers", () => {
       referencedProjectIds: [],
       referencedViewIds: [],
     })
+    expect(deleteContentReferencedAttachmentsMock).not.toHaveBeenCalled()
 
     ctx.db.patch.mockClear()
     await patchWorkItemDescriptionDocument(ctx as never, {

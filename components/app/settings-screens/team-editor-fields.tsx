@@ -47,12 +47,14 @@ import {
 import type { ComponentType } from "react"
 
 export type TeamSurfaceDisableReasons = {
+  dashboard: string | null
   docs: string | null
   chat: string | null
   channels: string | null
 }
 
 export const defaultTeamSurfaceDisableReasons: TeamSurfaceDisableReasons = {
+  dashboard: null,
   docs: null,
   chat: null,
   channels: null,
@@ -175,7 +177,9 @@ function useJoinCodeCopy(joinCode: string) {
     }
 
     try {
-      await navigator.clipboard.writeText(joinCode)
+      const inviteUrl = new URL("/onboarding", window.location.origin)
+      inviteUrl.searchParams.set("code", joinCode)
+      await navigator.clipboard.writeText(inviteUrl.toString())
       setCopiedJoinCode(joinCode)
 
       if (copyResetTimeoutRef.current) {
@@ -441,14 +445,6 @@ function OptionalSurfaceRows({
 }) {
   return (
     <SettingsRowGroup>
-      <SettingsToggleRow
-        checked
-        disabled
-        title="Dashboard"
-        description="Team overview with completion, projects, views, and activity."
-        note="Always on"
-        onCheckedChange={() => {}}
-      />
       {items.map((feature) => {
         const featureChecked = features[feature.key]
         const noteForFeature = savedFeatures[feature.key]
@@ -643,6 +639,15 @@ export function TeamEditorFields({
     .join(" · ")
   const { copiedJoinCode, copyJoinCode } = useJoinCodeCopy(joinCode)
   const optionalFeatures: OptionalSurfaceItem[] = [
+    ...(experience === "community"
+      ? []
+      : [
+          {
+            key: "dashboard" as const,
+            label: "Dashboard",
+            description: teamFeatureMeta.dashboard.description,
+          },
+        ]),
     {
       key: "docs" as const,
       label: "Docs",

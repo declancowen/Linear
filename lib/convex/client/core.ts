@@ -104,23 +104,6 @@ export function syncGenerateSettingsImageUploadUrl(
   })
 }
 
-export function syncCreateWorkspace(input: {
-  name: string
-  description: string
-}) {
-  return runRouteMutation<{
-    ok: true
-    workspaceId: string
-    workspaceSlug: string
-  }>("/api/workspaces", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input),
-  })
-}
-
 export async function syncHeartbeatDocumentPresence(
   documentId: string,
   sessionId: string,

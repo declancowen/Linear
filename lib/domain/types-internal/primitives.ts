@@ -312,6 +312,7 @@ export type CustomPropertyOption = {
 export type CustomPropertyValue = string | number | boolean | string[] | null
 
 export interface TeamFeatureSettings {
+  dashboard: boolean
   issues: boolean
   projects: boolean
   views: boolean

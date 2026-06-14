@@ -276,6 +276,7 @@ export function normalizeTeamFeatures(
     | undefined,
   features:
     | {
+        dashboard?: boolean
         issues: boolean
         projects: boolean
         views: boolean
@@ -303,6 +304,7 @@ export function normalizeTeam<T extends { settings: Record<string, unknown> }>(
       | "project-management"
       | "community"
     features?: {
+      dashboard?: boolean
       issues: boolean
       projects: boolean
       views: boolean

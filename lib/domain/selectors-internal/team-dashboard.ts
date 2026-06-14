@@ -21,6 +21,10 @@ const NON_ACTIONABLE_STATUSES: ReadonlySet<WorkStatus> = new Set<WorkStatus>([
 ])
 const COMPLETED_STATUS: WorkStatus = "done"
 
+function getDashboardVisibleItems(items: WorkItem[]) {
+  return items.filter((item) => (item.visibility ?? "team") !== "private")
+}
+
 export type CompletionStat = {
   total: number
   completed: number
@@ -40,10 +44,11 @@ export type TeamDashboardCompletion = {
 }
 
 function computeCompletionStat(items: WorkItem[]): CompletionStat {
+  const visibleItems = getDashboardVisibleItems(items)
   let completed = 0
   let excluded = 0
 
-  for (const item of items) {
+  for (const item of visibleItems) {
     if (NON_ACTIONABLE_STATUSES.has(item.status)) {
       excluded += 1
       continue
@@ -54,7 +59,7 @@ function computeCompletionStat(items: WorkItem[]): CompletionStat {
     }
   }
 
-  const total = items.length - excluded
+  const total = visibleItems.length - excluded
 
   return {
     total,
@@ -73,10 +78,11 @@ function computeCompletionStat(items: WorkItem[]): CompletionStat {
 export function getTeamDashboardCompletion(
   items: WorkItem[]
 ): TeamDashboardCompletion {
+  const visibleItems = getDashboardVisibleItems(items)
   const byType: TypeCompletionStat[] = []
 
   for (const type of workItemTypes) {
-    const typeItems = items.filter((item) => item.type === type)
+    const typeItems = visibleItems.filter((item) => item.type === type)
 
     if (typeItems.length === 0) {
       continue
@@ -86,7 +92,7 @@ export function getTeamDashboardCompletion(
   }
 
   return {
-    overall: computeCompletionStat(items),
+    overall: computeCompletionStat(visibleItems),
     byType,
   }
 }
@@ -105,7 +111,7 @@ export function getTeamDashboardStatusBreakdown(
 ): StatusBreakdownEntry[] {
   const counts = new Map<WorkStatus, number>()
 
-  for (const item of items) {
+  for (const item of getDashboardVisibleItems(items)) {
     counts.set(item.status, (counts.get(item.status) ?? 0) + 1)
   }
 
@@ -131,7 +137,7 @@ export function getTeamDashboardProjectProgress(
 ): ProjectProgress[] {
   const itemsByProject = new Map<string, WorkItem[]>()
 
-  for (const item of items) {
+  for (const item of getDashboardVisibleItems(items)) {
     if (!item.primaryProjectId) {
       continue
     }

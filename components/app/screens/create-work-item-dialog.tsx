@@ -83,16 +83,14 @@ import {
   PropertyPopoverList,
   PropertyPopoverSearch,
 } from "@/components/ui/template-primitives"
-import { Textarea } from "@/components/ui/textarea"
+import { RichTextEditor } from "@/components/app/rich-text-editor"
+import { prepareRichTextForStorage } from "@/lib/content/rich-text-security"
 import { FieldCharacterLimit } from "@/components/app/field-character-limit"
 import {
   createLabelAndSelect,
   NewLabelInput,
 } from "@/components/app/screens/create-work-item-labels"
-import {
-  formatInlineDescriptionContent,
-  getPreferredCreateDialogType,
-} from "@/components/app/screens/helpers"
+import { getPreferredCreateDialogType } from "@/components/app/screens/helpers"
 import {
   PropertyDateChip,
   PropertyAssigneePicker,
@@ -233,12 +231,14 @@ function CreateWorkItemTitleFields({
         limit={workItemTitleConstraints.max}
         className="mt-1"
       />
-      <Textarea
-        value={description}
-        onChange={(event) => handleDescriptionChange(event.target.value)}
+      <RichTextEditor
+        content={description}
+        onChange={handleDescriptionChange}
         placeholder="Add description…"
-        rows={3}
-        className="mt-0.5 min-h-[60px] resize-none border-none bg-transparent px-0 py-1 text-[13.5px] leading-[1.6] text-fg-2 shadow-none placeholder:text-fg-4 focus-visible:ring-0 dark:bg-transparent"
+        compact
+        showToolbar={false}
+        showStats={false}
+        className="mt-0.5 min-h-[60px] text-[13.5px] leading-[1.6] text-fg-2"
       />
     </div>
   )
@@ -1985,9 +1985,7 @@ function createWorkItemFromDialogState({
     startTime,
     endTime,
     scheduleTimeZone,
-    description: normalizedDescription
-      ? formatInlineDescriptionContent(normalizedDescription)
-      : undefined,
+    description: normalizedDescription || undefined,
   })
 
   if (!createdItemId) {
@@ -2347,7 +2345,13 @@ export function CreateWorkItemDialog({
 
   function handleCreate() {
     const normalizedTitle = draftTitleRef.current.trim()
-    const normalizedDescription = draftDescriptionRef.current.trim()
+    const preparedDescription = prepareRichTextForStorage(
+      draftDescriptionRef.current,
+      { minPlainTextCharacters: 1 }
+    )
+    const normalizedDescription = preparedDescription.isMeaningful
+      ? preparedDescription.sanitized
+      : ""
 
     createWorkItemFromDialogState({
       selectedType,

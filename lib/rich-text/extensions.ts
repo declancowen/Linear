@@ -19,6 +19,7 @@ import {
   CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE,
   normalizeChatQuoteSourceMessageId,
 } from "@/lib/content/chat-message-quote-metadata"
+import { normalizeRichTextAttachmentId } from "@/lib/content/rich-text-attachment-metadata"
 import { resolveEntityReferenceNodeAttrs } from "@/lib/content/rich-text-references"
 import {
   renderMentionHTML,
@@ -146,6 +147,28 @@ const ChatQuoteSourceMetadata = Extension.create({
   },
 })
 
+const AttachmentImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      attachmentId: {
+        default: null,
+        parseHTML: (element) =>
+          normalizeRichTextAttachmentId(
+            element.getAttribute("data-attachment-id")
+          ),
+        renderHTML: (attributes) => {
+          const attachmentId = normalizeRichTextAttachmentId(
+            attributes.attachmentId
+          )
+
+          return attachmentId ? { "data-attachment-id": attachmentId } : {}
+        },
+      },
+    }
+  },
+})
+
 const AttachmentReference = Node.create({
   name: "attachmentReference",
   group: "inline",
@@ -169,6 +192,13 @@ const AttachmentReference = Node.create({
         parseHTML: (element) =>
           element.getAttribute("data-attachment-kind") ?? "file",
       },
+      attachmentId: {
+        default: null,
+        parseHTML: (element) =>
+          normalizeRichTextAttachmentId(
+            element.getAttribute("data-attachment-id")
+          ),
+      },
     }
   },
 
@@ -180,17 +210,14 @@ const AttachmentReference = Node.create({
     return ({ node }) => {
       const dom = document.createElement("span")
       const attachment = document.createElement("a")
-      const download = document.createElement("a")
 
       dom.className = "attachment-reference-node"
       attachment.className = "editor-attachment"
       attachment.dataset.type = "attachment"
       attachment.target = "_blank"
       attachment.rel = "noreferrer"
-      download.className = "editor-attachment-download"
-      download.dataset.attachmentDownload = "true"
 
-      dom.append(attachment, download)
+      dom.append(attachment)
 
       function update(currentNode: typeof node) {
         if (currentNode.type.name !== "attachmentReference") {
@@ -211,15 +238,19 @@ const AttachmentReference = Node.create({
           typeof currentNode.attrs.attachmentKind === "string"
             ? currentNode.attrs.attachmentKind
             : "file"
+        const attachmentId = normalizeRichTextAttachmentId(
+          currentNode.attrs.attachmentId
+        )
 
         attachment.href = href
         attachment.dataset.attachmentKind = attachmentKind
         attachment.dataset.fileName = fileName
+        if (attachmentId) {
+          attachment.dataset.attachmentId = attachmentId
+        } else {
+          delete attachment.dataset.attachmentId
+        }
         attachment.textContent = fileName
-        download.href = href
-        download.download = fileName
-        download.ariaLabel = `Download ${fileName}`
-        download.title = `Download ${fileName}`
         return true
       }
 
@@ -246,6 +277,7 @@ const AttachmentReference = Node.create({
       typeof node.attrs.attachmentKind === "string"
         ? node.attrs.attachmentKind
         : "file"
+    const attachmentId = normalizeRichTextAttachmentId(node.attrs.attachmentId)
 
     return [
       "a",
@@ -254,6 +286,7 @@ const AttachmentReference = Node.create({
         "data-type": "attachment",
         "data-attachment-kind": attachmentKind,
         "data-file-name": fileName,
+        ...(attachmentId ? { "data-attachment-id": attachmentId } : {}),
         href,
         target: "_blank",
         rel: "noreferrer",
@@ -304,7 +337,7 @@ export function createRichTextBaseExtensions(options?: {
         class: "editor-highlight",
       },
     }),
-    Image.configure({
+    AttachmentImage.configure({
       HTMLAttributes: {
         class: "editor-image",
       },

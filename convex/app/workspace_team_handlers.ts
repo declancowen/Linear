@@ -54,7 +54,6 @@ import {
   getWorkspaceMembershipDoc,
   getUserDoc,
   getLabelDoc,
-  getWorkspaceBySlug,
   getWorkspaceDoc,
   listAttachmentsByTargets,
   listCommentsByTargets,
@@ -72,7 +71,6 @@ import {
   listWorkspacesOwnedByUser,
   listWorkspaceDocuments,
   listWorkspaceTeams,
-  setCurrentWorkspaceForUser,
   syncWorkspaceMembershipRoleFromTeams,
 } from "./data"
 import {
@@ -316,14 +314,6 @@ async function createUniqueSlugWithLookup(input: {
   }
 
   throw new Error(input.failureMessage)
-}
-
-async function createUniqueWorkspaceSlugWithLookup(ctx: AppCtx, name: string) {
-  return createUniqueSlugWithLookup({
-    baseSlug: createSlug(name) || "workspace",
-    failureMessage: "Unable to generate a unique workspace slug",
-    lookup: (slug) => getWorkspaceBySlug(ctx, slug),
-  })
 }
 
 async function createUniqueTeamSlugWithLookup(
@@ -671,7 +661,7 @@ type LeaveTeamArgs = ServerAccessArgs & {
 }
 
 export async function createWorkspaceHandler(
-  ctx: MutationCtx,
+  _ctx: MutationCtx,
   args: ServerAccessArgs & {
     currentUserId: string
     name: string
@@ -681,36 +671,7 @@ export async function createWorkspaceHandler(
   }
 ) {
   assertServerToken(args.serverToken)
-  const workspaceId = createId("workspace")
-  const workspaceSlug = await createUniqueWorkspaceSlugWithLookup(
-    ctx,
-    args.name
-  )
-
-  await ctx.db.insert("workspaces", {
-    id: workspaceId,
-    slug: workspaceSlug,
-    name: args.name,
-    logoUrl: args.logoUrl,
-    createdBy: args.currentUserId,
-    workosOrganizationId: null,
-    settings: {
-      accent: args.accent,
-      description: args.description,
-    },
-  })
-  await ensureWorkspaceMembership(ctx, {
-    workspaceId,
-    userId: args.currentUserId,
-    role: "admin",
-  })
-
-  await setCurrentWorkspaceForUser(ctx, args.currentUserId, workspaceId)
-
-  return {
-    workspaceId,
-    workspaceSlug,
-  }
+  throw new Error("Public workspace creation is disabled")
 }
 
 export async function updateWorkspaceBrandingHandler(

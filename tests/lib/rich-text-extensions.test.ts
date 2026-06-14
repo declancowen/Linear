@@ -87,4 +87,21 @@ describe("rich text extension helpers", () => {
 
     editor.destroy()
   })
+
+  it("round-trips valid attachment ids and drops malformed ids", () => {
+    const editor = new Editor({
+      extensions: createRichTextBaseExtensions({
+        includeCharacterCount: false,
+      }),
+      content:
+        '<p><img class="editor-image" src="https://example.com/image.png" data-attachment-id="attachment_12345678"><a data-type="attachment" class="editor-attachment" href="https://example.com/file.pdf" data-file-name="file.pdf" data-attachment-id="invalid">file.pdf</a></p>',
+    })
+
+    expect(editor.getHTML()).toContain(
+      'data-attachment-id="attachment_12345678"'
+    )
+    expect(editor.getHTML()).not.toContain('data-attachment-id="invalid"')
+
+    editor.destroy()
+  })
 })

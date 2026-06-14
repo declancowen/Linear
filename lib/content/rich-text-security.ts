@@ -4,6 +4,7 @@ import {
   CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE,
   normalizeChatQuoteSourceMessageId,
 } from "@/lib/content/chat-message-quote-metadata"
+import { normalizeRichTextAttachmentId } from "@/lib/content/rich-text-attachment-metadata"
 import { isRichTextEntityReferenceType } from "@/lib/content/rich-text-references"
 import { getPlainTextContent } from "@/lib/utils"
 
@@ -72,6 +73,7 @@ const RICH_TEXT_ALLOWED_ATTRIBUTES: Record<string, readonly string[]> = {
     "data-reference-id",
     "data-label",
     "data-display",
+    "data-attachment-id",
     "data-attachment-kind",
     "data-file-name",
   ],
@@ -81,7 +83,7 @@ const RICH_TEXT_ALLOWED_ATTRIBUTES: Record<string, readonly string[]> = {
   h1: ["style"],
   h2: ["style"],
   h3: ["style"],
-  img: ["src", "alt", "title", "class"],
+  img: ["src", "alt", "title", "class", "data-attachment-id"],
   input: ["type", "checked", "disabled"],
   label: ["contenteditable"],
   li: ["data-type", "data-checked"],
@@ -314,6 +316,9 @@ function normalizeAttachmentAnchorAttributes(
   href: string | null
 ) {
   const relValues = getAnchorRelValues(attributes.rel, "_blank")
+  const attachmentId = normalizeRichTextAttachmentId(
+    attributes["data-attachment-id"]
+  )
   const attachmentKind = attributes["data-attachment-kind"]?.trim()
   const fileName = attributes["data-file-name"]?.trim()
   const safeHref = href && isSafeUrlAttribute("a", "href", href) ? href : null
@@ -324,6 +329,7 @@ function normalizeAttachmentAnchorAttributes(
     rel: [...relValues].sort().join(" "),
     class: "editor-attachment",
     "data-type": "attachment",
+    ...(attachmentId ? { "data-attachment-id": attachmentId } : {}),
     ...(attachmentKind ? { "data-attachment-kind": attachmentKind } : {}),
     ...(fileName ? { "data-file-name": fileName } : {}),
   }
@@ -425,6 +431,10 @@ function sanitizeAttribute(
     attributeName === CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE
   ) {
     return normalizeChatQuoteSourceMessageId(value)
+  }
+
+  if (attributeName === "data-attachment-id") {
+    return normalizeRichTextAttachmentId(value)
   }
 
   if (!isSafeUrlAttribute(tagName, attributeName, value)) {

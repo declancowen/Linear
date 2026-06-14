@@ -570,7 +570,7 @@ function WorkSurfaceViewbar({
         ) : null}
         <Button
           size={compactControls ? "icon-sm" : "sm"}
-          variant="outline"
+          variant="ghost"
           aria-label="Reset view"
           className={cn(
             "h-7 shrink-0 text-[12px]",

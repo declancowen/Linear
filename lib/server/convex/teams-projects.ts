@@ -8,6 +8,7 @@ import type {
   TeamExperienceType,
   TeamWorkflowSettings,
 } from "@/lib/domain/types"
+import { normalizeTeamFeatureSettings } from "@/lib/domain/types"
 import { coerceApplicationError } from "@/lib/server/application-errors"
 
 import { getConvexServerClient, withServerToken } from "./core"
@@ -17,6 +18,7 @@ const TEAM_JOIN_CODE_CONFLICT_MATCH =
   /join code (already exists|is already in use)/i
 
 type TeamFeatureSettingsInput = {
+  dashboard?: boolean
   issues: boolean
   projects: boolean
   views: boolean
@@ -437,7 +439,10 @@ export async function updateTeamDetailsServer(
   try {
     return await getConvexServerClient().mutation(
       api.app.updateTeamDetails,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        features: normalizeTeamFeatureSettings(input.experience, input.features),
+      })
     )
   } catch (error) {
     throw (
@@ -456,7 +461,10 @@ export async function createTeamServer(
   try {
     return await getConvexServerClient().mutation(
       api.app.createTeam,
-      withServerToken(input)
+      withServerToken({
+        ...input,
+        features: normalizeTeamFeatureSettings(input.experience, input.features),
+      })
     )
   } catch (error) {
     throw (

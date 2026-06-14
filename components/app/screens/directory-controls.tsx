@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import {
+  ArrowCounterClockwise,
   CaretDown,
   Check,
   Eye,
@@ -459,9 +460,11 @@ export function ViewsDirectoryPropertiesChipPopover({
           {properties.length > 0 ? (
             <button
               type="button"
-              className="text-[11px] text-fg-3 transition-colors hover:text-foreground"
+              aria-label="Reset properties"
+              className="inline-flex items-center gap-1 text-[11px] text-fg-3 transition-colors hover:text-foreground"
               onClick={onClearProperties}
             >
+              <ArrowCounterClockwise className="size-3" />
               Reset
             </button>
           ) : null}

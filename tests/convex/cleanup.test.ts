@@ -195,6 +195,8 @@ function createViewFilters() {
 
 const REFERENCED_IMAGE_CONTENT =
   '<p><img src="https://assets.example.com/image.png"></p>'
+const REFERENCED_IMAGE_ID_CONTENT =
+  '<p><img data-attachment-id="attachment_1"></p>'
 
 function createReferencedImageComment(overrides: Record<string, unknown> = {}) {
   return {
@@ -375,6 +377,35 @@ describe("cleanup handlers", () => {
 
     expect(ctx.storage.delete).toHaveBeenCalledWith("storage_1")
     expect(ctx.tables.attachments).toEqual([])
+  })
+
+  it("deletes an attachment removed by stable id when its URL is absent", async () => {
+    const ctx = createAttachmentCleanupCtx()
+
+    await deleteContentReferencedAttachments(ctx as never, {
+      targetType: "workItem",
+      targetId: "item_1",
+      contents: [REFERENCED_IMAGE_ID_CONTENT],
+    })
+
+    expect(ctx.storage.delete).toHaveBeenCalledWith("storage_1")
+    expect(ctx.tables.attachments).toEqual([])
+  })
+
+  it("keeps an attachment id that remains referenced by a comment", async () => {
+    const ctx = createAttachmentCleanupCtx()
+    ctx.tables.comments.push(
+      createReferencedImageComment({ content: REFERENCED_IMAGE_ID_CONTENT })
+    )
+
+    await deleteContentReferencedAttachments(ctx as never, {
+      targetType: "workItem",
+      targetId: "item_1",
+      contents: [REFERENCED_IMAGE_ID_CONTENT],
+    })
+
+    expect(ctx.storage.delete).not.toHaveBeenCalled()
+    expectRemainingAttachmentIds(ctx, ["attachment_1"])
   })
 
   it("keeps private work items when deleting a team", async () => {

@@ -40,7 +40,7 @@ import {
 } from "./shared"
 import {
   cancelSettingsInvite,
-  getUserInitials,
+  getSettingsInitials,
   uploadSettingsImage,
 } from "./utils"
 import {
@@ -293,7 +293,7 @@ function WorkspaceSettingsHero({
             />
           ) : (
             <span className="text-[15px] font-semibold text-fg-2">
-              {workspace.logoUrl || getUserInitials(workspace.name)}
+              {workspace.logoUrl || getSettingsInitials(workspace.name)}
             </span>
           )}
         </div>
@@ -802,7 +802,8 @@ function useWorkspaceBrandingDraft(workspace: WorkspaceSettingsWorkspace) {
     canSaveWorkspace,
     currentLogoImageSrc: snapshot.logoImageSrc,
     fallbackBadge:
-      fields.logoUrl.trim() || getUserInitials(fields.name || snapshot.name),
+      fields.logoUrl.trim() ||
+      getSettingsInitials(fields.name || snapshot.name),
   }
 }
 

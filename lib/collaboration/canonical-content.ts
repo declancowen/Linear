@@ -10,6 +10,7 @@ import {
   CHAT_QUOTE_SOURCE_MESSAGE_ID_ATTRIBUTE,
   normalizeChatQuoteSourceMessageId,
 } from "@/lib/content/chat-message-quote-metadata"
+import { normalizeRichTextAttachmentId } from "@/lib/content/rich-text-attachment-metadata"
 import { extractDocumentTitleFromContent } from "@/lib/content/document-title"
 import { createRichTextBaseExtensions } from "@/lib/rich-text/extensions"
 
@@ -296,6 +297,12 @@ function collectAnchorAttributes(
   setTrimmedAttribute(target, element, "data-display")
   setTrimmedAttribute(target, element, "data-attachment-kind")
   setTrimmedAttribute(target, element, "data-file-name")
+  const attachmentId = normalizeRichTextAttachmentId(
+    element.getAttribute("data-attachment-id")
+  )
+  if (attachmentId) {
+    target.set("data-attachment-id", attachmentId)
+  }
 }
 
 function collectStyledBlockAttributes(
@@ -336,6 +343,12 @@ function collectImageAttributes(element: Element, target: Map<string, string>) {
 
   setTrimmedAttribute(target, element, "alt")
   setTrimmedAttribute(target, element, "title")
+  const attachmentId = normalizeRichTextAttachmentId(
+    element.getAttribute("data-attachment-id")
+  )
+  if (attachmentId) {
+    target.set("data-attachment-id", attachmentId)
+  }
 
   if (className) {
     target.set("class", className)

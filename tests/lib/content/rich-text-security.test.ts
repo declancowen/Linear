@@ -188,4 +188,13 @@ describe("rich-text security", () => {
     expect(preparedMessage.sanitized).not.toMatch(/blob:/iu)
     expect(preparedMessage.isMeaningful).toBe(false)
   })
+
+  it("preserves valid attachment ids and drops malformed attachment ids", () => {
+    const sanitized = sanitizeRichTextContent(
+      '<p><img class="editor-image" src="https://example.com/image.png" data-attachment-id="attachment_12345678"><a data-type="attachment" class="editor-attachment" href="https://example.com/file.pdf" data-file-name="file.pdf" data-attachment-id="invalid">file.pdf</a></p>'
+    )
+
+    expect(sanitized).toContain('data-attachment-id="attachment_12345678"')
+    expect(sanitized).not.toContain('data-attachment-id="invalid"')
+  })
 })

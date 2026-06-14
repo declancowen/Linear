@@ -156,7 +156,7 @@ async function mockPrivateAttachmentTargetAccessDenied() {
   )
 }
 
-async function mockDeletableWorkItemAttachment(
+async function mockDeletableDocumentAttachment(
   storageAttachments: Array<{ _id: string; storageId: string }>
 ) {
   const assets = await import("@/convex/app/assets")
@@ -164,21 +164,15 @@ async function mockDeletableWorkItemAttachment(
   getAttachmentDocMock.mockResolvedValue({
     _id: "attachment_1_db",
     id: "attachment_1",
-    targetType: "workItem",
-    targetId: "item_1",
-    teamId: "team_1",
+    targetType: "document",
+    targetId: "document_1",
+    teamId: null,
     storageId: "storage_1",
   })
   vi.mocked(assets.resolveAttachmentTarget).mockResolvedValue({
     teamId: "team_1",
-    entityType: "workItem",
-    recordId: "item_1_db" as never,
-  })
-  getWorkItemDocMock.mockResolvedValue({
-    _id: "item_1_db",
-    id: "item_1",
-    teamId: "team_1",
-    visibility: "team",
+    entityType: "document",
+    recordId: "document_1_db" as never,
   })
   listAttachmentsByStorageIdMock.mockResolvedValue(storageAttachments)
 }
@@ -814,12 +808,51 @@ describe("document mention notifications", () => {
     expect(ctx.db.delete).not.toHaveBeenCalled()
   })
 
+  it("requires work item attachments to be removed through description save", async () => {
+    const { deleteAttachmentHandler } =
+      await import("@/convex/app/document_handlers")
+    const ctx = createCtx()
+
+    getAttachmentDocMock.mockResolvedValue({
+      _id: "attachment_1_db",
+      id: "attachment_1",
+      targetType: "workItem",
+      targetId: "item_1",
+      teamId: "team_1",
+      storageId: "storage_1",
+    })
+    const assets = await import("@/convex/app/assets")
+    vi.mocked(assets.resolveAttachmentTarget).mockResolvedValue({
+      teamId: "team_1",
+      entityType: "workItem",
+      recordId: "item_1_db" as never,
+    })
+    getWorkItemDocMock.mockResolvedValue({
+      _id: "item_1_db",
+      id: "item_1",
+      teamId: "team_1",
+      visibility: "team",
+    })
+
+    await expect(
+      deleteAttachmentHandler(ctx as never, {
+        serverToken: "server_token",
+        currentUserId: "user_1",
+        attachmentId: "attachment_1",
+      })
+    ).rejects.toThrow(
+      "Work item attachments must be removed by saving the description"
+    )
+    expect(ctx.storage.delete).not.toHaveBeenCalled()
+    expect(ctx.db.delete).not.toHaveBeenCalled()
+  })
+
   it("keeps shared storage when deleting one attachment record", async () => {
     const { deleteAttachmentHandler } =
       await import("@/convex/app/document_handlers")
     const ctx = createCtx()
 
-    await mockDeletableWorkItemAttachment([
+    await mockDeletableDocumentAttachment([
       { _id: "attachment_1_db", storageId: "storage_1" },
       { _id: "attachment_2_db", storageId: "storage_1" },
     ])
@@ -839,7 +872,7 @@ describe("document mention notifications", () => {
       await import("@/convex/app/document_handlers")
     const ctx = createCtx()
 
-    await mockDeletableWorkItemAttachment([
+    await mockDeletableDocumentAttachment([
       { _id: "attachment_1_db", storageId: "storage_1" },
     ])
 

@@ -272,6 +272,7 @@ describe("app store read model merge", () => {
             guestWorkItemIds: [],
             experience: "software-development",
             features: {
+              dashboard: true,
               issues: true,
               projects: true,
               docs: true,

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { ChartBar, Kanban, Pulse } from "@phosphor-icons/react"
 import {
@@ -25,6 +25,8 @@ import {
 } from "@/lib/domain/selectors-internal/team-dashboard"
 import {
   getTeamSpaceActivity,
+  getTeamFeatureSettings,
+  teamHasFeature,
   type TeamActivityEntry,
 } from "@/lib/domain/selectors"
 import {
@@ -46,6 +48,8 @@ import {
 import { getDisplayInitials } from "@/lib/display-initials"
 import { useAppStore } from "@/lib/store/app-store"
 import { cn, resolveImageAssetSource } from "@/lib/utils"
+import { useAppRouter } from "@/lib/browser/app-navigation"
+import { getTeamLandingHref } from "@/components/app/settings-screens/utils"
 
 type DashboardTab = "overview" | "work" | "activity"
 
@@ -488,15 +492,27 @@ function ActivityTab({
 }
 
 export function TeamDashboardScreen({ teamSlug }: { teamSlug: string }) {
+  const router = useAppRouter()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const [tab, setTab] = useState<DashboardTab>("overview")
   const team = data.teams.find((entry) => entry.slug === teamSlug) ?? null
   const teamId = team?.id ?? null
   const experience = team?.settings.experience
+  const dashboardEnabled = teamHasFeature(team, "dashboard")
+  useEffect(() => {
+    if (team && !dashboardEnabled) {
+      router.replace(getTeamLandingHref(team.slug, getTeamFeatureSettings(team)))
+    }
+  }, [dashboardEnabled, router, team])
 
   const items = useMemo<WorkItem[]>(
     () =>
-      teamId ? data.workItems.filter((item) => item.teamId === teamId) : [],
+      teamId
+        ? data.workItems.filter(
+            (item) =>
+              item.teamId === teamId && (item.visibility ?? "team") !== "private"
+          )
+        : [],
     [data.workItems, teamId]
   )
   const projects = useMemo<Project[]>(
@@ -538,6 +554,14 @@ export function TeamDashboardScreen({ teamSlug }: { teamSlug: string }) {
         <div className="flex flex-1 items-center justify-center px-6 py-20 text-sm text-muted-foreground">
           Team space not found.
         </div>
+      </div>
+    )
+  }
+
+  if (!dashboardEnabled) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        Dashboard is not enabled for this TeamSpace.
       </div>
     )
   }

@@ -6,6 +6,7 @@ import {
 } from "@/lib/domain/file-uploads"
 
 export type UploadedAttachment = {
+  attachmentId?: string | null
   fileName: string
   fileUrl: string | null
 }
@@ -48,6 +49,9 @@ export function insertUploadedAttachment(input: {
             src: input.uploaded.fileUrl,
             alt: input.uploaded.fileName,
             title: input.uploaded.fileName,
+            ...(input.uploaded.attachmentId
+              ? { attachmentId: input.uploaded.attachmentId }
+              : {}),
           },
         },
         {
@@ -70,6 +74,9 @@ export function insertUploadedAttachment(input: {
             input.file.name,
             input.file.type
           ),
+          ...(input.uploaded.attachmentId
+            ? { attachmentId: input.uploaded.attachmentId }
+            : {}),
         },
       },
       {

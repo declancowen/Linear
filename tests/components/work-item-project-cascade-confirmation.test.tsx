@@ -52,7 +52,7 @@ vi.mock("@/components/ui/confirm-dialog", () => ({
 }))
 
 function TestHarness() {
-  const { requestUpdate, confirmationDialog } =
+  const { requestBulkUpdate, requestUpdate, confirmationDialog } =
     useWorkItemProjectCascadeConfirmation()
 
   return (
@@ -76,6 +76,16 @@ function TestHarness() {
         }
       >
         Move parent
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          requestBulkUpdate(["feature-parent", "requirement-middle"], {
+            primaryProjectId: "project_1",
+          })
+        }
+      >
+        Move selected
       </button>
       {confirmationDialog}
     </>
@@ -228,5 +238,31 @@ describe("useWorkItemProjectCascadeConfirmation", () => {
         parentId: "new-feature",
       }
     )
+  })
+
+  it("uses one bulk command with the versions captured before confirmation", () => {
+    const bulkUpdateWorkItems = vi.fn(async () => true)
+    useAppStore.setState({ bulkUpdateWorkItems } as never)
+    render(<TestHarness />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Move selected" }))
+    fireEvent.click(screen.getByRole("button", { name: "Update" }))
+
+    expect(bulkUpdateWorkItems).toHaveBeenCalledWith([
+      {
+        itemId: "feature-parent",
+        patch: {
+          primaryProjectId: "project_1",
+          expectedUpdatedAt: expect.any(String),
+        },
+      },
+      {
+        itemId: "requirement-middle",
+        patch: {
+          primaryProjectId: "project_1",
+          expectedUpdatedAt: expect.any(String),
+        },
+      },
+    ])
   })
 })

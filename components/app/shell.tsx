@@ -1987,7 +1987,7 @@ function TeamSidebarSubLinks({
 
   return (
     <SidebarMenuSub className="mx-0 translate-x-0 gap-0.5 border-l-0 px-0 py-0">
-      <SidebarMenuSubItem>
+      {features.dashboard ? <SidebarMenuSubItem>
         <SidebarMenuSubButton
           className="pl-8"
           asChild
@@ -1998,7 +1998,7 @@ function TeamSidebarSubLinks({
             <span>Dashboard</span>
           </AppLink>
         </SidebarMenuSubButton>
-      </SidebarMenuSubItem>
+      </SidebarMenuSubItem> : null}
       {features.chat ? (
         <SidebarMenuSubItem>
           <SidebarMenuSubButton

@@ -17,7 +17,7 @@ describe("getTeamSpaceActivity", () => {
       createdAt: "2026-04-20T10:00:00.000Z",
     })
     const privateItem = createTestWorkItem("private_item", {
-      teamId: null,
+      teamId: "team_1",
       workspaceId: "workspace_1",
       visibility: "private",
       creatorId: "user_2",
@@ -49,7 +49,7 @@ describe("getTeamSpaceActivity", () => {
       )
     ).toBe(true)
 
-    // A private item with no team must not surface in the team feed.
+    // Even malformed legacy private items carrying a team id stay private.
     expect(
       activity.some(
         (entry) =>

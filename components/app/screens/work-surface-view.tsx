@@ -3288,7 +3288,7 @@ function ListRowContextMenuSlot({
       data={data}
       displayProps={displayProps}
       item={item}
-      onEditItem={() => router.push(`/items/${item.id}`)}
+      onEditItem={() => router.push(`/items/${item.id}?edit=1`)}
       targetItems={targetItems}
     >
       {children}
@@ -3686,7 +3686,7 @@ const BoardCardBody = memo(function BoardCardBody({
       data={data}
       displayProps={displayProps}
       item={item}
-      onEditItem={() => router.push(itemHref)}
+      onEditItem={() => router.push(`${itemHref}?edit=1`)}
       targetItems={targetItems}
     >
       <div

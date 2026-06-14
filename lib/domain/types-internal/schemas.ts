@@ -32,7 +32,6 @@ import {
   workspaceAccentConstraints,
   workspaceFallbackBadgeConstraints,
   workspaceBrandingNameConstraints,
-  workspaceSetupNameConstraints,
 } from "../input-constraints"
 
 import {
@@ -68,6 +67,7 @@ import {
 import {
   getTeamFeatureValidationMessage,
   isValidTeamIconInputValue,
+  normalizeTeamFeatureSettings,
 } from "./work"
 
 function boundedTrimmedStringSchema(constraint: {
@@ -200,13 +200,6 @@ export const workspaceBrandingSchema = z.object({
   ),
 })
 
-export const workspaceSetupSchema = z.object({
-  name: boundedTrimmedStringSchema(workspaceSetupNameConstraints),
-  description: boundedTrimmedStringSchema(
-    optionalWorkspaceDescriptionConstraints
-  ).optional(),
-})
-
 export const teamDetailsSchema = z
   .object({
     name: boundedTrimmedStringSchema(teamNameConstraints),
@@ -215,6 +208,7 @@ export const teamDetailsSchema = z
     joinCode: boundedTrimmedStringSchema(teamJoinCodeConstraints).optional(),
     experience: z.enum(teamExperienceTypes),
     features: z.object({
+      dashboard: z.boolean().optional(),
       issues: z.boolean(),
       projects: z.boolean(),
       views: z.boolean(),
@@ -226,7 +220,7 @@ export const teamDetailsSchema = z
   .superRefine((value, ctx) => {
     const validationMessage = getTeamFeatureValidationMessage(
       value.experience,
-      value.features
+      normalizeTeamFeatureSettings(value.experience, value.features)
     )
 
     if (validationMessage) {
@@ -237,6 +231,10 @@ export const teamDetailsSchema = z
       })
     }
   })
+  .transform((value) => ({
+    ...value,
+    features: normalizeTeamFeatureSettings(value.experience, value.features),
+  }))
 
 export const teamDetailsUpdateSchema = z
   .object({
@@ -246,6 +244,7 @@ export const teamDetailsUpdateSchema = z
     joinCode: boundedTrimmedStringSchema(teamJoinCodeConstraints).optional(),
     experience: z.enum(teamExperienceTypes),
     features: z.object({
+      dashboard: z.boolean().optional(),
       issues: z.boolean(),
       projects: z.boolean(),
       views: z.boolean(),
@@ -257,7 +256,7 @@ export const teamDetailsUpdateSchema = z
   .superRefine((value, ctx) => {
     const validationMessage = getTeamFeatureValidationMessage(
       value.experience,
-      value.features
+      normalizeTeamFeatureSettings(value.experience, value.features)
     )
 
     if (validationMessage) {
@@ -268,6 +267,10 @@ export const teamDetailsUpdateSchema = z
       })
     }
   })
+  .transform((value) => ({
+    ...value,
+    features: normalizeTeamFeatureSettings(value.experience, value.features),
+  }))
 
 export const teamMembershipRoleSchema = z.object({
   role: z.enum(roles),

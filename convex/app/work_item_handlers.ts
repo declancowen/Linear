@@ -35,7 +35,13 @@ import {
 } from "../../lib/domain/types"
 import type {
   AuthenticatedCreateWorkItemInput,
+  BulkWorkItemDelete,
+  BulkWorkItemUpdate,
   WorkItemMutationPatch,
+} from "../../lib/domain/work-item-inputs"
+import {
+  hasBulkWorkItemPatchMutation,
+  MAX_BULK_WORK_ITEM_UPDATES,
 } from "../../lib/domain/work-item-inputs"
 import { createNotification } from "./collaboration_utils"
 import { getClampedNotifiedMentionCounts } from "./document_handlers"
@@ -82,6 +88,8 @@ import {
   requireReadableWorkspaceAccess,
 } from "./access"
 import { queueEmailJobs } from "./email_job_handlers"
+import { setCustomPropertyValueHandler } from "./custom_property_handlers"
+import { deleteContentReferencedAttachments } from "./cleanup"
 
 type ServerAccessArgs = {
   serverToken: string
@@ -94,6 +102,17 @@ type UpdateWorkItemArgs = ServerAccessArgs & {
   origin: string
   itemId: string
   patch: WorkItemPatch
+}
+
+type BulkUpdateWorkItemsArgs = ServerAccessArgs & {
+  currentUserId: string
+  origin: string
+  updates: BulkWorkItemUpdate[]
+}
+
+type BulkDeleteWorkItemsArgs = ServerAccessArgs & {
+  currentUserId: string
+  items: BulkWorkItemDelete[]
 }
 
 type DeleteWorkItemArgs = ServerAccessArgs & {
@@ -199,11 +218,17 @@ async function assertExpectedWorkItemDescriptionVersion(
   existing: WorkItemDoc,
   patch: WorkItemPatch
 ) {
+  const changesDescriptionAttachments =
+    (patch.removedAttachmentIds?.length ?? 0) > 0
   if (
-    patch.description === undefined ||
-    patch.expectedDescriptionUpdatedAt === undefined
+    patch.description === undefined &&
+    !changesDescriptionAttachments
   ) {
     return
+  }
+
+  if (patch.expectedDescriptionUpdatedAt === undefined) {
+    throw new Error("Work item changed while you were editing")
   }
 
   const descriptionDocument = await getDocumentDoc(
@@ -217,6 +242,63 @@ async function assertExpectedWorkItemDescriptionVersion(
   ) {
     throw new Error("Work item changed while you were editing")
   }
+}
+
+function workItemUpdateNeedsDescriptionLease(patch: WorkItemPatch) {
+  return (
+    patch.title !== undefined ||
+    patch.description !== undefined ||
+    (patch.removedAttachmentIds?.length ?? 0) > 0
+  )
+}
+
+function workItemUpdateNeedsAttachmentReconciliation(
+  previousDescription: string | null,
+  patch: WorkItemPatch
+) {
+  return (
+    previousDescription !== null ||
+    (patch.removedAttachmentIds?.length ?? 0) > 0
+  )
+}
+
+async function repairMissingWorkItemDescriptionDocument(
+  ctx: MutationCtx,
+  input: {
+    currentUserId: string
+    existing: WorkItemDoc
+    expectedDescriptionUpdatedAt?: string
+  }
+) {
+  const existingDocument = await getDocumentDoc(
+    ctx,
+    input.existing.descriptionDocId
+  )
+  if (existingDocument) {
+    return
+  }
+
+  const repairedUpdatedAt =
+    input.expectedDescriptionUpdatedAt ?? input.existing.updatedAt
+  await ctx.db.insert("documents", {
+    id: input.existing.descriptionDocId,
+    kind: "item-description",
+    workspaceId: input.existing.workspaceId ?? undefined,
+    teamId:
+      (input.existing.visibility ?? "team") === "private"
+        ? null
+        : input.existing.teamId,
+    title: `${input.existing.title} description`,
+    content: "<p></p>",
+    linkedProjectIds: input.existing.primaryProjectId
+      ? [input.existing.primaryProjectId]
+      : [],
+    linkedWorkItemIds: [],
+    createdBy: input.currentUserId,
+    updatedBy: input.currentUserId,
+    createdAt: input.existing.createdAt,
+    updatedAt: repairedUpdatedAt,
+  })
 }
 
 function getNextWorkItemTitle(existing: WorkItemDoc, patch: WorkItemPatch) {
@@ -470,7 +552,7 @@ export async function patchWorkItemDescriptionDocument(
   }
 ) {
   if (!input.titleChanged && input.nextDescription === undefined) {
-    return
+    return null
   }
 
   const descriptionDocument = await getDocumentDoc(
@@ -479,7 +561,7 @@ export async function patchWorkItemDescriptionDocument(
   )
 
   if (!descriptionDocument) {
-    return
+    return null
   }
 
   const relationships =
@@ -514,6 +596,8 @@ export async function patchWorkItemDescriptionDocument(
       referencedViewIds: relationships.viewIds,
     })
   }
+
+  return input.nextDescription !== undefined ? descriptionDocument.content : null
 }
 
 async function cascadeProjectLinkToWorkItemHierarchy(
@@ -729,6 +813,7 @@ function buildPersistedWorkItemPatch(
   delete persistedPatch.description
   delete persistedPatch.editSessionId
   delete persistedPatch.expectedDescriptionUpdatedAt
+  delete persistedPatch.removedAttachmentIds
   delete persistedPatch.expectedUpdatedAt
   if (isPrivate) {
     delete persistedPatch.assigneeId
@@ -753,6 +838,7 @@ function hasWorkItemRecordMutation(patch: WorkItemPatch) {
       key !== "description" &&
       key !== "editSessionId" &&
       key !== "expectedDescriptionUpdatedAt" &&
+      key !== "removedAttachmentIds" &&
       key !== "expectedUpdatedAt"
   )
 }
@@ -1016,7 +1102,7 @@ export async function updateWorkItemHandler(
   const effectiveArgs = { ...args, patch }
   const now = getNow()
 
-  if (patch.title !== undefined || patch.description !== undefined) {
+  if (workItemUpdateNeedsDescriptionLease(patch)) {
     await assertDocumentEditLeaseOwned(
       ctx,
       existing.descriptionDocId,
@@ -1027,6 +1113,12 @@ export async function updateWorkItemHandler(
       now
     )
   }
+
+  await repairMissingWorkItemDescriptionDocument(ctx, {
+    currentUserId: args.currentUserId,
+    existing,
+    expectedDescriptionUpdatedAt: patch.expectedDescriptionUpdatedAt,
+  })
 
   assertExpectedWorkItemVersion(existing, args.patch)
   await assertExpectedWorkItemDescriptionVersion(ctx, existing, args.patch)
@@ -1082,7 +1174,7 @@ export async function updateWorkItemHandler(
     })
   }
 
-  await patchWorkItemDescriptionDocument(ctx, {
+  const previousDescription = await patchWorkItemDescriptionDocument(ctx, {
     existing,
     nextTitle,
     nextDescription,
@@ -1145,9 +1237,100 @@ export async function updateWorkItemHandler(
     })
   )
 
+  if (workItemUpdateNeedsAttachmentReconciliation(previousDescription, patch)) {
+    await deleteContentReferencedAttachments(ctx, {
+      targetType: "workItem",
+      targetId: existing.id,
+      contents: previousDescription === null ? [] : [previousDescription],
+      ...(patch.removedAttachmentIds?.length
+        ? { attachmentIds: patch.removedAttachmentIds }
+        : {}),
+    })
+  }
+
   return {
     assignmentEmails,
   }
+}
+
+export async function bulkUpdateWorkItemsHandler(
+  ctx: MutationCtx,
+  args: BulkUpdateWorkItemsArgs
+) {
+  assertServerToken(args.serverToken)
+
+  if (
+    args.updates.length === 0 ||
+    args.updates.length > MAX_BULK_WORK_ITEM_UPDATES
+  ) {
+    throw new Error(
+      `Bulk updates must include between 1 and ${MAX_BULK_WORK_ITEM_UPDATES} items`
+    )
+  }
+
+  const itemIds = args.updates.map((update) => update.itemId)
+  if (new Set(itemIds).size !== itemIds.length) {
+    throw new Error("Bulk updates cannot contain duplicate work items")
+  }
+  if (
+    args.updates.some(
+      (update) => update.patch && !hasBulkWorkItemPatchMutation(update.patch)
+    )
+  ) {
+    throw new Error("Bulk updates must change at least one work item field")
+  }
+
+  const items = await Promise.all(
+    itemIds.map(async (itemId) => {
+      const item = await getWorkItemDoc(ctx, itemId)
+      if (!item) {
+        throw new Error("Work item not found")
+      }
+      return item
+    })
+  )
+  await Promise.all(
+    items.map((item) =>
+      requireEditableWorkItemAccess(ctx, item, args.currentUserId)
+    )
+  )
+
+  for (const [index, update] of args.updates.entries()) {
+    const expectedUpdatedAt = update.customProperty
+      ? update.expectedUpdatedAt
+      : update.patch.expectedUpdatedAt
+
+    if (items[index]?.updatedAt !== expectedUpdatedAt) {
+      throw new Error("Work item changed while you were editing")
+    }
+  }
+
+  // Convex mutations are transactional: any rejected operation rolls back every
+  // earlier write in this loop, so callers never observe partial bulk success.
+  for (const update of args.updates) {
+    if (update.customProperty) {
+      await setCustomPropertyValueHandler(ctx, {
+        serverToken: args.serverToken,
+        currentUserId: args.currentUserId,
+        targetType: "workItem",
+        targetId: update.itemId,
+        workItemId: update.itemId,
+        propertyId: update.customProperty.propertyId,
+        value: update.customProperty.value,
+      })
+      continue
+    }
+
+    await updateWorkItemHandler(ctx, {
+      serverToken: args.serverToken,
+      currentUserId: args.currentUserId,
+      origin: args.origin,
+      itemId: update.itemId,
+      patch: update.patch,
+    })
+  }
+
+  return { updatedCount: args.updates.length }
 }
 
 export async function setWorkItemSubscriptionHandler(
@@ -1503,6 +1686,67 @@ export async function deleteWorkItemHandler(
   return {
     deletedItemIds: [...cascade.deletedItemIds],
     deletedDescriptionDocIds: [...cascade.deletedDescriptionDocIds],
+  }
+}
+
+export async function bulkDeleteWorkItemsHandler(
+  ctx: MutationCtx,
+  args: BulkDeleteWorkItemsArgs
+) {
+  assertServerToken(args.serverToken)
+
+  if (
+    args.items.length === 0 ||
+    args.items.length > MAX_BULK_WORK_ITEM_UPDATES
+  ) {
+    throw new Error(
+      `Bulk deletes must include between 1 and ${MAX_BULK_WORK_ITEM_UPDATES} items`
+    )
+  }
+
+  const itemIds = args.items.map((item) => item.itemId)
+  if (new Set(itemIds).size !== itemIds.length) {
+    throw new Error("Bulk deletes cannot contain duplicate work items")
+  }
+
+  const items = await Promise.all(
+    itemIds.map(async (itemId) => {
+      const item = await getWorkItemDoc(ctx, itemId)
+      if (!item) {
+        throw new Error("Work item not found")
+      }
+      return item
+    })
+  )
+  await Promise.all(
+    items.map((item) =>
+      requireEditableWorkItemAccess(ctx, item, args.currentUserId)
+    )
+  )
+
+  for (const [index, item] of args.items.entries()) {
+    if (items[index]?.updatedAt !== item.expectedUpdatedAt) {
+      throw new Error("Work item changed while you were editing")
+    }
+  }
+
+  const deletedItemIds = new Set<string>()
+  const deletedDescriptionDocIds = new Set<string>()
+  for (const item of args.items) {
+    const result = await deleteWorkItemHandler(ctx, {
+      serverToken: args.serverToken,
+      currentUserId: args.currentUserId,
+      itemId: item.itemId,
+    })
+    result.deletedItemIds.forEach((id) => deletedItemIds.add(id))
+    result.deletedDescriptionDocIds.forEach((id) =>
+      deletedDescriptionDocIds.add(id)
+    )
+  }
+
+  return {
+    deletedItemIds: [...deletedItemIds],
+    deletedDescriptionDocIds: [...deletedDescriptionDocIds],
   }
 }
 

@@ -11,6 +11,8 @@ import {
 import { withLosAngelesFakeSystemTime } from "@/tests/lib/fixtures/store"
 
 const syncCreateLabelMock = vi.fn()
+const syncBulkDeleteWorkItemsMock = vi.fn()
+const syncBulkUpdateWorkItemsMock = vi.fn()
 const syncUpdateLabelMock = vi.fn()
 const syncCreateWorkItemMock = vi.fn()
 const syncDeleteWorkItemMock = vi.fn()
@@ -28,6 +30,8 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/convex/client", () => ({
   syncCreateLabel: syncCreateLabelMock,
+  syncBulkDeleteWorkItems: syncBulkDeleteWorkItemsMock,
+  syncBulkUpdateWorkItems: syncBulkUpdateWorkItemsMock,
   syncUpdateLabel: syncUpdateLabelMock,
   syncCreateWorkItem: syncCreateWorkItemMock,
   syncDeleteWorkItem: syncDeleteWorkItemMock,
@@ -57,6 +61,7 @@ async function createWorkItemActionsHarness(state = createState()) {
   const harness = {
     actions: null as ReturnType<typeof createWorkItemActions> | null,
     state,
+    refreshFromServerMock: vi.fn().mockResolvedValue(undefined),
     syncInBackgroundMock: vi.fn(),
   }
   const setState = (update: unknown) => {
@@ -72,6 +77,7 @@ async function createWorkItemActionsHarness(state = createState()) {
   harness.actions = createWorkItemActions({
     get: () => harness.state as never,
     runtime: {
+      refreshFromServer: harness.refreshFromServerMock,
       syncInBackground: harness.syncInBackgroundMock,
     } as never,
     set: setState as never,
@@ -85,6 +91,8 @@ async function createWorkItemActionsHarness(state = createState()) {
 describe("work item actions", () => {
   beforeEach(() => {
     syncCreateLabelMock.mockReset()
+    syncBulkDeleteWorkItemsMock.mockReset()
+    syncBulkUpdateWorkItemsMock.mockReset()
     syncUpdateLabelMock.mockReset()
     syncCreateWorkItemMock.mockReset()
     syncDeleteWorkItemMock.mockReset()
@@ -100,6 +108,8 @@ describe("work item actions", () => {
       descriptionUpdatedAt: null,
     })
     syncUpdateWorkItemMock.mockResolvedValue({ ok: true })
+    syncBulkUpdateWorkItemsMock.mockResolvedValue({ ok: true })
+    syncBulkDeleteWorkItemsMock.mockResolvedValue({ ok: true })
   })
 
   it("sets work item subscription state explicitly", async () => {
@@ -146,6 +156,91 @@ describe("work item actions", () => {
       status: "done",
     })
     expect(harness.syncInBackgroundMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("applies bulk work item updates through one authoritative command", async () => {
+    const harness = await createWorkItemActionsHarness()
+    const parentUpdatedAt = harness.state.workItems[0]!.updatedAt
+    const childUpdatedAt = harness.state.workItems[1]!.updatedAt
+
+    const result = await harness.actions.bulkUpdateWorkItems([
+      {
+        itemId: "parent",
+        patch: { expectedUpdatedAt: parentUpdatedAt, status: "done" },
+      },
+      {
+        itemId: "child",
+        patch: { expectedUpdatedAt: childUpdatedAt, status: "done" },
+      },
+    ])
+
+    expect(result).toBe(true)
+    expect(harness.state.workItems.map((item) => item.status)).toEqual([
+      "todo",
+      "in-progress",
+    ])
+    expect(syncBulkUpdateWorkItemsMock).toHaveBeenCalledTimes(1)
+    expect(syncUpdateWorkItemMock).not.toHaveBeenCalled()
+    expect(harness.refreshFromServerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not expose partial optimistic state while a bulk command settles", async () => {
+    let resolveBulk!: (value: { ok: true }) => void
+    syncBulkUpdateWorkItemsMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveBulk = resolve
+      })
+    )
+    const harness = await createWorkItemActionsHarness()
+    const parentUpdatedAt = harness.state.workItems[0]!.updatedAt
+    const childUpdatedAt = harness.state.workItems[1]!.updatedAt
+
+    const updatePromise = harness.actions.bulkUpdateWorkItems([
+      {
+        itemId: "parent",
+        patch: { expectedUpdatedAt: parentUpdatedAt, status: "done" },
+      },
+      {
+        itemId: "child",
+        patch: { expectedUpdatedAt: childUpdatedAt, status: "done" },
+      },
+    ])
+
+    expect(harness.state.workItems.map((item) => item.status)).toEqual([
+      "todo",
+      "in-progress",
+    ])
+
+    resolveBulk({ ok: true })
+    await updatePromise
+
+    expect(harness.refreshFromServerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("leaves local state unchanged when the authoritative bulk command fails", async () => {
+    syncBulkUpdateWorkItemsMock.mockRejectedValueOnce(new Error("bulk failed"))
+    const harness = await createWorkItemActionsHarness()
+    const parentUpdatedAt = harness.state.workItems[0]!.updatedAt
+    const childUpdatedAt = harness.state.workItems[1]!.updatedAt
+
+    const result = await harness.actions.bulkUpdateWorkItems([
+      {
+        itemId: "parent",
+        patch: { expectedUpdatedAt: parentUpdatedAt, status: "done" },
+      },
+      {
+        itemId: "child",
+        patch: { expectedUpdatedAt: childUpdatedAt, status: "done" },
+      },
+    ])
+
+    expect(result).toBe(false)
+    expect(harness.state.workItems.map((item) => item.status)).toEqual([
+      "todo",
+      "in-progress",
+    ])
+    expect(toastErrorMock).toHaveBeenCalledWith("bulk failed")
+    expect(harness.refreshFromServerMock).not.toHaveBeenCalled()
   })
 
   it("protects optimistically updated work items only until the mutation settles", async () => {
@@ -957,9 +1052,15 @@ describe("work item actions", () => {
     const result = await harness.actions.deleteWorkItems(["child", "parent"])
 
     expect(result).toBe(true)
-    expect(harness.state.workItems).toHaveLength(0)
-    expect(syncDeleteWorkItemMock).toHaveBeenCalledTimes(1)
-    expect(syncDeleteWorkItemMock).toHaveBeenCalledWith("parent")
+    expect(harness.state.workItems).toHaveLength(2)
+    expect(syncBulkDeleteWorkItemsMock).toHaveBeenCalledWith([
+      {
+        itemId: "parent",
+        expectedUpdatedAt: harness.state.workItems[0]!.updatedAt,
+      },
+    ])
+    expect(syncDeleteWorkItemMock).not.toHaveBeenCalled()
+    expect(harness.refreshFromServerMock).toHaveBeenCalledTimes(1)
   })
 
   it("bulk deletes multiple independent items together", async () => {
@@ -973,9 +1074,18 @@ describe("work item actions", () => {
     const result = await harness.actions.deleteWorkItems(["a", "b"])
 
     expect(result).toBe(true)
-    expect(harness.state.workItems).toHaveLength(0)
-    expect(syncDeleteWorkItemMock).toHaveBeenCalledTimes(2)
-    expect(syncDeleteWorkItemMock).toHaveBeenCalledWith("a")
-    expect(syncDeleteWorkItemMock).toHaveBeenCalledWith("b")
+    expect(harness.state.workItems).toHaveLength(2)
+    expect(syncBulkDeleteWorkItemsMock).toHaveBeenCalledWith([
+      {
+        itemId: "a",
+        expectedUpdatedAt: harness.state.workItems[0]!.updatedAt,
+      },
+      {
+        itemId: "b",
+        expectedUpdatedAt: harness.state.workItems[1]!.updatedAt,
+      },
+    ])
+    expect(syncDeleteWorkItemMock).not.toHaveBeenCalled()
+    expect(harness.refreshFromServerMock).toHaveBeenCalledTimes(1)
   })
 })

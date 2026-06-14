@@ -2,7 +2,6 @@ import Link from "next/link"
 import { withAuth } from "@workos-inc/authkit-nextjs"
 import { redirect } from "next/navigation"
 
-import { OnboardingWorkspaceForm } from "@/components/app/onboarding-workspace-form"
 import { WorkspaceEntryJoinSection } from "@/components/app/workspace-entry-join-section"
 import { buildAuthHref, buildSessionResolvePath } from "@/lib/auth-routing"
 import { getWorkspaceEntryJoinState } from "@/lib/server/authenticated-app"
@@ -156,7 +155,7 @@ function OnboardingPageLayout({
         {currentWorkspace ? (
           <ExistingWorkspaceNotice workspaceName={currentWorkspace.name} />
         ) : (
-          <OnboardingWorkspaceForm />
+          <InviteOnlyWorkspaceNotice />
         )}
         <WorkspaceEntryJoinSection
           autoAcceptToken={tokens.inviteToken}
@@ -175,12 +174,23 @@ function OnboardingHeader() {
   return (
     <header className="text-center">
       <h1 className="text-xl font-semibold tracking-tight">
-        Create or join a workspace
+        Join a workspace
       </h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Create one, accept an invite, or join with a team code.
+        Accept an invite or join with a TeamSpace code.
       </p>
     </header>
+  )
+}
+
+function InviteOnlyWorkspaceNotice() {
+  return (
+    <div className="rounded-xl border border-border/60 px-5 py-4">
+      <div className="text-sm font-medium">Workspace creation is invite-only</div>
+      <div className="mt-1 text-sm text-muted-foreground">
+        Ask a workspace admin for an invite or TeamSpace invite link.
+      </div>
+    </div>
   )
 }
 

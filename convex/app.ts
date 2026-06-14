@@ -15,6 +15,7 @@ import {
   displayPropertyValidator,
   entityKindValidator,
   customPropertyOptionValidator,
+  customPropertyValueValidator,
   customPropertyTypeValidator,
   customPropertyValueInputFields,
   groupFieldValidator,
@@ -174,11 +175,13 @@ import {
 import {
   createWorkItemHandler,
   clearWorkItemPresenceHandler,
+  bulkDeleteWorkItemsHandler,
   deleteWorkItemHandler,
   heartbeatWorkItemPresenceHandler,
   shiftTimelineItemHandler,
   setWorkItemSubscriptionHandler,
   updateWorkItemHandler,
+  bulkUpdateWorkItemsHandler,
 } from "./app/work_item_handlers"
 import {
   createLabelHandler,
@@ -1153,6 +1156,7 @@ export const updateWorkItem = mutation({
       description: v.optional(v.string()),
       editSessionId: v.optional(v.string()),
       expectedDescriptionUpdatedAt: v.optional(v.string()),
+      removedAttachmentIds: v.optional(v.array(v.string())),
       expectedUpdatedAt: v.optional(v.string()),
       status: v.optional(workStatusValidator),
       priority: v.optional(priorityValidator),
@@ -1165,6 +1169,40 @@ export const updateWorkItem = mutation({
     }),
   },
   handler: updateWorkItemHandler,
+})
+
+export const bulkUpdateWorkItems = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    origin: v.string(),
+    updates: v.array(
+      v.union(
+        v.object({
+          itemId: v.string(),
+          patch: v.object({
+            expectedUpdatedAt: v.string(),
+            status: v.optional(workStatusValidator),
+            priority: v.optional(priorityValidator),
+            assigneeId: v.optional(nullableStringValidator),
+            assigneeIds: v.optional(v.array(v.string())),
+            primaryProjectId: v.optional(nullableStringValidator),
+            labelIds: v.optional(v.array(v.string())),
+            ...workItemScheduleMutationArgs,
+          }),
+        }),
+        v.object({
+          expectedUpdatedAt: v.string(),
+          itemId: v.string(),
+          customProperty: v.object({
+            propertyId: v.string(),
+            value: customPropertyValueValidator,
+          }),
+        })
+      )
+    ),
+  },
+  handler: bulkUpdateWorkItemsHandler,
 })
 
 export const setWorkItemSubscription = mutation({
@@ -1184,6 +1222,20 @@ export const deleteWorkItem = mutation({
     itemId: v.string(),
   },
   handler: deleteWorkItemHandler,
+})
+
+export const bulkDeleteWorkItems = mutation({
+  args: {
+    ...serverAccessArgs,
+    currentUserId: v.string(),
+    items: v.array(
+      v.object({
+        itemId: v.string(),
+        expectedUpdatedAt: v.string(),
+      })
+    ),
+  },
+  handler: bulkDeleteWorkItemsHandler,
 })
 
 export const shiftTimelineItem = mutation({

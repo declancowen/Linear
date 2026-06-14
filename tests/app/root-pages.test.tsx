@@ -12,7 +12,6 @@ const pageRouteMocks = vi.hoisted(() => ({
   redirect: vi.fn(),
   workspaceEntryJoinState: vi.fn(),
   workspaceEntryJoinSection: vi.fn(),
-  workspaceForm: vi.fn(),
   workspaceSelectorPage: vi.fn(),
 }))
 
@@ -42,13 +41,6 @@ vi.mock("@/components/app/auth-email-verification-screen", () => ({
   AuthEmailVerificationScreen: (props: Record<string, unknown>) => {
     pageRouteMocks.emailVerificationScreen(props)
     return <div>Email verification screen</div>
-  },
-}))
-
-vi.mock("@/components/app/onboarding-workspace-form", () => ({
-  OnboardingWorkspaceForm: () => {
-    pageRouteMocks.workspaceForm()
-    return <div>Create workspace form</div>
   },
 }))
 

@@ -5,6 +5,8 @@ import { toast } from "sonner"
 
 import {
   syncCreateLabel,
+  syncBulkDeleteWorkItems,
+  syncBulkUpdateWorkItems,
   syncUpdateLabel,
   syncCreateWorkItem,
   syncDeleteWorkItem,
@@ -41,6 +43,7 @@ import {
   getWorkItemAssigneeFields,
   getWorkItemAssigneeIds,
 } from "@/lib/domain/work-item-assignees"
+import { MAX_BULK_WORK_ITEM_UPDATES } from "@/lib/domain/work-item-inputs"
 import { getBrowserTimeZone, normalizeTimeZone } from "@/lib/time-zone"
 
 import {
@@ -1158,6 +1161,7 @@ export function createWorkItemActions({
   | "createLabel"
   | "updateLabel"
   | "updateWorkItem"
+  | "bulkUpdateWorkItems"
   | "setWorkItemSubscription"
   | "deleteWorkItem"
   | "deleteWorkItems"
@@ -1377,6 +1381,36 @@ export function createWorkItemActions({
         status: "updated",
       }
     },
+    async bulkUpdateWorkItems(updates) {
+      const uniqueIds = new Set(updates.map((update) => update.itemId))
+      if (
+        updates.length === 0 ||
+        updates.length > MAX_BULK_WORK_ITEM_UPDATES ||
+        uniqueIds.size !== updates.length
+      ) {
+        toast.error(
+          `Select between 1 and ${MAX_BULK_WORK_ITEM_UPDATES} unique items`
+        )
+        return false
+      }
+
+      try {
+        await syncBulkUpdateWorkItems(updates)
+        void runtime.refreshFromServer().catch((refreshError) => {
+          console.error(
+            "Failed to refresh work items after bulk update",
+            refreshError
+          )
+        })
+        return true
+      } catch (error) {
+        console.error(error)
+        toast.error(
+          error instanceof Error ? error.message : "Failed to update items"
+        )
+        return false
+      }
+    },
     setWorkItemSubscription(itemId, subscribed) {
       const state = get()
       const item = state.workItems.find((entry) => entry.id === itemId)
@@ -1480,56 +1514,51 @@ export function createWorkItemActions({
 
       const state = get()
       const rootIds = getBulkDeleteRootIds(state, uniqueIds)
-      const { working, syncIds, totalDeleted } = planBulkWorkItemDelete(
-        state,
-        rootIds
-      )
+      const { syncIds, totalDeleted } = planBulkWorkItemDelete(state, rootIds)
 
       if (syncIds.length === 0) {
         return false
       }
+      if (syncIds.length > MAX_BULK_WORK_ITEM_UPDATES) {
+        toast.error(
+          `Select no more than ${MAX_BULK_WORK_ITEM_UPDATES} top-level items`
+        )
+        return false
+      }
 
-      const previousState = getWorkItemDeletePreviousState(state)
+      try {
+        await syncBulkDeleteWorkItems(
+          syncIds.map((itemId) => ({
+            itemId,
+            expectedUpdatedAt:
+              state.workItems.find((item) => item.id === itemId)?.updatedAt ??
+              "",
+          }))
+        )
+        void runtime.refreshFromServer().catch((refreshError) => {
+          console.error(
+            "Failed to refresh work items after bulk delete",
+            refreshError
+          )
+        })
 
-      set((current) => ({
-        ...current,
-        workItems: working.workItems,
-        documents: working.documents,
-        comments: working.comments,
-        attachments: working.attachments,
-        notifications: working.notifications,
-        workItemActivities: working.workItemActivities,
-      }))
-
-      const results = await Promise.allSettled(
-        syncIds.map((id) => syncDeleteWorkItem(id))
-      )
-
-      if (results.some((result) => result.status === "rejected")) {
-        for (const result of results) {
-          if (result.status === "rejected") {
-            console.error(result.reason)
-          }
-        }
-
-        set((current) => ({
-          ...current,
-          ...previousState,
-        }))
+        toast.success(
+          totalDeleted > 1 ? `Deleted ${totalDeleted} items` : "Item deleted"
+        )
+        return true
+      } catch (error) {
+        console.error(error)
         void runtime.refreshFromServer().catch((refreshError) => {
           console.error(
             "Failed to reconcile work item state after bulk delete failure",
             refreshError
           )
         })
-        toast.error("Failed to delete some items")
+        toast.error(
+          error instanceof Error ? error.message : "Failed to delete items"
+        )
         return false
       }
-
-      toast.success(
-        totalDeleted > 1 ? `Deleted ${totalDeleted} items` : "Item deleted"
-      )
-      return true
     },
     shiftTimelineItem(itemId, nextStartDate) {
       set((state) => {

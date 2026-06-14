@@ -81,6 +81,7 @@ function seedBaseState() {
             joinCode: "JOIN123",
             summary: "",
             features: {
+              dashboard: true,
               issues: true,
               projects: true,
               docs: true,

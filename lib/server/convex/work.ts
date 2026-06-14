@@ -14,6 +14,10 @@ import type {
   WorkItemType,
 } from "@/lib/domain/types"
 import type {
+  BulkWorkItemDelete,
+  BulkWorkItemUpdate,
+} from "@/lib/domain/work-item-inputs"
+import type {
   CreateWorkItemMutationInput,
   WorkItemMutationPatch,
 } from "@/lib/domain/work-item-inputs"
@@ -311,6 +315,28 @@ export async function updateWorkItemServer(input: {
   }
 }
 
+export async function bulkUpdateWorkItemsServer(input: {
+  currentUserId: string
+  updates: BulkWorkItemUpdate[]
+}) {
+  try {
+    const origin = await resolveServerOrigin()
+
+    return await getConvexServerClient().mutation(
+      api.app.bulkUpdateWorkItems,
+      withServerToken({
+        ...input,
+        origin,
+      })
+    )
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...WORK_ITEM_MUTATION_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
 export async function setWorkItemSubscriptionServer(input: {
   currentUserId: string
   itemId: string
@@ -372,6 +398,26 @@ export async function deleteWorkItemServer(input: {
   try {
     return (await getConvexServerClient().mutation(
       api.app.deleteWorkItem,
+      withServerToken(input)
+    )) as {
+      deletedItemIds: string[]
+      deletedDescriptionDocIds?: string[]
+    }
+  } catch (error) {
+    throw (
+      coerceApplicationError(error, [...WORK_ITEM_MUTATION_ERROR_MAPPINGS]) ??
+      error
+    )
+  }
+}
+
+export async function bulkDeleteWorkItemsServer(input: {
+  currentUserId: string
+  items: BulkWorkItemDelete[]
+}) {
+  try {
+    return (await getConvexServerClient().mutation(
+      api.app.bulkDeleteWorkItems,
       withServerToken(input)
     )) as {
       deletedItemIds: string[]

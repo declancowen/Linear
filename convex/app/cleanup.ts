@@ -573,6 +573,22 @@ function combineContent(contents: Array<string | null | undefined>) {
   return contents.filter(Boolean).join("\n")
 }
 
+function contentReferencesAttachment(
+  content: string,
+  attachment: { id?: unknown; storageId: unknown },
+  url: string | null
+) {
+  if (
+    typeof attachment.id === "string" &&
+    (content.includes(`data-attachment-id="${attachment.id}"`) ||
+      content.includes(`data-attachment-id='${attachment.id}'`))
+  ) {
+    return true
+  }
+
+  return Boolean(url && content.includes(url))
+}
+
 async function collectRemainingAttachmentTargetContent(
   ctx: MutationCtx,
   input: {
@@ -662,11 +678,13 @@ export async function deleteContentReferencedAttachments(
     targetType: "workItem" | "document" | "conversation"
     targetId: string
     contents: Array<string | null | undefined>
+    attachmentIds?: string[]
   }
 ) {
   const combined = combineContent(input.contents)
+  const explicitAttachmentIds = new Set(input.attachmentIds ?? [])
 
-  if (!combined.trim()) {
+  if (!combined.trim() && explicitAttachmentIds.size === 0) {
     return
   }
 
@@ -680,7 +698,10 @@ export async function deleteContentReferencedAttachments(
   for (const attachment of attachments) {
     const url = await ctx.storage.getUrl(attachment.storageId as never)
 
-    if (url && combined.includes(url)) {
+    if (
+      explicitAttachmentIds.has(attachment.id as string) ||
+      contentReferencesAttachment(combined, attachment, url)
+    ) {
       referenced.push(attachment)
     }
   }
@@ -698,7 +719,7 @@ export async function deleteContentReferencedAttachments(
   for (const attachment of referenced) {
     const url = await ctx.storage.getUrl(attachment.storageId as never)
 
-    if (!url || !remainingContent.includes(url)) {
+    if (!contentReferencesAttachment(remainingContent, attachment, url)) {
       deletable.push(attachment)
     }
   }

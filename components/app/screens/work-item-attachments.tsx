@@ -6,6 +6,7 @@ import {
   CaretRight,
   DownloadSimple,
   File,
+  X,
 } from "@phosphor-icons/react"
 
 import {
@@ -46,8 +47,12 @@ function AttachmentDownload({
 
 export function WorkItemAttachments({
   attachments,
+  editable = false,
+  onRemove,
 }: {
   attachments: Attachment[]
+  editable?: boolean
+  onRemove?: (attachmentId: string) => void
 }) {
   const images = useMemo(
     () =>
@@ -55,6 +60,15 @@ export function WorkItemAttachments({
         (attachment) =>
           attachment.fileUrl &&
           isImageAttachmentFile(attachment.fileName, attachment.contentType)
+      ),
+    [attachments]
+  )
+  const files = useMemo(
+    () =>
+      attachments.filter(
+        (attachment) =>
+          !attachment.fileUrl ||
+          !isImageAttachmentFile(attachment.fileName, attachment.contentType)
       ),
     [attachments]
   )
@@ -77,40 +91,37 @@ export function WorkItemAttachments({
     setPreviewImageId(images[nextIndex]?.id ?? null)
   }
 
+  function RemoveButton({ attachment }: { attachment: Attachment }) {
+    if (!editable || !onRemove) {
+      return null
+    }
+
+    return (
+      <button
+        type="button"
+        aria-label={`Remove ${attachment.fileName}`}
+        title={`Remove ${attachment.fileName}`}
+        onClick={() => onRemove(attachment.id)}
+        className="inline-grid size-7 shrink-0 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-foreground"
+      >
+        <X className="size-4" />
+      </button>
+    )
+  }
+
   return (
     <>
-      <div
-        aria-label="Work item attachments"
-        className="mt-3 flex gap-2 overflow-x-auto border-t border-line-soft pt-3 pb-1"
-      >
-        {attachments.map((attachment) => {
-          const image =
-            attachment.fileUrl &&
-            isImageAttachmentFile(attachment.fileName, attachment.contentType)
-
-          return (
-            <div
-              key={attachment.id}
-              className="flex min-w-52 max-w-64 shrink-0 items-center gap-2 rounded-lg border border-line bg-surface-2 p-2"
-            >
-              {image ? (
-                <button
-                  type="button"
-                  aria-label={attachment.fileName}
-                  onClick={() => setPreviewImageId(attachment.id)}
-                  className="min-w-0 flex-1 text-left"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element -- User-uploaded attachment URLs are resolved at runtime. */}
-                  <img
-                    src={attachment.fileUrl ?? ""}
-                    alt={attachment.fileName}
-                    className="h-16 w-full rounded-md object-cover"
-                  />
-                  <span className="mt-1 block truncate text-xs text-fg-2">
-                    {attachment.fileName}
-                  </span>
-                </button>
-              ) : (
+      <div className="mt-3 space-y-3 border-t border-line-soft pt-3">
+        {files.length > 0 ? (
+          <div
+            aria-label="Work item files"
+            className="flex gap-2 overflow-x-auto pb-1"
+          >
+            {files.map((attachment) => (
+              <div
+                key={attachment.id}
+                className="flex min-w-52 max-w-64 shrink-0 items-center gap-2 rounded-lg border border-line bg-surface-2 p-2"
+              >
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                   <span className="grid size-8 shrink-0 place-items-center rounded-md bg-surface-3 text-fg-3">
                     <File className="size-4" />
@@ -119,11 +130,44 @@ export function WorkItemAttachments({
                     {attachment.fileName}
                   </span>
                 </div>
-              )}
-              <AttachmentDownload attachment={attachment} />
-            </div>
-          )
-        })}
+                <AttachmentDownload attachment={attachment} />
+                <RemoveButton attachment={attachment} />
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {images.length > 0 ? (
+          <div
+            aria-label="Work item images"
+            className="flex gap-2 overflow-x-auto pb-1"
+          >
+            {images.map((attachment) => (
+              <div
+                key={attachment.id}
+                className="relative h-24 shrink-0 overflow-hidden rounded-lg border border-line bg-surface-2"
+              >
+                <button
+                  type="button"
+                  aria-label={attachment.fileName}
+                  onClick={() => setPreviewImageId(attachment.id)}
+                  className="h-full"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- User-uploaded attachment URLs are resolved at runtime. */}
+                  <img
+                    src={attachment.fileUrl ?? ""}
+                    alt={attachment.fileName}
+                    className="h-full w-auto object-cover"
+                  />
+                </button>
+                <div className="absolute top-1 right-1 flex rounded-md bg-surface-1/90">
+                  <AttachmentDownload attachment={attachment} />
+                  <RemoveButton attachment={attachment} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <Dialog

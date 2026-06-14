@@ -149,7 +149,7 @@ async function createTeamFromDraft(input: {
   input.draft.setSaving(false)
 
   if (created) {
-    input.router.push(getTeamLandingHref(created.teamSlug))
+    input.router.push(getTeamLandingHref(created.teamSlug, created.features))
   }
 }
 

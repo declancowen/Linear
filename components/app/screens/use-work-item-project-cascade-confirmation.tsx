@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
 type PendingProjectCascadeUpdate = {
   itemIds: string[]
+  itemUpdatedAts?: Record<string, string>
   patch: Parameters<AppStore["updateWorkItem"]>[1]
   cascadeItemCount: number
   mode: "single" | "bulk"
@@ -49,6 +50,12 @@ export function useWorkItemProjectCascadeConfirmation() {
 
       setPendingUpdate({
         itemIds: uniqueItemIds,
+        itemUpdatedAts: Object.fromEntries(
+          useAppStore
+            .getState()
+            .workItems.filter((item) => uniqueItemIds.includes(item.id))
+            .map((item) => [item.id, item.updatedAt])
+        ),
         patch,
         cascadeItemCount: uniqueItemIds.length,
         mode: "bulk",
@@ -68,10 +75,22 @@ export function useWorkItemProjectCascadeConfirmation() {
       return
     }
 
-    for (const itemId of pendingUpdate.itemIds) {
-      useAppStore.getState().updateWorkItem(itemId, pendingUpdate.patch, {
-        confirmProjectCascade: true,
-      })
+    if (pendingUpdate.mode === "bulk") {
+      void useAppStore.getState().bulkUpdateWorkItems(
+        pendingUpdate.itemIds.map((itemId) => ({
+          itemId,
+          patch: {
+            ...pendingUpdate.patch,
+            expectedUpdatedAt: pendingUpdate.itemUpdatedAts?.[itemId] ?? "",
+          },
+        }))
+      )
+    } else {
+      useAppStore
+        .getState()
+        .updateWorkItem(pendingUpdate.itemIds[0]!, pendingUpdate.patch, {
+          confirmProjectCascade: true,
+        })
     }
     setPendingUpdate(null)
   }, [pendingUpdate])

@@ -8,6 +8,7 @@ import {
 } from "@/lib/domain/types"
 
 const validTeamFeatures = {
+  dashboard: true,
   issues: true,
   projects: true,
   views: true,
@@ -24,6 +25,26 @@ describe("team icons", () => {
       summary: "Builds the platform.",
       experience: "software-development",
       features: validTeamFeatures,
+    }
+
+    expect(teamDetailsSchema.safeParse(input).success).toBe(true)
+    expect(teamDetailsUpdateSchema.safeParse(input).success).toBe(true)
+  })
+
+  it("accepts legacy team payloads without the additive dashboard feature", () => {
+    const input = {
+      name: "Platform",
+      icon: "RocketLaunch",
+      summary: "Builds the platform.",
+      experience: "software-development",
+      features: {
+        issues: true,
+        projects: true,
+        views: true,
+        docs: true,
+        chat: true,
+        channels: true,
+      },
     }
 
     expect(teamDetailsSchema.safeParse(input).success).toBe(true)

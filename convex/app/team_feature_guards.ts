@@ -4,6 +4,7 @@ import { listTeamDocuments } from "./data"
 import { normalizeTeamFeatures } from "./normalization"
 
 type TeamFeatureSet = {
+  dashboard?: boolean
   issues: boolean
   projects: boolean
   views: boolean

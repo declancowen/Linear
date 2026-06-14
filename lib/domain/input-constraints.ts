@@ -24,13 +24,7 @@ export const labelNameConstraints = {
   trim: true,
 } satisfies TextInputConstraint
 
-export const workspaceSetupNameConstraints = {
-  min: 2,
-  max: 64,
-  trim: true,
-} satisfies TextInputConstraint
-
-export const workspaceDescriptionConstraints = {
+const workspaceDescriptionConstraints = {
   min: 8,
   max: 220,
   trim: true,

@@ -1,6 +1,6 @@
 {
   "name": "linear",
-  "version": "0.0.52",
+  "version": "0.0.53",
   "main": "electron/main.cjs",
   "type": "module",
   "private": true,
@@ -138,8 +138,10 @@
   },
   "pnpm": {
     "overrides": {
+      "esbuild": "0.28.1",
       "miniflare>undici": "6.24.0",
       "plist>@xmldom/xmldom": "0.8.13",
+      "shell-quote": "1.8.4",
       "tmp-promise>tmp": "0.2.6",
       "fast-uri": "3.1.2"
     }

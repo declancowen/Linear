@@ -244,17 +244,11 @@ function WorkItemAssigneeMenuSection({
     (target) => new Set(getWorkItemAssigneeIds(target))
   )
 
-  function updateAssigneeIds(target: WorkItem, nextAssigneeIds: string[]) {
-    useAppStore.getState().updateWorkItem(target.id, {
+  function setAllAssigneeIds(nextAssigneeIds: string[]) {
+    updateTargetWorkItems(targetItems, {
       assigneeId: nextAssigneeIds[0] ?? null,
       assigneeIds: nextAssigneeIds,
     })
-  }
-
-  function setAllAssigneeIds(nextAssigneeIds: string[]) {
-    for (const target of targetItems) {
-      updateAssigneeIds(target, nextAssigneeIds)
-    }
   }
 
   function toggleAssigneeForTargets(userId: string) {
@@ -262,13 +256,22 @@ function WorkItemAssigneeMenuSection({
       set.has(userId)
     )
 
-    for (const target of targetItems) {
-      const nextAssigneeIds = everyTargetHasUser
-        ? getWorkItemAssigneeIds(target).filter((id) => id !== userId)
-        : toggleWorkItemAssigneeId(getWorkItemAssigneeIds(target), userId)
+    updateTargetWorkItemsWithPatches(
+      targetItems.map((target) => {
+        const nextAssigneeIds = everyTargetHasUser
+          ? getWorkItemAssigneeIds(target).filter((id) => id !== userId)
+          : toggleWorkItemAssigneeId(getWorkItemAssigneeIds(target), userId)
 
-      updateAssigneeIds(target, nextAssigneeIds)
-    }
+        return {
+          expectedUpdatedAt: target.updatedAt,
+          itemId: target.id,
+          patch: {
+            assigneeId: nextAssigneeIds[0] ?? null,
+            assigneeIds: nextAssigneeIds,
+          },
+        }
+      })
+    )
   }
 
   return (
@@ -421,9 +424,43 @@ function updateTargetWorkItems(
   targetItems: WorkItem[],
   patch: Parameters<AppStore["updateWorkItem"]>[1]
 ) {
-  for (const target of targetItems) {
-    useAppStore.getState().updateWorkItem(target.id, patch)
+  if (targetItems.length <= 1) {
+    const target = targetItems[0]
+    if (target) {
+      useAppStore.getState().updateWorkItem(target.id, patch)
+    }
+    return
   }
+
+  void useAppStore.getState().bulkUpdateWorkItems(
+    targetItems.map((target) => ({
+      itemId: target.id,
+      patch: { ...patch, expectedUpdatedAt: target.updatedAt },
+    }))
+  )
+}
+
+function updateTargetWorkItemsWithPatches(
+  updates: Array<{
+    expectedUpdatedAt: string
+    itemId: string
+    patch: Parameters<AppStore["updateWorkItem"]>[1]
+  }>
+) {
+  if (updates.length <= 1) {
+    const update = updates[0]
+    if (update) {
+      useAppStore.getState().updateWorkItem(update.itemId, update.patch)
+    }
+    return
+  }
+
+  void useAppStore.getState().bulkUpdateWorkItems(
+    updates.map(({ expectedUpdatedAt, itemId, patch }) => ({
+      itemId,
+      patch: { ...patch, expectedUpdatedAt },
+    }))
+  )
 }
 
 function getWorkItemDepth(data: AppData, item: WorkItem) {
@@ -509,15 +546,17 @@ function WorkItemLabelsMenuSection({
       target.labelIds.includes(labelId)
     )
 
-    for (const target of targetItems) {
-      const nextLabelIds = everyTargetHasLabel
-        ? target.labelIds.filter((id) => id !== labelId)
-        : Array.from(new Set([...target.labelIds, labelId]))
-
-      useAppStore.getState().updateWorkItem(target.id, {
-        labelIds: nextLabelIds,
-      })
-    }
+    updateTargetWorkItemsWithPatches(
+      targetItems.map((target) => ({
+        expectedUpdatedAt: target.updatedAt,
+        itemId: target.id,
+        patch: {
+          labelIds: everyTargetHasLabel
+            ? target.labelIds.filter((id) => id !== labelId)
+            : Array.from(new Set([...target.labelIds, labelId])),
+        },
+      }))
+    )
   }
 
   return (
@@ -652,11 +691,23 @@ function WorkItemCustomPropertyMenuSection({
   const { MenuItem, MenuSub, MenuSubContent, MenuSubTrigger } = menu
 
   function clearValue() {
-    for (const target of targetItems) {
-      useAppStore
-        .getState()
-        .setCustomPropertyValue("workItem", target.id, definition.id, null)
+    if (targetItems.length <= 1) {
+      const target = targetItems[0]
+      if (target) {
+        useAppStore
+          .getState()
+          .setCustomPropertyValue("workItem", target.id, definition.id, null)
+      }
+      return
     }
+
+    void useAppStore.getState().bulkUpdateWorkItems(
+      targetItems.map((target) => ({
+        expectedUpdatedAt: target.updatedAt,
+        itemId: target.id,
+        customProperty: { propertyId: definition.id, value: null },
+      }))
+    )
   }
 
   function setChoiceValue(optionId: string) {
@@ -667,20 +718,35 @@ function WorkItemCustomPropertyMenuSection({
       ).includes(optionId)
     )
 
-    for (const target of targetItems) {
-      useAppStore.getState().setCustomPropertyValue(
-        "workItem",
-        target.id,
-        definition.id,
-        getNextCustomChoiceValue({
+    const updates = targetItems.map((target) => ({
+      expectedUpdatedAt: target.updatedAt,
+      itemId: target.id,
+      customProperty: {
+        propertyId: definition.id,
+        value: getNextCustomChoiceValue({
           data,
           definition,
           item: target,
           optionId,
           removeFromAll: everyTargetHasOption,
-        })
-      )
+        }),
+      },
+    }))
+
+    if (updates.length <= 1) {
+      const update = updates[0]
+      if (update) {
+        useAppStore.getState().setCustomPropertyValue(
+          "workItem",
+          update.itemId,
+          update.customProperty.propertyId,
+          update.customProperty.value
+        )
+      }
+      return
     }
+
+    void useAppStore.getState().bulkUpdateWorkItems(updates)
   }
 
   return (

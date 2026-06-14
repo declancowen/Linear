@@ -511,6 +511,7 @@ describe("team and collaboration route contracts", () => {
       summary: "",
       experience: "software-development",
       features: {
+        dashboard: true,
         issues: true,
         projects: true,
         views: true,

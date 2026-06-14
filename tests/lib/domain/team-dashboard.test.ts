@@ -56,6 +56,23 @@ describe("getTeamDashboardCompletion", () => {
       getTeamDashboardCompletion([item("task", "cancelled")]).overall.percent
     ).toBe(0)
   })
+
+  it("excludes private tasks from every dashboard work derivation", () => {
+    const privateItem = {
+      ...item("task", "done"),
+      visibility: "private",
+      primaryProjectId: "project_a",
+    } as WorkItem
+
+    expect(getTeamDashboardCompletion([privateItem]).overall.total).toBe(0)
+    expect(getTeamDashboardStatusBreakdown([privateItem])).toEqual([])
+    expect(
+      getTeamDashboardProjectProgress(
+        [{ id: "project_a", name: "Alpha" }],
+        [privateItem]
+      )[0]?.completion.total
+    ).toBe(0)
+  })
 })
 
 describe("getTeamDashboardStatusBreakdown", () => {

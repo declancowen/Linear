@@ -377,6 +377,7 @@ describe("work document actions", () => {
     )
 
     expect(result).toEqual({
+      attachmentId: "attachment_1",
       fileName: "brief.pdf",
       fileUrl: "https://files.example.com/brief.pdf",
     })
@@ -542,6 +543,23 @@ describe("work document actions", () => {
       harness.state.workItems.find((item) => item.id === "item_1")?.updatedAt
     ).toBe("2026-04-17T10:01:00.000Z")
     expect(toastErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("saves explicit attachment removals even when description HTML is unchanged", async () => {
+    const harness = await createWorkDocumentActionsHarness()
+    const saved = await harness.actions.saveWorkItemMainSection({
+      ...MAIN_SECTION_SAVE_INPUT,
+      description: "<h1>Spec</h1>",
+      removedAttachmentIds: ["attachment_1"],
+    })
+
+    expect(saved).toBe(true)
+    expect(syncUpdateWorkItemMock).toHaveBeenCalledWith("user_1", "item_1", {
+      description: "<h1>Spec</h1>",
+      editSessionId: "session_123",
+      expectedDescriptionUpdatedAt: "2026-04-17T10:00:00.000Z",
+      removedAttachmentIds: ["attachment_1"],
+    })
   })
 
   it("does not advance the description version for title-only saves", async () => {

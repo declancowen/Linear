@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { format } from "date-fns"
 import {
+  ArrowCounterClockwise,
   CalendarDots,
   CalendarBlank,
   CodesandboxLogo,
@@ -2377,9 +2378,11 @@ function ViewsDirectoryViewbar({
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 shrink-0 px-2.5 text-[12px]"
+          aria-label="Reset view"
+          className="h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
           onClick={onReset}
         >
+          <ArrowCounterClockwise className="size-3.5" />
           Reset
         </Button>
         <Button
@@ -2962,11 +2965,13 @@ function DocsTaskbar({
       <Button
         size="sm"
         variant="ghost"
-        className="ml-auto h-7 shrink-0 px-2.5 text-[12px]"
+        aria-label="Reset view"
+        className="ml-auto h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
         onClick={() =>
           useAppStore.getState().resetViewerViewConfig(routeKey, activeView.id)
         }
       >
+        <ArrowCounterClockwise className="size-3.5" />
         Reset
       </Button>
       {editable ? (
@@ -3172,11 +3177,13 @@ function ProjectsViewbar({
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 shrink-0 px-2.5 text-[12px]"
+          aria-label="Reset view"
+          className="h-7 shrink-0 gap-1.5 px-2.5 text-[12px]"
           onClick={() =>
             useAppStore.getState().resetViewerViewConfig(routeKey, view.id)
           }
         >
+          <ArrowCounterClockwise className="size-3.5" />
           Reset
         </Button>
         {canCreateProject ? (

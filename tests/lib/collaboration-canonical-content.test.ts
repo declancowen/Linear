@@ -88,4 +88,17 @@ describe("canonical collaboration content helpers", () => {
     expect(result.contentHtml).toContain('data-display="preview"')
     expect(result.contentHtml).toContain("editor-reference")
   })
+
+  it("preserves only validated attachment ids through canonical normalization", () => {
+    const result = prepareCanonicalCollaborationContent(
+      createCanonicalContentJson(
+        '<p><img class="editor-image" src="https://example.com/image.png" data-attachment-id="attachment_image_1"><a class="editor-attachment" data-type="attachment" href="https://example.com/file.pdf" data-file-name="file.pdf" data-attachment-id="bad id">file.pdf</a></p>'
+      )
+    )
+
+    expect(result.contentHtml).toContain(
+      'data-attachment-id="attachment_image_1"'
+    )
+    expect(result.contentHtml).not.toContain('data-attachment-id="bad id"')
+  })
 })

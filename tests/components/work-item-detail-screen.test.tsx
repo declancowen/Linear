@@ -35,6 +35,7 @@ const {
   richTextContentRenderMock,
   richTextEditorRenderMock,
   routerReplaceMock,
+  searchParamsState,
   syncAddCommentMock,
   syncClearWorkItemPresenceMock,
   syncHeartbeatWorkItemPresenceMock,
@@ -47,6 +48,7 @@ const {
   richTextContentRenderMock: vi.fn(),
   richTextEditorRenderMock: vi.fn(),
   routerReplaceMock: vi.fn(),
+  searchParamsState: { value: "" },
   syncAddCommentMock: vi.fn(),
   syncClearWorkItemPresenceMock: vi.fn(),
   syncHeartbeatWorkItemPresenceMock: vi.fn(),
@@ -66,6 +68,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({
     replace: routerReplaceMock,
   }),
+  useSearchParams: () => new URLSearchParams(searchParamsState.value),
 }))
 
 vi.mock("@/lib/convex/client", () => ({
@@ -668,6 +671,8 @@ describe("work item detail screen", () => {
     fetchWorkItemDetailReadModelMock.mockReset()
     richTextContentRenderMock.mockReset()
     richTextEditorRenderMock.mockReset()
+    routerReplaceMock.mockReset()
+    searchParamsState.value = ""
     fetchWorkItemDetailReadModelMock.mockResolvedValue({})
     syncClearWorkItemPresenceMock.mockReset()
     syncHeartbeatWorkItemPresenceMock.mockReset()
@@ -813,6 +818,23 @@ describe("work item detail screen", () => {
     })
   })
 
+  it("consumes an explicit edit intent and enters edit state after claiming the lease", async () => {
+    searchParamsState.value = "edit=1"
+
+    render(<WorkItemDetailScreen itemId="item_1" />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Description editor")).toBeInTheDocument()
+    })
+    expect(routerReplaceMock).toHaveBeenCalledWith("/items/item_1")
+    expect(syncHeartbeatWorkItemPresenceMock).toHaveBeenCalledWith(
+      "item_1",
+      expect.any(String),
+      null,
+      true
+    )
+  })
+
   it("does not rerender the description editor on every local description keystroke", async () => {
     renderWorkItemDetail()
     await openWorkItemEditor()
@@ -879,6 +901,26 @@ describe("work item detail screen", () => {
     expect(saveWorkItemMainSectionMock).toHaveBeenCalledWith(
       expect.objectContaining({
         description: "<p>Draft two</p>",
+      })
+    )
+  })
+
+  it("saves attachment ids seen and then removed during the edit session", async () => {
+    const saveWorkItemMainSectionMock = vi.fn().mockResolvedValue(true)
+    setSaveWorkItemMainSectionMock(saveWorkItemMainSectionMock)
+
+    renderWorkItemDetail()
+    await openWorkItemEditor()
+
+    updateDescriptionEditor(
+      '<p><img src="https://example.com/image.png" data-attachment-id="attachment_12345678"></p>'
+    )
+    updateDescriptionEditor("<p>Add a description…</p>")
+    clickSaveButton()
+
+    expect(saveWorkItemMainSectionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        removedAttachmentIds: ["attachment_12345678"],
       })
     )
   })

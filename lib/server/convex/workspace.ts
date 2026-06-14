@@ -203,19 +203,6 @@ const GENERATE_SETTINGS_IMAGE_UPLOAD_URL_ERROR_MAPPINGS = [
   },
 ] as const
 
-export async function createWorkspaceServer(input: {
-  currentUserId: string
-  name: string
-  logoUrl: string
-  accent: string
-  description: string
-}) {
-  return getConvexServerClient().mutation(
-    api.app.createWorkspace,
-    withServerToken(input)
-  )
-}
-
 export async function updateWorkspaceBrandingServer(input: {
   currentUserId: string
   workspaceId: string

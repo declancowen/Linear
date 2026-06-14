@@ -413,6 +413,7 @@ describe("rich text editor helpers", () => {
       currentEditor: imageEditor as never,
       file: new File(["image"], "image.png", { type: "image/png" }),
       uploaded: {
+        attachmentId: "attachment_12345678",
         fileName: "image.png",
         fileUrl: "https://example.com/image.png",
       } as never,
@@ -427,6 +428,7 @@ describe("rich text editor helpers", () => {
           src: "https://example.com/image.png",
           alt: "image.png",
           title: "image.png",
+          attachmentId: "attachment_12345678",
         },
       },
       {
@@ -483,6 +485,7 @@ describe("rich text editor helpers", () => {
       currentEditor: linkEditor as never,
       file: new File(["file"], "spec.pdf", { type: "application/pdf" }),
       uploaded: {
+        attachmentId: "attachment_abcdefgh",
         fileName: "spec <one>.pdf",
         fileUrl: "https://example.com/spec?x=<bad>",
       } as never,
@@ -495,6 +498,7 @@ describe("rich text editor helpers", () => {
           href: "https://example.com/spec?x=<bad>",
           fileName: "spec <one>.pdf",
           attachmentKind: "pdf",
+          attachmentId: "attachment_abcdefgh",
         },
       },
       {

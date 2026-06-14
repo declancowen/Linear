@@ -152,6 +152,21 @@ vi.mock("@/components/ui/select", async () => {
   }
 })
 
+vi.mock("@/components/app/rich-text-editor", () => ({
+  RichTextEditor: ({
+    onChange,
+    placeholder,
+  }: {
+    onChange: (content: string) => void
+    placeholder?: string
+  }) => (
+    <textarea
+      placeholder={placeholder}
+      onChange={(event) => onChange(`<p>${event.target.value}</p>`)}
+    />
+  ),
+}))
+
 vi.mock("@/components/app/entity-icons", () => ({
   ProjectIconGlyph: ({
     project,

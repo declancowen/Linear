@@ -360,6 +360,7 @@ function getTeamChannelsDisableReason(data: AppData, teamId: string) {
 
 export function getTeamSurfaceDisableReasons(data: AppData, teamId: string) {
   return {
+    dashboard: null as string | null,
     docs: getTeamSurfaceDisableReason(data, teamId, "docs"),
     chat: getTeamSurfaceDisableReason(data, teamId, "chat"),
     channels: getTeamSurfaceDisableReason(data, teamId, "channels"),

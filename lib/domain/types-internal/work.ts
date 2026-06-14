@@ -434,6 +434,10 @@ export const teamFeatureMeta: Record<
     label: "Channel",
     description: "Forum-style posts with comments.",
   },
+  dashboard: {
+    label: "Dashboard",
+    description: "Team overview with completion, projects, views, and activity.",
+  },
 }
 
 export function createDefaultTeamFeatureSettings(
@@ -441,6 +445,7 @@ export function createDefaultTeamFeatureSettings(
 ): TeamFeatureSettings {
   if (experience === "community") {
     return {
+      dashboard: false,
       issues: false,
       projects: false,
       views: false,
@@ -451,6 +456,7 @@ export function createDefaultTeamFeatureSettings(
   }
 
   return {
+    dashboard: true,
     issues: true,
     projects: true,
     views: true,
@@ -460,7 +466,12 @@ export function createDefaultTeamFeatureSettings(
   }
 }
 
-const communityForbiddenFeatureKeys = ["issues", "projects", "views"] as const
+const communityForbiddenFeatureKeys = [
+  "dashboard",
+  "issues",
+  "projects",
+  "views",
+] as const
 const communityRequiredFeatureKeys = ["docs", "chat", "channels"] as const
 const workRequiredFeatureKeys = ["issues", "projects", "views"] as const
 

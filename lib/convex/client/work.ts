@@ -15,6 +15,10 @@ import type {
   TeamWorkflowSettings,
   ViewConfigPatch,
 } from "@/lib/domain/types"
+import type {
+  BulkWorkItemDelete,
+  BulkWorkItemUpdate,
+} from "@/lib/domain/work-item-inputs"
 import type { CreateProjectInput } from "@/lib/domain/project-inputs"
 import type {
   CreateWorkItemMutationInput,
@@ -376,6 +380,26 @@ export function syncUpdateWorkItem(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(patch),
+  })
+}
+
+export function syncBulkUpdateWorkItems(updates: BulkWorkItemUpdate[]) {
+  return runRouteMutation("/api/items/bulk", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ updates }),
+  })
+}
+
+export function syncBulkDeleteWorkItems(items: BulkWorkItemDelete[]) {
+  return runRouteMutation("/api/items/bulk", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ items }),
   })
 }
 

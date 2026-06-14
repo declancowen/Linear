@@ -149,6 +149,7 @@ function createTeamEditorProps(
     features,
     savedFeatures: features,
     surfaceDisableReasons: {
+      dashboard: null,
       docs: null,
       chat: null,
       channels: null,
@@ -506,7 +507,11 @@ describe("settings screen helpers", () => {
     )
 
     fireEvent.click(screen.getByRole("button", { name: "Copy" }))
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("JOIN1234"))
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        "http://localhost:3000/onboarding?code=JOIN1234"
+      )
+    )
 
     fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
     expect(onRegenerateJoinCode).toHaveBeenCalledTimes(1)

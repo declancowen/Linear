@@ -6,6 +6,7 @@ import {
   AppLink,
   type AppRouter,
   useAppRouter,
+  useAppSearchParams,
 } from "@/lib/browser/app-navigation"
 import {
   getCurrentHashTargetId,
@@ -56,6 +57,10 @@ import {
   mergePendingDocumentMentions,
   type PendingDocumentMention,
 } from "@/lib/content/rich-text-mentions"
+import {
+  extractRichTextAttachmentIds,
+  removeRichTextAttachmentById,
+} from "@/lib/content/rich-text-attachment-metadata"
 import {
   fetchWorkItemDetailReadModel,
   syncClearWorkItemPresence,
@@ -915,7 +920,11 @@ function DetailChildWorkItemRow({
           href={`/items/${item.id}`}
           className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
         >
-          <span className="font-mono text-[11.5px] text-fg-3">{item.key}</span>
+          {selectedDisplayProps.includes("id") ? (
+            <span className="shrink-0 whitespace-nowrap font-mono text-[11.5px] text-fg-3">
+              {item.key}
+            </span>
+          ) : null}
           <span
             className={cn(
               "truncate text-[12.5px]",
@@ -3684,6 +3693,7 @@ async function persistWorkItemMainSection({
   mainDraftDescriptionUpdatedAt,
   mainDraftUpdatedAt,
   normalizedMainDraftTitle,
+  removedAttachmentIds,
 }: {
   currentItem: WorkItem
   editSessionId: string
@@ -3691,6 +3701,7 @@ async function persistWorkItemMainSection({
   mainDraftDescriptionUpdatedAt: string | null
   mainDraftUpdatedAt: string | null
   normalizedMainDraftTitle: string
+  removedAttachmentIds: string[]
 }) {
   return useAppStore.getState().saveWorkItemMainSection({
     itemId: currentItem.id,
@@ -3699,6 +3710,7 @@ async function persistWorkItemMainSection({
     editSessionId,
     expectedDescriptionUpdatedAt: mainDraftDescriptionUpdatedAt ?? "",
     expectedUpdatedAt: mainDraftUpdatedAt ?? currentItem.updatedAt,
+    removedAttachmentIds,
   })
 }
 
@@ -3849,6 +3861,7 @@ function getCanSaveMainSection({
   isMainEditing,
   mainDraftStale,
   mainTitleCanSubmit,
+  pendingAttachmentRemovalCount,
   pendingMentionCount,
   savingMainSection,
 }: {
@@ -3857,6 +3870,7 @@ function getCanSaveMainSection({
   isMainEditing: boolean
   mainDraftStale: boolean
   mainTitleCanSubmit: boolean
+  pendingAttachmentRemovalCount: number
   pendingMentionCount: number
   savingMainSection: boolean
 }) {
@@ -3867,7 +3881,7 @@ function getCanSaveMainSection({
   return (
     isMainEditing &&
     mainTitleCanSubmit &&
-    (draftDirty || pendingMentionCount > 0) &&
+    (draftDirty || pendingAttachmentRemovalCount > 0 || pendingMentionCount > 0) &&
     !savingMainSection &&
     !mainDraftStale
   )
@@ -3903,6 +3917,8 @@ function useWorkItemMainSectionController({
     useState<string | null>(null)
   const [mainDraftDescriptionDirty, setMainDraftDescriptionDirty] =
     useState(false)
+  const [mainDraftRemovedAttachmentIds, setMainDraftRemovedAttachmentIds] =
+    useState<string[]>([])
   const [
     mainPendingMentionRetryEntriesByItemId,
     setMainPendingMentionRetryEntriesByItemId,
@@ -3913,6 +3929,8 @@ function useWorkItemMainSectionController({
   const mainTitleCanSubmitRef = useRef(true)
   const mainDraftDescriptionRef = useRef("")
   const mainDraftDescriptionDirtyRef = useRef(false)
+  const seenMainDraftAttachmentIdsRef = useRef(new Set<string>())
+  const mainDraftRemovedAttachmentIdsRef = useRef<string[]>([])
 
   const isMainEditing = getIsMainSectionEditing({
     currentItem,
@@ -3937,6 +3955,7 @@ function useWorkItemMainSectionController({
     isMainEditing,
     mainDraftStale: draftState.stale,
     mainTitleCanSubmit,
+    pendingAttachmentRemovalCount: mainDraftRemovedAttachmentIds.length,
     pendingMentionCount: pendingMainMentionRetryCount,
     savingMainSection,
   })
@@ -3979,22 +3998,43 @@ function useWorkItemMainSectionController({
 
   async function handleStartMainEdit() {
     if (!currentItem || !editable || isMainEditing) {
-      return
+      return isMainEditing
     }
 
     if (!(await requestEditLease())) {
-      return
+      return false
     }
 
     setMainDraftItemId(currentItem.id)
     setMainDraftUpdatedAt(currentItem.updatedAt)
     resetMainTitleDraft(currentItem.title)
     mainDraftDescriptionRef.current = descriptionContent
+    seenMainDraftAttachmentIdsRef.current =
+      extractRichTextAttachmentIds(descriptionContent)
     setMainDraftDescriptionUpdatedAt(descriptionUpdatedAt)
     mainDraftDescriptionDirtyRef.current = false
     setMainDraftDescription(descriptionContent)
     setMainDraftDescriptionDirty(false)
+    mainDraftRemovedAttachmentIdsRef.current = []
+    setMainDraftRemovedAttachmentIds([])
     setMainEditing(true)
+    return true
+  }
+
+  async function handleRemoveMainAttachment(attachmentId: string) {
+    if (!currentItem || !editable) {
+      return
+    }
+
+    const editing = isMainEditing || (await handleStartMainEdit())
+    if (!editing) {
+      return
+    }
+
+    seenMainDraftAttachmentIdsRef.current.add(attachmentId)
+    handleDescriptionChange(
+      removeRichTextAttachmentById(mainDraftDescriptionRef.current, attachmentId)
+    )
   }
 
   function handleCancelMainEdit() {
@@ -4006,9 +4046,12 @@ function useWorkItemMainSectionController({
     setMainDraftDescriptionUpdatedAt(null)
     resetMainTitleDraft(currentItem?.title ?? "")
     mainDraftDescriptionRef.current = nextDescription
+    seenMainDraftAttachmentIdsRef.current = new Set()
     mainDraftDescriptionDirtyRef.current = false
     setMainDraftDescription(nextDescription)
     setMainDraftDescriptionDirty(false)
+    mainDraftRemovedAttachmentIdsRef.current = []
+    setMainDraftRemovedAttachmentIds([])
     setMainEditing(false)
   }
 
@@ -4021,13 +4064,35 @@ function useWorkItemMainSectionController({
     setMainDraftDescriptionUpdatedAt(descriptionUpdatedAt)
     resetMainTitleDraft(currentItem.title)
     mainDraftDescriptionRef.current = descriptionContent
+    seenMainDraftAttachmentIdsRef.current =
+      extractRichTextAttachmentIds(descriptionContent)
     mainDraftDescriptionDirtyRef.current = false
     setMainDraftDescription(descriptionContent)
     setMainDraftDescriptionDirty(false)
+    mainDraftRemovedAttachmentIdsRef.current = []
+    setMainDraftRemovedAttachmentIds([])
   }
 
   function handleDescriptionChange(content: string) {
     mainDraftDescriptionRef.current = content
+    for (const attachmentId of extractRichTextAttachmentIds(content)) {
+      seenMainDraftAttachmentIdsRef.current.add(attachmentId)
+    }
+    const currentAttachmentIds = extractRichTextAttachmentIds(content)
+    const removedAttachmentIds = [
+      ...seenMainDraftAttachmentIdsRef.current,
+    ].filter((attachmentId) => !currentAttachmentIds.has(attachmentId))
+    if (
+      removedAttachmentIds.length !==
+        mainDraftRemovedAttachmentIdsRef.current.length ||
+      removedAttachmentIds.some(
+        (attachmentId, index) =>
+          attachmentId !== mainDraftRemovedAttachmentIdsRef.current[index]
+      )
+    ) {
+      mainDraftRemovedAttachmentIdsRef.current = removedAttachmentIds
+      setMainDraftRemovedAttachmentIds(removedAttachmentIds)
+    }
     const nextDirty = content !== descriptionContent
 
     if (nextDirty === mainDraftDescriptionDirtyRef.current) {
@@ -4049,6 +4114,12 @@ function useWorkItemMainSectionController({
     const latestMainDraftTitle = mainDraftTitleRef.current
     const normalizedMainDraftTitle = latestMainDraftTitle.trim()
     const latestMainDraftDescription = mainDraftDescriptionRef.current
+    const currentAttachmentIds = extractRichTextAttachmentIds(
+      latestMainDraftDescription
+    )
+    const removedAttachmentIds = [
+      ...seenMainDraftAttachmentIdsRef.current,
+    ].filter((attachmentId) => !currentAttachmentIds.has(attachmentId))
     const pendingMentionEntries = getPendingMainMentionEntries({
       currentItem,
       descriptionContent,
@@ -4064,6 +4135,7 @@ function useWorkItemMainSectionController({
       mainDraftDescriptionUpdatedAt,
       mainDraftUpdatedAt,
       normalizedMainDraftTitle,
+      removedAttachmentIds,
     })
 
     if (!saved) {
@@ -4079,7 +4151,10 @@ function useWorkItemMainSectionController({
     setMainDraftTitle(normalizedMainDraftTitle)
     mainDraftDescriptionDirtyRef.current = false
     setMainDraftDescriptionDirty(false)
+    mainDraftRemovedAttachmentIdsRef.current = []
+    setMainDraftRemovedAttachmentIds([])
     setMainDraftDescription(latestMainDraftDescription)
+    seenMainDraftAttachmentIdsRef.current = currentAttachmentIds
     setMainEditing(false)
     releaseEditLease()
 
@@ -4097,10 +4172,12 @@ function useWorkItemMainSectionController({
     handleCancelMainEdit,
     handleDescriptionChange,
     handleReloadMainDraft,
+    handleRemoveMainAttachment,
     handleSaveMainEdit,
     handleStartMainEdit,
     isMainEditing,
     mainDraftDescription,
+    mainDraftRemovedAttachmentIds,
     mainDraftStale: draftState.stale,
     mainDraftTitle,
     savingMainSection,
@@ -4651,7 +4728,6 @@ function WorkItemDescriptionReadView({
   return (
     <RichTextContent
       content={descriptionContent}
-      enableAttachmentDownload
       referenceCandidates={referenceCandidates}
       className="text-fg-1 text-[14px] leading-[1.65] [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-fg-2 [&_h1]:mt-5 [&_h1]:mb-2 [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:mt-4 [&_h3]:mb-1.5 [&_li]:mb-1 [&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc"
     />
@@ -4670,6 +4746,7 @@ function WorkItemDescriptionSection({
   descriptionContent,
   onLegacyActiveBlockChange,
   onDescriptionChange,
+  onRemoveAttachment,
   onUploadAttachment,
   onStartMainEdit,
 }: {
@@ -4684,6 +4761,7 @@ function WorkItemDescriptionSection({
   descriptionContent: string
   onLegacyActiveBlockChange: (activeBlockId: string | null) => void
   onDescriptionChange: (content: string) => void
+  onRemoveAttachment: (attachmentId: string) => void
   onUploadAttachment: DetailUploadAttachmentHandler
   onStartMainEdit: () => void
 }) {
@@ -4709,7 +4787,11 @@ function WorkItemDescriptionSection({
           onStartMainEdit={onStartMainEdit}
         />
       )}
-      <WorkItemAttachments attachments={attachments} />
+      <WorkItemAttachments
+        attachments={attachments}
+        editable={editable}
+        onRemove={onRemoveAttachment}
+      />
     </section>
   )
 }
@@ -5132,6 +5214,7 @@ function WorkItemMainArticle({
   onReloadMainDraft,
   onLegacyActiveBlockChange,
   onDescriptionChange,
+  onRemoveAttachment,
   onUploadAttachment,
   onStartMainEdit,
   onToggleSubIssues,
@@ -5165,6 +5248,7 @@ function WorkItemMainArticle({
   onReloadMainDraft: () => void
   onLegacyActiveBlockChange: (activeBlockId: string | null) => void
   onDescriptionChange: (content: string) => void
+  onRemoveAttachment: (attachmentId: string) => void
   onUploadAttachment: DetailUploadAttachmentHandler
   onStartMainEdit: () => void
   onToggleSubIssues: () => void
@@ -5202,6 +5286,7 @@ function WorkItemMainArticle({
           descriptionContent={descriptionContent}
           onLegacyActiveBlockChange={onLegacyActiveBlockChange}
           onDescriptionChange={onDescriptionChange}
+          onRemoveAttachment={onRemoveAttachment}
           onUploadAttachment={onUploadAttachment}
           onStartMainEdit={onStartMainEdit}
         />
@@ -5422,11 +5507,27 @@ function WorkItemSidebarProperties({
 const WORK_DETAIL_SUBITEM_SURFACE_KEY = "work-detail:subitems"
 const WORK_DETAIL_SUBITEM_VIEW_ID = "work-detail-subitems"
 const WORK_DETAIL_SUBITEM_DEFAULT_PROPS: ViewDefinition["displayProps"] = [
+  "id",
   "status",
   "priority",
   "assignee",
   "project",
   "dueDate",
+]
+const WORK_DETAIL_SUBITEM_PROPERTY_OPTIONS: ViewDefinition["displayProps"] = [
+  "id",
+  "type",
+  "status",
+  "assignee",
+  "priority",
+  "progress",
+  "project",
+  "parent",
+  "dueDate",
+  "milestone",
+  "labels",
+  "created",
+  "updated",
 ]
 const WORK_DETAIL_SUBITEM_GROUP_OPTIONS = [
   "status",
@@ -5511,6 +5612,7 @@ function WorkItemSubitemPropertiesButton({
   return (
     <PropertiesChipPopover
       view={view}
+      propertyOptions={WORK_DETAIL_SUBITEM_PROPERTY_OPTIONS}
       onToggleDisplayProperty={(property) =>
         useAppStore
           .getState()
@@ -6172,6 +6274,7 @@ export function WorkItemDetailScreen({
   initialSeed?: ReadModelFetchResult<Partial<AppSnapshot>> | null
 }) {
   const router = useAppRouter()
+  const searchParams = useAppSearchParams()
   const data = useAppStore(useShallow(selectAppDataSnapshot))
   const currentUserId = useAppStore((state) => state.currentUserId)
   const currentUser = getUser(data, currentUserId) ?? null
@@ -6228,6 +6331,28 @@ export function WorkItemDetailScreen({
     releaseEditLease,
     requestEditLease: claimEditLease,
   })
+  const editIntent = searchParams.get("edit") === "1"
+  const consumedEditIntentItemIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!editIntent) {
+      consumedEditIntentItemIdRef.current = null
+      return
+    }
+
+    if (
+      !item ||
+      mainSection.isMainEditing ||
+      consumedEditIntentItemIdRef.current === item.id
+    ) {
+      return
+    }
+
+    consumedEditIntentItemIdRef.current = item.id
+    router.replace(`/items/${item.id}`)
+    if (editable) {
+      void mainSection.handleStartMainEdit()
+    }
+  }, [editIntent, editable, item, mainSection, router])
   const isEditingCurrentItem = mainSection.isMainEditing
   useProtectedWorkItemDescriptionBody({
     documentId: activeDescriptionDocumentId,
@@ -6285,6 +6410,7 @@ export function WorkItemDetailScreen({
     handleCancelMainEdit,
     handleDescriptionChange,
     handleReloadMainDraft,
+    handleRemoveMainAttachment,
     handleSaveMainEdit,
     handleStartMainEdit,
     isMainEditing,
@@ -6339,7 +6465,10 @@ export function WorkItemDetailScreen({
   }
 
   const mainArticleProps = {
-    attachments,
+    attachments: attachments.filter(
+      (attachment) =>
+        !mainSection.mainDraftRemovedAttachmentIds.includes(attachment.id)
+    ),
     currentItem,
     data,
     team,
@@ -6365,6 +6494,8 @@ export function WorkItemDetailScreen({
     onReloadMainDraft: handleReloadMainDraft,
     onLegacyActiveBlockChange: handleLegacyActiveBlockChange,
     onDescriptionChange: handleDescriptionChange,
+    onRemoveAttachment: (attachmentId: string) =>
+      void handleRemoveMainAttachment(attachmentId),
     onUploadAttachment: (file) =>
       useAppStore.getState().uploadAttachment("workItem", currentItem.id, file),
     onStartMainEdit: handleStartMainEdit,

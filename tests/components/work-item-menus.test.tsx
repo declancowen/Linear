@@ -281,6 +281,7 @@ describe("work item menus", () => {
         status: "project-confirmation-required",
         cascadeItemCount: 3,
       })) as never,
+      bulkUpdateWorkItems: vi.fn(async () => true) as never,
       setCustomPropertyValue: vi.fn() as never,
       deleteWorkItem: vi.fn(async () => true) as never,
       deleteWorkItems: vi.fn(async () => true) as never,
@@ -468,14 +469,22 @@ describe("work item menus", () => {
 
     fireEvent.click(screen.getByText("In Progress"))
 
-    expect(useAppStore.getState().updateWorkItem).toHaveBeenCalledWith(
-      "item_1",
-      { status: "in-progress" }
-    )
-    expect(useAppStore.getState().updateWorkItem).toHaveBeenCalledWith(
-      "item_2",
-      { status: "in-progress" }
-    )
+    expect(useAppStore.getState().bulkUpdateWorkItems).toHaveBeenCalledWith([
+      {
+        itemId: "item_1",
+        patch: {
+          status: "in-progress",
+          expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+        },
+      },
+      {
+        itemId: "item_2",
+        patch: {
+          status: "in-progress",
+          expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+        },
+      },
+    ])
   })
 
   it("bulk-updates labels when labels are visible in display properties", () => {
@@ -486,14 +495,22 @@ describe("work item menus", () => {
 
     fireEvent.click(screen.getByText("CX"))
 
-    expect(useAppStore.getState().updateWorkItem).toHaveBeenCalledWith(
-      "item_1",
-      { labelIds: ["label_cx"] }
-    )
-    expect(useAppStore.getState().updateWorkItem).toHaveBeenCalledWith(
-      "item_2",
-      { labelIds: ["label_cx"] }
-    )
+    expect(useAppStore.getState().bulkUpdateWorkItems).toHaveBeenCalledWith([
+      {
+        itemId: "item_1",
+        patch: {
+          labelIds: ["label_cx"],
+          expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+        },
+      },
+      {
+        itemId: "item_2",
+        patch: {
+          labelIds: ["label_cx"],
+          expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+        },
+      },
+    ])
   })
 
   it("does not show label actions on menus without visible display properties", () => {
@@ -517,18 +534,24 @@ describe("work item menus", () => {
 
     fireEvent.click(screen.getByText("High"))
 
-    expect(useAppStore.getState().setCustomPropertyValue).toHaveBeenCalledWith(
-      "workItem",
-      "item_1",
-      "property_1",
-      "option_high"
-    )
-    expect(useAppStore.getState().setCustomPropertyValue).toHaveBeenCalledWith(
-      "workItem",
-      "item_2",
-      "property_1",
-      "option_high"
-    )
+    expect(useAppStore.getState().bulkUpdateWorkItems).toHaveBeenCalledWith([
+      {
+        expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+        itemId: "item_1",
+        customProperty: {
+          propertyId: "property_1",
+          value: "option_high",
+        },
+      },
+      {
+        expectedUpdatedAt: "2026-04-20T00:00:00.000Z",
+        itemId: "item_2",
+        customProperty: {
+          propertyId: "property_1",
+          value: "option_high",
+        },
+      },
+    ])
   })
 
   it("keeps bulk project confirmation mounted after the context menu closes", () => {

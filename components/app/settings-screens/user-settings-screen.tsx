@@ -53,7 +53,7 @@ import {
   SettingsToggleRow,
 } from "./shared"
 import { getUserProfileDraftSource } from "./user-profile-draft"
-import { getUserInitials, uploadSettingsImage } from "./utils"
+import { getSettingsInitials, uploadSettingsImage } from "./utils"
 
 const themePreferenceOptions: Array<{
   value: ThemePreference
@@ -298,7 +298,7 @@ function UserSettingsHero({
             />
           ) : (
             <span className="text-[15px] font-semibold text-fg-2">
-              {getUserInitials(currentUser.name)}
+              {getSettingsInitials(currentUser.name)}
             </span>
           )}
         </div>
@@ -360,7 +360,7 @@ function ProfileSettingsSection({
           onSelect={onAvatarUpload}
           preview={
             <span className="text-base font-semibold text-fg-2">
-              {getUserInitials(name)}
+              {getSettingsInitials(name)}
             </span>
           }
           shape="circle"
